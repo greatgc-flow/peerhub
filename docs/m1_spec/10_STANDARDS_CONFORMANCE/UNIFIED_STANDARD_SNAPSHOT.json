@@ -1,0 +1,245 @@
+{
+  "schema_version": 1,
+  "standard_id": "VS-UNIFIED-PACKAGE-STANDARD",
+  "version": "1.2.0",
+  "date": "2026-10-05",
+  "policy": "Standardize semantics, safety, authority, lifecycle and evidence before syntax. Classify product runtime components with orthogonal axes (class, required scope, boundary role, state kind/recovery class, maturity and distribution). Conformance is not maturity and publication is not verified promotion. Do not force identical product topology where it adds coupling or breaks a simpler domain-native interface.",
+  "conformance_statuses": {
+    "COMPLY": "Follows the common contract directly.",
+    "ADAPT": "Same semantic contract with product-native syntax/layout; mapping must be explicit.",
+    "PRODUCT_SPECIFIC": "Common contract is insufficient; product owns a justified additional contract without weakening common invariants.",
+    "N_A": "The control does not apply to this product/scope; rationale required.",
+    "PASS": "Deliberately not standardized because forced unification creates more complexity/risk than value; rationale and revisit trigger required."
+  },
+  "common_cli": {
+    "grammar": [
+      "<product> <lifecycle-verb> [options]",
+      "<product> <noun> <verb> [subject] [options]"
+    ],
+    "rule": "Use lifecycle-verb form only for true product lifecycle operations; use noun/verb for domain resources. Do not create aliases merely to make products look identical.",
+    "common_flags": {
+      "--help/-h": "side-effect-free help; Windows-native launchers may also support /?",
+      "--version": "side-effect-free version where product has a versioned CLI",
+      "--json": "machine-readable output when the command exposes structured state/evidence",
+      "--dry-run": "must not mutate and always wins over --apply when both are supplied",
+      "--apply": "explicitly permits mutation for preview-by-default destructive/recovery commands",
+      "--yes/-y": "skips ordinary confirmation only; must never bypass hard safety identity/containment/precondition gates"
+    },
+    "exit_semantic_classes": [
+      "SUCCESS",
+      "USAGE",
+      "DECLINED",
+      "PRECONDITION_FAILED",
+      "VERIFICATION_FAILED",
+      "ROLLED_BACK",
+      "BLOCKED",
+      "RUNTIME_FAILED",
+      "INTERNAL_ERROR"
+    ],
+    "numeric_policy": "Existing products may retain numeric assignments for compatibility. New surfaces must publish a semantic->numeric map and avoid conflicting meanings inside one product.",
+    "flag_applicability": "Each common concern is classified REQUIRED / OPTIONAL / N_A / PASS per public command or command family. N_A/PASS requires rationale; do not add irrelevant flags merely for symmetry.",
+    "json_output_rule": "When --json is offered, stdout MUST contain only the declared machine-readable format; human diagnostics use stderr or structured fields. Collections should normally be [] rather than null; null/absent/unknown semantics must be schema-defined.",
+    "exit_semantic_definitions": {
+      "SUCCESS": "Requested effect completed according to contract.",
+      "USAGE": "CLI syntax/argument/input-schema error before the requested operation begins.",
+      "DECLINED": "The user intentionally chose not to proceed (for example ordinary confirmation = No).",
+      "PRECONDITION_FAILED": "Required precondition was not met before mutation/execution began.",
+      "BLOCKED": "Policy, safety, fencing, authority or containment deliberately prevented the operation.",
+      "VERIFICATION_FAILED": "The operation ran but required postcondition/evidence verification failed.",
+      "ROLLED_BACK": "Mutation began and was deterministically compensated/rolled back; intended final effect was not committed.",
+      "RUNTIME_FAILED": "External runtime/provider/process/I/O execution failed without an internal contract defect.",
+      "INTERNAL_ERROR": "Unexpected product defect or unclassified internal failure."
+    }
+  },
+  "config_precedence_reference": [
+    "explicit CLI argument",
+    "explicit environment override",
+    "product/project local config",
+    "user/product config",
+    "declarative defaults"
+  ],
+  "controls": [
+    {
+      "id": "UPS-CLI",
+      "name": "CLI grammar and command surface",
+      "contract": "Unify semantic command grammar, applicable common flag meaning, non-destructive defaults and stable command discovery; exact hierarchy may adapt to product domain and irrelevant flags must not be added for symmetry."
+    },
+    {
+      "id": "UPS-HELP",
+      "name": "Help and discoverability",
+      "contract": "Help is side-effect free, available at root and public commands, generated or checked against the public command SSOT, and includes usage/options/examples/exit semantics."
+    },
+    {
+      "id": "UPS-EXIT",
+      "name": "Exit semantic classes",
+      "contract": "Every public command maps outcomes to stable semantic classes. Numeric codes may be product-specific to preserve compatibility, but meanings must be documented and machine-testable."
+    },
+    {
+      "id": "UPS-CONFIG",
+      "name": "Configuration precedence",
+      "contract": "Configuration sources have one explicit precedence chain and explicit per-key merge semantics (default REPLACE). Defaults are declarative; secrets are separated; absent/null/empty/unknown semantics are explicit and unknown/absent values are never coerced into zero/false/healthy."
+    },
+    {
+      "id": "UPS-LAYOUT",
+      "name": "Filesystem and state classes",
+      "contract": "Physical paths may differ. Every persisted/ephemeral item declares a State Kind and an orthogonal Recovery Class; authoritative, durable-derived, rebuildable, ephemeral and external state are not conflated."
+    },
+    {
+      "id": "UPS-SCHEMA",
+      "name": "Schema and versioning",
+      "contract": "Structured contracts use versioned schemas, reject unsupported major versions, preserve unknown data only where contract allows, and migrate transactionally."
+    },
+    {
+      "id": "UPS-COMP",
+      "name": "Component ownership and dependencies",
+      "contract": "Every component declares runtime plane, lifecycle/ownership class (Core, Module, Extension, Generated View, External), required scope and an independent boundary role (none/adapter/provider/exporter). Dependency direction is explicit and acyclic at authority boundaries."
+    },
+    {
+      "id": "UPS-EXT",
+      "name": "Extension and provider contract",
+      "contract": "Modules/extensions and interchangeable providers/adapters/exporters declare only the contracts needed for their role. Optional Extensions reach authoritative state only through public ports; provider-specific state stays outside Core; failure isolation is not claimed as a security sandbox."
+    },
+    {
+      "id": "UPS-OBS",
+      "name": "Observation and diagnostics",
+      "contract": "Operational facts preserve evidence state and freshness. Diagnostic views are read-only; repair/restart/routing are separate actions or extensions."
+    },
+    {
+      "id": "UPS-EVID",
+      "name": "Logging and evidence",
+      "contract": "Human-visible operational output has a reproducible evidence path; structured evidence carries timestamp, candidate/source identity and schema version. Console-to-file exact mirroring is required for evidence-oriented scripts where practical."
+    },
+    {
+      "id": "UPS-SEC",
+      "name": "Security and containment",
+      "contract": "External side effects fail closed, secrets are excluded or isolated by construction, restore/import paths are canonically contained, writable host mounts are minimized, trust boundaries are explicit, and third-party/downloaded artifacts have provenance/integrity policy appropriate to risk."
+    },
+    {
+      "id": "UPS-MIG",
+      "name": "Migration, compatibility and deprecation",
+      "contract": "Migrations are explicit, replayable/rollback-aware as applicable; deprecated surfaces have replacement, warning/removal policy; historical names do not force historical architecture to return."
+    },
+    {
+      "id": "UPS-TEST",
+      "name": "Recursive MECE test and interaction assurance",
+      "contract": "Requirements declare applicable dimensions; positive/negative/boundary/fault/meta cases, state transitions, exceptions and high-risk interactions close with no unexplained OPEN state. Public mutations document retry/idempotency/duplicate/crash semantics where applicable."
+    },
+    {
+      "id": "UPS-REL",
+      "name": "Build, release and gate evidence",
+      "contract": "Build candidates are identity-bound and built once. Blocking gates require a valid current PASS for the exact candidate; queued/running/cancelled/stale/unavailable evidence never counts as PASS. Publication status is separate from verification maturity; stable promotion must promote the same verified artifact."
+    },
+    {
+      "id": "UPS-DOC",
+      "name": "Documentation and SSOT projection",
+      "contract": "Canonical facts/contracts have one machine-readable or canonical source where feasible; human docs are generated or drift-tested. Conformance, maturity and distribution/publication are separate axes and product-specific prose cannot override executable contract truth."
+    }
+  ],
+  "recursive_mece_axes": {
+    "vertical": [
+      "discover/bootstrap",
+      "configure",
+      "execute/mutate",
+      "observe",
+      "recover",
+      "migrate/upgrade",
+      "package/release",
+      "operate/learn/deprecate"
+    ],
+    "horizontal": [
+      "interface",
+      "configuration",
+      "state/data",
+      "component/extension",
+      "security",
+      "evidence/observability",
+      "quality/testing",
+      "distribution/compatibility"
+    ]
+  },
+  "forced_unification_guardrails": [
+    "Do not rename stable commands solely for cross-product symmetry.",
+    "Do not share a database/schema between products solely to reuse code.",
+    "Do not make an optional provider/extension a Core dependency.",
+    "Do not unify numeric exit codes if doing so breaks scripts; unify semantic classes first.",
+    "Do not duplicate product-specific safety logic into a generic layer until at least two products need the same invariant.",
+    "Do not treat COMPLY/ADAPT as proof that a capability is implemented; maturity/evidence is a separate axis.",
+    "Do not model Adapter and Provider as mutually exclusive product-extension types; they are boundary roles orthogonal to component lifecycle/ownership.",
+    "Do not confuse publication/distribution with verification or stable promotion.",
+    "Do not collapse State Kind and Recovery Class into one taxonomy.",
+    "Do not classify delivery/test harnesses as product runtime components solely because they use the same provider technology."
+  ],
+  "maturity_statuses": {
+    "PLANNED": "Intent accepted; detailed design/implementation not frozen.",
+    "DESIGN_FROZEN": "Contracts/boundaries frozen enough to begin RED/TDD; not implementation evidence.",
+    "IMPLEMENTING": "Implementation is in progress.",
+    "IMPLEMENTED": "Implementation exists but required assurance evidence may be incomplete.",
+    "VERIFIED": "Declared verification scope has valid current PASS evidence bound to the exact candidate/input identity.",
+    "DEPRECATED": "Still supported during migration but scheduled for replacement/removal.",
+    "RETIRED": "No longer supported/active; historical evidence may remain."
+  },
+  "config_value_semantics": {
+    "ABSENT": "No value supplied at this layer; continue precedence lookup/inherit.",
+    "NULL": "Explicit null only when schema permits clear/unset semantics; never silently treated as absent.",
+    "EMPTY_STRING": "A real empty string unless schema explicitly forbids or defines clear semantics.",
+    "EMPTY_ARRAY": "An explicitly empty collection; distinct from absent/unknown.",
+    "UNKNOWN": "Observed fact is not known; never coerce to zero/false/healthy/unlimited."
+  },
+  "component_lifecycle_classes": [
+    "CORE",
+    "MODULE",
+    "EXTENSION",
+    "GENERATED_VIEW",
+    "EXTERNAL"
+  ],
+  "boundary_roles": [
+    "NONE",
+    "ADAPTER",
+    "PROVIDER",
+    "EXPORTER"
+  ],
+  "config_merge_policy": {
+    "default": "REPLACE",
+    "scalar": "REPLACE",
+    "object": "REPLACE",
+    "array": "REPLACE",
+    "rule": "Any non-REPLACE key must declare its merge algorithm explicitly in schema/config metadata; implicit deep merge is forbidden."
+  },
+  "state_kinds": [
+    "CONFIG",
+    "DOMAIN_DATA",
+    "EVIDENCE",
+    "LOG",
+    "CACHE",
+    "TEMP",
+    "BACKUP",
+    "SCHEMA",
+    "SECRET",
+    "EXTERNAL_REF"
+  ],
+  "recovery_classes": [
+    "AUTHORITATIVE",
+    "DURABLE_DERIVED",
+    "REBUILDABLE",
+    "EPHEMERAL",
+    "EXTERNAL"
+  ],
+  "runtime_planes": [
+    "PRODUCT_RUNTIME",
+    "DELIVERY"
+  ],
+  "required_scopes_reference": [
+    "BASE",
+    "M1",
+    "M2",
+    "M3",
+    "OPTIONAL"
+  ],
+  "distribution_statuses": {
+    "NOT_PUBLISHED": "No external/public distribution exists for this artifact/candidate.",
+    "CANDIDATE": "Identity-frozen artifact/candidate exists for gate evaluation but is not a stable publication.",
+    "PUBLISHED": "Artifact/version is externally visible/distributed; this does not imply required gates passed before publication.",
+    "PROMOTED": "The same identity-bound candidate/artifact passed required gates and was promoted to the declared stable channel.",
+    "WITHDRAWN": "Previously distributed artifact/version has been withdrawn/deactivated from the declared channel."
+  }
+}

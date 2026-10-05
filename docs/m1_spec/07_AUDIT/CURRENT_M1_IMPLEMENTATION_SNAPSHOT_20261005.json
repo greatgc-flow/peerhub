@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "captured_at": "2026-10-05",
+  "repository": "greatgc-flow/peerhub",
+  "branch": "main",
+  "head": "4a6994e7f73933a30c5d4e8ee538cd7d736f06ce",
+  "head_message": "fix(release): evidence tool accepts evidence-backed matrix skips",
+  "current_version": "0.11.0",
+  "m1_catalog": {
+    "requirements": 88,
+    "tests": 210
+  },
+  "current_head_assurance": {
+    "ci_run": {
+      "id": 37210765163,
+      "conclusion": "success"
+    },
+    "release_gate_run": {
+      "id": 37210767689,
+      "conclusion": "success",
+      "g0": "success",
+      "g1": "success",
+      "g2": "success",
+      "g3_live": "success",
+      "g4_package": "success",
+      "g7_invariant": "success",
+      "release_evidence": "success",
+      "publish_job": "skipped"
+    },
+    "interpretation": "Exact current main has deterministic, live-provider, package, invariant and release-evidence PASS. Publish job was skipped because this was not a new release publication event."
+  },
+  "distribution": {
+    "github_release_v0.11.0": "PUBLISHED",
+    "release_tag_commit": "fa460c491264941bdf127a28b5c36cd34625310e",
+    "current_head_is_post_tag_fix": true
+  },
+  "cli_transition": {
+    "default_entrypoint": "peerhub legacy v0 hierarchy",
+    "m1_sidecar_entrypoint": "peerhub-m1",
+    "public_cutover": "not completed",
+    "quota_diag_parity_gate": "required before cutover"
+  },
+  "notes": [
+    "109 legacy commands remain migration/disposition evidence, not target architecture.",
+    "M1 implementation verification and public CLI cutover are separate."
+  ],
+  "installed_cli_surfaces": [
+    {
+      "entrypoint": "peerhub",
+      "role": "legacy-default",
+      "leaf_command_evidence": 109
+    },
+    {
+      "entrypoint": "peerhub-m1",
+      "role": "m1-sidecar",
+      "leaf_command_count": 11
+    }
+  ]
+}

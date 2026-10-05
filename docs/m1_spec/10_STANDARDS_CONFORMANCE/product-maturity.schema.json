@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verysimple.local/schema/product-maturity-v2.json",
+  "title": "VerySimple Product/Capability Maturity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "product",
+    "as_of",
+    "items"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "product": {
+      "type": "string"
+    },
+    "as_of": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "scope",
+          "status",
+          "notes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "PLANNED",
+              "DESIGN_FROZEN",
+              "IMPLEMENTING",
+              "IMPLEMENTED",
+              "VERIFIED",
+              "DEPRECATED",
+              "RETIRED"
+            ]
+          },
+          "candidate_identity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "value"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "git_sha",
+                  "artifact_digest",
+                  "version",
+                  "other"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "VERIFIED"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            },
+            "then": {
+              "required": [
+                "candidate_identity",
+                "evidence"
+              ],
+              "properties": {
+                "evidence": {
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verysimple.local/schema/product-conformance-v1.2.json",
+  "title": "Product Conformance to VerySimple Unified Package Standard",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "product",
+    "standard_id",
+    "standard_version",
+    "standard_sha256",
+    "conformance_scope",
+    "maturity_ref",
+    "distribution_ref",
+    "component_registry_ref",
+    "controls",
+    "cli_mapping",
+    "exceptions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "product": {
+      "type": "string"
+    },
+    "standard_id": {
+      "const": "VS-UNIFIED-PACKAGE-STANDARD"
+    },
+    "standard_version": {
+      "const": "1.2.0"
+    },
+    "standard_sha256": {
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "conformance_scope": {
+      "enum": [
+        "TARGET_ARCHITECTURE",
+        "CURRENT_IMPLEMENTATION",
+        "MIXED_EXPLICIT"
+      ]
+    },
+    "maturity_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "controls": {
+      "type": "array",
+      "minItems": 15,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "implementation",
+          "rationale"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "COMPLY",
+              "ADAPT",
+              "PRODUCT_SPECIFIC",
+              "N_A",
+              "PASS"
+            ]
+          },
+          "implementation": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "revisit_trigger": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "cli_mapping": {
+      "type": "object"
+    },
+    "exceptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "decision",
+          "rationale"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "KEEP",
+              "ADAPT",
+              "PASS",
+              "N_A"
+            ]
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "revisit_trigger": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "distribution_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "component_registry_ref": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

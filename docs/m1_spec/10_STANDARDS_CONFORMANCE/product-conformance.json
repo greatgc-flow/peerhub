@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "product": "PeerHub",
+  "standard_id": "VS-UNIFIED-PACKAGE-STANDARD",
+  "standard_version": "1.2.0",
+  "standard_sha256": "ead3f6a17970f5b687cc12cded1d98066e69c4574c4dc7dce66a6c7d787c8907",
+  "controls": [
+    {
+      "id": "UPS-CLI",
+      "status": "ADAPT",
+      "implementation": "TARGET: M1 noun/verb CLI with readonly diag/status views. CURRENT: legacy `peerhub` default plus side-by-side 11-leaf `peerhub-m1`; default cutover is a separate IMPLEMENTING gate.",
+      "rationale": "Do not force Engram-like verb hierarchy. Do not confuse target conformance with current public-entrypoint maturity."
+    },
+    {
+      "id": "UPS-HELP",
+      "status": "COMPLY",
+      "implementation": "Public help must be side-effect free and generated/drift-tested from the command contract.",
+      "rationale": "Matches common discoverability rule."
+    },
+    {
+      "id": "UPS-EXIT",
+      "status": "ADAPT",
+      "implementation": "Publish a PeerHub semantic exit map; preserve existing numeric behavior until a compatibility-safe migration.",
+      "rationale": "Breaking automation for numeric symmetry has low value.",
+      "revisit_trigger": "When a major-version CLI break is already justified."
+    },
+    {
+      "id": "UPS-CONFIG",
+      "status": "COMPLY",
+      "implementation": "Declarative config/catalog/policy with explicit precedence; runtime/model facts remain structured. Absent/null/empty/unknown semantics follow the common schema rule for new/changed contracts.",
+      "rationale": "Matches no-hardcoding and UNKNOWN-preservation principles."
+    },
+    {
+      "id": "UPS-LAYOUT",
+      "status": "ADAPT",
+      "implementation": "Core authoritative SQLite/records separated from extension projections, logs, evidence and catalogs.",
+      "rationale": "Physical layout can remain PeerHub-specific."
+    },
+    {
+      "id": "UPS-SCHEMA",
+      "status": "COMPLY",
+      "implementation": "JSON Schema 2020-12 contracts; versioned Core/Extension schemas and transactional migration.",
+      "rationale": "Already aligned."
+    },
+    {
+      "id": "UPS-COMP",
+      "status": "COMPLY",
+      "implementation": "Lifecycle class: Core=Peer/Stream/Record/Offset; M1 built-in modules; M2+ extensions. Boundary role is separately ADAPTER/PROVIDER where applicable.",
+      "rationale": "Dependency direction is the architecture foundation."
+    },
+    {
+      "id": "UPS-EXT",
+      "status": "ADAPT",
+      "implementation": "M1 Session Bridge/Observation/Diag are statically assembled MODULEs; M2.0 introduces Generic Extension Host. A2A/remote-runtime translators use ADAPTER boundary role.",
+      "rationale": "This resolves the apparent M1-extension vs M2-extension-runtime contradiction."
+    },
+    {
+      "id": "UPS-OBS",
+      "status": "COMPLY",
+      "implementation": "TARGET: Observation owns quota/rate/runtime facts; Diag is readonly display. CURRENT M1 module can render observations/resource pools, while side-by-side `peerhub-m1 diag health` is stream-only; quota display parity is a public-cutover gate.",
+      "rationale": "Exact common pattern."
+    },
+    {
+      "id": "UPS-EVID",
+      "status": "COMPLY",
+      "implementation": "Record/evidence/source identity, release evidence and gate freshness are explicit.",
+      "rationale": "Matches common contract."
+    },
+    {
+      "id": "UPS-SEC",
+      "status": "COMPLY",
+      "implementation": "Fencing/idempotency/readonly diag/public-port-only extension writes/fail-closed storage. External/downloaded artifacts keep source/version/digest or equivalent integrity provenance appropriate to risk.",
+      "rationale": "Matches trust-boundary contract."
+    },
+    {
+      "id": "UPS-MIG",
+      "status": "COMPLY",
+      "implementation": "109 legacy commands classified; historical lesson/directive/task/governance names do not force old domains to return.",
+      "rationale": "Disposition-driven migration."
+    },
+    {
+      "id": "UPS-TEST",
+      "status": "COMPLY",
+      "implementation": "88 requirements/210 tests plus state/exception/interaction/fault/meta closure.",
+      "rationale": "Stronger than common baseline."
+    },
+    {
+      "id": "UPS-REL",
+      "status": "COMPLY",
+      "implementation": "Candidate-bound gates, live/package gates and evidence freshness policy.",
+      "rationale": "Matches common release assurance."
+    },
+    {
+      "id": "UPS-DOC",
+      "status": "COMPLY",
+      "implementation": "Machine SSOT plus generated/views and validator drift checks.",
+      "rationale": "Matches common SSOT rule."
+    }
+  ],
+  "cli_mapping": {
+    "root": "peerhub",
+    "preferred_patterns": [
+      "peerhub <noun> <verb> [subject] [options]",
+      "peerhub diag [--json]",
+      "peerhub status [--json]"
+    ],
+    "shared_flag_semantics": [
+      "--help/-h",
+      "--json",
+      "--dry-run/--apply where a mutation is previewable"
+    ],
+    "numeric_exit_codes": "ADAPT; semantic classes standardized first"
+  },
+  "exceptions": [
+    {
+      "id": "PH-EX-001",
+      "decision": "KEEP",
+      "rationale": "Peer/Stream/Record/Offset remain the only Core concepts through all required and optional roadmap work."
+    },
+    {
+      "id": "PH-EX-002",
+      "decision": "ADAPT",
+      "rationale": "M1 first-party modules are not dynamically installable extensions; the generic Extension Host starts at M2.0."
+    },
+    {
+      "id": "PH-EX-003",
+      "decision": "PASS",
+      "rationale": "Do not force Engram-style lifecycle verb hierarchy onto communication resources; it would reduce clarity."
+    }
+  ],
+  "conformance_scope": "MIXED_EXPLICIT",
+  "maturity_ref": "10_STANDARDS_CONFORMANCE/product-maturity.json",
+  "distribution_ref": "10_STANDARDS_CONFORMANCE/product-distribution.json",
+  "component_registry_ref": "10_STANDARDS_CONFORMANCE/component-registry.json"
+}

@@ -42,3 +42,9 @@ evidence/<release-id>/
 - known risk가 무엇인가?
 - 운영에서 다시 발생했는가?
 - 다음 release에 어떤 학습이 들어갔는가?
+
+## Gate evidence freshness / aging
+
+Blocking gate는 candidate-bound **fresh PASS**만 인정합니다. `QUEUED/RUNNING/PENDING/CANCELLED/STALE/UNAVAILABLE/UNKNOWN/SKIPPED`는 증거가 아닙니다. Provider CLI/model catalog/gate definition/candidate identity가 바뀌면 관련 evidence를 재검증합니다. 시간 임계치는 Core에 하드코딩하지 않고 release/CI policy로 외부화합니다.
+
+SSOT: `gate-evidence-policy.json`; schema: `gate-evidence-policy.schema.json`.

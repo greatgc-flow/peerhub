@@ -1,4 +1,4 @@
-﻿area,status,evidence
+area,status,evidence
 M1 product scope,PASS,Communication/continuity only; orchestration excluded.
 Core minimality,PASS,Peer/Stream/Record/Offset only.
 Peer cardinality,PASS,"0..N per adapter, no vendor hard limit."
@@ -17,7 +17,7 @@ MCP boundary,PASS,"Tool/Data only, future extension."
 A2A boundary,PASS,"Remote Peer only, future adapter."
 Standards pruning,PASS,Only JSON Schema/Agent Skills default-adopted.
 OSS/platform pruning,PASS,No Kafka/Redis/workflow/plugin framework in M1.
-Existing 109 functions,PASS,"109/109 dispositioned, 0 unclassified; exact order/effect validated against current repo evidence snapshot."
+Legacy v0 109-command disposition,PASS,"109/109 dispositioned, 0 unclassified; exact order/effect validated against frozen legacy evidence snapshot."
 Repo delta closure,PASS,"6 commits ahead / 0 behind, 18 changed files; all delta classified without M1 Core expansion."
 Current HEAD CI,PASS,GitHub Actions run 37027768347 success; pyright and pytest steps success.
 Package text hygiene,PASS,Hidden C0 control-character scan enforced; usage-guide path defect corrected.
@@ -32,3 +32,17 @@ Invariant SSOT traceability,PASS,8/8 lifecycle invariants are machine-owned and 
 Test-to-release gate traceability,PASS,210/210 tests have exactly one primary gate; P0 tests only map to blocking gates.
 Release gate dependency DAG,PASS,G0→G1→G2; G3/G4→G7; G7→G5 are machine-validated and acyclic.
 Signal route resolvability,PASS,10/10 signal classes resolve through a registered route to lifecycle stage plus guide/runbook.
+Gate evidence freshness/aging,PASS,Exact candidate-bound fresh PASS required; queued/cancelled/stale/unavailable states cannot satisfy blocking release gates.
+Master roadmap closure,PASS,M1→M2→M3 required roadmap + M4-A..L optional tracks machine-owned in 09_ROADMAP/roadmap.json.
+Core boundary through all roadmap tracks,PASS,Roadmap schema/validator keeps Peer/Stream/Record/Offset frozen through M1-M3 and M4-A..L optional tracks.
+Legacy command milestone assignment,PASS,109/109 commands assigned to M1/M2/M3 or explicit Optional Capability Track; temporary N removed.
+Diag/quota milestone anchor,PASS,Quota/rate evidence and readonly display remain M1 Observation+Diag; routing use is M3; allocation is optional M4-B.
+Post-M3 optionality,PASS,"M4-A..L are evidence-triggered opt-in tracks, not sequential mandatory milestones."
+Unified standard conformance,PASS,15/15 common controls mapped in 10_STANDARDS_CONFORMANCE.
+M1 vs M2 extension semantics,PASS,M1 static first-party modules distinguished from M2 Generic Extension Host.
+Catalog ownership split,PASS,M1 Runtime Target Catalog separated from M2 General Skill/Capability Catalog.
+Remote runtime vs HA split,PASS,M3.6 Remote Runtime Adapter Boundary separated from optional M4-I HA/Federation.
+Historical leadership disposition,PASS,routing elect-leader assigned to optional M4-D; lesson/directive surfaces SUPERSEDE into Skill/Catalog/Policy.
+Current M1 implementation baseline,PASS,main 4a6994e7... M1 current-head verification PASS (CI/live/package/invariant/evidence); public CLI cutover remains separate.
+M1 public CLI cutover separation,PASS,legacy peerhub remains default; peerhub-m1 side-by-side; cutover has explicit gate.
+M1 Diag quota parity,DEFERRED,ReadonlyDiag can render resource pools/observations; peerhub-m1 diag health is currently stream-only. Must close before M1 default public CLI cutover; tracked by M1_PUBLIC_CLI_CUTOVER_GATE.md.

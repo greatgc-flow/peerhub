@@ -57,3 +57,7 @@ Requirement / Evidence
 | **Closed** | 피드백·위험·회귀·문서가 모두 분류되고 recurrence watch까지 종료 |
 
 `Done != Closed` 입니다.
+
+## Gate evidence policy
+
+`gate-evidence-policy.json`은 release gate result의 정규 상태, candidate identity binding, freshness trigger, stale/timeout HOLD 규칙을 정의합니다.
