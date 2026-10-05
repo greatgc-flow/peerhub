@@ -65,6 +65,8 @@ def test_art_009_tampered_blob_read_detects_bitflip(tmp_path):
     assert physical_path.is_file()
 
     # Tamper with the physical file (flip one byte)
+    import os, stat
+    os.chmod(physical_path, stat.S_IWRITE)
     tampered_data = bytearray(original_data)
     tampered_data[0] ^= 0xFF
     physical_path.write_bytes(bytes(tampered_data))
@@ -83,6 +85,8 @@ def test_art_010_zero_byte_truncation_detected_as_tamper(tmp_path):
 
     physical_path = store.resolve_path(digest)
     # Truncate file externally
+    import os, stat
+    os.chmod(physical_path, stat.S_IWRITE)
     physical_path.write_bytes(b"")
 
     with pytest.raises(ArtifactTamperedError):

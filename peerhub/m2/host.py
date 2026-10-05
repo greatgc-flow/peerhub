@@ -107,6 +107,12 @@ class ExtensionHost:
             );
             """)
 
+    def get_connection(self) -> sqlite3.Connection:
+        """Create a database connection configured with foreign keys and busy timeout."""
+        conn = sqlite3.connect(self.db_path, timeout=10.0)
+        conn.execute("PRAGMA foreign_keys = ON;")
+        return conn
+
     def register_manifest(
         self,
         manifest: ExtensionManifest,

@@ -35,6 +35,10 @@ class ArtifactTamperedError(ValueError):
     """Artifact content on disk does not match its cryptographic SHA-256 digest."""
 
 
+class ForbiddenTransitionError(RuntimeError):
+    """Attempting an invalid artifact state transition."""
+
+
 HEX_DIGEST_REGEX = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -141,14 +145,27 @@ class ArtifactStore:
 
     def commit_staged(self, staged: StagedArtifact) -> str:
         """Atomically commit a staged artifact to its final sharded destination."""
+        if staged is None or not isinstance(staged, StagedArtifact):
+            raise ForbiddenTransitionError("Cannot commit unverified or unstaged artifact")
+
         target_path = self.resolve_path(staged.digest)
         target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if target_path.exists():
+            # Idempotent deduplication: blob already committed and immutable
+            if staged.path.exists():
+                staged.path.unlink()
+            return staged.digest
 
         # Atomic replacement / move
         try:
             os.replace(staged.path, target_path)
-        except FileExistsError:
-            # Idempotent deduplication: file already exists with same digest
+            try:
+                os.chmod(target_path, stat.S_IREAD)
+            except OSError:
+                pass
+        except (FileExistsError, PermissionError):
+            # Idempotent deduplication: file created concurrently
             if staged.path.exists():
                 staged.path.unlink()
 
@@ -215,6 +232,10 @@ class ArtifactStore:
             path = self.resolve_path(digest)
             try:
                 if path.is_file():
+                    try:
+                        os.chmod(path, stat.S_IWRITE)
+                    except OSError:
+                        pass
                     path.unlink()
                     deleted.append(digest)
                     # Clean up parent 2-char prefix folder if empty
