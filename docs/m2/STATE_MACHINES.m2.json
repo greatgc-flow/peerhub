@@ -601,6 +601,71 @@
         }
       ],
       "gaps": []
+    },
+    "MCPSession": {
+      "states": [
+        "UNINITIALIZED",
+        "INITIALIZING",
+        "ACTIVE",
+        "REVOKED",
+        "CLOSED"
+      ],
+      "initial": "UNINITIALIZED",
+      "terminal": [
+        "REVOKED",
+        "CLOSED"
+      ],
+      "transitions": [
+        {
+          "from": "UNINITIALIZED",
+          "to": "INITIALIZING",
+          "allowed": true,
+          "tests": [
+            "MCP-002"
+          ]
+        },
+        {
+          "from": "INITIALIZING",
+          "to": "ACTIVE",
+          "allowed": true,
+          "tests": [
+            "MCP-002"
+          ]
+        },
+        {
+          "from": "ACTIVE",
+          "to": "REVOKED",
+          "allowed": true,
+          "tests": [
+            "MCP-007"
+          ]
+        },
+        {
+          "from": "ACTIVE",
+          "to": "CLOSED",
+          "allowed": true,
+          "tests": [
+            "MCP-011"
+          ]
+        },
+        {
+          "from": "UNINITIALIZED",
+          "to": "ACTIVE",
+          "allowed": false,
+          "tests": [
+            "MCP-007"
+          ]
+        },
+        {
+          "from": "REVOKED",
+          "to": "ACTIVE",
+          "allowed": false,
+          "tests": [
+            "MCP-007"
+          ]
+        }
+      ],
+      "gaps": []
     }
   }
 }
