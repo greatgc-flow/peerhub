@@ -59,6 +59,13 @@ class ExtensionHost:
                 )
 
         # 2. Execute migration inside transaction
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, isolation_level=None) as conn:
             conn.execute("PRAGMA foreign_keys = ON;")
-            conn.executescript(sql)
+            try:
+                conn.executescript(f"BEGIN IMMEDIATE;\n{sql}\nCOMMIT;")
+            except Exception:
+                try:
+                    conn.execute("ROLLBACK;")
+                except Exception:
+                    pass
+                raise

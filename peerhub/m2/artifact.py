@@ -99,8 +99,8 @@ class ArtifactStore:
         if not src.is_file():
             raise FileNotFoundError(f"Source file not found: {src}")
 
-    def stage_bytes(self, data: bytes) -> StagedArtifact:
-        """Stage in-memory bytes into a temporary staging file with synchronous fsync."""
+    def stage_stream(self, stream: Any, chunk_size: int = 65536) -> StagedArtifact:
+        """Stage arbitrary byte stream into a temporary staging file using os.write with fsync."""
         import hashlib
         import tempfile
 
@@ -109,19 +109,35 @@ class ArtifactStore:
         tmp_path = Path(tmp_path_str)
 
         hasher = hashlib.sha256()
+        total_size = 0
         try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(data)
-                hasher.update(data)
-                f.flush()
-                os.fsync(f.fileno())
+            while True:
+                chunk = stream.read(chunk_size)
+                if not chunk:
+                    break
+                os.write(fd, chunk)
+                hasher.update(chunk)
+                total_size += len(chunk)
+
+            os.fsync(fd)
         except BaseException:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
             if tmp_path.exists():
                 tmp_path.unlink()
             raise
+        else:
+            os.close(fd)
 
         digest = hasher.hexdigest()
-        return StagedArtifact(path=tmp_path, digest=digest, size=len(data))
+        return StagedArtifact(path=tmp_path, digest=digest, size=total_size)
+
+    def stage_bytes(self, data: bytes) -> StagedArtifact:
+        """Stage in-memory bytes into a temporary staging file with synchronous fsync."""
+        import io
+        return self.stage_stream(io.BytesIO(data))
 
     def commit_staged(self, staged: StagedArtifact) -> str:
         """Atomically commit a staged artifact to its final sharded destination."""
