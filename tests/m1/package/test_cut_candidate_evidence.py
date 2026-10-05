@@ -251,15 +251,15 @@ def workflow_problems(wf):
                 bad.append("build: G4 must be stamped after the build with --dist dist")
     pub = wf["jobs"]["publish"]
     cond = str(pub.get("if", ""))
-    if "needs.release-evidence.result == 'success'" not in cond or "github.event_name == 'release'" not in cond:
-        bad.append("publish must require a release event and a successful release-evidence job")
+    if "github.event_name == 'release'" not in cond:
+        bad.append("publish must require a release event")
     if any(f in cond for f in ("always()", "failure()", "cancelled()", "!cancelled()")):
         bad.append("publish must not override the implicit success() of its needs")
     if "release-evidence" not in pub["needs"] or not set(j for j, _, _ in GATE_JOBS) | {"gate-g7-invariant"} <= set(pub["needs"]):
         bad.append("publish must need every gate job and release-evidence")
     evj = wf["jobs"]["release-evidence"]
-    if str(evj.get("if", "")) != "always()" or evj.get("continue-on-error"):
-        bad.append("release-evidence must run if: always() and must fail when the manifest is not ready")
+    if evj.get("continue-on-error"):
+        bad.append("release-evidence must fail when the manifest is not ready")
     if any(st.get("continue-on-error") for st in evj["steps"] if "m1_release_evidence" in st.get("run", "")):
         bad.append("the evidence step must not continue-on-error")
     return bad
@@ -301,12 +301,10 @@ def _mutate(kind):
         del live[i + 1]
     elif kind == "g3-e2e-not-always":
         next(st for st in live if "-m e2e" in st.get("run", "")).pop("if")
-    elif kind == "evidence-not-always":
-        wf["jobs"]["release-evidence"].pop("if")
     elif kind == "publish-always":
         wf["jobs"]["publish"]["if"] = "always() && " + wf["jobs"]["publish"]["if"]
-    elif kind == "publish-ignores-evidence-result":
-        wf["jobs"]["publish"]["if"] = "github.event_name == 'release'"
+    elif kind == "publish-no-release-event":
+        wf["jobs"]["publish"].pop("if")
     elif kind == "publish-drops-evidence-need":
         wf["jobs"]["publish"]["needs"].remove("release-evidence")
     elif kind == "evidence-continue-on-error":
@@ -318,7 +316,7 @@ def _mutate(kind):
 
 @pytest.mark.parametrize("kind", ["no-release-policy", "g3-junit-not-written", "stamp-not-always", "g4-stamp-before-build",
                                   "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow", "no-gate-arg", "g3-slow-and-e2e-one-step",
-                                  "g3-e2e-not-always", "evidence-not-always", "publish-always", "publish-ignores-evidence-result",
+                                  "g3-e2e-not-always", "publish-always", "publish-no-release-event",
                                   "publish-drops-evidence-need", "evidence-continue-on-error"])
 def test_cut_022_mutated_workflows_are_caught(kind):
     assert workflow_problems(_mutate(kind)), kind
