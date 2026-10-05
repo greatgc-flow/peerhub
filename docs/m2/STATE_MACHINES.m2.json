@@ -73,6 +73,19 @@
         {"from": "RETIRED", "to": "ACTIVE", "allowed": false, "tests": ["SKL-006"]}
       ],
       "gaps": []
+    },
+    "EvalRun": {
+      "states": ["PENDING", "RUNNING", "PASSED", "FAILED", "INCONCLUSIVE"],
+      "transitions": [
+        {"from": "PENDING", "to": "RUNNING", "allowed": true, "tests": ["EVL-003"]},
+        {"from": "RUNNING", "to": "PASSED", "allowed": true, "tests": ["EVL-003"]},
+        {"from": "RUNNING", "to": "FAILED", "allowed": true, "tests": ["EVL-003"]},
+        {"from": "RUNNING", "to": "INCONCLUSIVE", "allowed": true, "tests": ["EVL-004"]},
+        {"from": "PASSED", "to": "RUNNING", "allowed": false, "tests": ["EVL-005"]},
+        {"from": "FAILED", "to": "RUNNING", "allowed": false, "tests": ["EVL-005"]},
+        {"from": "INCONCLUSIVE", "to": "RUNNING", "allowed": false, "tests": ["EVL-005"]}
+      ],
+      "gaps": []
     }
   }
 }

@@ -1,0 +1,51 @@
+# Eval & Telemetry Contract (M2.6)
+
+## 1. Authority Separation & Core Invariants
+- **Authority Separation (Invariant 12):**
+  - **Execution Trace:** Structured, immutable execution record (spans, events, inputs, outputs, timestamps). Used purely for observation, diagnostics, and evaluation.
+  - **Evaluation Dataset:** Curated test cases and gold-standard expectations stored authoritative as **Artifacts** in `ArtifactStore` with deterministic SHA-256 digests.
+  - **Evaluation Report:** Derived analysis produced by an Evaluator against a Trace and Dataset. Contains `evaluator_type`, `evaluator_version`, `target_ref`, `dataset_ref`, `scores`, `verdict`, and `evidence`.
+  - **Feedback Signal:** Advisory actionable signal linking an evaluation outcome to work items or regression test definitions.
+  - **Telemetry Exporter:** Strictly `EXPORT_ONLY` adapter/exporter (e.g. OpenTelemetry or JSONL format).
+- **Core Invariant 12:** `Eval/Telemetry never becomes collaboration truth`:
+  - An evaluation report or score cannot unilaterally alter Work projection status, mutate stream membership, or bypass CoreStore authorization.
+  - CoreStore transactions and state machines remain 100% functional and unblocked even if telemetry exporters fail or crash (Failure Isolation).
+
+## 2. Public Interfaces & Protocols
+The Eval & Telemetry engine (`peerhub.m2.eval`) provides typed interfaces:
+- `capture_trace(trace_id: str, spans: list[TraceSpan], metadata: dict[str, Any] | None = None) -> ExecutionTrace`
+- `register_dataset(name: str, items: list[dict[str, Any]], store: ArtifactStore) -> EvalDataset`
+  Errors: `ArtifactCommitError`, `InvalidDatasetError`.
+- `run_eval(evaluator: Evaluator, trace: ExecutionTrace, dataset: EvalDataset) -> EvalReport`
+  Errors: `EvaluatorValidationError`, `EvaluatorExecutionError`.
+- `verify_report_integrity(report: EvalReport) -> bool`
+  Errors: `EvalReportTamperedError`.
+- `create_feedback_signal(report: EvalReport, title: str, description: str) -> FeedbackSignal`
+  Errors: `EvalTruthViolationError` (if attempted to bypass Core consensus).
+- `export_telemetry(events: list[dict[str, Any]], sink: TelemetrySink) -> ExportResult`
+  Errors: `TelemetryExportError` (isolated from core).
+
+## 3. Evaluation State Machine
+```text
+           ┌──────────────────────┐
+           │       PENDING        │
+           └──────────┬───────────┘
+                      │
+                      ▼
+           ┌──────────────────────┐
+           │       RUNNING        │
+           └──────┬───┬───┬───────┘
+                  │   │   │
+        ┌─────────┘   │   └─────────┐
+        ▼             ▼             ▼
+   ┌─────────┐   ┌─────────┐   ┌──────────────┐
+   │ PASSED  │   │ FAILED  │   │ INCONCLUSIVE │
+   └─────────┘   └─────────┘   └──────────────┘
+```
+- An evaluation run starts in `PENDING` and moves to `RUNNING`.
+- From `RUNNING`, it concludes deterministically into `PASSED`, `FAILED`, or `INCONCLUSIVE`.
+- Terminal states cannot transition back to `RUNNING`.
+
+## 4. Failure & Dependency Isolation
+- Exporters operate strictly out-of-band or with failure-catching wrappers; an export sink error never raises into CoreStore operations.
+- Minimal installations run all trace capture and evaluation logic using standard library components; external observability frameworks (e.g. `opentelemetry`) are optional plugins.

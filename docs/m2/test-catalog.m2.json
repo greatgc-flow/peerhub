@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "generated_on": "2026-10-05",
-  "count": 86,
+  "count": 98,
   "tests": [
     {
       "id": "EXT-001",
@@ -2103,6 +2103,305 @@
       "dimensions": [
         "durability",
         "recovery"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-001",
+      "tier": "unit",
+      "title": "Trace capture produces deterministic, immutable trace records with span IDs and timestamps",
+      "requirements": [
+        "REQ-EVL-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "trace",
+        "immutability"
+      ],
+      "setup": "Initialize trace collector.",
+      "action": "Record trace with multiple nested spans and events.",
+      "oracle": "Serialized trace is immutable and deterministically reproducible with matching span hierarchy.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "trace",
+        "immutability"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-002",
+      "tier": "unit",
+      "title": "Eval dataset stored as Artifact blob with verifiable SHA-256 digest via ArtifactStore",
+      "requirements": [
+        "REQ-EVL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "dataset",
+        "artifact"
+      ],
+      "setup": "Initialize ArtifactStore and prepare evaluation dataset test cases.",
+      "action": "Register eval dataset into artifact store.",
+      "oracle": "Dataset is saved as immutable blob; hash matches calculated SHA-256 digest.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "storage",
+        "artifact"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-003",
+      "tier": "unit",
+      "title": "Deterministic evaluator calculates metrics against dataset and emits versioned EvalReport with evidence",
+      "requirements": [
+        "REQ-EVL-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "eval",
+        "report"
+      ],
+      "setup": "Trace and golden dataset registered.",
+      "action": "Execute deterministic evaluator over trace against dataset.",
+      "oracle": "EvalReport contains evaluator_type, evaluator_version, scores, verdict, and evidence.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "determinism",
+        "evaluation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-004",
+      "tier": "unit",
+      "title": "Non-deterministic evaluator or missing metadata rejected or yields INCONCLUSIVE",
+      "requirements": [
+        "REQ-EVL-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "eval",
+        "validation"
+      ],
+      "setup": "Evaluator without version or non-conforming spec.",
+      "action": "Execute run_eval with invalid evaluator.",
+      "oracle": "Raises EvaluatorValidationError or returns INCONCLUSIVE verdict.",
+      "failure_injection": "malformed evaluator",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "determinism",
+        "validation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-005",
+      "tier": "architecture",
+      "title": "Invariant 12: Eval results never directly alter Work status or Stream records (collaboration truth isolation)",
+      "requirements": [
+        "REQ-EVL-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "isolation"
+      ],
+      "setup": "Active Work item and evaluation engine.",
+      "action": "Attempt to mutate Work projection or Stream directly via eval output without authorized Peer record.",
+      "oracle": "Raises EvalTruthViolationError; Work status and Stream records remain strictly unchanged.",
+      "failure_injection": "unauthorized truth override",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "isolation",
+        "security"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-006",
+      "tier": "unit",
+      "title": "Tampered eval report fails verification with EvalReportTamperedError",
+      "requirements": [
+        "REQ-EVL-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security",
+        "integrity"
+      ],
+      "setup": "Valid generated EvalReport.",
+      "action": "Modify score/verdict bytes and call verify_report_integrity.",
+      "oracle": "Raises EvalReportTamperedError.",
+      "failure_injection": "payload tamper",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "integrity"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-007",
+      "tier": "unit",
+      "title": "Feedback signal generated from failed evaluation links to Work entity without contaminating Core stream",
+      "requirements": [
+        "REQ-EVL-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "feedback",
+        "linkage"
+      ],
+      "setup": "Failed EvalReport.",
+      "action": "Create FeedbackSignal linking report to work item.",
+      "oracle": "FeedbackSignal is created with proper provenance link; Core stream has no invalid entries.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "feedback",
+        "provenance"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-008",
+      "tier": "unit",
+      "title": "Telemetry exporter functions in EXPORT_ONLY mode and never writes to CoreStore",
+      "requirements": [
+        "REQ-EVL-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "telemetry",
+        "export_only"
+      ],
+      "setup": "Telemetry exporter configured with mock sink.",
+      "action": "Export telemetry events.",
+      "oracle": "Sink receives formatted events; CoreStore database tables are untouched.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "export_only",
+        "architecture"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-009",
+      "tier": "fault",
+      "title": "Telemetry exporter failure isolation: simulated exporter crash does not disrupt CoreStore transaction",
+      "requirements": [
+        "REQ-EVL-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "isolation"
+      ],
+      "setup": "Exporter sink that intentionally raises runtime exception.",
+      "action": "Perform CoreStore append_record or work transition with crashing exporter attached.",
+      "oracle": "Core transaction succeeds completely; TelemetryExportError handled and isolated.",
+      "failure_injection": "sink crash",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault_isolation",
+        "durability"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-010",
+      "tier": "integration",
+      "title": "Regression feedback loop: reproducing a trace as a dataset entry and verifying automated regression detection",
+      "requirements": [
+        "REQ-EVL-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "regression",
+        "loop"
+      ],
+      "setup": "Execution trace representing previously fixed bug.",
+      "action": "Convert trace to golden dataset test case and evaluate regression.",
+      "oracle": "Evaluator flags regression if re-introduced, passes when satisfied.",
+      "failure_injection": "regression condition",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "regression",
+        "e2e"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-011",
+      "tier": "concurrency",
+      "title": "Concurrent eval executions do not lock or block CoreStore",
+      "requirements": [
+        "REQ-EVL-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency"
+      ],
+      "setup": "Active CoreStore with background write activity.",
+      "action": "Execute multiple parallel eval runs and trace collections.",
+      "oracle": "Zero SQLite lock collisions; eval runs proceed without delaying store operations.",
+      "failure_injection": "concurrency stress",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "isolation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-012",
+      "tier": "architecture",
+      "title": "Zero dev-dependency violation: minimal install runs eval engine without external observability libraries (REL-009)",
+      "requirements": [
+        "REQ-EVL-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "dependencies"
+      ],
+      "setup": "Minimal runtime environment without opentelemetry or dev dependencies.",
+      "action": "Import and execute peerhub.m2.eval module.",
+      "oracle": "All core eval functions, trace capture, and export sinks work without ImportError.",
+      "failure_injection": "missing dev dependencies",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "packaging"
       ],
       "case_type": "positive",
       "deterministic": true
