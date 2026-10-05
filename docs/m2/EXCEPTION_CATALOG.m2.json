@@ -34,6 +34,11 @@
     {"id": "EXC-031", "name": "WorkRevisionConflictError", "trigger": "Mutation expected_revision does not match current projection revision.", "disposition": "REJECTED", "rationale": "CAS optimistic concurrency conflict; preserves ordering truth.", "tests": ["WRK-005"]},
     {"id": "EXC-032", "name": "WorkNotFoundError", "trigger": "Referenced work_id does not exist in projection or stream.", "disposition": "REJECTED", "rationale": "Unknown work entity reference.", "tests": ["WRK-007"]},
     {"id": "EXC-033", "name": "InvalidWorkPayloadError", "trigger": "Work creation or transition payload fails schema constraints.", "disposition": "REJECTED", "rationale": "Pre-emptive validation rejection.", "tests": ["WRK-008"]},
-    {"id": "EXC-034", "name": "WorkAlreadyExistsError", "trigger": "Attempt to create a work item with an already registered work_id.", "disposition": "REJECTED", "rationale": "Enforces work_id uniqueness within home stream.", "tests": ["WRK-009"]}
+    {"id": "EXC-034", "name": "WorkAlreadyExistsError", "trigger": "Attempt to create a work item with an already registered work_id.", "disposition": "REJECTED", "rationale": "Enforces work_id uniqueness within home stream.", "tests": ["WRK-009"]},
+    {"id": "EXC-035", "name": "SkillNotFoundError", "trigger": "Referenced skill_id does not exist in registry or index.", "disposition": "REJECTED", "rationale": "Unknown skill reference.", "tests": ["SKL-007"]},
+    {"id": "EXC-036", "name": "SkillManifestError", "trigger": "SKILL.md frontmatter is missing, unparseable, or fails schema validation.", "disposition": "REJECTED", "rationale": "Schema validation boundary violation.", "tests": ["SKL-008"]},
+    {"id": "EXC-037", "name": "SkillTamperedError", "trigger": "On-disk skill directory contents hash differs from indexed canonical digest.", "disposition": "REJECTED", "rationale": "Cryptographic integrity failure blocks compromised procedure.", "tests": ["SKL-009"]},
+    {"id": "EXC-038", "name": "UnauthorizedSkillError", "trigger": "Attempt to invoke, execute, or select an inactive or suspended skill.", "disposition": "REJECTED", "rationale": "Discovery != authorization invariant.", "tests": ["SKL-010"]},
+    {"id": "EXC-039", "name": "VolatileFactRejectedError", "trigger": "Attempt to register volatile runtime measurement into curated capability catalog.", "disposition": "REJECTED", "rationale": "Invariant 9: Volatile measured facts stay in M1 Observation/Diag.", "tests": ["SKL-013"]}
   ]
 }
