@@ -211,9 +211,7 @@ jobs:
 
   release-evidence:
     # G5 evidence index + hashes: fails (exit 1) unless every blocking catalog test passed and every requirement is covered.
-    # Runs even when an upstream gate failed so a HOLD manifest is produced and uploaded; `publish` still needs this job to SUCCEED.
     needs: [gate-g0-fast, gate-g1-core, gate-g2-m1, live-validation, build, gate-g7-invariant]
-    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -244,7 +242,7 @@ jobs:
     needs: [gate-g0-fast, gate-g1-core, gate-g2-m1, live-validation, build, gate-g7-invariant, release-evidence]
     # Manual dispatch is a safe live-validation/build dry run. Only a published
     # GitHub Release may mint an OIDC token and publish the resulting artifact.
-    if: github.event_name == 'release' && needs.release-evidence.result == 'success'
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
