@@ -118,7 +118,7 @@ class LegacyImporter:
             raise LegacySourceError("legacy source has an un-checkpointed -wal file: close the legacy runtime / checkpoint it first "
                                     "(the importer never writes to the source)")
         try:
-            with closing(sqlite3.connect(_ro_uri(src, True), uri=True)) as c:
+            with closing(sqlite3.connect(_ro_uri(src, True), uri=True, timeout=30.0)) as c:
                 c.row_factory = sqlite3.Row
                 c.execute("BEGIN")
                 tables = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
@@ -298,7 +298,8 @@ class LegacyImporter:
         if not self.target.exists() or self.target.stat().st_size == 0:
             return None
         try:
-            conn = sqlite3.connect(_ro_uri(self.target, not _has_pending_wal(self.target)), uri=True)
+            # same bounded wait as CoreStore: concurrent importers on slow runners hit "database is locked" with the 5 s default
+            conn = sqlite3.connect(_ro_uri(self.target, not _has_pending_wal(self.target)), uri=True, timeout=30.0)
             version = conn.execute("PRAGMA user_version").fetchone()[0]
             if version > SUPPORTED_SCHEMA_VERSION:
                 conn.close()
