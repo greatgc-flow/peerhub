@@ -3253,7 +3253,7 @@ class TieredHelpFormatter(argparse.RawDescriptionHelpFormatter):
         return super()._format_action(action)
 
 
-def main(args: list[str] | None = None) -> int:
+def legacy_main(args: list[str] | None = None) -> int:
     from peerhub._console import tolerant_streams
 
     tolerant_streams()  # help/version text contains non-ASCII; a cp949/cp1252 pipe must not crash the installed CLI (REL-002)
@@ -4866,6 +4866,24 @@ def _run_workspace_reset(parsed: argparse.Namespace) -> int:  # pyright: ignore[
     from peerhub.cli.commands.setup import run_workspace_reset
 
     return run_workspace_reset(parsed, sys.modules[__name__])
+
+
+def main(args: list[str] | None = None) -> int:
+    """Console entrypoint: dispatch on PEERHUB_CLI (legacy default | m1). Invalid value: exit 2, one stderr line, no side effects."""
+    from peerhub.cli.selector import ALLOWED_SELECTORS, REPORT_ENV, SELECTOR_ENV, InvalidSelectorError, resolve_selector
+
+    try:
+        selector, source = resolve_selector(os.environ)
+    except InvalidSelectorError:
+        sys.stderr.write(f"peerhub: invalid {SELECTOR_ENV}={os.environ.get(SELECTOR_ENV, '')!r}; allowed values: {', '.join(ALLOWED_SELECTORS)}\n")
+        return 2
+    if os.environ.get(REPORT_ENV) == "1":
+        sys.stderr.write(f"peerhub: cli selector={selector} (source: {source})\n")
+    if selector == "m1":
+        from peerhub.m1_cli import main as m1_main
+
+        return m1_main(args)
+    return legacy_main(args)
 
 
 if __name__ == "__main__":
