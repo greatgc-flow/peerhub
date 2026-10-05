@@ -29,6 +29,9 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Run G0 fast (architecture/schema/unit/property/meta/security-static) tests
         run: python -u -m pytest -q --junitxml=junit/g0.xml tests/m1/architecture tests/m1/schema tests/unit/m1 tests/m1/property tests/m1/meta tests/m1/security
+      - name: Bind G0 JUnit to the cutover candidate (source, selector, policy, gate definitions)
+        if: always()
+        run: python -m tools.m1_release_evidence --stamp-junit junit/g0.xml --gate G0 --commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -52,6 +55,9 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Run G1 core (SQLite/concurrency/multiprocess/fault/migration) tests
         run: python -u -m pytest -q --junitxml=junit/g1.xml tests/m1/core tests/m1/migration tests/m1/concurrency tests/m1/fault tests/m1/integration
+      - name: Bind G1 JUnit to the cutover candidate (source, selector, policy, gate definitions)
+        if: always()
+        run: python -m tools.m1_release_evidence --stamp-junit junit/g1.xml --gate G1 --commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -75,6 +81,9 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Run G2 M1 (Bridge/Observation/Diag/fake-runtime E2E) tests
         run: python -u -m pytest -q --junitxml=junit/g2.xml tests/m1/bridge tests/m1/observation tests/m1/diag tests/m1/control tests/m1/adapters tests/m1/e2e
+      - name: Bind G2 JUnit to the cutover candidate (source, selector, policy, gate definitions)
+        if: always()
+        run: python -m tools.m1_release_evidence --stamp-junit junit/g2.xml --gate G2 --commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -113,15 +122,20 @@ jobs:
           Get-Command codex.cmd -ErrorAction Stop
       - name: Run M1 live canaries (marker live, PEERHUB_M1_LIVE=1)
         run: python -u -m pytest -q -m live --junitxml=junit/g3.xml tests/m1/live
-      - name: Run paid/live legacy release gate
-        run: |
-          python -u -m pytest -q -m slow
-          python -u -m pytest -q -m e2e
+      - name: Run paid/live legacy release gate (slow)
+        if: always()
+        run: python -u -m pytest -q -m slow --junitxml=junit/g3-slow.xml
+      - name: Run paid/live legacy release gate (e2e)
+        if: always()
+        run: python -u -m pytest -q -m e2e --junitxml=junit/g3-e2e.xml
+      - name: Bind G3 JUnit to the cutover candidate (source, selector, policy, gate definitions)
+        if: always()
+        run: python -m tools.m1_release_evidence --stamp-junit junit/g3.xml --stamp-junit junit/g3-slow.xml --stamp-junit junit/g3-e2e.xml --gate G3 --commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: junit-g3
-          path: junit/g3.xml
+          path: junit/g3*.xml
 
   build:
     # G4 package (wheel/sdist/runtime-data/clean-install/support-matrix/restart)
@@ -157,16 +171,19 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Run G4 package tests
         run: python -u -m pytest -q --junitxml=junit/g4.xml tests/m1/package
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
-        with:
-          name: junit-g4
-          path: junit/g4.xml
       - name: Build sdist and wheel
         run: |
           python -m pip install --upgrade pip build twine
           python -m build
           python -m twine check --strict dist/*
+      - name: Bind G4 JUnit to the cutover candidate (source, selector, policy, gate definitions)
+        if: always()
+        run: python -m tools.m1_release_evidence --stamp-junit junit/g4.xml --gate G4 --commit "$(git rev-parse HEAD)" --dist dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: junit-g4
+          path: junit/g4.xml
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dist
@@ -214,7 +231,7 @@ jobs:
           path: junit/
           merge-multiple: true
       - name: Generate release evidence bundle
-        run: python -m tools.m1_release_evidence --junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g4.xml --dist dist --out evidence --commit "$(git rev-parse HEAD)"
+        run: python -m tools.m1_release_evidence --junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml --dist dist --out evidence --commit "$(git rev-parse HEAD)" --candidate --policy-file docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json --release-policy docs/m1_impl/release-policy.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "policy_ttl_seconds": 604800,
+  "max_clock_skew_seconds": 300,
+  "proposed_by": "implementation, owner to confirm",
+  "note": "policy_ttl_seconds: maximum age of cutover gate evidence. max_clock_skew_seconds: how far in the future an evidence timestamp may be (runner clock skew). The spec policy gate-evidence-policy.json leaves both external. Read only by tools/m1_release_evidence.py --release-policy."
+}
