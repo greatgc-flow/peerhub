@@ -81,6 +81,9 @@ def test_quota_table_and_filters(ws, capsys):
     code, out, _ = run(capsys, ws.db_path, "diag", "quota")
     assert code == 0 and "STALE" in out and "UNKNOWN" in out and "used_fraction=0.75 (derived)" in out and "remaining_tokens=1000" in out
     assert "plan" not in out
+    import re
+    assert re.search(r"peer:a\s+quota\s+MEASURED\s+age=\d+s\s+src=src-new\s", out) and re.search(r"peer:b\s+rate_limit\s+STALE\s+age=100\ds\s+src=src-rl\s", out)
+    assert re.search(r"peer:c\s+quota\s+UNAVAILABLE\s+age=\d+s\s+src=src-q\s+\(no measurement\)", out) and re.search(r"-\s+rate_limit\s+UNKNOWN\s+age=-\s+src=-\s", out)
     code, out, _ = run(capsys, ws.db_path, "diag", "quota", "--json", "--peer", "peer:b")
     rep = json.loads(out)
     assert [(i["subject_ref"], i["kind"]) for g in rep["pools"] for i in g["items"]] == [("peer:b", "rate_limit")]  # exact match, no placeholders
@@ -101,6 +104,29 @@ def test_quota_missing_database_is_unavailable_and_never_created(tmp_path, capsy
     assert code == 5 and json.loads(out)["status"] == "UNAVAILABLE" and not db.exists() and list(tmp_path.iterdir()) == []
     code, out, err = run(capsys, db, "diag", "quota")
     assert code == 5 and "UNAVAILABLE" in err and "UNKNOWN" in out and not db.exists()
+    assert "  note: database not found: " + str(db) in out and "DIAG QUOTA UNAVAILABLE: database not found" in err
+
+
+def test_health_is_read_only_never_creates_or_migrates(tmp_path, capsys):
+    db = tmp_path / "absent.db"
+    code, out, err = run(capsys, db, "diag", "health", "--stream", "s")
+    assert code == 5 and json.loads(out)["status"] == "UNAVAILABLE" and "UNAVAILABLE" in err and not db.exists() and list(tmp_path.iterdir()) == []
+    old = tmp_path / "old.db"  # an existing database without any M1 schema: reported, not migrated
+    with closing(sqlite3.connect(old)) as c:
+        c.execute("CREATE TABLE legacy (x)")
+        c.commit()
+    before = fhash(old)
+    code, out, _ = run(capsys, old, "diag", "health", "--stream", "s")
+    assert code == 0 and json.loads(out)["status"] == "ERROR" and fhash(old) == before
+    with closing(sqlite3.connect(old)) as c:
+        assert [r[0] for r in c.execute("SELECT name FROM sqlite_master")] == ["legacy"] and c.execute("PRAGMA user_version").fetchone()[0] == 0
+    fut = ObservationHarness(tmp_path / "fut").db_path
+    with closing(sqlite3.connect(fut)) as c:
+        c.execute("PRAGMA user_version = 999")
+        c.commit()
+    before = fhash(fut)
+    code, out, err = run(capsys, fut, "diag", "health", "--stream", "s")
+    assert code == 6 and "SCHEMA VERSION" in err and fhash(fut) == before
 
 
 def test_quota_db_without_observation_tables_or_evidence(tmp_path, capsys):
@@ -164,3 +190,12 @@ def test_health_obs_db_is_effective(ws, tmp_path, capsys):
     code, out, _ = run(capsys, ws.db_path, "diag", "health", "--stream", "s", "--obs-db", str(gone))
     rep = json.loads(out)
     assert code == 0 and rep["status"] == "OK" and rep["observations"]["status"] == "UNAVAILABLE" and not gone.exists()
+
+
+def test_observations_summary_honours_read_at(ws):
+    from peerhub.extensions.diag_quota import observations_summary
+
+    now = observations_summary(ws.db_path)
+    assert now["by_state"] == {"MEASURED": 2, "STALE": 1, "UNAVAILABLE": 1}
+    later = observations_summary(ws.db_path, read_at=time.time() + 100000)  # same evidence, read much later: freshness is evaluated at read_at
+    assert later["by_state"] == {"STALE": 3, "UNAVAILABLE": 1} and later["latest_total"] == 4

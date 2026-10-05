@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 from pydantic import BaseModel
 
 from peerhub._console import tolerant_streams
@@ -154,6 +155,19 @@ def main(argv: list[str] | None = None) -> int:
                 if code and not args.json:
                     print(f"DIAG QUOTA {rep['status']}: {rep['error']}", file=sys.stderr)
                 return code
+            if args.action == "health":  # pure reader as well: never CoreStore (no create, no migration of a missing/old --db)
+                if not Path(args.db).is_file():
+                    result: dict[str, object] = {"status": "UNAVAILABLE", "stream_id": args.stream_id, "error": f"database not found: {args.db}"}
+                    print(json.dumps(result, indent=2, ensure_ascii=True))
+                    print(f"DIAG HEALTH UNAVAILABLE: {result['error']}", file=sys.stderr)
+                    return 5
+                result = ReadonlyDiag(args.db).inspect_stream_health(args.stream_id)
+                result["observations"] = diag_quota.observations_summary(args.obs_db or args.db)
+                print(json.dumps(result, indent=2, ensure_ascii=True))
+                if str(result.get("error", "")).startswith("SchemaVersionError"):
+                    print(f"SCHEMA VERSION ERROR: {result['error']}", file=sys.stderr)
+                    return 6
+                return 0
         store = CoreStore(args.db)
         if args.subcommand == "peer":
             if args.action == "register":
@@ -228,15 +242,6 @@ def main(argv: list[str] | None = None) -> int:
                     expected_revision=args.expected_revision,
                 )
                 print(_dump(off))
-
-        elif args.subcommand == "diag":
-            if args.action == "health":
-                from peerhub.extensions import diag_quota  # availability already checked above
-                from peerhub.extensions.diag import ReadonlyDiag
-                diag = ReadonlyDiag(args.db)
-                result = diag.inspect_stream_health(args.stream_id)
-                result["observations"] = diag_quota.observations_summary(args.obs_db or args.db)
-                print(json.dumps(result, indent=2, ensure_ascii=True))
 
         return 0
 

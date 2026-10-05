@@ -9,6 +9,7 @@
           "flags": [
             "--obs-db"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         },
@@ -18,6 +19,7 @@
           "flags": [
             "--stream"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         }
@@ -32,6 +34,7 @@
           "flags": [
             "--json"
           ],
+          "positional": false,
           "required": false,
           "takes_value": false
         },
@@ -41,6 +44,7 @@
           "flags": [
             "--obs-db"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         },
@@ -50,6 +54,7 @@
           "flags": [
             "--peer"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         },
@@ -59,6 +64,7 @@
           "flags": [
             "--pool"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         }
@@ -73,6 +79,7 @@
           "flags": [
             "--plan-digest"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         },
@@ -82,6 +89,7 @@
           "flags": [
             "--source"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         }
@@ -96,6 +104,7 @@
           "flags": [
             "--source"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         }
@@ -110,6 +119,7 @@
           "flags": [
             "--peer"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -119,6 +129,7 @@
           "flags": [
             "--position"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -128,6 +139,7 @@
           "flags": [
             "--revision"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -137,6 +149,7 @@
           "flags": [
             "--stream"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         }
@@ -151,6 +164,7 @@
           "flags": [
             "--peer"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -160,6 +174,7 @@
           "flags": [
             "--stream"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         }
@@ -174,6 +189,7 @@
           "flags": [
             "--id"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         }
@@ -188,6 +204,7 @@
           "flags": [
             "--adapter"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         },
@@ -197,6 +214,7 @@
           "flags": [
             "--id"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -206,6 +224,7 @@
           "flags": [
             "--name"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         }
@@ -220,6 +239,7 @@
           "flags": [
             "--author"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -229,6 +249,7 @@
           "flags": [
             "--body"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -238,6 +259,7 @@
           "flags": [
             "--created-at"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         },
@@ -247,6 +269,7 @@
           "flags": [
             "--idemp-key"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -256,6 +279,7 @@
           "flags": [
             "--kind"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -265,6 +289,7 @@
           "flags": [
             "--stream"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -274,6 +299,7 @@
           "flags": [
             "--targets"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         }
@@ -288,6 +314,7 @@
           "flags": [
             "--after"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         },
@@ -297,6 +324,7 @@
           "flags": [
             "--limit"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         },
@@ -306,6 +334,7 @@
           "flags": [
             "--stream"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         }
@@ -320,6 +349,7 @@
           "flags": [
             "--id"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         },
@@ -329,6 +359,7 @@
           "flags": [
             "--members"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         },
@@ -338,6 +369,7 @@
           "flags": [
             "--title"
           ],
+          "positional": false,
           "required": false,
           "takes_value": true
         }
@@ -352,6 +384,7 @@
           "flags": [
             "--id"
           ],
+          "positional": false,
           "required": true,
           "takes_value": true
         }
@@ -365,8 +398,35 @@
       "flags": [
         "--db"
       ],
+      "positional": false,
       "required": false,
       "takes_value": true
+    }
+  ],
+  "groups": [
+    {
+      "command": "diag",
+      "options": []
+    },
+    {
+      "command": "legacy-import",
+      "options": []
+    },
+    {
+      "command": "offset",
+      "options": []
+    },
+    {
+      "command": "peer",
+      "options": []
+    },
+    {
+      "command": "record",
+      "options": []
+    },
+    {
+      "command": "stream",
+      "options": []
     }
   ],
   "program": "peerhub-m1"

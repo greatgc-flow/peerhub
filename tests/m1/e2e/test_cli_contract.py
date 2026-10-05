@@ -301,13 +301,24 @@ EFFECT = {
 }
 
 
-def published_options():
-    d = inv.derive()
-    return ["* " + o["flags"][0] for o in d["global_options"]] + [f"{c['command']} {o['flags'][0]}" for c in d["commands"] for o in c["options"]]
-
-
 def test_every_published_option_has_an_effect_proof():
-    assert sorted(published_options()) == sorted(EFFECT)  # a new option without a behavioural proof (or a stale proof) fails here
+    assert inv.option_keys(inv.derive()) == sorted(EFFECT)  # a new option/positional/alias at any level without a behavioural proof (or a stale proof) fails here
+
+
+def test_option_key_walker_closes_the_registry_loopholes():
+    import argparse
+
+    p = argparse.ArgumentParser(prog="t")
+    p.add_argument("--db")
+    sp = p.add_subparsers(dest="c", required=True)
+    g = sp.add_parser("grp")
+    g.add_argument("--group-level")  # option on an intermediate parser
+    leaf = g.add_subparsers(dest="a", required=True).add_parser("leaf")
+    leaf.add_argument("--opt", "-o", "--opt-alias")  # secondary aliases
+    leaf.add_argument("thing")  # positional
+    keys = inv.option_keys(inv.derive(p))
+    assert keys == sorted(["* --db", "grp --group-level", "grp leaf --opt", "grp leaf -o", "grp leaf --opt-alias", "grp leaf thing"])
+    assert not (set(keys) - {"* --db"}) & set(EFFECT)  # every one would be reported as lacking a proof
 
 
 @pytest.mark.parametrize("key", sorted(EFFECT))
