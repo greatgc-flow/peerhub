@@ -13,6 +13,11 @@ from pathlib import Path
 import re
 import stat
 import sys
+from typing import Any, Protocol
+
+
+class ByteStream(Protocol):
+    def read(self, size: int = ..., /) -> bytes: ...
 
 
 class SecurityBoundaryError(Exception):
@@ -49,7 +54,7 @@ class ArtifactStore:
         self.root = Path(root).resolve()
         self.tmp_dir = self.root / ".tmp"
 
-    def validate_digest(self, digest: str) -> bool:
+    def validate_digest(self, digest: str | Any) -> bool:
         """Validate that digest is strictly a 64-character lowercase ASCII hex string."""
         if not isinstance(digest, str):
             return False
@@ -103,7 +108,7 @@ class ArtifactStore:
         if not src.is_file():
             raise FileNotFoundError(f"Source file not found: {src}")
 
-    def stage_stream(self, stream: Any, chunk_size: int = 65536) -> StagedArtifact:
+    def stage_stream(self, stream: ByteStream, chunk_size: int = 65536) -> StagedArtifact:
         """Stage arbitrary byte stream into a temporary staging file using os.write with fsync."""
         import hashlib
         import tempfile
@@ -116,7 +121,7 @@ class ArtifactStore:
         total_size = 0
         try:
             while True:
-                chunk = stream.read(chunk_size)
+                chunk: bytes = stream.read(chunk_size)
                 if not chunk:
                     break
                 os.write(fd, chunk)
@@ -143,7 +148,7 @@ class ArtifactStore:
         import io
         return self.stage_stream(io.BytesIO(data))
 
-    def commit_staged(self, staged: StagedArtifact) -> str:
+    def commit_staged(self, staged: StagedArtifact | Any) -> str:
         """Atomically commit a staged artifact to its final sharded destination."""
         if staged is None or not isinstance(staged, StagedArtifact):
             raise ForbiddenTransitionError("Cannot commit unverified or unstaged artifact")
