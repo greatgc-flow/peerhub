@@ -72,5 +72,5 @@ markers = [
     "m1_id(id): M1 catalog test id (traceability, see tools/m1_traceability.py)",
     "architecture", "schema", "property", "meta", "traceability", "unit", "sqlite", "concurrency",
     "multiprocess", "fault", "migration", "bridge", "observation", "diag", "security", "package",
-    "release", "clean-install", "smoke", "ci", "ci_only(python, os): declared matrix cell exercised only by CI", "evidence", "matrix", "windows", "cutover", "compatibility", "boundary", "claim", "certainty", "restart", "idempotency", "integration", "record", "canonicalization", "live", "soak", "provider", "cc", "cx", "ag", "isolation", "control", "context",
+    "release", "clean-install", "smoke", "ci", "ci_only(python, os): declared matrix cell exercised only by CI", "evidence", "matrix", "windows", "cutover", "compatibility", "boundary", "claim", "certainty", "restart", "idempotency", "integration", "record", "canonicalization", "live", "soak", "provider", "cc", "cx", "ag", "isolation", "control", "context", "persistence", "immutability",
 ]
