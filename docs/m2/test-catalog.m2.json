@@ -1,0 +1,1460 @@
+{
+  "schema_version": 2,
+  "generated_on": "2026-10-05",
+  "count": 60,
+  "tests": [
+    {
+      "id": "EXT-001",
+      "tier": "architecture",
+      "title": "Core operates identically with all extensions disabled",
+      "requirements": [
+        "REQ-EXT-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture"
+      ],
+      "setup": "Create clean Core workspace; ensure extension_registry is entirely empty.",
+      "action": "Execute standard M1 E2E workflow (create stream, append record).",
+      "oracle": "Core completes operations with zero extension modules imported; implementation-independent sys.modules snapshot confirms absence.",
+      "failure_injection": "none",
+      "evidence": "sys.modules state + pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "negative",
+        "e2e"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-002",
+      "tier": "architecture",
+      "title": "Core package import graph statically forbids extension imports",
+      "requirements": [
+        "REQ-EXT-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture"
+      ],
+      "setup": "Install package with full M2 code.",
+      "action": "Use static AST traversal on all Core module entrypoints.",
+      "oracle": "No AST import node points to M2 Extension namespaces.",
+      "failure_injection": "none",
+      "evidence": "AST parser traversal dump",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-003",
+      "tier": "schema",
+      "title": "Extension schemas are strictly prefixed against core tables",
+      "requirements": [
+        "REQ-EXT-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "sqlite"
+      ],
+      "setup": "Load a valid mock extension containing a DB schema payload.",
+      "action": "Run extension migration.",
+      "oracle": "Raw `sqlite3` PRAGMA table_info confirms all new tables start with 'ext_'; original core tables are exactly matched.",
+      "failure_injection": "none",
+      "evidence": "Raw SQLite schema query",
+      "live_provider": false,
+      "dimensions": [
+        "schema"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-004",
+      "tier": "fault",
+      "title": "Extension disable preserves tables and ignores legacy hooks",
+      "requirements": [
+        "REQ-EXT-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "state-transition"
+      ],
+      "setup": "Enable extension, write data, then change state to DISABLED.",
+      "action": "Restart host and trigger hook event.",
+      "oracle": "Host boots, hook is ignored. Raw `sqlite3` confirms extension table data remains untouched.",
+      "failure_injection": "none",
+      "evidence": "SQLite data checksum + pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-transition",
+        "restart"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-005",
+      "tier": "concurrency",
+      "title": "Concurrent enable/disable toggles are fenced via SQLite WAL",
+      "requirements": [
+        "REQ-EXT-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency"
+      ],
+      "setup": "Spawn 2 multiprocessing.Process instances targeting the same extension toggle.",
+      "action": "Process A calls enable(); Process B calls disable().",
+      "oracle": "Strict serialization enforced by DB driver lock. Final state strictly matches the last committed transaction. DB integrity check passes.",
+      "failure_injection": "none",
+      "evidence": "multiprocessing exit codes + raw sqlite3 PRAGMA integrity_check",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-006",
+      "tier": "schema",
+      "title": "Manifest config validation strictly rejects unknown keys",
+      "requirements": [
+        "REQ-EXT-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Craft extension manifest containing undefined property 'rogue_flag'.",
+      "action": "Attempt to load and validate manifest.",
+      "oracle": "Draft202012 Validator throws strict failure. State enters FAILED immediately.",
+      "failure_injection": "none",
+      "evidence": "jsonschema error trace",
+      "live_provider": false,
+      "dimensions": [
+        "schema",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-007",
+      "tier": "schema",
+      "title": "Positive control for manifest validation",
+      "requirements": [
+        "REQ-EXT-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Craft exact perfect extension manifest.",
+      "action": "Attempt to load and validate manifest.",
+      "oracle": "Validation passes perfectly; state advances to VALIDATED.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "schema"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-008",
+      "tier": "fault",
+      "title": "Rollback triggered automatically if extension migration crashes halfway",
+      "requirements": [
+        "REQ-EXT-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "sqlite"
+      ],
+      "setup": "Mock os._exit(1) hook midway through an extension schema script.",
+      "action": "Execute migration.",
+      "oracle": "Process dies. Upon restart, raw `sqlite3` proves DB is in initial valid state; no torn table exists.",
+      "failure_injection": "os._exit_mid_migration",
+      "evidence": "OS exit code + SQLite raw query",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "recovery"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-009",
+      "tier": "idempotency",
+      "title": "Idempotent enable call returns existing state safely",
+      "requirements": [
+        "REQ-EXT-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "idempotency"
+      ],
+      "setup": "Extension is already in ENABLED state.",
+      "action": "Call enable() again.",
+      "oracle": "No DB write occurs (tracked via SQLite total_changes). Request succeeds gracefully.",
+      "failure_injection": "none",
+      "evidence": "SQLite total_changes PRAGMA",
+      "live_provider": false,
+      "dimensions": [
+        "idempotency",
+        "retry"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-010",
+      "tier": "state",
+      "title": "Forbidden transition ENABLED directly to VALIDATED fails",
+      "requirements": [
+        "REQ-EXT-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "state-transition"
+      ],
+      "setup": "Force extension into ENABLED state.",
+      "action": "Attempt API call mapped to VALIDATED transition.",
+      "oracle": "Throws ForbiddenTransitionError immediately without mutating state.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-transition",
+        "negative",
+        "restart"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-011",
+      "tier": "state",
+      "title": "Forbidden transition FAILED to ENABLED fails without validation",
+      "requirements": [
+        "REQ-EXT-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "state-transition"
+      ],
+      "setup": "Force extension into FAILED state due to schema error.",
+      "action": "Attempt to enable() extension.",
+      "oracle": "Throws ForbiddenTransitionError. Extension stays FAILED.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-transition",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-012",
+      "tier": "persistence",
+      "title": "Disabled state safely persists across hard process restart",
+      "requirements": [
+        "REQ-EXT-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "restart"
+      ],
+      "setup": "Set extension to DISABLED.",
+      "action": "os._exit(0) and reboot host.",
+      "oracle": "Registry initialization reads DB correctly; extension loads but remains explicitly DISABLED.",
+      "failure_injection": "os._exit_clean",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "restart",
+        "boundary"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-013",
+      "tier": "fault",
+      "title": "Extension hook runtime exception does not crash Core host",
+      "requirements": [
+        "REQ-EXT-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault"
+      ],
+      "setup": "Inject ZeroDivisionError inside an extension's registered callback.",
+      "action": "Trigger core event firing the callback.",
+      "oracle": "Core event finishes safely; exception is trapped, logged, and extension state enters FAILED.",
+      "failure_injection": "hook_exception",
+      "evidence": "Log ingestion trace + state check",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-014",
+      "tier": "fault",
+      "title": "Missing dependency extension blocks enablement with terminal error",
+      "requirements": [
+        "REQ-EXT-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault"
+      ],
+      "setup": "Manifest requires 'ext_auth' which is absent.",
+      "action": "Attempt to load manifest.",
+      "oracle": "Throws MissingDependencyError; state mapped to FAILED terminal disposition.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "negative",
+        "fault"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-015",
+      "tier": "idempotency",
+      "title": "Duplicate manifest registration of identical ID is rejected",
+      "requirements": [
+        "REQ-EXT-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "idempotency"
+      ],
+      "setup": "Load extension ID 'ext_chat'.",
+      "action": "Attempt to load a different manifest also declaring ID 'ext_chat'.",
+      "oracle": "Throws RegistrationConflictError; original extension remains intact.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "idempotency",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-016",
+      "tier": "state",
+      "title": "Rebuilding extension registry clears internal memory cache safely",
+      "requirements": [
+        "REQ-EXT-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "state-transition"
+      ],
+      "setup": "Load registry, warm up internal Python LRU caches.",
+      "action": "Trigger registry rebuild.",
+      "oracle": "Registry garbage collects old modules; GC tracker proves memory is freed; state reads clean from DB.",
+      "failure_injection": "none",
+      "evidence": "gc.get_objects() tracking",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "restart"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-017",
+      "tier": "concurrency",
+      "title": "Concurrent read during migration blocks cleanly until commit",
+      "requirements": [
+        "REQ-EXT-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency"
+      ],
+      "setup": "Process A starts 5-second migration script; Process B attempts to read registry.",
+      "action": "Execute simultaneously.",
+      "oracle": "SQLite BusyTimeout correctly pauses Process B; B eventually reads fully updated state. No partial reads.",
+      "failure_injection": "synthetic_delay",
+      "evidence": "Time delta check + multiprocessing exit codes",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-018",
+      "tier": "schema",
+      "title": "Manifest missing strictly required properties fails validation",
+      "requirements": [
+        "REQ-EXT-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Create manifest omitting the required 'version' key.",
+      "action": "Load manifest.",
+      "oracle": "Fails JSONSchema validation with missing required property error.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "schema",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-019",
+      "tier": "schema",
+      "title": "Null values for string typed properties explicitly rejected",
+      "requirements": [
+        "REQ-EXT-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Set manifest 'description' to JSON null.",
+      "action": "Load manifest.",
+      "oracle": "Fails JSONSchema validation strictly on type mismatch.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "schema",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-020",
+      "tier": "schema",
+      "title": "Extension schema migration successfully handles ADD COLUMN",
+      "requirements": [
+        "REQ-EXT-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Deploy v1 of extension schema.",
+      "action": "Run v2 migration applying ADD COLUMN.",
+      "oracle": "Raw sqlite3 confirms column exists and old data retains NULL/default values intact.",
+      "failure_injection": "none",
+      "evidence": "Raw SQLite schema query",
+      "live_provider": false,
+      "dimensions": [
+        "schema",
+        "recovery"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-021",
+      "tier": "architecture",
+      "title": "Extension DB operates on separate distinct connection schema",
+      "requirements": [
+        "REQ-EXT-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture"
+      ],
+      "setup": "Load core DB and extension DB.",
+      "action": "Run PRAGMA database_list.",
+      "oracle": "Extension tables are logically separate from 'main' core tables (attached or isolated file).",
+      "failure_injection": "none",
+      "evidence": "Raw PRAGMA database_list query",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "schema"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-022",
+      "tier": "state",
+      "title": "State transition DISCOVERED to FAILED succeeds on invalid manifest",
+      "requirements": [
+        "REQ-EXT-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "state-transition"
+      ],
+      "setup": "Scan finds broken manifest folder.",
+      "action": "Attempt validation transition.",
+      "oracle": "State moves strictly from DISCOVERED to FAILED.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-transition",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-023",
+      "tier": "integration",
+      "title": "Extension host startup completes after Core stream init securely",
+      "requirements": [
+        "REQ-EXT-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration"
+      ],
+      "setup": "Start full application server stack.",
+      "action": "Check boot sequencing logs.",
+      "oracle": "Core dependencies initialize first; extension host binds afterward, proving architectural layering.",
+      "failure_injection": "none",
+      "evidence": "Boot log sequence trace",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "architecture"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-024",
+      "tier": "fault",
+      "title": "Extension schema downgrade strictly throws explicit error",
+      "requirements": [
+        "REQ-EXT-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault"
+      ],
+      "setup": "Migrate extension to v3.",
+      "action": "Attempt to load manifest demanding v2 migration.",
+      "oracle": "Throws DowngradeNotSupportedError; state aborts gracefully.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "negative",
+        "fault"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-001",
+      "tier": "integration",
+      "title": "Blob is fully durable on disk before Core Record reference append",
+      "requirements": [
+        "REQ-ART-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "ordering",
+        "persistence"
+      ],
+      "setup": "Stage blob and mock the Core Record append function to crash immediately.",
+      "action": "Execute Artifact commit pipeline.",
+      "oracle": "System crashes. Upon restart, raw `os.stat` proves the blob exists fully durable on disk, but no DB record exists. Orphan cleanup will catch it.",
+      "failure_injection": "crash_before_core_append",
+      "evidence": "os.stat filesystem check + SQLite query",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "ordering",
+        "persistence"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-002",
+      "tier": "fault",
+      "title": "Crash injected between commit and metadata write leaves orphan safely",
+      "requirements": [
+        "REQ-ART-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "crash"
+      ],
+      "setup": "Hook os._exit(1) immediately after the atomic `os.rename` operation.",
+      "action": "Attempt stage and commit.",
+      "oracle": "Process dies. File exists at final digest path on disk. Metadata DB has no record. System restarts safely.",
+      "failure_injection": "os._exit_after_rename",
+      "evidence": "os.stat raw checks",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "persistence"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-003",
+      "tier": "fault",
+      "title": "Disk-full (ENOSPC) during stage leaves no corrupted commit",
+      "requirements": [
+        "REQ-ART-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault"
+      ],
+      "setup": "Mock os.write to throw IOError(ENOSPC) halfway through staging chunk writes.",
+      "action": "Attempt to stage file.",
+      "oracle": "Commit fails explicitly. Partial temp file is aggressively removed. Final committed digest path `os.path.exists` is false.",
+      "failure_injection": "mock_enospc",
+      "evidence": "os.path.exists checks",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "negative",
+        "atomic"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-004",
+      "tier": "fault",
+      "title": "Partial copy/read interruption aborts staging securely",
+      "requirements": [
+        "REQ-ART-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault"
+      ],
+      "setup": "Stream input generator intentionally throws exception midway through sending payload.",
+      "action": "Staging pipeline processes stream.",
+      "oracle": "Pipeline traps error, cleans up `.tmp` staging file, and aborts before DIGESTED state.",
+      "failure_injection": "stream_read_error",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "negative",
+        "atomic"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-005",
+      "tier": "security",
+      "title": "Path traversal attempts in artifact reference are strictly rejected",
+      "requirements": [
+        "REQ-ART-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security"
+      ],
+      "setup": "Craft malicious artifact reference with digest '../foo'.",
+      "action": "Attempt to resolve and open the artifact.",
+      "oracle": "System strictly rejects the request via regex/path boundary validation. File read never executes.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "negative",
+        "boundary"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-006",
+      "tier": "security",
+      "title": "Symlinks in payload or path are rejected as security violation",
+      "requirements": [
+        "REQ-ART-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security"
+      ],
+      "setup": "Create an OS symlink pointing outside the workspace and pass it as artifact source.",
+      "action": "Attempt to stage artifact.",
+      "oracle": "os.path.islink validation catches symlink and throws SecurityBoundaryError.",
+      "failure_injection": "none",
+      "evidence": "os.path.islink raw check + pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-007",
+      "tier": "security",
+      "title": "Windows junction and reparse points rejected securely",
+      "requirements": [
+        "REQ-ART-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security"
+      ],
+      "setup": "Create Windows junction point in the test payload.",
+      "action": "Attempt to stage artifact.",
+      "oracle": "Windows specific `os.stat().st_file_attributes & stat.FILE_ATTRIBUTE_REPARSE_POINT` detects and aborts.",
+      "failure_injection": "none",
+      "evidence": "raw Windows os.stat bits",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-008",
+      "tier": "security",
+      "title": "Unicode normalization collisions on Windows detected and rejected",
+      "requirements": [
+        "REQ-ART-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security"
+      ],
+      "setup": "Stage a file named with NFC unicode. Attempt to stage same content with NFD unicode equivalent.",
+      "action": "Commit both.",
+      "oracle": "Digests are unique, but Windows FS might fold them. Implementation enforces strictly explicit ASCII hex digests mapping, preventing this entirely.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "negative",
+        "compatibility"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-009",
+      "tier": "immutability",
+      "title": "Tampered blob read detects bit-flip mismatch explicitly",
+      "requirements": [
+        "REQ-ART-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "immutability"
+      ],
+      "setup": "Commit a valid blob. Manually open file on disk and flip one byte.",
+      "action": "Call ArtifactStore.verify() and open_read().",
+      "oracle": "Implementation streams file through hashlib on read, detects mismatch with DB metadata, and throws ArtifactTamperedError immediately.",
+      "failure_injection": "manual_file_edit",
+      "evidence": "raw hashlib mismatch logs",
+      "live_provider": false,
+      "dimensions": [
+        "immutability",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-010",
+      "tier": "immutability",
+      "title": "Zero-byte overwrite of committed artifact detected securely",
+      "requirements": [
+        "REQ-ART-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "immutability"
+      ],
+      "setup": "Commit a valid 5KB blob. Externally truncate file to 0 bytes on disk.",
+      "action": "Call ArtifactStore.open_read().",
+      "oracle": "Size check against metadata catches mismatch before full hash, throwing ArtifactTamperedError.",
+      "failure_injection": "manual_file_truncate",
+      "evidence": "os.stat size vs DB size assertion",
+      "live_provider": false,
+      "dimensions": [
+        "immutability",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-011",
+      "tier": "capacity",
+      "title": "Huge file (>2GB) staging chunking prevents MemoryError (OOM)",
+      "requirements": [
+        "REQ-ART-010"
+      ],
+      "priority": "P0",
+      "markers": [
+        "capacity"
+      ],
+      "setup": "Use synthetic sparse file or stream generator generating 2.1GB of data.",
+      "action": "Stage and commit artifact.",
+      "oracle": "Memory usage profile remains flat (<50MB). File commits successfully. Raw OS stat confirms 2.1GB size.",
+      "failure_injection": "none",
+      "evidence": "psutil memory check + os.stat",
+      "live_provider": false,
+      "dimensions": [
+        "capacity",
+        "positive",
+        "negative"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-012",
+      "tier": "security",
+      "title": "Windows case-insensitive file system collision rejected securely",
+      "requirements": [
+        "REQ-ART-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security"
+      ],
+      "setup": "If digesting relied on names instead of pure hashes, collisions occur. Ensure strict SHA256 hex naming.",
+      "action": "Review layout constraints.",
+      "oracle": "Artifacts are named purely by lowercase SHA256 hex. Impossible to collide on case.",
+      "failure_injection": "none",
+      "evidence": "Design assertion via pytest",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "negative",
+        "compatibility"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-013",
+      "tier": "security",
+      "title": "Windows reserved device names (CON, NUL) strictly rejected",
+      "requirements": [
+        "REQ-ART-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security"
+      ],
+      "setup": "Pass 'CON' and 'NUL' as artifact reference names.",
+      "action": "Attempt to resolve paths.",
+      "oracle": "Validation layer blocks reserved words before hitting OS layer.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "negative",
+        "compatibility"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-014",
+      "tier": "security",
+      "title": "Long paths (>260 chars) on Windows handled gracefully",
+      "requirements": [
+        "REQ-ART-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security"
+      ],
+      "setup": "Construct workspace base path exactly 255 chars long.",
+      "action": "Stage and commit artifact (adding 64 char digest).",
+      "oracle": "System uses Windows `\\\\?\\` long path prefix internally, completing successfully without OS limit crash.",
+      "failure_injection": "none",
+      "evidence": "os.path.exists via long path prefix",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "compatibility"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-015",
+      "tier": "security",
+      "title": "NUL byte in reference filename strictly rejected",
+      "requirements": [
+        "REQ-ART-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security"
+      ],
+      "setup": "Craft artifact reference containing '\\x00'.",
+      "action": "Attempt to resolve path.",
+      "oracle": "Regex blocks NUL byte before OS throws ValueError.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-016",
+      "tier": "concurrency",
+      "title": "Concurrent staging of identical payload across 2 processes fenced cleanly",
+      "requirements": [
+        "REQ-ART-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency"
+      ],
+      "setup": "Spawn 2 multiprocessing.Process instances writing same bytes to ArtifactStore.",
+      "action": "Both stage simultaneously to `.tmp` files.",
+      "oracle": "Both generate unique `.tmp` suffixes (e.g. via mkstemp). Both successfully digest. Only one wins the atomic rename to final digest, the other ignores FileExistsError (idempotent).",
+      "failure_injection": "none",
+      "evidence": "multiprocessing exit codes + os.stat count",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "fencing"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-017",
+      "tier": "idempotency",
+      "title": "Idempotent commit of already existing artifact succeeds seamlessly",
+      "requirements": [
+        "REQ-ART-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "idempotency"
+      ],
+      "setup": "Artifact already committed and VERIFIED.",
+      "action": "Upload identical artifact again.",
+      "oracle": "System recognizes digest matches existing file. Bypasses rewrite, returning existing metadata.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "idempotency",
+        "concurrency"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-018",
+      "tier": "oracle",
+      "title": "Read validation against raw hashlib output strictly matches",
+      "requirements": [
+        "REQ-ART-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "oracle"
+      ],
+      "setup": "Commit a valid blob.",
+      "action": "Run raw Python `hashlib.sha256()` on the physical file.",
+      "oracle": "Raw hashlib output strictly equals the DB metadata digest. No implementation shortcut used.",
+      "failure_injection": "none",
+      "evidence": "hashlib hexdigest assertion",
+      "live_provider": false,
+      "dimensions": [
+        "immutability",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-019",
+      "tier": "oracle",
+      "title": "Read validation confirms OS-level read-only bit on committed blob",
+      "requirements": [
+        "REQ-ART-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "oracle"
+      ],
+      "setup": "Commit a blob.",
+      "action": "Query file attributes.",
+      "oracle": "os.stat confirms `stat.S_IWRITE` is unset (read-only mode 0o444).",
+      "failure_injection": "none",
+      "evidence": "os.stat mode bits",
+      "live_provider": false,
+      "dimensions": [
+        "immutability",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-020",
+      "tier": "state",
+      "title": "State transition STAGED to DIGESTED happens automatically on hash complete",
+      "requirements": [
+        "REQ-ART-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "state-transition"
+      ],
+      "setup": "Open staging stream.",
+      "action": "Finish writing bytes and call close().",
+      "oracle": "State moves STAGED -> DIGESTED immediately.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-transition",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-021",
+      "tier": "state",
+      "title": "State transition DIGESTED to VERIFIED ensures safety before commit",
+      "requirements": [
+        "REQ-ART-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "state-transition"
+      ],
+      "setup": "File is DIGESTED.",
+      "action": "Call verification check.",
+      "oracle": "Artifact internal state strictly transitions from DIGESTED to VERIFIED; subsequent commit API calls are unblocked and OS file locks (if any) are released.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-transition",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-022",
+      "tier": "state",
+      "title": "State transition VERIFIED to COMMITTED wraps atomic file rename",
+      "requirements": [
+        "REQ-ART-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "state-transition"
+      ],
+      "setup": "File is VERIFIED.",
+      "action": "Call commit().",
+      "oracle": "os.rename executes, state enters COMMITTED.",
+      "failure_injection": "none",
+      "evidence": "os.path.exists on final path",
+      "live_provider": false,
+      "dimensions": [
+        "state-transition",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-023",
+      "tier": "state",
+      "title": "Forbidden transition STAGED directly to COMMITTED aborts securely",
+      "requirements": [
+        "REQ-ART-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "state-transition"
+      ],
+      "setup": "File is STAGED.",
+      "action": "Force bypass to call commit().",
+      "oracle": "Throws ForbiddenTransitionError. OS rename never executes.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-transition",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-024",
+      "tier": "idempotency",
+      "title": "Idempotent retry of committed artifact returns existing record entirely from DB",
+      "requirements": [
+        "REQ-ART-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "idempotency"
+      ],
+      "setup": "File COMMITTED. Mock OS filesystem read methods.",
+      "action": "Query artifact commit status.",
+      "oracle": "DB query returns success. Mock OS methods show zero reads triggered.",
+      "failure_injection": "none",
+      "evidence": "mock call count == 0",
+      "live_provider": false,
+      "dimensions": [
+        "idempotency",
+        "concurrency"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-025",
+      "tier": "idempotency",
+      "title": "Duplicate artifact upload results in single blob storage on disk",
+      "requirements": [
+        "REQ-ART-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "duplicate"
+      ],
+      "setup": "Upload identical payload from 5 separate requests sequentially.",
+      "action": "Verify storage space.",
+      "oracle": "Raw `os.listdir` shows exactly one physical file in the artifact directory.",
+      "failure_injection": "none",
+      "evidence": "os.listdir count == 1",
+      "live_provider": false,
+      "dimensions": [
+        "idempotency",
+        "duplicate"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-026",
+      "tier": "immutability",
+      "title": "Positive control for immutability: valid untouched artifact reads fine",
+      "requirements": [
+        "REQ-ART-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "immutability"
+      ],
+      "setup": "Commit completely normal artifact.",
+      "action": "Read thoroughly.",
+      "oracle": "Reads 100% of bytes successfully without Tamper error.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "immutability",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-027",
+      "tier": "security",
+      "title": "Positive control for path traversal: legitimate deep valid path succeeds",
+      "requirements": [
+        "REQ-ART-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security"
+      ],
+      "setup": "Reference is a valid 64-char hex digest string.",
+      "action": "Resolve path.",
+      "oracle": "Path resolves cleanly into the scoped artifact directory without raising Boundary error.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-028",
+      "tier": "integration",
+      "title": "Orphan cleanup routine correctly identifies unreferenced physical blobs",
+      "requirements": [
+        "REQ-ART-009"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration"
+      ],
+      "setup": "Create dummy valid file in artifacts directory manually.",
+      "action": "Run `garbage_collect_orphans()`.",
+      "oracle": "Routine deletes the dummy file since no Core stream Record points to it.",
+      "failure_injection": "none",
+      "evidence": "os.path.exists == False post-GC",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "recovery"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-029",
+      "tier": "integration",
+      "title": "Extension generating artifact cleanly links to ArtifactStore port",
+      "requirements": [
+        "REQ-ART-009"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration"
+      ],
+      "setup": "Mock extension emitting an artifact.",
+      "action": "Host routing hands artifact to ArtifactStore.",
+      "oracle": "Core records the reference exactly matching the emitted hash.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "boundary"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-030",
+      "tier": "fault",
+      "title": "Crash injected during atomic rename rolls back cleanly",
+      "requirements": [
+        "REQ-ART-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "crash"
+      ],
+      "setup": "Mock os.rename to `os._exit(1)` midway.",
+      "action": "Trigger commit.",
+      "oracle": "Process dies. Upon restart, staging file exists in `.tmp`, final file does not. Orphan sweep removes `.tmp`.",
+      "failure_injection": "os._exit_in_rename",
+      "evidence": "os.stat on .tmp and final paths",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "ordering"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-031",
+      "tier": "capacity",
+      "title": "NUL byte within payload content is processed completely correctly",
+      "requirements": [
+        "REQ-ART-010"
+      ],
+      "priority": "P0",
+      "markers": [
+        "capacity"
+      ],
+      "setup": "Payload contains binary `\\x00` bytes internally.",
+      "action": "Stage and commit.",
+      "oracle": "Hashing and OS write succeed seamlessly; no string termination truncates the file.",
+      "failure_injection": "none",
+      "evidence": "os.stat size matches exact binary length",
+      "live_provider": false,
+      "dimensions": [
+        "capacity",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-032",
+      "tier": "capacity",
+      "title": "Empty 0-byte artifact processes as a valid legitimate file",
+      "requirements": [
+        "REQ-ART-010"
+      ],
+      "priority": "P0",
+      "markers": [
+        "capacity"
+      ],
+      "setup": "Stage completely empty string/bytes.",
+      "action": "Commit.",
+      "oracle": "Succeeds. Digest equals SHA256 of empty string (e3b0c44298fc1c14...). File size is 0 bytes.",
+      "failure_injection": "none",
+      "evidence": "hashlib empty string digest assertion",
+      "live_provider": false,
+      "dimensions": [
+        "capacity",
+        "boundary"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-033",
+      "tier": "concurrency",
+      "title": "Read stream blocks or handles concurrent deletion via open file handle safety",
+      "requirements": [
+        "REQ-ART-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency"
+      ],
+      "setup": "Open file for streaming read. While open, trigger GC/delete in separate thread.",
+      "action": "Continue reading.",
+      "oracle": "Windows OS lock prevents deletion of open file, OR Linux inode retention allows read to finish seamlessly. Result: read succeeds.",
+      "failure_injection": "concurrent_delete",
+      "evidence": "Read bytes matched expected completely",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "fencing"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-034",
+      "tier": "fault",
+      "title": "Exception terminal disposition handles missing physical blob gracefully",
+      "requirements": [
+        "REQ-ART-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault"
+      ],
+      "setup": "Core references valid digest. File deleted manually from disk.",
+      "action": "Attempt to read artifact via Core.",
+      "oracle": "Throws explicitly typed ArtifactNotFoundError instead of raw OS FileNotFoundError. State logs warning, does not crash.",
+      "failure_injection": "manual_file_delete",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-035",
+      "tier": "integration",
+      "title": "Corrupted DB metadata still allows blob read if payload hash strictly verifies",
+      "requirements": [
+        "REQ-ART-009"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration"
+      ],
+      "setup": "Delete ArtifactStore local metadata row. File remains on disk.",
+      "action": "Core asks for artifact read.",
+      "oracle": "Store recovers by hashing physical file on demand; matches requested digest, succeeds.",
+      "failure_injection": "manual_db_row_delete",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "recovery"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-036",
+      "tier": "integration",
+      "title": "Missing artifact reference structurally raises domain error",
+      "requirements": [
+        "REQ-ART-009"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration"
+      ],
+      "setup": "Provide invalid digest format.",
+      "action": "Call resolve.",
+      "oracle": "Throws explicit InvalidArtifactReferenceError without touching the file system or executing any OS-level path resolution, returning structurally safe failure.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    }
+  ]
+}

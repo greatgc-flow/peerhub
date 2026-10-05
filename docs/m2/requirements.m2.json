@@ -1,0 +1,376 @@
+{
+  "schema_version": 2,
+  "generated_on": "2026-10-05",
+  "requirements": [
+    {
+      "id": "REQ-EXT-001",
+      "area": "ExtensionHost",
+      "statement": "Core boots normally with zero awareness of Extension modules when all extensions are OFF; Core package import graph statically forbids extension dependencies.",
+      "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
+      "priority": "P0",
+      "tests": [
+        "EXT-001",
+        "EXT-002",
+        "EXT-023"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "negative",
+        "e2e",
+        "integration"
+      ],
+      "risk_tags": [
+        "CORE"
+      ]
+    },
+    {
+      "id": "REQ-EXT-002",
+      "area": "ExtensionHost",
+      "statement": "Extension DB tables are strictly prefixed and isolated; failure during migration leaves the DB in a valid previous state, maintaining durability and backwards compatibility.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "EXT-003",
+        "EXT-008",
+        "EXT-020",
+        "EXT-021"
+      ],
+      "required_dimensions": [
+        "schema",
+        "fault",
+        "recovery",
+        "architecture"
+      ],
+      "risk_tags": [
+        "STORAGE"
+      ]
+    },
+    {
+      "id": "REQ-EXT-003",
+      "area": "ExtensionHost",
+      "statement": "Host schema and config validation strictly rejects unknown, null, missing, or malformed manifests before any runtime execution begins.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "EXT-006",
+        "EXT-007",
+        "EXT-018",
+        "EXT-019",
+        "EXT-024"
+      ],
+      "required_dimensions": [
+        "schema",
+        "negative"
+      ],
+      "risk_tags": [
+        "RUNTIME",
+        "SECURITY"
+      ]
+    },
+    {
+      "id": "REQ-EXT-004",
+      "area": "ExtensionHost",
+      "statement": "Extension lifecycle state machine transitions (DISCOVERED/VALIDATED/ENABLED/DISABLED/FAILED) are strictly enforced; forbidden transitions instantly raise exception.",
+      "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
+      "priority": "P0",
+      "tests": [
+        "EXT-010",
+        "EXT-011",
+        "EXT-022"
+      ],
+      "required_dimensions": [
+        "state-transition",
+        "negative",
+        "restart"
+      ],
+      "risk_tags": [
+        "STATE_MACHINE"
+      ]
+    },
+    {
+      "id": "REQ-EXT-005",
+      "area": "ExtensionHost",
+      "statement": "Disabling or rebuilding an extension removes it from the runtime registry and clears caches, but securely preserves all authoritative extension DB tables and data.",
+      "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
+      "priority": "P0",
+      "tests": [
+        "EXT-004",
+        "EXT-012",
+        "EXT-016"
+      ],
+      "required_dimensions": [
+        "state-transition",
+        "boundary",
+        "restart"
+      ],
+      "risk_tags": [
+        "DATA_INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-EXT-006",
+      "area": "ExtensionHost",
+      "statement": "Concurrent interactions with the extension registry (enable, disable, read during migration) are strictly fenced to prevent torn state.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "EXT-005",
+        "EXT-017"
+      ],
+      "required_dimensions": [
+        "concurrency",
+        "positive"
+      ],
+      "risk_tags": [
+        "CONCURRENCY"
+      ]
+    },
+    {
+      "id": "REQ-EXT-007",
+      "area": "ExtensionHost",
+      "statement": "Extension hook exceptions and missing dependencies yield defined terminal dispositions without unhandled aborts in the Core host.",
+      "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
+      "priority": "P0",
+      "tests": [
+        "EXT-013",
+        "EXT-014"
+      ],
+      "required_dimensions": [
+        "negative",
+        "fault"
+      ],
+      "risk_tags": [
+        "CRASH"
+      ]
+    },
+    {
+      "id": "REQ-EXT-008",
+      "area": "ExtensionHost",
+      "statement": "Extension enablement and registration are strictly idempotent; repeating identical operations returns the existing state securely.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "EXT-009",
+        "EXT-015"
+      ],
+      "required_dimensions": [
+        "idempotency",
+        "retry"
+      ],
+      "risk_tags": [
+        "DUPLICATE"
+      ]
+    },
+    {
+      "id": "REQ-ART-001",
+      "area": "ArtifactStore",
+      "statement": "Artifact blob is fully durable on disk at its verified path before any durable Record reference is committed to the Core stream.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ART-001",
+        "ART-002",
+        "ART-030"
+      ],
+      "required_dimensions": [
+        "ordering",
+        "persistence",
+        "crash"
+      ],
+      "risk_tags": [
+        "STORAGE",
+        "CRASH"
+      ]
+    },
+    {
+      "id": "REQ-ART-002",
+      "area": "ArtifactStore",
+      "statement": "Artifact commits are atomic; failures such as ENOSPC (disk-full), partial copies, or read errors leave no corrupted blob under a valid digest.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ART-003",
+        "ART-004",
+        "ART-034"
+      ],
+      "required_dimensions": [
+        "fault",
+        "atomic",
+        "negative"
+      ],
+      "risk_tags": [
+        "CRASH",
+        "DATA_INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-ART-003",
+      "area": "ArtifactStore",
+      "statement": "Artifact storage enforces a strict security trust boundary rejecting path traversals, symlinks, Windows junctions, and reparse points.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ART-005",
+        "ART-006",
+        "ART-007",
+        "ART-027"
+      ],
+      "required_dimensions": [
+        "security",
+        "negative",
+        "boundary",
+        "positive"
+      ],
+      "risk_tags": [
+        "SECURITY"
+      ]
+    },
+    {
+      "id": "REQ-ART-004",
+      "area": "ArtifactStore",
+      "statement": "Artifact reference names reject malformed and hostile inputs: unicode normalizations, NUL bytes, case-insensitive collisions, >260 char long paths, and Windows reserved device names (CON, NUL, etc.).",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ART-008",
+        "ART-012",
+        "ART-013",
+        "ART-014",
+        "ART-015"
+      ],
+      "required_dimensions": [
+        "security",
+        "negative",
+        "compatibility"
+      ],
+      "risk_tags": [
+        "SECURITY",
+        "OS_BOUNDARY"
+      ]
+    },
+    {
+      "id": "REQ-ART-005",
+      "area": "ArtifactStore",
+      "statement": "Read verification fails explicitly if disk content is tampered with (bit flips, zero-byte overwrite) after atomic commit.",
+      "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
+      "priority": "P0",
+      "tests": [
+        "ART-009",
+        "ART-010",
+        "ART-018",
+        "ART-019",
+        "ART-026"
+      ],
+      "required_dimensions": [
+        "immutability",
+        "negative",
+        "positive"
+      ],
+      "risk_tags": [
+        "DATA_INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-ART-006",
+      "area": "ArtifactStore",
+      "statement": "Identical artifact content commits and uploads are fully idempotent, returning the existing reference seamlessly without redundant IO.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ART-017",
+        "ART-024",
+        "ART-025"
+      ],
+      "required_dimensions": [
+        "idempotency",
+        "duplicate",
+        "concurrency"
+      ],
+      "risk_tags": [
+        "DUPLICATE"
+      ]
+    },
+    {
+      "id": "REQ-ART-007",
+      "area": "ArtifactStore",
+      "statement": "Concurrent staging, committing, and deletion of identical artifacts across multiple processes are heavily fenced and result in a single valid artifact state.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ART-016",
+        "ART-033"
+      ],
+      "required_dimensions": [
+        "concurrency",
+        "fencing"
+      ],
+      "risk_tags": [
+        "CONCURRENCY"
+      ]
+    },
+    {
+      "id": "REQ-ART-008",
+      "area": "ArtifactStore",
+      "statement": "Artifact lifecycle state transitions (STAGED/DIGESTED/VERIFIED/COMMITTED/REFERENCED/TAMPERED/ORPHANED) enforce linear progression and strictly forbid skip transitions.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ART-020",
+        "ART-021",
+        "ART-022",
+        "ART-023"
+      ],
+      "required_dimensions": [
+        "state-transition",
+        "positive",
+        "negative"
+      ],
+      "risk_tags": [
+        "STATE_MACHINE"
+      ]
+    },
+    {
+      "id": "REQ-ART-009",
+      "area": "ArtifactStore",
+      "statement": "Orphaned artifacts without Core references are securely garbage-collected, and references pointing to missing artifacts resolve into defined errors without unhandled crash.",
+      "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
+      "priority": "P0",
+      "tests": [
+        "ART-028",
+        "ART-029",
+        "ART-035",
+        "ART-036"
+      ],
+      "required_dimensions": [
+        "integration",
+        "boundary",
+        "recovery",
+        "negative"
+      ],
+      "risk_tags": [
+        "DATA_INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-ART-010",
+      "area": "ArtifactStore",
+      "statement": "Large artifacts (e.g. >2GB), 0-byte artifacts, and payload data with internal NUL bytes are staged via chunking safely against MemoryError (OOM) and format corruption.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ART-011",
+        "ART-031",
+        "ART-032"
+      ],
+      "required_dimensions": [
+        "capacity",
+        "positive",
+        "negative",
+        "boundary"
+      ],
+      "risk_tags": [
+        "CAPACITY"
+      ]
+    }
+  ]
+}

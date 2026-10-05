@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "entities": {
+    "Extension": {
+      "states": ["DISCOVERED", "VALIDATED", "ENABLED", "DISABLED", "FAILED", "MIGRATING"],
+      "transitions": [
+        {"from": "DISCOVERED", "to": "VALIDATED", "allowed": true, "tests": ["EXT-007"]},
+        {"from": "DISCOVERED", "to": "FAILED", "allowed": true, "tests": ["EXT-022"]},
+        {"from": "VALIDATED", "to": "ENABLED", "allowed": true, "tests": ["GAP-EXT-TRANS-01"]},
+        {"from": "ENABLED", "to": "DISABLED", "allowed": true, "tests": ["EXT-004"]},
+        {"from": "DISABLED", "to": "ENABLED", "allowed": true, "tests": ["GAP-EXT-TRANS-02"]},
+        {"from": "ENABLED", "to": "MIGRATING", "allowed": true, "tests": ["EXT-020"]},
+        {"from": "MIGRATING", "to": "ENABLED", "allowed": true, "tests": ["EXT-020"]},
+        {"from": "MIGRATING", "to": "FAILED", "allowed": true, "tests": ["EXT-008"]},
+        {"from": "ENABLED", "to": "FAILED", "allowed": true, "tests": ["EXT-013"]},
+        {"from": "ENABLED", "to": "VALIDATED", "allowed": false, "tests": ["EXT-010"]},
+        {"from": "FAILED", "to": "ENABLED", "allowed": false, "tests": ["EXT-011"]}
+      ],
+      "gaps": [
+        "GAP-EXT-TRANS-01: VALIDATED -> ENABLED: Needs test coverage for nominal enablement after valid discovery.",
+        "GAP-EXT-TRANS-02: DISABLED -> ENABLED: Needs test coverage for re-enabling a previously disabled extension."
+      ]
+    },
+    "Artifact": {
+      "states": ["STAGED", "DIGESTED", "VERIFIED", "COMMITTED", "REFERENCED", "TAMPERED", "ORPHANED"],
+      "transitions": [
+        {"from": "STAGED", "to": "DIGESTED", "allowed": true, "tests": ["ART-020"]},
+        {"from": "DIGESTED", "to": "VERIFIED", "allowed": true, "tests": ["ART-021"]},
+        {"from": "VERIFIED", "to": "COMMITTED", "allowed": true, "tests": ["ART-022"]},
+        {"from": "COMMITTED", "to": "REFERENCED", "allowed": true, "tests": ["ART-029"]},
+        {"from": "COMMITTED", "to": "TAMPERED", "allowed": true, "tests": ["ART-009", "ART-010"]},
+        {"from": "COMMITTED", "to": "ORPHANED", "allowed": true, "tests": ["ART-028"]},
+        {"from": "STAGED", "to": "COMMITTED", "allowed": false, "tests": ["ART-023"]},
+        {"from": "DIGESTED", "to": "COMMITTED", "allowed": false, "tests": ["GAP-ART-TRANS-01"]},
+        {"from": "TAMPERED", "to": "VERIFIED", "allowed": false, "tests": ["GAP-ART-TRANS-02"]}
+      ],
+      "gaps": [
+        "GAP-ART-TRANS-01: DIGESTED -> COMMITTED (Forbidden): Needs test proving commit fails if verification was skipped.",
+        "GAP-ART-TRANS-02: TAMPERED -> VERIFIED (Forbidden): Needs test proving a tampered file cannot be re-verified without re-staging."
+      ]
+    }
+  }
+}
