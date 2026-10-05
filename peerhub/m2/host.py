@@ -3,17 +3,52 @@
 Adheres strictly to M2_0_EXTENSION_HOST_CONTRACT.md:
 - SQLite WAL transaction isolation for extension schemas
 - Strict prefix enforcement: all extension tables must begin with 'ext_' (or 'm2_')
+- Complete state machine and lifecycle management: DISCOVERED, VALIDATED, ENABLED, DISABLED, FAILED, MIGRATING
+- Dynamic loading and isolation, module eviction on disable
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import sqlite3
+import sys
+from typing import Any, ClassVar
+
+from peerhub.m2.manifest import ExtensionManifest, SchemaValidationError, validate_manifest
 
 
-class SchemaPrefixViolationError(ValueError):
+class ExtensionError(Exception):
+    """Base exception for Extension Host errors."""
+
+
+class SchemaPrefixViolationError(ExtensionError, ValueError):
     """Extension attempted to create or alter an unprefixed database table."""
+
+
+class ForbiddenTransitionError(ExtensionError, RuntimeError):
+    """Attempting an invalid state machine transition."""
+
+
+class MissingDependencyError(ExtensionError, RuntimeError):
+    """Extension requires an unavailable or disabled dependency."""
+
+
+class RegistrationConflictError(ExtensionError, ValueError):
+    """Two extensions claim the same ID."""
+
+
+class DowngradeNotSupportedError(ExtensionError, RuntimeError):
+    """Schema version loaded is older than DB version."""
+
+
+class MigrationCrashError(ExtensionError, RuntimeError):
+    """Process forcefully died mid-migration."""
+
+
+class ExtensionHookError(ExtensionError, RuntimeError):
+    """User extension callback throws unhandled exception."""
 
 
 CREATE_TABLE_PATTERN = re.compile(
@@ -25,9 +60,26 @@ CREATE_TABLE_PATTERN = re.compile(
 class ExtensionHost:
     """Core extension host managing discovery, lifecycle, and schema boundaries."""
 
-    def __init__(self, db_path: Path | str) -> None:
+    ALLOWED_TRANSITIONS: ClassVar[set[tuple[str, str]]] = {
+        ("DISCOVERED", "VALIDATED"),
+        ("DISCOVERED", "FAILED"),
+        ("VALIDATED", "ENABLED"),
+        ("VALIDATED", "FAILED"),
+        ("ENABLED", "DISABLED"),
+        ("DISABLED", "ENABLED"),
+        ("ENABLED", "MIGRATING"),
+        ("MIGRATING", "ENABLED"),
+        ("MIGRATING", "FAILED"),
+        ("ENABLED", "FAILED"),
+    }
+
+    def __init__(self, db_path: Path | str, extensions_dir: Path | str | None = None) -> None:
         self.db_path = Path(db_path).resolve()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.extensions_dir = Path(extensions_dir).resolve() if extensions_dir else None
+        self.manifests: dict[str, ExtensionManifest] = {}
+        self.manifest_dirs: dict[str, Path] = {}
+        self.loaded_modules: dict[str, Any] = {}
         self._init_db()
 
     def _init_db(self) -> None:
@@ -45,6 +97,144 @@ class ExtensionHost:
                 installed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
             """)
+
+    def register_manifest(self, manifest: ExtensionManifest, path: Path | str) -> None:
+        """Register an extension manifest into host memory index and database registry."""
+        ext_dir = Path(path).resolve()
+        ext_id = manifest.id
+
+        if ext_id in self.manifests and self.manifests[ext_id] != manifest:
+            raise RegistrationConflictError(
+                f"Extension ID {ext_id!r} already registered with different manifest"
+            )
+
+        self.manifests[ext_id] = manifest
+        self.manifest_dirs[ext_id] = ext_dir
+
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT state, schema_version FROM m2_extension_registry WHERE id = ?",
+                (ext_id,),
+            ).fetchone()
+            if row is None:
+                conn.execute(
+                    """
+                    INSERT INTO m2_extension_registry (id, version, entrypoint, state, schema_version, metadata_json)
+                    VALUES (?, ?, ?, 'DISCOVERED', 1, ?)
+                    """,
+                    (ext_id, manifest.version, manifest.entrypoint, manifest.model_dump_json()),
+                )
+
+    def discover(self, path: Path | str) -> ExtensionManifest:
+        """Scan a directory for manifest.json, validate it, and register it."""
+        dir_path = Path(path).resolve()
+        manifest_file = dir_path / "manifest.json"
+        if not manifest_file.is_file():
+            raise FileNotFoundError(f"Manifest not found in {dir_path}")
+
+        try:
+            raw_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise SchemaValidationError(f"Invalid JSON in manifest: {e}") from e
+
+        manifest = validate_manifest(raw_data)
+        self.register_manifest(manifest, dir_path)
+        return manifest
+
+    def get_state(self, ext_id: str) -> str:
+        """Get the current lifecycle state of an extension from the database registry."""
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT state FROM m2_extension_registry WHERE id = ?",
+                (ext_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"Extension {ext_id!r} not found in registry")
+            return row[0]
+
+    def transition(self, ext_id: str, target_state: str) -> str:
+        """Transition an extension to a target state, enforcing the lifecycle state machine."""
+        current_state = self.get_state(ext_id)
+        if current_state == target_state:
+            return current_state
+
+        if (current_state, target_state) not in self.ALLOWED_TRANSITIONS:
+            raise ForbiddenTransitionError(
+                f"Forbidden transition from {current_state} to {target_state} for extension {ext_id!r}"
+            )
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "UPDATE m2_extension_registry SET state = ? WHERE id = ?",
+                (target_state, ext_id),
+            )
+        return target_state
+
+    def enable(self, ext_id: str) -> str:
+        """Enable an extension, resolving dependencies and dynamically loading its module."""
+        current_state = self.get_state(ext_id)
+        if current_state == "ENABLED":
+            return "ENABLED"
+
+        if current_state == "FAILED":
+            raise ForbiddenTransitionError(f"Cannot enable extension {ext_id!r} directly from FAILED state")
+
+        manifest = self.manifests.get(ext_id)
+        if manifest:
+            # Verify dependencies
+            for dep_id in manifest.dependencies:
+                try:
+                    dep_state = self.get_state(dep_id)
+                    if dep_state != "ENABLED":
+                        self.transition(ext_id, "FAILED")
+                        raise MissingDependencyError(
+                            f"Required dependency {dep_id!r} for {ext_id!r} is not enabled (state: {dep_state})"
+                        )
+                except KeyError:
+                    self.transition(ext_id, "FAILED")
+                    raise MissingDependencyError(
+                        f"Required dependency {dep_id!r} for {ext_id!r} is not installed"
+                    )
+
+        if current_state == "DISCOVERED":
+            self.transition(ext_id, "VALIDATED")
+            self.transition(ext_id, "ENABLED")
+        elif current_state in ("DISABLED", "VALIDATED"):
+            self.transition(ext_id, "ENABLED")
+
+        # Load entrypoint into sys.modules and self.loaded_modules
+        if manifest and ext_id in self.manifest_dirs:
+            ext_dir = self.manifest_dirs[ext_id]
+            entrypoint_path = ext_dir / manifest.entrypoint
+            if entrypoint_path.is_file():
+                import importlib.util
+
+                spec = importlib.util.spec_from_file_location(ext_id, entrypoint_path)
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[ext_id] = module
+                    spec.loader.exec_module(module)
+                    self.loaded_modules[ext_id] = module
+
+        return "ENABLED"
+
+    def disable(self, ext_id: str) -> str:
+        """Disable an extension, unloading module and unbinding hooks while strictly preserving tables."""
+        current_state = self.get_state(ext_id)
+        if current_state == "DISABLED":
+            return "DISABLED"
+
+        if current_state == "FAILED":
+            raise ForbiddenTransitionError(f"Cannot disable extension {ext_id!r} from FAILED state")
+
+        self.transition(ext_id, "DISABLED")
+
+        if ext_id in self.loaded_modules:
+            del self.loaded_modules[ext_id]
+        if ext_id in sys.modules:
+            del sys.modules[ext_id]
+
+        return "DISABLED"
 
     def apply_extension_schema(self, ext_id: str, sql: str) -> None:
         """Apply an extension schema migration under strict table prefix enforcement."""

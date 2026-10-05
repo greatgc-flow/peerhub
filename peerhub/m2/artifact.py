@@ -171,6 +171,27 @@ class ArtifactStore:
 
         return data
 
+    def sweep_staging(self, max_age_seconds: float = 86400.0) -> list[Path]:
+        """Sweep stranded temporary staging files in .tmp older than max_age_seconds."""
+        import time
+
+        removed: list[Path] = []
+        if not self.tmp_dir.exists():
+            return removed
+
+        now = time.time()
+        for item in self.tmp_dir.iterdir():
+            if item.is_file():
+                try:
+                    mtime = item.stat().st_mtime
+                    if (now - mtime) >= max_age_seconds:
+                        item.unlink()
+                        removed.append(item)
+                except OSError:
+                    # File may be locked by another process or concurrently deleted
+                    pass
+        return removed
+
 
 from dataclasses import dataclass
 
