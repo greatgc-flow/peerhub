@@ -572,6 +572,114 @@
       "risk_tags": [
         "REBUILDABILITY"
       ]
+    },
+    {
+      "id": "REQ-EVL-001",
+      "area": "EvalTelemetry",
+      "statement": "Execution trace capture produces immutable, structured spans with deterministic provenance and timestamps.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "EVL-001"
+      ],
+      "required_dimensions": [
+        "trace",
+        "immutability"
+      ],
+      "risk_tags": [
+        "OBSERVABILITY"
+      ]
+    },
+    {
+      "id": "REQ-EVL-002",
+      "area": "EvalTelemetry",
+      "statement": "Evaluation datasets are stored as Artifacts with cryptographic digests, verifiable via ArtifactStore.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "EVL-002"
+      ],
+      "required_dimensions": [
+        "storage",
+        "artifact"
+      ],
+      "risk_tags": [
+        "DATASET"
+      ]
+    },
+    {
+      "id": "REQ-EVL-003",
+      "area": "EvalTelemetry",
+      "statement": "Deterministic evaluators execute against traces and datasets, outputting versioned evaluation reports with evidence and metrics.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "EVL-003",
+        "EVL-004",
+        "EVL-006"
+      ],
+      "required_dimensions": [
+        "determinism",
+        "evaluation"
+      ],
+      "risk_tags": [
+        "QUALITY"
+      ]
+    },
+    {
+      "id": "REQ-EVL-004",
+      "area": "EvalTelemetry",
+      "statement": "Invariant 12: Eval/Telemetry results never become collaboration truth or bypass CoreStore authorization.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "EVL-005"
+      ],
+      "required_dimensions": [
+        "isolation",
+        "security"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-EVL-005",
+      "area": "EvalTelemetry",
+      "statement": "Feedback signal from failed evaluation closes the loop into actionable regression test cases without corrupting authoritative state.",
+      "source": "09_ROADMAP/PEERHUB_MASTER_ROADMAP_KO.md",
+      "priority": "P0",
+      "tests": [
+        "EVL-007",
+        "EVL-010"
+      ],
+      "required_dimensions": [
+        "feedback",
+        "regression"
+      ],
+      "risk_tags": [
+        "FEEDBACK_LOOP"
+      ]
+    },
+    {
+      "id": "REQ-EVL-006",
+      "area": "EvalTelemetry",
+      "statement": "Telemetry exporter functions as an export-only sink whose failures are strictly isolated and never crash core storage or work transitions.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "EVL-008",
+        "EVL-009",
+        "EVL-011",
+        "EVL-012"
+      ],
+      "required_dimensions": [
+        "export_only",
+        "fault_isolation"
+      ],
+      "risk_tags": [
+        "FAILURE_ISOLATION"
+      ]
     }
   ]
 }
