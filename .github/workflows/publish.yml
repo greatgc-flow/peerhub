@@ -124,16 +124,16 @@ jobs:
         run: python -u -m pytest -q -m live --junitxml=junit/g3.xml tests/m1/live
       - name: Run paid/live legacy release gate
         run: |
-          python -u -m pytest -q -m slow
-          python -u -m pytest -q -m e2e
+          python -u -m pytest -q -m slow --junitxml=junit/g3-slow.xml
+          python -u -m pytest -q -m e2e --junitxml=junit/g3-e2e.xml
       - name: Bind G3 JUnit to the cutover candidate (source, selector, policy, gate definitions)
         if: always()
-        run: python -m tools.m1_release_evidence --stamp-junit junit/g3.xml --commit "$(git rev-parse HEAD)"
+        run: python -m tools.m1_release_evidence --stamp-junit junit/g3.xml --stamp-junit junit/g3-slow.xml --stamp-junit junit/g3-e2e.xml --commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: junit-g3
-          path: junit/g3.xml
+          path: junit/g3*.xml
 
   build:
     # G4 package (wheel/sdist/runtime-data/clean-install/support-matrix/restart)
@@ -229,7 +229,7 @@ jobs:
           path: junit/
           merge-multiple: true
       - name: Generate release evidence bundle
-        run: python -m tools.m1_release_evidence --junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g4.xml --dist dist --out evidence --commit "$(git rev-parse HEAD)" --candidate --policy-file docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json
+        run: python -m tools.m1_release_evidence --junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml --dist dist --out evidence --commit "$(git rev-parse HEAD)" --candidate --policy-file docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json --release-policy docs/m1_impl/release-policy.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:

@@ -112,3 +112,35 @@ def test_cut_007_rollback_flip_both_ways_leaves_the_populated_m1_store_untouched
     assert all(len(set(v)) == 1 and v[0].strip() for v in outs.values())  # same answers before and after the flips
     assert "peer:a" in outs[("peer", "get", "--id", "peer:a")][0]
     assert tree(work) == []  # the flip itself created no file anywhere in the working directory
+
+
+_PROBE = ("import sys, json\nfrom peerhub.cli import main\n"
+          "try:\n    code = main(sys.argv[1:])\nexcept SystemExit as e:\n    code = e.code\n"
+          "print(json.dumps({'code': code, 'legacy': sorted(m for m in sys.modules if m == 'peerhub.cli._legacy' or m.startswith('peerhub.cli.commands'))}), file=sys.stderr)\n")
+
+
+def probe(args, cwd, **env):
+    cp = subprocess.run(
+        [sys.executable, "-c", _PROBE, *args], cwd=str(cwd), capture_output=True, text=True, timeout=120,
+        env={**{k: v for k, v in os.environ.items() if not k.startswith("PEERHUB_CLI")}, "PYTHONPATH": str(REPO), **env})
+    import json
+    return json.loads(cp.stderr.strip().splitlines()[-1]), cp
+
+
+@pytest.mark.parametrize("env,args", [({"PEERHUB_CLI": "m1"}, ["--help"]), ({"PEERHUB_CLI": "bogus"}, ["--help"])])
+def test_cut_008_non_legacy_selectors_never_import_the_legacy_cli(tmp_path, env, args):
+    rep, cp = probe(args, tmp_path, **env)
+    assert rep["legacy"] == [], rep
+    assert rep["code"] in (0, 2)
+
+
+def test_cut_009_legacy_selector_loads_the_legacy_cli_and_compat_paths_still_work(tmp_path):
+    rep, _ = probe(["--version"], tmp_path)
+    assert rep["code"] == 0 and "peerhub.cli._legacy" in rep["legacy"]  # positive control for the probe above
+    code = ("from unittest.mock import patch\nimport peerhub.cli as c\nfrom peerhub.cli import get_cli_version, create_runtime\n"
+            "import peerhub.cli._legacy as L\nassert get_cli_version is L.get_cli_version\n"
+            "with patch('peerhub.cli.get_cli_version', lambda: 'X'):\n    assert L.get_cli_version() == 'X'\n"
+            "assert L.get_cli_version is get_cli_version\nprint('ok')\n")
+    cp = subprocess.run([sys.executable, "-c", code], cwd=str(tmp_path), capture_output=True, text=True,
+                        env={**os.environ, "PYTHONPATH": str(REPO)})
+    assert cp.stdout.strip() == "ok", cp.stderr

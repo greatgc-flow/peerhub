@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "policy_ttl_seconds": 604800,
+  "proposed_by": "implementation, owner to confirm",
+  "note": "Maximum age in seconds of cutover gate evidence (the spec policy gate-evidence-policy.json leaves the threshold external). Read only by tools/m1_release_evidence.py --release-policy."
+}

@@ -507,13 +507,13 @@
     },
     {
       "path": "08_LIFECYCLE/gate-evidence-policy.json",
-      "bytes": 1092,
-      "sha256": "6f1681ea551d5372bc3348484f1b8d92f3a4ba33421c74e3e36bb208e07152bf"
+      "bytes": 1060,
+      "sha256": "96fa73b7cf88e92b1d0a9189cc2cf03548e8cefc9f60c7ce644017c488019882"
     },
     {
       "path": "08_LIFECYCLE/gate-evidence-policy.schema.json",
-      "bytes": 2050,
-      "sha256": "6906e7a2cb60386add2064fccd2363554516bb1085c3fb80c4985e6361f0cf75"
+      "bytes": 1971,
+      "sha256": "d13ec8a656c367487445afbb0e23cc2be5aa3dc41cc1c39e05e2b3b2cad59137"
     },
     {
       "path": "08_LIFECYCLE/release-gates.json",

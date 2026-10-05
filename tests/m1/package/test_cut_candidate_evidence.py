@@ -20,6 +20,8 @@ pytestmark = [pytest.mark.package, pytest.mark.evidence]
 SHA = "a" * 40
 NOW = datetime(2026, 10, 1, 12, 0, 0, tzinfo=timezone.utc)
 POLICY = REPO / ev.POLICY_REL
+RELEASE_POLICY = REPO / "docs/m1_impl/release-policy.json"
+TTL = json.loads(RELEASE_POLICY.read_text(encoding="utf-8"))["policy_ttl_seconds"]
 VERSION = ev.source_version(REPO)
 
 
@@ -30,8 +32,16 @@ def make_dist(path, payload=b"wheel-bytes"):
     return path
 
 
-def policy_with(tmp_path, name, ttl="keep", **over):
+def policy_with(tmp_path, name, **over):
     p = json.loads(POLICY.read_text(encoding="utf-8"))
+    p.update(over)
+    f = tmp_path / name
+    f.write_text(json.dumps(p, indent=2), encoding="utf-8")
+    return f
+
+
+def release_policy(tmp_path, name, ttl="keep", **over):
+    p = json.loads(RELEASE_POLICY.read_text(encoding="utf-8"))
     if ttl is None:
         p.pop("policy_ttl_seconds", None)
     elif ttl != "keep":
@@ -71,7 +81,7 @@ class Env:
     def manifest(self, junits, **kw):
         kw.setdefault("commit", SHA)
         return ev.build_manifest(repo_root=REPO, junit_paths=junits, dist_dir=self.dist, candidate=True, policy_path=kw.pop("policy", self.policy),
-                                 now=NOW, **kw)
+                                 release_policy=kw.pop("release", RELEASE_POLICY), now=NOW, **kw)
 
 
 @pytest.fixture
@@ -92,7 +102,7 @@ def test_cut_010_positive_control_current_bound_all_green_is_release_ready(env):
 
 
 def test_cut_011_stale_evidence_holds_with_an_explicit_reason(env):
-    ttl = json.loads(POLICY.read_text(encoding="utf-8"))["policy_ttl_seconds"]
+    ttl = TTL
     m = env.manifest([env.evidence(age=ttl + 1)])
     assert m["release_ready"] is False and "is stale" in holds(m) and "j1.xml" in holds(m) and str(ttl) in holds(m)
     assert m["evidence_bindings"][0]["status"] == "stale"
@@ -109,7 +119,7 @@ def test_cut_012_evidence_for_another_candidate_is_rejected(env, tmp_path, what,
     elif what == "selector":
         j = env.evidence(repo=alt_repo(tmp_path))
     else:
-        j = env.evidence(policy=policy_with(tmp_path, "other-policy.json", ttl=604800, on_timeout="ESCALATE"))
+        j = env.evidence(policy=policy_with(tmp_path, "other-policy.json", on_timeout="ESCALATE"))
     m = env.manifest([j])
     assert m["release_ready"] is False and "different candidate" in holds(m) and field in holds(m), m["blockers"][:3]
     assert m["evidence_bindings"][0]["status"] == "mismatched"
@@ -139,26 +149,22 @@ def test_cut_014_skipped_failed_and_unbound_evidence_is_never_a_pass(env, kind):
     assert m["release_ready"] is False
 
 
-def test_cut_015_threshold_is_policy_driven_same_evidence_flips(env, tmp_path):
-    age = 7200
-    j = env.evidence(age=age, policy=env.policy)
-    short = policy_with(tmp_path, "short.json", ttl=3600)
-    long = policy_with(tmp_path, "long.json", ttl=86400)
-    # the policy file hash is part of the candidate: stamp for each policy so only the threshold differs
-    js = env.evidence(age=age, policy=short)
-    jl = env.evidence(age=age, policy=long)
-    assert env.manifest([js], policy=short)["release_ready"] is False
-    assert "is stale" in holds(env.manifest([js], policy=short))
-    assert env.manifest([jl], policy=long)["release_ready"] is True
-    assert env.manifest([j], policy=long)["evidence_bindings"][0]["status"] == "mismatched"  # evidence minted under another policy
+def test_cut_015_threshold_is_release_policy_driven_same_evidence_flips(env, tmp_path):
+    j = env.evidence(age=7200)  # one piece of evidence, two release policies
+    short = release_policy(tmp_path, "short.json", ttl=3600)
+    long = release_policy(tmp_path, "long.json", ttl=86400)
+    assert env.manifest([j], release=short)["release_ready"] is False
+    assert "is stale" in holds(env.manifest([j], release=short))
+    assert env.manifest([j], release=long)["release_ready"] is True
 
 
-def test_cut_016_policy_without_a_threshold_cannot_establish_freshness(env, tmp_path):
-    none = policy_with(tmp_path, "nottl.json", ttl=None)
-    m = env.manifest([env.evidence(age=1, policy=none)], policy=none)
-    assert m["release_ready"] is False and "policy_ttl_seconds" in holds(m)
-    bad = policy_with(tmp_path, "zero.json", ttl=0)
-    assert env.manifest([env.evidence(age=1, policy=bad)], policy=bad)["release_ready"] is False
+@pytest.mark.parametrize("ttl", [None, 0, -5, "3600", True])
+def test_cut_016_missing_or_invalid_release_policy_threshold_is_refused(env, tmp_path, ttl):
+    bad = release_policy(tmp_path, "bad.json", ttl=ttl)
+    with pytest.raises(ValueError, match="policy_ttl_seconds"):
+        env.manifest([env.evidence(age=1)], release=bad)
+    with pytest.raises(ValueError, match="--release-policy"):
+        env.manifest([env.evidence(age=1)], release=None)
 
 
 def test_cut_017_candidate_id_is_deterministic_and_sensitive_to_every_field(env):
@@ -181,27 +187,157 @@ def test_cut_018_manifest_without_candidate_mode_is_unchanged(env):
 
 def test_cut_019_cli_flow_stamp_then_candidate_with_policy_file(env, tmp_path):
     j = junit(tmp_path / "g.xml", {i: "passed" for i in all_ids(live=True)})
+    rp = ["--release-policy", str(RELEASE_POLICY)]
     run = lambda *a: subprocess.run([sys.executable, "-m", "tools.m1_release_evidence", *a], cwd=REPO, capture_output=True, text=True)
     assert run("--stamp-junit", str(j), "--commit", SHA, "--dist", str(env.dist)).returncode == 0
-    ok = run("--junit", str(j), "--dist", str(env.dist), "--out", str(tmp_path / "o1"), "--commit", SHA, "--candidate", "--policy-file", str(POLICY))
+    ok = run("--junit", str(j), "--dist", str(env.dist), "--out", str(tmp_path / "o1"), "--commit", SHA, "--candidate", "--policy-file", str(POLICY), *rp)
     assert ok.returncode == 0, ok.stdout + ok.stderr
     assert json.loads((tmp_path / "o1/evidence.json").read_text(encoding="utf-8"))["candidate"]["source_revision"] == SHA
-    other = run("--junit", str(j), "--dist", str(env.dist), "--out", str(tmp_path / "o2"), "--commit", "d" * 40, "--candidate")
+    other = run("--junit", str(j), "--dist", str(env.dist), "--out", str(tmp_path / "o2"), "--commit", "d" * 40, "--candidate", *rp)
     assert other.returncode == 1 and "different candidate" in other.stdout
     assert run("--ttl-seconds", "5").returncode == 2  # no time threshold on the command line
+    no_rp = run("--junit", str(j), "--dist", str(env.dist), "--out", str(tmp_path / "o3"), "--commit", SHA, "--candidate")
+    assert no_rp.returncode == 2 and "--release-policy" in no_rp.stderr  # no threshold default in code
+    missing = run("--stamp-junit", str(tmp_path / "nope.xml"), "--commit", SHA)
+    assert missing.returncode == 0 and "was not produced" in missing.stderr  # a gate that wrote no junit must not crash the stamp step
 
 
 def test_cut_020_no_hard_coded_time_threshold_in_the_tool():
     src = (REPO / "tools/m1_release_evidence.py").read_text(encoding="utf-8")
-    ttl = json.loads(POLICY.read_text(encoding="utf-8"))["policy_ttl_seconds"]
+    ttl = TTL
     assert str(ttl) not in src and "--ttl" not in src and not re.search(r"timedelta\(|\b(3600|86400|604800)\b", src)
+
+
+GATE_JOBS = (("gate-g0-fast", ["g0"]), ("gate-g1-core", ["g1"]), ("gate-g2-m1", ["g2"]), ("live-validation", ["g3", "g3-slow", "g3-e2e"]),
+             ("build", ["g4"]))
+
+
+def workflow_problems(wf):
+    """Structural contract of publish.yml for candidate evidence; returns human-readable problems (empty = ok)."""
+    bad = []
+    ev_run = next((st["run"] for st in wf["jobs"]["release-evidence"]["steps"] if "m1_release_evidence" in st.get("run", "")), "")
+    for need in ("--candidate", f"--policy-file {ev.POLICY_REL}", "--release-policy docs/m1_impl/release-policy.json"):
+        if need not in ev_run:
+            bad.append(f"evidence step lacks {need}")
+    if "--ttl" in ev_run:
+        bad.append("evidence step passes a ttl")
+    for job, names in GATE_JOBS:
+        steps = wf["jobs"][job]["steps"]
+        idx_stamp = [i for i, st in enumerate(steps) if "--stamp-junit" in st.get("run", "")]
+        if len(idx_stamp) != 1:
+            bad.append(f"{job}: needs exactly one stamp step")
+            continue
+        st = steps[idx_stamp[0]]
+        if st.get("if") != "always()":
+            bad.append(f"{job}: stamp step must run if: always()")
+        for n in names:
+            if f"--stamp-junit junit/{n}.xml" not in st["run"]:
+                bad.append(f"{job}: junit/{n}.xml is not stamped")
+            if not any(f"--junitxml=junit/{n}.xml" in x.get("run", "") for x in steps[:idx_stamp[0]]):
+                bad.append(f"{job}: no test step before the stamp writes junit/{n}.xml")
+            if f"junit/{n}.xml" not in ev_run:
+                bad.append(f"evidence step does not read junit/{n}.xml")
+        up = [i for i, x in enumerate(steps) if "upload-artifact" in x.get("uses", "") and "junit" in str(x.get("with", {}).get("name", ""))]
+        if not up or min(up) < idx_stamp[0]:
+            bad.append(f"{job}: junit must be uploaded after the stamp step")
+        if job == "build":
+            build = [i for i, x in enumerate(steps) if "python -m build" in x.get("run", "")]
+            if not build or idx_stamp[0] < build[0] or "--dist dist" not in st["run"]:
+                bad.append("build: G4 must be stamped after the build with --dist dist")
+    return bad
 
 
 def test_cut_021_publish_workflow_binds_and_checks_the_candidate():
     wf = yaml.safe_load((REPO / ".github/workflows/publish.yml").read_text(encoding="utf-8"))
-    run = next(st["run"] for st in wf["jobs"]["release-evidence"]["steps"] if "m1_release_evidence" in st.get("run", ""))
-    assert "--candidate" in run and f"--policy-file {ev.POLICY_REL}" in run and "--ttl" not in run
-    for job, g in (("gate-g0-fast", "g0"), ("gate-g1-core", "g1"), ("gate-g2-m1", "g2"), ("live-validation", "g3"), ("build", "g4")):
-        stamps = [st for st in wf["jobs"][job]["steps"] if "--stamp-junit" in st.get("run", "")]
-        assert len(stamps) == 1 and f"junit/{g}.xml" in stamps[0]["run"] and stamps[0].get("if") == "always()", job
-    assert "--dist dist" in next(st["run"] for st in wf["jobs"]["build"]["steps"] if "--stamp-junit" in st.get("run", ""))
+    assert workflow_problems(wf) == []  # positive control
+
+
+def _mutate(kind):
+    import copy
+    wf = copy.deepcopy(yaml.safe_load((REPO / ".github/workflows/publish.yml").read_text(encoding="utf-8")))
+    ev_step = next(st for st in wf["jobs"]["release-evidence"]["steps"] if "m1_release_evidence" in st.get("run", ""))
+    live = wf["jobs"]["live-validation"]["steps"]
+    build = wf["jobs"]["build"]["steps"]
+    if kind == "no-release-policy":
+        ev_step["run"] = ev_step["run"].replace("--release-policy docs/m1_impl/release-policy.json", "")
+    elif kind == "g3-junit-not-written":
+        for st in live:
+            st["run"] = st.get("run", "").replace("--junitxml=junit/g3.xml", "")
+    elif kind == "stamp-not-always":
+        next(st for st in live if "--stamp-junit" in st.get("run", "")).pop("if")
+    elif kind == "g4-stamp-before-build":
+        i = next(i for i, st in enumerate(build) if "--stamp-junit" in st.get("run", ""))
+        build.insert(0, build.pop(i))
+    elif kind == "g4-upload-before-stamp":
+        i = next(i for i, st in enumerate(build) if "upload-artifact" in st.get("uses", "") and "junit" in str(st["with"]["name"]))
+        j = next(i for i, st in enumerate(build) if "--stamp-junit" in st.get("run", ""))
+        build.insert(j, build.pop(i))
+    elif kind == "g4-no-dist":
+        next(st for st in build if "--stamp-junit" in st.get("run", ""))["run"] = "python -m tools.m1_release_evidence --stamp-junit junit/g4.xml --commit X"
+    elif kind == "evidence-skips-g3-slow":
+        ev_step["run"] = ev_step["run"].replace("--junit junit/g3-slow.xml", "")
+    return wf
+
+
+@pytest.mark.parametrize("kind", ["no-release-policy", "g3-junit-not-written", "stamp-not-always", "g4-stamp-before-build",
+                                  "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow"])
+def test_cut_022_mutated_workflows_are_caught(kind):
+    assert workflow_problems(_mutate(kind)), kind
+
+
+def edit_props(path, fn):
+    import xml.etree.ElementTree as ET
+    t = ET.parse(path)
+    fn(t.getroot().find(".//properties"))
+    t.write(path, encoding="utf-8", xml_declaration=True)
+
+
+def test_cut_023_stripped_package_property_does_not_let_g4_evidence_pass_for_other_wheels(env, tmp_path):
+    j = env.evidence(age=5)
+    other = make_dist(tmp_path / "otherdist", b"other-wheels")
+    kw = dict(repo_root=REPO, junit_paths=[j], dist_dir=other, commit=SHA, candidate=True, release_policy=RELEASE_POLICY, now=NOW)
+    assert ev.build_manifest(**kw)["release_ready"] is False  # control: the untouched file is bound to env.dist only
+    edit_props(j, lambda h: [h.remove(e) for e in list(h) if e.get("name") == "candidate.package_sha256"])
+    m = ev.build_manifest(**kw)
+    assert m["release_ready"] is False and m["evidence_bindings"][0]["status"] == "mismatched" and "id" in holds(m)
+    assert env.manifest([j])["release_ready"] is False  # not even for its own dist: the id covers the packages
+
+
+def test_cut_024_forged_id_or_edited_property_is_rejected(env):
+    j = env.evidence(age=5)
+    assert env.manifest([j])["release_ready"] is True
+    edit_props(j, lambda h: [e.set("value", "0" * 64) for e in h if e.get("name") == "candidate.id"])
+    m = env.manifest([j])
+    assert m["release_ready"] is False and m["evidence_bindings"][0]["status"] == "mismatched" and "id" in holds(m)
+    j2 = env.evidence(age=5)
+    edit_props(j2, lambda h: [e.set("value", "f" * 64) for e in h if e.get("name") == "candidate.package_sha256"])  # id kept, digest edited
+    assert env.manifest([j2])["release_ready"] is False
+
+
+def test_cut_025_wheel_swapped_after_stamping_and_g4_reused_across_candidates(env):
+    j = env.evidence(age=5)
+    assert env.manifest([j])["release_ready"] is True
+    wheel = next(env.dist.glob("*.whl"))
+    wheel.write_bytes(b"swapped-after-stamping")
+    m = env.manifest([j])
+    assert m["release_ready"] is False and "package_sha256" in holds(m)
+    wheel.write_bytes(b"wheel-bytes")
+    assert env.manifest([j], commit="e" * 40)["release_ready"] is False  # same file, other source revision
+
+
+def test_cut_026_source_scoped_evidence_alone_cannot_satisfy_the_package_gate(env):
+    src = env.evidence(age=5, dist=None)  # stamped without package digests (like G0-G3)
+    props = ev._bound_props(src)
+    assert "package_sha256" not in props and re.fullmatch(r"[0-9a-f]{64}", props["id"])
+    m = env.manifest([src])
+    assert m["evidence_bindings"][0]["status"] == "accepted" and m["evidence_bindings"][0]["scope"] == "source"
+    assert m["release_ready"] is False and "package digests of the dist being released" in holds(m)
+    assert any("blocking test" in b and "(gate G4)" in b for b in m["blockers"])  # G4 tests need package-scoped files
+    both = [env.evidence(age=5, dist=None), env.evidence(age=5)]
+    assert env.manifest(both)["release_ready"] is True  # positive control: a package-scoped file is also present
+
+
+def test_cut_027_missing_junit_file_is_a_hold_not_a_crash(env, tmp_path):
+    m = env.manifest([env.evidence(age=5), tmp_path / "g3.xml"])
+    assert [b["status"] for b in m["evidence_bindings"]] == ["accepted", "missing"] and "g3.xml is missing" in holds(m)
+    assert m["release_ready"] is False

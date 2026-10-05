@@ -77,10 +77,6 @@
       "type": "string",
       "minLength": 1
     },
-    "policy_ttl_seconds": {
-      "type": "integer",
-      "minimum": 1
-    },
     "on_stale": {
       "enum": [
         "HOLD",

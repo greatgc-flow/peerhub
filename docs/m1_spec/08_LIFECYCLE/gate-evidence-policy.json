@@ -33,7 +33,6 @@
   ],
   "thresholds_externalized": true,
   "threshold_config_ref": "PeerHub release/CI policy; timing thresholds remain outside Core",
-  "policy_ttl_seconds": 604800,
   "on_stale": "HOLD",
   "on_timeout": "HOLD",
   "rule": "A blocking gate is satisfied only by a current PASS bound to the exact candidate identity; queued/running/pending/cancelled/stale/unavailable/unknown/skipped states are never passing evidence."
