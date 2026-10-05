@@ -30,6 +30,10 @@
     {"id": "EXC-027", "name": "DuplicateCommitIdempotencyTrigger", "trigger": "Re-uploading known digest payload.", "disposition": "HANDLED", "rationale": "Fast-paths to existing metadata seamlessly.", "tests": ["ART-017", "ART-024"]},
     {"id": "EXC-028", "name": "ConcurrentStagingCollision", "trigger": "Two processes write to identical temporary name.", "disposition": "HANDLED", "rationale": "mkstemp uniqueness guarantees disjoint writes by suffix.", "tests": ["ART-016"]},
     {"id": "EXC-029", "name": "AtomicRenameCrashError", "trigger": "Power loss during commit.", "disposition": "HANDLED", "rationale": "Leaves `.tmp` file which Boot GC sweeps cleanly.", "tests": ["ART-002", "ART-030"]},
-    {"id": "EXC-030", "name": "EmptyArtifactError", "trigger": "Zero-byte payload submitted.", "disposition": "HANDLED", "rationale": "Perfectly valid; hashed to known e3b0c442... digest.", "tests": ["ART-032"]}
+    {"id": "EXC-030", "name": "EmptyArtifactError", "trigger": "Zero-byte payload submitted.", "disposition": "HANDLED", "rationale": "Perfectly valid; hashed to known e3b0c442... digest.", "tests": ["ART-032"]},
+    {"id": "EXC-031", "name": "WorkRevisionConflictError", "trigger": "Mutation expected_revision does not match current projection revision.", "disposition": "REJECTED", "rationale": "CAS optimistic concurrency conflict; preserves ordering truth.", "tests": ["WRK-005"]},
+    {"id": "EXC-032", "name": "WorkNotFoundError", "trigger": "Referenced work_id does not exist in projection or stream.", "disposition": "REJECTED", "rationale": "Unknown work entity reference.", "tests": ["WRK-007"]},
+    {"id": "EXC-033", "name": "InvalidWorkPayloadError", "trigger": "Work creation or transition payload fails schema constraints.", "disposition": "REJECTED", "rationale": "Pre-emptive validation rejection.", "tests": ["WRK-008"]},
+    {"id": "EXC-034", "name": "WorkAlreadyExistsError", "trigger": "Attempt to create a work item with an already registered work_id.", "disposition": "REJECTED", "rationale": "Enforces work_id uniqueness within home stream.", "tests": ["WRK-009"]}
   ]
 }
