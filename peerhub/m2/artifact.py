@@ -192,6 +192,42 @@ class ArtifactStore:
                     pass
         return removed
 
+    def list_all_digests(self) -> set[str]:
+        """Scan physical sharded directory structure and return all valid committed digests."""
+        digests: set[str] = set()
+        if not self.root.exists():
+            return digests
+
+        for prefix_dir in self.root.iterdir():
+            if prefix_dir.is_dir() and prefix_dir.name != ".tmp" and len(prefix_dir.name) == 2:
+                for file_path in prefix_dir.iterdir():
+                    if file_path.is_file() and HEX_DIGEST_REGEX.match(file_path.name):
+                        digests.add(file_path.name)
+        return digests
+
+    def cleanup_orphans(self, referenced_digests: set[str]) -> list[str]:
+        """Identify and delete physical blobs on disk that have no Core references."""
+        all_digests = self.list_all_digests()
+        orphans = [d for d in all_digests if d not in referenced_digests]
+        deleted: list[str] = []
+
+        for digest in orphans:
+            path = self.resolve_path(digest)
+            try:
+                if path.is_file():
+                    path.unlink()
+                    deleted.append(digest)
+                    # Clean up parent 2-char prefix folder if empty
+                    parent = path.parent
+                    try:
+                        parent.rmdir()
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+
+        return deleted
+
 
 from dataclasses import dataclass
 

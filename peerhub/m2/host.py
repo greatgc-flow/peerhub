@@ -5,16 +5,19 @@ Adheres strictly to M2_0_EXTENSION_HOST_CONTRACT.md:
 - Strict prefix enforcement: all extension tables must begin with 'ext_' (or 'm2_')
 - Complete state machine and lifecycle management: DISCOVERED, VALIDATED, ENABLED, DISABLED, FAILED, MIGRATING
 - Dynamic loading and isolation, module eviction on disable
+- Hook registration, safe exception trapping, and event dispatch
+- Registry cache rebuilding and schema downgrade prevention
 """
 
 from __future__ import annotations
 
+import gc
 import json
 from pathlib import Path
 import re
 import sqlite3
 import sys
-from typing import Any, ClassVar
+from typing import Any, Callable, ClassVar
 
 from peerhub.m2.manifest import ExtensionManifest, SchemaValidationError, validate_manifest
 
@@ -56,6 +59,11 @@ CREATE_TABLE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+ALTER_TABLE_PATTERN = re.compile(
+    r"ALTER\s+TABLE\s+([\"`\[]?([a-zA-Z0-9_]+)[\"`\]]?)",
+    re.IGNORECASE,
+)
+
 
 class ExtensionHost:
     """Core extension host managing discovery, lifecycle, and schema boundaries."""
@@ -80,6 +88,7 @@ class ExtensionHost:
         self.manifests: dict[str, ExtensionManifest] = {}
         self.manifest_dirs: dict[str, Path] = {}
         self.loaded_modules: dict[str, Any] = {}
+        self.hooks: dict[str, list[tuple[str, Callable[[Any], None]]]] = {}
         self._init_db()
 
     def _init_db(self) -> None:
@@ -98,7 +107,12 @@ class ExtensionHost:
             );
             """)
 
-    def register_manifest(self, manifest: ExtensionManifest, path: Path | str) -> None:
+    def register_manifest(
+        self,
+        manifest: ExtensionManifest,
+        path: Path | str,
+        target_schema_version: int | None = None,
+    ) -> None:
         """Register an extension manifest into host memory index and database registry."""
         ext_dir = Path(path).resolve()
         ext_id = manifest.id
@@ -108,22 +122,30 @@ class ExtensionHost:
                 f"Extension ID {ext_id!r} already registered with different manifest"
             )
 
-        self.manifests[ext_id] = manifest
-        self.manifest_dirs[ext_id] = ext_dir
-
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute(
                 "SELECT state, schema_version FROM m2_extension_registry WHERE id = ?",
                 (ext_id,),
             ).fetchone()
-            if row is None:
+            if row is not None:
+                db_schema_version = row[1]
+                declared_version = target_schema_version if target_schema_version is not None else 1
+                if db_schema_version > declared_version:
+                    raise DowngradeNotSupportedError(
+                        f"Extension {ext_id!r} schema downgrade from DB version {db_schema_version} to {declared_version} is forbidden"
+                    )
+            else:
+                initial_version = target_schema_version if target_schema_version is not None else 1
                 conn.execute(
                     """
                     INSERT INTO m2_extension_registry (id, version, entrypoint, state, schema_version, metadata_json)
-                    VALUES (?, ?, ?, 'DISCOVERED', 1, ?)
+                    VALUES (?, ?, ?, 'DISCOVERED', ?, ?)
                     """,
-                    (ext_id, manifest.version, manifest.entrypoint, manifest.model_dump_json()),
+                    (ext_id, manifest.version, manifest.entrypoint, initial_version, manifest.model_dump_json()),
                 )
+
+        self.manifests[ext_id] = manifest
+        self.manifest_dirs[ext_id] = ext_dir
 
     def discover(self, path: Path | str) -> ExtensionManifest:
         """Scan a directory for manifest.json, validate it, and register it."""
@@ -140,6 +162,17 @@ class ExtensionHost:
         manifest = validate_manifest(raw_data)
         self.register_manifest(manifest, dir_path)
         return manifest
+
+    def rebuild_registry(self) -> None:
+        """Clear in-memory caches, evict loaded modules from sys.modules, and garbage collect."""
+        for ext_id in list(self.loaded_modules.keys()):
+            if ext_id in sys.modules:
+                del sys.modules[ext_id]
+        self.loaded_modules.clear()
+        self.manifests.clear()
+        self.manifest_dirs.clear()
+        self.hooks.clear()
+        gc.collect()
 
     def get_state(self, ext_id: str) -> str:
         """Get the current lifecycle state of an extension from the database registry."""
@@ -236,7 +269,39 @@ class ExtensionHost:
 
         return "DISABLED"
 
-    def apply_extension_schema(self, ext_id: str, sql: str) -> None:
+    def register_hook(self, ext_id: str, event_name: str, callback: Callable[[Any], None]) -> None:
+        """Register an event callback hook for an extension."""
+        self.hooks.setdefault(event_name, []).append((ext_id, callback))
+
+    def dispatch_event(self, event_name: str, payload: Any) -> None:
+        """Dispatch a Core event to all registered extension hooks.
+
+        If a hook raises an unhandled exception, it is caught at the host boundary,
+        and the extension transitions to FAILED without crashing the Core (EXT-013).
+        """
+        for ext_id, callback in list(self.hooks.get(event_name, [])):
+            try:
+                state = self.get_state(ext_id)
+            except KeyError:
+                continue
+
+            if state != "ENABLED":
+                continue
+
+            try:
+                callback(payload)
+            except Exception:
+                try:
+                    self.transition(ext_id, "FAILED")
+                except Exception:
+                    pass
+
+    def apply_extension_schema(
+        self,
+        ext_id: str,
+        sql: str,
+        new_schema_version: int | None = None,
+    ) -> None:
         """Apply an extension schema migration under strict table prefix enforcement."""
         # 1. Scan and validate all table declarations in SQL
         matches = CREATE_TABLE_PATTERN.findall(sql)
@@ -245,6 +310,15 @@ class ExtensionHost:
             if not (clean_name.startswith("ext_") or clean_name.startswith("m2_")):
                 raise SchemaPrefixViolationError(
                     f"Extension {ext_id!r} attempted to create un-prefixed table {clean_name!r}; "
+                    f"all extension tables must start with 'ext_'"
+                )
+
+        alter_matches = ALTER_TABLE_PATTERN.findall(sql)
+        for _, raw_name in alter_matches:
+            clean_name = raw_name.strip("\"'`[]")
+            if not (clean_name.startswith("ext_") or clean_name.startswith("m2_")):
+                raise SchemaPrefixViolationError(
+                    f"Extension {ext_id!r} attempted to alter un-prefixed table {clean_name!r}; "
                     f"all extension tables must start with 'ext_'"
                 )
 
@@ -259,3 +333,9 @@ class ExtensionHost:
                 except Exception:
                     pass
                 raise
+
+            if new_schema_version is not None:
+                conn.execute(
+                    "UPDATE m2_extension_registry SET schema_version = ? WHERE id = ?",
+                    (new_schema_version, ext_id),
+                )
