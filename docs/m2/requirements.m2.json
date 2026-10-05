@@ -371,6 +371,97 @@
       "risk_tags": [
         "CAPACITY"
       ]
+    },
+    {
+      "id": "REQ-WRK-001",
+      "area": "WorkProjection",
+      "statement": "Core Event Stream Record is the sole authority for all Work mutations; Work Projection is derived and fully rebuildable.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "WRK-001",
+        "WRK-002"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "integration",
+        "durability"
+      ],
+      "risk_tags": [
+        "AUTHORITY"
+      ]
+    },
+    {
+      "id": "REQ-WRK-002",
+      "area": "WorkProjection",
+      "statement": "Work state machine enforces OPEN -> ACTIVE <-> BLOCKED/PAUSED -> DONE/FAILED/CANCELLED lifecycle transitions.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "WRK-003",
+        "WRK-004",
+        "WRK-006"
+      ],
+      "required_dimensions": [
+        "state_machine",
+        "lifecycle"
+      ],
+      "risk_tags": [
+        "LIFECYCLE"
+      ]
+    },
+    {
+      "id": "REQ-WRK-003",
+      "area": "WorkProjection",
+      "statement": "Work mutations and transitions require expected_revision matching current projection revision for deterministic race resolution.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "WRK-005"
+      ],
+      "required_dimensions": [
+        "concurrency",
+        "idempotency"
+      ],
+      "risk_tags": [
+        "CONCURRENCY"
+      ]
+    },
+    {
+      "id": "REQ-WRK-004",
+      "area": "WorkProjection",
+      "statement": "Checkpoints and CAS artifact links can be attached to active work items and tracked across revisions.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P1",
+      "tests": [
+        "WRK-010",
+        "WRK-011"
+      ],
+      "required_dimensions": [
+        "integration",
+        "positive"
+      ],
+      "risk_tags": [
+        "CONTINUITY"
+      ]
+    },
+    {
+      "id": "REQ-WRK-005",
+      "area": "WorkProjection",
+      "statement": "Dropping projection tables and replaying stream records reconstructs an exact identical projection state.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "WRK-002",
+        "WRK-012"
+      ],
+      "required_dimensions": [
+        "durability",
+        "recovery"
+      ],
+      "risk_tags": [
+        "REBUILDABILITY"
+      ]
     }
   ]
 }

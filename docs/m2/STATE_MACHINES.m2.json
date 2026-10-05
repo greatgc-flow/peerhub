@@ -38,6 +38,27 @@
         "GAP-ART-TRANS-01: DIGESTED -> COMMITTED (Forbidden): Needs test proving commit fails if verification was skipped.",
         "GAP-ART-TRANS-02: TAMPERED -> VERIFIED (Forbidden): Needs test proving a tampered file cannot be re-verified without re-staging."
       ]
+    },
+    "Work": {
+      "states": ["OPEN", "ACTIVE", "PAUSED", "BLOCKED", "DONE", "FAILED", "CANCELLED"],
+      "transitions": [
+        {"from": "OPEN", "to": "ACTIVE", "allowed": true, "tests": ["WRK-003"]},
+        {"from": "OPEN", "to": "CANCELLED", "allowed": true, "tests": ["WRK-004"]},
+        {"from": "ACTIVE", "to": "PAUSED", "allowed": true, "tests": ["WRK-003"]},
+        {"from": "PAUSED", "to": "ACTIVE", "allowed": true, "tests": ["WRK-003"]},
+        {"from": "ACTIVE", "to": "BLOCKED", "allowed": true, "tests": ["WRK-003"]},
+        {"from": "BLOCKED", "to": "ACTIVE", "allowed": true, "tests": ["WRK-003"]},
+        {"from": "ACTIVE", "to": "DONE", "allowed": true, "tests": ["WRK-003"]},
+        {"from": "ACTIVE", "to": "FAILED", "allowed": true, "tests": ["WRK-003"]},
+        {"from": "ACTIVE", "to": "CANCELLED", "allowed": true, "tests": ["WRK-004"]},
+        {"from": "PAUSED", "to": "CANCELLED", "allowed": true, "tests": ["WRK-004"]},
+        {"from": "BLOCKED", "to": "CANCELLED", "allowed": true, "tests": ["WRK-004"]},
+        {"from": "DONE", "to": "ACTIVE", "allowed": false, "tests": ["WRK-006"]},
+        {"from": "FAILED", "to": "ACTIVE", "allowed": false, "tests": ["WRK-006"]},
+        {"from": "CANCELLED", "to": "ACTIVE", "allowed": false, "tests": ["WRK-006"]},
+        {"from": "OPEN", "to": "DONE", "allowed": false, "tests": ["WRK-006"]}
+      ],
+      "gaps": []
     }
   }
 }
