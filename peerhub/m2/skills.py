@@ -16,7 +16,6 @@ import json
 from pathlib import Path
 import sqlite3
 from typing import Any, ClassVar, Iterable, cast
-import yaml
 
 from peerhub.m1.models import Record
 from peerhub.m1.store import CoreStore
@@ -195,7 +194,50 @@ class SkillCatalogEngine:
         return hasher.hexdigest(), file_count
 
     @staticmethod
-    def _parse_skill_manifest(manifest_path: Path) -> dict[str, Any]:
+    def _parse_yaml_frontmatter(text: str) -> dict[str, Any]:
+        """Parse YAML frontmatter using pyyaml if available, or lightweight stdlib parser."""
+        try:
+            import importlib
+            yaml_module = importlib.import_module("yaml")
+            safe_load_fn = getattr(yaml_module, "safe_load", None)
+            if callable(safe_load_fn):
+                try:
+                    parsed: object = safe_load_fn(text)
+                    if isinstance(parsed, dict):
+                        return cast(dict[str, Any], parsed)
+                except Exception as e:
+                    raise SkillManifestError(f"Failed to parse YAML frontmatter: {e}") from e
+        except ImportError:
+            pass
+
+        # Standard-library fallback parser for basic YAML frontmatter
+        result: dict[str, Any] = {}
+        current_key: str | None = None
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("- "):
+                if current_key:
+                    val = line[2:].strip().strip("\"'")
+                    if current_key not in result:
+                        result[current_key] = []
+                    if isinstance(result[current_key], list):
+                        cast(list[Any], result[current_key]).append(val)
+                continue
+            if ":" in line:
+                k, v = line.split(":", 1)
+                k = k.strip()
+                v = v.strip().strip("\"'")
+                current_key = k
+                if v:
+                    result[k] = v
+                else:
+                    result[k] = []
+        return result
+
+    @classmethod
+    def _parse_skill_manifest(cls, manifest_path: Path) -> dict[str, Any]:
         """Parse YAML frontmatter from SKILL.md."""
         if not manifest_path.is_file():
             raise SkillManifestError(f"SKILL.md not found in {manifest_path.parent}")
@@ -209,15 +251,8 @@ class SkillCatalogEngine:
             raise SkillManifestError("Unclosed YAML frontmatter in SKILL.md")
 
         frontmatter_text = parts[1]
-        try:
-            parsed: object = yaml.safe_load(frontmatter_text)
-        except Exception as e:
-            raise SkillManifestError(f"Failed to parse YAML frontmatter: {e}") from e
+        data = cls._parse_yaml_frontmatter(frontmatter_text)
 
-        if not isinstance(parsed, dict):
-            raise SkillManifestError("SKILL.md frontmatter must be a YAML mapping")
-
-        data = cast(dict[str, Any], parsed)
         if "name" not in data or not isinstance(data["name"], str) or not data["name"]:
             raise SkillManifestError("SKILL.md frontmatter missing required non-empty 'name' field")
 
