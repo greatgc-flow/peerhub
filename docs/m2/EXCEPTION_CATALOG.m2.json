@@ -1,50 +1,513 @@
 {
   "schema_version": 1,
   "exceptions": [
-    {"id": "EXC-001", "name": "ForbiddenTransitionError", "trigger": "Attempting an invalid state machine transition.", "disposition": "REJECTED", "rationale": "State integrity violation; client logic error.", "tests": ["EXT-010", "EXT-011", "ART-023"]},
-    {"id": "EXC-002", "name": "ArtifactNotFoundError", "trigger": "Core references a valid digest, but file is missing from disk.", "disposition": "HANDLED", "rationale": "Logs warning and returns structurally safe domain error to caller instead of crashing.", "tests": ["ART-034"]},
-    {"id": "EXC-003", "name": "InvalidArtifactReferenceError", "trigger": "Reference string fails regex or length validation before OS resolution.", "disposition": "REJECTED", "rationale": "Pre-emptive security boundary check failed.", "tests": ["ART-036"]},
-    {"id": "EXC-004", "name": "ArtifactTamperedError", "trigger": "Hash mismatch during read verification.", "disposition": "REJECTED", "rationale": "Data integrity violation; must strictly block use of corrupted data.", "tests": ["ART-009", "ART-010"]},
-    {"id": "EXC-005", "name": "SecurityBoundaryError", "trigger": "Path traversal, symlink, or reserved OS name detected.", "disposition": "REJECTED", "rationale": "Strict security quarantine blocks execution.", "tests": ["ART-005", "ART-006"]},
-    {"id": "EXC-006", "name": "MissingDependencyError", "trigger": "Extension manifest requires unavailable module.", "disposition": "DEFERRED", "rationale": "Extension safely placed in FAILED state and skipped during boot.", "tests": ["EXT-014"]},
-    {"id": "EXC-007", "name": "RegistrationConflictError", "trigger": "Two extensions claim the same ID.", "disposition": "REJECTED", "rationale": "Idempotency violated by collision. Second caller is rejected.", "tests": ["EXT-015"]},
-    {"id": "EXC-008", "name": "DowngradeNotSupportedError", "trigger": "Schema version loaded is older than DB version.", "disposition": "REJECTED", "rationale": "Prevents data corruption from legacy code schemas.", "tests": ["EXT-024"]},
-    {"id": "EXC-009", "name": "MemoryError", "trigger": "Loading artifact payload into memory.", "disposition": "HANDLED", "rationale": "Stream chunking mechanism avoids OOM natively.", "tests": ["ART-011"]},
-    {"id": "EXC-010", "name": "IOError_ENOSPC", "trigger": "Disk full during staging.", "disposition": "REJECTED", "rationale": "Atomic write fails gracefully, staging file aggressively removed.", "tests": ["ART-003"]},
-    {"id": "EXC-011", "name": "PartialReadError", "trigger": "Stream read interrupted.", "disposition": "REJECTED", "rationale": "Aborts staging before digestion; temp file swept.", "tests": ["ART-004"]},
-    {"id": "EXC-012", "name": "SchemaValidationError", "trigger": "Extension manifest is structurally malformed.", "disposition": "REJECTED", "rationale": "Strict JSON schema Draft 2020-12 enforcement.", "tests": ["EXT-006", "EXT-018"]},
-    {"id": "EXC-013", "name": "TypeMismatchError", "trigger": "Manifest uses null instead of strictly typed string.", "disposition": "REJECTED", "rationale": "Strict typing constraint failure.", "tests": ["EXT-019"]},
-    {"id": "EXC-014", "name": "ExtensionHookError", "trigger": "User extension callback throws unhandled exception.", "disposition": "HANDLED", "rationale": "Trapped by host boundary; extension safely moves to FAILED.", "tests": ["EXT-013"]},
-    {"id": "EXC-015", "name": "FileExistsError", "trigger": "Atomic rename target already exists.", "disposition": "HANDLED", "rationale": "Proof of idempotent duplicate upload; resolves safely to existing file.", "tests": ["ART-016"]},
-    {"id": "EXC-016", "name": "SQLiteBusyError", "trigger": "Concurrent write lock during migration.", "disposition": "HANDLED", "rationale": "Driver retry timeout fences reads and eventually resolves.", "tests": ["EXT-017"]},
-    {"id": "EXC-017", "name": "CorruptMetadataError", "trigger": "DB artifact record is missing or garbled.", "disposition": "HANDLED", "rationale": "State is recoverable via physical payload cryptographic hashing.", "tests": ["ART-035"]},
-    {"id": "EXC-018", "name": "WindowsJunctionError", "trigger": "Reparse point detected in payload path.", "disposition": "REJECTED", "rationale": "Windows-specific security rule enforcement.", "tests": ["ART-007"]},
-    {"id": "EXC-019", "name": "UnicodeNormalizationError", "trigger": "NFC/NFD confusion in path string.", "disposition": "OUT_OF_SCOPE", "rationale": "Not applicable; system strictly uses ASCII hex digests.", "tests": ["ART-008"]},
-    {"id": "EXC-020", "name": "NULByteError", "trigger": "NUL byte in path reference string.", "disposition": "REJECTED", "rationale": "Pre-OS regex validation catches before triggering OS ValueError.", "tests": ["ART-015"]},
-    {"id": "EXC-021", "name": "ReservedDeviceNameError", "trigger": "Path attempts to use CON, NUL, PRN.", "disposition": "REJECTED", "rationale": "Windows OS constraint bypassed safely via application-level regex.", "tests": ["ART-013"]},
-    {"id": "EXC-022", "name": "PathTooLongError", "trigger": "Exceeding 260 chars MAX_PATH on Windows.", "disposition": "HANDLED", "rationale": "System uses Windows `\\\\?\\` long path prefix natively.", "tests": ["ART-014"]},
-    {"id": "EXC-023", "name": "OrphanGarbageCollectionError", "trigger": "Attempting to GC file currently locked by OS read.", "disposition": "DEFERRED", "rationale": "Windows mandatory file lock prevents GC; deferred to next cycle.", "tests": ["ART-033"]},
-    {"id": "EXC-024", "name": "MigrationCrashError", "trigger": "Process forcefully dies mid-migration.", "disposition": "HANDLED", "rationale": "SQLite WAL rollback ensures state consistency on subsequent boot.", "tests": ["EXT-008"]},
-    {"id": "EXC-025", "name": "HostileSymlinkError", "trigger": "Payload is a symlink pointing out of bounds.", "disposition": "REJECTED", "rationale": "Hostile Boundary enforcement.", "tests": ["ART-006"]},
-    {"id": "EXC-026", "name": "ZeroByteOverwriteError", "trigger": "Tampered file manually truncated to 0 bytes.", "disposition": "REJECTED", "rationale": "Read-time size check catches before hash stream executes.", "tests": ["ART-010"]},
-    {"id": "EXC-027", "name": "DuplicateCommitIdempotencyTrigger", "trigger": "Re-uploading known digest payload.", "disposition": "HANDLED", "rationale": "Fast-paths to existing metadata seamlessly.", "tests": ["ART-017", "ART-024"]},
-    {"id": "EXC-028", "name": "ConcurrentStagingCollision", "trigger": "Two processes write to identical temporary name.", "disposition": "HANDLED", "rationale": "mkstemp uniqueness guarantees disjoint writes by suffix.", "tests": ["ART-016"]},
-    {"id": "EXC-029", "name": "AtomicRenameCrashError", "trigger": "Power loss during commit.", "disposition": "HANDLED", "rationale": "Leaves `.tmp` file which Boot GC sweeps cleanly.", "tests": ["ART-002", "ART-030"]},
-    {"id": "EXC-030", "name": "EmptyArtifactError", "trigger": "Zero-byte payload submitted.", "disposition": "HANDLED", "rationale": "Perfectly valid; hashed to known e3b0c442... digest.", "tests": ["ART-032"]},
-    {"id": "EXC-031", "name": "WorkRevisionConflictError", "trigger": "Mutation expected_revision does not match current projection revision.", "disposition": "REJECTED", "rationale": "CAS optimistic concurrency conflict; preserves ordering truth.", "tests": ["WRK-005"]},
-    {"id": "EXC-032", "name": "WorkNotFoundError", "trigger": "Referenced work_id does not exist in projection or stream.", "disposition": "REJECTED", "rationale": "Unknown work entity reference.", "tests": ["WRK-007"]},
-    {"id": "EXC-033", "name": "InvalidWorkPayloadError", "trigger": "Work creation or transition payload fails schema constraints.", "disposition": "REJECTED", "rationale": "Pre-emptive validation rejection.", "tests": ["WRK-008"]},
-    {"id": "EXC-034", "name": "WorkAlreadyExistsError", "trigger": "Attempt to create a work item with an already registered work_id.", "disposition": "REJECTED", "rationale": "Enforces work_id uniqueness within home stream.", "tests": ["WRK-009"]},
-    {"id": "EXC-035", "name": "SkillNotFoundError", "trigger": "Referenced skill_id does not exist in registry or index.", "disposition": "REJECTED", "rationale": "Unknown skill reference.", "tests": ["SKL-007"]},
-    {"id": "EXC-036", "name": "SkillManifestError", "trigger": "SKILL.md frontmatter is missing, unparseable, or fails schema validation.", "disposition": "REJECTED", "rationale": "Schema validation boundary violation.", "tests": ["SKL-008"]},
-    {"id": "EXC-037", "name": "SkillTamperedError", "trigger": "On-disk skill directory contents hash differs from indexed canonical digest.", "disposition": "REJECTED", "rationale": "Cryptographic integrity failure blocks compromised procedure.", "tests": ["SKL-009"]},
-    {"id": "EXC-038", "name": "UnauthorizedSkillError", "trigger": "Attempt to invoke, execute, or select an inactive or suspended skill.", "disposition": "REJECTED", "rationale": "Discovery != authorization invariant.", "tests": ["SKL-010"]},
-    {"id": "EXC-039", "name": "VolatileFactRejectedError", "trigger": "Attempt to register volatile runtime measurement into curated capability catalog.", "disposition": "REJECTED", "rationale": "Invariant 9: Volatile measured facts stay in M1 Observation/Diag.", "tests": ["SKL-013"]},
-    {"id": "EXC-040", "name": "EvalDatasetNotFoundError", "trigger": "Referenced eval dataset or artifact digest does not exist.", "disposition": "REJECTED", "rationale": "Unknown dataset reference.", "tests": ["EVL-002"]},
-    {"id": "EXC-041", "name": "EvaluatorExecutionError", "trigger": "Evaluator execution failed or crashed unexpectedly.", "disposition": "REJECTED", "rationale": "Runtime execution exception inside evaluator logic.", "tests": ["EVL-003"]},
-    {"id": "EXC-042", "name": "EvalReportTamperedError", "trigger": "Eval report contents do not match calculated verification digest.", "disposition": "REJECTED", "rationale": "Integrity check failed on stored evaluation report.", "tests": ["EVL-006"]},
-    {"id": "EXC-043", "name": "TelemetryExportError", "trigger": "Telemetry exporter sink failed to write or export events.", "disposition": "HANDLED", "rationale": "Failure isolation ensures core storage and stream transactions are never impacted.", "tests": ["EVL-009"]},
-    {"id": "EXC-044", "name": "EvalTruthViolationError", "trigger": "Attempted to use evaluation result or telemetry as authoritative collaboration truth.", "disposition": "REJECTED", "rationale": "Invariant 12: Eval/Telemetry never becomes collaboration truth.", "tests": ["EVL-005"]},
-    {"id": "EXC-045", "name": "EvaluatorValidationError", "trigger": "Evaluator missing required metadata (type, version) or produces invalid score types.", "disposition": "REJECTED", "rationale": "Deterministic evaluator contract violation.", "tests": ["EVL-004"]}
+    {
+      "id": "EXC-001",
+      "name": "ForbiddenTransitionError",
+      "trigger": "Attempting an invalid state machine transition.",
+      "disposition": "REJECTED",
+      "rationale": "State integrity violation; client logic error.",
+      "tests": [
+        "EXT-010",
+        "EXT-011",
+        "ART-023"
+      ]
+    },
+    {
+      "id": "EXC-002",
+      "name": "ArtifactNotFoundError",
+      "trigger": "Core references a valid digest, but file is missing from disk.",
+      "disposition": "HANDLED",
+      "rationale": "Logs warning and returns structurally safe domain error to caller instead of crashing.",
+      "tests": [
+        "ART-034"
+      ]
+    },
+    {
+      "id": "EXC-003",
+      "name": "InvalidArtifactReferenceError",
+      "trigger": "Reference string fails regex or length validation before OS resolution.",
+      "disposition": "REJECTED",
+      "rationale": "Pre-emptive security boundary check failed.",
+      "tests": [
+        "ART-036"
+      ]
+    },
+    {
+      "id": "EXC-004",
+      "name": "ArtifactTamperedError",
+      "trigger": "Hash mismatch during read verification.",
+      "disposition": "REJECTED",
+      "rationale": "Data integrity violation; must strictly block use of corrupted data.",
+      "tests": [
+        "ART-009",
+        "ART-010"
+      ]
+    },
+    {
+      "id": "EXC-005",
+      "name": "SecurityBoundaryError",
+      "trigger": "Path traversal, symlink, or reserved OS name detected.",
+      "disposition": "REJECTED",
+      "rationale": "Strict security quarantine blocks execution.",
+      "tests": [
+        "ART-005",
+        "ART-006"
+      ]
+    },
+    {
+      "id": "EXC-006",
+      "name": "MissingDependencyError",
+      "trigger": "Extension manifest requires unavailable module.",
+      "disposition": "DEFERRED",
+      "rationale": "Extension safely placed in FAILED state and skipped during boot.",
+      "tests": [
+        "EXT-014"
+      ]
+    },
+    {
+      "id": "EXC-007",
+      "name": "RegistrationConflictError",
+      "trigger": "Two extensions claim the same ID.",
+      "disposition": "REJECTED",
+      "rationale": "Idempotency violated by collision. Second caller is rejected.",
+      "tests": [
+        "EXT-015"
+      ]
+    },
+    {
+      "id": "EXC-008",
+      "name": "DowngradeNotSupportedError",
+      "trigger": "Schema version loaded is older than DB version.",
+      "disposition": "REJECTED",
+      "rationale": "Prevents data corruption from legacy code schemas.",
+      "tests": [
+        "EXT-024"
+      ]
+    },
+    {
+      "id": "EXC-009",
+      "name": "MemoryError",
+      "trigger": "Loading artifact payload into memory.",
+      "disposition": "HANDLED",
+      "rationale": "Stream chunking mechanism avoids OOM natively.",
+      "tests": [
+        "ART-011"
+      ]
+    },
+    {
+      "id": "EXC-010",
+      "name": "IOError_ENOSPC",
+      "trigger": "Disk full during staging.",
+      "disposition": "REJECTED",
+      "rationale": "Atomic write fails gracefully, staging file aggressively removed.",
+      "tests": [
+        "ART-003"
+      ]
+    },
+    {
+      "id": "EXC-011",
+      "name": "PartialReadError",
+      "trigger": "Stream read interrupted.",
+      "disposition": "REJECTED",
+      "rationale": "Aborts staging before digestion; temp file swept.",
+      "tests": [
+        "ART-004"
+      ]
+    },
+    {
+      "id": "EXC-012",
+      "name": "SchemaValidationError",
+      "trigger": "Extension manifest is structurally malformed.",
+      "disposition": "REJECTED",
+      "rationale": "Strict JSON schema Draft 2020-12 enforcement.",
+      "tests": [
+        "EXT-006",
+        "EXT-018"
+      ]
+    },
+    {
+      "id": "EXC-013",
+      "name": "TypeMismatchError",
+      "trigger": "Manifest uses null instead of strictly typed string.",
+      "disposition": "REJECTED",
+      "rationale": "Strict typing constraint failure.",
+      "tests": [
+        "EXT-019"
+      ]
+    },
+    {
+      "id": "EXC-014",
+      "name": "ExtensionHookError",
+      "trigger": "User extension callback throws unhandled exception.",
+      "disposition": "HANDLED",
+      "rationale": "Trapped by host boundary; extension safely moves to FAILED.",
+      "tests": [
+        "EXT-013"
+      ]
+    },
+    {
+      "id": "EXC-015",
+      "name": "FileExistsError",
+      "trigger": "Atomic rename target already exists.",
+      "disposition": "HANDLED",
+      "rationale": "Proof of idempotent duplicate upload; resolves safely to existing file.",
+      "tests": [
+        "ART-016"
+      ]
+    },
+    {
+      "id": "EXC-016",
+      "name": "SQLiteBusyError",
+      "trigger": "Concurrent write lock during migration.",
+      "disposition": "HANDLED",
+      "rationale": "Driver retry timeout fences reads and eventually resolves.",
+      "tests": [
+        "EXT-017"
+      ]
+    },
+    {
+      "id": "EXC-017",
+      "name": "CorruptMetadataError",
+      "trigger": "DB artifact record is missing or garbled.",
+      "disposition": "HANDLED",
+      "rationale": "State is recoverable via physical payload cryptographic hashing.",
+      "tests": [
+        "ART-035"
+      ]
+    },
+    {
+      "id": "EXC-018",
+      "name": "WindowsJunctionError",
+      "trigger": "Reparse point detected in payload path.",
+      "disposition": "REJECTED",
+      "rationale": "Windows-specific security rule enforcement.",
+      "tests": [
+        "ART-007"
+      ]
+    },
+    {
+      "id": "EXC-019",
+      "name": "UnicodeNormalizationError",
+      "trigger": "NFC/NFD confusion in path string.",
+      "disposition": "OUT_OF_SCOPE",
+      "rationale": "Not applicable; system strictly uses ASCII hex digests.",
+      "tests": [
+        "ART-008"
+      ]
+    },
+    {
+      "id": "EXC-020",
+      "name": "NULByteError",
+      "trigger": "NUL byte in path reference string.",
+      "disposition": "REJECTED",
+      "rationale": "Pre-OS regex validation catches before triggering OS ValueError.",
+      "tests": [
+        "ART-015"
+      ]
+    },
+    {
+      "id": "EXC-021",
+      "name": "ReservedDeviceNameError",
+      "trigger": "Path attempts to use CON, NUL, PRN.",
+      "disposition": "REJECTED",
+      "rationale": "Windows OS constraint bypassed safely via application-level regex.",
+      "tests": [
+        "ART-013"
+      ]
+    },
+    {
+      "id": "EXC-022",
+      "name": "PathTooLongError",
+      "trigger": "Exceeding 260 chars MAX_PATH on Windows.",
+      "disposition": "HANDLED",
+      "rationale": "System uses Windows `\\\\?\\` long path prefix natively.",
+      "tests": [
+        "ART-014"
+      ]
+    },
+    {
+      "id": "EXC-023",
+      "name": "OrphanGarbageCollectionError",
+      "trigger": "Attempting to GC file currently locked by OS read.",
+      "disposition": "DEFERRED",
+      "rationale": "Windows mandatory file lock prevents GC; deferred to next cycle.",
+      "tests": [
+        "ART-033"
+      ]
+    },
+    {
+      "id": "EXC-024",
+      "name": "MigrationCrashError",
+      "trigger": "Process forcefully dies mid-migration.",
+      "disposition": "HANDLED",
+      "rationale": "SQLite WAL rollback ensures state consistency on subsequent boot.",
+      "tests": [
+        "EXT-008"
+      ]
+    },
+    {
+      "id": "EXC-025",
+      "name": "HostileSymlinkError",
+      "trigger": "Payload is a symlink pointing out of bounds.",
+      "disposition": "REJECTED",
+      "rationale": "Hostile Boundary enforcement.",
+      "tests": [
+        "ART-006"
+      ]
+    },
+    {
+      "id": "EXC-026",
+      "name": "ZeroByteOverwriteError",
+      "trigger": "Tampered file manually truncated to 0 bytes.",
+      "disposition": "REJECTED",
+      "rationale": "Read-time size check catches before hash stream executes.",
+      "tests": [
+        "ART-010"
+      ]
+    },
+    {
+      "id": "EXC-027",
+      "name": "DuplicateCommitIdempotencyTrigger",
+      "trigger": "Re-uploading known digest payload.",
+      "disposition": "HANDLED",
+      "rationale": "Fast-paths to existing metadata seamlessly.",
+      "tests": [
+        "ART-017",
+        "ART-024"
+      ]
+    },
+    {
+      "id": "EXC-028",
+      "name": "ConcurrentStagingCollision",
+      "trigger": "Two processes write to identical temporary name.",
+      "disposition": "HANDLED",
+      "rationale": "mkstemp uniqueness guarantees disjoint writes by suffix.",
+      "tests": [
+        "ART-016"
+      ]
+    },
+    {
+      "id": "EXC-029",
+      "name": "AtomicRenameCrashError",
+      "trigger": "Power loss during commit.",
+      "disposition": "HANDLED",
+      "rationale": "Leaves `.tmp` file which Boot GC sweeps cleanly.",
+      "tests": [
+        "ART-002",
+        "ART-030"
+      ]
+    },
+    {
+      "id": "EXC-030",
+      "name": "EmptyArtifactError",
+      "trigger": "Zero-byte payload submitted.",
+      "disposition": "HANDLED",
+      "rationale": "Perfectly valid; hashed to known e3b0c442... digest.",
+      "tests": [
+        "ART-032"
+      ]
+    },
+    {
+      "id": "EXC-031",
+      "name": "WorkRevisionConflictError",
+      "trigger": "Mutation expected_revision does not match current projection revision.",
+      "disposition": "REJECTED",
+      "rationale": "CAS optimistic concurrency conflict; preserves ordering truth.",
+      "tests": [
+        "WRK-005"
+      ]
+    },
+    {
+      "id": "EXC-032",
+      "name": "WorkNotFoundError",
+      "trigger": "Referenced work_id does not exist in projection or stream.",
+      "disposition": "REJECTED",
+      "rationale": "Unknown work entity reference.",
+      "tests": [
+        "WRK-007"
+      ]
+    },
+    {
+      "id": "EXC-033",
+      "name": "InvalidWorkPayloadError",
+      "trigger": "Work creation or transition payload fails schema constraints.",
+      "disposition": "REJECTED",
+      "rationale": "Pre-emptive validation rejection.",
+      "tests": [
+        "WRK-008"
+      ]
+    },
+    {
+      "id": "EXC-034",
+      "name": "WorkAlreadyExistsError",
+      "trigger": "Attempt to create a work item with an already registered work_id.",
+      "disposition": "REJECTED",
+      "rationale": "Enforces work_id uniqueness within home stream.",
+      "tests": [
+        "WRK-009"
+      ]
+    },
+    {
+      "id": "EXC-035",
+      "name": "SkillNotFoundError",
+      "trigger": "Referenced skill_id does not exist in registry or index.",
+      "disposition": "REJECTED",
+      "rationale": "Unknown skill reference.",
+      "tests": [
+        "SKL-007"
+      ]
+    },
+    {
+      "id": "EXC-036",
+      "name": "SkillManifestError",
+      "trigger": "SKILL.md frontmatter is missing, unparseable, or fails schema validation.",
+      "disposition": "REJECTED",
+      "rationale": "Schema validation boundary violation.",
+      "tests": [
+        "SKL-008"
+      ]
+    },
+    {
+      "id": "EXC-037",
+      "name": "SkillTamperedError",
+      "trigger": "On-disk skill directory contents hash differs from indexed canonical digest.",
+      "disposition": "REJECTED",
+      "rationale": "Cryptographic integrity failure blocks compromised procedure.",
+      "tests": [
+        "SKL-009"
+      ]
+    },
+    {
+      "id": "EXC-038",
+      "name": "UnauthorizedSkillError",
+      "trigger": "Attempt to invoke, execute, or select an inactive or suspended skill.",
+      "disposition": "REJECTED",
+      "rationale": "Discovery != authorization invariant.",
+      "tests": [
+        "SKL-010"
+      ]
+    },
+    {
+      "id": "EXC-039",
+      "name": "VolatileFactRejectedError",
+      "trigger": "Attempt to register volatile runtime measurement into curated capability catalog.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 9: Volatile measured facts stay in M1 Observation/Diag.",
+      "tests": [
+        "SKL-013"
+      ]
+    },
+    {
+      "id": "EXC-040",
+      "name": "EvalDatasetNotFoundError",
+      "trigger": "Referenced eval dataset or artifact digest does not exist.",
+      "disposition": "REJECTED",
+      "rationale": "Unknown dataset reference.",
+      "tests": [
+        "EVL-002"
+      ]
+    },
+    {
+      "id": "EXC-041",
+      "name": "EvaluatorExecutionError",
+      "trigger": "Evaluator execution failed or crashed unexpectedly.",
+      "disposition": "REJECTED",
+      "rationale": "Runtime execution exception inside evaluator logic.",
+      "tests": [
+        "EVL-003"
+      ]
+    },
+    {
+      "id": "EXC-042",
+      "name": "EvalReportTamperedError",
+      "trigger": "Eval report contents do not match calculated verification digest.",
+      "disposition": "REJECTED",
+      "rationale": "Integrity check failed on stored evaluation report.",
+      "tests": [
+        "EVL-006"
+      ]
+    },
+    {
+      "id": "EXC-043",
+      "name": "TelemetryExportError",
+      "trigger": "Telemetry exporter sink failed to write or export events.",
+      "disposition": "HANDLED",
+      "rationale": "Failure isolation ensures core storage and stream transactions are never impacted.",
+      "tests": [
+        "EVL-009"
+      ]
+    },
+    {
+      "id": "EXC-044",
+      "name": "EvalTruthViolationError",
+      "trigger": "Attempted to use evaluation result or telemetry as authoritative collaboration truth.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 12: Eval/Telemetry never becomes collaboration truth.",
+      "tests": [
+        "EVL-005"
+      ]
+    },
+    {
+      "id": "EXC-045",
+      "name": "EvaluatorValidationError",
+      "trigger": "Evaluator missing required metadata (type, version) or produces invalid score types.",
+      "disposition": "REJECTED",
+      "rationale": "Deterministic evaluator contract violation.",
+      "tests": [
+        "EVL-004"
+      ]
+    },
+    {
+      "id": "EXC-046",
+      "name": "BackupCorruptedError",
+      "trigger": "File checksum mismatch or archive corruption detected in backup bundle.",
+      "disposition": "REJECTED",
+      "rationale": "Cryptographic verification failure prevents corrupted state restoration.",
+      "tests": [
+        "BCK-006"
+      ]
+    },
+    {
+      "id": "EXC-047",
+      "name": "BackupManifestMissingError",
+      "trigger": "Missing or unreadable backup_manifest.json.",
+      "disposition": "REJECTED",
+      "rationale": "Proof-of-backup manifest is strictly required.",
+      "tests": [
+        "BCK-007"
+      ]
+    },
+    {
+      "id": "EXC-048",
+      "name": "GenerationFencingConflictError",
+      "trigger": "Restoration attempted with older generation than active fence epoch.",
+      "disposition": "REJECTED",
+      "rationale": "Fencing epoch conflict protects against split-brain and stale write regressions.",
+      "tests": [
+        "BCK-004",
+        "BCK-008"
+      ]
+    },
+    {
+      "id": "EXC-049",
+      "name": "AuthoritativeRestoreOrderError",
+      "trigger": "Attempting projection rebuild or derived write before authoritative restoration.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 11: Restore starts from authoritative and rebuilds derived.",
+      "tests": [
+        "BCK-005"
+      ]
+    },
+    {
+      "id": "EXC-050",
+      "name": "SecretLeakageDetectedError",
+      "trigger": "Unmasked secret or credential key found inside backup bundle.",
+      "disposition": "REJECTED",
+      "rationale": "Secrets are excluded by default from backup bundles.",
+      "tests": [
+        "BCK-009"
+      ]
+    }
   ]
 }

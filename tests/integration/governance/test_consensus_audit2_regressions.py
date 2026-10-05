@@ -196,6 +196,7 @@ def test_broker_discovers_all_unfinished_effects_beyond_the_bounded_window(tmp_p
 
 
 # ---- P2-6: durable command identity ---------------------------------------------------
+@pytest.mark.timeout(300)
 def test_replay_still_works_after_more_than_200_keyed_commands(tmp_path):
     shell, broker, _ = env(tmp_path)
     propose(shell, rule="never", elig=("p1", "p2"))

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "generated_on": "2026-10-05",
-  "count": 98,
+  "count": 110,
   "tests": [
     {
       "id": "EXT-001",
@@ -2397,6 +2397,305 @@
       "action": "Import and execute peerhub.m2.eval module.",
       "oracle": "All core eval functions, trace capture, and export sinks work without ImportError.",
       "failure_injection": "missing dev dependencies",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "packaging"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-001",
+      "tier": "unit",
+      "title": "Create backup bundle and verify backup_manifest.json with per-file SHA-256 and reopen proof",
+      "requirements": [
+        "REQ-BCK-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "backup",
+        "manifest"
+      ],
+      "setup": "Active CoreStore with records and physical ArtifactStore with committed blobs.",
+      "action": "Invoke create_backup.",
+      "oracle": "Backup manifest contains valid file digests, record count, generation, and reopen proof passing integrity check.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "backup",
+        "integrity"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-002",
+      "tier": "unit",
+      "title": "Authoritative restore first: restore CoreStore and Artifacts before initializing projections",
+      "requirements": [
+        "REQ-BCK-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "restore",
+        "authoritative"
+      ],
+      "setup": "Valid backup archive.",
+      "action": "Execute restore_authoritative into new directory.",
+      "oracle": "Core SQLite DB and Artifact blobs physically present and verified; derived work DB not yet created.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "restore",
+        "ordering"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-003",
+      "tier": "integration",
+      "title": "Full projection rebuild after disaster restore yields identical work items and offsets",
+      "requirements": [
+        "REQ-BCK-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "rebuild",
+        "equivalence"
+      ],
+      "setup": "Restored authoritative state.",
+      "action": "Invoke rebuild_derived_projections.",
+      "oracle": "Work items, states, revisions, and offsets match original state pre-disaster 100%.",
+      "failure_injection": "disaster wipe",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "rebuild",
+        "durability"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-004",
+      "tier": "unit",
+      "title": "Generation fencing: restoring an older backup increments generation and blocks stale writers",
+      "requirements": [
+        "REQ-BCK-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fencing",
+        "generation"
+      ],
+      "setup": "Active environment at generation N.",
+      "action": "Restore backup; verify new generation is N+1.",
+      "oracle": "Restoration enforces fenced generation > current generation.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fencing",
+        "concurrency"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-005",
+      "tier": "architecture",
+      "title": "Invariant 11: attempting to restore derived view without authoritative records raises AuthoritativeRestoreOrderError",
+      "requirements": [
+        "REQ-BCK-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "invariant"
+      ],
+      "setup": "Empty or missing authoritative store.",
+      "action": "Attempt to invoke rebuild_derived_projections directly.",
+      "oracle": "Raises AuthoritativeRestoreOrderError; Invariant 11 preserved.",
+      "failure_injection": "missing authoritative db",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "isolation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-006",
+      "tier": "fault",
+      "title": "Corrupted backup file (bit flip) detected and rejected during verification",
+      "requirements": [
+        "REQ-BCK-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "tamper"
+      ],
+      "setup": "Valid backup bundle with a modified byte in a physical file.",
+      "action": "Execute verify_backup.",
+      "oracle": "Raises BackupCorruptedError.",
+      "failure_injection": "bit flip",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "integrity"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-007",
+      "tier": "fault",
+      "title": "Missing backup manifest raises BackupManifestMissingError",
+      "requirements": [
+        "REQ-BCK-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "manifest"
+      ],
+      "setup": "Backup directory without backup_manifest.json.",
+      "action": "Execute verify_backup or restore_authoritative.",
+      "oracle": "Raises BackupManifestMissingError.",
+      "failure_injection": "missing manifest",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "validation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-008",
+      "tier": "fault",
+      "title": "Stale generation conflict raises GenerationFencingConflictError",
+      "requirements": [
+        "REQ-BCK-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fencing",
+        "conflict"
+      ],
+      "setup": "Target environment at generation 5.",
+      "action": "Attempt to restore backup with generation 3 without override.",
+      "oracle": "Raises GenerationFencingConflictError.",
+      "failure_injection": "stale epoch",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fencing",
+        "safety"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-009",
+      "tier": "security",
+      "title": "Secret exclusion: credentials or tokens omitted or masked in backup",
+      "requirements": [
+        "REQ-BCK-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security",
+        "secrets"
+      ],
+      "setup": "Configuration file or directory containing api_key or token.",
+      "action": "Create backup bundle.",
+      "oracle": "Manifest and backed-up files contain zero plaintext secrets; unmasked secrets raise SecretLeakageDetectedError if forced.",
+      "failure_injection": "plaintext secret",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "privacy"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-010",
+      "tier": "fault",
+      "title": "Atomic restore failure rollback: failure mid-restore leaves original state intact",
+      "requirements": [
+        "REQ-BCK-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "rollback"
+      ],
+      "setup": "Existing operational workspace.",
+      "action": "Inject failure during restoration unpacking.",
+      "oracle": "Target directory remains in original pristine state or is safely cleaned without partial corruption.",
+      "failure_injection": "io failure",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "atomicity"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-011",
+      "tier": "concurrency",
+      "title": "Concurrent backup creation during active CoreStore read/write without corruption",
+      "requirements": [
+        "REQ-BCK-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency"
+      ],
+      "setup": "CoreStore undergoing concurrent append_record writes.",
+      "action": "Create backup simultaneously.",
+      "oracle": "Backup completes with valid reopen proof; CoreStore records are not corrupted.",
+      "failure_injection": "concurrency",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "isolation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-012",
+      "tier": "architecture",
+      "title": "Zero dev-dependency violation: backup and recovery engine runs on standard library (REL-009)",
+      "requirements": [
+        "REQ-BCK-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "dependencies"
+      ],
+      "setup": "Minimal runtime environment.",
+      "action": "Import peerhub.m2.backup.",
+      "oracle": "All backup/restore functions operate using only standard library modules.",
+      "failure_injection": "none",
       "evidence": "pytest result",
       "live_provider": false,
       "dimensions": [
