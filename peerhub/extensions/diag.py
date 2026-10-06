@@ -1,4 +1,4 @@
-"""PeerHub M1 First-Party Extension: Readonly Diag (observer only; its own module so ARCH-004 can check the whole module).
+"""PeerHub first-party extension: Readonly Diag (observer only; its own module so ARCH-004 can check the whole module).
 
 Allowed: read Stream/Record/Offset/Observation/log. Forbidden: append/refresh/interrupt/resume/repair/restart/route.
 - Every handle is a read-only SQLite URI handle with `PRAGMA query_only=ON`, verified; a handle that is not read-only fails the render closed.
@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from peerhub.m1.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
+from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     ObservationCorruptError,

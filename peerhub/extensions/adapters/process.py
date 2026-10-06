@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import io
+import math
 import os
+import queue
 import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence, cast
+from typing import Any, Callable, Mapping, Sequence, cast
 
 DEFAULT_TIMEOUT_S = 120.0
 DEFAULT_MAX_BYTES = 1_048_576
@@ -28,6 +30,7 @@ class ProcessResult:
     timed_out: bool
     output_exceeded: bool
     duration_s: float
+    silence_timed_out: bool = False
 
 
 def check_argv(argv: Sequence[Any]) -> None:
@@ -52,9 +55,18 @@ class BoundedProcess:
     """start() raises SpawnFailure only when no process was created; wait() never raises for post-spawn failures."""
 
     def __init__(self, argv: Sequence[str], *, stdin: bytes | None, cwd: str, env: Mapping[str, str],
-                 timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES) -> None:
+                 timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
+                 silence_timeout_s: float | None = None,
+                 on_stdout: Callable[[bytes], None] | None = None) -> None:
+        if silence_timeout_s is not None and (not math.isfinite(silence_timeout_s) or silence_timeout_s <= 0):
+            raise ValueError("silence timeout must be finite and positive")
         self._argv, self._stdin, self._cwd, self._env = list(argv), stdin, cwd, dict(env)
         self._timeout_s, self._max_bytes = timeout_s, max_bytes
+        self._silence_timeout_s = silence_timeout_s
+        self._activity_lock = threading.Lock()
+        self._last_output = 0.0
+        self._on_stdout = on_stdout
+        self._chunks: queue.SimpleQueue[bytes] = queue.SimpleQueue()
         self._proc: subprocess.Popen[bytes] | None = None
         self._t0 = 0.0
         self._bufs: dict[str, bytearray] = {"out": bytearray(), "err": bytearray()}
@@ -69,6 +81,7 @@ class BoundedProcess:
     def start(self) -> "BoundedProcess":
         check_argv(self._argv)
         self._t0 = time.monotonic()
+        self._last_output = self._t0
         try:
             self._proc = subprocess.Popen(self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                           cwd=self._cwd, env=self._env, shell=False)
@@ -90,8 +103,13 @@ class BoundedProcess:
                 chunk = stream.read1(65536)
                 if not chunk:
                     return
+                with self._activity_lock:
+                    self._last_output = time.monotonic()
                 room = self._max_bytes - len(self._bufs[key])
-                self._bufs[key].extend(chunk[:max(room, 0)])
+                kept = chunk[:max(room, 0)]
+                self._bufs[key].extend(kept)
+                if key == "out" and self._on_stdout is not None and kept:
+                    self._chunks.put(kept)  # bounded by the same total stdout byte budget
                 if len(chunk) > room:
                     self._exceeded.set()
                     return
@@ -119,10 +137,17 @@ class BoundedProcess:
         p = self._proc
         assert p is not None
         timed_out = False
+        silence_timed_out = False
         deadline = self._t0 + self._timeout_s
         while p.poll() is None and not self._exceeded.is_set():
+            self._drain_stdout()
             if time.monotonic() >= deadline:
                 timed_out = True
+                break
+            with self._activity_lock:
+                last_output = self._last_output
+            if self._silence_timeout_s is not None and time.monotonic() - last_output >= self._silence_timeout_s:
+                silence_timed_out = True
                 break
             time.sleep(0.02)
         if p.poll() is None:
@@ -133,6 +158,7 @@ class BoundedProcess:
             pass
         for t in self._threads:
             t.join(timeout=5)
+        self._drain_stdout()
         for s in (p.stdout, p.stderr):
             try:
                 if s is not None:
@@ -140,9 +166,22 @@ class BoundedProcess:
             except OSError:
                 pass
         return ProcessResult(pid=p.pid, returncode=p.returncode, stdout=bytes(self._bufs["out"]), stderr=bytes(self._bufs["err"]),
-                             timed_out=timed_out, output_exceeded=self._exceeded.is_set(), duration_s=time.monotonic() - self._t0)
+                             timed_out=timed_out, output_exceeded=self._exceeded.is_set(), duration_s=time.monotonic() - self._t0,
+                             silence_timed_out=silence_timed_out)
+
+    def _drain_stdout(self) -> None:
+        while not self._chunks.empty():
+            chunk = self._chunks.get()
+            if self._on_stdout is not None:
+                try:
+                    self._on_stdout(chunk)
+                except Exception:
+                    # Presentation failures cannot turn a running process into a pre-spawn failure.
+                    self._on_stdout = None
 
 
 def run_bounded(argv: Sequence[str], *, stdin: bytes | None, cwd: str, env: Mapping[str, str],
-                timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES) -> ProcessResult:
-    return BoundedProcess(argv, stdin=stdin, cwd=cwd, env=env, timeout_s=timeout_s, max_bytes=max_bytes).start().wait()
+                timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
+                silence_timeout_s: float | None = None) -> ProcessResult:
+    return BoundedProcess(argv, stdin=stdin, cwd=cwd, env=env, timeout_s=timeout_s, max_bytes=max_bytes,
+                          silence_timeout_s=silence_timeout_s).start().wait()

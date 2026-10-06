@@ -2,15 +2,24 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     # The declared support matrix (pyproject classifiers / requires-python) is exactly this cross product (REL-010/011, TD-18).
-    # All 8 cells are VERIFIED-CI: green run https://github.com/greatgc-flow/peerhub/actions/runs/37189754726
-    # (evidence docs/m1_impl/matrix_evidence/ci-run-37189754726.json; tests/m1/package/test_rel_matrix.py requires it). A cell without run evidence is UNVERIFIED (TD-18).
+    # Historical recorded head: all 8 cells VERIFIED-CI, run https://github.com/greatgc-flow/peerhub/actions/runs/37189754726.
+    # This candidate must rerun the matrix; the retained evidence does not verify a changed worktree.
+    # (evidence docs/m1_impl/matrix_evidence/ci-run-37189754726.json; tests/communication/package/test_rel_matrix.py requires it). A cell without run evidence is UNVERIFIED (TD-18).
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60  # the full deterministic suite takes ~20 min on windows runners (process-spawn heavy)
     strategy:
@@ -33,44 +42,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e .[dev]
 
-    - name: Install fake AI-CLI stubs (claude.cmd/agy.exe/codex.cmd)
-      shell: bash
-      run: |
-        mkdir -p "$RUNNER_TEMP/fake-bin"
-        STUB_FILE="$RUNNER_TEMP/fake-peer-stub.sh"
-        printf '%s\n' \
-        '#!/bin/sh' \
-        '# Minimal deterministic stand-in for a real AI-CLI binary, used only so' \
-        '# that peerhub/adapters/registry.py::resolve_executable_path() finds a' \
-        '# real, executable file on PATH -- dev machines here have the real' \
-        '# claude.cmd/agy.exe/codex.cmd installed; a bare CI runner does not.' \
-        '# Ignores all arguments (--version, --output-format json, etc.) and' \
-        '# always succeeds with a minimal completion-shaped JSON response,' \
-        '# satisfying both a plain version probe (exit 0 is enough) and the' \
-        '# {is_error, result} shape each adapter output decoder looks for.' \
-        'echo '"'"'{"is_error": false, "result": "ok"}'"'"'' \
-        'exit 0' \
-        > "$STUB_FILE"
-        for name in claude.cmd agy.exe codex.cmd; do
-          cp "$STUB_FILE" "$RUNNER_TEMP/fake-bin/$name"
-          chmod +x "$RUNNER_TEMP/fake-bin/$name"
-        done
-        if [ "$RUNNER_OS" = "Windows" ]; then
-          # a shell script is not runnable as .cmd/.exe on Windows: real batch stubs here, a real agy.exe in the next step
-          for name in claude.cmd codex.cmd; do
-            printf '%s\r\n' '@echo off' 'echo {"is_error": false, "result": "ok"}' 'exit /b 0' > "$RUNNER_TEMP/fake-bin/$name"
-          done
-          rm -f "$RUNNER_TEMP/fake-bin/agy.exe"
-        fi
-        echo "$RUNNER_TEMP/fake-bin" >> "$GITHUB_PATH"
-
-    - name: Build fake agy.exe (Windows only)
-      if: runner.os == 'Windows'
-      shell: powershell
-      run: |
-        $exe = Join-Path $env:RUNNER_TEMP 'fake-bin\agy.exe'
-        Add-Type -OutputType ConsoleApplication -OutputAssembly $exe -TypeDefinition 'public static class FakeAgy { public static int Main() { System.Console.WriteLine("{\"is_error\": false, \"result\": \"ok\"}"); return 0; } }'
-        & $exe
 
     - name: Run pyright
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
@@ -80,4 +51,11 @@ jobs:
     - name: Run pytest
       timeout-minutes: 45
       run: |
-        python -u -m pytest -q
+        python -u -m pytest -q --junitxml=junit/matrix.xml
+
+    - name: Retain this candidate's matrix results
+      if: always()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: matrix-${{ matrix.os }}-py${{ matrix.python-version }}
+        path: junit/matrix.xml

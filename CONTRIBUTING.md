@@ -22,9 +22,9 @@ pyright
 ## Code and tests
 
 Read [CONVENTION.md](CONVENTION.md) before making code changes. It records the
-project's coding rules, including the test-layout convention: unit and
-integration tests mirror the `peerhub/` package tree, contract tests live in
-`tests/contract/`, and shared fakes remain in `tests/fakes.py`.
+project's coding rules. Runtime code is grouped into `core`, `extensions` and
+`cli`; tests are grouped by communication, continuity and collaboration.
+Shared fixtures and fake CLIs live under `tests/communication/harness`.
 
 ## Branches, commits, and pull requests
 

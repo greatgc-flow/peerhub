@@ -17,8 +17,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from peerhub.m1.migrations import rollback_quietly
-from peerhub.m1.store import UnknownReferenceError
+from peerhub.core.migrations import rollback_quietly
+from peerhub.core.store import UnknownReferenceError
 
 
 class ClaimHeldError(RuntimeError):
@@ -153,6 +153,13 @@ class ClaimStore:
     def renew(self, token: ClaimToken) -> ClaimToken:
         """Extend the current claim before expiry; generation is unchanged (CLM-001). Expired/superseded -> StaleClaimError."""
         return self.heartbeat(token)
+
+    def release(self, token: ClaimToken) -> None:
+        """Expire only the current owner's claim; preserve generation/fencing history."""
+        with self._tx() as conn:
+            self._check(conn, token)
+            conn.execute("UPDATE bridge_claims SET expires_at=? WHERE stream_id=? AND peer_id=?",
+                         (self._clock(), token.stream_id, token.peer_id))
 
     def transaction(self):  # public entry for the Bridge (same serialized write transaction)
         return self._tx()

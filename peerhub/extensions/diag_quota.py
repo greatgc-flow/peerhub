@@ -1,4 +1,4 @@
-"""PeerHub M1 first-party extension: read-only quota / rate-limit / resource-pool evidence view (CLI `diag quota`, `diag health` observations summary).
+"""PeerHub first-party extension: read-only quota / rate-limit / resource-pool evidence view (CLI `diag quota`, `diag health` observations summary).
 
 Pure reader over `ReadonlyDiag.render` (read-only handle, one snapshot): it never probes, refreshes or writes evidence.
 Honesty rules: states are reported exactly as Diag evaluates them (MEASURED/STALE/UNKNOWN/UNAVAILABLE/...); missing evidence is
@@ -17,7 +17,7 @@ from peerhub.extensions.observation_model import MEASUREMENT_KEYS
 SCHEMA_VERSION = "1.0"
 QUOTA_KINDS = ("quota", "rate_limit")
 POOL_KINDS = ("QUOTA", "RATE_LIMIT")  # registered pools of these kinds without evidence are listed as UNKNOWN
-# status -> CLI exit code (existing contract in m1_cli: 4 storage fault, 5 diag unavailable, 6 schema version)
+# status -> public CLI exit code: 4 storage fault, 5 diag unavailable, 6 schema version
 EXIT_BY_STATUS = {"OK": 0, "UNAVAILABLE": 5, "FAILED": 4, "SCHEMA_VERSION": 6}
 
 
@@ -71,7 +71,8 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
         meas = _measurements(it["payload"])
         groups.setdefault(it["resource_pool_ref"], []).append({
             "subject_ref": it["subject_ref"], "resource_pool_ref": it["resource_pool_ref"], "kind": it["kind"], "state": it["state"],
-            "age_seconds": it["age_seconds"], "source": it["source"], "measurements": meas, "derived": _derived(meas)})
+            "age_seconds": it["age_seconds"], "source": it["source"], "measurements": meas, "derived": _derived(meas),
+            "window": {k: it["payload"][k] for k in ("window_started_at", "resets_at") if k in it["payload"]}})
     if peer is None:  # a registered pool with no quota/rate_limit evidence is explicit UNKNOWN (never unlimited)
         for p in rep.sections["resource_pools"].data.get("pools", []):
             pid = p["resource_pool_id"]
@@ -122,4 +123,44 @@ def format_quota_table(rep: dict[str, Any]) -> str:
             meas = " ".join(f"{k}={v}" for k, v in i["measurements"].items()) or "(no measurement)"
             der = " ".join(f"{k}={v:.4g} (derived)" for k, v in i["derived"].items())
             lines.append(f"  {i['subject_ref'] or '-':<16} {i['kind']:<10} {i['state']:<11} age={age:<8} src={i['source'] or '-'}  {meas} {der}".rstrip())
+    return "\n".join(lines)
+
+
+def format_dashboard(rep: DiagnosticReport) -> str:
+    """Presentation of a single read-only snapshot; no probes or policy engines."""
+    lines = [f"PeerHub diagnostics  {rep.status}"]
+    if rep.error:
+        return "\n".join([*lines, rep.error])
+    for name in ("peers", "streams"):
+        sec = rep.sections[name]
+        items = sec.data.get(name, [])
+        lines.append(f"{name}: {len(items)}  {sec.status}")
+        for item in items:
+            lines.append(f"  {item.get('peer_id', item.get('stream_id'))}")
+        lines.extend(f"  ERROR: {e['error']}" for e in sec.errors)
+    lines.append("quota / rate limits")
+    sec = rep.sections["observations"]
+    items = [i for i in sec.data.get("items", []) if i["kind"] in QUOTA_KINDS]
+    if not items:
+        lines.append("  UNKNOWN: no quota/rate-limit observations")
+    for item in items:
+        payload = item["payload"]
+        rf = payload.get("remaining_fraction")
+        measured = item["state"] in ("MEASURED", "STALE")
+        numbers = measured and isinstance(rf, (float, int)) and not isinstance(rf, bool)
+        usage = f"used={1-rf:.1%} headroom={rf:.1%}" if numbers else "headroom=UNKNOWN"
+        window = item["resource_pool_ref"] or item["kind"]
+        lines.append(f"  {item['subject_ref']} {window} {item['state']} {usage} source={item['source']}")
+        start, reset = payload.get("window_started_at"), payload.get("resets_at")
+        if numbers and isinstance(start, (int, float)) and isinstance(reset, (int, float)) and reset > start:
+            elapsed = min(1.0, max(0.0, (rep.read_at - start) / (reset - start)))
+            # Descriptive comparison only; no admission/routing decision or invented quota.
+            lines.append(f"    window={(reset-start)/3600:g}h elapsed={elapsed:.1%} used-vs-elapsed={(1-rf)-elapsed:+.1%} reset_at={reset}")
+    lines.extend(f"  ERROR: {e['error']}" for e in sec.errors)
+    pools = rep.sections["resource_pools"]
+    observed = {i["resource_pool_ref"] for i in items}
+    for pool in pools.data.get("pools", []):
+        if pool["kind"] in POOL_KINDS and pool["resource_pool_id"] not in observed:
+            lines.append(f"  {pool['resource_pool_id']} UNKNOWN: no evidence")
+    lines.extend(f"  ERROR: {e['error']}" for e in pools.errors)
     return "\n".join(lines)

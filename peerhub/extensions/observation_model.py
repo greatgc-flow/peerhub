@@ -19,8 +19,8 @@ from jsonschema import FormatChecker
 from jsonschema.validators import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from peerhub.m1.models import assert_json_value, is_rfc3339
-from peerhub.m1.wire import WireValidationError
+from peerhub.core.models import assert_json_value, is_rfc3339
+from peerhub.core.wire import WireValidationError
 
 _SCHEMAS = Path(__file__).parent / "schemas"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)

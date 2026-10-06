@@ -5,7 +5,7 @@ import sqlite3
 import struct
 from pathlib import Path
 
-from peerhub.m1.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
+from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 
 
 def _stored_version(path: Path) -> int:
