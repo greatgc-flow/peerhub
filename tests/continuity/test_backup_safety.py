@@ -59,6 +59,29 @@ def test_secret_in_yaml_skill_source_is_not_a_successfully_excluded_bundle(tmp_p
     assert not (tmp_path / "bundle").exists()
 
 
+@pytest.mark.parametrize("value", ["private-value", b"binary-credential"])
+def test_plain_sqlite_credential_column_is_scanned_with_its_name(tmp_path, value):
+    root, _ = source(tmp_path)
+    with closing(sqlite3.connect(root / "core.db")) as conn:
+        conn.execute("CREATE TABLE ext_credentials(api_key BLOB)")
+        conn.execute("INSERT INTO ext_credentials VALUES (?)", (value,))
+        conn.commit()
+    with closing(sqlite3.connect(root / "core.db")) as conn:
+        assert conn.execute("SELECT api_key FROM ext_credentials").fetchone()[0] == value
+    with pytest.raises(SecretLeakageDetectedError):
+        create_backup(root / "core.db", root / "artifacts", tmp_path / "bundle")
+    assert not (tmp_path / "bundle").exists()
+
+
+def test_public_schema_definitions_and_null_credentials_are_not_plaintext_secrets(tmp_path):
+    root, store = source(tmp_path)
+    store.append_record(stream_id="s", author_peer_id="author", kind="schema",
+                        body={"properties": {"api_key": {"type": "string"}}, "password": None},
+                        idempotency_key="schema", created_at="2026-10-06T00:00:00Z")
+    create_backup(root / "core.db", root / "artifacts", tmp_path / "bundle")
+    assert verify_backup(tmp_path / "bundle")
+
+
 def test_copied_snapshot_is_reverified_before_old_target_is_touched(tmp_path, monkeypatch):
     import peerhub.extensions.backup as backup
     root, _ = source(tmp_path)

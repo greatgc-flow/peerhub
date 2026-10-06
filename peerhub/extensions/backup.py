@@ -77,7 +77,7 @@ def _now_iso() -> str:
 # Secret Masking Guard
 # -----------------------------------------------------------------------------
 _SECRET_VALUE = re.compile(r"sk-(?:secret|proj-)?[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY")
-_SECRET_ASSIGNMENT = re.compile(r'''(?im)(?:api[_-]?key|private[_-]?key|password|access[_-]?token|auth[_-]?token|credential|secret[_-]?token)\s*["']?\s*[:=]\s*["']?([^\s"'#,}\]]+)''')
+_SECRET_ASSIGNMENT = re.compile(r'''(?im)(?:api[_-]?key|private[_-]?key|password|access[_-]?token|auth[_-]?token|credential|secret[_-]?token)\s*["']?\s*[:=]\s*["']?([^\s"'#,{}\[\]]+)''')
 
 
 def assert_no_plaintext_secrets(data: Any) -> None:
@@ -97,6 +97,14 @@ def assert_no_plaintext_secrets(data: Any) -> None:
     elif isinstance(data, str):
         if "sk-secret" in data or _SECRET_VALUE.search(data):
             raise SecretLeakageDetectedError("Plaintext secret detected in content value")
+        if data.lstrip().startswith(("{", "[")):
+            try:
+                structured = json.loads(data)
+            except ValueError:
+                pass
+            else:
+                assert_no_plaintext_secrets(structured)
+                return
         if any(not match.group(1).startswith("***") for match in _SECRET_ASSIGNMENT.finditer(data)):
             raise SecretLeakageDetectedError("Plaintext credential assignment detected")
 
@@ -112,14 +120,20 @@ def _scan_secrets(path: Path) -> None:
         assert_no_plaintext_secrets(decoded)
     if path.name == "core.db":
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as conn:
-            for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"):
+            tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+            for (table,) in tables:
                 quoted = table.replace('"', '""')
-                for row in conn.execute(f'SELECT * FROM "{quoted}"'):
-                    for value in row:
-                        if isinstance(value, str):
-                            check(value)
-                        elif isinstance(value, bytes):
-                            check(value.decode("utf-8", "replace"))
+                with closing(conn.execute(f'SELECT * FROM "{quoted}"')) as cursor:
+                    names = [column[0] for column in cursor.description]
+                    for row in cursor:
+                        assert_no_plaintext_secrets(dict(zip(names, (
+                            value.decode("utf-8", "replace") if isinstance(value, bytes) else value for value in row
+                        ))))
+                        for value in row:
+                            if isinstance(value, str):
+                                check(value)
+                            elif isinstance(value, bytes):
+                                check(value.decode("utf-8", "replace"))
     else:
         # Overlap catches credentials split across bounded read chunks.
         tail = b""
