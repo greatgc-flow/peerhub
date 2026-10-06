@@ -302,6 +302,300 @@
       ],
       "case_type": "positive",
       "deterministic": true
+    },
+    {
+      "id": "MEM-001",
+      "tier": "architecture",
+      "title": "Invariant 3: Memory operations are derived and never rewrite or mutate source records",
+      "requirements": [
+        "REQ-MEM-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "invariant"
+      ],
+      "setup": "CoreStore with existing immutable records.",
+      "action": "Propose, accept, and supersede memory items.",
+      "oracle": "Original records in CoreStore remain 100% byte-for-byte unchanged; direct rewrite raises MemorySourceRewriteForbiddenError.",
+      "failure_injection": "rewrite attempt",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "immutability"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-002",
+      "tier": "provenance",
+      "title": "Memory items maintain mandatory source_ref linking to originating stream position or artifact",
+      "requirements": [
+        "REQ-MEM-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "provenance"
+      ],
+      "setup": "Proposed memory item from stream event.",
+      "action": "Inspect memory item attributes.",
+      "oracle": "source_ref precisely references originating stream_id and position or artifact digest.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "provenance",
+        "traceability"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-003",
+      "tier": "lifecycle",
+      "title": "Memory lifecycle: proposal, acceptance, and rejection follow CANDIDATE state machine",
+      "requirements": [
+        "REQ-MEM-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle"
+      ],
+      "setup": "Memory item in CANDIDATE state.",
+      "action": "Accept one candidate, reject another.",
+      "oracle": "First transitions to ACCEPTED; second transitions to REJECTED; unknown ID raises MemoryNotFoundError.",
+      "failure_injection": "missing id",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "lifecycle",
+        "state_machine"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-004",
+      "tier": "lifecycle",
+      "title": "Illegal state transitions on memory items raise MemoryStateTransitionError",
+      "requirements": [
+        "REQ-MEM-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "state_machine"
+      ],
+      "setup": "Memory item in REJECTED or CANDIDATE state.",
+      "action": "Attempt illegal transitions (e.g. REJECTED -> ACCEPTED, CANDIDATE -> SUPERSEDED).",
+      "oracle": "Raises MemoryStateTransitionError.",
+      "failure_injection": "illegal transition",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "validation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-005",
+      "tier": "context_pack",
+      "title": "Invariant 4: Context Pack is strictly bounded by max_tokens budget with deterministic trimming",
+      "requirements": [
+        "REQ-MEM-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "context_pack",
+        "invariant"
+      ],
+      "setup": "Multiple ACCEPTED memory items totalling 500 tokens.",
+      "action": "Build context pack with budget of 200 tokens.",
+      "oracle": "Resulting ContextPack has total_tokens <= 200; zero budget overflow.",
+      "failure_injection": "over-budget items",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "context_pack",
+        "budget"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-006",
+      "tier": "context_pack",
+      "title": "Zero or impossible budget raises ContextPackBudgetExceededError",
+      "requirements": [
+        "REQ-MEM-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "context_pack",
+        "fault"
+      ],
+      "setup": "Active memories.",
+      "action": "Request context pack with max_tokens <= 0.",
+      "oracle": "Raises ContextPackBudgetExceededError.",
+      "failure_injection": "negative budget",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "context_pack",
+        "fault"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-007",
+      "tier": "supersession",
+      "title": "Memory supersession links old memory to new and excludes old from active packs",
+      "requirements": [
+        "REQ-MEM-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "supersession"
+      ],
+      "setup": "ACCEPTED memory item A.",
+      "action": "Accept memory item B and supersede A with B.",
+      "oracle": "Item A state is SUPERSEDED with superseded_by='B'; only item B appears in active context pack.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "supersession",
+        "selection"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-008",
+      "tier": "revocation",
+      "title": "Memory revocation transitions ACCEPTED memory to REVOKED and removes from active queries",
+      "requirements": [
+        "REQ-MEM-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "revocation"
+      ],
+      "setup": "ACCEPTED memory item.",
+      "action": "Revoke memory item with explanation.",
+      "oracle": "Item state becomes REVOKED; querying active memories excludes it.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "revocation",
+        "lifecycle"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-009",
+      "tier": "rebuild",
+      "title": "Replaying memory proposal events from stream records fully reconstructs memory store",
+      "requirements": [
+        "REQ-MEM-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "rebuild"
+      ],
+      "setup": "Populated CoreStore with memory event records; wiped memory store.",
+      "action": "Execute rebuild_from_records(core_store).",
+      "oracle": "All memory items and their accepted/superseded states are reconstructed 100%.",
+      "failure_injection": "wiped memory db",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "rebuild",
+        "determinism"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-010",
+      "tier": "query",
+      "title": "Query active memories filters by key_prefix and memory_type correctly",
+      "requirements": [
+        "REQ-MEM-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "query"
+      ],
+      "setup": "Mix of episodic and semantic memories under various key prefixes.",
+      "action": "Query with key_prefix='user.pref' and memory_type='semantic'.",
+      "oracle": "Returns exact matching subset in ACCEPTED state.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "query",
+        "filtering"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-011",
+      "tier": "lifecycle",
+      "title": "Disabling memory module leaves CoreStore and M2 operational with zero disruption",
+      "requirements": [
+        "REQ-MEM-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle",
+        "independence"
+      ],
+      "setup": "MemoryStore instance alongside CoreStore.",
+      "action": "Close MemoryStore and continue CoreStore transactions.",
+      "oracle": "CoreStore records and streams function completely independently.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "lifecycle",
+        "isolation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-012",
+      "tier": "architecture",
+      "title": "Zero dev-dependency violation: memory module runs on standard library (REL-009)",
+      "requirements": [
+        "REQ-MEM-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "dependencies"
+      ],
+      "setup": "Minimal Python runtime.",
+      "action": "Import peerhub.m3.memory.",
+      "oracle": "Uses only standard library modules and internal public ports.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "packaging"
+      ],
+      "case_type": "positive",
+      "deterministic": true
     }
   ]
 }
