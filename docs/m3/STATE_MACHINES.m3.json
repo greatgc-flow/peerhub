@@ -171,6 +171,73 @@
         }
       ],
       "gaps": []
+    },
+    "ApprovalLifecycle": {
+      "states": [
+        "REQUESTED",
+        "APPROVED",
+        "REJECTED",
+        "EXPIRED",
+        "CONSUMED"
+      ],
+      "initial": "REQUESTED",
+      "terminal": [
+        "REJECTED",
+        "EXPIRED",
+        "CONSUMED"
+      ],
+      "transitions": [
+        {
+          "from": "REQUESTED",
+          "to": "APPROVED",
+          "allowed": true,
+          "tests": [
+            "APP-001"
+          ]
+        },
+        {
+          "from": "REQUESTED",
+          "to": "REJECTED",
+          "allowed": true,
+          "tests": [
+            "APP-003"
+          ]
+        },
+        {
+          "from": "REQUESTED",
+          "to": "EXPIRED",
+          "allowed": true,
+          "tests": [
+            "APP-004"
+          ]
+        },
+        {
+          "from": "APPROVED",
+          "to": "CONSUMED",
+          "allowed": true,
+          "tests": [
+            "APP-001",
+            "APP-005"
+          ]
+        },
+        {
+          "from": "APPROVED",
+          "to": "EXPIRED",
+          "allowed": true,
+          "tests": [
+            "APP-004"
+          ]
+        },
+        {
+          "from": "CONSUMED",
+          "to": "CONSUMED",
+          "allowed": false,
+          "tests": [
+            "APP-005"
+          ]
+        }
+      ],
+      "gaps": []
     }
   }
 }
