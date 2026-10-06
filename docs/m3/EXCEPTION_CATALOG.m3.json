@@ -172,6 +172,58 @@
       "tests": [
         "APP-006"
       ]
+    },
+    {
+      "id": "EXC-073",
+      "name": "PlanBoundExceededError",
+      "trigger": "Execution exceeded plan bounds (max_depth, max_steps, max_fanout, timeout).",
+      "disposition": "TERMINATED",
+      "rationale": "Invariant 9: Orchestration always bounded.",
+      "tests": [
+        "ORC-003",
+        "ORC-004"
+      ]
+    },
+    {
+      "id": "EXC-074",
+      "name": "AmbiguousExecutionReplayForbiddenError",
+      "trigger": "Attempted to blindly retry non-idempotent step with MAY_HAVE_STARTED certainty.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 10: MAY_HAVE_STARTED no blind replay.",
+      "tests": [
+        "ORC-005",
+        "ORC-006"
+      ]
+    },
+    {
+      "id": "EXC-075",
+      "name": "PlanDependencyCycleError",
+      "trigger": "Plan step dependency graph contains circular dependencies.",
+      "disposition": "REJECTED",
+      "rationale": "DAG dependency validation.",
+      "tests": [
+        "ORC-007"
+      ]
+    },
+    {
+      "id": "EXC-076",
+      "name": "PlanStepExecutionError",
+      "trigger": "Plan step execution permanently failed after exhausting retry attempts.",
+      "disposition": "TERMINATED",
+      "rationale": "Step failure propagation.",
+      "tests": [
+        "ORC-008"
+      ]
+    },
+    {
+      "id": "EXC-077",
+      "name": "PlanStateTransitionError",
+      "trigger": "Illegal plan or step state machine transition attempted.",
+      "disposition": "REJECTED",
+      "rationale": "State machine enforcement.",
+      "tests": [
+        "ORC-002"
+      ]
     }
   ]
 }

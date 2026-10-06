@@ -1197,6 +1197,315 @@
       ],
       "case_type": "positive",
       "deterministic": true
+    },
+    {
+      "id": "ORC-001",
+      "tier": "orchestration",
+      "title": "PlanExecutor sequential and parallel step execution completes plan successfully",
+      "requirements": [
+        "REQ-ORC-001",
+        "REQ-ORC-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "orchestration",
+        "lifecycle"
+      ],
+      "setup": "Valid Plan with sequential and parallel dependencies.",
+      "action": "execute_plan with deterministic mock step runner.",
+      "oracle": "All steps executed in valid order; plan status is COMPLETED.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "orchestration",
+        "dag"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-002",
+      "tier": "orchestration",
+      "title": "Plan state machine enforces valid transitions (PENDING -> RUNNING -> COMPLETED)",
+      "requirements": [
+        "REQ-ORC-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "orchestration",
+        "state_machine"
+      ],
+      "setup": "Plan in COMPLETED state.",
+      "action": "Attempt illegal re-run or invalid transition.",
+      "oracle": "PlanStateTransitionError raised.",
+      "failure_injection": "illegal transition",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "orchestration",
+        "state_machine"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-003",
+      "tier": "invariant",
+      "title": "Invariant 9: Orchestration bounds - max_steps limit terminates execution",
+      "requirements": [
+        "REQ-ORC-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "invariant",
+        "orchestration",
+        "bounds"
+      ],
+      "setup": "Plan configured with max_steps=2 and 5 steps.",
+      "action": "Execute plan.",
+      "oracle": "PlanBoundExceededError raised or plan status is BOUNDS_EXCEEDED; execution terminates at step 2.",
+      "failure_injection": "step bound overflow",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "invariant",
+        "bounds"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-004",
+      "tier": "invariant",
+      "title": "Invariant 9: Orchestration bounds - timeout terminates execution",
+      "requirements": [
+        "REQ-ORC-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "invariant",
+        "orchestration",
+        "timeout"
+      ],
+      "setup": "Plan configured with timeout_seconds=0.1 and slow step runner.",
+      "action": "Execute plan.",
+      "oracle": "PlanBoundExceededError raised and plan marked BOUNDS_EXCEEDED.",
+      "failure_injection": "timeout",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "invariant",
+        "timeout"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-005",
+      "tier": "invariant",
+      "title": "Invariant 10: MAY_HAVE_STARTED results forbid blind retry on non-idempotent steps",
+      "requirements": [
+        "REQ-ORC-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "invariant",
+        "orchestration",
+        "retry",
+        "certainty"
+      ],
+      "setup": "Step with idempotent=False returning MAY_HAVE_STARTED status.",
+      "action": "Execute plan with retry policy enabled.",
+      "oracle": "AmbiguousExecutionReplayForbiddenError raised; blind retry refused.",
+      "failure_injection": "ambiguous crash",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "invariant",
+        "certainty"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-006",
+      "tier": "invariant",
+      "title": "Invariant 10: Idempotent steps with MAY_HAVE_STARTED can be boundedly retried",
+      "requirements": [
+        "REQ-ORC-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "invariant",
+        "orchestration",
+        "retry"
+      ],
+      "setup": "Step with idempotent=True returning MAY_HAVE_STARTED on attempt 1, COMPLETED on attempt 2.",
+      "action": "Execute plan.",
+      "oracle": "Retry succeeds boundedly within max_attempts; plan completes.",
+      "failure_injection": "first attempt ambiguous crash",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "invariant",
+        "retry"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-007",
+      "tier": "orchestration",
+      "title": "Circular dependency in step DAG detected and rejected",
+      "requirements": [
+        "REQ-ORC-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "orchestration",
+        "dag",
+        "validation"
+      ],
+      "setup": "Plan with step A -> step B -> step A cycle.",
+      "action": "Validate or execute plan.",
+      "oracle": "PlanDependencyCycleError raised before execution begins.",
+      "failure_injection": "cycle injection",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "orchestration",
+        "validation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-008",
+      "tier": "orchestration",
+      "title": "Failed step without retry terminates plan execution and skips dependent steps",
+      "requirements": [
+        "REQ-ORC-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "orchestration",
+        "failure_handling"
+      ],
+      "setup": "Plan with step 1 failing permanently and step 2 depending on step 1.",
+      "action": "Execute plan.",
+      "oracle": "Plan execution finishes with status FAILED; step 2 is never executed.",
+      "failure_injection": "step 1 permanent failure",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "orchestration",
+        "failure_handling"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-009",
+      "tier": "orchestration",
+      "title": "Crash recovery: resume_plan skips already COMPLETED steps and executes remaining",
+      "requirements": [
+        "REQ-ORC-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "orchestration",
+        "recovery"
+      ],
+      "setup": "Plan with steps 1, 2, 3; recorded evidence has step 1 COMPLETED.",
+      "action": "resume_plan with recorded results.",
+      "oracle": "Step 1 is not re-executed; steps 2 and 3 execute cleanly to COMPLETED.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "orchestration",
+        "recovery"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-010",
+      "tier": "orchestration",
+      "title": "Crash recovery refuses to resume plan if recorded result has ambiguous MAY_HAVE_STARTED on non-idempotent step",
+      "requirements": [
+        "REQ-ORC-003",
+        "REQ-ORC-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "orchestration",
+        "recovery",
+        "certainty"
+      ],
+      "setup": "Plan with non-idempotent step having recorded status MAY_HAVE_STARTED.",
+      "action": "Attempt resume_plan.",
+      "oracle": "AmbiguousExecutionReplayForbiddenError raised; manual intervention required.",
+      "failure_injection": "crash during non-idempotent execution",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "orchestration",
+        "safety"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-011",
+      "tier": "orchestration",
+      "title": "Plan serializes and deserializes accurately for Artifact preservation",
+      "requirements": [
+        "REQ-ORC-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "orchestration",
+        "serialization"
+      ],
+      "setup": "Complex Plan with steps, dependencies, and bounds.",
+      "action": "Serialize to dict/JSON and deserialize back.",
+      "oracle": "Restored Plan matches original structure and fields exactly.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "orchestration",
+        "serialization"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-012",
+      "tier": "architecture",
+      "title": "Zero dev-dependency violation: orchestration runs on standard library (REL-009)",
+      "requirements": [
+        "REQ-ORC-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "dependencies"
+      ],
+      "setup": "Minimal runtime environment.",
+      "action": "Import peerhub.m3.orchestration.",
+      "oracle": "Module uses only standard library packages.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "packaging"
+      ],
+      "case_type": "positive",
+      "deterministic": true
     }
   ]
 }
