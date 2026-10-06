@@ -1,4 +1,4 @@
-"""PeerHub M1 Very Simple CLI Entrypoint.
+"""PeerHub CLI Entrypoint.
 
 Commands (canonical inventory: docs/m1_impl/command_inventory.json, derived from this parser by tools/m1_command_inventory.py):
   peer register / get
@@ -52,8 +52,8 @@ def _resolve_db_path(configured_path: str) -> str:
     return configured_path
 
 
-def build_parser(prog: str = "peerhub-m1") -> argparse.ArgumentParser:
-    description = "PeerHub CLI" if prog == "peerhub" else "PeerHub M1 Very Simple CLI"
+def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
+    description = "PeerHub CLI"
     parser = argparse.ArgumentParser(prog=prog, description=description)
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Path to SQLite database")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
@@ -122,7 +122,7 @@ def build_parser(prog: str = "peerhub-m1") -> argparse.ArgumentParser:
     d_health.add_argument("--stream", default=None, dest="stream_id",
                           help="Optional stream ID to inspect (default: inspects entire store and active streams)")
     d_health.add_argument("--obs-db", default=None, metavar="PATH",
-                          help="Read the observations summary from this OTHER M1 workspace database (opened read-only, never created); "
+                          help="Read the observations summary from this OTHER PeerHub workspace database (opened read-only, never created); "
                                "default: the --db database. The stream part always comes from --db.")
     d_health.epilog = "examples: peerhub diag health | peerhub diag health --stream s1"
 
@@ -131,13 +131,13 @@ def build_parser(prog: str = "peerhub-m1") -> argparse.ArgumentParser:
                                               "(MEASURED/STALE/UNKNOWN/UNAVAILABLE). Missing evidence is UNKNOWN, never unlimited. "
                                               "Exit: 0 ok, 4 storage fault/corrupt evidence, 5 database or observation tables unavailable, 6 schema version.")
     d_quota.add_argument("--obs-db", default=None, metavar="PATH",
-                         help="Read observations from this OTHER M1 workspace database (opened read-only, never created); default: the --db database")
+                         help="Read observations from this OTHER PeerHub workspace database (opened read-only, never created); default: the --db database")
     d_quota.add_argument("--peer", default=None, help="Only this subject_ref (exact match)")
     d_quota.add_argument("--pool", default=None, help="Only this resource_pool_ref (exact match)")
     d_quota.add_argument("--json", action="store_true", help="Machine-readable output (schema_version 1.0) instead of the table")
-    d_quota.epilog = "examples: peerhub-m1 --db ws.db diag quota --json | peerhub-m1 --db ws.db diag quota --pool P --obs-db other_ws.db"
+    d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --obs-db other_ws.db"
 
-    # legacy import (the --db option is the M1 TARGET store; --source is the legacy v0.x database, opened read-only)
+    # legacy import (the --db option is the PeerHub TARGET store; --source is the legacy v0.x database, opened read-only)
     legacy_parser = subparsers.add_parser("legacy-import", help="Import a legacy v0.x store (dry-run first)")
     legacy_sub = legacy_parser.add_subparsers(dest="action", required=True)
     for name in ("dry-run", "apply"):
@@ -154,7 +154,7 @@ def _dump(model: BaseModel) -> str:
     return json.dumps(model.model_dump(mode="json"), indent=2, ensure_ascii=True)
 
 
-def main(argv: list[str] | None = None, prog: str = "peerhub-m1") -> int:
+def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     tolerant_streams()
     parser = build_parser(prog=prog)
     args = parser.parse_args(argv)

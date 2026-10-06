@@ -334,7 +334,7 @@ LEAVES = [c for c in inv.derive()["commands"]]
 def test_leaf_help_exit_zero_lists_every_option_and_unknown_option_exits_2(leaf, capsys):
     argv = leaf["command"].split()
     code, out, err = run(capsys, "unused.db", *argv, "--help")
-    assert code == 0 and out.startswith("usage: peerhub-m1") and "Traceback" not in err
+    assert code == 0 and out.startswith(("usage: peerhub", "usage: peerhub-m1")) and "Traceback" not in err
     for o in leaf["options"]:
         assert o["flags"][0] in out, (leaf["command"], o)
     if argv[0] == "diag":
