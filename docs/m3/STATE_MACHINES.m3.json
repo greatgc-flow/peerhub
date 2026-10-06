@@ -238,6 +238,124 @@
         }
       ],
       "gaps": []
+    },
+    "PlanLifecycle": {
+      "states": [
+        "PENDING",
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "BOUNDS_EXCEEDED",
+        "CANCELLED"
+      ],
+      "initial": "PENDING",
+      "terminal": [
+        "COMPLETED",
+        "FAILED",
+        "BOUNDS_EXCEEDED",
+        "CANCELLED"
+      ],
+      "transitions": [
+        {
+          "from": "PENDING",
+          "to": "RUNNING",
+          "allowed": true,
+          "tests": [
+            "ORC-001"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "COMPLETED",
+          "allowed": true,
+          "tests": [
+            "ORC-001"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "ORC-008"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "BOUNDS_EXCEEDED",
+          "allowed": true,
+          "tests": [
+            "ORC-003",
+            "ORC-004"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "CANCELLED",
+          "allowed": true,
+          "tests": [
+            "ORC-008"
+          ]
+        }
+      ],
+      "gaps": []
+    },
+    "StepLifecycle": {
+      "states": [
+        "PENDING",
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "MAY_HAVE_STARTED"
+      ],
+      "initial": "PENDING",
+      "terminal": [
+        "COMPLETED",
+        "FAILED"
+      ],
+      "transitions": [
+        {
+          "from": "PENDING",
+          "to": "RUNNING",
+          "allowed": true,
+          "tests": [
+            "ORC-001"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "COMPLETED",
+          "allowed": true,
+          "tests": [
+            "ORC-001"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "ORC-008"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "MAY_HAVE_STARTED",
+          "allowed": true,
+          "tests": [
+            "ORC-005"
+          ]
+        },
+        {
+          "from": "MAY_HAVE_STARTED",
+          "to": "RUNNING",
+          "allowed": false,
+          "tests": [
+            "ORC-005"
+          ]
+        }
+      ],
+      "gaps": []
     }
   }
 }

@@ -434,6 +434,114 @@
       "risk_tags": [
         "ISOLATION"
       ]
+    },
+    {
+      "id": "REQ-ORC-001",
+      "area": "Orchestration",
+      "statement": "Orchestration is a bounded executor of an explicit accepted plan, with authority anchored strictly in Work/Record/Artifact.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ORC-001",
+        "ORC-002"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "authority"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-ORC-002",
+      "area": "Orchestration",
+      "statement": "Invariant 9: Orchestration is always bounded by max_depth, max_steps, max_fanout, max_attempts, and timeout.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ORC-003",
+        "ORC-004"
+      ],
+      "required_dimensions": [
+        "bounds",
+        "safety"
+      ],
+      "risk_tags": [
+        "RESOURCE"
+      ]
+    },
+    {
+      "id": "REQ-ORC-003",
+      "area": "Orchestration",
+      "statement": "Invariant 10: MAY_HAVE_STARTED results forbid blind retry unless explicit idempotency verification is guaranteed.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ORC-005",
+        "ORC-006"
+      ],
+      "required_dimensions": [
+        "certainty",
+        "retry"
+      ],
+      "risk_tags": [
+        "IDEMPOTENCY"
+      ]
+    },
+    {
+      "id": "REQ-ORC-004",
+      "area": "Orchestration",
+      "statement": "Step execution respects dependency graph ordering and propagates step failures or cancellations cleanly.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ORC-007",
+        "ORC-008"
+      ],
+      "required_dimensions": [
+        "dag",
+        "lifecycle"
+      ],
+      "risk_tags": [
+        "CONSISTENCY"
+      ]
+    },
+    {
+      "id": "REQ-ORC-005",
+      "area": "Orchestration",
+      "statement": "Crash recovery re-hydrates execution state from recorded evidence without replay duplication.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ORC-009",
+        "ORC-010"
+      ],
+      "required_dimensions": [
+        "recovery",
+        "provenance"
+      ],
+      "risk_tags": [
+        "CORRUPTION"
+      ]
+    },
+    {
+      "id": "REQ-ORC-006",
+      "area": "Orchestration",
+      "statement": "Zero dev-dependency violation: orchestration engine runs on standard library without external workflow engines (REL-009).",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "ORC-011",
+        "ORC-012"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "dependencies"
+      ],
+      "risk_tags": [
+        "ISOLATION"
+      ]
     }
   ]
 }
