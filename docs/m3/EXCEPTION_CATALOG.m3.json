@@ -274,6 +274,56 @@
       "tests": [
         "A2A-010"
       ]
+    },
+    {
+      "id": "EXC-083",
+      "name": "GeneralRemoteShellForbiddenError",
+      "trigger": "Attempted to execute arbitrary shell or unconstrained remote command.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 12: Remote runtime capability-bound, no general remote shell.",
+      "tests": [
+        "RUN-001"
+      ]
+    },
+    {
+      "id": "EXC-084",
+      "name": "RuntimeCapabilityNotFoundError",
+      "trigger": "Requested capability is not registered on runtime port.",
+      "disposition": "REJECTED",
+      "rationale": "Missing capability routing on runtime port.",
+      "tests": [
+        "RUN-002"
+      ]
+    },
+    {
+      "id": "EXC-085",
+      "name": "RuntimeJobNotFoundError",
+      "trigger": "Job ID was not found in runtime adapter registry.",
+      "disposition": "REJECTED",
+      "rationale": "Unknown job lookup.",
+      "tests": [
+        "RUN-003"
+      ]
+    },
+    {
+      "id": "EXC-086",
+      "name": "RuntimeJobNotReadyError",
+      "trigger": "Attempted to collect output from a job that has not completed.",
+      "disposition": "REJECTED",
+      "rationale": "Premature artifact collection.",
+      "tests": [
+        "RUN-007"
+      ]
+    },
+    {
+      "id": "EXC-087",
+      "name": "RuntimeJobFailedError",
+      "trigger": "Attempted to collect output from a job that ended in failure or cancellation.",
+      "disposition": "TERMINATED",
+      "rationale": "Failed job collection error.",
+      "tests": [
+        "RUN-008"
+      ]
     }
   ]
 }

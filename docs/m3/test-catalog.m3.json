@@ -1811,6 +1811,307 @@
       ],
       "case_type": "positive",
       "deterministic": true
+    },
+    {
+      "id": "RUN-001",
+      "tier": "invariant",
+      "title": "Invariant 12: Remote runtime is capability-bound; unrestricted arbitrary remote shells are forbidden",
+      "requirements": [
+        "REQ-RUN-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "invariant",
+        "runtime_port",
+        "security"
+      ],
+      "setup": "LoopbackRuntimeAdapter instance.",
+      "action": "Attempt to invoke raw arbitrary shell command without capability wrapper.",
+      "oracle": "GeneralRemoteShellForbiddenError raised.",
+      "failure_injection": "unbounded shell invocation",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "invariant",
+        "security"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-002",
+      "tier": "runtime_port",
+      "title": "Invoking unregistered capability raises RuntimeCapabilityNotFoundError",
+      "requirements": [
+        "REQ-RUN-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "validation"
+      ],
+      "setup": "Empty LoopbackRuntimeAdapter.",
+      "action": "Submit job to unknown capability ID.",
+      "oracle": "RuntimeCapabilityNotFoundError raised.",
+      "failure_injection": "unregistered capability ID",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port",
+        "validation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-003",
+      "tier": "runtime_port",
+      "title": "RuntimePort operations: probe, submit, get, and collect lifecycle",
+      "requirements": [
+        "REQ-RUN-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "lifecycle"
+      ],
+      "setup": "LoopbackRuntimeAdapter with registered capability.",
+      "action": "Probe capability, submit job, poll get, and collect output.",
+      "oracle": "Probe reports capability health; submit generates job; get returns COMPLETED; collect returns output.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port",
+        "lifecycle"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-004",
+      "tier": "runtime_port",
+      "title": "Querying non-existent job ID raises RuntimeJobNotFoundError",
+      "requirements": [
+        "REQ-RUN-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "lookup"
+      ],
+      "setup": "LoopbackRuntimeAdapter instance.",
+      "action": "Call get or collect on unknown job ID.",
+      "oracle": "RuntimeJobNotFoundError raised.",
+      "failure_injection": "unknown job ID",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port",
+        "error_handling"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-005",
+      "tier": "runtime_port",
+      "title": "Deterministic fake/loopback adapter simulates controlled failure injection",
+      "requirements": [
+        "REQ-RUN-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "failure_injection"
+      ],
+      "setup": "LoopbackRuntimeAdapter configured with simulated failure.",
+      "action": "Submit and get job.",
+      "oracle": "Job status transitions to FAILED with expected error string.",
+      "failure_injection": "injected execution fault",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port",
+        "failure_injection"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-006",
+      "tier": "runtime_port",
+      "title": "Probe operation reports degraded status when simulated failure is active",
+      "requirements": [
+        "REQ-RUN-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "probe"
+      ],
+      "setup": "LoopbackRuntimeAdapter with simulated outage.",
+      "action": "Probe capability.",
+      "oracle": "Probe result shows available=False and error details.",
+      "failure_injection": "outage simulation",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port",
+        "probe"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-007",
+      "tier": "runtime_port",
+      "title": "Collecting incomplete job raises RuntimeJobNotReadyError",
+      "requirements": [
+        "REQ-RUN-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "collect"
+      ],
+      "setup": "LoopbackRuntimeAdapter with job in RUNNING or SUBMITTED state.",
+      "action": "Attempt collect on unfinished job.",
+      "oracle": "RuntimeJobNotReadyError raised.",
+      "failure_injection": "premature collection",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port",
+        "collect"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-008",
+      "tier": "runtime_port",
+      "title": "Collecting failed job raises RuntimeJobFailedError",
+      "requirements": [
+        "REQ-RUN-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "collect"
+      ],
+      "setup": "LoopbackRuntimeAdapter with FAILED job.",
+      "action": "Attempt collect on failed job.",
+      "oracle": "RuntimeJobFailedError raised containing job failure details.",
+      "failure_injection": "failed job collection",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port",
+        "collect"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-009",
+      "tier": "runtime_port",
+      "title": "Cancel job transitions active job to CANCELLED state and halts execution",
+      "requirements": [
+        "REQ-RUN-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "cancellation"
+      ],
+      "setup": "LoopbackRuntimeAdapter with active job.",
+      "action": "Cancel job.",
+      "oracle": "Job status becomes CANCELLED; subsequent collect raises RuntimeJobFailedError.",
+      "failure_injection": "job cancellation",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port",
+        "cancellation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-010",
+      "tier": "runtime_port",
+      "title": "Cancelling already completed job leaves status as COMPLETED",
+      "requirements": [
+        "REQ-RUN-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "cancellation"
+      ],
+      "setup": "LoopbackRuntimeAdapter with COMPLETED job.",
+      "action": "Attempt cancel on completed job.",
+      "oracle": "Status remains COMPLETED without error.",
+      "failure_injection": "late cancellation",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port",
+        "idempotency"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-011",
+      "tier": "runtime_port",
+      "title": "Capability registration and parameter validation roundtrip",
+      "requirements": [
+        "REQ-RUN-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "schema"
+      ],
+      "setup": "RuntimeCapability with required parameter schema.",
+      "action": "Submit with valid and invalid parameter types.",
+      "oracle": "Valid params succeed; invalid parameter raises ValueError.",
+      "failure_injection": "invalid schema parameter",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port",
+        "validation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-012",
+      "tier": "architecture",
+      "title": "Zero dev-dependency violation: Runtime Port runs on standard library (REL-009)",
+      "requirements": [
+        "REQ-RUN-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "dependencies"
+      ],
+      "setup": "Minimal runtime environment.",
+      "action": "Import peerhub.m3.runtime_port.",
+      "oracle": "Module uses only standard library packages.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "packaging"
+      ],
+      "case_type": "positive",
+      "deterministic": true
     }
   ]
 }
