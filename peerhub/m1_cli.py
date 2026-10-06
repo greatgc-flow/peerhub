@@ -24,8 +24,9 @@ from peerhub.m1.schema_version import SchemaVersionError
 from peerhub.m1.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="peerhub-m1", description="PeerHub M1 Very Simple CLI")
+def build_parser(prog: str = "peerhub-m1") -> argparse.ArgumentParser:
+    description = "PeerHub CLI" if prog == "peerhub" else "PeerHub M1 Very Simple CLI"
+    parser = argparse.ArgumentParser(prog=prog, description=description)
     parser.add_argument("--db", default=".peerhub_m1.db", help="Path to SQLite database")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
@@ -124,9 +125,9 @@ def _dump(model: BaseModel) -> str:
     return json.dumps(model.model_dump(mode="json"), indent=2, ensure_ascii=True)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, prog: str = "peerhub-m1") -> int:
     tolerant_streams()
-    parser = build_parser()
+    parser = build_parser(prog=prog)
     args = parser.parse_args(argv)
 
     try:
