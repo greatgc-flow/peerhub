@@ -122,6 +122,56 @@
       "tests": [
         "RTG-006"
       ]
+    },
+    {
+      "id": "EXC-068",
+      "name": "ApprovalNotFoundError",
+      "trigger": "Specified approval_id was not found in database.",
+      "disposition": "REJECTED",
+      "rationale": "Non-existent approval token requested or consumed.",
+      "tests": [
+        "APP-002"
+      ]
+    },
+    {
+      "id": "EXC-069",
+      "name": "ApprovalStateTransitionError",
+      "trigger": "Illegal state transition attempted on approval request.",
+      "disposition": "REJECTED",
+      "rationale": "Approval lifecycle state machine enforcement.",
+      "tests": [
+        "APP-003"
+      ]
+    },
+    {
+      "id": "EXC-070",
+      "name": "ApprovalExpiredError",
+      "trigger": "Attempted to approve or consume an expired approval token.",
+      "disposition": "REJECTED",
+      "rationale": "Approval token validity window expired.",
+      "tests": [
+        "APP-004"
+      ]
+    },
+    {
+      "id": "EXC-071",
+      "name": "ApprovalAlreadyConsumedError",
+      "trigger": "Attempted to consume an approval token that has already been consumed.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 11: Approval tokens are strictly single-use.",
+      "tests": [
+        "APP-005"
+      ]
+    },
+    {
+      "id": "EXC-072",
+      "name": "ApprovalEffectMismatchError",
+      "trigger": "Target effect payload does not match approved digest.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 11: Exact-effect binding prevents payload alteration.",
+      "tests": [
+        "APP-006"
+      ]
     }
   ]
 }

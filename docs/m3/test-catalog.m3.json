@@ -892,6 +892,311 @@
       ],
       "case_type": "positive",
       "deterministic": true
+    },
+    {
+      "id": "APP-001",
+      "tier": "approval",
+      "title": "ApprovalRequest lifecycle happy path: REQUESTED -> APPROVED -> CONSUMED",
+      "requirements": [
+        "REQ-APP-001",
+        "REQ-APP-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "approval",
+        "lifecycle"
+      ],
+      "setup": "ApprovalEngine with temp database.",
+      "action": "Request approval, approve, and consume with exact payload.",
+      "oracle": "State transitions correctly to CONSUMED with consumed_at recorded.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "approval",
+        "state_machine"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "APP-002",
+      "tier": "approval",
+      "title": "ApprovalNotFound raised when non-existent approval ID is referenced",
+      "requirements": [
+        "REQ-APP-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "approval",
+        "lookup"
+      ],
+      "setup": "Empty ApprovalEngine.",
+      "action": "Attempt to approve or consume unknown approval ID.",
+      "oracle": "ApprovalNotFoundError raised.",
+      "failure_injection": "non-existent ID",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "approval",
+        "error_handling"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "APP-003",
+      "tier": "approval",
+      "title": "Approval rejection transitions state to REJECTED with reason",
+      "requirements": [
+        "REQ-APP-001",
+        "REQ-APP-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "approval",
+        "rejection"
+      ],
+      "setup": "ApprovalEngine with pending request.",
+      "action": "Reject approval with explicit reason.",
+      "oracle": "State is REJECTED; approver and reason stored; subsequent consumption forbidden.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "approval",
+        "rejection"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "APP-004",
+      "tier": "approval",
+      "title": "Expired approval token cannot be approved or consumed",
+      "requirements": [
+        "REQ-APP-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "approval",
+        "ttl"
+      ],
+      "setup": "ApprovalEngine with expired request (ttl_seconds=-1 or simulated expired time).",
+      "action": "Attempt approve or consume on expired token.",
+      "oracle": "ApprovalExpiredError raised; status transitions to EXPIRED.",
+      "failure_injection": "expired token",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "approval",
+        "ttl"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "APP-005",
+      "tier": "invariant",
+      "title": "Invariant 11: Approval tokens are strictly single-use (double consumption rejected)",
+      "requirements": [
+        "REQ-APP-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "invariant",
+        "approval",
+        "single_use"
+      ],
+      "setup": "ApprovalEngine with CONSUMED request.",
+      "action": "Attempt to consume the same approval token a second time.",
+      "oracle": "ApprovalAlreadyConsumedError raised; second attempt rejected.",
+      "failure_injection": "replay attack",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "invariant",
+        "single_use"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "APP-006",
+      "tier": "invariant",
+      "title": "Invariant 11: Exact-effect binding (digest mismatch rejected)",
+      "requirements": [
+        "REQ-APP-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "invariant",
+        "approval",
+        "digest"
+      ],
+      "setup": "ApprovalEngine with approved request for payload A.",
+      "action": "Attempt to consume approval token using modified payload B.",
+      "oracle": "ApprovalEffectMismatchError raised; approval remains APPROVED and unconsumed.",
+      "failure_injection": "payload tampering",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "invariant",
+        "security"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "APP-007",
+      "tier": "approval",
+      "title": "Effect digest calculation is deterministic across arbitrary key orderings",
+      "requirements": [
+        "REQ-APP-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "approval",
+        "digest",
+        "determinism"
+      ],
+      "setup": "Two dictionaries with identical keys/values in different insertion order.",
+      "action": "compute_effect_digest on both dictionaries.",
+      "oracle": "Both return the exact same SHA-256 digest hex string.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "approval",
+        "determinism"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "APP-008",
+      "tier": "approval",
+      "title": "Consuming unapproved (REQUESTED) request raises ApprovalStateTransitionError",
+      "requirements": [
+        "REQ-APP-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "approval",
+        "state_machine"
+      ],
+      "setup": "ApprovalEngine with REQUESTED token.",
+      "action": "Attempt consume before approval.",
+      "oracle": "ApprovalStateTransitionError raised.",
+      "failure_injection": "premature consumption",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "approval",
+        "state_machine"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "APP-009",
+      "tier": "approval",
+      "title": "Database persistence restores approval requests across engine restarts",
+      "requirements": [
+        "REQ-APP-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "approval",
+        "persistence"
+      ],
+      "setup": "ApprovalEngine on disk db_path with created request.",
+      "action": "Close engine and re-open new ApprovalEngine on same db_path.",
+      "oracle": "Existing approval request state and payload retrieved intact.",
+      "failure_injection": "engine restart",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "approval",
+        "persistence"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "APP-010",
+      "tier": "approval",
+      "title": "Approving already REJECTED or CONSUMED request raises ApprovalStateTransitionError",
+      "requirements": [
+        "REQ-APP-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "approval",
+        "state_machine"
+      ],
+      "setup": "ApprovalEngine with REJECTED and CONSUMED tokens.",
+      "action": "Attempt to approve REJECTED or CONSUMED tokens.",
+      "oracle": "ApprovalStateTransitionError raised for each invalid transition.",
+      "failure_injection": "invalid transition",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "approval",
+        "state_machine"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "APP-011",
+      "tier": "approval",
+      "title": "List and filter approval requests by state and requester",
+      "requirements": [
+        "REQ-APP-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "approval",
+        "query"
+      ],
+      "setup": "ApprovalEngine with multiple requests in various states.",
+      "action": "List approvals with state and requested_by filters.",
+      "oracle": "Only matching approval requests are returned.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "approval",
+        "query"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "APP-012",
+      "tier": "architecture",
+      "title": "Zero dev-dependency violation: approval engine runs on standard library (REL-009)",
+      "requirements": [
+        "REQ-APP-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "dependencies"
+      ],
+      "setup": "Minimal runtime environment.",
+      "action": "Import peerhub.m3.approval.",
+      "oracle": "Module uses only standard library packages (sqlite3, json, hashlib, etc.).",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "packaging"
+      ],
+      "case_type": "positive",
+      "deterministic": true
     }
   ]
 }

@@ -326,6 +326,114 @@
       "risk_tags": [
         "ISOLATION"
       ]
+    },
+    {
+      "id": "REQ-APP-001",
+      "area": "Approval",
+      "statement": "Invariant 11: Approval tokens are strictly bound to target effect payload cryptographic digest.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "APP-001",
+        "APP-002"
+      ],
+      "required_dimensions": [
+        "invariant",
+        "digest"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-APP-002",
+      "area": "Approval",
+      "statement": "Invariant 11: Single-use consumption gate prevents double-spending or replay of approved grants.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "APP-003",
+        "APP-004"
+      ],
+      "required_dimensions": [
+        "single_use",
+        "atomicity"
+      ],
+      "risk_tags": [
+        "REPLAY"
+      ]
+    },
+    {
+      "id": "REQ-APP-003",
+      "area": "Approval",
+      "statement": "Approval lifecycle enforces REQUESTED -> APPROVED -> CONSUMED and REQUESTED -> REJECTED / EXPIRED.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "APP-005",
+        "APP-006"
+      ],
+      "required_dimensions": [
+        "lifecycle",
+        "state_machine"
+      ],
+      "risk_tags": [
+        "CORRUPTION"
+      ]
+    },
+    {
+      "id": "REQ-APP-004",
+      "area": "Approval",
+      "statement": "Expired approval tokens cannot be approved or consumed, transitioning deterministically to EXPIRED.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "APP-007",
+        "APP-008"
+      ],
+      "required_dimensions": [
+        "expiration",
+        "timeout"
+      ],
+      "risk_tags": [
+        "STALENESS"
+      ]
+    },
+    {
+      "id": "REQ-APP-005",
+      "area": "Approval",
+      "statement": "Side-effect payload tampering or partial parameter alteration raises ApprovalEffectMismatchError.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "APP-009",
+        "APP-010"
+      ],
+      "required_dimensions": [
+        "tamper",
+        "verification"
+      ],
+      "risk_tags": [
+        "INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-APP-006",
+      "area": "Approval",
+      "statement": "Zero dev-dependency violation: approval engine runs on standard library sqlite3 without external consensus frameworks.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "APP-011",
+        "APP-012"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "dependencies"
+      ],
+      "risk_tags": [
+        "ISOLATION"
+      ]
     }
   ]
 }
