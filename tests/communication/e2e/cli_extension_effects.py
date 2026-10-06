@@ -117,6 +117,26 @@ def refresh_effect(e, option):
         assert captured[0]["deadline_sec"] == 2
 
 
+def watch_effect(e, option):
+    """`observation refresh --interval-seconds/--count`: N explicit collections, NDJSON, the requested pause between them."""
+    db = e.fresh(False)
+    polls, sleeps = [], []
+
+    def probe(**kw):
+        polls.append(kw)
+        ev = SimpleNamespace(state=EvidenceState.ABSENT, value=None, evidence_ref="test", source_tag="fake",
+                             observed_at=100, captured_at=100)
+        return [SimpleNamespace(evidence=ev)]
+
+    interval, count = ("0.5", "3") if option == "--interval-seconds" else ("0.01", "2")
+    with patch("peerhub.extensions.quota_probes.poll_claude_usage", probe),          patch("peerhub.extensions.quota_probes.poll_codex_usage", probe),          patch("time.sleep", lambda s: sleeps.append(s)):
+        code, out, _err = e.run(db, "observation", "refresh", "--peers", "cc", "--interval-seconds", interval, "--count", count)
+    lines = [json.loads(x) for x in out.splitlines() if x.strip()]
+    assert code == 0 and len(lines) == int(count) == len(polls)  # one compact JSON line per collection, exactly --count of them
+    assert sleeps == [float(interval)] * (int(count) - 1)  # pause between collections, none after the last
+    assert all(x["observations"][0]["state"] == "ABSENT" for x in lines)
+
+
 EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for option in (
     "peer", "prompt", "--query-file", "--stream", "--request-id", "--author", "--workspace", "-w", "--model",
     "--effort", "--timeout-seconds", "--max-output-bytes", "--json", "--profile", "-p", "--silence-timeout-seconds")}
@@ -125,3 +145,5 @@ EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
                for option in ("--live", "--interval-seconds", "--count")})
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
                for option in ("--peers", "--sys-dir", "--timeout-seconds")})
+EFFECT.update({f"observation refresh {option}": (lambda e, option=option: watch_effect(e, option))
+               for option in ("--interval-seconds", "--count")})

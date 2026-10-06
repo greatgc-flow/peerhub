@@ -261,6 +261,26 @@
       "command": "observation refresh",
       "options": [
         {
+          "default": null,
+          "dest": "count",
+          "flags": [
+            "--count"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "interval_seconds",
+          "flags": [
+            "--interval-seconds"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
           "default": "['cx', 'cc', 'ag']",
           "dest": "peers",
           "flags": [
