@@ -24,10 +24,38 @@ from peerhub.m1.schema_version import SchemaVersionError
 from peerhub.m1.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
 
 
+DEFAULT_DB_PATH = ".peerhub/m1.db"
+
+
+def _resolve_db_path(configured_path: str) -> str:
+    import os
+    if "PEERHUB_DB" in os.environ:
+        return os.environ["PEERHUB_DB"]
+    if configured_path != DEFAULT_DB_PATH and Path(configured_path).exists():
+        return configured_path
+    p = Path(configured_path)
+    if p.is_file():
+        return str(p)
+    # Check if peerhub/<path> exists (when invoked from workspace root)
+    sub = Path("peerhub") / configured_path
+    if sub.is_file():
+        return str(sub)
+    # Check parent directories (when invoked from a sub-directory)
+    try:
+        cur = Path.cwd().resolve()
+        for parent in [cur, *cur.parents]:
+            cand = parent / configured_path
+            if cand.is_file():
+                return str(cand)
+    except Exception:
+        pass
+    return configured_path
+
+
 def build_parser(prog: str = "peerhub-m1") -> argparse.ArgumentParser:
     description = "PeerHub CLI" if prog == "peerhub" else "PeerHub M1 Very Simple CLI"
     parser = argparse.ArgumentParser(prog=prog, description=description)
-    parser.add_argument("--db", default=".peerhub_m1.db", help="Path to SQLite database")
+    parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Path to SQLite database")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
     # peer
@@ -90,12 +118,13 @@ def build_parser(prog: str = "peerhub-m1") -> argparse.ArgumentParser:
     diag_parser = subparsers.add_parser("diag", help="Readonly diagnostics")
     diag_sub = diag_parser.add_subparsers(dest="action", required=True)
     
-    d_health = diag_sub.add_parser("health", help="Inspect stream health (read-only)")
-    d_health.add_argument("--stream", required=True, dest="stream_id")
+    d_health = diag_sub.add_parser("health", help="Inspect stream or store health (read-only)")
+    d_health.add_argument("--stream", default=None, dest="stream_id",
+                          help="Optional stream ID to inspect (default: inspects entire store and active streams)")
     d_health.add_argument("--obs-db", default=None, metavar="PATH",
                           help="Read the observations summary from this OTHER M1 workspace database (opened read-only, never created); "
                                "default: the --db database. The stream part always comes from --db.")
-    d_health.epilog = "example: peerhub-m1 --db ws.db diag health --stream s1 [--obs-db other_ws.db]"
+    d_health.epilog = "examples: peerhub diag health | peerhub diag health --stream s1"
 
     d_quota = diag_sub.add_parser("quota", help="Show current quota/rate-limit evidence (read-only, never refreshes)",
                                   description="Latest quota/rate_limit Observation per subject/pool exactly as Diag evaluates it "
@@ -129,6 +158,10 @@ def main(argv: list[str] | None = None, prog: str = "peerhub-m1") -> int:
     tolerant_streams()
     parser = build_parser(prog=prog)
     args = parser.parse_args(argv)
+    if hasattr(args, "db") and args.db:
+        args.db = _resolve_db_path(args.db)
+    if getattr(args, "obs_db", None):
+        args.obs_db = _resolve_db_path(args.obs_db)
 
     try:
         if args.subcommand == "legacy-import":  # before CoreStore(): a dry-run must not create or migrate the target
@@ -162,7 +195,26 @@ def main(argv: list[str] | None = None, prog: str = "peerhub-m1") -> int:
                     print(json.dumps(result, indent=2, ensure_ascii=True))
                     print(f"DIAG HEALTH UNAVAILABLE: {result['error']}", file=sys.stderr)
                     return 5
-                result = ReadonlyDiag(args.db).inspect_stream_health(args.stream_id)
+                diag = ReadonlyDiag(args.db)
+                if args.stream_id:
+                    result = diag.inspect_stream_health(args.stream_id)
+                else:
+                    rep = diag.render(["peers", "streams", "resource_pools", "observations"])
+                    if rep.status == "FAILED":
+                        result = {"status": "ERROR", "error": rep.error}
+                    else:
+                        streams_sec = rep.sections.get("streams")
+                        streams_data = streams_sec.data.get("streams", []) if streams_sec and streams_sec.status == "OK" else []
+                        peers_sec = rep.sections.get("peers")
+                        peers_data = peers_sec.data.get("peers", []) if peers_sec and peers_sec.status == "OK" else []
+                        result = {
+                            "status": rep.status,
+                            "store": args.db,
+                            "snapshot": rep.snapshot,
+                            "total_peers": len(peers_data),
+                            "total_streams": len(streams_data),
+                            "active_streams": [s["stream_id"] for s in streams_data[:5]],
+                        }
                 result["observations"] = diag_quota.observations_summary(args.obs_db or args.db)
                 print(json.dumps(result, indent=2, ensure_ascii=True))
                 if str(result.get("error", "")).startswith("SchemaVersionError"):

@@ -20,7 +20,7 @@
             "--stream"
           ],
           "positional": false,
-          "required": true,
+          "required": false,
           "takes_value": true
         }
       ]
@@ -393,7 +393,7 @@
   ],
   "global_options": [
     {
-      "default": ".peerhub_m1.db",
+      "default": ".peerhub/m1.db",
       "dest": "db",
       "flags": [
         "--db"
