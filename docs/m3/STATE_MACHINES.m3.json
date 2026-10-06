@@ -356,6 +356,64 @@
         }
       ],
       "gaps": []
+    },
+    "A2ATaskLifecycle": {
+      "states": [
+        "SUBMITTED",
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "initial": "SUBMITTED",
+      "terminal": [
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "transitions": [
+        {
+          "from": "SUBMITTED",
+          "to": "RUNNING",
+          "allowed": true,
+          "tests": [
+            "A2A-007"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "COMPLETED",
+          "allowed": true,
+          "tests": [
+            "A2A-007"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "A2A-008"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "CANCELLED",
+          "allowed": true,
+          "tests": [
+            "A2A-008"
+          ]
+        },
+        {
+          "from": "SUBMITTED",
+          "to": "CANCELLED",
+          "allowed": true,
+          "tests": [
+            "A2A-008"
+          ]
+        }
+      ],
+      "gaps": []
     }
   }
 }

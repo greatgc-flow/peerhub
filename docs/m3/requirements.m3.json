@@ -542,6 +542,114 @@
       "risk_tags": [
         "ISOLATION"
       ]
+    },
+    {
+      "id": "REQ-A2A-001",
+      "area": "A2A",
+      "statement": "Invariant 5: A2A remote identities are strictly quarantined and never become PeerHub identities implicitly.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "A2A-001",
+        "A2A-002"
+      ],
+      "required_dimensions": [
+        "identity",
+        "quarantine"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-A2A-002",
+      "area": "A2A",
+      "statement": "Invariant 6: Agent Card declarations are treated as untrusted claims, distinct from measured operational reality.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "A2A-003",
+        "A2A-004"
+      ],
+      "required_dimensions": [
+        "card",
+        "trust"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-A2A-003",
+      "area": "A2A",
+      "statement": "Remote execution protocol state is captured through opaque ExternalExecutionRef, avoiding leakage into local state machines.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "A2A-005",
+        "A2A-006"
+      ],
+      "required_dimensions": [
+        "protocol",
+        "isolation"
+      ],
+      "risk_tags": [
+        "ENCAPSULATION"
+      ]
+    },
+    {
+      "id": "REQ-A2A-004",
+      "area": "A2A",
+      "statement": "A2A task dispatch, polling, and cancellation follow explicit lifecycle states with timeout and failure handling.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "A2A-007",
+        "A2A-008"
+      ],
+      "required_dimensions": [
+        "lifecycle",
+        "dispatch"
+      ],
+      "risk_tags": [
+        "COMMUNICATION"
+      ]
+    },
+    {
+      "id": "REQ-A2A-005",
+      "area": "A2A",
+      "statement": "A2A adapter validates AgentCard registration and ensures missing agents raise A2AAgentNotFoundError.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "A2A-009",
+        "A2A-010"
+      ],
+      "required_dimensions": [
+        "catalog",
+        "validation"
+      ],
+      "risk_tags": [
+        "INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-A2A-006",
+      "area": "A2A",
+      "statement": "Zero dev-dependency violation: A2A adapter runs on Python standard library without external RPC/Agent frameworks (REL-009).",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "A2A-011",
+        "A2A-012"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "dependencies"
+      ],
+      "risk_tags": [
+        "ISOLATION"
+      ]
     }
   ]
 }

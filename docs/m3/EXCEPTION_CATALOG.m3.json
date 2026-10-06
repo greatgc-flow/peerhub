@@ -224,6 +224,56 @@
       "tests": [
         "ORC-002"
       ]
+    },
+    {
+      "id": "EXC-078",
+      "name": "A2AAgentNotFoundError",
+      "trigger": "Specified remote agent ID was not found in registered Agent Cards.",
+      "disposition": "REJECTED",
+      "rationale": "Missing remote agent destination.",
+      "tests": [
+        "A2A-009"
+      ]
+    },
+    {
+      "id": "EXC-079",
+      "name": "A2AIdentityLeakForbiddenError",
+      "trigger": "Attempted to use unmapped remote A2A identity as native PeerHub identity.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 5: A2A identities never become PeerHub identities implicitly.",
+      "tests": [
+        "A2A-001"
+      ]
+    },
+    {
+      "id": "EXC-080",
+      "name": "A2AExecutionTimeoutError",
+      "trigger": "Remote A2A task execution exceeded polling deadline.",
+      "disposition": "TERMINATED",
+      "rationale": "Remote task timeout handling.",
+      "tests": [
+        "A2A-007"
+      ]
+    },
+    {
+      "id": "EXC-081",
+      "name": "A2AStateTransitionError",
+      "trigger": "Illegal state transition attempted on A2A task lifecycle.",
+      "disposition": "REJECTED",
+      "rationale": "A2A task state machine enforcement.",
+      "tests": [
+        "A2A-008"
+      ]
+    },
+    {
+      "id": "EXC-082",
+      "name": "A2ACardValidationError",
+      "trigger": "Agent Card missing required endpoint or declared capabilities.",
+      "disposition": "REJECTED",
+      "rationale": "Agent Card structure validation.",
+      "tests": [
+        "A2A-010"
+      ]
     }
   ]
 }
