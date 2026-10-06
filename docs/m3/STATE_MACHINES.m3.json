@@ -133,6 +133,44 @@
         }
       ],
       "gaps": []
+    },
+    "RouteDecision": {
+      "states": [
+        "EVALUATING",
+        "DECIDED",
+        "EXPIRED"
+      ],
+      "initial": "EVALUATING",
+      "terminal": [
+        "EXPIRED"
+      ],
+      "transitions": [
+        {
+          "from": "EVALUATING",
+          "to": "DECIDED",
+          "allowed": true,
+          "tests": [
+            "RTG-001"
+          ]
+        },
+        {
+          "from": "DECIDED",
+          "to": "EXPIRED",
+          "allowed": true,
+          "tests": [
+            "RTG-002"
+          ]
+        },
+        {
+          "from": "EXPIRED",
+          "to": "DECIDED",
+          "allowed": false,
+          "tests": [
+            "RTG-002"
+          ]
+        }
+      ],
+      "gaps": []
     }
   }
 }
