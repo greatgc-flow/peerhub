@@ -1506,6 +1506,311 @@
       ],
       "case_type": "positive",
       "deterministic": true
+    },
+    {
+      "id": "A2A-001",
+      "tier": "invariant",
+      "title": "Invariant 5: A2A remote identities are quarantined and never become PeerHub identities implicitly",
+      "requirements": [
+        "REQ-A2A-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "invariant",
+        "a2a",
+        "identity"
+      ],
+      "setup": "A2AAdapter with remote AgentCard.",
+      "action": "Dispatch task and verify remote agent identifier namespace.",
+      "oracle": "Remote identity is isolated; cannot be passed directly as native PeerHub peer ID without explicit mapping.",
+      "failure_injection": "unmapped identity leak",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "invariant",
+        "identity"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-002",
+      "tier": "a2a",
+      "title": "A2AIdentityLeakForbiddenError raised when unmapped remote identity is used in native context",
+      "requirements": [
+        "REQ-A2A-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "a2a",
+        "identity",
+        "security"
+      ],
+      "setup": "A2AAdapter instance.",
+      "action": "Attempt to map remote agent ID to native peer without explicit mapping rule.",
+      "oracle": "A2AIdentityLeakForbiddenError raised.",
+      "failure_injection": "implicit mapping attempt",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "a2a",
+        "security"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-003",
+      "tier": "invariant",
+      "title": "Invariant 6: Agent Card declarations are treated as untrusted claims distinct from measured truth",
+      "requirements": [
+        "REQ-A2A-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "invariant",
+        "a2a",
+        "trust"
+      ],
+      "setup": "AgentCard claiming 100% availability and capabilities.",
+      "action": "Inspect agent status via A2AAdapter.",
+      "oracle": "Card claims are labeled 'declared'; measured health/success metrics are distinct and separate.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "invariant",
+        "trust"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-004",
+      "tier": "a2a",
+      "title": "Empirical observation can mark agent as degraded regardless of declared healthy card",
+      "requirements": [
+        "REQ-A2A-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "a2a",
+        "telemetry"
+      ],
+      "setup": "AgentCard with measured telemetry failures.",
+      "action": "Record empirical failure observations.",
+      "oracle": "Measured status shows degraded/unhealthy while declared card remains unchanged.",
+      "failure_injection": "remote failure",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "a2a",
+        "telemetry"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-005",
+      "tier": "a2a",
+      "title": "ExternalExecutionRef encapsulates remote protocol state as opaque reference",
+      "requirements": [
+        "REQ-A2A-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "a2a",
+        "protocol",
+        "encapsulation"
+      ],
+      "setup": "A2A task response with remote system metadata.",
+      "action": "Inspect response external_ref.",
+      "oracle": "Contains remote_system, remote_task_id, remote_run_id, and opaque_state dict without local schema leakage.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "a2a",
+        "encapsulation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-006",
+      "tier": "a2a",
+      "title": "A2A task response converts to PeerHub record evidence cleanly",
+      "requirements": [
+        "REQ-A2A-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "a2a",
+        "evidence",
+        "record"
+      ],
+      "setup": "Completed A2ATaskResponse.",
+      "action": "Extract evidence record payload.",
+      "oracle": "Payload contains task_id, status, external_ref, and output without modifying remote state.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "a2a",
+        "record"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-007",
+      "tier": "a2a",
+      "title": "A2A task lifecycle happy path: SUBMITTED -> RUNNING -> COMPLETED",
+      "requirements": [
+        "REQ-A2A-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "a2a",
+        "lifecycle"
+      ],
+      "setup": "A2AAdapter with mock remote handler.",
+      "action": "Dispatch task, poll until completion.",
+      "oracle": "Status transitions through SUBMITTED, RUNNING, and COMPLETED with output payload.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "a2a",
+        "lifecycle"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-008",
+      "tier": "a2a",
+      "title": "A2A task cancellation transitions state to CANCELLED and stops execution",
+      "requirements": [
+        "REQ-A2A-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "a2a",
+        "cancellation"
+      ],
+      "setup": "A2AAdapter with running task.",
+      "action": "Cancel task.",
+      "oracle": "Task status becomes CANCELLED; subsequent polling returns CANCELLED.",
+      "failure_injection": "cancellation request",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "a2a",
+        "cancellation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-009",
+      "tier": "a2a",
+      "title": "Dispatching to unregistered agent raises A2AAgentNotFoundError",
+      "requirements": [
+        "REQ-A2A-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "a2a",
+        "validation"
+      ],
+      "setup": "A2AAdapter without registered target agent.",
+      "action": "Dispatch task to unknown agent ID.",
+      "oracle": "A2AAgentNotFoundError raised.",
+      "failure_injection": "unknown agent target",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "a2a",
+        "validation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-010",
+      "tier": "a2a",
+      "title": "AgentCard validation rejects missing agent_id or empty endpoint_url",
+      "requirements": [
+        "REQ-A2A-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "a2a",
+        "schema"
+      ],
+      "setup": "Invalid AgentCard payloads.",
+      "action": "Register invalid cards in A2AAdapter.",
+      "oracle": "A2ACardValidationError raised.",
+      "failure_injection": "missing mandatory fields",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "a2a",
+        "schema"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-011",
+      "tier": "a2a",
+      "title": "AgentCard serialization and deserialization roundtrip",
+      "requirements": [
+        "REQ-A2A-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "a2a",
+        "serialization"
+      ],
+      "setup": "Complete AgentCard with metadata and declared capabilities.",
+      "action": "Serialize to dict/JSON and deserialize back.",
+      "oracle": "Restored AgentCard exactly matches original.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "a2a",
+        "serialization"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-012",
+      "tier": "architecture",
+      "title": "Zero dev-dependency violation: A2A adapter runs on standard library (REL-009)",
+      "requirements": [
+        "REQ-A2A-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "dependencies"
+      ],
+      "setup": "Minimal runtime environment.",
+      "action": "Import peerhub.m3.a2a.",
+      "oracle": "Module uses only standard library packages.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "packaging"
+      ],
+      "case_type": "positive",
+      "deterministic": true
     }
   ]
 }
