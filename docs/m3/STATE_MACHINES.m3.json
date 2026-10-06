@@ -1,0 +1,70 @@
+{
+  "version": "3.0.0",
+  "generated_at": "2026-10-06T00:00:00Z",
+  "state_machines": {
+    "SearchIndex": {
+      "states": [
+        "UNINITIALIZED",
+        "READY",
+        "REBUILDING",
+        "CORRUPTED",
+        "CLOSED"
+      ],
+      "initial": "UNINITIALIZED",
+      "terminal": [
+        "CLOSED"
+      ],
+      "transitions": [
+        {
+          "from": "UNINITIALIZED",
+          "to": "READY",
+          "allowed": true,
+          "tests": [
+            "SRC-001"
+          ]
+        },
+        {
+          "from": "READY",
+          "to": "REBUILDING",
+          "allowed": true,
+          "tests": [
+            "SRC-004"
+          ]
+        },
+        {
+          "from": "REBUILDING",
+          "to": "READY",
+          "allowed": true,
+          "tests": [
+            "SRC-004"
+          ]
+        },
+        {
+          "from": "READY",
+          "to": "CORRUPTED",
+          "allowed": true,
+          "tests": [
+            "SRC-010"
+          ]
+        },
+        {
+          "from": "CORRUPTED",
+          "to": "REBUILDING",
+          "allowed": true,
+          "tests": [
+            "SRC-010"
+          ]
+        },
+        {
+          "from": "READY",
+          "to": "CLOSED",
+          "allowed": true,
+          "tests": [
+            "SRC-011"
+          ]
+        }
+      ],
+      "gaps": []
+    }
+  }
+}

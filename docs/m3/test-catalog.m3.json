@@ -1,0 +1,307 @@
+{
+  "version": "3.0.0",
+  "generated_at": "2026-10-06T00:00:00Z",
+  "catalog_hash": "m3-test-catalog-freeze-r1",
+  "tests": [
+    {
+      "id": "SRC-001",
+      "tier": "architecture",
+      "title": "Invariant 2: SearchIndex initialization creates FTS5 tables and operates as derived projection",
+      "requirements": [
+        "REQ-SRC-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "invariant"
+      ],
+      "setup": "Temporary database path.",
+      "action": "Initialize SearchIndex instance.",
+      "oracle": "SQLite FTS5 virtual tables and metadata tables are created cleanly.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "fts"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-002",
+      "tier": "provenance",
+      "title": "Search result strictly includes mandatory source provenance fields (source_ref, watermark)",
+      "requirements": [
+        "REQ-SRC-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "provenance",
+        "schema"
+      ],
+      "setup": "SearchIndex with indexed records and artifacts.",
+      "action": "Execute search query.",
+      "oracle": "Every returned SearchResult has valid source_ref, doc_type, score, and source_watermark.",
+      "failure_injection": "missing provenance fields",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "provenance",
+        "validation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-003",
+      "tier": "search",
+      "title": "Exact and prefix keyword queries match records accurately",
+      "requirements": [
+        "REQ-SRC-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "search",
+        "exact"
+      ],
+      "setup": "Records with specific keywords ('database-migration', 'v2-release').",
+      "action": "Search with exact and prefix terms.",
+      "oracle": "Relevant records returned with rank scores reflecting match quality.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "search",
+        "retrieval"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-004",
+      "tier": "rebuild",
+      "title": "Full index rebuild from authoritative CoreStore completely reconstructs search index",
+      "requirements": [
+        "REQ-SRC-001",
+        "REQ-SRC-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "rebuild",
+        "invariant"
+      ],
+      "setup": "Populated CoreStore, wiped or empty search.db.",
+      "action": "Execute rebuild_from_sources(core_store).",
+      "oracle": "All stream records are re-indexed; search results match pre-wipe index exactly.",
+      "failure_injection": "wiped index",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "rebuild",
+        "recovery"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-005",
+      "tier": "search",
+      "title": "Artifact metadata and content snippets are searchable via FTS5",
+      "requirements": [
+        "REQ-SRC-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "artifacts",
+        "fts"
+      ],
+      "setup": "Indexed artifacts with JSON metadata and snippets.",
+      "action": "Search for terms present in artifact description or snippet.",
+      "oracle": "Artifact doc_type results returned with source_ref pointing to artifact:digest.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "artifacts",
+        "indexing"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-006",
+      "tier": "search",
+      "title": "Skill catalog items and tags are searchable via FTS5",
+      "requirements": [
+        "REQ-SRC-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "skills",
+        "fts"
+      ],
+      "setup": "Indexed skills with names, descriptions, and tags.",
+      "action": "Search for skill tags or functionality descriptions.",
+      "oracle": "Skill doc_type results returned with high relevance score.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "skills",
+        "indexing"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-007",
+      "tier": "search",
+      "title": "Filtering by doc_type ('record', 'artifact', 'skill') restricts results cleanly",
+      "requirements": [
+        "REQ-SRC-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "filtering"
+      ],
+      "setup": "Mixed documents (records, artifacts, skills) containing common keyword 'architecture'.",
+      "action": "Execute search filtered by doc_type='skill'.",
+      "oracle": "Only skill documents are returned in results.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "filtering",
+        "precision"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-008",
+      "tier": "rebuild",
+      "title": "Rebuild without valid authoritative store raises SearchIndexRebuildOrderError",
+      "requirements": [
+        "REQ-SRC-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "order"
+      ],
+      "setup": "None or uninitialized core_store.",
+      "action": "Attempt to call rebuild_from_sources with None or invalid store.",
+      "oracle": "Raises SearchIndexRebuildOrderError; Invariant 2 preserved.",
+      "failure_injection": "missing authoritative core",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "validation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-009",
+      "tier": "fault",
+      "title": "Malformed query syntax (special characters, unclosed quotes) handled safely without crash",
+      "requirements": [
+        "REQ-SRC-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "syntax"
+      ],
+      "setup": "Operational SearchIndex.",
+      "action": "Search with syntax error queries (e.g., '\"unclosed quote', 'AND OR NOT ***').",
+      "oracle": "Handled gracefully by query sanitizer; does not crash database connection.",
+      "failure_injection": "malformed syntax",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "resilience"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-010",
+      "tier": "fault",
+      "title": "Corrupted search database triggers SearchIndexCorruptedError and clean recovery on clear()",
+      "requirements": [
+        "REQ-SRC-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "corruption"
+      ],
+      "setup": "Corrupted SQLite file (arbitrary byte overwrites).",
+      "action": "SearchIndex detects corruption on verify, raises SearchIndexCorruptedError, recovers on clear/rebuild.",
+      "oracle": "Corruption flagged; index reset restores normal operation.",
+      "failure_injection": "bit flip",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "integrity"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-011",
+      "tier": "lifecycle",
+      "title": "Clean lifecycle: closing and disabling search index leaves CoreStore and M2 untouched",
+      "requirements": [
+        "REQ-SRC-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle",
+        "independence"
+      ],
+      "setup": "SearchIndex alongside active CoreStore.",
+      "action": "Close search index and append records to CoreStore.",
+      "oracle": "CoreStore functions with 100% fidelity independently of SearchIndex lifecycle.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "lifecycle",
+        "isolation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-012",
+      "tier": "architecture",
+      "title": "Zero dev-dependency violation: search index runs on standard library sqlite3 FTS5 (REL-009)",
+      "requirements": [
+        "REQ-SRC-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "dependencies"
+      ],
+      "setup": "Minimal runtime environment.",
+      "action": "Import peerhub.m3.search.",
+      "oracle": "Uses only standard library modules and internal public ports.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "packaging"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    }
+  ]
+}

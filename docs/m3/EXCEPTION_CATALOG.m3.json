@@ -1,0 +1,47 @@
+{
+  "version": "3.0.0",
+  "generated_at": "2026-10-06T00:00:00Z",
+  "catalog_hash": "m3-exceptions-freeze-r1",
+  "exceptions": [
+    {
+      "id": "EXC-056",
+      "name": "SearchIndexCorruptedError",
+      "trigger": "Search index database or FTS5 table is damaged, corrupted, or unreadable.",
+      "disposition": "REJECTED",
+      "rationale": "Corrupted derived views must trigger recovery rather than returning invalid search results.",
+      "tests": [
+        "SRC-010"
+      ]
+    },
+    {
+      "id": "EXC-057",
+      "name": "SearchProvenanceMissingError",
+      "trigger": "Attempted to emit a search result without valid source_ref or source_watermark.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 2: Search rebuildable + provenance always.",
+      "tests": [
+        "SRC-002"
+      ]
+    },
+    {
+      "id": "EXC-058",
+      "name": "SearchQuerySyntaxError",
+      "trigger": "Search query syntax is invalid or violates query parser grammar.",
+      "disposition": "REJECTED",
+      "rationale": "Query parser validation.",
+      "tests": [
+        "SRC-009"
+      ]
+    },
+    {
+      "id": "EXC-059",
+      "name": "SearchIndexRebuildOrderError",
+      "trigger": "Search rebuild invoked without access to authoritative CoreStore.",
+      "disposition": "REJECTED",
+      "rationale": "Derived view rebuild requires authoritative sources.",
+      "tests": [
+        "SRC-008"
+      ]
+    }
+  ]
+}

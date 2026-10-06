@@ -1,0 +1,115 @@
+{
+  "version": "3.0.0",
+  "generated_at": "2026-10-06T00:00:00Z",
+  "contract_hash": "m3-search-freeze-r1",
+  "requirements": [
+    {
+      "id": "REQ-SRC-001",
+      "area": "Search",
+      "statement": "Invariant 2: Search index is a rebuildable projection and never authoritative truth.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SRC-001",
+        "SRC-004"
+      ],
+      "required_dimensions": [
+        "invariant",
+        "rebuild"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-SRC-002",
+      "area": "Search",
+      "statement": "Search results must always include source provenance (source_ref, doc_type, score, retrieval_method, source_watermark).",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SRC-002",
+        "SRC-003"
+      ],
+      "required_dimensions": [
+        "provenance",
+        "schema"
+      ],
+      "risk_tags": [
+        "PROVENANCE"
+      ]
+    },
+    {
+      "id": "REQ-SRC-003",
+      "area": "Search",
+      "statement": "Lexical full-text search (FTS5) indexes record bodies, artifact metadata, and skill descriptions with token snippet extraction.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SRC-005",
+        "SRC-006"
+      ],
+      "required_dimensions": [
+        "fts",
+        "indexing"
+      ],
+      "risk_tags": [
+        "FUNCTIONALITY"
+      ]
+    },
+    {
+      "id": "REQ-SRC-004",
+      "area": "Search",
+      "statement": "Rebuilding search index re-indexes 100% of available CoreStore records, artifacts, and skills without data loss or duplicate drift.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SRC-007",
+        "SRC-008"
+      ],
+      "required_dimensions": [
+        "rebuild",
+        "idempotency"
+      ],
+      "risk_tags": [
+        "DRIFT"
+      ]
+    },
+    {
+      "id": "REQ-SRC-005",
+      "area": "Search",
+      "statement": "Search index handles malformed queries and corrupted indices gracefully with clean error reporting and auto-rebuild capability.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SRC-009",
+        "SRC-010"
+      ],
+      "required_dimensions": [
+        "fault",
+        "recovery"
+      ],
+      "risk_tags": [
+        "RESILIENCE"
+      ]
+    },
+    {
+      "id": "REQ-SRC-006",
+      "area": "Search",
+      "statement": "Core imports M3 = 0, and search index implementation uses only Python standard library modules (REL-009).",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SRC-011",
+        "SRC-012"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "dependencies"
+      ],
+      "risk_tags": [
+        "ISOLATION"
+      ]
+    }
+  ]
+}
