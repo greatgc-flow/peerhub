@@ -140,6 +140,9 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     refresh.add_argument("--count", type=int, default=None,
                          help="Watch mode: stop after N collections (0 = until interrupted; default 0 when --interval-seconds is given)")
 
+    refresh.add_argument("--keep-going-on-agy-token-use", action="store_true",
+                         help="Watch mode: keep collecting after agy /usage consumed model tokens (default: stop with exit 1 at the first event)")
+
     # diag
     diag_parser = subparsers.add_parser("diag", help="Readonly diagnostics")
     diag_parser.add_argument("--json", action="store_true", help="Emit the read-only dashboard as JSON")
@@ -225,8 +228,18 @@ def _run_observation_cli(args: argparse.Namespace) -> int:
     if args.interval_seconds is None:
         result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
         print(json.dumps(result, indent=2, ensure_ascii=True))
+        _print_warnings(result)
         return 0 if result["status"] == "OK" else 1
     return _watch_observation(args)
+
+
+def _print_warnings(result: dict[str, Any]) -> None:
+    for w in result.get("warnings", []):
+        print(f"warning: {w}", file=sys.stderr, flush=True)
+
+
+def _agy_token_use(result: dict[str, Any]) -> bool:
+    return any(o.get("payload", {}).get("evidence_ref") == "agy_usage_consumed_tokens" for o in result.get("observations", []))
 
 
 def _validate_observation_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -249,8 +262,13 @@ def _watch_observation(args: argparse.Namespace) -> int:
         while True:
             result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
             print(json.dumps(result, ensure_ascii=True, separators=(",", ":")), flush=True)
+            _print_warnings(result)
             if result["status"] != "OK":
                 worst = 1
+            if _agy_token_use(result) and not args.keep_going_on_agy_token_use:
+                print("error: agy /usage consumed model tokens; stopping watch mode so quota is not burned every interval "
+                      "(pass --keep-going-on-agy-token-use to continue)", file=sys.stderr, flush=True)
+                return 1
             done += 1
             if total and done >= total:
                 return worst

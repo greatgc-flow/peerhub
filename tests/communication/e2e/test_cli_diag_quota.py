@@ -60,7 +60,7 @@ def test_quota_json_exact_values_and_states(ws, capsys):
     code, out, _ = run(capsys, ws.db_path, "diag", "quota", "--json")
     rep = json.loads(out)
     assert code == 0 and rep["schema_version"] == "1.0" and rep["status"] == "OK" and rep["overall"] == "OK"
-    assert set(rep) == {"schema_version", "status", "source_db", "read_at", "filters", "overall", "pools", "error"}
+    assert set(rep) == {"schema_version", "status", "source_db", "read_at", "filters", "overall", "pools", "reset_credits", "error"}
     assert [g["resource_pool_ref"] for g in rep["pools"]] == ["P", "Q", "R", None]
     by = {(i["subject_ref"], i["kind"]): i for g in rep["pools"] for i in g["items"]}
     a = by[("peer:a", "quota")]

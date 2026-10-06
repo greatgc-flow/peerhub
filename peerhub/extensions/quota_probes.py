@@ -6,13 +6,14 @@ import math
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Sequence, Optional, TypedDict, Callable, cast, Any
 
 from peerhub.extensions.adapters.binary_resolution import CLAUDE_CMD, CODEX_CMD
-from peerhub.extensions.quota_types import IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement
+from peerhub.extensions.quota_types import IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement, ResetCreditObserved
 
 AGY_QUOTA_FAMILIES = (("gemini-5h", "G-5H"), ("gemini-weekly", "G-7D"), ("3p-5h", "3P-5H"), ("3p-weekly", "3P-7D"))
 
@@ -343,6 +344,65 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
             }
     return buckets
 
+def _agy_envelope(text: str) -> Optional[dict[str, Any]]:
+    """First JSON object in agy's stdout (whole text, else last-line-first, tolerating a launcher prefix line)."""
+    for candidate in (text.strip(), *(line.strip() for line in reversed(text.splitlines()))):
+        if not candidate:
+            continue
+        try:
+            raw = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(raw, dict):
+            return cast(dict[str, Any], raw)
+    return None
+
+
+def _agy_usage_violation(text: str) -> Optional[tuple[str, dict[str, Any]]]:
+    """Evaluate the RAW print-mode envelope of `agy -p /usage`: a proper slash-command run has command.name == "usage", zero tokens and
+    zero turns. Anything else means the text may have gone to a real model turn (quota burn) or is not the command: (evidence_ref, extra)
+    or None when the run is clean/unparseable (unparseable keeps the legacy non-JSON behaviour)."""
+    env = _agy_envelope(text)
+    if env is None:
+        return None
+    usage_raw, command_raw = env.get("usage"), env.get("command")
+    tokens: object = cast(dict[str, Any], usage_raw).get("total_tokens") if isinstance(usage_raw, dict) else None
+    turns: object = env.get("num_turns")
+    extra: dict[str, Any] = {}
+    if isinstance(tokens, (int, float)) and not isinstance(tokens, bool):
+        extra["consumed_tokens"] = tokens
+    if isinstance(turns, (int, float)) and not isinstance(turns, bool):
+        extra["num_turns"] = turns
+    consumed = (isinstance(tokens, (int, float)) and not isinstance(tokens, bool) and not tokens <= 0) or                (isinstance(turns, (int, float)) and not isinstance(turns, bool) and not turns <= 0)
+    if consumed:
+        extra["reason"] = "agy_usage_consumed_tokens"
+        extra["warning"] = (f"agy /usage consumed tokens (total_tokens={tokens!r}, num_turns={turns!r}): a model turn was dispatched, "
+                            "the response is NOT used as quota")
+        return "agy_usage_consumed_tokens", extra
+    for name, v in (("total_tokens", tokens), ("num_turns", turns)):
+        if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float))):
+            extra["reason"] = "agy_usage_unverifiable_tokens"
+            extra["warning"] = f"agy /usage reported a non-numeric {name}; token consumption cannot be ruled out"
+            return "agy_usage_unverifiable_tokens", extra
+    if not isinstance(command_raw, dict) or cast(dict[str, Any], command_raw).get("name") != "usage":
+        extra["reason"] = "agy_usage_not_a_command"
+        extra["warning"] = "agy /usage was not recognised as a slash command (possible model turn); the response is NOT used as quota"
+        return "agy_usage_not_a_command", extra
+    return None
+
+
+def _agy_cwd_refusal(cwd: Path) -> Optional[str]:
+    """Pre-spawn guard: the slash command only exists in the workspace context; elsewhere agy runs a paid model turn."""
+    try:
+        if not cwd.is_dir():
+            return f"agy probe cwd is not an existing directory: {cwd}"
+        if cwd.resolve() == Path(tempfile.gettempdir()).resolve():
+            return f"agy probe cwd is the system temp directory: {cwd}"
+    except OSError as exc:
+        return f"agy probe cwd cannot be inspected: {type(exc).__name__}"
+    return None
+
+
 def _fail_closed(
     ids: IdSource,
     instance_id: str,
@@ -351,6 +411,8 @@ def _fail_closed(
     observed_at: int,
     freshness_ttl: int,
     peer: str = "cc",
+    evidence_ref_override: Optional[str] = None,
+    extra: Optional[dict[str, Any]] = None,
 ) -> UsageObserved:
     if peer == "cx":
         source_tag = "codex_app_server"
@@ -373,7 +435,7 @@ def _fail_closed(
         observed_at=observed_at,
         captured_at=observed_at,
         freshness_ttl=freshness_ttl,
-        evidence_ref=evidence_ref,
+        evidence_ref=EvidenceRef(evidence_ref_override) if evidence_ref_override else evidence_ref,
         value=None,
     )
     return UsageObserved(
@@ -381,7 +443,61 @@ def _fail_closed(
         instance_id=instance_id,
         profile_id=profile_id,
         evidence=evidence,
+        extra=dict(extra or {}),
     )
+
+
+_RESET_CREDIT_REF = "probe:cx:reset-credits"
+_CREDIT_STR_FIELDS = (("id", "id_ref"), ("resetType", "reset_type"), ("status", "status"), ("title", "title"))
+
+
+def _ts(v: object) -> Optional[int]:
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None
+
+
+def _reset_credit_reading(ids: IdSource, instance_id: str, profile_id: str, envelope: dict[str, Any], observed_at: int) -> ResetCreditObserved:
+    """`rateLimitResetCredits` -> evidence. Missing/null = UNKNOWN (never zero coupons); present+valid (also count 0) = MEASURED;
+    anything malformed = ERROR with a reason only (no partial values). Free-text `description` is deliberately not stored."""
+    def make(state: EvidenceState, payload: dict[str, Any]) -> ResetCreditObserved:
+        return ResetCreditObserved(ids.new_id("reset-credit-observation"), instance_id, profile_id, state, "codex_app_server",
+                                   observed_at, observed_at, _RESET_CREDIT_REF, payload)
+
+    def bad(reason: str) -> ResetCreditObserved:
+        return make(EvidenceState.ERROR, {"reason": reason})
+
+    raw = envelope.get("rateLimitResetCredits")
+    if raw is None:
+        return make(EvidenceState.UNKNOWN, {"reason": "reset_credits_absent"})
+    if not isinstance(raw, dict):
+        return bad("reset_credits_not_an_object")
+    obj = cast(dict[str, Any], raw)
+    count = obj.get("availableCount")
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        return bad("available_count_invalid")
+    items = obj.get("credits")
+    if not isinstance(items, list):
+        return bad("credits_not_a_list")
+    credits: list[dict[str, Any]] = []
+    for item in cast(list[Any], items):
+        if not isinstance(item, dict):
+            return bad("credit_not_an_object")
+        c = cast(dict[str, Any], item)
+        out: dict[str, Any] = {}
+        for src, dst in _CREDIT_STR_FIELDS:
+            v = c.get(src)
+            if not isinstance(v, str) or not v:
+                return bad(f"credit_{dst}_invalid")
+            out[dst] = v
+        granted, expires = _ts(c.get("grantedAt")), _ts(c.get("expiresAt"))
+        if granted is None or expires is None:
+            return bad("credit_timestamp_invalid")
+        if expires < granted:
+            return bad("credit_expires_before_granted")
+        out["granted_at"], out["expires_at"] = granted, expires
+        credits.append(out)
+    credits.sort(key=lambda c: (c["expires_at"], c["id_ref"]))
+    live = [c["expires_at"] for c in credits if c["status"] == "available"]
+    return make(EvidenceState.MEASURED, {"available_count": count, "credits": credits, "nearest_expires_at": min(live) if live else None})
 
 def poll_claude_usage(
     ids: IdSource,
@@ -526,8 +642,9 @@ def poll_codex_usage(
     deadline_sec: float = 12.0,
     freshness_ttl: int = 60,
     sys_dir: Optional[Path] = None,
-) -> Sequence[UsageObserved]:
-    """Poll codex app-server and return observations for each quota pool."""
+) -> Sequence[UsageObserved | ResetCreditObserved]:
+    """Poll codex app-server (JSON-RPC `account/rateLimits/read`, no model turn) and return observations for each quota pool,
+    plus one reset-credit observation from the same response."""
     import threading
     import queue
     import json
@@ -619,6 +736,7 @@ def poll_codex_usage(
         # code previously read them off the envelope directly, so it always
         # found neither key and silently returned ERROR (confirmed against
         # a live response: correct rate-limit data was present, just nested).
+        credit_reading = _reset_credit_reading(ids, instance_id, profile_id, rate_limits_envelope, observed_at)
         rate_limits_raw = rate_limits_envelope.get("rateLimits")
         rate_limits_by_id_raw = rate_limits_envelope.get("rateLimitsByLimitId")
 
@@ -639,9 +757,9 @@ def poll_codex_usage(
                 if isinstance(q_limit_raw, dict):
                     limits_to_process.append((limit_id, cast(dict[str, Any], q_limit_raw)))
         else:
-            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"), credit_reading)
 
-        results: list[UsageObserved] = []
+        results: list[UsageObserved | ResetCreditObserved] = []
         legacy_windows = {
             "primary": ("X-5H", 5.0),
             "secondary": ("X-7D", 168.0),
@@ -734,9 +852,9 @@ def poll_codex_usage(
             )
 
         if not results:
-            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"), credit_reading)
 
-        return tuple(results)
+        return (*results, credit_reading)
     except Exception:
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
     finally:
@@ -802,6 +920,12 @@ def poll_agy_usage(
     if log_path is None and "PEERHUB_AG_STATUSLINE_LOG" not in os.environ:
         agy_cmd = _real_command("ag", resolved_sys)
         if agy_cmd:
+            agy_cwd = _resolve_workspace_root(resolved_sys)
+            refusal = _agy_cwd_refusal(agy_cwd)
+            if refusal is not None:  # nothing is spawned
+                return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at_now, freshness_ttl, peer="ag",
+                                     evidence_ref_override="agy_usage_cwd_refused",
+                                     extra={"reason": "agy_usage_cwd_refused", "warning": refusal}),)
             try:
                 completed = subprocess.run(
                     [
@@ -813,7 +937,7 @@ def poll_agy_usage(
                         "--print-timeout",
                         f"{max(1, int(deadline_sec))}s",
                     ],
-                    cwd=str(_resolve_workspace_root(resolved_sys)),
+                    cwd=str(agy_cwd),
                     stdin=subprocess.DEVNULL,
                     capture_output=True,
                     text=True,
@@ -821,6 +945,11 @@ def poll_agy_usage(
                     timeout=deadline_sec + 2.0,
                     check=False,
                 )
+                violation = _agy_usage_violation(completed.stdout)  # whatever the exit code: tokens may be spent either way
+                if violation is not None:
+                    ref, extra = violation
+                    return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at_now, freshness_ttl, peer="ag",
+                                         evidence_ref_override=ref, extra=extra),)
                 if completed.returncode == 0:
                     parsed = _parse_agy_usage_output(completed.stdout)
                     if parsed:

@@ -369,7 +369,7 @@ def test_json_outputs_parse_with_stable_keys(env):
     assert set(env.j(db, "diag", "health", "--stream", "s")) == {"status", "stream_id", "title", "state", "revision", "head_position", "record_count", "members",
                                                               "offsets", "observations"}
     assert set(env.j(db, "diag", "health", "--stream", "s")["observations"]) == {"source_db", "status", "latest_total", "by_state", "error"}
-    assert set(env.j(db, "diag", "quota", "--json", code=5)) == {"schema_version", "status", "source_db", "read_at", "filters", "overall", "pools", "error"}
+    assert set(env.j(db, "diag", "quota", "--json", code=5)) == {"schema_version", "status", "source_db", "read_at", "filters", "overall", "pools", "reset_credits", "error"}
 
 
 def test_documented_exit_codes_are_the_ones_returned(env):

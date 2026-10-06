@@ -281,6 +281,16 @@
           "takes_value": true
         },
         {
+          "default": false,
+          "dest": "keep_going_on_agy_token_use",
+          "flags": [
+            "--keep-going-on-agy-token-use"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": "['cx', 'cc', 'ag']",
           "dest": "peers",
           "flags": [

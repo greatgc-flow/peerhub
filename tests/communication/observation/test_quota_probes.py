@@ -254,7 +254,7 @@ def test_poll_codex_usage_success_parsing(monkeypatch, used):
     )
 
     ids = DummyIdSource()
-    res = poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=1.0)
+    res = [r for r in poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=1.0) if hasattr(r, "evidence")]  # reset credits: test_reset_credits.py
 
     assert len(res) == 1
     obs = res[0]
@@ -304,7 +304,7 @@ def test_poll_codex_usage_fallback_rate_limits_by_limit_id(monkeypatch):
     )
 
     ids = DummyIdSource()
-    res = poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=1.0)
+    res = [r for r in poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=1.0) if hasattr(r, "evidence")]  # reset credits: test_reset_credits.py
 
     assert len(res) == 1
     obs = res[0]

@@ -137,6 +137,28 @@ def watch_effect(e, option):
     assert all(x["observations"][0]["state"] == "ABSENT" for x in lines)
 
 
+def agy_keep_going_effect(e, option):
+    """`observation refresh --keep-going-on-agy-token-use`: without it, watch mode stops (exit 1) at the first agy token-consumption event."""
+    polls = []
+
+    def probe(**kw):
+        polls.append(kw)
+        ev = SimpleNamespace(state=EvidenceState.ERROR, value=None, evidence_ref="agy_usage_consumed_tokens", source_tag="fake",
+                             observed_at=100, captured_at=100)
+        return [SimpleNamespace(evidence=ev, extra={"reason": "agy_usage_consumed_tokens", "consumed_tokens": 94000, "warning": "tokens used"})]
+
+    def watch(*flag):
+        polls.clear()
+        with patch("peerhub.extensions.quota_probes.poll_agy_usage", probe), patch("time.sleep", lambda s: None):
+            code, _out, err = e.run(e.fresh(False), "observation", "refresh", "--peers", "ag", "--interval-seconds", "0.01", "--count", "3", *flag)
+        return code, err, len(polls)
+
+    code, err, n = watch()
+    assert (code, n) == (1, 1) and "--keep-going-on-agy-token-use" in err  # default: stop after the first violation
+    code, err, n = watch(option)
+    assert (code, n) == (1, 3) and err.count("tokens used") == 3  # explicit flag: all 3 collections run
+
+
 EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for option in (
     "peer", "prompt", "--query-file", "--stream", "--request-id", "--author", "--workspace", "-w", "--model",
     "--effort", "--timeout-seconds", "--max-output-bytes", "--json", "--profile", "-p", "--silence-timeout-seconds")}
@@ -147,3 +169,4 @@ EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refres
                for option in ("--peers", "--sys-dir", "--timeout-seconds")})
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: watch_effect(e, option))
                for option in ("--interval-seconds", "--count")})
+EFFECT["observation refresh --keep-going-on-agy-token-use"] = lambda e: agy_keep_going_effect(e, "--keep-going-on-agy-token-use")

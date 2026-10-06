@@ -1,7 +1,7 @@
 """Provider probe evidence DTOs. No v0 dispatch, telemetry projection or runtime imports."""
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
-from typing import Generic, NewType, Protocol, TypeVar
+from typing import Any, Generic, NewType, Protocol, TypeVar
 
 from peerhub.extensions.observation_model import EvidenceState
 
@@ -60,3 +60,19 @@ class UsageObserved:
     instance_id: str
     profile_id: str
     evidence: EvidenceValue[UsageMeasurement]
+    # Probe-side annotation for non-measurement facts (reason, consumed_tokens, warning); only persisted on ERROR/UNAVAILABLE evidence.
+    extra: dict[str, Any] = field(default_factory=lambda: dict[str, Any]())
+
+
+@dataclass(frozen=True)
+class ResetCreditObserved:
+    """Codex reset-credit evidence (kind `reset_credit`); payload holds available_count/credits/nearest_expires_at only when MEASURED."""
+    observation_id: str
+    instance_id: str
+    profile_id: str
+    state: EvidenceState
+    source_tag: str
+    observed_at: int
+    captured_at: int
+    evidence_ref: str
+    payload: dict[str, Any]
