@@ -64,7 +64,16 @@ def main(args: list[str] | None = None) -> int:
         return 2
     if os.environ.get(REPORT_ENV) == "1":
         sys.stderr.write(f"peerhub: cli selector={selector} (source: {source})\n")
+    actual_args = sys.argv[1:] if args is None else args
     if selector == "m1":
+        # If user runs 'peerhub diag' without pure M1 subactions, route to rich legacy diag
+        if actual_args and len(actual_args) > 0 and actual_args[0] == "diag":
+            # If it's pure M1 diag subcommand (health/quota), let m1 handle it, otherwise rich diag
+            if len(actual_args) > 1 and actual_args[1] in ("health", "quota"):
+                from peerhub.m1_cli import main as m1_main
+                return m1_main(args)
+            return legacy_main(args)
+
         from peerhub.m1_cli import main as m1_main
 
         return m1_main(args)
