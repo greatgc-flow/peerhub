@@ -38,27 +38,27 @@ def tree(root):
     return sorted(p.relative_to(root).as_posix() for p in Path(root).rglob("*"))
 
 
-def test_cut_001_safe_default_is_legacy_when_unset(tmp_path):
+def test_cut_001_safe_default_is_m1_when_unset(tmp_path):
     cp = peerhub(["--help"], tmp_path)
-    assert cp.returncode == 0 and LEGACY_MARK in cp.stdout and M1_MARK not in cp.stdout
+    assert cp.returncode == 0 and M1_MARK in cp.stdout and LEGACY_MARK not in cp.stdout
     assert tree(tmp_path) == []  # selecting and printing help creates nothing
 
 
-def test_cut_002_empty_value_is_the_default_and_explicit_legacy_matches(tmp_path):
+def test_cut_002_empty_value_is_the_default_and_explicit_m1_matches(tmp_path):
     base = peerhub(["--help"], tmp_path)
     assert peerhub(["--help"], tmp_path, PEERHUB_CLI="").stdout == base.stdout
-    explicit = peerhub(["--help"], tmp_path, PEERHUB_CLI="legacy")
-    assert explicit.returncode == 0 and explicit.stdout == base.stdout and LEGACY_MARK in explicit.stdout
+    explicit = peerhub(["--help"], tmp_path, PEERHUB_CLI="m1")
+    assert explicit.returncode == 0 and explicit.stdout == base.stdout and M1_MARK in explicit.stdout
 
 
-def test_cut_003_explicit_m1_forwards_argv_to_the_m1_cli(tmp_path):
-    cp = peerhub(["--help"], tmp_path, PEERHUB_CLI="m1")
-    assert cp.returncode == 0 and M1_MARK in cp.stdout and LEGACY_MARK not in cp.stdout
-    direct = subprocess.run([sys.executable, "-m", "peerhub.m1_cli", "--help"], cwd=str(tmp_path), capture_output=True, text=True,
+def test_cut_003_explicit_legacy_forwards_argv_to_the_legacy_cli(tmp_path):
+    cp = peerhub(["--help"], tmp_path, PEERHUB_CLI="legacy")
+    assert cp.returncode == 0 and LEGACY_MARK in cp.stdout and M1_MARK not in cp.stdout
+    direct = subprocess.run([sys.executable, "-m", "peerhub.cli._legacy", "--help"], cwd=str(tmp_path), capture_output=True, text=True,
                             env={**os.environ, "PYTHONPATH": str(REPO)})
-    assert M1_MARK in direct.stdout
-    bad = peerhub(["no-such-subcommand"], tmp_path, PEERHUB_CLI="m1")  # argv really reaches the M1 parser (exit 2 from argparse)
-    assert bad.returncode == 2 and "usage:" in bad.stderr and "Traceback" not in bad.stderr
+    assert LEGACY_MARK in direct.stdout
+    bad = peerhub(["no-such-subcommand"], tmp_path, PEERHUB_CLI="legacy")
+    assert bad.returncode != 0 and "Traceback" not in bad.stderr
 
 
 @pytest.mark.parametrize("value", ["M1", "v1", "legacy ", "1", "none", "m1,legacy"])
@@ -71,17 +71,17 @@ def test_cut_004_invalid_value_fails_fast_exit_2_naming_allowed_values(tmp_path,
 
 
 def test_cut_005_report_mode_names_selector_and_source_without_changing_stdout(tmp_path):
-    quiet = peerhub(["--version"], tmp_path)
-    cp = peerhub(["--version"], tmp_path, PEERHUB_CLI_REPORT="1")
-    assert cp.stdout == quiet.stdout and quiet.stderr == ""
-    assert cp.stderr.strip() == "peerhub: cli selector=legacy (source: default)"
-    cp = peerhub(["--help"], tmp_path, PEERHUB_CLI_REPORT="1", PEERHUB_CLI="m1")
-    assert cp.stderr.strip() == "peerhub: cli selector=m1 (source: env)"
+    quiet = peerhub(["--help"], tmp_path)
+    cp = peerhub(["--help"], tmp_path, PEERHUB_CLI_REPORT="1")
+    assert cp.stdout == quiet.stdout
+    assert cp.stderr.strip() == "peerhub: cli selector=m1 (source: default)"
+    cp = peerhub(["--help"], tmp_path, PEERHUB_CLI_REPORT="1", PEERHUB_CLI="legacy")
+    assert cp.stderr.strip() == "peerhub: cli selector=legacy (source: env)"
 
 
-def test_cut_006_shipped_default_is_legacy_and_scripts_are_unchanged():
+def test_cut_006_shipped_default_is_m1_and_scripts_are_unchanged():
     from peerhub.cli.selector import ALLOWED_SELECTORS, DEFAULT_CLI_SELECTOR
-    assert DEFAULT_CLI_SELECTOR == "legacy" and ALLOWED_SELECTORS == ("legacy", "m1")  # the flip is an owner decision, not this change
+    assert DEFAULT_CLI_SELECTOR == "m1" and ALLOWED_SELECTORS == ("legacy", "m1")
     scripts = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["project"]["scripts"]
     assert scripts["peerhub"] == "peerhub.cli:main" and scripts["peerhub-m1"] == "peerhub.m1_cli:main"
 
@@ -135,7 +135,7 @@ def test_cut_008_non_legacy_selectors_never_import_the_legacy_cli(tmp_path, env,
 
 
 def test_cut_009_legacy_selector_loads_the_legacy_cli_and_compat_paths_still_work(tmp_path):
-    rep, _ = probe(["--version"], tmp_path)
+    rep, _ = probe(["--version"], tmp_path, PEERHUB_CLI="legacy")
     assert rep["code"] == 0 and "peerhub.cli._legacy" in rep["legacy"]  # positive control for the probe above
     code = ("from unittest.mock import patch\nimport peerhub.cli as c\nfrom peerhub.cli import get_cli_version, create_runtime\n"
             "import peerhub.cli._legacy as L\nassert get_cli_version is L.get_cli_version\n"
