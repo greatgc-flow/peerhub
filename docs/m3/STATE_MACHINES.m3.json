@@ -65,6 +65,74 @@
         }
       ],
       "gaps": []
+    },
+    "MemoryItem": {
+      "states": [
+        "CANDIDATE",
+        "ACCEPTED",
+        "REJECTED",
+        "SUPERSEDED",
+        "REVOKED"
+      ],
+      "initial": "CANDIDATE",
+      "terminal": [
+        "REJECTED",
+        "SUPERSEDED",
+        "REVOKED"
+      ],
+      "transitions": [
+        {
+          "from": "CANDIDATE",
+          "to": "ACCEPTED",
+          "allowed": true,
+          "tests": [
+            "MEM-003"
+          ]
+        },
+        {
+          "from": "CANDIDATE",
+          "to": "REJECTED",
+          "allowed": true,
+          "tests": [
+            "MEM-003"
+          ]
+        },
+        {
+          "from": "ACCEPTED",
+          "to": "SUPERSEDED",
+          "allowed": true,
+          "tests": [
+            "MEM-004",
+            "MEM-007"
+          ]
+        },
+        {
+          "from": "ACCEPTED",
+          "to": "REVOKED",
+          "allowed": true,
+          "tests": [
+            "MEM-004",
+            "MEM-008"
+          ]
+        },
+        {
+          "from": "CANDIDATE",
+          "to": "SUPERSEDED",
+          "allowed": false,
+          "tests": [
+            "MEM-004"
+          ]
+        },
+        {
+          "from": "REJECTED",
+          "to": "ACCEPTED",
+          "allowed": false,
+          "tests": [
+            "MEM-004"
+          ]
+        }
+      ],
+      "gaps": []
     }
   }
 }

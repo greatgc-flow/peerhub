@@ -42,6 +42,46 @@
       "tests": [
         "SRC-008"
       ]
+    },
+    {
+      "id": "EXC-060",
+      "name": "MemoryNotFoundError",
+      "trigger": "Requested memory item ID does not exist in store.",
+      "disposition": "REJECTED",
+      "rationale": "Missing memory identifier.",
+      "tests": [
+        "MEM-003"
+      ]
+    },
+    {
+      "id": "EXC-061",
+      "name": "MemoryStateTransitionError",
+      "trigger": "Attempted illegal transition on memory item lifecycle.",
+      "disposition": "REJECTED",
+      "rationale": "Memory lifecycle state machine enforcement.",
+      "tests": [
+        "MEM-004"
+      ]
+    },
+    {
+      "id": "EXC-062",
+      "name": "MemorySourceRewriteForbiddenError",
+      "trigger": "Attempted to mutate or overwrite raw record or artifact from memory operation.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 3: Memory is derived, never source truth.",
+      "tests": [
+        "MEM-001"
+      ]
+    },
+    {
+      "id": "EXC-063",
+      "name": "ContextPackBudgetExceededError",
+      "trigger": "Context pack construction exceeds explicit token budget constraint.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 4: Context pack bounded.",
+      "tests": [
+        "MEM-005"
+      ]
     }
   ]
 }

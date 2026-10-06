@@ -110,6 +110,114 @@
       "risk_tags": [
         "ISOLATION"
       ]
+    },
+    {
+      "id": "REQ-MEM-001",
+      "area": "Memory",
+      "statement": "Invariant 3: Memory items are derived from records and never overwrite or mutate authoritative source records.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MEM-001",
+        "MEM-002"
+      ],
+      "required_dimensions": [
+        "invariant",
+        "provenance"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-MEM-002",
+      "area": "Memory",
+      "statement": "Memory lifecycle transitions strictly follow CANDIDATE -> ACCEPTED -> SUPERSEDED / REVOKED and CANDIDATE -> REJECTED.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MEM-003",
+        "MEM-004"
+      ],
+      "required_dimensions": [
+        "lifecycle",
+        "state_machine"
+      ],
+      "risk_tags": [
+        "CORRUPTION"
+      ]
+    },
+    {
+      "id": "REQ-MEM-003",
+      "area": "Memory",
+      "statement": "Invariant 4: Context Pack assemblies are strictly bounded by token budgets and enforce deterministic truncation.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MEM-005",
+        "MEM-006"
+      ],
+      "required_dimensions": [
+        "context_pack",
+        "bounded"
+      ],
+      "risk_tags": [
+        "OVERFLOW"
+      ]
+    },
+    {
+      "id": "REQ-MEM-004",
+      "area": "Memory",
+      "statement": "Superseded and revoked memory items are excluded from active context packs, and supersession links are preserved.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MEM-007",
+        "MEM-008"
+      ],
+      "required_dimensions": [
+        "supersession",
+        "exclusion"
+      ],
+      "risk_tags": [
+        "STALENESS"
+      ]
+    },
+    {
+      "id": "REQ-MEM-005",
+      "area": "Memory",
+      "statement": "Memory items can be rebuilt and verified from underlying CoreStore event stream records.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MEM-009",
+        "MEM-010"
+      ],
+      "required_dimensions": [
+        "rebuild",
+        "replay"
+      ],
+      "risk_tags": [
+        "REBUILD"
+      ]
+    },
+    {
+      "id": "REQ-MEM-006",
+      "area": "Memory",
+      "statement": "Core and M2 remain completely independent and functional when memory module is disabled, with zero external dependencies.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MEM-011",
+        "MEM-012"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "packaging"
+      ],
+      "risk_tags": [
+        "ISOLATION"
+      ]
     }
   ]
 }
