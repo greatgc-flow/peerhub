@@ -650,6 +650,114 @@
       "risk_tags": [
         "ISOLATION"
       ]
+    },
+    {
+      "id": "REQ-RUN-001",
+      "area": "RuntimePort",
+      "statement": "Invariant 12: Remote runtime is strictly capability-bound; unrestricted arbitrary remote shells are forbidden.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RUN-001",
+        "RUN-002"
+      ],
+      "required_dimensions": [
+        "invariant",
+        "capability"
+      ],
+      "risk_tags": [
+        "SECURITY"
+      ]
+    },
+    {
+      "id": "REQ-RUN-002",
+      "area": "RuntimePort",
+      "statement": "Public runtime port exposes probe, submit, get, cancel, and collect operations with explicit job states.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RUN-003",
+        "RUN-004"
+      ],
+      "required_dimensions": [
+        "api",
+        "lifecycle"
+      ],
+      "risk_tags": [
+        "COMMUNICATION"
+      ]
+    },
+    {
+      "id": "REQ-RUN-003",
+      "area": "RuntimePort",
+      "statement": "Deterministic Loopback adapter verifies failure isolation and controlled error injection.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RUN-005",
+        "RUN-006"
+      ],
+      "required_dimensions": [
+        "fake",
+        "isolation"
+      ],
+      "risk_tags": [
+        "ISOLATION"
+      ]
+    },
+    {
+      "id": "REQ-RUN-004",
+      "area": "RuntimePort",
+      "statement": "Collecting incomplete or failed jobs raises RuntimeJobNotReadyError or RuntimeJobFailedError.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RUN-007",
+        "RUN-008"
+      ],
+      "required_dimensions": [
+        "collect",
+        "error_handling"
+      ],
+      "risk_tags": [
+        "CONSISTENCY"
+      ]
+    },
+    {
+      "id": "REQ-RUN-005",
+      "area": "RuntimePort",
+      "statement": "Job cancellation transitions active job to CANCELLED state and prevents further execution.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RUN-009",
+        "RUN-010"
+      ],
+      "required_dimensions": [
+        "cancellation",
+        "state_machine"
+      ],
+      "risk_tags": [
+        "LIFECYCLE"
+      ]
+    },
+    {
+      "id": "REQ-RUN-006",
+      "area": "RuntimePort",
+      "statement": "Zero dev-dependency violation: Runtime Port runs on standard library without external cluster/RPC frameworks (REL-009).",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RUN-011",
+        "RUN-012"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "dependencies"
+      ],
+      "risk_tags": [
+        "ISOLATION"
+      ]
     }
   ]
 }

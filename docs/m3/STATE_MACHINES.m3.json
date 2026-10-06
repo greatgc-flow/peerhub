@@ -414,6 +414,64 @@
         }
       ],
       "gaps": []
+    },
+    "RuntimeJobLifecycle": {
+      "states": [
+        "SUBMITTED",
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "initial": "SUBMITTED",
+      "terminal": [
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED"
+      ],
+      "transitions": [
+        {
+          "from": "SUBMITTED",
+          "to": "RUNNING",
+          "allowed": true,
+          "tests": [
+            "RUN-003"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "COMPLETED",
+          "allowed": true,
+          "tests": [
+            "RUN-003"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "RUN-005"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "CANCELLED",
+          "allowed": true,
+          "tests": [
+            "RUN-009"
+          ]
+        },
+        {
+          "from": "SUBMITTED",
+          "to": "CANCELLED",
+          "allowed": true,
+          "tests": [
+            "RUN-009"
+          ]
+        }
+      ],
+      "gaps": []
     }
   }
 }
