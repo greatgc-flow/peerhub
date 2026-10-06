@@ -1,5 +1,5 @@
 # M1 spec package manifests/checksums hash these files byte-for-byte (LF; the 4 CSVs are stored CRLF) and the packaged schemas are byte copies
 # of docs/m1_spec/04_SCHEMAS: never let git rewrite line endings (windows runners default to core.autocrlf=true).
 docs/m1_spec/** -text
-peerhub/m1/schemas/*.json -text
+peerhub/core/schemas/*.json -text
 peerhub/extensions/schemas/*.json -text
