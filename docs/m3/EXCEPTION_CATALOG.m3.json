@@ -82,6 +82,46 @@
       "tests": [
         "MEM-005"
       ]
+    },
+    {
+      "id": "EXC-064",
+      "name": "NoEligibleRouteCandidateError",
+      "trigger": "No candidates meet capability, health, or policy constraints.",
+      "disposition": "REJECTED",
+      "rationale": "Routing failure when candidate set is empty or disqualified.",
+      "tests": [
+        "RTG-009"
+      ]
+    },
+    {
+      "id": "EXC-065",
+      "name": "RoutingExecutionAttemptForbiddenError",
+      "trigger": "Attempted to dispatch or execute work directly from router.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 7: Routing selects; it does not execute.",
+      "tests": [
+        "RTG-001"
+      ]
+    },
+    {
+      "id": "EXC-066",
+      "name": "RoutingPolicyViolationError",
+      "trigger": "Routing policy configuration is invalid or missing required weights.",
+      "disposition": "REJECTED",
+      "rationale": "Strict policy validation.",
+      "tests": [
+        "RTG-004"
+      ]
+    },
+    {
+      "id": "EXC-067",
+      "name": "RoutingUnknownEvidencePolicyError",
+      "trigger": "Attempted to bypass fail-safe UNKNOWN evidence policy.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 8: UNKNOWN stays unknown per policy.",
+      "tests": [
+        "RTG-006"
+      ]
     }
   ]
 }

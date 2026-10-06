@@ -218,6 +218,114 @@
       "risk_tags": [
         "ISOLATION"
       ]
+    },
+    {
+      "id": "REQ-RTG-001",
+      "area": "Routing",
+      "statement": "Invariant 7: Routing selects candidates based on policy and never executes or mutates work.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RTG-001",
+        "RTG-002"
+      ],
+      "required_dimensions": [
+        "invariant",
+        "select_only"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-RTG-002",
+      "area": "Routing",
+      "statement": "Deterministic decision replay: identical request, candidates, and policy revision produce identical decision digest.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RTG-003",
+        "RTG-004"
+      ],
+      "required_dimensions": [
+        "determinism",
+        "replay"
+      ],
+      "risk_tags": [
+        "REPRODUCIBILITY"
+      ]
+    },
+    {
+      "id": "REQ-RTG-003",
+      "area": "Routing",
+      "statement": "Invariant 8: UNKNOWN evidence is never treated as healthy, unlimited, or supported by default.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RTG-005",
+        "RTG-006"
+      ],
+      "required_dimensions": [
+        "invariant",
+        "unknown_evidence"
+      ],
+      "risk_tags": [
+        "SAFETY"
+      ]
+    },
+    {
+      "id": "REQ-RTG-004",
+      "area": "Routing",
+      "statement": "Evaluation breakdown includes candidate eligibility, scores, rank, and rejection reasons.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RTG-007",
+        "RTG-008"
+      ],
+      "required_dimensions": [
+        "transparency",
+        "evaluation"
+      ],
+      "risk_tags": [
+        "OBSERVABILITY"
+      ]
+    },
+    {
+      "id": "REQ-RTG-005",
+      "area": "Routing",
+      "statement": "Missing eligible candidates raise NoEligibleRouteCandidateError cleanly without hang or crash.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RTG-009",
+        "RTG-010"
+      ],
+      "required_dimensions": [
+        "fault",
+        "error_handling"
+      ],
+      "risk_tags": [
+        "ROBUSTNESS"
+      ]
+    },
+    {
+      "id": "REQ-RTG-006",
+      "area": "Routing",
+      "statement": "Zero dev-dependency violation: router runs on standard library and does not import external ML or solver libraries.",
+      "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "RTG-011",
+        "RTG-012"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "dependencies"
+      ],
+      "risk_tags": [
+        "ISOLATION"
+      ]
     }
   ]
 }

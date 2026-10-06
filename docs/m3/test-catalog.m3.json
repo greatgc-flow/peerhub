@@ -596,6 +596,302 @@
       ],
       "case_type": "positive",
       "deterministic": true
+    },
+    {
+      "id": "RTG-001",
+      "tier": "architecture",
+      "title": "Invariant 7: Routing selects candidate peer without executing work or invoking external side effects",
+      "requirements": [
+        "REQ-RTG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "invariant"
+      ],
+      "setup": "Router instance with work request and candidate peers.",
+      "action": "Execute router.route(request, candidates).",
+      "oracle": "Returns RouteDecision with selected peer; zero task dispatch or side-effect execution triggered.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "select_only"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-002",
+      "tier": "architecture",
+      "title": "Attempting execution from Router raises RoutingExecutionAttemptForbiddenError",
+      "requirements": [
+        "REQ-RTG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "invariant"
+      ],
+      "setup": "Router instance.",
+      "action": "Attempt to call execute_decision or bypass selector.",
+      "oracle": "Raises RoutingExecutionAttemptForbiddenError.",
+      "failure_injection": "direct execution attempt",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "isolation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-003",
+      "tier": "determinism",
+      "title": "Deterministic decision replay produces identical candidate ranking and decision digest",
+      "requirements": [
+        "REQ-RTG-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "determinism",
+        "replay"
+      ],
+      "setup": "Identical RouteRequest, CandidatePeers, and RoutePolicy.",
+      "action": "Invoke router.route() twice.",
+      "oracle": "Both invocations produce identical selected_peer_id, candidate scores, and decision_digest.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "determinism",
+        "reproducibility"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-004",
+      "tier": "policy",
+      "title": "RoutePolicy revision change alters decision digest and reflects new weights deterministically",
+      "requirements": [
+        "REQ-RTG-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "policy"
+      ],
+      "setup": "Candidate set with differing latency vs eval_score profiles.",
+      "action": "Evaluate under Policy v1 (latency-focused) and Policy v2 (eval-focused).",
+      "oracle": "Decisions differ according to policy weights; policy_revision is recorded in decision.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "policy",
+        "weights"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-005",
+      "tier": "security",
+      "title": "Invariant 8: UNKNOWN health evidence causes disqualification in default fail-safe policy",
+      "requirements": [
+        "REQ-RTG-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security",
+        "invariant"
+      ],
+      "setup": "Candidate peer with health_status='UNKNOWN'.",
+      "action": "Execute route under fail-safe policy (unknown_evidence_mode='REJECT').",
+      "oracle": "Candidate is disqualified with rejection_reason='UNKNOWN_HEALTH_REJECTED'.",
+      "failure_injection": "unknown health",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "safety"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-006",
+      "tier": "security",
+      "title": "Invariant 8: UNKNOWN quota evidence is never treated as unlimited quota",
+      "requirements": [
+        "REQ-RTG-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security",
+        "invariant"
+      ],
+      "setup": "Candidate with quota_remaining=None (UNKNOWN quota).",
+      "action": "Evaluate candidate against quota requirement.",
+      "oracle": "Candidate receives zero quota bonus and is disqualified if quota evidence required.",
+      "failure_injection": "unknown quota",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "quota"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-007",
+      "tier": "evaluation",
+      "title": "Candidate breakdown includes capability matching, score calculation, and rank order",
+      "requirements": [
+        "REQ-RTG-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "evaluation"
+      ],
+      "setup": "3 candidate peers with varying capability coverage.",
+      "action": "Inspect evaluations array on RouteDecision.",
+      "oracle": "Evaluations contain rank 1, 2, 3 ordered by composite_score, with missing capabilities flagged.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "evaluation",
+        "ranking"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-008",
+      "tier": "evaluation",
+      "title": "Tie-break ordering is deterministic based on lexicographical peer_id",
+      "requirements": [
+        "REQ-RTG-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "evaluation",
+        "determinism"
+      ],
+      "setup": "Two candidates with identical scores and capabilities ('peer:beta', 'peer:alpha').",
+      "action": "Execute route.",
+      "oracle": "'peer:alpha' selected first deterministically via tie-break.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "determinism",
+        "tie_break"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-009",
+      "tier": "fault",
+      "title": "No eligible candidate raises NoEligibleRouteCandidateError",
+      "requirements": [
+        "REQ-RTG-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault"
+      ],
+      "setup": "Candidates missing required capabilities or UNHEALTHY.",
+      "action": "Execute router.route().",
+      "oracle": "Raises NoEligibleRouteCandidateError with detailed rejection breakdown.",
+      "failure_injection": "empty eligible set",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "error_handling"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-010",
+      "tier": "fault",
+      "title": "Empty candidates list raises NoEligibleRouteCandidateError cleanly",
+      "requirements": [
+        "REQ-RTG-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault"
+      ],
+      "setup": "candidates=[].",
+      "action": "Execute router.route(request, []).",
+      "oracle": "Raises NoEligibleRouteCandidateError without unhandled exception.",
+      "failure_injection": "empty list",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "validation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-011",
+      "tier": "lifecycle",
+      "title": "Router operates as stateless pure functional selector without storage coupling",
+      "requirements": [
+        "REQ-RTG-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle",
+        "independence"
+      ],
+      "setup": "Router instance without persistent storage handle.",
+      "action": "Perform multiple routing calculations.",
+      "oracle": "Operates statelessly; does not require or mutate database tables.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "lifecycle",
+        "stateless"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RTG-012",
+      "tier": "architecture",
+      "title": "Zero dev-dependency violation: routing engine runs on standard library (REL-009)",
+      "requirements": [
+        "REQ-RTG-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "dependencies"
+      ],
+      "setup": "Minimal runtime environment.",
+      "action": "Import peerhub.m3.routing.",
+      "oracle": "Module uses only standard library packages.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "packaging"
+      ],
+      "case_type": "positive",
+      "deterministic": true
     }
   ]
 }
