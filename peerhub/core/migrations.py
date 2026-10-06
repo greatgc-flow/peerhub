@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -146,6 +147,26 @@ CURRENT_VERSION: int = MIGRATIONS[-1].version
 assert CURRENT_VERSION == SUPPORTED_SCHEMA_VERSION, "bump schema_version.SUPPORTED_SCHEMA_VERSION together with MIGRATIONS"
 
 
+def enable_wal(conn: sqlite3.Connection, *, wait_seconds: float = 30.0, _sleep: Callable[[float], None] = time.sleep,
+               _clock: Callable[[], float] = time.monotonic) -> None:
+    """Switch the database to WAL, waiting out concurrent first-time creators.
+
+    Converting a fresh database to WAL needs an exclusive lock, and SQLite may report "database is locked" for it at once
+    instead of invoking the busy handler. Several processes opening a new store together (concurrent importers) hit that
+    race, so retry ONLY that error until the deadline; every other error propagates immediately."""
+    deadline = _clock() + wait_seconds
+    delay = 0.02
+    while True:
+        try:
+            conn.execute("PRAGMA journal_mode = WAL;")
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or _clock() >= deadline:
+                raise
+            _sleep(delay)
+            delay = min(delay * 2, 0.25)
+
+
 def rollback_quietly(conn: sqlite3.Connection) -> None:
     """ROLLBACK only if a transaction is still open: SQLite auto-rolls back on some errors (e.g. SQLITE_FULL), and a second
     ROLLBACK raising 'cannot rollback' must never mask the real failure."""
@@ -182,7 +203,7 @@ def run_migrations(db_path: str | os.PathLike[str], migrations: list[Migration] 
 
         check(_version(conn))  # reject a future schema BEFORE any persistent mutation (e.g. WAL conversion)
         if conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
-            conn.execute("PRAGMA journal_mode = WAL;")
+            enable_wal(conn)
         conn.execute("PRAGMA foreign_keys = ON;")  # must be set outside the transaction
         if _version(conn) == latest:
             return []

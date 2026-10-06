@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, cast
 
-from .migrations import rollback_quietly, run_migrations
+from .migrations import enable_wal, rollback_quietly, run_migrations
 from .models import (
     AppendRequest,
     Offset,
@@ -206,7 +206,7 @@ class CoreStore:
         try:
             with storage_errors():
                 conn.row_factory = sqlite3.Row
-                conn.execute("PRAGMA journal_mode = WAL;")
+                enable_wal(conn)
                 conn.execute("PRAGMA foreign_keys = ON;")
                 conn.execute("PRAGMA recursive_triggers = ON;")  # REPLACE deletes must fire the immutability trigger
                 conn.execute(f"PRAGMA busy_timeout = {self.busy_timeout_ms};")
