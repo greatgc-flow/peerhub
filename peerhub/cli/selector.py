@@ -10,7 +10,7 @@ from collections.abc import Mapping
 SELECTOR_ENV = "PEERHUB_CLI"
 REPORT_ENV = "PEERHUB_CLI_REPORT"
 ALLOWED_SELECTORS = ("legacy", "m1")
-DEFAULT_CLI_SELECTOR = "legacy"
+DEFAULT_CLI_SELECTOR = "m1"
 
 
 class InvalidSelectorError(ValueError):
