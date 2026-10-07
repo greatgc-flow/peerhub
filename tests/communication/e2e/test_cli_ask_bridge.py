@@ -80,7 +80,7 @@ def test_request_id_cannot_silently_change_model_binding(tmp_path):
 def test_provider_workspace_owns_default_db_even_when_cwd_has_store(tmp_path, monkeypatch):
     from peerhub.cli.app import main
     from peerhub.extensions import ask as module
-    cwd_db = tmp_path / ".peerhub" / "m1.db"
+    cwd_db = tmp_path / ".peerhub" / "core.db"
     cwd_db.parent.mkdir()
     CoreStore(cwd_db)
     provider = tmp_path / "other"

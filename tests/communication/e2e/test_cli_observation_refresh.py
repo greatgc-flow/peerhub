@@ -61,6 +61,6 @@ def test_first_refresh_bootstraps_a_usable_workspace(tmp_path, monkeypatch, caps
     evidence = SimpleNamespace(state=EvidenceState.ABSENT, value=None, source_tag="fake", evidence_ref="test",
                                observed_at=100, captured_at=100)
     monkeypatch.setattr(quota_probes, "poll_codex_usage", lambda **kw: [SimpleNamespace(evidence=evidence)])
-    db = tmp_path / ".peerhub" / "m1.db"
+    db = tmp_path / ".peerhub" / "core.db"
     assert main(["--db", str(db), "observation", "refresh", "--peers", "cx"]) == 0
     assert main(["--db", str(db), "diag"]) == 0

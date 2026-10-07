@@ -22,23 +22,18 @@ from typing import Any
 from pydantic import BaseModel
 
 from peerhub._console import tolerant_streams
-from peerhub.cli.store_select import DEFAULT_DB_PATH, LEGACY_DB_PATH, StoreAmbiguousError, StoreSelection, select_store
+from peerhub.cli.store_select import DEFAULT_DB_PATH, StoreSelection, select_store
 from peerhub.cli.support import print_warnings as _print_warnings
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SchemaVersionError
 from peerhub.core.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
 
 
-_PREVIOUS_DEFAULT_DB_PATH = LEGACY_DB_PATH
 
 
 def _select_db(configured_path: str, *, use_env: bool = True, discover: bool = True,
                workspace_root: Path | None = None) -> StoreSelection:
-    try:
-        return select_store(configured_path, use_env=use_env, discover=discover, workspace_root=workspace_root)
-    except StoreAmbiguousError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc
+    return select_store(configured_path, use_env=use_env, discover=discover, workspace_root=workspace_root)
 
 
 def _resolve_db_path(configured_path: str, *, use_env: bool = True, discover: bool = True,
@@ -134,8 +129,6 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     from peerhub.cli.monitor import register_monitor_parser
     register_monitor_parser(subparsers)
-    from peerhub.cli.store_cmd import register_store_parser
-    register_store_parser(subparsers)
 
     # diag
     diag_parser = subparsers.add_parser("diag", help="Readonly diagnostics")
@@ -237,10 +230,7 @@ def _reject_dashboard_flags_on_subcommand(parser: argparse.ArgumentParser, args:
 
 
 def _run_light_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
-    """Commands that never open CoreStore through main(): file maintenance, the monitor loop, explicit collection."""
-    if args.subcommand == "store":
-        from peerhub.cli.store_cmd import run_store
-        return run_store(args)
+    """Commands that never open CoreStore through main(): the monitor loop and explicit collection."""
     if args.subcommand == "monitor":
         from peerhub.cli.monitor import run_monitor
         return run_monitor(args, parser)
@@ -262,7 +252,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     try:
         if args.subcommand == "ask":
             return _run_ask_cli(args, parser, argv)
-        if args.subcommand in ("store", "monitor", "observation"):
+        if args.subcommand in ("monitor", "observation"):
             return _run_light_command(args, parser)
         if args.subcommand == "legacy-import":  # before CoreStore(): a dry-run must not create or migrate the target
             from peerhub.core.legacy_import import LegacyImporter, LegacyPlanChangedError, LegacySourceError

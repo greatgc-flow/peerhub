@@ -159,3 +159,15 @@ def test_dashboard_flags_are_honoured_or_rejected_never_silently_ignored(tmp_pat
             cli(["--db", db, *argv])
         assert exc.value.code == 2
     assert "diag" in capsys.readouterr().err
+
+
+def test_diag_health_reports_how_the_store_was_chosen(tmp_path, capsys):
+    import json as _json
+
+    from peerhub.cli.app import main as cli
+
+    db = tmp_path / "w.db"
+    assert cli(["--db", str(db), "peer", "register", "--peer", "a"]) == 0
+    capsys.readouterr()
+    assert cli(["--db", str(db), "diag", "health"]) == 0
+    assert _json.loads(capsys.readouterr().out)["store_selection"] == {"path": str(db), "source": "explicit"}

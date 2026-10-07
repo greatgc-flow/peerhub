@@ -608,21 +608,6 @@
       ]
     },
     {
-      "command": "store rename-legacy",
-      "options": [
-        {
-          "default": null,
-          "dest": "workspace",
-          "flags": [
-            "--workspace"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        }
-      ]
-    },
-    {
       "command": "stream create",
       "options": [
         {
@@ -759,10 +744,6 @@
     },
     {
       "command": "record",
-      "options": []
-    },
-    {
-      "command": "store",
       "options": []
     },
     {

@@ -21,7 +21,7 @@ def test_inventory_file_equals_the_real_parser():
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
         "ask", "diag health", "diag quota", "legacy-import apply", "legacy-import dry-run", "monitor", "observation refresh", "offset advance", "offset get", "peer get", "peer register",
-        "record append", "record read", "store rename-legacy", "stream create", "stream show"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
+        "record append", "record read", "stream create", "stream show"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
 def test_inventory_detects_divergence_positive_control(monkeypatch):
@@ -60,7 +60,7 @@ def env(tmp_path, capsys):
 
     def fresh(populate=True):
         e.n += 1
-        db = tmp_path / f"db{e.n}" / "m1.db"
+        db = tmp_path / f"db{e.n}" / "core.db"
         db.parent.mkdir()
         if populate:
             for a in (("peer", "register", "--peer", "a"), ("peer", "register", "--peer", "b"), ("stream", "create", "--stream", "s", "--members", "a", "b")):
