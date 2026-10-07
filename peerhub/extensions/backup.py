@@ -409,6 +409,18 @@ def verify_backup(backup_dir: Path, *, expected_manifest_sha256: str | None = No
 # -----------------------------------------------------------------------------
 # Authoritative Restoration (Invariant 11)
 # -----------------------------------------------------------------------------
+_MANAGED_DIRS = {"artifacts", "skills"}
+_MANAGED_FILES = {"workspace.generation", "restore.epoch"}
+_MANAGED_DB_SUFFIXES = (".db", ".db-wal", ".db-shm")
+
+
+def _managed_workspace_entry(path: Path) -> bool:
+    """A restore target may hold only PeerHub workspace content: authoritative dirs/markers or SQLite databases (core + derived)."""
+    if path.is_dir():
+        return path.name in _MANAGED_DIRS
+    return path.name in _MANAGED_FILES or path.name.endswith(_MANAGED_DB_SUFFIXES)
+
+
 def restore_authoritative(
     backup_dir: Path,
     target_dir: Path,
@@ -436,8 +448,7 @@ def restore_authoritative(
     if t_dir == b_dir or t_dir in b_dir.parents or b_dir in t_dir.parents:
         raise BackupCorruptedError("Restore source and target overlap")
     if t_dir.exists():
-        allowed = {"core.db", "core.db-wal", "core.db-shm", "artifacts", "skills", "workspace.generation", "work.db", "work.db-wal", "work.db-shm", "restore.epoch"}
-        if not (t_dir / "core.db").is_file() or any(p.name not in allowed for p in t_dir.iterdir()):
+        if not (t_dir / "core.db").is_file() or any(not _managed_workspace_entry(p) for p in t_dir.iterdir()):
             raise BackupCorruptedError("Restore target is not a dedicated managed workspace")
 
     manifest_data = json.loads(manifest_bytes)
@@ -476,10 +487,17 @@ def restore_authoritative(
         (stage_dir / "restore.epoch").write_text(str(new_generation), encoding="utf-8")
         hit("restore.staged")
         if t_dir.exists():
-            # Checkpoint before moving; never unlink a live WAL by itself.
-            with closing(sqlite3.connect(t_dir / "core.db", timeout=2)) as conn:
-                if conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]:
-                    raise GenerationFencingConflictError("Workspace is busy; stop writers before restore")
+            # Exclusive boundary = the whole workspace directory: EVERY database in it (core and every derived/extension writer)
+            # must be idle before the swap; never unlink a live WAL by itself. Derived databases are discarded by the swap and
+            # rebuilt from the restored authoritative state; the previous directory stays recoverable next to the target.
+            for db_file in sorted(p for p in t_dir.iterdir() if p.is_file() and p.suffix == ".db"):
+                try:
+                    with closing(sqlite3.connect(db_file, timeout=2)) as conn:
+                        busy = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
+                except sqlite3.OperationalError as exc:
+                    raise GenerationFencingConflictError(f"Workspace is busy ({db_file.name}: {exc}); stop writers before restore") from exc
+                if busy:
+                    raise GenerationFencingConflictError(f"Workspace is busy ({db_file.name}); stop writers before restore")
             with open(intent, "w", encoding="utf-8") as f:  # durable BEFORE the first rename (see recover_interrupted_restore)
                 f.write(previous_dir.name)
                 f.flush()
