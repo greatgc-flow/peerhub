@@ -136,7 +136,7 @@ def test_bck_003_full_projection_rebuild_after_disaster(env: dict[str, Any]) -> 
     # 4. Rebuild projections from restored authoritative core.db
     restored_core = CoreStore(restore_target / "core.db")
     restored_work_db = restore_target / "work.db"
-    rebuilt_count = rebuild_derived_projections(restored_core, restored_work_db)
+    rebuilt_count = rebuild_derived_projections(restored_core, WorkProjection(restored_work_db, store=restored_core))
 
     assert rebuilt_count >= 1
     new_work_proj = WorkProjection(restored_work_db, store=restored_core)
@@ -166,7 +166,7 @@ def test_bck_005_invariant_11_rebuild_without_authoritative_fails(tmp_path: Path
     work_db = tmp_path / "work.db"
 
     with pytest.raises(AuthoritativeRestoreOrderError):
-        rebuild_derived_projections(fake_core_db, work_db)
+        rebuild_derived_projections(fake_core_db, object())  # the authoritative store is checked before the projection is touched
 
 
 # -------------------------------------------------------------------------

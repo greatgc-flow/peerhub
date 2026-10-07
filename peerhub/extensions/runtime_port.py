@@ -20,7 +20,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import time
 import uuid
 from typing import Any, Callable, Sequence, cast
 
@@ -370,6 +369,8 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
     loopback handlers; this is failure isolation and cancellation, not a security sandbox.
     """
 
+    hard_cancel = True  # declares the capability the orchestration runner requires: cancel() kills and CONFIRMS the whole tree
+
     def __init__(self, *, max_output_bytes: int = 1_000_000, cancel_wait_seconds: float = 10.0) -> None:
         super().__init__()
         if type(max_output_bytes) is not int or max_output_bytes < 1:
@@ -508,46 +509,3 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
     def collect(self, job_id: str) -> dict[str, Any]:
         self.get(job_id)  # settle first
         return super().collect(job_id)
-
-
-class HardDeadlineStepRunner:
-    """Step runner over a ProcessRuntimeAdapter: at the plan deadline the work is KILLED, not merely noticed.
-
-    `PlanExecutor(require_hard_deadline=True)` accepts only runners declaring `hard_cancellable`. A confirmed kill yields a FAILED
-    result (the effect stopped); an unconfirmed kill yields MAY_HAVE_STARTED, which is never blindly replayed.
-    """
-
-    hard_cancellable = True
-
-    def __init__(self, adapter: ProcessRuntimeAdapter, *, poll_seconds: float = 0.05, cost_key: str = "cost") -> None:
-        if not isinstance(cast(object, adapter), ProcessRuntimeAdapter):
-            raise TypeError("A hard-deadline runner needs a ProcessRuntimeAdapter (the only cancellable binding).")
-        self._adapter = adapter
-        self._poll = poll_seconds
-        self._cost_key = cost_key
-        self._deadline: float | None = None
-
-    def set_deadline(self, monotonic_deadline: float) -> None:
-        self._deadline = monotonic_deadline
-
-    def __call__(self, step: Any, attempt: int) -> Any:
-        from peerhub.extensions.orchestration import StepExecutionResult
-
-        try:
-            job = self._adapter.submit(step.action_type, step.payload)
-        except (RuntimePortError, ValueError) as exc:  # rejected before any process started: a safe, certain failure
-            return StepExecutionResult(step.step_id, attempt, "FAILED", error=f"not started: {exc}")
-        while job.status not in _TERMINAL:
-            if self._deadline is not None and time.monotonic() >= self._deadline:
-                try:
-                    self._adapter.cancel(job.job_id)
-                except RuntimeCancellationError as exc:
-                    return StepExecutionResult(step.step_id, attempt, "MAY_HAVE_STARTED", error=f"deadline reached; {exc}")
-                return StepExecutionResult(step.step_id, attempt, "FAILED", error="deadline reached; work cancelled (process tree killed)")
-            time.sleep(self._poll)
-            job = self._adapter.get(job.job_id)
-        if job.status == "COMPLETED" and job.output is not None:
-            raw_cost = job.output.get(self._cost_key)
-            cost = float(raw_cost) if isinstance(raw_cost, (int, float)) and not isinstance(raw_cost, bool) else None
-            return StepExecutionResult(step.step_id, attempt, "COMPLETED", output=job.output, cost=cost)
-        return StepExecutionResult(step.step_id, attempt, "FAILED", error=job.error or job.status)

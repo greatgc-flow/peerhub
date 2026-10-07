@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.extensions.orchestration import (
+    HardDeadlineStepRunner,
     Plan,
     PlanBoundExceededError,
     PlanBounds,
@@ -19,7 +20,7 @@ from peerhub.extensions.orchestration import (
 )
 from peerhub.extensions.runtime_port import (
     GeneralRemoteShellForbiddenError,
-    HardDeadlineStepRunner,
+    LoopbackRuntimeAdapter,
     ProcessRuntimeAdapter,
     RuntimeCancellationError,
     RuntimeCapability,
@@ -176,6 +177,8 @@ def test_a_rejected_submission_is_a_certain_failure_and_the_runner_needs_the_pro
     result = HardDeadlineStepRunner(a)(PlanStep("s", "unknown-capability", {}), 1)
     assert result.status == "FAILED" and "not started" in (result.error or "")
     with pytest.raises(TypeError):
-        HardDeadlineStepRunner(object())  # type: ignore[arg-type]
+        HardDeadlineStepRunner(object())  # a port that does not declare confirmed hard cancellation is refused
+    with pytest.raises(TypeError):
+        HardDeadlineStepRunner(LoopbackRuntimeAdapter())  # the in-process loopback cannot interrupt a handler
     with pytest.raises(UnsupportedExecutionBoundError):
         PlanExecutor(require_hard_deadline=True).execute_plan(Plan("p", "t", [PlanStep("s", "x", {})]), lambda s, a: None)  # type: ignore[arg-type,return-value]

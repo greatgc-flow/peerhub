@@ -20,7 +20,7 @@ from typing import Any, ClassVar, Iterable, cast, Iterator
 from peerhub.extensions.sqlite_tx import sqlite_tx
 from peerhub.core.models import Record
 from peerhub.core.store import CoreStore, IdempotencyConflictError
-from peerhub.extensions.artifact import SecurityBoundaryError
+from peerhub.extensions.boundary import SecurityBoundaryError
 
 
 class SkillCatalogError(Exception):

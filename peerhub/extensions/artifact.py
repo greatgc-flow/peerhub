@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+from peerhub.extensions.boundary import SecurityBoundaryError  # noqa: F401  (re-exported)
 from typing import Any, Protocol
 
 
@@ -20,8 +21,6 @@ class ByteStream(Protocol):
     def read(self, size: int = ..., /) -> bytes: ...
 
 
-class SecurityBoundaryError(Exception):
-    """Path traversal, symlink, or security boundary violation."""
 
 
 class WindowsJunctionError(SecurityBoundaryError):

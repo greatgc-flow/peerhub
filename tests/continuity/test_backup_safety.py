@@ -169,7 +169,7 @@ def test_work_rebuild_reads_all_pages_not_only_first_slice(tmp_path):
         calls.append((after_position, limit))
         return real(stream_id, after_position=after_position, limit=limit)
     store.read_records = spy  # type: ignore[method-assign]
-    count = rebuild_derived_projections(store, tmp_path / "recovered.db", page_size=10)
+    count = rebuild_derived_projections(store, WorkProjection(tmp_path / "recovered.db", store), page_size=10)
     recovered = WorkProjection(tmp_path / "recovered.db", store)
     assert count == 105
     assert recovered.get_work("w104").title == "work104"

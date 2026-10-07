@@ -522,14 +522,16 @@ def restore_authoritative(
 # -----------------------------------------------------------------------------
 # Derived Projection Rebuild (Invariant 11)
 # -----------------------------------------------------------------------------
-def rebuild_derived_projections(core_store: Any, work_db_path: Path, *, page_size: int = 500) -> int:
-    """Rebuild derived work projections by replaying authoritative CoreStore records.
+def rebuild_derived_projections(core_store: Any, projection: Any, *, page_size: int = 500) -> int:
+    """Rebuild a derived projection by replaying authoritative CoreStore records.
+
+    `projection` is any public port exposing `rebuild_projection(records) -> int` (the Work projection is one); the composition
+    root builds it, so this extension imports no other extension.
 
     Invariant 11: Authoritative records are the sole truth; projection tables
     are cleanly replayed from stream records.
     """
     from peerhub.core.store import CoreStore
-    from peerhub.extensions.work import WorkProjection
 
     if isinstance(core_store, (str, Path)):
         core_path = Path(core_store).resolve()
@@ -544,11 +546,6 @@ def rebuild_derived_projections(core_store: Any, work_db_path: Path, *, page_siz
             raise AuthoritativeRestoreOrderError(
                 "Invariant 11 Violation: Authoritative core store does not exist. Restore authoritative state first."
             )
-
-    work_db = Path(work_db_path).resolve()
-    work_db.parent.mkdir(parents=True, exist_ok=True)
-
-    projection = WorkProjection(db_path=work_db, store=core_store)
 
     # Read all stream records from authoritative core store
     try:
