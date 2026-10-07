@@ -51,3 +51,8 @@ peerhub monitor [--interval-seconds SECONDS=60] [--cycles N=0] [--peers cx cc ag
 asks, system counts with the busiest streams, and a collapsed ALERTS line. `plain` is the original text dashboard.
 `NO_COLOR` disables colour, `FORCE_COLOR` enables it off a terminal; non-UTF-8 terminals get an ASCII layout.
 The view is a pure renderer over the read-only diag snapshot (`peerhub/cli/view.py`); it never writes evidence.
+
+#### Reading the rich view
+- **PACE** = `used% - window elapsed%`, in percentage points. A 5-hour window that is 40% elapsed with 60% used reads `▲ 20pt`: usage is 20 points ahead of an even burn. `▼` means behind the clock, `■` on pace. It is yellow above 10pt and red above 25pt.
+- **ASKS (newest 50 per peer)** comes from the `ask` activity evidence: ASKS total, OK (`delivered`/`recovered_terminal`), UNC (`uncertain`), FAIL (everything else; the three always add up to ASKS), RATE = OK/ASKS, MEDIAN = median operation time, LAST = age and status of the newest ask. A last ask that is not OK adds an alert. Per profile and token figures are not shown because the ask evidence does not record them.
+- On a terminal the screen redraws every second between cycles (clock, evidence ages, reset countdowns and "next in" move; nothing is re-read until the next cycle). Piped output stays one frame per cycle.

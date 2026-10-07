@@ -48,11 +48,37 @@ def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namesp
         parser.error("--collect-every must be >= 1")
 
 
+def _frame_drawer(format_frame: Any, view: str, *, color: bool, db_name: str, cycle: int, refresh: dict[str, Any], interval: float,
+                  collect_every: int, live: bool) -> Any:
+    unicode_ok = (sys.stdout.encoding or "").lower().startswith("utf")
+
+    def draw(rep: Any, next_in: float | None) -> None:
+        if live:
+            print("[H[2J", end="")
+        width = shutil.get_terminal_size((100, 24)).columns
+        print(format_frame(rep, view, color=color, unicode=unicode_ok, width=width, db_name=db_name, cycle=cycle,
+                           refresh=refresh, next_refresh_in=next_in, interval=interval, refresh_every=collect_every), flush=True)
+
+    return draw
+
+
+def _tick(rep: Any, draw: Any, interval: float, collect_in: float, advance: Any) -> None:
+    """Between two cycles redraw once per second from the same snapshot (clock, ages and countdowns move; nothing is re-read)."""
+    start = time.monotonic()
+    while True:
+        left = interval - (time.monotonic() - start)
+        if left <= 0:
+            return
+        time.sleep(min(1.0, left))
+        elapsed = time.monotonic() - start
+        draw(advance(rep, rep.read_at + elapsed), max(0.0, collect_in - elapsed))
+
+
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     validate_monitor_args(parser, args)
     # Lazy imports: registering the parser must work when first-party extensions are blocked (Core-only path); the
     # extension-backed pieces are only needed once the command actually runs.
-    from peerhub.cli.view import format_frame, use_color
+    from peerhub.cli.view import advance_report, format_frame, use_color
     from peerhub.extensions.diag import ReadonlyDiag
     from peerhub.extensions.quota_capture import refresh_quota
 
@@ -60,6 +86,7 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
     view = ("rich" if tty else "plain") if args.view == "auto" else args.view
     color = view == "rich" and use_color(tty, os.environ)
     db_name = os.path.basename(str(args.db))
+    live, draw = False, None
     total: int = args.cycles
     done: int = 0
     last_refresh_status_code: int = 0
@@ -93,7 +120,7 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
                 refresh_info = {"skipped": True}
 
             diag = ReadonlyDiag(args.db)
-            rep = diag.render(["peers", "streams", "resource_pools", "observations"])
+            rep = diag.render(["peers", "streams", "resource_pools", "observations", "activity"])
 
             if args.json:
                 frame = {
@@ -103,18 +130,20 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
                 }
                 print(json.dumps(frame, ensure_ascii=True, separators=(",", ":")), flush=True)
             else:
-                if view == "rich" and tty:
-                    print("[H[2J", end="")
-                width = shutil.get_terminal_size((100, 24)).columns
-                print(format_frame(rep, view, color=color, unicode=(sys.stdout.encoding or "").lower().startswith("utf"),
-                                   width=width, db_name=db_name, cycle=done, refresh=refresh_info,
-                                   interval=args.interval, refresh_every=args.collect_every), flush=True)
+                live = view == "rich" and tty
+                draw = _frame_drawer(format_frame, view, color=color, db_name=db_name, cycle=done, refresh=refresh_info,
+                                     interval=args.interval, collect_every=args.collect_every, live=live)
+                draw(rep, None)
 
             done += 1
             if total > 0 and done >= total:
                 return last_refresh_status_code
 
-            time.sleep(args.interval)
+            if live and draw is not None:
+                until_collect = ((done - 1) // args.collect_every + 1) * args.collect_every - (done - 1)
+                _tick(rep, draw, args.interval, until_collect * args.interval, advance_report)
+            else:
+                time.sleep(args.interval)
 
     except KeyboardInterrupt:
         return 0

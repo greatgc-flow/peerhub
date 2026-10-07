@@ -13,7 +13,7 @@ import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import cast, Any, Callable
 
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.extensions.observation_model import (
@@ -27,6 +27,9 @@ from peerhub.extensions.observation_model import (
 )
 
 SECTION_ORDER = ("peers", "streams", "resource_pools", "observations", "log")
+OPTIONAL_SECTIONS = ("activity",)  # computed on request only: the default render stays the five sections above
+ACTIVITY_WINDOW = 50  # newest asks per peer that the activity section summarises
+ASK_OK_STATUSES = ("delivered", "recovered_terminal")
 LOG_TAIL_BYTES = 65536
 LOG_TAIL_LINES = 50
 
@@ -164,6 +167,46 @@ class ReadonlyDiag:
         ka, kb = (effective_us(a.observation), a.capture_seq), (effective_us(b.observation), b.capture_seq)
         return ka > kb
 
+    @staticmethod
+    def _activity(conn: sqlite3.Connection, read_us: int) -> Section:
+        """Per peer, from the newest ACTIVITY_WINDOW `ask` activity observations: outcome counts, median duration, last ask.
+        Outcomes are mutually exclusive: ok (delivered/recovered_terminal), uncertain, failed (everything else)."""
+        import json
+        import statistics
+        from datetime import datetime
+
+        rows = conn.execute("SELECT subject_ref, payload_json, observed_at FROM observations WHERE kind = 'activity' "
+                            "ORDER BY capture_seq DESC").fetchall()
+        per: dict[str, list[tuple[str, float | None, float | None]]] = {}
+        for subject, raw, observed in rows:
+            bucket = per.setdefault(subject, [])
+            if len(bucket) >= ACTIVITY_WINDOW:
+                continue
+            payload: dict[str, Any] = {}
+            try:
+                parsed: object = json.loads(raw) if raw else {}
+                if isinstance(parsed, dict):
+                    payload = cast(dict[str, Any], parsed)
+            except ValueError:
+                pass
+            took = payload.get("operation_elapsed_seconds")
+            try:
+                at: float | None = datetime.fromisoformat(str(observed)).timestamp()
+            except ValueError:
+                at = None
+            bucket.append((str(payload.get("status") or "unknown"), float(took) if isinstance(took, (int, float)) and not isinstance(took, bool) else None, at))
+        peers: list[dict[str, Any]] = []
+        for peer in sorted(per):
+            asks = per[peer]
+            ok = sum(1 for st, _, _ in asks if st in ASK_OK_STATUSES)
+            unc = sum(1 for st, _, _ in asks if st == "uncertain")
+            durations = [d for _, d, _ in asks if d is not None]
+            last_status, _, last_at = asks[0]
+            peers.append({"peer": peer, "asks": len(asks), "ok": ok, "uncertain": unc, "failed": len(asks) - ok - unc,
+                          "median_seconds": statistics.median(durations) if durations else None, "last_status": last_status,
+                          "last_age_seconds": None if last_at is None else max(0.0, read_us / 1_000_000 - last_at)})
+        return Section("activity", "OK", {"window": ACTIVITY_WINDOW, "peers": peers})
+
     def _log(self, _conn: sqlite3.Connection, _us: int) -> Section:
         if self.log_path is None:
             return Section("log", "UNAVAILABLE", {}, ({"error": "log source not configured"},))
@@ -185,7 +228,7 @@ class ReadonlyDiag:
     # ------------------------------------------------------------------ public views
     def render(self, sections: list[str] | tuple[str, ...] | None = None, read_at: float | None = None) -> DiagnosticReport:
         names = list(SECTION_ORDER) if sections is None else list(sections)
-        unknown = [n for n in names if n not in SECTION_ORDER]
+        unknown = [n for n in names if n not in SECTION_ORDER and n not in OPTIONAL_SECTIONS]
         if unknown:
             raise ValueError(f"unknown diag section(s): {unknown}")
         now = time.time() if read_at is None else read_at
@@ -194,7 +237,7 @@ class ReadonlyDiag:
             conn = self._open()
         except (sqlite3.Error, OSError, DiagReadOnlyError, SchemaVersionError) as e:
             return DiagnosticReport("FAILED", now, {}, {}, f"{type(e).__name__}: {e}")
-        impl: dict[str, Callable[[sqlite3.Connection, int], Section]] = {"peers": self._peers, "streams": self._streams, "resource_pools": self._pools, "observations": self._observations, "log": self._log}
+        impl: dict[str, Callable[[sqlite3.Connection, int], Section]] = {"peers": self._peers, "streams": self._streams, "resource_pools": self._pools, "observations": self._observations, "activity": self._activity, "log": self._log}
         out: dict[str, Section] = {}
         try:
             snapshot: dict[str, Any] = {}

@@ -240,6 +240,59 @@ def _activity_lines(items: list[Obj], limit: int, color: bool) -> list[str]:
     return out
 
 
+def _ask_lines(report: DiagnosticReport, items: list[Obj], limit: int, color: bool, unicode: bool, alerts: list[str]) -> list[str]:
+    """Per-peer ask history from the optional `activity` section (newest N asks per peer); falls back to the latest-ask lines."""
+    sec = _section(report, "activity")
+    peers = _items(sec.get("peers"))
+    if not peers:
+        return _activity_lines(items, limit, color)
+    out = [_paint(f"ASKS (newest {int(_num(sec.get('window')) or 0)} per peer)", BOLD, color),
+           f"  {'PEER':<5} {'ASKS':>4} {'OK':>4} {'UNC':>4} {'FAIL':>4} {'RATE':>5} {'MEDIAN':>7}  LAST"]
+    for p in peers:
+        asks, ok = int(_num(p.get("asks")) or 0), int(_num(p.get("ok")) or 0)
+        unc, bad = int(_num(p.get("uncertain")) or 0), int(_num(p.get("failed")) or 0)
+        rate = ok / asks if asks else None
+        rate_txt = "    -" if rate is None else f"{rate * 100:4.0f}%"
+        rate_col = DIM if rate is None else GREEN if rate >= 0.9 else YELLOW if rate >= 0.7 else RED
+        med = _num(p.get("median_seconds"))
+        last = str(p.get("last_status") or "?")
+        last_ok = last in ("delivered", "recovered_terminal")
+        peer = str(p.get("peer") or "-")
+        if not last_ok:
+            alerts.append(f"{peer} last ask {last}")
+        out.append(f"  {peer:<5} {asks:>4} {ok:>4} {_paint(f'{unc:>4}', YELLOW if unc else DIM, color)} "
+                   f"{_paint(f'{bad:>4}', RED if bad else DIM, color)} {_paint(rate_txt, rate_col, color)} "
+                   f"{human_duration(med) if med is not None else '-':>7}  "
+                   f"{human_duration(_num(p.get('last_age_seconds')))} ago {_paint(last, GREEN if last_ok else YELLOW, color)}")
+    return out
+
+
+def advance_report(report: DiagnosticReport, now: float) -> DiagnosticReport:
+    """The same snapshot as seen `now - read_at` seconds later: clock, evidence ages and last-ask ages move, nothing is re-read."""
+    import copy
+    from dataclasses import replace
+
+    dt = max(0.0, now - report.read_at)
+    sections = dict(report.sections)
+    obs = sections.get("observations")
+    if obs is not None:
+        data = copy.deepcopy(obs.data)
+        for it in cast("list[dict[str, object]]", data.get("items") or []):
+            age = it.get("age_seconds")
+            if isinstance(age, (int, float)) and not isinstance(age, bool):
+                it["age_seconds"] = age + dt
+        sections["observations"] = replace(obs, data=data)
+    act = sections.get("activity")
+    if act is not None:
+        data = copy.deepcopy(act.data)
+        for p in cast("list[dict[str, object]]", data.get("peers") or []):
+            age = p.get("last_age_seconds")
+            if isinstance(age, (int, float)) and not isinstance(age, bool):
+                p["last_age_seconds"] = age + dt
+        sections["activity"] = replace(act, data=data)
+    return replace(report, read_at=report.read_at + dt, sections=sections)
+
+
 def _system_line(rep: DiagnosticReport, top: int, color: bool) -> str:
     peers, streams = _items(_section(rep, "peers").get("peers")), _items(_section(rep, "streams").get("streams"))
     chip = _paint(rep.status, GREEN if rep.status == "OK" else RED if rep.status == "FAILED" else YELLOW, color)
@@ -281,7 +334,7 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
     lines = [_header(report, db_name or "workspace", cycle, refresh, next_refresh_in, tz, color), _paint(rule, DIM, color),
              _paint("QUOTA", BOLD, color)]
     lines += _quota_lines(_quota_rows(items, pools, report.read_at), width, color, unicode, alerts)
-    for block in (_credit_lines(items, report.read_at, color, unicode, alerts), _activity_lines(items, recent_asks, color)):
+    for block in (_credit_lines(items, report.read_at, color, unicode, alerts), _ask_lines(report, items, recent_asks, color, unicode, alerts)):
         if block:
             lines += ["", *block]
     if refresh is not None:
@@ -294,7 +347,7 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
     shown = alerts[:4] + ([f"+{len(alerts) - 4} more"] if len(alerts) > 4 else [])
     alert_text = _ellipsis("; ".join(shown), max(10, width - 8))
     lines.append(_paint("ALERTS  ", BOLD, color) + (_paint(alert_text, YELLOW + BOLD, color) if alerts else _paint("all clear", GREEN, color)))
-    hints = ["Ctrl-C quit", "PACE ▲ = used faster than the window clock" if unicode else "PACE + = used faster than the window clock"]
+    hints = ["Ctrl-C quit", "PACE = used% - window elapsed%  (▲ burning faster than an even pace)" if unicode else "PACE = used% - window elapsed%  (+ faster than an even pace)"]
     if interval is not None:
         hints.append(f"every {human_duration(interval)}")
     if refresh_every is not None and refresh_every > 1:
