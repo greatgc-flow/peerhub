@@ -163,6 +163,8 @@ class A2ATransport(Protocol):
 
 class LoopbackA2ATransport:
     """Explicit deterministic test binding; no remote endpoint or execution claimed."""
+    definitive_absence = True  # a simulated remote: what it has not accepted can never arrive later
+
     def __init__(self) -> None:
         self._seen: dict[str, A2ATaskResponse] = {}  # what this simulated remote has durably accepted
 
@@ -194,6 +196,8 @@ class A2AAdapter:
         self._journal = journal  # optional durable evidence (a2a_journal.A2ATaskJournal); without it nothing survives a restart
         self._requests: dict[str, A2ATaskRequest] = {}
         self._attempts: dict[str, int] = {}
+        self._endpoints: dict[str, str] = {}  # the endpoint each task was submitted to: reconciliation must talk to the same one
+        self._abandoned: set[str] = set()
         self._lock = threading.RLock()
         self._timeout_s = timeout_s
         self._uncertain: set[str] = set()
@@ -209,13 +213,42 @@ class A2AAdapter:
         """Rebuild the cache from the durable Records: known tasks keep their last status, an unresolved submission is UNCERTAIN."""
         assert self._journal is not None
         for task_id, state in self._journal.load().items():
-            self._requests[task_id] = state.request
-            self._request_bindings[task_id] = state.binding
-            self._attempts[task_id] = state.attempt
-            if state.response is not None:
-                self._tasks[task_id] = state.response
-            else:
-                self._uncertain.add(task_id)
+            self._adopt(task_id, state)
+
+    def _adopt(self, task_id: str, state: Any) -> None:
+        """Take over a task's durable state (restart, or another adapter that got there first)."""
+        self._requests[task_id] = state.request
+        self._request_bindings[task_id] = state.binding
+        self._attempts[task_id] = state.attempt
+        self._endpoints[task_id] = state.endpoint
+        if state.abandoned:
+            self._abandoned.add(task_id)
+        elif state.response is not None:
+            self._tasks[task_id] = state.response
+            self._uncertain.discard(task_id)
+        else:
+            self._uncertain.add(task_id)
+
+    def _check_endpoint(self, task_id: str, card: AgentCard) -> None:
+        recorded = self._endpoints.get(task_id)
+        if recorded and recorded != card.endpoint_url:
+            raise A2AStateTransitionError(
+                f"Task '{task_id}' was submitted to {recorded!r}; the registered card now says {card.endpoint_url!r}. "
+                "Reconcile or cancel against the original endpoint (re-register the original card).")
+
+    def abandon_task(self, task_id: str, reason: str) -> None:
+        """Operator decision to give up an UNCERTAIN task whose absence the transport cannot prove.
+
+        The id is burned: a late-arriving send for it may still exist remotely, so it is never reused (use a new task id)."""
+        with self._lock:
+            if task_id not in self._uncertain:
+                raise A2AStateTransitionError(f"Task '{task_id}' is not awaiting reconciliation")
+            if not reason.strip():
+                raise A2AStateTransitionError("Abandoning an uncertain task needs a recorded reason")
+            if self._journal is not None:
+                self._journal.record_abandoned(task_id, self._attempts.get(task_id, 1), reason)
+            self._uncertain.discard(task_id)
+            self._abandoned.add(task_id)
 
     def uncertain_tasks(self) -> list[str]:
         """Task ids whose submission outcome is unknown and must be reconciled with the remote (never replayed)."""
@@ -234,12 +267,18 @@ class A2AAdapter:
             card = self._cards.get(request.target_agent_id)
             if card is None:
                 raise A2AAgentNotFoundError(f"Cannot reconcile '{task_id}': agent card '{request.target_agent_id}' is not registered")
+            self._check_endpoint(task_id, card)
             lookup = cast("Callable[..., A2ATaskResponse] | None", getattr(self._transport, "lookup", None))
             if self._transport is None or not callable(lookup):
                 raise A2ATransportUnavailableError("The configured transport cannot reconcile; the task stays uncertain")
             try:
                 found = lookup(copy.deepcopy(card), copy.deepcopy(request), self._timeout_s)
-            except A2ATaskUnknownToRemoteError:
+            except A2ATaskUnknownToRemoteError as exc:
+                if getattr(self._transport, "definitive_absence", False) is not True:
+                    # "not found now" does not prove that an earlier, slow send can never arrive: keep it uncertain.
+                    raise A2AExecutionUncertainError(
+                        "The remote does not know the task now, but this transport cannot fence a late-arriving send; "
+                        "use abandon_task (the id is burned) instead of retrying it") from exc
                 if self._journal is not None:
                     self._journal.record_not_started(task_id, self._attempts.get(task_id, 1))
                 self._uncertain.discard(task_id)
@@ -248,7 +287,7 @@ class A2AAdapter:
                 return None
             self._validate_response(found, task_id, card.agent_id)
             if self._journal is not None:
-                self._journal.record_observed(found)
+                self._journal.record_observed(found, self._attempts.get(task_id))
             self._tasks[task_id] = copy.deepcopy(found)
             self._uncertain.discard(task_id)
             return copy.deepcopy(found)
@@ -337,6 +376,8 @@ class A2AAdapter:
         if not request.task_id or not request.action:
             raise A2AStateTransitionError("Task identity/action must not be empty")
         binding = json.dumps(dataclasses.asdict(request), sort_keys=True, allow_nan=False)
+        if request.task_id in self._abandoned:
+            raise A2AStateTransitionError("This task id was abandoned (a late send may still exist remotely); use a new task id")
         if request.task_id in self._uncertain:
             raise A2AExecutionUncertainError("Submission is uncertain; reconcile remotely before any retry")
         if request.task_id in self._tasks:
@@ -354,7 +395,22 @@ class A2AAdapter:
         # Mark uncertainty before invoking an external side effect. Never replay a
         # lost or invalid response merely because it was not cached as SUBMITTED.
         if self._journal is not None:  # durable BEFORE the side effect: a crash now restores as uncertain, never as "not sent"
-            self._attempts[request.task_id] = self._journal.record_submitting(request)
+            from peerhub.extensions.a2a_journal import A2AClaimLostError, A2ASubmissionExistsError
+
+            try:
+                self._attempts[request.task_id] = self._journal.claim_submission(request, card.endpoint_url)
+            except A2ASubmissionExistsError as exists:  # another adapter/process already holds evidence for this task id
+                self._adopt(request.task_id, exists.state)
+                if request.task_id in self._abandoned:
+                    raise A2AStateTransitionError("This task id was abandoned (a late send may still exist remotely); use a new task id") from None
+                if exists.state.binding != binding:
+                    raise A2AStateTransitionError("Task identity reused for a different request") from None
+                if request.task_id in self._tasks:
+                    return copy.deepcopy(self._tasks[request.task_id])
+                raise A2AExecutionUncertainError("Submission is uncertain; reconcile remotely before any retry") from None
+            except A2AClaimLostError as lost:
+                raise A2AExecutionUncertainError("Another adapter claimed this submission; reconcile remotely") from lost
+            self._endpoints[request.task_id] = card.endpoint_url
         self._uncertain.add(request.task_id)
         self._request_bindings[request.task_id] = binding
         self._requests[request.task_id] = copy.deepcopy(request)
@@ -362,7 +418,7 @@ class A2AAdapter:
             resp = self._transport.submit(copy.deepcopy(card), copy.deepcopy(request), self._timeout_s)
             self._validate_response(resp, request.task_id, card.agent_id)
             if self._journal is not None:
-                self._journal.record_observed(resp)
+                self._journal.record_observed(resp, self._attempts.get(request.task_id))
         except Exception as exc:
             raise A2AExecutionUncertainError("Remote submission outcome is uncertain") from exc
         self._tasks[request.task_id] = copy.deepcopy(resp)
@@ -386,6 +442,7 @@ class A2AAdapter:
         current = self._tasks[task_id]
         if self._transport and current.status not in ("COMPLETED", "FAILED", "CANCELLED"):
             card = self._cards[current.external_ref.remote_system]
+            self._check_endpoint(task_id, card)
             observed = self._transport.poll(copy.deepcopy(card), copy.deepcopy(current), self._timeout_s)
             if observed is not None:
                 self._validate_response(observed, task_id, card.agent_id)
@@ -435,7 +492,7 @@ class A2AAdapter:
             error=error if error is not None else current.error,
         )
         if self._journal is not None:
-            self._journal.record_observed(updated)  # each status is durable once; terminal states are never rewritten
+            self._journal.record_observed(updated, self._attempts.get(task_id))  # each status once; terminal evidence is immutable
         self._tasks[task_id] = copy.deepcopy(updated)
         return copy.deepcopy(updated)
 
@@ -450,6 +507,7 @@ class A2AAdapter:
         if self._transport is None:
             raise A2ATransportUnavailableError("No configured cancellation transport")
         card = self._cards[current.external_ref.remote_system]
+        self._check_endpoint(task_id, card)
         response = self._transport.cancel(copy.deepcopy(card), copy.deepcopy(current), self._timeout_s)
         self._validate_response(response, task_id, card.agent_id)
         if not _same_execution(response.external_ref, current.external_ref) or response.status != "CANCELLED":
