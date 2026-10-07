@@ -22,7 +22,7 @@ Extension→Extension 구현 import 금지(조합은 `peerhub/cli`) · 베리심
 | M2.6 Eval | `run_eval`이 trace/dataset digest를 내용에서 재계산해 검증하고(옵션: Artifact store의 dataset blob 확인), 보고서는 `target_digest`에 묶임. `verify_report_sources` 제공 | `eval.py` | `test_eval.py` |
 | M3.0 Search | `search(metadata={key: scalar})` 정확 일치(타입·값), limit은 필터 후 적용 | `search.py` | `test_search_exact_metadata.py` |
 | M3.1 Memory | 옛 불완전 이벤트: 기본은 fail closed. `quarantine=True`면 이벤트 단위로 원자적으로 건너뛰고 reason과 함께 목록화(조용한 손실 금지) | `memory.py` | `test_memory_search_recovery.py` |
-| M3.2 A2A | Record journal(`a2a_journal.py`): 원격 호출 전에 `submitting`을 durable로 기록, 재시작 시 미해결 submitting은 uncertain(blind replay 금지). `reconcile_task`: 원격이 아는 task면 채택, 원격이 확실히 모른다고 답하면 not_started로 기록하고 **새 attempt**로 재시도 허용, 그 외 실패는 uncertain 유지. 단일 외부 binding(`a2a_http.py`): JSON-RPC over HTTP, https 또는 loopback http만, redirect 금지, 응답 크기 제한, 매핑 없는 상태는 fail closed | `a2a.py`, `a2a_journal.py`, `a2a_http.py` | `test_a2a_durable_http.py` |
+| M3.2 A2A | Record journal(`a2a_journal.py`): 원격 호출 전에 `submitting`(원자적 claim 토큰, endpoint, attempt 포함)을 durable로 기록, 재시작 시 미해결 submitting은 uncertain(blind replay 금지). 이미 증거가 있으면 새로 보내지 않고 이어받는다(두 어댑터가 같은 task를 둘 다 보낼 수 없음). 증거는 현재 attempt에만 유효하고 종료 상태는 불변. `reconcile_task`: 원격이 아는 task면 채택. "원격이 모른다"는 답은 **원격이 늦게 도착하는 요청을 막을 수 있음을 보증하는 transport**(결정적 loopback)에서만 not_started로 풀고(새 attempt), HTTP처럼 보증할 수 없으면 uncertain으로 남긴다 — 이때는 `abandon_task`(사유 기록, id 영구 폐기, 새 id 사용)만 가능. 재조정은 제출 당시 endpoint로만. 단일 외부 binding(`a2a_http.py`): JSON-RPC over HTTP, https 또는 loopback http만, redirect 금지, JSON-RPC 2.0 envelope·요청 id·task id 검증, 정수 오류 코드만, 응답 크기 제한, **호출 전체 deadline**, 매핑 없는 상태는 fail closed | `a2a.py`, `a2a_journal.py`, `a2a_http.py` | `test_a2a_durable_http.py` |
 | M3.3 Routing / Target Catalog | **mutable Runtime Target Catalog 관리 surface는 만들지 않음(거절)**: 이것은 M1의 최소 model/profile facts이며 선언적 profile 계층(workspace→global→packaged TOML)과 `ask --profile/--model/--effort`, Observation 증거가 이미 충족한다. 레거시 `node bind-profile`은 이 구조로 대체됨 | — | — |
 | M3.4 Orchestration | 누적 비용: `bounds.cost_budget`와 결과의 `cost`. 예산이 있으면 모든 시도가 비용을 보고해야 하고 미보고는 unknown이지 0이 아님. 지출은 journal에서 시도 전체를 합산해 재시작으로 회피 불가, 시도 전/후에 검사. 조건: 결정적 predicate `when`/`stop_if`(표현식 언어 거절), 건너뛴 단계의 dependent도 건너뜀. 병렬: opt-in thread pool(`max_fanout` 한도), journal append 직렬화. `max_depth`를 의존 체인에서 실제로 계산 | `orchestration.py` | `test_orchestration_m3_closure.py` |
 | M3.5 Approval | 변경 없음(기존 exact-effect single-use) | — | `test_approval.py` |
@@ -40,8 +40,12 @@ Extension→Extension 구현 import 금지(조합은 `peerhub/cli`) · 베리심
 mutable Runtime Target Catalog(위) · SemVer 범위/의존성 solver · 파일시스템 watcher/hot reload · 선택적 파생 데이터 보존형 복원 ·
 AST/JSONPath 조건식 · 분산 큐 · 우아한 종료 단계(SIGINT→SIGKILL) · 다중 통화/동적 가격.
 
+## 독립 코드 리뷰 (ag·cx) 반영
+구현 후 4개 영역을 ag와 cx가 읽기 전용으로 독립 검토했고, 재현된 결함을 코드로 확인해 모두 고쳤다(A2A 8건: 중복 제출, 원격 부재 오판, 낡은 not_started, 종료 상태 덮어쓰기, 응답 identity 우회, 오류 코드 강제 변환, endpoint 치환, 총 deadline 부재 · deadline 직전 완료 결과 폐기 · Host 부팅 연쇄/entrypoint/깨진 manifest · Work/Skill/Capability 생성 크래시 wedge · Eval 평가 중 변조 · Memory quarantine 정책 유실 · Artifact GC 유예 기준과 shard 상위 sync · Skill digest 파일 변경 경합 · 약한 테스트들).
+검토 후에도 **바꾸지 않은 것**: (1) 복원 직전 idle 점검과 swap 사이의 경합 — 복원은 오프라인 전제이며 live 상태를 교체하는 작업이고 파생 DB는 폐기되므로 점검은 안전망일 뿐 fence가 아니다. (2) "swap 완료 뒤 남은 의도 마커가 새 DB를 되돌린다"는 주장은 사실이 아니다 — 복구는 workspace 디렉터리가 없을 때만 되돌리고 있으면 마커만 지운다(`test_a_stale_intent_marker_after_a_completed_swap_never_reverts_the_restored_workspace`).
+
 ## 정직한 한계
-- **A2A**: HTTP binding은 같은 JSON-RPC subset을 구현한 in-process 서버로 검증했다. **제3자 A2A 서버와의 상호운용은 검증하지 않았다.**
+- **A2A**: HTTP binding은 같은 JSON-RPC subset을 구현한 in-process 서버로 검증했다. **제3자 A2A 서버와의 상호운용은 검증하지 않았다.** HTTPS 대상이 사설/link-local 주소여도 허용한다(일반적인 SSRF 격리는 이 binding의 범위가 아니다).
 - **비용**: 시도 사이에 검사하므로 단일 시도(병렬에서는 최대 `max_fanout`개의 진행 중 시도)가 예산을 넘길 수 있다.
 - **병렬 실행**은 opt-in이며 runner의 thread-safety는 호출자 책임이다.
 - **ProcessRuntimeAdapter**는 신뢰된 argv를 가정한다(실패 격리와 취소이지 보안 sandbox가 아님). Python plugin도 in-process 실행이다.
