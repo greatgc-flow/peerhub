@@ -15,10 +15,10 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, ClassVar, Iterable, cast
+from typing import Any, ClassVar, Iterable, cast, Iterator
 
 from peerhub.core.models import Record
-from peerhub.core.store import CoreStore
+from peerhub.core.store import CoreStore, IdempotencyConflictError
 from peerhub.extensions.artifact import SecurityBoundaryError
 
 
@@ -333,6 +333,82 @@ class SkillCatalogEngine:
         self._save_skill_projection(skill)
         return skill
 
+    def _stream_records(self, stream_id: str, page_size: int = 500) -> Iterator[Record]:
+        position = 0
+        while batch := self.store.read_records(stream_id, after_position=position, limit=page_size):
+            yield from batch
+            position = batch[-1].position
+
+    def _authoritative_skill(self, skill_id: str, accepted: set[str] | None = None) -> SkillItem:
+        """The skill as the ordered stream Records define it, repairing a stale projection (crash or another writer).
+        CAS decisions must use this, never the cached projection row: the Record is the authority."""
+        cached = self.get_skill(skill_id)
+        skills, _caps, _n = self._fold(self._stream_records(cached.stream_id), accepted)
+        state = skills.get(skill_id)
+        if state is None:
+            raise SkillNotFoundError(f"Skill {skill_id!r} has no authoritative Records in stream {cached.stream_id!r}")
+        item = self._skill_from_state(state)
+        if item != cached:
+            self._save_skill_projection(item)
+        return item
+
+    def _authoritative_capability(self, capability_id: str, accepted: set[str] | None = None) -> CapabilityItem:
+        cached = self.get_capability(capability_id)
+        _skills, caps, _n = self._fold(self._stream_records(cached.stream_id), accepted)
+        state = caps.get(capability_id)
+        if state is None:
+            raise CapabilityNotFoundError(f"Capability {capability_id!r} has no authoritative Records in stream {cached.stream_id!r}")
+        item = self._capability_from_state(state)
+        if item != cached:
+            self._save_capability_projection(item)
+        return item
+
+    @staticmethod
+    def _skill_from_state(sk: dict[str, Any]) -> SkillItem:
+        return SkillItem(
+            skill_id=cast(str, sk["skill_id"]), stream_id=cast(str, sk["stream_id"]), name=cast(str, sk["name"]),
+            description=cast(str, sk["description"]), version=cast(str, sk["version"]), state=cast(str, sk["state"]),
+            revision=cast(int, sk["revision"]), tree_digest=cast(str, sk["tree_digest"]), file_count=cast(int, sk["file_count"]),
+            path=cast(str, sk["path"]), tags=list(cast(list[str], sk["tags"])), created_at=cast(str, sk["created_at"]),
+            updated_at=cast(str, sk["updated_at"]))
+
+    @staticmethod
+    def _capability_from_state(cp: dict[str, Any]) -> CapabilityItem:
+        return CapabilityItem(
+            capability_id=cast(str, cp["capability_id"]), stream_id=cast(str, cp["stream_id"]),
+            spec=cast(dict[str, Any], cp["spec"]), revision=cast(int, cp["revision"]),
+            created_at=cast(str, cp["created_at"]), updated_at=cast(str, cp["updated_at"]))
+
+    def _append_mutation(self, conflict: type[SkillCatalogError], identity: str, **record: Any) -> Record:
+        """Append a CAS-guarded Record; the store's idempotency conflict on the same `id-revision` key means another writer
+        already took that revision. The loser's cache is repaired before the conflict is raised."""
+        try:
+            return self.store.append_record(**record)
+        except IdempotencyConflictError as exc:
+            if conflict is SkillRevisionConflictError:
+                self._authoritative_skill(identity)
+            else:
+                self._authoritative_capability(identity)
+            raise conflict(f"Another writer already took this revision of {identity!r}: {exc}") from exc
+
+    def _confirm_skill(self, skill_id: str, record_id: str) -> SkillItem:
+        """Succeed only if the reducer accepted OUR record; a change that lost a revision race is ignored on replay,
+        so acknowledging it would be a lost update."""
+        accepted: set[str] = set()
+        item = self._authoritative_skill(skill_id, accepted)
+        if record_id not in accepted:
+            raise SkillRevisionConflictError(
+                f"Skill {skill_id!r}: the change was appended but lost to a concurrent writer (authoritative revision {item.revision})")
+        return item
+
+    def _confirm_capability(self, capability_id: str, record_id: str) -> CapabilityItem:
+        accepted: set[str] = set()
+        item = self._authoritative_capability(capability_id, accepted)
+        if record_id not in accepted:
+            raise CapabilityConflictError(
+                f"Capability {capability_id!r}: the change was appended but lost to a concurrent writer (authoritative revision {item.revision})")
+        return item
+
     def transition_skill(
         self,
         skill_id: str,
@@ -342,7 +418,7 @@ class SkillCatalogEngine:
         author_peer_id: str | None = None,
     ) -> SkillItem:
         """Advance skill lifecycle state with CAS optimistic revision check."""
-        current = self.get_skill(skill_id)
+        current = self._authoritative_skill(skill_id)
 
         if current.state in self.TERMINAL_STATES:
             raise ForbiddenTransitionError(
@@ -375,7 +451,8 @@ class SkillCatalogEngine:
             "transitioned_at": now,
         }
 
-        self.store.append_record(
+        appended = self._append_mutation(
+            SkillRevisionConflictError, skill_id,
             stream_id=current.stream_id,
             author_peer_id=self._resolve_author(current.stream_id, author_peer_id),
             kind="m2.skill.transitioned",
@@ -384,24 +461,7 @@ class SkillCatalogEngine:
             created_at=now,
         )
 
-        updated = SkillItem(
-            skill_id=current.skill_id,
-            stream_id=current.stream_id,
-            name=current.name,
-            description=current.description,
-            version=current.version,
-            state=target_state,
-            revision=new_rev,
-            tree_digest=current.tree_digest,
-            file_count=current.file_count,
-            path=current.path,
-            tags=list(current.tags),
-            created_at=current.created_at,
-            updated_at=now,
-        )
-
-        self._save_skill_projection(updated)
-        return updated
+        return self._confirm_skill(skill_id, appended.record_id)
 
     def verify_skill_integrity(self, skill_id: str) -> bool:
         """Verify that on-disk files match the canonical indexed tree digest."""
@@ -470,7 +530,7 @@ class SkillCatalogEngine:
         author_peer_id: str | None = None,
     ) -> CapabilityItem:
         """Update curated capability with CAS revision check."""
-        current = self.get_capability(capability_id)
+        current = self._authoritative_capability(capability_id)
         self._validate_capability_spec(spec)
 
         if current.revision != expected_revision:
@@ -489,7 +549,8 @@ class SkillCatalogEngine:
             "updated_at": now,
         }
 
-        self.store.append_record(
+        appended = self._append_mutation(
+            CapabilityConflictError, capability_id,
             stream_id=current.stream_id,
             author_peer_id=self._resolve_author(current.stream_id, author_peer_id),
             kind="m2.catalog.updated",
@@ -498,17 +559,7 @@ class SkillCatalogEngine:
             created_at=now,
         )
 
-        updated = CapabilityItem(
-            capability_id=current.capability_id,
-            stream_id=current.stream_id,
-            spec=spec,
-            revision=new_rev,
-            created_at=current.created_at,
-            updated_at=now,
-        )
-
-        self._save_capability_projection(updated)
-        return updated
+        return self._confirm_capability(capability_id, appended.record_id)
 
     def _validate_capability_spec(self, spec: dict[str, Any]) -> None:
         """Ensure spec does not contain volatile runtime measurements (Invariant 9)."""
@@ -664,13 +715,10 @@ class SkillCatalogEngine:
             ),
         )
 
-    def rebuild_index(self, records: Iterable[Record]) -> int:
-        """Rebuild the projection from the authoritative stream Records only.
-
-        The skill directories are never rescanned here: a recorded digest must not be silently replaced by whatever is on disk.
-        Drift between a recorded digest and the directory is detected by `verify_skill_integrity` (`SkillTamperedError`)."""
-        self._init_db()
-
+    def _fold(self, records: Iterable[Record], accepted: set[str] | None = None
+              ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], int]:
+        """The single ordered-Record reducer for skills and capabilities: pure, no database access.
+        `accepted` collects the record ids the reducer applied."""
         applied_count = 0
         skills_state: dict[str, dict[str, Any]] = {}
         capabilities_state: dict[str, dict[str, Any]] = {}
@@ -755,6 +803,8 @@ class SkillCatalogEngine:
                     "updated_at": created_str,
                 }
                 applied_count += 1
+                if accepted is not None:
+                    accepted.add(record.record_id)
 
             elif kind == "m2.skill.transitioned":
                 raw_sid = p.get("skill_id")
@@ -769,6 +819,8 @@ class SkillCatalogEngine:
                     raw_trans_at = p.get("transitioned_at")
                     sk["updated_at"] = raw_trans_at if isinstance(raw_trans_at, str) else record.created_at
                     applied_count += 1
+                    if accepted is not None:
+                        accepted.add(record.record_id)
 
             elif kind == "m2.catalog.declared":
                 raw_cid = p.get("capability_id")
@@ -791,6 +843,8 @@ class SkillCatalogEngine:
                     "updated_at": created_str,
                 }
                 applied_count += 1
+                if accepted is not None:
+                    accepted.add(record.record_id)
 
             elif kind == "m2.catalog.updated":
                 raw_cid = p.get("capability_id")
@@ -805,11 +859,21 @@ class SkillCatalogEngine:
                     raw_upd_at = p.get("updated_at")
                     cp["updated_at"] = raw_upd_at if isinstance(raw_upd_at, str) else record.created_at
                     applied_count += 1
+                    if accepted is not None:
+                        accepted.add(record.record_id)
 
+        return skills_state, capabilities_state, applied_count
+
+    def rebuild_index(self, records: Iterable[Record]) -> int:
+        """Rebuild the projection from the authoritative stream Records only.
+
+        The skill directories are never rescanned here: a recorded digest must not be silently replaced by whatever is on disk.
+        Drift between a recorded digest and the directory is detected by `verify_skill_integrity` (`SkillTamperedError`)."""
+        self._init_db()
+        skills_state, capabilities_state, applied_count = self._fold(records)
         # Replace both projections atomically: nothing is deleted until the full state has been computed, and a failure
         # while writing rolls everything back, so readers never see an empty or half-built projection.
         self._replace_projection(skills_state, capabilities_state)
-
         return applied_count
 
     def _replace_projection(self, skills_state: dict[str, dict[str, Any]], capabilities_state: dict[str, dict[str, Any]]) -> None:
