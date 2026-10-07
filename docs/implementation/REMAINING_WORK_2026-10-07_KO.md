@@ -12,10 +12,10 @@
 ### A. 바로 처리
 1. PR #37 CI(Windows 3.12~3.14, live-provider-validation) 확인.
 2. 메모리 체크포인트 갱신.
-3. `cc quota ERROR`(claude `/usage` 프로브 간헐 실패) 조사.
-4. README 예시를 새 옵션 이름으로 정리.
+3. `cc quota ERROR`(claude `/usage` 프로브 간헐 실패) — 2026-10-07 재현 안 됨(cc 프로브 OK). 재발 시 증거 수집 후 재조사.
+4. README 예시 정리 — 완료.
 5. 알림 정리: pool 없는 ERROR 행 라벨.
-6. `diag --view {plain,rich}` 연결(현재 `monitor`만).
+6. `diag --view {plain,rich}` — 완료.
 
 ### B. 오너 결정
 1. PR #37 머지(v0 폐기)와 다음 버전 번호(옵션 개명은 호환성 파괴).
