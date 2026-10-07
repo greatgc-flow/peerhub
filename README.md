@@ -28,6 +28,11 @@ peerhub diag
 peerhub diag quota --json
 peerhub diag health
 peerhub diag --live --interval-seconds 2
+peerhub diag --view rich
+
+# Collect quota evidence and watch the dashboard in one loop.
+peerhub monitor --interval-seconds 60
+peerhub monitor --view plain --cycles 1
 
 # Prompt files, provider working directory, and explicit model binding.
 peerhub ask ag --query-file prompt.txt --workspace . --model MODEL --json

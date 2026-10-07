@@ -713,6 +713,16 @@
           "positional": false,
           "required": false,
           "takes_value": false
+        },
+        {
+          "default": "plain",
+          "dest": "view",
+          "flags": [
+            "--view"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
         }
       ]
     },

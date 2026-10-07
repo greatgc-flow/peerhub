@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -144,6 +146,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     diag_parser.add_argument("--json", action="store_true", help="Emit the read-only dashboard as JSON")
     diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence")
     diag_parser.add_argument("--interval-seconds", type=float, default=2, help="Live snapshot interval (positive seconds)")
+    diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain", help="Dashboard style (rich = bars, pace and alerts)")
     diag_parser.add_argument("--cycles", dest="count", type=int, default=0, help="Live snapshot count; 0 watches until interrupted")
     diag_parser.epilog = "examples: peerhub diag | peerhub diag --json | peerhub diag --live | peerhub observation refresh | peerhub monitor (collects quota evidence every cycle and draws the dashboard)"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
@@ -271,12 +274,14 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             if args.action is None:
                 from dataclasses import asdict
                 from peerhub.extensions.diag_watch import dashboard_snapshots
+                from peerhub.cli.view import format_frame, use_color
                 code = 0
                 try:
                     for rep in dashboard_snapshots(args.db, interval_s=args.interval_seconds,
                                                     count=args.count if args.live else 1):
                         print(json.dumps(asdict(rep), indent=None if args.live else 2, ensure_ascii=True)
-                              if args.json else diag_quota.format_dashboard(rep), flush=True)
+                              if args.json else format_frame(rep, args.view, color=use_color(sys.stdout.isatty(), os.environ),
+                                                             width=shutil.get_terminal_size((100, 24)).columns), flush=True)
                         code = (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
                                 else 0 if rep.status == "OK" else 4)
                         if code:

@@ -85,6 +85,10 @@ def diag_live(e, option):
         return dashboard_snapshots(path, **kw, sleep=pauses.append)
     with patch("peerhub.extensions.diag_watch.dashboard_snapshots", frames):
         code, out, _ = e.run(db, "diag", "--live", "--json", "--cycles", "2", "--interval-seconds", ".125")
+    if option == "--view":
+        code, out, _ = e.run(db, "diag", "--view", "rich")
+        assert code == 0 and "QUOTA" in out and "ALERTS" in out
+        return
     assert code == 0 and len(out.splitlines()) == 2
     assert pauses == [.125]
     assert all(json.loads(line)["status"] == "OK" for line in out.splitlines())
@@ -171,7 +175,7 @@ EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for 
     "--effort", "--timeout-seconds", "--max-output-bytes", "--json", "--profile", "-p", "--silence-timeout-seconds")}
 EFFECT["diag --json"] = diag_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
-               for option in ("--live", "--interval-seconds", "--cycles")})
+               for option in ("--live", "--interval-seconds", "--cycles", "--view")})
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
                for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
