@@ -38,7 +38,7 @@ def test_live_json_is_ndjson_and_preserves_db_bytes(tmp_path, capsys):
     CoreStore(db)
     ObservationStore(db)
     before = db.read_bytes()
-    assert main(["--db", str(db), "diag", "--live", "--json", "--count", "2", "--interval-seconds", ".001"]) == 0
+    assert main(["--db", str(db), "diag", "--live", "--json", "--cycles", "2", "--interval-seconds", ".001"]) == 0
     frames = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert len(frames) == 2
     assert all(frame["status"] == "OK" for frame in frames)
@@ -52,7 +52,7 @@ def test_missing_live_store_fails_once_without_bootstrap(tmp_path, capsys):
     assert not db.exists()
 
 
-@pytest.mark.parametrize("options", [["--count", "2"], ["--interval-seconds", "1"], ["--live", "health"]])
+@pytest.mark.parametrize("options", [["--cycles", "2"], ["--interval-seconds", "1"], ["--live", "health"]])
 def test_watch_controls_never_become_inert(tmp_path, options):
     with pytest.raises(SystemExit) as exc:
         main(["--db", str(tmp_path / "missing.db"), "diag", *options])

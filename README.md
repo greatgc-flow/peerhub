@@ -40,7 +40,7 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer ide
 
 Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
 
-`diag --live` repeatedly reads committed snapshots only. `--count N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
+`diag --live` repeatedly reads committed snapshots only. `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
 ## Store selection and existing data
 

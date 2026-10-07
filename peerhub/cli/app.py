@@ -61,24 +61,24 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     peer_sub = peer_parser.add_subparsers(dest="action", required=True)
     
     p_reg = peer_sub.add_parser("register", help="Register a peer")
-    p_reg.add_argument("--id", required=True, dest="peer_id")
+    p_reg.add_argument("--peer", "--id", required=True, dest="peer_id")
     p_reg.add_argument("--name", dest="display_name")
     p_reg.add_argument("--adapter", dest="adapter_ref")
 
     p_get = peer_sub.add_parser("get", help="Get a peer")
-    p_get.add_argument("--id", required=True, dest="peer_id")
+    p_get.add_argument("--peer", "--id", required=True, dest="peer_id")
 
     # stream
     stream_parser = subparsers.add_parser("stream", help="Stream commands")
     st_sub = stream_parser.add_subparsers(dest="action", required=True)
     
     s_create = st_sub.add_parser("create", help="Create a stream")
-    s_create.add_argument("--id", required=True, dest="stream_id")
+    s_create.add_argument("--stream", "--id", required=True, dest="stream_id")
     s_create.add_argument("--title")
     s_create.add_argument("--members", nargs="*", default=[])
 
     s_show = st_sub.add_parser("show", help="Show stream details")
-    s_show.add_argument("--id", required=True, dest="stream_id")
+    s_show.add_argument("--stream", "--id", required=True, dest="stream_id")
 
     # record
     record_parser = subparsers.add_parser("record", help="Record commands")
@@ -86,10 +86,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     r_append = rec_sub.add_parser("append", help="Append a record")
     r_append.add_argument("--stream", required=True, dest="stream_id")
-    r_append.add_argument("--author", required=True, dest="author_peer_id")
+    r_append.add_argument("--author-peer", "--author", required=True, dest="author_peer_id")
     r_append.add_argument("--kind", required=True)
     r_append.add_argument("--body", required=True, help="JSON body string")
-    r_append.add_argument("--idemp-key", required=True)
+    r_append.add_argument("--idempotency-key", "--idemp-key", required=True, dest="idemp_key")
     r_append.add_argument("--created-at", default=None, help="RFC3339; pass the same value on retries (part of the idempotency digest)")
     r_append.add_argument("--targets", nargs="*", default=[])
 
@@ -118,7 +118,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
     ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat)")
     ask_parser.add_argument("--request-id", help="Reuse on retries; uncertain execution is never replayed automatically")
-    ask_parser.add_argument("--author", default="user")
+    ask_parser.add_argument("--author-peer", dest="author", default="user", help="Peer ID recorded as the prompt author (auto-registered)")
     ask_parser.add_argument("-w", "--workspace", help="Provider working directory; default: current directory")
     ask_parser.add_argument("--model")
     ask_parser.add_argument("--effort")
@@ -144,7 +144,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     diag_parser.add_argument("--json", action="store_true", help="Emit the read-only dashboard as JSON")
     diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence")
     diag_parser.add_argument("--interval-seconds", type=float, default=2, help="Live snapshot interval (positive seconds)")
-    diag_parser.add_argument("--count", type=int, default=0, help="Live snapshot count; 0 watches until interrupted")
+    diag_parser.add_argument("--cycles", dest="count", type=int, default=0, help="Live snapshot count; 0 watches until interrupted")
     diag_parser.epilog = "examples: peerhub diag | peerhub diag --json | peerhub diag --live | peerhub observation refresh | peerhub monitor (collects quota evidence every cycle and draws the dashboard)"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
     
@@ -259,9 +259,9 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             return 0
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
             if args.action is not None and (args.live or args.count or args.interval_seconds != 2):
-                parser.error("--live/--count/--interval-seconds apply to the dashboard, not diag subcommands")
+                parser.error("--live/--cycles/--interval-seconds apply to the dashboard, not diag subcommands")
             if not args.live and (args.count or args.interval_seconds != 2):
-                parser.error("--count/--interval-seconds require --live")
+                parser.error("--cycles/--interval-seconds require --live")
             try:
                 from peerhub.extensions.diag import ReadonlyDiag
                 from peerhub.extensions import diag_quota

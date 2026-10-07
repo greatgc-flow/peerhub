@@ -286,8 +286,31 @@ def li_digest(e):
     assert e.j(db, "legacy-import", "apply", "--source", str(src), "--plan-digest", plan)["totals"]["imported_units"] > 0
 
 
+
+def alias_peer(e):  # --peer is the primary spelling of the released --id
+    db = e.fresh(populate=False)
+    assert e.j(db, "peer", "register", "--peer", "zed")["peer_id"] == "zed" and e.j(db, "peer", "get", "--peer", "zed")["peer_id"] == "zed"
+
+
+def alias_stream(e):
+    db = e.fresh()
+    assert e.j(db, "stream", "create", "--stream", "s2")["stream_id"] == "s2" and e.j(db, "stream", "show", "--stream", "s2")["stream_id"] == "s2"
+
+
+def alias_author(e):
+    assert e.j(e.fresh(), *_swap([("--author-peer" if x == "--author" else x) for x in APPEND], "--author-peer", "b"))["author_peer_id"] == "b"
+
+
+def alias_idemp(e):
+    db = e.fresh()
+    args = ["--idempotency-key" if x == "--idemp-key" else x for x in APPEND]
+    first = e.j(db, *args)
+    assert e.j(db, *args)["record_id"] == first["record_id"] and e.j(db, *_swap(args, "--idempotency-key", "other"))["record_id"] != first["record_id"]
+
 EFFECT = {
     "* --db": x_db,
+    "peer register --peer": alias_peer, "peer get --peer": alias_peer, "stream create --stream": alias_stream, "stream show --stream": alias_stream,
+    "record append --author-peer": alias_author, "record append --idempotency-key": alias_idemp,
     "peer register --id": reg_id, "peer register --name": reg_name, "peer register --adapter": reg_adapter, "peer get --id": get_id,
     "stream create --id": sc_id, "stream create --title": sc_title, "stream create --members": sc_members, "stream show --id": ss_id,
     "record append --stream": ra_stream, "record append --author": ra_author, "record append --kind": ra_kind, "record append --body": ra_body,

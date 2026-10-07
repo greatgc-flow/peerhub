@@ -33,7 +33,7 @@ def ask_effect(e, option):
     elif option == "--json":
         pass
     else:
-        value = {"--stream": "conversation", "--request-id": "stable", "--author": "operator",
+        value = {"--stream": "conversation", "--request-id": "stable", "--author-peer": "operator",
                  "--model": "custom-model", "--effort": "low", "--timeout-seconds": "12",
                  "--profile": "cx.standard", "-p": "cx.standard", "--silence-timeout-seconds": "3",
                  "--max-output-bytes": "1234"}[option]
@@ -47,7 +47,7 @@ def ask_effect(e, option):
             assert result["peer_id"] == "cc" and captured[0][0] == "cc"
         elif option == "--stream":
             assert sid == "conversation"
-        elif option == "--author":
+        elif option == "--author-peer":
             assert prompt.author_peer_id == "operator"
         elif option == "--request-id":
             assert e.j(db, *argv)["status"] == "recovered_terminal"
@@ -84,7 +84,7 @@ def diag_live(e, option):
     def frames(path, **kw):
         return dashboard_snapshots(path, **kw, sleep=pauses.append)
     with patch("peerhub.extensions.diag_watch.dashboard_snapshots", frames):
-        code, out, _ = e.run(db, "diag", "--live", "--json", "--count", "2", "--interval-seconds", ".125")
+        code, out, _ = e.run(db, "diag", "--live", "--json", "--cycles", "2", "--interval-seconds", ".125")
     assert code == 0 and len(out.splitlines()) == 2
     assert pauses == [.125]
     assert all(json.loads(line)["status"] == "OK" for line in out.splitlines())
@@ -133,13 +133,13 @@ def monitor_effect(e, option):
         ev = SimpleNamespace(state=EvidenceState.ERROR, value=None, evidence_ref="agy_usage_consumed_tokens", source_tag="fake", observed_at=100, captured_at=100)
         return [SimpleNamespace(evidence=ev, extra={"reason": "x", "consumed_tokens": 1, "warning": "tokens used"})]
     argv = ["monitor", "--cycles", "1"]
-    if option == "--interval":
+    if option == "--interval-seconds":
         argv = ["monitor", "--cycles", "2", option, "3.14"]  # the pause happens between cycles: two cycles, one sleep
     elif option == "--cycles":
         argv = ["monitor", "--cycles", "2"]
     elif option == "--peers":
         argv += [option, "cx"]
-    elif option == "--timeout":
+    elif option == "--timeout-seconds":
         argv += [option, "2"]
     elif option == "--collect-every":
         argv = ["monitor", "--cycles", "2", "--collect-every", "2"]
@@ -157,22 +157,22 @@ def monitor_effect(e, option):
         code, out, err = e.run(db, *argv)
     if option == "--view":
         assert "QUOTA" in out and "refresh:" in err and "[" not in out  # rich layout, no colour off a pipe
-    elif option == "--interval": assert sleeps == [3.14]
+    elif option == "--interval-seconds": assert sleeps == [3.14]
     elif option == "--cycles": assert len(sleeps) == 1
     elif option == "--peers": assert captured[0]["instance_id"] == "cx"
-    elif option == "--timeout": assert captured[0]["deadline_sec"] == 2
+    elif option == "--timeout-seconds": assert captured[0]["deadline_sec"] == 2
     elif option == "--collect-every": assert len(captured) == 3
     elif option == "--allow-agy-token-use": assert code == 1 and err.count("tokens used") == 2
     elif option == "--json": import json; assert "cycle" in json.loads(out.splitlines()[0])
 
 
 EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for option in (
-    "peer", "prompt", "--query-file", "--stream", "--request-id", "--author", "--workspace", "-w", "--model",
+    "peer", "prompt", "--query-file", "--stream", "--request-id", "--author-peer", "--workspace", "-w", "--model",
     "--effort", "--timeout-seconds", "--max-output-bytes", "--json", "--profile", "-p", "--silence-timeout-seconds")}
 EFFECT["diag --json"] = diag_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
-               for option in ("--live", "--interval-seconds", "--count")})
+               for option in ("--live", "--interval-seconds", "--cycles")})
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
                for option in ("--peers", "--sys-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
-               for option in ("--interval", "--cycles", "--peers", "--timeout", "--json", "--allow-agy-token-use", "--collect-every", "--view")})
+               for option in ("--interval-seconds", "--cycles", "--peers", "--timeout-seconds", "--json", "--allow-agy-token-use", "--collect-every", "--view")})

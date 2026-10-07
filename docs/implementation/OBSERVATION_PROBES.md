@@ -35,7 +35,7 @@ The `reset_credit` kind extends the Observation kind list of the frozen M1 contr
 A convenience command that restores the old `diag --live` experience in ONE process: each cycle collects quota evidence (the same collector as `observation refresh`) and then renders ONE read-only dashboard frame (the same renderer as `diag --live`), then sleeps. The composition lives in the CLI layer (`peerhub/cli/monitor.py`): Diag stays strictly read-only and never refreshes, Observation stays the only writer, and no extension imports another.
 
 ```
-peerhub monitor [--interval SECONDS=60] [--cycles N=0] [--peers cx cc ag] [--timeout SECONDS=15]
+peerhub monitor [--interval-seconds SECONDS=60] [--cycles N=0] [--peers cx cc ag] [--timeout-seconds SECONDS=15]
                 [--collect-every K=1] [--view auto|rich|plain] [--json] [--allow-agy-token-use]
 ```
 

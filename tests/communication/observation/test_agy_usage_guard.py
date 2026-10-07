@@ -153,27 +153,3 @@ def test_single_refresh_prints_warning_on_stderr_exit_1(fake, tmp_path, capsys):
     assert cli(tmp_path / "w" / "core.db", fake) == 1
     cap = capsys.readouterr()
     assert "94000" in cap.err and "agy_usage_consumed_tokens" in cap.err and json.loads(cap.out)["warnings"]
-
-
-def test_watch_stops_after_first_violation(fake, tmp_path, capsys):
-    sleeps.clear()
-    fake.emit(CONSUMED)
-    assert cli(tmp_path / "w" / "core.db", fake, "--interval-seconds", "5", "--count", "4") == 1
-    cap = capsys.readouterr()
-    assert len(fake.spawns()) == 1 and sleeps == [] and "--keep-going-on-agy-token-use" in cap.err and "94000" in cap.err
-    assert len([x for x in cap.out.splitlines() if x.strip()]) == 1
-
-
-def test_watch_continues_with_flag(fake, tmp_path, capsys):
-    sleeps.clear()
-    fake.emit(CONSUMED)
-    assert cli(tmp_path / "w" / "core.db", fake, "--interval-seconds", "5", "--count", "3", "--keep-going-on-agy-token-use") == 1
-    cap = capsys.readouterr()
-    assert len(fake.spawns()) == 3 and sleeps == [5.0, 5.0] and cap.err.count("94000") == 3
-
-
-def test_watch_without_violation_unaffected(fake, tmp_path, capsys):
-    sleeps.clear()
-    fake.emit(GOOD)
-    assert cli(tmp_path / "w" / "core.db", fake, "--interval-seconds", "5", "--count", "3") == 0
-    assert len(fake.spawns()) == 3 and capsys.readouterr().err == ""

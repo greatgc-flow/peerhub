@@ -34,10 +34,10 @@ def _run(db, *args):
 
 
 @pytest.mark.parametrize("args", [
-    ["--interval", "0"],
-    ["--interval", "-1"],
+    ["--interval-seconds", "0"],
+    ["--interval-seconds", "-1"],
     ["--cycles", "-1"],
-    ["--timeout", "0"],
+    ["--timeout-seconds", "0"],
     ["--collect-every", "0"],
 ])
 def test_invalid_args_rejected_before_creation(tmp_path, capsys, args):
@@ -60,7 +60,7 @@ def test_sleep_called_count_minus_1_times(tmp_path, capsys):
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
          patch("time.sleep", lambda s: sleeps.append(s)):
-        assert _run(_db(tmp_path), "--cycles", "3", "--interval", "42") == 0
+        assert _run(_db(tmp_path), "--cycles", "3", "--interval-seconds", "42") == 0
     assert sleeps == [42.0, 42.0]
     assert calls == ["refresh", "snapshot", "refresh", "snapshot", "refresh", "snapshot"]
 

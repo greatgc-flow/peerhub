@@ -7,7 +7,7 @@
           "default": "user",
           "dest": "author",
           "flags": [
-            "--author"
+            "--author-peer"
           ],
           "positional": false,
           "required": false,
@@ -294,7 +294,7 @@
           "default": 60.0,
           "dest": "interval",
           "flags": [
-            "--interval"
+            "--interval-seconds"
           ],
           "positional": false,
           "required": false,
@@ -324,7 +324,7 @@
           "default": 15.0,
           "dest": "timeout",
           "flags": [
-            "--timeout"
+            "--timeout-seconds"
           ],
           "positional": false,
           "required": false,
@@ -454,6 +454,7 @@
           "default": null,
           "dest": "peer_id",
           "flags": [
+            "--peer",
             "--id"
           ],
           "positional": false,
@@ -477,22 +478,23 @@
         },
         {
           "default": null,
-          "dest": "peer_id",
-          "flags": [
-            "--id"
-          ],
-          "positional": false,
-          "required": true,
-          "takes_value": true
-        },
-        {
-          "default": null,
           "dest": "display_name",
           "flags": [
             "--name"
           ],
           "positional": false,
           "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "peer_id",
+          "flags": [
+            "--peer",
+            "--id"
+          ],
+          "positional": false,
+          "required": true,
           "takes_value": true
         }
       ]
@@ -504,6 +506,7 @@
           "default": null,
           "dest": "author_peer_id",
           "flags": [
+            "--author-peer",
             "--author"
           ],
           "positional": false,
@@ -534,6 +537,7 @@
           "default": null,
           "dest": "idemp_key",
           "flags": [
+            "--idempotency-key",
             "--idemp-key"
           ],
           "positional": false,
@@ -611,16 +615,6 @@
       "command": "stream create",
       "options": [
         {
-          "default": null,
-          "dest": "stream_id",
-          "flags": [
-            "--id"
-          ],
-          "positional": false,
-          "required": true,
-          "takes_value": true
-        },
-        {
           "default": "[]",
           "dest": "members",
           "flags": [
@@ -628,6 +622,17 @@
           ],
           "positional": false,
           "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "stream_id",
+          "flags": [
+            "--stream",
+            "--id"
+          ],
+          "positional": false,
+          "required": true,
           "takes_value": true
         },
         {
@@ -649,6 +654,7 @@
           "default": null,
           "dest": "stream_id",
           "flags": [
+            "--stream",
             "--id"
           ],
           "positional": false,
@@ -678,7 +684,7 @@
           "default": 0,
           "dest": "count",
           "flags": [
-            "--count"
+            "--cycles"
           ],
           "positional": false,
           "required": false,

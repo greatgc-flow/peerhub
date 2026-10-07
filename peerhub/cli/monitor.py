@@ -19,13 +19,13 @@ from peerhub.cli.support import agy_token_use, print_warnings
 
 def register_monitor_parser(subparsers: Any) -> None:
     p = subparsers.add_parser("monitor", help="Watch quota evidence and diagnostic dashboard")
-    p.add_argument("--interval", type=float, default=60.0,
+    p.add_argument("--interval-seconds", dest="interval", type=float, default=60.0,
                    help="Sleep interval between cycles (positive float)")
     p.add_argument("--cycles", type=int, default=0,
                    help="Number of cycles to run (0 = until interrupted)")
     p.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"],
                    help="Peers to refresh quota for")
-    p.add_argument("--timeout", type=float, default=15.0,
+    p.add_argument("--timeout-seconds", dest="timeout", type=float, default=15.0,
                    help="Probe timeout")
     p.add_argument("--json", action="store_true",
                    help="Emit NDJSON frames")
@@ -39,11 +39,11 @@ def register_monitor_parser(subparsers: Any) -> None:
 
 def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if not args.interval > 0:
-        parser.error("--interval must be a positive number")
+        parser.error("--interval-seconds must be a positive number")
     if args.cycles < 0:
         parser.error("--cycles must be >= 0")
     if not args.timeout > 0:
-        parser.error("--timeout must be a positive number")
+        parser.error("--timeout-seconds must be a positive number")
     if args.collect_every < 1:
         parser.error("--collect-every must be >= 1")
 
