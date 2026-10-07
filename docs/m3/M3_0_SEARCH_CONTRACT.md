@@ -52,7 +52,7 @@ The Search module (`peerhub.m3.search`) provides:
 
 ## Closure update (2026-10-08)
 
-Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. State-machine and exception JSON catalogs are updated separately.
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. The state-machine and exception JSON catalogs carry the same update.
 
 - The `search` interface supports exact metadata filtering via `metadata={key: scalar}`. Matches must be exact in both type and value.
 - The `limit` constraint is applied strictly *after* metadata filtering, ensuring valid matches are not prematurely truncated.
