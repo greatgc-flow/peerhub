@@ -43,3 +43,11 @@ peerhub monitor [--interval-seconds S=60] [--count N=0] [--peers cx cc ag] [--ti
 - `--json` prints NDJSON: `{"cycle": n, "refresh": {"status", "warnings", "observations"} | {"skipped": true}, "snapshot": <diag --json object>}`.
 - Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when `--count` ended the run; 2 usage error (nothing is collected, no database is created).
 - Every cycle costs one `/usage` read per peer (no model turn; see the probe table above). Do not set intervals of a few seconds.
+
+### `peerhub monitor --view {auto,rich,plain}`
+
+`rich` (default on a terminal) draws one screen: header (time, db, cycle, refresh status, next refresh), a QUOTA table
+(used bar, left, PACE arrow = used faster than the window clock, reset countdown, freshness), reset credits, latest
+asks, system counts with the busiest streams, and a collapsed ALERTS line. `plain` is the original text dashboard.
+`NO_COLOR` disables colour, `FORCE_COLOR` enables it off a terminal; non-UTF-8 terminals get an ASCII layout.
+The view is a pure renderer over the read-only diag snapshot (`peerhub/cli/view.py`); it never writes evidence.

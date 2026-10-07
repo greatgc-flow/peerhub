@@ -189,13 +189,17 @@ def monitor_effect(e, option):
         argv = ["monitor", "--count", "2", "--peers", "ag", option]
     elif option == "--json":
         argv += [option]
+    elif option == "--view":
+        argv += [option, "rich"]
     sleeps = []
     with patch("peerhub.extensions.quota_probes.poll_claude_usage", probe), \
          patch("peerhub.extensions.quota_probes.poll_codex_usage", probe), \
          patch("peerhub.extensions.quota_probes.poll_agy_usage", probe_agy if option == "--keep-going-on-agy-token-use" else probe), \
          patch("time.sleep", lambda s: sleeps.append(s)):
         code, out, err = e.run(db, *argv)
-    if option == "--interval-seconds": assert sleeps == [3.14]
+    if option == "--view":
+        assert "QUOTA" in out and "refresh:" in err and "[" not in out  # rich layout, no colour off a pipe
+    elif option == "--interval-seconds": assert sleeps == [3.14]
     elif option == "--count": assert len(sleeps) == 1
     elif option == "--peers": assert captured[0]["instance_id"] == "cx"
     elif option == "--timeout-seconds": assert captured[0]["deadline_sec"] == 2
@@ -216,4 +220,4 @@ EFFECT.update({f"observation refresh {option}": (lambda e, option=option: watch_
                for option in ("--interval-seconds", "--count")})
 EFFECT["observation refresh --keep-going-on-agy-token-use"] = lambda e: agy_keep_going_effect(e, "--keep-going-on-agy-token-use")
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
-               for option in ("--interval-seconds", "--count", "--peers", "--timeout-seconds", "--json", "--keep-going-on-agy-token-use", "--refresh-every")})
+               for option in ("--interval-seconds", "--count", "--peers", "--timeout-seconds", "--json", "--keep-going-on-agy-token-use", "--refresh-every", "--view")})

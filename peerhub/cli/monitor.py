@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sys
 import time
 from dataclasses import asdict
@@ -29,6 +31,8 @@ def register_monitor_parser(subparsers: Any) -> None:
                    help="Emit NDJSON frames")
     p.add_argument("--keep-going-on-agy-token-use", action="store_true",
                    help="Keep collecting after agy /usage consumed model tokens")
+    p.add_argument("--view", choices=["auto", "rich", "plain"], default="auto",
+                   help="Dashboard style: rich (bars, colour, pace), plain (text table); auto = rich on a terminal")
     p.add_argument("--refresh-every", type=int, default=1,
                    help="Collect only every Kth cycle (K>=1)")
 
@@ -48,10 +52,14 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
     validate_monitor_args(parser, args)
     # Lazy imports: registering the parser must work when first-party extensions are blocked (Core-only path); the
     # extension-backed pieces are only needed once the command actually runs.
-    from peerhub.extensions import diag_quota
+    from peerhub.cli.view import format_frame, use_color
     from peerhub.extensions.diag import ReadonlyDiag
     from peerhub.extensions.quota_capture import refresh_quota
 
+    tty = sys.stdout.isatty()
+    view = ("rich" if tty else "plain") if args.view == "auto" else args.view
+    color = view == "rich" and use_color(tty, os.environ)
+    db_name = os.path.basename(str(args.db))
     total: int = args.count
     done: int = 0
     last_refresh_status_code: int = 0
@@ -95,7 +103,12 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
                 }
                 print(json.dumps(frame, ensure_ascii=True, separators=(",", ":")), flush=True)
             else:
-                print(diag_quota.format_dashboard(rep), flush=True)
+                if view == "rich" and tty:
+                    print("[H[2J", end="")
+                width = shutil.get_terminal_size((100, 24)).columns
+                print(format_frame(rep, view, color=color, unicode=(sys.stdout.encoding or "").lower().startswith("utf"),
+                                   width=width, db_name=db_name, cycle=done, refresh=refresh_info,
+                                   interval=args.interval_seconds, refresh_every=args.refresh_every), flush=True)
 
             done += 1
             if total > 0 and done >= total:
