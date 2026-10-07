@@ -20,6 +20,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from peerhub._console import tolerant_streams
+from peerhub.cli.support import agy_token_use as _agy_token_use, print_warnings as _print_warnings
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SchemaVersionError
 from peerhub.core.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
@@ -143,6 +144,9 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     refresh.add_argument("--keep-going-on-agy-token-use", action="store_true",
                          help="Watch mode: keep collecting after agy /usage consumed model tokens (default: stop with exit 1 at the first event)")
 
+    from peerhub.cli.monitor import register_monitor_parser
+    register_monitor_parser(subparsers)
+
     # diag
     diag_parser = subparsers.add_parser("diag", help="Readonly diagnostics")
     diag_parser.add_argument("--json", action="store_true", help="Emit the read-only dashboard as JSON")
@@ -233,13 +237,6 @@ def _run_observation_cli(args: argparse.Namespace) -> int:
     return _watch_observation(args)
 
 
-def _print_warnings(result: dict[str, Any]) -> None:
-    for w in result.get("warnings", []):
-        print(f"warning: {w}", file=sys.stderr, flush=True)
-
-
-def _agy_token_use(result: dict[str, Any]) -> bool:
-    return any(o.get("payload", {}).get("evidence_ref") == "agy_usage_consumed_tokens" for o in result.get("observations", []))
 
 
 def _validate_observation_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -290,6 +287,9 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     try:
         if args.subcommand == "ask":
             return _run_ask_cli(args, parser, argv)
+        if args.subcommand == "monitor":
+            from peerhub.cli.monitor import run_monitor
+            return run_monitor(args, parser)
         if args.subcommand == "observation":
             _validate_observation_args(parser, args)
             return _run_observation_cli(args)

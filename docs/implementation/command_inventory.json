@@ -258,6 +258,81 @@
       ]
     },
     {
+      "command": "monitor",
+      "options": [
+        {
+          "default": 0,
+          "dest": "count",
+          "flags": [
+            "--count"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 60.0,
+          "dest": "interval_seconds",
+          "flags": [
+            "--interval-seconds"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": false,
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": false,
+          "dest": "keep_going_on_agy_token_use",
+          "flags": [
+            "--keep-going-on-agy-token-use"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": "['cx', 'cc', 'ag']",
+          "dest": "peers",
+          "flags": [
+            "--peers"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 1,
+          "dest": "refresh_every",
+          "flags": [
+            "--refresh-every"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 15.0,
+          "dest": "timeout_seconds",
+          "flags": [
+            "--timeout-seconds"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
       "command": "observation refresh",
       "options": [
         {

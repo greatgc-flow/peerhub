@@ -29,3 +29,17 @@ Subject `cx`, resource pool `credit:cx:reset` (kind ACCOUNT), written from the s
 `diag quota` shows a `reset_credits` list (JSON) and a "reset credits" block (table, also in the `diag` dashboard): count, nearest expiry in ISO UTC, hours until expiry computed at read time, per-credit status, `WARN` when an available credit expires in strictly less than 72h. Credit ids are shown only as a 12-char sha256 prefix (`id_hash`).
 
 The `reset_credit` kind extends the Observation kind list of the frozen M1 contract (docs/m1_spec is unchanged): owner decision pending.
+
+## `peerhub monitor`
+
+A convenience command that restores the old `diag --live` experience in ONE process: each cycle collects quota evidence (the same collector as `observation refresh`) and then renders ONE read-only dashboard frame (the same renderer as `diag --live`), then sleeps. The composition lives in the CLI layer (`peerhub/cli/monitor.py`): Diag stays strictly read-only and never refreshes, Observation stays the only writer, and no extension imports another.
+
+```
+peerhub monitor [--interval-seconds S=60] [--count N=0] [--peers cx cc ag] [--timeout-seconds T=15]
+                [--refresh-every K=1] [--json] [--keep-going-on-agy-token-use]
+```
+
+- `--count 0` runs until Ctrl-C (clean exit 0). `--refresh-every K` collects every Kth cycle but redraws every cycle.
+- `--json` prints NDJSON: `{"cycle": n, "refresh": {"status", "warnings", "observations"} | {"skipped": true}, "snapshot": <diag --json object>}`.
+- Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when `--count` ended the run; 2 usage error (nothing is collected, no database is created).
+- Every cycle costs one `/usage` read per peer (no model turn; see the probe table above). Do not set intervals of a few seconds.
