@@ -115,3 +115,33 @@ def test_a_missing_entrypoint_fails_enablement_instead_of_leaving_metadata_enabl
     with pytest.raises(ExtensionHookError, match="entrypoint"):
         host.enable("ext_a")
     assert host.get_state("ext_a") == "FAILED" and "ext_a" not in host.loaded_modules
+
+
+def test_boot_cascades_a_dependency_failure_even_when_the_dependent_sorts_first(tmp_path):
+    exts = tmp_path / "exts"
+    write_ext(exts, "ext_a_user", deps=["ext_b_mid"])  # sorts BEFORE its dependency
+    write_ext(exts, "ext_b_mid", deps=["ext_c_base"])
+    write_ext(exts, "ext_c_base")
+    h1 = ExtensionHost(tmp_path / "host.db", extensions_dir=exts)
+    h1.boot()
+    for ext in ("ext_c_base", "ext_b_mid", "ext_a_user"):
+        h1.enable(ext)
+    (exts / "ext_c_base" / "main.py").unlink()  # the base loses its entrypoint while the process is down
+    report = ExtensionHost(tmp_path / "host.db", extensions_dir=exts).boot()
+    assert set(report["failed"]) == {"ext_c_base", "ext_b_mid", "ext_a_user"}  # the whole chain, not just the first victim
+    host = ExtensionHost(tmp_path / "host.db")
+    assert {host.get_state(e) for e in report["failed"]} == {"FAILED"}
+
+
+def test_boot_fails_an_enabled_extension_whose_manifest_became_unreadable(tmp_path):
+    exts = tmp_path / "exts"
+    d = write_ext(exts, "ext_a")
+    write_ext(exts, "ext_user", deps=["ext_a"])
+    h1 = ExtensionHost(tmp_path / "host.db", extensions_dir=exts)
+    h1.boot()
+    h1.enable("ext_a")
+    h1.enable("ext_user")
+    (d / "manifest.json").write_text("{corrupt")
+    report = ExtensionHost(tmp_path / "host.db", extensions_dir=exts).boot()
+    assert "ext_a" in report["errors"] and report["failed"]["ext_a"].startswith("manifest missing")
+    assert "ext_user" in report["failed"]  # its dependency is gone, so it cannot stay enabled either

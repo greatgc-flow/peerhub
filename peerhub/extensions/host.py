@@ -254,14 +254,29 @@ class ExtensionHost:
                     report["discovered"].append(self.discover(child).id)
                 except (ExtensionError, SchemaValidationError, ValueError, OSError) as exc:
                     report["errors"][child.name] = f"{type(exc).__name__}: {exc}"
-        for ext_id in sorted(self.manifests):
-            try:
+        # An ENABLED registry row whose manifest could not be (re)read has nothing left to verify: it must not stay enabled.
+        with sqlite_tx(self.db_path) as conn:
+            enabled = [row[0] for row in conn.execute("SELECT id FROM m2_extension_registry WHERE state = 'ENABLED' ORDER BY id")]
+        for ext_id in enabled:
+            if ext_id not in self.manifests:
+                self.transition(ext_id, "FAILED")
+                report["failed"][ext_id] = "manifest missing or unreadable at boot"
+        # Failures cascade: repeat until stable, so a dependent evaluated BEFORE its failing dependency is caught as well.
+        changed = True
+        while changed:
+            changed = False
+            for ext_id in sorted(self.manifests):
                 if self.get_state(ext_id) != "ENABLED":
                     continue
-                self._check_dependencies(ext_id, self.manifests[ext_id])
-            except MissingDependencyError as exc:
-                self.transition(ext_id, "FAILED")
-                report["failed"][ext_id] = str(exc)
+                manifest = self.manifests[ext_id]
+                try:
+                    self._check_dependencies(ext_id, manifest)
+                    if ext_id in self.manifest_dirs and not (self.manifest_dirs[ext_id] / manifest.entrypoint).is_file():
+                        raise MissingDependencyError(f"entrypoint {manifest.entrypoint!r} is missing")
+                except MissingDependencyError as exc:
+                    self.transition(ext_id, "FAILED")
+                    report["failed"][ext_id] = str(exc)
+                    changed = True
         return report
 
     def enable(self, ext_id: str) -> str:

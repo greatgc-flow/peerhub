@@ -705,10 +705,12 @@ class HardDeadlineStepRunner:
         while job.status not in terminal:
             if self._deadline is not None and time.monotonic() >= self._deadline:
                 try:
-                    self._port.cancel(job.job_id)
+                    job = self._port.cancel(job.job_id)
                 except Exception as exc:
                     return StepExecutionResult(step.step_id, attempt, "MAY_HAVE_STARTED", error=f"deadline reached; {exc}")
-                return StepExecutionResult(step.step_id, attempt, "FAILED", error="deadline reached; work cancelled (process tree killed)")
+                if job.status == "CANCELLED":
+                    return StepExecutionResult(step.step_id, attempt, "FAILED", error="deadline reached; work cancelled (process tree killed)")
+                break  # the job had already finished on its own: its real outcome (and cost) is used, never discarded or replayed
             time.sleep(self._poll)
             job = self._port.get(job.job_id)
         if job.status == "COMPLETED" and job.output is not None:

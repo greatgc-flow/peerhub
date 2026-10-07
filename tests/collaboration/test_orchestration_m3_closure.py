@@ -261,3 +261,62 @@ def test_strict_mode_needs_a_runner_that_declares_hard_cancellation():
     runner = Hard()
     assert PlanExecutor(require_hard_deadline=True).execute_plan(chain(1, timeout_seconds=30.0), runner).status == "COMPLETED"
     assert runner.deadline is not None and 0 < runner.deadline - time.monotonic() <= 30.0  # the executor binds the plan deadline
+
+
+def test_parallel_journal_appends_are_never_entered_concurrently(journal):
+    """The executor itself must serialize durable appends: a spy that detects re-entrancy fails if the lock is removed."""
+    inside, overlaps = 0, []
+    real = journal.record_attempt
+    guard = threading.Lock()
+
+    def spy(*args, **kwargs):
+        nonlocal inside
+        with guard:
+            inside += 1
+            if inside > 1:
+                overlaps.append(inside)
+        time.sleep(0.01)  # widen the window so an unserialized pair would overlap
+        try:
+            return real(*args, **kwargs)
+        finally:
+            with guard:
+                inside -= 1
+
+    journal.record_attempt = spy  # type: ignore[method-assign]
+    plan = Plan("spy", "t", [PlanStep(f"s{i}", "x", {}) for i in range(6)], bounds=PlanBounds(max_fanout=4))
+    journal.accept_plan(plan, accepted_by="operator")
+    summary = PlanExecutor(journal, parallel=True).execute_plan(plan, lambda s, a: (time.sleep(0.005), done(s, a))[1])
+    assert summary.status == "COMPLETED" and overlaps == []
+
+
+def test_a_job_that_finishes_exactly_at_the_deadline_is_used_not_discarded():
+    from peerhub.extensions.orchestration import HardDeadlineStepRunner
+
+    class Job:
+        def __init__(self, status, output=None, error=None):
+            self.job_id, self.status, self.output, self.error = "j1", status, output, error
+
+    class Port:
+        hard_cancel = True
+
+        def submit(self, capability, params):
+            return Job("RUNNING")
+
+        def get(self, job_id):
+            return Job("RUNNING")
+
+        def cancel(self, job_id):  # the process had just exited on its own: cancel reports the real, completed job
+            return Job("COMPLETED", output={"cost": 2.5, "answer": 1})
+
+    runner = HardDeadlineStepRunner(Port(), poll_seconds=0.001)
+    runner.set_deadline(time.monotonic() - 1)  # the deadline has already passed
+    result = runner(PlanStep("s", "cap", {}), 1)
+    assert result.status == "COMPLETED" and result.cost == 2.5 and result.output == {"cost": 2.5, "answer": 1}  # no lost cost, no replay
+
+    class Killing(Port):
+        def cancel(self, job_id):
+            return Job("CANCELLED", error="killed")
+
+    killing = HardDeadlineStepRunner(Killing(), poll_seconds=0.001)
+    killing.set_deadline(time.monotonic() - 1)
+    assert killing(PlanStep("s", "cap", {}), 1).status == "FAILED"  # a real kill is still a certain failure
