@@ -152,8 +152,10 @@ def test_any_output_resets_silence_deadline(tmp_path, stream):
 
 def test_wall_deadline_still_bounds_chatty_process(tmp_path):
     code = "import time\nwhile True:\n print('active',flush=True); time.sleep(0.05)"
+    # The child prints every 0.05 s. The silence window must be far larger than any scheduling hiccup of a loaded CI runner
+    # (a 0.5 s window was starved on a busy Windows runner), while the wall deadline stays the one that fires.
     result = run_bounded([sys.executable, "-u", "-c", code], stdin=None, cwd=str(tmp_path), env=os.environ,
-                         timeout_s=0.8, silence_timeout_s=0.5)
+                         timeout_s=4.0, silence_timeout_s=3.0)
     assert result.timed_out and not result.silence_timed_out
 
 
