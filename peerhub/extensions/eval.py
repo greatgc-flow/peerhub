@@ -42,6 +42,10 @@ class EvalTruthViolationError(Exception):
     """Attempted to use evaluation result or telemetry as collaboration truth (EXC-044)."""
 
 
+class EvalSourceMismatchError(Exception):
+    """A trace/dataset digest, or a report's source binding, does not match the authoritative content."""
+
+
 class EvaluatorValidationError(Exception):
     """Evaluator missing required metadata or produces invalid score types (EXC-045)."""
 
@@ -100,6 +104,12 @@ class ExecutionTrace:
         return _canonical_json(payload)
 
 
+def trace_digest(trace: "ExecutionTrace") -> str:
+    """Digest recomputed from the trace content (never taken from the caller-supplied `digest` field)."""
+    return hashlib.sha256(_canonical_bytes({"trace_id": trace.trace_id, "spans": [s.to_dict() for s in trace.spans],
+                                            "metadata": trace.metadata})).hexdigest()
+
+
 def capture_trace(
     trace_id: str,
     spans: Sequence[TraceSpan],
@@ -131,6 +141,10 @@ class EvalDataset:
     count: int
     created_at: str
     items: tuple[dict[str, Any], ...] = ()
+
+
+def dataset_digest(items: Sequence[dict[str, Any]]) -> str:
+    return hashlib.sha256(_canonical_bytes(list(items))).hexdigest()
 
 
 def register_dataset(
@@ -214,6 +228,7 @@ class EvalReport:
     evaluator_type: str
     evaluator_version: str
     target_ref: str
+    target_digest: str
     dataset_ref: str
     scores: dict[str, float]
     verdict: str
@@ -229,10 +244,25 @@ def _calculate_report_digest(report_dict: dict[str, Any]) -> str:
     return hashlib.sha256(_canonical_bytes(copy_dict)).hexdigest()
 
 
+def _verify_sources(trace: ExecutionTrace, dataset: EvalDataset, store: Any | None) -> None:
+    if trace_digest(trace) != trace.digest:
+        raise EvalSourceMismatchError("trace.digest does not match the trace content")
+    if dataset_digest(dataset.items) != dataset.digest or dataset.count != len(dataset.items):
+        raise EvalSourceMismatchError("dataset.digest/count do not match the dataset items")
+    if store is not None:  # the dataset is an Artifact: the committed blob must exist, verify, and equal these items
+        try:
+            blob = store.read_bytes(dataset.digest)
+        except Exception as exc:
+            raise EvalSourceMismatchError(f"dataset artifact {dataset.digest} is not verifiable in the store: {type(exc).__name__}") from exc
+        if blob != _canonical_bytes(list(dataset.items)):
+            raise EvalSourceMismatchError("dataset artifact content differs from the dataset items")
+
+
 def run_eval(
     evaluator: Any,
     trace: ExecutionTrace,
     dataset: EvalDataset,
+    store: Any | None = None,
 ) -> EvalReport:
     # 1. Validate Evaluator metadata
     etype = getattr(evaluator, "evaluator_type", None)
@@ -240,7 +270,10 @@ def run_eval(
     if not isinstance(etype, str) or not etype.strip() or not isinstance(eversion, str) or not eversion.strip():
         raise EvaluatorValidationError("Evaluator must define non-empty evaluator_type and evaluator_version")
 
-    # 2. Execute Evaluator
+    # 2. The sources the report will name must be exactly what was given (recomputed, optionally store-verified)
+    _verify_sources(trace, dataset, store)
+
+    # 3. Execute Evaluator
     try:
         res = evaluator.evaluate(trace, dataset)
     except Exception as e:
@@ -271,6 +304,7 @@ def run_eval(
         "evaluator_type": etype,
         "evaluator_version": eversion,
         "target_ref": trace.trace_id,
+        "target_digest": trace.digest,
         "dataset_ref": dataset.digest,
         "scores": scores,
         "verdict": verdict,
@@ -285,6 +319,7 @@ def run_eval(
         evaluator_type=etype,
         evaluator_version=eversion,
         target_ref=trace.trace_id,
+        target_digest=trace.digest,
         dataset_ref=dataset.digest,
         scores=scores,
         verdict=verdict,
@@ -302,6 +337,15 @@ def verify_report_integrity(report: EvalReport) -> bool:
         raise EvalReportTamperedError(
             f"Eval report digest mismatch: expected {expected_digest}, found {report.report_digest}"
         )
+    return True
+
+
+def verify_report_sources(report: EvalReport, trace: ExecutionTrace, dataset: EvalDataset, store: Any | None = None) -> bool:
+    """The report is intact AND names exactly these (recomputed) sources."""
+    verify_report_integrity(report)
+    _verify_sources(trace, dataset, store)
+    if report.target_ref != trace.trace_id or report.target_digest != trace.digest or report.dataset_ref != dataset.digest:
+        raise EvalSourceMismatchError("report does not name the supplied trace/dataset")
     return True
 
 

@@ -12,7 +12,7 @@ import pytest
 from peerhub.core.models import Peer, Stream
 from peerhub.core.store import CoreStore
 from peerhub.extensions.artifact import ArtifactStore, ArtifactTamperedError, SecurityBoundaryError, StagedArtifact
-from peerhub.extensions.eval import EvalDataset, EvaluatorValidationError, capture_trace, run_eval
+from peerhub.extensions.eval import EvalDataset, EvaluatorValidationError, capture_trace, dataset_digest, run_eval
 from peerhub.extensions.host import ExtensionHost, SchemaPrefixViolationError, ExtensionHookError
 from peerhub.extensions.manifest import ExtensionManifest, SchemaValidationError
 from peerhub.extensions.skills import SkillCatalogEngine, SkillTamperedError, VolatileFactRejectedError
@@ -154,7 +154,7 @@ def test_eval_invalid_score_types_rejected(score):
         def evaluate(self, trace, dataset):
             return {"verdict": "PASSED", "scores": {"accuracy": score}}
     with pytest.raises(EvaluatorValidationError):
-        run_eval(InvalidEvaluator(), capture_trace("trace", []), EvalDataset("empty", "0" * 64, 0, "now"))
+        run_eval(InvalidEvaluator(), capture_trace("trace", []), EvalDataset("empty", dataset_digest([]), 0, "now"))
 
 
 def test_work_rebuild_rejects_conflicting_and_cross_stream_records(tmp_path: Path):

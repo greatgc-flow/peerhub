@@ -180,6 +180,7 @@ def test_evl_006_tampered_eval_report_fails_verification(artifact_store: Artifac
         evaluator_type=report.evaluator_type,
         evaluator_version=report.evaluator_version,
         target_ref=report.target_ref,
+        target_digest=report.target_digest,
         dataset_ref=report.dataset_ref,
         scores={"accuracy": 1.0},  # tampered score!
         verdict="PASSED",          # tampered verdict!
@@ -356,3 +357,49 @@ def test_evl_012_zero_dev_dependency_violation_rel_009() -> None:
     # Verify no dev dependencies are required in the module globals
     for bad_mod in ("opentelemetry", "yaml", "pytest"):
         assert bad_mod not in eval_mod.__dict__
+
+
+# ---------------------------------------------------------------- authoritative source binding
+def test_run_eval_rejects_a_trace_whose_digest_does_not_match_its_content():
+    from peerhub.extensions.eval import EvalSourceMismatchError, ExecutionTrace, capture_trace, dataset_digest, EvalDataset
+
+    good = capture_trace("t1", [])
+    forged = ExecutionTrace(good.trace_id, good.spans, {"changed": True}, good.digest)  # content differs, digest copied
+    ds = EvalDataset("d", dataset_digest([]), 0, "now")
+    with pytest.raises(EvalSourceMismatchError):
+        run_eval(ExactMatchEvaluator(), forged, ds)
+
+
+def test_run_eval_rejects_a_dataset_whose_digest_or_count_is_made_up():
+    from peerhub.extensions.eval import EvalSourceMismatchError, EvalDataset, capture_trace, dataset_digest
+
+    items = ({"expected": "x"},)
+    with pytest.raises(EvalSourceMismatchError):
+        run_eval(ExactMatchEvaluator(), capture_trace("t", []), EvalDataset("d", "0" * 64, 1, "now", items))
+    with pytest.raises(EvalSourceMismatchError):
+        run_eval(ExactMatchEvaluator(), capture_trace("t", []), EvalDataset("d", dataset_digest(items), 5, "now", items))
+
+
+def test_report_names_the_trace_digest_and_verify_report_sources_checks_it(tmp_path):
+    from peerhub.extensions.artifact import ArtifactStore
+    from peerhub.extensions.eval import EvalSourceMismatchError, capture_trace, register_dataset, verify_report_sources
+
+    store = ArtifactStore(tmp_path / "a")
+    ds = register_dataset("d", [{"expected": "x"}], store)
+    trace = capture_trace("t", [])
+    report = run_eval(ExactMatchEvaluator(), trace, ds, store=store)
+    assert report.target_digest == trace.digest and report.dataset_ref == ds.digest
+    assert verify_report_sources(report, trace, ds, store) is True
+    other = capture_trace("t", [], {"k": 1})  # same trace id, different content: a mutable name must not stand in for the digest
+    with pytest.raises(EvalSourceMismatchError):
+        verify_report_sources(report, other, ds, store)
+
+
+def test_dataset_must_exist_in_the_artifact_store_when_a_store_is_given(tmp_path):
+    from peerhub.extensions.artifact import ArtifactStore
+    from peerhub.extensions.eval import EvalSourceMismatchError, EvalDataset, capture_trace, dataset_digest
+
+    items = ({"expected": "x"},)
+    ds = EvalDataset("d", dataset_digest(items), 1, "now", items)  # never registered
+    with pytest.raises(EvalSourceMismatchError):
+        run_eval(ExactMatchEvaluator(), capture_trace("t", []), ds, store=ArtifactStore(tmp_path / "empty"))
