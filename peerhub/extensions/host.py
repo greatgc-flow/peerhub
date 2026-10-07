@@ -19,7 +19,7 @@ import sqlite3
 import sys
 from typing import Any, Callable, ClassVar
 
-from peerhub.extensions.manifest import ExtensionManifest, SchemaValidationError, validate_manifest
+from peerhub.extensions.manifest import ExtensionManifest, SchemaValidationError, parse_dependency, validate_manifest
 
 
 class ExtensionError(Exception):
@@ -147,6 +147,10 @@ class ExtensionHost:
                     raise DowngradeNotSupportedError(
                         f"Extension {ext_id!r} schema downgrade from DB version {db_schema_version} to {declared_version} is forbidden"
                     )
+                registered = conn.execute("SELECT version FROM m2_extension_registry WHERE id = ?", (ext_id,)).fetchone()[0]
+                if registered != manifest.version:  # a version change is never adopted silently (dependents pin registered versions)
+                    raise RegistrationConflictError(
+                        f"Extension {ext_id!r} is registered at version {registered}, manifest says {manifest.version}")
             else:
                 initial_version = target_schema_version if target_schema_version is not None else 1
                 conn.execute(
@@ -216,6 +220,49 @@ class ExtensionHost:
             )
         return target_state
 
+    def _registered_version(self, ext_id: str) -> str | None:
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute("SELECT version FROM m2_extension_registry WHERE id = ?", (ext_id,)).fetchone()
+        return None if row is None else str(row[0])
+
+    def _check_dependencies(self, ext_id: str, manifest: ExtensionManifest) -> None:
+        """Every dependency must be installed, ENABLED and (when pinned with `==`) at exactly that registered version."""
+        for entry in manifest.dependencies:
+            dep_id, pinned = parse_dependency(entry)
+            try:
+                dep_state = self.get_state(dep_id)
+            except KeyError:
+                raise MissingDependencyError(f"Required dependency {dep_id!r} for {ext_id!r} is not installed") from None
+            if dep_state != "ENABLED":
+                raise MissingDependencyError(f"Required dependency {dep_id!r} for {ext_id!r} is not enabled (state: {dep_state})")
+            installed = self._registered_version(dep_id)
+            if pinned is not None and installed != pinned:
+                raise MissingDependencyError(
+                    f"Dependency {dep_id!r} for {ext_id!r} requires version {pinned}, registered version is {installed}")
+
+    def boot(self) -> dict[str, Any]:
+        """Boot discovery: register every manifest found under `extensions_dir`, then re-verify ENABLED extensions.
+
+        Failure isolation: an unreadable or invalid manifest is reported and skipped, it never aborts the other extensions.
+        Fail closed: an ENABLED extension whose dependencies are no longer satisfied is moved to FAILED (never left enabled).
+        """
+        report: dict[str, Any] = {"discovered": [], "errors": {}, "failed": {}}
+        if self.extensions_dir is not None and self.extensions_dir.is_dir():
+            for child in sorted(p for p in self.extensions_dir.iterdir() if p.is_dir() and (p / "manifest.json").is_file()):
+                try:
+                    report["discovered"].append(self.discover(child).id)
+                except (ExtensionError, SchemaValidationError, ValueError, OSError) as exc:
+                    report["errors"][child.name] = f"{type(exc).__name__}: {exc}"
+        for ext_id in sorted(self.manifests):
+            try:
+                if self.get_state(ext_id) != "ENABLED":
+                    continue
+                self._check_dependencies(ext_id, self.manifests[ext_id])
+            except MissingDependencyError as exc:
+                self.transition(ext_id, "FAILED")
+                report["failed"][ext_id] = str(exc)
+        return report
+
     def enable(self, ext_id: str) -> str:
         """Enable an extension, resolving dependencies and dynamically loading its module."""
         current_state = self.get_state(ext_id)
@@ -227,20 +274,11 @@ class ExtensionHost:
 
         manifest = self.manifests.get(ext_id)
         if manifest:
-            # Verify dependencies
-            for dep_id in manifest.dependencies:
-                try:
-                    dep_state = self.get_state(dep_id)
-                    if dep_state != "ENABLED":
-                        self.transition(ext_id, "FAILED")
-                        raise MissingDependencyError(
-                            f"Required dependency {dep_id!r} for {ext_id!r} is not enabled (state: {dep_state})"
-                        )
-                except KeyError:
-                    self.transition(ext_id, "FAILED")
-                    raise MissingDependencyError(
-                        f"Required dependency {dep_id!r} for {ext_id!r} is not installed"
-                    )
+            try:
+                self._check_dependencies(ext_id, manifest)
+            except MissingDependencyError:
+                self.transition(ext_id, "FAILED")
+                raise
 
         if current_state == "DISCOVERED":
             self.transition(ext_id, "VALIDATED")
