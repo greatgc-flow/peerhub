@@ -53,23 +53,25 @@ def test_a_stale_skill_projection_is_repaired_before_the_cas_decision(tmp_path, 
 def test_a_skill_change_that_lost_the_race_is_not_acknowledged(tmp_path, store, skill_dir, monkeypatch):
     a, b = views(tmp_path, store)
     a.index_skill(stream_id="s1", skill_dir=skill_dir)
-    sync(b, store)
+    a.transition_skill("demo", 1, "VALIDATED")
+    a.transition_skill("demo", 2, "ACTIVE")
+    sync(b, store)  # both views are at ACTIVE, revision 3
     original, state = b._authoritative_skill, {"first": True}
 
     def racing(skill_id, accepted=None):
         item = original(skill_id, accepted)
         if state["first"]:
             state["first"] = False
-            a.transition_skill("demo", 1, "VALIDATED")  # the other writer commits inside b's read-to-append window
+            a.transition_skill("demo", 3, "SUSPENDED")  # the winner commits inside b's read-to-append window
         return item
 
     monkeypatch.setattr(b, "_authoritative_skill", racing)
     with pytest.raises(SkillRevisionConflictError):
-        b.transition_skill("demo", 1, "VALIDATED")
+        b.transition_skill("demo", 3, "RETIRED")  # a DIFFERENT, equally legal target: the loser must not overwrite the winner
     monkeypatch.undo()
-    assert b.get_skill("demo").revision == 2  # exactly one writer took revision 2
-    sync(b, store)
-    assert b.get_skill("demo").revision == 2 and b.get_skill("demo").state == "VALIDATED"
+    assert b.get_skill("demo").state == "SUSPENDED" and b.get_skill("demo").revision == 4
+    sync(b, store)  # a rebuild from the Records agrees: the retirement never took effect
+    assert b.get_skill("demo").state == "SUSPENDED" and b.get_skill("demo").revision == 4
 
 
 def test_a_crash_between_skill_append_and_projection_save_does_not_wedge_the_skill(tmp_path, store, skill_dir, monkeypatch):
@@ -116,3 +118,26 @@ def test_concurrent_capability_updates_have_exactly_one_winner(tmp_path, store):
     winner = next(o[1] for o in outcomes if o[0] == "ok")
     sync(a, store)
     assert a.get_capability("cap").spec == {"k": winner} and a.get_capability("cap").revision == 2
+
+
+def test_a_crash_after_the_registration_record_does_not_wedge_skill_or_capability(tmp_path, store, skill_dir, monkeypatch):
+    from peerhub.extensions.skills import SkillCatalogError
+
+    a, _ = views(tmp_path, store)
+    monkeypatch.setattr(SkillCatalogEngine, "_save_skill_projection", lambda *args, **kw: (_ for _ in ()).throw(RuntimeError("crash")))
+    monkeypatch.setattr(SkillCatalogEngine, "_save_capability_projection", lambda *args, **kw: (_ for _ in ()).throw(RuntimeError("crash")))
+    with pytest.raises(RuntimeError):
+        a.index_skill(stream_id="s1", skill_dir=skill_dir)
+    with pytest.raises(RuntimeError):
+        a.declare_capability(stream_id="s1", capability_id="cap", spec={"k": 1})
+    monkeypatch.undo()
+    assert a.list_skills() == []
+    assert a.transition_skill("demo", 1, "VALIDATED").revision == 2  # located from the Records, projection repaired
+    assert a.update_capability("cap", 1, {"k": 2}).revision == 2
+    # the retry a caller would make is idempotent; different content conflicts instead of overwriting
+    again, _ = views(tmp_path / "two", store)
+    assert again.index_skill(stream_id="s1", skill_dir=skill_dir).skill_id == "demo"
+    with pytest.raises(CapabilityConflictError):
+        again.declare_capability(stream_id="s1", capability_id="cap", spec={"k": 99})
+    assert len([r for r in store.read_records("s1") if r.kind == "m2.skill.registered"]) == 1
+    assert SkillCatalogError  # imported for the failure types above

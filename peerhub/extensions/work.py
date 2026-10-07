@@ -139,8 +139,17 @@ class WorkProjection:
             raise WorkAlreadyExistsError(f"Work item {work_id!r} already exists")
         except WorkNotFoundError:
             pass
-
         spec_data = spec or {}
+        located = self._find_stream(work_id)
+        if located is not None:  # the creation Record exists but the projection row is missing (crash between the two)
+            items, _ = self._fold(self._stream_records(located))
+            record_state = self._item_from_state(items[work_id])
+            if (located == stream_id and record_state.title == title and record_state.spec == spec_data
+                    and record_state.revision == 1):
+                self._save_work_projection(record_state)  # completes the crashed create; nothing is appended twice
+                return record_state
+            raise WorkAlreadyExistsError(f"Work item {work_id!r} already exists with different content or in another stream")
+
         now = self._now_iso()
 
         payload = {
@@ -187,6 +196,14 @@ class WorkProjection:
             created_at=cast(str, it["created_at"]), updated_at=cast(str, it["updated_at"]),
         )
 
+    def _find_stream(self, work_id: str) -> str | None:
+        """The stream whose Records create `work_id`, for the rare case that the projection row is missing."""
+        for stream in self.store.list_streams():
+            items, _ = self._fold(self._stream_records(stream.stream_id))
+            if work_id in items:
+                return stream.stream_id
+        return None
+
     def _stream_records(self, stream_id: str, page_size: int = 500) -> Iterator[Record]:
         position = 0
         while batch := self.store.read_records(stream_id, after_position=position, limit=page_size):
@@ -197,11 +214,19 @@ class WorkProjection:
         """The work item as the ordered stream Records define it, repairing a stale projection (crash or another writer).
 
         CAS decisions must use this, never the cached projection row: the Record is the authority."""
-        cached = self.get_work(work_id)
-        items, _ = self._fold(self._stream_records(cached.stream_id), accepted)
+        try:
+            cached: WorkItem | None = self.get_work(work_id)
+            stream_id = cached.stream_id
+        except WorkNotFoundError:  # projection row missing (crash after the creation Record): locate it from the Records
+            cached = None
+            found = self._find_stream(work_id)
+            if found is None:
+                raise
+            stream_id = found
+        items, _ = self._fold(self._stream_records(stream_id), accepted)
         state = items.get(work_id)
         if state is None:
-            raise WorkNotFoundError(f"Work item {work_id!r} has no authoritative Records in stream {cached.stream_id!r}")
+            raise WorkNotFoundError(f"Work item {work_id!r} has no authoritative Records in stream {stream_id!r}")
         item = self._item_from_state(state)
         if item != cached:
             self._save_work_projection(item)

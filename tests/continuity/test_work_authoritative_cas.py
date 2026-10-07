@@ -89,3 +89,29 @@ def test_concurrent_transitions_from_independent_views_have_exactly_one_winner(t
     winner = next(r[1] for r in results if r[0] == "ok")
     a.rebuild_projection(store.read_records("s1"))
     assert a.get_work("w").state == winner and a.get_work("w").revision == 2
+
+
+def test_a_crash_after_the_creation_record_does_not_wedge_the_new_work_item(tmp_path, store, monkeypatch):
+    p = WorkProjection(tmp_path / "p.db", store=store)
+    monkeypatch.setattr(WorkProjection, "_save_work_projection", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("crash")))
+    with pytest.raises(RuntimeError):
+        p.create_work(stream_id="s1", work_id="w", title="T", spec={"k": 1})  # Record durable, no projection row
+    monkeypatch.undo()
+    assert [w.work_id for w in p.list_work()] == []
+    assert p.transition_work("w", 1, "ACTIVE").state == "ACTIVE"  # located from the Records, projection repaired
+    assert p.get_work("w").revision == 2
+
+
+def test_recreating_after_a_creation_crash_is_idempotent_and_different_content_conflicts(tmp_path, store, monkeypatch):
+    from peerhub.extensions.work import WorkAlreadyExistsError
+
+    p = WorkProjection(tmp_path / "p.db", store=store)
+    monkeypatch.setattr(WorkProjection, "_save_work_projection", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("crash")))
+    with pytest.raises(RuntimeError):
+        p.create_work(stream_id="s1", work_id="w", title="T", spec={"k": 1})
+    monkeypatch.undo()
+    with pytest.raises(WorkAlreadyExistsError):
+        p.create_work(stream_id="s1", work_id="w", title="Different", spec={"k": 1})
+    again = p.create_work(stream_id="s1", work_id="w", title="T", spec={"k": 1})  # the retry a caller would make
+    assert again.revision == 1 and p.get_work("w").title == "T"
+    assert len([r for r in store.read_records("s1") if r.kind == "m2.work.created"]) == 1  # nothing was appended twice

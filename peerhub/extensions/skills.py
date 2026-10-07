@@ -290,6 +290,13 @@ class SkillCatalogEngine:
         tags = [str(t) for t in cast(list[object], raw_tags)] if isinstance(raw_tags, list) else []
 
         tree_digest, file_count = self.compute_directory_digest(sdir)
+        located = self._find_stream(skill_id=skill_id)
+        if located is not None:  # registered already (possibly: Record durable, projection row lost to a crash)
+            adopted = self._authoritative_skill(skill_id)
+            if located == stream_id and adopted.created_at and adopted.name == name and adopted.version == version \
+                    and adopted.description == description:
+                return adopted  # idempotent: the projection is repaired, nothing is appended
+            raise SkillRevisionConflictError(f"Skill {skill_id!r} is already registered with different content or in another stream")
         now = self._now_iso()
 
         payload = {
@@ -340,25 +347,49 @@ class SkillCatalogEngine:
             yield from batch
             position = batch[-1].position
 
+    def _find_stream(self, *, skill_id: str | None = None, capability_id: str | None = None) -> str | None:
+        """The stream whose Records create the skill/capability, for the rare case that its projection row is missing."""
+        for stream in self.store.list_streams():
+            skills, caps, _n = self._fold(self._stream_records(stream.stream_id))
+            if (skill_id is not None and skill_id in skills) or (capability_id is not None and capability_id in caps):
+                return stream.stream_id
+        return None
+
     def _authoritative_skill(self, skill_id: str, accepted: set[str] | None = None) -> SkillItem:
         """The skill as the ordered stream Records define it, repairing a stale projection (crash or another writer).
         CAS decisions must use this, never the cached projection row: the Record is the authority."""
-        cached = self.get_skill(skill_id)
-        skills, _caps, _n = self._fold(self._stream_records(cached.stream_id), accepted)
+        try:
+            cached: SkillItem | None = self.get_skill(skill_id)
+            stream_id = cached.stream_id
+        except SkillNotFoundError:  # projection row missing (crash after the registration Record): locate it from the Records
+            cached = None
+            found = self._find_stream(skill_id=skill_id)
+            if found is None:
+                raise
+            stream_id = found
+        skills, _caps, _n = self._fold(self._stream_records(stream_id), accepted)
         state = skills.get(skill_id)
         if state is None:
-            raise SkillNotFoundError(f"Skill {skill_id!r} has no authoritative Records in stream {cached.stream_id!r}")
+            raise SkillNotFoundError(f"Skill {skill_id!r} has no authoritative Records in stream {stream_id!r}")
         item = self._skill_from_state(state)
         if item != cached:
             self._save_skill_projection(item)
         return item
 
     def _authoritative_capability(self, capability_id: str, accepted: set[str] | None = None) -> CapabilityItem:
-        cached = self.get_capability(capability_id)
-        _skills, caps, _n = self._fold(self._stream_records(cached.stream_id), accepted)
+        try:
+            cached: CapabilityItem | None = self.get_capability(capability_id)
+            stream_id = cached.stream_id
+        except CapabilityNotFoundError:
+            cached = None
+            found = self._find_stream(capability_id=capability_id)
+            if found is None:
+                raise
+            stream_id = found
+        _skills, caps, _n = self._fold(self._stream_records(stream_id), accepted)
         state = caps.get(capability_id)
         if state is None:
-            raise CapabilityNotFoundError(f"Capability {capability_id!r} has no authoritative Records in stream {cached.stream_id!r}")
+            raise CapabilityNotFoundError(f"Capability {capability_id!r} has no authoritative Records in stream {stream_id!r}")
         item = self._capability_from_state(state)
         if item != cached:
             self._save_capability_projection(item)
@@ -493,6 +524,12 @@ class SkillCatalogEngine:
     ) -> CapabilityItem:
         """Declare curated capability metadata (strictly rejects volatile facts)."""
         self._validate_capability_spec(spec)
+        located = self._find_stream(capability_id=capability_id)
+        if located is not None:
+            adopted_cap = self._authoritative_capability(capability_id)
+            if located == stream_id and adopted_cap.revision == 1 and adopted_cap.spec == spec:
+                return adopted_cap  # idempotent re-declaration after a crash: repaired, nothing appended
+            raise CapabilityConflictError(f"Capability {capability_id!r} is already declared with different content or in another stream")
         now = self._now_iso()
 
         payload = {
