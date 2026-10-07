@@ -145,3 +145,27 @@ def test_boot_fails_an_enabled_extension_whose_manifest_became_unreadable(tmp_pa
     report = ExtensionHost(tmp_path / "host.db", extensions_dir=exts).boot()
     assert "ext_a" in report["errors"] and report["failed"]["ext_a"].startswith("manifest missing")
     assert "ext_user" in report["failed"]  # its dependency is gone, so it cannot stay enabled either
+
+
+def test_ext_022_a_discovered_extension_that_fails_validation_goes_straight_to_failed(tmp_path):
+    """EXT-022: DISCOVERED -> FAILED strictly (never through VALIDATED/ENABLED), and a broken sibling folder cannot stop the scan."""
+    from peerhub.extensions.host import ExtensionHookError
+
+    exts = tmp_path / "exts"
+    ok = write_ext(exts, "ext_ok")
+    broken = write_ext(exts, "ext_broken")
+    (broken / "main.py").unlink()  # a valid manifest whose module is gone: it fails validation when enabled
+    junk = exts / "ext_junk"
+    junk.mkdir()
+    (junk / "manifest.json").write_text("[]")  # not even an object
+    host = ExtensionHost(tmp_path / "host.db", extensions_dir=exts)
+    report = host.boot()
+    assert sorted(report["discovered"]) == ["ext_broken", "ext_ok"] and "ext_junk" in report["errors"]
+    assert host.get_state("ext_broken") == "DISCOVERED"
+    states = []
+    original = host.transition
+    host.transition = lambda ext, target: (states.append(target), original(ext, target))[1]  # type: ignore[method-assign]
+    with pytest.raises(ExtensionHookError):
+        host.enable("ext_broken")
+    assert states == ["FAILED"] and host.get_state("ext_broken") == "FAILED"  # no VALIDATED/ENABLED in between
+    assert host.enable("ext_ok") == "ENABLED" and ok.is_dir()  # the healthy one is unaffected
