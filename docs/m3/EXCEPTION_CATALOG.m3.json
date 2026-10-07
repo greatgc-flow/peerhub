@@ -370,7 +370,7 @@
       "name": "CostBoundExceededError",
       "trigger": "Journal-summed attempt cost is strictly greater than cost_budget after an attempt (equality stops only a later attempt).",
       "disposition": "REJECTED",
-      "rationale": "A missing or non-finite cost under a budget raises PlanStepExecutionError (unreported is unknown, never zero); MAY_HAVE_STARTED results are exempt and need reconcile or an idempotent retry.",
+      "rationale": "A missing or non-finite cost under a budget raises PlanStepExecutionError (unreported is unknown, never zero); MAY_HAVE_STARTED results are exempt from the missing-cost check only (a non-finite reported cost still raises) and need reconcile or an idempotent retry.",
       "tests": [
         "ORC-013"
       ]

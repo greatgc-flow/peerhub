@@ -794,7 +794,7 @@
     {
       "id": "REQ-A2A-007",
       "area": "A2A",
-      "statement": "With a journal configured, A2A writes a durable submitting Record (claim token, endpoint, attempt) before any remote call (an adapter without a journal has no durability and no uncertain recovery); an unresolved submission restores as uncertain and is never replayed; an 'unknown to the remote' answer releases the id only on a transport that proves absence, otherwise the task stays uncertain until abandon_task burns the id; reconciliation uses the original endpoint; the HTTP binding verifies the JSON-RPC envelope, identity and integer error codes and enforces a total call deadline.",
+      "statement": "With a journal configured, A2A writes a durable submitting Record (claim token, endpoint, attempt) before any remote call (an adapter without a journal tracks uncertain submissions only in memory: nothing survives a restart); an unresolved submission restores as uncertain and is never replayed; an 'unknown to the remote' answer releases the id only on a transport that proves absence, otherwise the task stays uncertain until abandon_task burns the id; reconciliation uses the original endpoint; the HTTP binding verifies the JSON-RPC envelope, identity and integer error codes and enforces a total call deadline.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
       "priority": "P0",
       "tests": [
