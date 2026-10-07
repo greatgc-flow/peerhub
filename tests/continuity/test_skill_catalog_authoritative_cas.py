@@ -38,6 +38,7 @@ def sync(engine: SkillCatalogEngine, store: CoreStore) -> None:
 
 
 # ------------------------------------------------------------------------------------------------ skills
+@pytest.mark.catalog_id("SKL-015")
 def test_a_stale_skill_projection_is_repaired_before_the_cas_decision(tmp_path, store, skill_dir):
     a, b = views(tmp_path, store)
     a.index_skill(stream_id="s1", skill_dir=skill_dir)
@@ -50,6 +51,7 @@ def test_a_stale_skill_projection_is_repaired_before_the_cas_decision(tmp_path, 
     assert b.transition_skill("demo", 2, "ACTIVE").revision == 3
 
 
+@pytest.mark.catalog_id("SKL-015")
 def test_a_skill_change_that_lost_the_race_is_not_acknowledged(tmp_path, store, skill_dir, monkeypatch):
     a, b = views(tmp_path, store)
     a.index_skill(stream_id="s1", skill_dir=skill_dir)
@@ -74,6 +76,7 @@ def test_a_skill_change_that_lost_the_race_is_not_acknowledged(tmp_path, store, 
     assert b.get_skill("demo").state == "SUSPENDED" and b.get_skill("demo").revision == 4
 
 
+@pytest.mark.catalog_id("SKL-016")
 def test_a_crash_between_skill_append_and_projection_save_does_not_wedge_the_skill(tmp_path, store, skill_dir, monkeypatch):
     a, _ = views(tmp_path, store)
     a.index_skill(stream_id="s1", skill_dir=skill_dir)
@@ -86,6 +89,7 @@ def test_a_crash_between_skill_append_and_projection_save_does_not_wedge_the_ski
 
 
 # --------------------------------------------------------------------------------------------- capabilities
+@pytest.mark.catalog_id("SKL-015")
 def test_a_stale_capability_projection_is_repaired_and_a_lost_race_is_not_acknowledged(tmp_path, store):
     a, b = views(tmp_path, store)
     a.declare_capability(stream_id="s1", capability_id="cap", spec={"k": 1})
@@ -97,6 +101,7 @@ def test_a_stale_capability_projection_is_repaired_and_a_lost_race_is_not_acknow
     assert b.get_capability("cap").spec == {"k": 2} and b.get_capability("cap").revision == 2
 
 
+@pytest.mark.catalog_id("SKL-015")
 def test_concurrent_capability_updates_have_exactly_one_winner(tmp_path, store):
     a, b = views(tmp_path, store)
     a.declare_capability(stream_id="s1", capability_id="cap", spec={"k": 0})
@@ -120,6 +125,7 @@ def test_concurrent_capability_updates_have_exactly_one_winner(tmp_path, store):
     assert a.get_capability("cap").spec == {"k": winner} and a.get_capability("cap").revision == 2
 
 
+@pytest.mark.catalog_id("SKL-016")
 def test_a_crash_after_the_registration_record_does_not_wedge_skill_or_capability(tmp_path, store, skill_dir, monkeypatch):
     from peerhub.extensions.skills import SkillCatalogError
 

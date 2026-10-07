@@ -69,3 +69,20 @@ The A2A module (`peerhub.m3.a2a`) provides:
    │ COMPLETED │ │ FAILED │   │ CANCELLED │
    └───────────┘ └────────┘   └───────────┘
 ```
+
+---
+
+## Closure update (2026-10-08)
+
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. State-machine and exception JSON catalogs are updated separately.
+
+- A2A execution requires `a2a_journal.py` to write a durable `submitting` record (containing an atomic claim token, endpoint, and attempt number) before a remote call.
+- Any unresolved `submitting` state on restart resolves to `UNCERTAIN` to prevent blind replay.
+- `reconcile_task`: If the remote has the task, it is adopted. If the remote has no record, the task is safely resolved to `NOT_STARTED` ONLY on guaranteed deterministic transports (e.g., loopback). On non-guaranteed transports (e.g., HTTP), the task remains `UNCERTAIN` to protect against late arrivals. Reconciliation can only be made to the originally submitted endpoint.
+- `abandon_task`: The only valid action for an unresolved `UNCERTAIN` task. It permanently burns the ID, records a reason, and a new ID must be used for retries.
+- Single external binding (`a2a_http.py`): Supports JSON-RPC over HTTPS or loopback HTTP (redirects strictly forbidden). Enforces JSON-RPC 2.0 envelopes, integer error codes, response size bounds, an overall call deadline, and unmapped remote states fail closed.
+
+**Superseded or missing in the original text:**
+- The old contract's A2A lifecycle totally lacked the `SUBMITTING`, `UNCERTAIN`, and `ABANDONED` states.
+- It lacked the `abandon_task` and `reconcile_task` definitions on the interface.
+- It assumed immediate synchronous outcomes rather than handling durable reconciliation, state-locking on restarts, and the total call deadline.

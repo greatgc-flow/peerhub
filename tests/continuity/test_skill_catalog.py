@@ -297,6 +297,7 @@ def test_skl_013_volatile_runtime_facts_rejected(catalog_engine: SkillCatalogEng
         )
 
 
+@pytest.mark.catalog_id("SKL-017")
 def test_skl_014_wipe_sqlite_table_rebuild_full_state(
     catalog_engine: SkillCatalogEngine,
     valid_skill_dir: Path,
@@ -344,6 +345,7 @@ def test_skl_014_wipe_sqlite_table_rebuild_full_state(
     assert after_cap.spec == before_cap.spec
 
 
+@pytest.mark.catalog_id("SKL-017")
 def test_skl_rebuild_never_adopts_disk_content_and_drift_is_detected(
     catalog_engine: SkillCatalogEngine, valid_skill_dir: Path, store: CoreStore
 ):

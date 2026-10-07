@@ -150,6 +150,7 @@ def adapter(url: str, store: CoreStore | None = None, transport: Any = None) -> 
 
 
 # --------------------------------------------------------------------------------------------- HTTP binding
+@pytest.mark.catalog_id("A2A-013")
 def test_http_binding_runs_a_task_through_to_a_mapped_terminal_state(remote):
     a = adapter(remote.url)
     sub = a.dispatch_task(REQ)
@@ -205,6 +206,7 @@ def test_a_lost_response_is_uncertain_never_replayed_and_reconciles_to_the_remot
     assert a.poll_task("t1").status == "COMPLETED" and remote.sent == 1  # and the task continues without a resend
 
 
+@pytest.mark.catalog_id("A2A-013")
 def test_http_not_found_never_releases_the_id_it_can_only_be_abandoned_and_burned(remote):
     a = adapter(remote.url)
     remote.fail_next_send = True  # HTTP 500 before the remote accepted anything: still UNKNOWN to the client
@@ -272,6 +274,7 @@ def test_task_state_survives_a_restart_without_resubmission(remote, store):
     assert third.dispatch_task(REQ).status == "COMPLETED"  # terminal evidence is itself durable
 
 
+@pytest.mark.catalog_id("A2A-013")
 def test_a_crash_after_the_submitting_record_restores_as_uncertain_and_never_blind_replays(remote, store):
     journal = A2ATaskJournal(store, "a2a-evidence", "a2a")
     journal.record_submitting(REQ, remote.url)  # the process died right after this record, before/while the remote was called
@@ -316,6 +319,7 @@ def test_loopback_transport_reconciles_what_it_accepted_and_denies_what_it_did_n
 
 
 # ------------------------------------------------------------------ two adapters, stale not_started, terminal immutability
+@pytest.mark.catalog_id("A2A-013")
 def test_two_adapters_over_one_journal_cannot_both_send_the_same_task(remote, store):
     first, second = adapter(remote.url, store), adapter(remote.url, store)
     assert first.dispatch_task(REQ).status == "SUBMITTED"
@@ -342,6 +346,7 @@ def test_an_old_not_started_record_cannot_erase_a_newer_pending_attempt(store):
     assert state is not None and state.attempt == 2 and state.response is None  # attempt 2 is still unresolved
 
 
+@pytest.mark.catalog_id("A2A-013")
 def test_terminal_evidence_is_immutable_and_conflicting_evidence_is_not_swallowed(remote, store):
     a = adapter(remote.url, store)
     a.dispatch_task(REQ)
@@ -398,6 +403,7 @@ def test_reconciliation_cannot_be_redirected_to_a_different_endpoint(remote, sto
         other.close()
 
 
+@pytest.mark.catalog_id("A2A-013")
 def test_the_timeout_is_a_total_deadline_not_a_per_read_timeout(remote):
     remote.drip = 0.02  # one byte every 20 ms: every individual read is fast, the whole body takes seconds
     started = time.monotonic()

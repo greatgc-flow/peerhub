@@ -52,6 +52,7 @@ def peers(db: Path) -> list[str]:
         return sorted(r[0] for r in c.execute("SELECT peer_id FROM peers"))
 
 
+@pytest.mark.catalog_id("BCK-013")
 def test_restore_succeeds_over_a_workspace_with_derived_databases_and_discards_them(tmp_path):
     target = tmp_path / "target"
     make_core(target, "live")
@@ -63,6 +64,7 @@ def test_restore_succeeds_over_a_workspace_with_derived_databases_and_discards_t
     assert len(previous) == 1 and all((previous[0] / n).is_file() for n in DERIVED)  # recoverable prior state keeps them
 
 
+@pytest.mark.catalog_id("BCK-013")
 def test_restore_refuses_while_any_extension_database_has_an_active_writer(tmp_path):
     target = tmp_path / "target"
     make_core(target, "live")
@@ -79,6 +81,7 @@ def test_restore_refuses_while_any_extension_database_has_an_active_writer(tmp_p
     assert not list(tmp_path.glob("target.pre-restore-*"))
 
 
+@pytest.mark.catalog_id("BCK-013")
 def test_foreign_files_still_make_the_target_unmanaged(tmp_path):
     target = tmp_path / "target"
     make_core(target, "live")
@@ -99,6 +102,7 @@ CRASH = textwrap.dedent("""
 """)
 
 
+@pytest.mark.catalog_id("BCK-014")
 def test_hard_crash_between_renames_recovers_every_database_of_the_previous_workspace(tmp_path):
     target = tmp_path / "target"
     make_core(target, "live")
@@ -114,6 +118,7 @@ def test_hard_crash_between_renames_recovers_every_database_of_the_previous_work
             assert c.execute("SELECT v FROM t").fetchall() == [("live",)]
 
 
+@pytest.mark.catalog_id("BCK-014")
 def test_a_stale_intent_marker_after_a_completed_swap_never_reverts_the_restored_workspace(tmp_path):
     """Crash after BOTH renames but before the marker was deleted: recovery must keep the restored state."""
     target = tmp_path / "target"

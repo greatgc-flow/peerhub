@@ -24,6 +24,7 @@ def _exploding(records):
     raise RuntimeError("record source failed")
 
 
+@pytest.mark.catalog_id("WRK-015")
 def test_work_rebuild_failing_record_source_keeps_existing_projection(tmp_path, store):
     proj = WorkProjection(tmp_path / "w.db", store=store)
     proj.create_work(stream_id="s1", work_id="w-1", title="T", spec={})
@@ -33,6 +34,7 @@ def test_work_rebuild_failing_record_source_keeps_existing_projection(tmp_path, 
     assert [w.work_id for w in proj.list_work()] == ["w-1"]  # not wiped by the failed rebuild
 
 
+@pytest.mark.catalog_id("WRK-015")
 def test_work_rebuild_failing_write_rolls_back_the_delete(tmp_path, store, monkeypatch):
     proj = WorkProjection(tmp_path / "w.db", store=store)
     proj.create_work(stream_id="s1", work_id="w-1", title="T", spec={})
@@ -48,6 +50,7 @@ def test_work_rebuild_failing_write_rolls_back_the_delete(tmp_path, store, monke
     assert [w.work_id for w in proj.list_work()] == ["w-1"]
 
 
+@pytest.mark.catalog_id("SKL-017")
 def test_skill_rebuild_failing_record_source_keeps_existing_projection(tmp_path, store):
     cat = SkillCatalogEngine(tmp_path / "c.db", store=store)
     cat.declare_capability(stream_id="s1", capability_id="cap-1", spec={"k": "v"})

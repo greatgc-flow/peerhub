@@ -360,6 +360,7 @@ def test_evl_012_zero_dev_dependency_violation_rel_009() -> None:
 
 
 # ---------------------------------------------------------------- authoritative source binding
+@pytest.mark.catalog_id("EVL-013")
 def test_run_eval_rejects_a_trace_whose_digest_does_not_match_its_content():
     from peerhub.extensions.eval import EvalSourceMismatchError, ExecutionTrace, capture_trace, dataset_digest, EvalDataset
 
@@ -370,6 +371,7 @@ def test_run_eval_rejects_a_trace_whose_digest_does_not_match_its_content():
         run_eval(ExactMatchEvaluator(), forged, ds)
 
 
+@pytest.mark.catalog_id("EVL-013")
 def test_run_eval_rejects_a_dataset_whose_digest_or_count_is_made_up():
     from peerhub.extensions.eval import EvalSourceMismatchError, EvalDataset, capture_trace, dataset_digest
 
@@ -380,6 +382,7 @@ def test_run_eval_rejects_a_dataset_whose_digest_or_count_is_made_up():
         run_eval(ExactMatchEvaluator(), capture_trace("t", []), EvalDataset("d", dataset_digest(items), 5, "now", items))
 
 
+@pytest.mark.catalog_id("EVL-014")
 def test_report_names_the_trace_digest_and_verify_report_sources_checks_it(tmp_path):
     from peerhub.extensions.artifact import ArtifactStore
     from peerhub.extensions.eval import EvalSourceMismatchError, capture_trace, register_dataset, verify_report_sources
@@ -395,6 +398,7 @@ def test_report_names_the_trace_digest_and_verify_report_sources_checks_it(tmp_p
         verify_report_sources(report, other, ds, store)
 
 
+@pytest.mark.catalog_id("EVL-014")
 def test_dataset_must_exist_in_the_artifact_store_when_a_store_is_given(tmp_path):
     from peerhub.extensions.artifact import ArtifactStore
     from peerhub.extensions.eval import EvalSourceMismatchError, EvalDataset, capture_trace, dataset_digest
@@ -405,6 +409,7 @@ def test_dataset_must_exist_in_the_artifact_store_when_a_store_is_given(tmp_path
         run_eval(ExactMatchEvaluator(), capture_trace("t", []), ds, store=ArtifactStore(tmp_path / "empty"))
 
 
+@pytest.mark.catalog_id("EVL-015")
 def test_an_evaluator_that_mutates_its_inputs_cannot_produce_a_report_for_other_content():
     from peerhub.extensions.eval import EvalDataset, EvalSourceMismatchError, TraceSpan, capture_trace, dataset_digest
 

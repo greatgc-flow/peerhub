@@ -95,3 +95,19 @@ The Orchestration module (`peerhub.m3.orchestration`) provides:
                    │ (retry if bounded)  │ (blind retry forbidden)
                    └───────────►─────────┘
 ```
+
+---
+
+## Closure update (2026-10-08)
+
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. State-machine and exception JSON catalogs are updated separately.
+
+- `PlanBounds` supports a `cost_budget`. `PlanStep` execution payloads now contain a `cost` result. Cost is aggregated across attempts and executor restarts. Unreported costs evaluate as "unknown" (not zero), and if a budget is enforced, missing costs fail the execution.
+- `PlanStep` utilizes deterministic `when` and `stop_if` predicates. Skipping an unfulfilled `when` step automatically skips all of its dependents. `stop_if` cleanly halts the remaining plan.
+- Parallel execution is supported via an opt-in thread pool bounded by `max_fanout`. Durable journal appends remain strictly serialized even in parallel execution.
+- `max_depth` limits are statically verified and calculated against the actual dependency chain.
+
+**Superseded or missing in the original text:**
+- The old `PlanBounds` lacked `cost_budget`.
+- The old `PlanStep` object lacked `when`, `stop_if`, and `cost` tracking payloads.
+- The `SKIPPED` state was entirely missing.

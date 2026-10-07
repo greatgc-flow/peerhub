@@ -107,6 +107,7 @@ TREE = textwrap.dedent("""
 """)
 
 
+@pytest.mark.catalog_id("RUN-013")
 def test_cancel_kills_the_whole_process_tree_and_reports_cancelled(tmp_path):
     pidfile = tmp_path / "child.pid"
     a = ProcessRuntimeAdapter()
@@ -124,6 +125,7 @@ def test_cancel_kills_the_whole_process_tree_and_reports_cancelled(tmp_path):
     assert a.cancel(job.job_id).status == "CANCELLED"  # idempotent
 
 
+@pytest.mark.catalog_id("RUN-013")
 def test_an_unconfirmed_kill_is_never_reported_as_cancelled(monkeypatch):
     a = ProcessRuntimeAdapter(cancel_wait_seconds=0.3)
     a.register_command(cap("sleepy"), [PY, "-c", "import time; time.sleep(60)"])
@@ -136,6 +138,7 @@ def test_an_unconfirmed_kill_is_never_reported_as_cancelled(monkeypatch):
     assert a.cancel(job.job_id).status == "CANCELLED"  # a real kill later still works
 
 
+@pytest.mark.catalog_id("RUN-013")
 def test_strict_orchestration_kills_overrunning_work_at_the_deadline(tmp_path):
     pidfile = tmp_path / "child.pid"
     a = ProcessRuntimeAdapter()

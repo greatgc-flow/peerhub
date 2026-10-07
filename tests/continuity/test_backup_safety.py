@@ -157,6 +157,7 @@ def test_mid_restore_failure_rolls_back_existing_directory_and_success_drops_old
     assert list(tmp_path.glob("target.pre-restore-*"))  # recoverable old state
 
 
+@pytest.mark.catalog_id("BCK-015")
 def test_work_rebuild_reads_all_pages_not_only_first_slice(tmp_path):
     root, store = source(tmp_path)
     projection = WorkProjection(tmp_path / "work.db", store)
