@@ -45,7 +45,7 @@ def test_commit_fsyncs_the_shard_directory_on_posix(tmp_path, monkeypatch):
     monkeypatch.setattr(ArtifactStore, "_fsync_dir", staticmethod(lambda d: calls.append(d)))
     store = ArtifactStore(tmp_path / "a")
     d = store.commit_staged(store.stage_bytes(b"z"))
-    assert calls == [store.resolve_path(d).parent]
+    assert calls == [store.resolve_path(d).parent, store.root]  # new shard: the shard and the root that names it
     assert sys.platform  # platform skip lives inside _fsync_dir itself
 
 
@@ -104,3 +104,64 @@ def test_export_verified_streams_a_blob_and_never_publishes_a_tampered_one(tmp_p
     assert not bad.exists() and not list((tmp_path / "out").glob(".export-*"))  # no destination, no leftover temp
     with pytest.raises(ArtifactNotFoundError):
         store.export_verified("0" * 64, tmp_path / "out" / "none.bin")
+
+
+def test_gc_grace_is_measured_from_commit_time_not_staging_time(tmp_path):
+    store = ArtifactStore(tmp_path / "a")
+    staged = store.stage_bytes(b"slow writer")
+    past = time.time() - 7200
+    os.utime(staged.path, (past, past))  # staged long ago, committed just now
+    digest = store.commit_staged(staged)
+    assert store.cleanup_orphans(set(), min_age_seconds=3600) == []  # fresh commit: protected although the staging file was old
+    assert store.resolve_path(digest).is_file()
+
+
+def test_re_referencing_an_old_unreferenced_blob_renews_its_lease(tmp_path):
+    store = ArtifactStore(tmp_path / "a")
+    digest = store.commit_staged(store.stage_bytes(b"shared"))
+    past = time.time() - 7200
+    os.utime(store.resolve_path(digest), (past, past))  # an old, currently unreferenced blob
+    assert store.commit_staged(store.stage_bytes(b"shared")) == digest  # a writer deduplicates against it right now
+    assert store.cleanup_orphans(set(), min_age_seconds=3600) == []  # GC must not remove it before the reference lands
+
+
+def test_a_new_shard_syncs_its_parent_and_an_existing_shard_does_not(tmp_path, monkeypatch):
+    import hashlib
+    from pathlib import Path
+
+    calls: list[Path] = []
+    monkeypatch.setattr(ArtifactStore, "_fsync_dir", staticmethod(lambda d: calls.append(Path(d))))
+    store = ArtifactStore(tmp_path / "a")
+    first = store.commit_staged(store.stage_bytes(b"one"))
+    shard = store.resolve_path(first).parent
+    assert calls == [shard, store.root]  # a new shard: the shard AND the root entry that names it
+    calls.clear()
+    # find a second blob whose digest lands in the SAME shard (2 hex chars = 256 shards)
+    data = next(str(n).encode() for n in range(100_000) if hashlib.sha256(str(n).encode()).hexdigest()[:2] == shard.name and str(n).encode() != b"one")
+    store.commit_staged(store.stage_bytes(data))
+    assert calls == [shard]  # the shard already existed: only its own entry needs syncing
+
+
+def test_a_skill_file_that_changes_while_being_hashed_is_rejected_not_framed_wrongly(tmp_path, monkeypatch):
+    from peerhub.extensions import skills as skills_mod
+    from peerhub.extensions.boundary import SecurityBoundaryError
+    from peerhub.extensions.skills import SkillCatalogEngine
+
+    d = tmp_path / "skill"
+    d.mkdir()
+    f = d / "a.txt"
+    f.write_bytes(b"x" * 100_000)  # several chunks
+    real_fstat = skills_mod.os.fstat
+
+    def growing(fd):
+        result = real_fstat(fd)
+        with open(f, "ab") as extra:  # another process appends right after the size was read
+            extra.write(b"late")
+        return result
+
+    monkeypatch.setattr(skills_mod.os, "fstat", growing)
+    with pytest.raises(SecurityBoundaryError, match="changed while"):
+        SkillCatalogEngine.compute_directory_digest(d)
+    monkeypatch.undo()
+    f.write_bytes(b"x" * 100_000)
+    assert SkillCatalogEngine.compute_directory_digest(d) == SkillCatalogEngine.compute_directory_digest(d)  # stable files are fine

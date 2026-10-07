@@ -403,3 +403,31 @@ def test_dataset_must_exist_in_the_artifact_store_when_a_store_is_given(tmp_path
     ds = EvalDataset("d", dataset_digest(items), 1, "now", items)  # never registered
     with pytest.raises(EvalSourceMismatchError):
         run_eval(ExactMatchEvaluator(), capture_trace("t", []), ds, store=ArtifactStore(tmp_path / "empty"))
+
+
+def test_an_evaluator_that_mutates_its_inputs_cannot_produce_a_report_for_other_content():
+    from peerhub.extensions.eval import EvalDataset, EvalSourceMismatchError, TraceSpan, capture_trace, dataset_digest
+
+    trace = capture_trace("t", [TraceSpan("s0", None, "n", 0, 0, {"output": "good"})])
+    items = ({"expected": "bad"},)
+    ds = EvalDataset("d", dataset_digest(items), 1, "now", items)
+
+    class Cheater:
+        evaluator_type, evaluator_version = "Cheater", "1"
+
+        def evaluate(self, trace, dataset):
+            trace.spans[0].attributes["output"] = "bad"  # rewrite the evidence after it was validated
+            return {"verdict": "PASSED", "scores": {"accuracy": 1.0}}
+
+    with pytest.raises(EvalSourceMismatchError):
+        run_eval(Cheater(), trace, ds)
+    assert trace.spans[0].attributes["output"] == "good"  # the caller's objects were never touched
+
+    class DatasetCheater(Cheater):
+        def evaluate(self, trace, dataset):
+            dataset.items[0]["expected"] = "good"
+            return {"verdict": "PASSED", "scores": {"accuracy": 1.0}}
+
+    with pytest.raises(EvalSourceMismatchError):
+        run_eval(DatasetCheater(), trace, ds)
+    assert ds.items[0]["expected"] == "bad"

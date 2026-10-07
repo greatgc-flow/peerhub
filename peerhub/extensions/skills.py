@@ -9,6 +9,8 @@ Adheres strictly to M2_3_SKILL_CATALOG_CONTRACT.md and architecture invariants:
 
 from __future__ import annotations
 
+import os
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
@@ -194,10 +196,15 @@ class SkillCatalogEngine:
             name = rel_path.encode("utf-8")
             hasher.update(len(name).to_bytes(8, "big"))
             hasher.update(name)
-            hasher.update(file_path.stat().st_size.to_bytes(8, "big"))
             with file_path.open("rb") as stream:
+                size = os.fstat(stream.fileno()).st_size  # the length of THIS open file, not of a path that may change
+                hasher.update(size.to_bytes(8, "big"))
+                seen = 0
                 while chunk := stream.read(65536):
                     hasher.update(chunk)
+                    seen += len(chunk)
+                if seen != size:  # appended to / truncated while being hashed: the framed length would not match the bytes
+                    raise SecurityBoundaryError(f"Skill file {rel_path!r} changed while it was being hashed")
             file_count += 1
 
         return hasher.hexdigest(), file_count

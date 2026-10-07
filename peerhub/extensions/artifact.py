@@ -195,11 +195,14 @@ class ArtifactStore:
                 raise ArtifactTamperedError("Staged artifact content no longer matches its digest and size")
 
         target_path = self.resolve_path(staged.digest)
+        new_shard = not target_path.parent.exists()
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
         if target_path.exists():
             self.read_verified_prefix(staged.digest, 0)  # Never discard valid staging for a corrupted existing blob (streamed: bounded memory).
-            # Idempotent deduplication: blob already committed and immutable
+            # Idempotent deduplication: blob already committed and immutable. Re-referencing it renews its GC lease: an old,
+            # unreferenced blob that is being referenced again right now must not be collected before the reference lands.
+            os.utime(target_path, None)
             if staged.path.exists():
                 staged.path.unlink()
             return staged.digest
@@ -207,7 +210,10 @@ class ArtifactStore:
         # Atomic replacement / move
         try:
             os.replace(staged.path, target_path)
+            os.utime(target_path, None)  # the GC grace period measures time since COMMIT, not since the (older) staging write
             self._fsync_dir(target_path.parent)
+            if new_shard:
+                self._fsync_dir(self.root)  # a new shard directory is itself a new entry of the artifact root
             try:
                 os.chmod(target_path, stat.S_IREAD)
             except OSError:

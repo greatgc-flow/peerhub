@@ -227,3 +227,18 @@ def test_quarantine_skip_is_atomic_per_event(tmp_path, core):
     fresh = MemoryStore(tmp_path / "r2.db")
     fresh.rebuild_from_records(core, quarantine=True)
     assert fresh.get_memory(item.memory_id).state == before.state and fresh.get_memory(item.memory_id).revision == before.revision
+
+
+def test_a_bound_store_keeps_its_quarantine_policy_across_automatic_refreshes(tmp_path, core):
+    seed = durable(tmp_path, core)
+    good = seed.propose_memory("good", "kept", "fact:good")
+    core.append_record(stream_id="events", author_peer_id="a", kind="m3.memory.proposed",
+        body={"key": "bare", "content": "no schema"}, idempotency_key="bad", created_at="2026-10-06T00:00:00Z")
+    strict = MemoryStore(tmp_path / "strict.db", core_store=core, stream_id="events", author_peer_id="a")
+    with pytest.raises(MemoryStateTransitionError):
+        strict.get_memory(good.memory_id)  # strict is still the default: the bad history aborts the refresh
+    tolerant = MemoryStore(tmp_path / "tolerant.db", core_store=core, stream_id="events", author_peer_id="a", quarantine=True)
+    assert tolerant.get_memory(good.memory_id).content == "kept"  # a READ no longer raises on the bad event
+    assert len(tolerant.quarantined) == 1 and tolerant.quarantined[0]["reason"]  # and the diagnosis is still reported
+    again = tolerant.propose_memory("later", "after", "fact:later")  # writes keep working too
+    assert tolerant.get_memory(again.memory_id).state == "CANDIDATE" and len(tolerant.quarantined) == 1

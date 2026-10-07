@@ -9,6 +9,7 @@ Core imports Extension = 0.
 """
 from __future__ import annotations
 
+import copy
 import dataclasses
 import os
 import hashlib
@@ -273,11 +274,14 @@ def run_eval(
     # 2. The sources the report will name must be exactly what was given (recomputed, optionally store-verified)
     _verify_sources(trace, dataset, store)
 
-    # 3. Execute Evaluator
+    # 3. Execute the evaluator on PRIVATE snapshots and re-verify them afterwards: an evaluator that mutates the (nested, mutable)
+    #    trace or dataset must not be able to produce a report that names sources it did not actually evaluate.
+    trace, dataset = copy.deepcopy(trace), copy.deepcopy(dataset)
     try:
         res = evaluator.evaluate(trace, dataset)
     except Exception as e:
         raise EvaluatorExecutionError(f"Evaluator execution failed: {e}") from e
+    _verify_sources(trace, dataset, None)
 
     if not isinstance(res, dict):
         raise EvaluatorValidationError("Evaluator result must be an object")

@@ -78,12 +78,14 @@ def _estimate_tokens(text: str) -> int:
 
 class MemoryStore:
     def __init__(self, db_path: Path, *, core_store: CoreStore | None = None,
-                 stream_id: str | None = None, author_peer_id: str | None = None) -> None:
+                 stream_id: str | None = None, author_peer_id: str | None = None, quarantine: bool = False) -> None:
         if (core_store is not None) != (stream_id is not None and author_peer_id is not None):
             raise ValueError("authoritative memory requires CoreStore, stream_id and author_peer_id together")
         if core_store is None and (stream_id is not None or author_peer_id is not None):
             raise ValueError("stream/author require an authoritative CoreStore")
         self.core_store, self.stream_id, self.author_peer_id = core_store, stream_id, author_peer_id
+        self.quarantine = quarantine  # the store's recovery policy: used by every automatic refresh, not only an explicit rebuild
+        self.quarantined: list[dict[str, str]] = []
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connection() as conn:
@@ -138,7 +140,7 @@ class MemoryStore:
 
     def _refresh(self) -> None:
         if self.core_store is not None:
-            self.rebuild_from_records(self.core_store)
+            self.rebuild_from_records(self.core_store)  # honours self.quarantine
 
     def _commit(self, item: MemoryItem, action: str, expected_revision: int, reason: str = "") -> None:
         self._validate_item(item)
@@ -257,7 +259,7 @@ class MemoryStore:
                               sort_keys=True, ensure_ascii=False).encode("utf-8")
         return ContextPack("pack-" + hashlib.sha256(identity).hexdigest(), selected, tokens, max_tokens)
 
-    def rebuild_from_records(self, core_store: CoreStore, *, quarantine: bool = False) -> int:
+    def rebuild_from_records(self, core_store: CoreStore, *, quarantine: bool | None = None) -> int:
         """Lifecycle replay from the authoritative Records.
 
         Default (strict): an invalid event aborts the rebuild and the old projection stays unchanged. With `quarantine=True` an
@@ -267,7 +269,8 @@ class MemoryStore:
         items: dict[str, MemoryItem] = {}
         origins: dict[str, str] = {}
         count = 0
-        self.quarantined: list[dict[str, str]] = []
+        quarantine = self.quarantine if quarantine is None else quarantine
+        self.quarantined = []
         for rec in source_records(core_store):
             if not rec.kind.startswith("m3.memory."):
                 continue
