@@ -117,11 +117,15 @@ def test_mem_004_illegal_state_transitions_raise(env):
     # CANDIDATE -> SUPERSEDED directly is forbidden
     with pytest.raises(MemoryStateTransitionError):
         mem_store.supersede_memory(cand.memory_id, "new-id")
+    unchanged = mem_store.get_memory(cand.memory_id)
+    assert (unchanged.state, unchanged.revision, unchanged.superseded_by) == ("CANDIDATE", 1, None)
 
     rej = mem_store.reject_memory(cand.memory_id)
     # REJECTED -> ACCEPTED is forbidden
     with pytest.raises(MemoryStateTransitionError):
         mem_store.accept_memory(rej.memory_id)
+    assert mem_store.get_memory(rej.memory_id).state == "REJECTED"
+    assert mem_store.query_active_memories() == []
 
 
 def test_mem_005_invariant_4_context_pack_strictly_bounded(env):

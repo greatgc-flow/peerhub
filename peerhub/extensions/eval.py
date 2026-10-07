@@ -10,6 +10,7 @@ Core imports Extension = 0.
 from __future__ import annotations
 
 import dataclasses
+import os
 import hashlib
 import json
 import math
@@ -181,16 +182,18 @@ class ExactMatchEvaluator:
             }
 
         matched = 0
+        consumed: set[int] = set()  # one span satisfies at most one expected item
         for item in dataset.items:
-            expected = str(item.get("expected", ""))
-            found = False
-            for span in trace.spans:
-                actual = str(span.attributes.get(self.attribute_key, ""))
-                if actual == expected:
-                    found = True
+            if "expected" not in item:  # a missing expectation is never vacuously satisfied
+                continue
+            expected = str(item["expected"])
+            for index, span in enumerate(trace.spans):
+                if index in consumed or self.attribute_key not in span.attributes:
+                    continue  # absent attribute is not an empty-string output
+                if str(span.attributes[self.attribute_key]) == expected:
+                    consumed.add(index)
+                    matched += 1
                     break
-            if found:
-                matched += 1
 
         total = len(dataset.items)
         accuracy = matched / max(total, 1)
@@ -372,6 +375,8 @@ class JsonLinesTelemetrySink:
         line = _canonical_json(event) + "\n"
         with open(self.file_path, "a", encoding="utf-8") as f:
             f.write(line)
+            f.flush()
+            os.fsync(f.fileno())  # an exported line that emit() returned for must survive an OS crash
 
 
 @dataclasses.dataclass(frozen=True)

@@ -72,8 +72,9 @@ def test_evl_001_trace_capture_produces_deterministic_immutable_spans() -> None:
     assert trace1.canonical_json() == trace2.canonical_json()
 
     # Immutable: mutating spans should not affect trace or should be prevented
-    with pytest.raises(Exception):
+    with pytest.raises(AttributeError):  # spans is a tuple: no append
         trace1.spans.append(TraceSpan(span_id="s3", parent_id=None, name="bad", start_ns=0, end_ns=1))  # type: ignore
+    assert [s.span_id for s in trace1.spans] == ["s1", "s2"] and trace1.digest == trace2.digest  # unchanged
 
 
 # -------------------------------------------------------------------------

@@ -21,7 +21,9 @@ import uuid
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Sequence, cast
+from typing import Any, Callable, Iterator, Sequence, cast
+
+from peerhub.core.workspace import recover_interrupted_restore, restore_intent_path
 
 
 # -----------------------------------------------------------------------------
@@ -60,6 +62,25 @@ def _file_sha256(path: Path) -> str:
         while chunk := f.read(65536):
             h.update(chunk)
     return h.hexdigest()
+
+
+_RESERVED_DEVICE_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
+    | {f"{base}{n}" for base in ("COM", "LPT") for n in "123456789¹²³"}
+)
+
+
+def _has_reserved_device_name(rel_path: str) -> bool:
+    """True if any path component is a Windows device name (with or without extension, trailing dots/spaces ignored).
+
+    Opening such a name on Windows addresses a device (CON blocks on console input), so it must be rejected by NAME
+    before any open/stat of the path, on every platform (bundles must be portable).
+    """
+    for part in re.split(r"[\/]", rel_path):
+        stem = part.split(".", 1)[0].rstrip(" ").upper()
+        if stem in _RESERVED_DEVICE_NAMES:
+            return True
+    return False
 
 
 def _is_link(path: Path) -> bool:
@@ -160,6 +181,8 @@ def _copy_sources(source: Path, target: Path) -> None:
         if _is_link(path):
             raise BackupCorruptedError("Authoritative source must not contain symlinks")
         relative = path.relative_to(source)
+        if _has_reserved_device_name(relative.as_posix()):
+            raise BackupCorruptedError(f"Reserved device name in authoritative source: {relative.as_posix()}")
         if any(part == ".tmp" or part.endswith(".tmp") for part in relative.parts):
             continue
         destination = target / relative
@@ -349,7 +372,7 @@ def verify_backup(backup_dir: Path, *, expected_manifest_sha256: str | None = No
         meta = cast(dict[str, Any], meta)
         relative = Path(rel_path)
         if (relative.is_absolute() or ".." in relative.parts or "\\" in rel_path or ":" in rel_path
-                or relative.as_posix() != rel_path or not relative.parts
+                or _has_reserved_device_name(rel_path) or relative.as_posix() != rel_path or not relative.parts
                 or (rel_path != "core.db" and relative.parts[0] not in ("artifacts", "skills"))):
             raise BackupCorruptedError("Unsafe manifest file path")
         p = b_dir / relative
@@ -401,6 +424,8 @@ def restore_authoritative(
     """
     b_dir = Path(backup_dir).resolve()
     t_dir = Path(target_dir).resolve()
+    recover_interrupted_restore(t_dir)  # a previous hard crash may have left the target missing
+    intent = restore_intent_path(t_dir)
     manifest_path = b_dir / "backup_manifest.json"
     if not manifest_path.is_file():
         raise BackupManifestMissingError("Missing backup manifest")
@@ -455,6 +480,10 @@ def restore_authoritative(
             with closing(sqlite3.connect(t_dir / "core.db", timeout=2)) as conn:
                 if conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]:
                     raise GenerationFencingConflictError("Workspace is busy; stop writers before restore")
+            with open(intent, "w", encoding="utf-8") as f:  # durable BEFORE the first rename (see recover_interrupted_restore)
+                f.write(previous_dir.name)
+                f.flush()
+                os.fsync(f.fileno())
             os.rename(t_dir, previous_dir)
             moved = True
         hit("restore.before_publish")
@@ -466,6 +495,8 @@ def restore_authoritative(
     finally:
         if stage_dir.exists():
             _discard_stage(stage_dir)
+        if t_dir.exists():
+            intent.unlink(missing_ok=True)  # target present again (restored or rolled back): marker is no longer needed
 
     return new_generation
 
@@ -473,7 +504,7 @@ def restore_authoritative(
 # -----------------------------------------------------------------------------
 # Derived Projection Rebuild (Invariant 11)
 # -----------------------------------------------------------------------------
-def rebuild_derived_projections(core_store: Any, work_db_path: Path) -> int:
+def rebuild_derived_projections(core_store: Any, work_db_path: Path, *, page_size: int = 500) -> int:
     """Rebuild derived work projections by replaying authoritative CoreStore records.
 
     Invariant 11: Authoritative records are the sole truth; projection tables
@@ -508,13 +539,15 @@ def rebuild_derived_projections(core_store: Any, work_db_path: Path) -> int:
 
         from peerhub.core.models import Record
 
-        all_records: list[Record] = []
-        for stream_id in streams:
-            position = 0
-            while batch := core_store.read_records(stream_id, after_position=position, limit=500):
-                all_records.extend(batch)
-                position = batch[-1].position
+        def replay() -> Iterator[Record]:
+            # Positions are per stream (no cross-stream global order exists in the schema), and the projection tracks
+            # its position per stream, so stream-by-stream replay is exact. Pages are streamed, never accumulated.
+            for stream_id in streams:
+                position = 0
+                while batch := core_store.read_records(stream_id, after_position=position, limit=page_size):
+                    yield from batch
+                    position = batch[-1].position
 
-        return projection.rebuild_projection(all_records)
+        return projection.rebuild_projection(replay())
     except Exception as e:
         raise AuthoritativeRestoreOrderError(f"Failed to replay authoritative stream records: {e}") from e

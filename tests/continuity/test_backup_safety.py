@@ -162,7 +162,18 @@ def test_work_rebuild_reads_all_pages_not_only_first_slice(tmp_path):
     projection = WorkProjection(tmp_path / "work.db", store)
     for i in range(105):
         projection.create_work(stream_id="s", work_id=f"w{i}", title=f"work{i}")
-    count = rebuild_derived_projections(store, tmp_path / "recovered.db")
+    calls = []
+    real = store.read_records
+
+    def spy(stream_id, after_position=0, limit=100):
+        calls.append((after_position, limit))
+        return real(stream_id, after_position=after_position, limit=limit)
+    store.read_records = spy  # type: ignore[method-assign]
+    count = rebuild_derived_projections(store, tmp_path / "recovered.db", page_size=10)
     recovered = WorkProjection(tmp_path / "recovered.db", store)
     assert count == 105
     assert recovered.get_work("w104").title == "work104"
+    # independent oracle: 105 records at page size 10 => cursors 0,10,..,100 then 105 (empty page ends the loop)
+    assert [c[0] for c in calls] == [*range(0, 101, 10), 105] and {c[1] for c in calls} == {10}
+    with closing(sqlite3.connect(tmp_path / "recovered.db")) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM ext_work_items").fetchone()[0] == 105

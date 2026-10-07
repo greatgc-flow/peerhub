@@ -130,6 +130,8 @@ def test_wrk_005_concurrent_transition_revision_conflict(projection: WorkProject
     # Caller 2 also tries to transition expected_revision=1 (conflict!)
     with pytest.raises(WorkRevisionConflictError):
         projection.transition_work("w-race", expected_revision=1, target_state="CANCELLED")
+    w = projection.get_work("w-race")
+    assert (w.state, w.revision) == ("ACTIVE", 2)  # the losing caller changed nothing
 
 
 def test_wrk_006_forbidden_transition_from_terminal_states(projection: WorkProjection):
@@ -141,11 +143,15 @@ def test_wrk_006_forbidden_transition_from_terminal_states(projection: WorkProje
     # Cannot transition out of DONE
     with pytest.raises(ForbiddenTransitionError):
         projection.transition_work("w-term", expected_revision=3, target_state="ACTIVE")
+    w = projection.get_work("w-term")
+    assert (w.state, w.revision) == ("DONE", 3)
 
     # Cannot transition directly from OPEN to DONE
     projection.create_work("s1", "w-jump", "Jump Task", {})
     with pytest.raises(ForbiddenTransitionError):
         projection.transition_work("w-jump", expected_revision=1, target_state="DONE")
+    w = projection.get_work("w-jump")
+    assert (w.state, w.revision) == ("OPEN", 1)
 
 
 def test_wrk_007_work_not_found(projection: WorkProjection):
@@ -182,6 +188,8 @@ def test_wrk_009_duplicate_work_creation_rejected(projection: WorkProjection):
 
     with pytest.raises(WorkAlreadyExistsError):
         projection.create_work("s1", "w-dup", "Duplicate Task 2", {})
+    w = projection.get_work("w-dup")
+    assert (w.title, w.revision) == ("Duplicate Task", 1)  # original untouched
 
 
 def test_wrk_010_checkpoints_save_state_and_increment_revision(projection: WorkProjection):

@@ -86,11 +86,7 @@ class SearchIndex:
         """Helper to cleanly wipe a database file on disk."""
         path = Path(db_path)
         for p in (path, path.with_name(path.name + "-wal"), path.with_name(path.name + "-shm")):
-            try:
-                if p.exists():
-                    p.unlink()
-            except Exception:
-                pass
+            p.unlink(missing_ok=True)  # a locked/undeletable file must surface, not report a false "cleared"
 
     @contextmanager
     def _connection(self):
@@ -335,9 +331,9 @@ class SearchIndex:
                     indexed_count += 1
                 if artifact_store is not None:
                     for digest in sorted(artifact_store.list_all_digests()):
-                        data = artifact_store.read_bytes(digest)
-                        self.index_artifact(digest, {"digest": digest, "size_bytes": len(data)},
-                                            data[:65536].decode("utf-8", "replace"))
+                        head, size = artifact_store.read_verified_prefix(digest, 65536)  # bounded memory, still verified
+                        self.index_artifact(digest, {"digest": digest, "size_bytes": size},
+                                            head.decode("utf-8", "replace"))
                         indexed_count += 1
                 if skill_catalog is not None:
                     for skill in skill_catalog.list_skills():

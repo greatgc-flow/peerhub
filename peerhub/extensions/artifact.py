@@ -233,6 +233,34 @@ class ArtifactStore:
 
         return data
 
+    def read_verified_prefix(self, digest: str, limit: int, chunk_size: int = 65536) -> tuple[bytes, int]:
+        """Return (first `limit` bytes, total size) with the same read-time digest verification as read_bytes.
+
+        The blob is streamed in `chunk_size` pieces, so memory stays bounded for arbitrarily large artifacts while
+        tampering/truncation anywhere in the blob is still detected (ArtifactTamperedError).
+        """
+        import hashlib
+
+        if limit < 0 or chunk_size <= 0:
+            raise ValueError("limit must be >= 0 and chunk_size positive")
+        target_path = self.resolve_path(digest)
+        if not target_path.is_file():
+            raise ArtifactNotFoundError(f"Artifact {digest} not found on disk at {target_path}")
+        h = hashlib.sha256()
+        prefix = bytearray()
+        total = 0
+        with open(target_path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                h.update(chunk)
+                total += len(chunk)
+                if len(prefix) < limit:
+                    prefix += chunk[: limit - len(prefix)]
+        if h.hexdigest() != digest:
+            raise ArtifactTamperedError(
+                f"Artifact digest mismatch: expected {digest}, got {h.hexdigest()} (tampered or truncated)"
+            )
+        return bytes(prefix), total
+
     def sweep_staging(self, max_age_seconds: float = 86400.0) -> list[Path]:
         """Sweep stranded temporary staging files in .tmp older than max_age_seconds."""
         import time

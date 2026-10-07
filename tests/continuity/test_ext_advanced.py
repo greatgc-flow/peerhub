@@ -139,3 +139,6 @@ def test_ext_024_schema_downgrade_forbidden(tmp_path):
 
     with pytest.raises(DowngradeNotSupportedError):
         host.register_manifest(downgraded_manifest, ext_dir, target_schema_version=1)
+    with sqlite3.connect(db_path) as conn:  # independent raw read: the registry row is untouched
+        assert conn.execute("SELECT id, version, schema_version, state FROM m2_extension_registry").fetchall() == [
+            ("ext_v3", "3.0.0", 3, "ENABLED")]

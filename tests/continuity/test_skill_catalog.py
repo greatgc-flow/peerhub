@@ -166,6 +166,8 @@ def test_skl_006_forbidden_direct_transition(
 
     with pytest.raises(ForbiddenTransitionError):
         catalog_engine.transition_skill("code_review", expected_revision=1, target_state="ACTIVE")
+    skill = catalog_engine.get_skill("code_review")
+    assert (skill.state, skill.revision) == ("DISCOVERED", 1)  # rejection left state unchanged
 
 
 def test_skl_007_query_non_existent_skill(catalog_engine: SkillCatalogEngine):
@@ -183,8 +185,10 @@ def test_skl_008_malformed_skill_manifest(
     manifest = bad_dir / "SKILL.md"
     manifest.write_text("--- broken yaml: [unclosed\n---\n# Bad Skill", encoding="utf-8")
 
+    assert catalog_engine.list_skills() == []
     with pytest.raises(SkillManifestError):
         catalog_engine.index_skill(stream_id="s1", skill_dir=bad_dir)
+    assert catalog_engine.list_skills() == []  # nothing partially indexed
 
 
 def test_skl_009_tampered_file_detected(
@@ -198,6 +202,10 @@ def test_skl_009_tampered_file_detected(
     script_file.write_text("print('tampered script!')", encoding="utf-8")
 
     with pytest.raises(SkillTamperedError):
+        catalog_engine.verify_skill_integrity("code_review")
+    skill = catalog_engine.get_skill("code_review")
+    assert (skill.state, skill.revision) == ("DISCOVERED", 1)  # detection did not mutate the record
+    with pytest.raises(SkillTamperedError):  # and it keeps detecting
         catalog_engine.verify_skill_integrity("code_review")
 
 
@@ -258,6 +266,8 @@ def test_skl_012_conflicting_capability_rejected(catalog_engine: SkillCatalogEng
             expected_revision=999,  # Mismatched expected revision
             spec={"models": ["claude-3-opus"]},
         )
+    cap = catalog_engine.get_capability("cap-llm")
+    assert cap.revision == 1 and cap.spec == {"models": ["gpt-4o", "gemini-pro"]}  # unchanged after the conflict
 
 
 def test_skl_013_volatile_runtime_facts_rejected(catalog_engine: SkillCatalogEngine):

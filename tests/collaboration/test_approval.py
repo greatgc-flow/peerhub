@@ -115,6 +115,8 @@ def test_app_004_expired(temp_db: Path) -> None:
         )
         with pytest.raises(ApprovalExpiredError):
             engine.approve(req.approval_id, approver="admin")
+        rejected = engine.get_approval(req.approval_id)
+        assert rejected.state != "APPROVED" and rejected.approver is None
 
         # Now test an approved request that expires before consumption
         req2 = engine.request_approval(
@@ -128,6 +130,8 @@ def test_app_004_expired(temp_db: Path) -> None:
 
         with pytest.raises(ApprovalExpiredError):
             engine.consume_approval(req2.approval_id, effect_payload=payload)
+        assert engine.get_approval(req2.approval_id).state != "CONSUMED"
+        assert engine.get_approval(req2.approval_id).consumed_at is None
     finally:
         engine.close()
 
@@ -147,9 +151,13 @@ def test_app_005_invariant_single_use(temp_db: Path) -> None:
         # First consumption succeeds
         engine.consume_approval(req.approval_id, effect_payload=payload)
 
+        consumed_at = engine.get_approval(req.approval_id).consumed_at
+        assert consumed_at is not None
         # Re-consuming same token must fail
         with pytest.raises(ApprovalAlreadyConsumedError):
             engine.consume_approval(req.approval_id, effect_payload=payload)
+        after = engine.get_approval(req.approval_id)
+        assert after.state == "CONSUMED" and after.consumed_at == consumed_at  # not re-applied
     finally:
         engine.close()
 
@@ -204,6 +212,8 @@ def test_app_008_consume_unapproved(temp_db: Path) -> None:
         )
         with pytest.raises(ApprovalStateTransitionError):
             engine.consume_approval(req.approval_id, effect_payload=payload)
+        after = engine.get_approval(req.approval_id)
+        assert after.state == "REQUESTED" and after.consumed_at is None
     finally:
         engine.close()
 
@@ -240,12 +250,14 @@ def test_app_010_invalid_state_transitions(temp_db: Path) -> None:
         engine.reject(req1.approval_id, "no", "admin")
         with pytest.raises(ApprovalStateTransitionError):
             engine.approve(req1.approval_id, "admin")
+        assert engine.get_approval(req1.approval_id).state == "REJECTED"
 
         req2 = engine.request_approval("b", payload, "agent-2")
         engine.approve(req2.approval_id, "admin")
         engine.consume_approval(req2.approval_id, payload)
         with pytest.raises(ApprovalStateTransitionError):
             engine.approve(req2.approval_id, "admin")
+        assert engine.get_approval(req2.approval_id).state == "CONSUMED"
     finally:
         engine.close()
 

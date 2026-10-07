@@ -7,6 +7,7 @@ under the previous generation is stale.
 from __future__ import annotations
 
 import os
+import shutil
 import sqlite3
 import uuid
 from contextlib import closing
@@ -18,8 +19,52 @@ class SnapshotInvalidError(RuntimeError):
     """Restore snapshot failed validation; the live workspace was not touched."""
 
 
+def _fsync_dir(path: Path) -> None:
+    """Best-effort directory fsync (not supported on Windows; failure there must not fail the operation)."""
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def restore_intent_path(root: Path) -> Path:
+    """Marker written (durably) before restore_authoritative moves a workspace aside; names the fallback directory."""
+    root = Path(root).resolve()
+    return root.parent / f"{root.name}.restore-intent"
+
+
+def recover_interrupted_restore(root: Path) -> bool:
+    """Startup recovery for a hard crash between the two renames of an authoritative restore.
+
+    If the intent marker exists and the workspace directory is missing, the pre-restore fallback named by the marker
+    is renamed back (the old state returns intact). A marker with the workspace present (crash before the first rename
+    or after the second) is just stale and removed. Returns True when a fallback was restored.
+    """
+    root = Path(root).resolve()
+    marker = restore_intent_path(root)
+    if not marker.is_file():
+        return False
+    restored = False
+    if not root.exists():
+        fallback = root.parent / marker.read_text(encoding="utf-8").strip()
+        if fallback.parent == root.parent and fallback.name.startswith(f"{root.name}.pre-restore-") and fallback.is_dir():
+            os.rename(fallback, root)
+            restored = True
+        else:
+            return False  # nothing safe to restore; keep the marker for diagnosis
+    marker.unlink(missing_ok=True)
+    return restored
+
+
 class Workspace:
     def __init__(self, root: Path) -> None:
+        recover_interrupted_restore(Path(root))
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.db_path = self.root / "core.db"
@@ -29,8 +74,12 @@ class Workspace:
 
     def _write_generation(self, value: str) -> None:
         tmp = self._gen.with_suffix(".tmp")
-        tmp.write_text(value, encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(value)
+            f.flush()
+            os.fsync(f.fileno())  # data durable BEFORE the rename, so a power loss never leaves an empty identity file
         os.replace(tmp, self._gen)  # atomic: readers see the old or the new identity, never a partial one
+        _fsync_dir(self.root)
 
     def generation(self) -> str:
         return self._gen.read_text(encoding="utf-8")
@@ -60,7 +109,7 @@ class Workspace:
     def restore_snapshot(self, snapshot: Path, fault: Callable[[str], None] | None = None) -> str:
         """Replace the Core database with a validated snapshot under a fresh generation. Callers hold no open connections.
 
-        Crash-safe order: validate -> temp copy + fsync -> NEW generation -> checkpoint/remove WAL -> atomic replace.
+        Crash-safe order: temp copy + fsync -> validate the COPY -> NEW generation -> checkpoint/remove WAL -> atomic replace.
         Crash before the generation write leaves old state + old generation; after it, old state under a new generation
         (old tokens fenced); after replace, the restored state under the new generation. Claims stored in the snapshot
         carry the snapshot's old generation, so they are never valid under the new one.
@@ -69,27 +118,33 @@ class Workspace:
             if fault is not None:
                 fault(point)
 
-        self._validate_snapshot(snapshot)
-        hit("restore.after_validate")
         tmp = self.root / "core.restore.tmp"
         try:
             with open(snapshot, "rb") as src, open(tmp, "wb") as dst:
-                dst.write(src.read())
+                shutil.copyfileobj(src, dst)
                 dst.flush()
                 os.fsync(dst.fileno())
             hit("restore.after_temp_copy")
+            self._validate_snapshot(tmp)  # validate the exact bytes that will be installed (no check-then-copy window)
+            hit("restore.after_validate")
             if self.db_path.exists():  # fold the live WAL into the main file so deleting it loses nothing
                 with closing(sqlite3.connect(self.db_path, timeout=2.0)) as c:
                     busy = c.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0]
                 if busy:
                     raise RuntimeError("live database is busy; restore aborted without changes")
+            old = self.generation()
             new = uuid.uuid4().hex
             self._write_generation(new)
             hit("restore.after_generation")
-            for suffix in ("-wal", "-shm"):
-                Path(str(self.db_path) + suffix).unlink(missing_ok=True)
-            os.replace(tmp, self.db_path)
+            try:
+                for suffix in ("-wal", "-shm"):
+                    Path(str(self.db_path) + suffix).unlink(missing_ok=True)
+                os.replace(tmp, self.db_path)
+            except OSError:
+                self._write_generation(old)  # the DB was not replaced: do not fence tokens of the still-live state
+                raise
             hit("restore.after_replace")
             return new
         finally:
-            tmp.unlink(missing_ok=True)
+            for suffix in ("", "-wal", "-shm"):  # a read-only validation of a WAL-mode copy can leave sidecars
+                Path(str(tmp) + suffix).unlink(missing_ok=True)

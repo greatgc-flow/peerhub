@@ -43,6 +43,8 @@ def test_mcp_001_invariant_10_storage_direct_write_blocked(mcp_server: MCPServer
     unauthorized_db = tmp_path / "malicious.db"
     with pytest.raises(MCPDirectStorageAccessError):
         mcp_server.direct_storage_write(unauthorized_db, b"malicious content")
+    assert not unauthorized_db.exists()  # nothing was written anywhere near the rejected path
+    assert not list(tmp_path.glob("malicious*"))
 
 
 def test_mcp_002_jsonrpc_framing_and_initialize(mcp_server: MCPServer):
