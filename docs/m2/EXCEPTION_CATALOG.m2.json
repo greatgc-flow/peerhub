@@ -47,32 +47,35 @@
     {
       "id": "EXC-005",
       "name": "SecurityBoundaryError",
-      "trigger": "Path traversal, symlink, or reserved OS name detected.",
+      "trigger": "Path boundary violation or skill file byte count changing relative to its open-file size during digest computation.",
       "disposition": "REJECTED",
       "rationale": "Strict security quarantine blocks execution.",
       "tests": [
         "ART-005",
-        "ART-006"
+        "ART-006",
+        "SKL-018"
       ]
     },
     {
       "id": "EXC-006",
       "name": "MissingDependencyError",
-      "trigger": "Extension manifest requires unavailable module.",
-      "disposition": "DEFERRED",
-      "rationale": "Extension safely placed in FAILED state and skipped during boot.",
+      "trigger": "Dependency is absent, not ENABLED, or differs from an exact registered-version pin; boot also uses this failure path for a missing entrypoint.",
+      "disposition": "REJECTED",
+      "rationale": "Enablement rejects unmet dependencies; boot reports failures and cascades FAILED states without aborting other discoveries.",
       "tests": [
-        "EXT-014"
+        "EXT-026",
+        "EXT-027"
       ]
     },
     {
       "id": "EXC-007",
       "name": "RegistrationConflictError",
-      "trigger": "Two extensions claim the same ID.",
+      "trigger": "Registration conflicts with an in-memory manifest or disk manifest version differs from the registered version.",
       "disposition": "REJECTED",
-      "rationale": "Idempotency violated by collision. Second caller is rejected.",
+      "rationale": "Registered version identity is not silently replaced.",
       "tests": [
-        "EXT-015"
+        "EXT-015",
+        "EXT-029"
       ]
     },
     {
@@ -139,21 +142,23 @@
     {
       "id": "EXC-014",
       "name": "ExtensionHookError",
-      "trigger": "User extension callback throws unhandled exception.",
-      "disposition": "HANDLED",
-      "rationale": "Trapped by host boundary; extension safely moves to FAILED.",
+      "trigger": "Entrypoint is missing during enablement or entrypoint execution raises.",
+      "disposition": "REJECTED",
+      "rationale": "Failed enablement does not leave a newly discovered extension ENABLED without its runtime module. Dispatch hook failures are caught directly and mark FAILED.",
       "tests": [
+        "EXT-028",
         "EXT-013"
       ]
     },
     {
       "id": "EXC-015",
       "name": "FileExistsError",
-      "trigger": "Atomic rename target already exists.",
+      "trigger": "Commit publication encounters a concurrent existing destination.",
       "disposition": "HANDLED",
-      "rationale": "Proof of idempotent duplicate upload; resolves safely to existing file.",
+      "rationale": "An existing regular destination is success only after full streamed digest verification; absence or corruption is not deduplication success.",
       "tests": [
-        "ART-016"
+        "ART-016",
+        "ART-038"
       ]
     },
     {
@@ -269,12 +274,12 @@
     {
       "id": "EXC-027",
       "name": "DuplicateCommitIdempotencyTrigger",
-      "trigger": "Re-uploading known digest payload.",
+      "trigger": "Commit finds an existing digest-addressed blob.",
       "disposition": "HANDLED",
-      "rationale": "Fast-paths to existing metadata seamlessly.",
+      "rationale": "Stream-verifies the existing blob, refreshes its modification time for GC grace, and removes redundant staging.",
       "tests": [
-        "ART-017",
-        "ART-024"
+        "ART-038",
+        "ART-039"
       ]
     },
     {
@@ -311,11 +316,11 @@
     {
       "id": "EXC-031",
       "name": "WorkRevisionConflictError",
-      "trigger": "Mutation expected_revision does not match current projection revision.",
+      "trigger": "Expected revision differs from authoritative Record-derived revision, append conflicts, or the reducer does not accept the caller's mutation Record.",
       "disposition": "REJECTED",
-      "rationale": "CAS optimistic concurrency conflict; preserves ordering truth.",
+      "rationale": "A stale cache or successful append cannot acknowledge a losing mutation.",
       "tests": [
-        "WRK-005"
+        "WRK-013"
       ]
     },
     {
@@ -341,11 +346,12 @@
     {
       "id": "EXC-034",
       "name": "WorkAlreadyExistsError",
-      "trigger": "Attempt to create a work item with an already registered work_id.",
+      "trigger": "Creation finds an existing projection row, or authoritative creation recovery finds conflicting stream/content or an advanced revision.",
       "disposition": "REJECTED",
-      "rationale": "Enforces work_id uniqueness within home stream.",
+      "rationale": "Identical creation-crash recovery is permitted only with a missing projection row and authoritative revision 1.",
       "tests": [
-        "WRK-009"
+        "WRK-009",
+        "WRK-014"
       ]
     },
     {
@@ -371,11 +377,12 @@
     {
       "id": "EXC-037",
       "name": "SkillTamperedError",
-      "trigger": "On-disk skill directory contents hash differs from indexed canonical digest.",
+      "trigger": "Current directory digest differs from the recorded skill digest.",
       "disposition": "REJECTED",
-      "rationale": "Cryptographic integrity failure blocks compromised procedure.",
+      "rationale": "Record-only rebuild preserves the recorded digest and cannot authorize disk drift.",
       "tests": [
-        "SKL-009"
+        "SKL-009",
+        "SKL-017"
       ]
     },
     {
@@ -481,22 +488,23 @@
     {
       "id": "EXC-048",
       "name": "GenerationFencingConflictError",
-      "trigger": "Restoration attempted with older generation than active fence epoch.",
+      "trigger": "An existing workspace database fails the idle checkpoint check, or an older backup is restored with allow_rollback=False.",
       "disposition": "REJECTED",
-      "rationale": "Fencing epoch conflict protects against split-brain and stale write regressions.",
+      "rationale": "Offline replacement rejects detected busy databases; rollback is otherwise allowed by default.",
       "tests": [
-        "BCK-004",
-        "BCK-008"
+        "BCK-008",
+        "BCK-013"
       ]
     },
     {
       "id": "EXC-049",
       "name": "AuthoritativeRestoreOrderError",
-      "trigger": "Attempting projection rebuild or derived write before authoritative restoration.",
+      "trigger": "Authoritative database is unavailable, or authoritative replay/projection-port delegation fails.",
       "disposition": "REJECTED",
-      "rationale": "Invariant 11: Restore starts from authoritative and rebuilds derived.",
+      "rationale": "Derived rebuild requires existing authority and delegates through the supplied projection port.",
       "tests": [
-        "BCK-005"
+        "BCK-005",
+        "BCK-015"
       ]
     },
     {
@@ -559,6 +567,50 @@
       "rationale": "Explicit session handle isolation per invocation.",
       "tests": [
         "MCP-007"
+      ]
+    },
+    {
+      "id": "EXC-056",
+      "name": "SkillRevisionConflictError",
+      "trigger": "Authoritative skill revision conflicts, append conflicts, mutation loses reducer acceptance, or re-indexing conflicts with registered identity.",
+      "disposition": "REJECTED",
+      "rationale": "Ordered Records determine accepted lifecycle changes.",
+      "tests": [
+        "SKL-015"
+      ]
+    },
+    {
+      "id": "EXC-057",
+      "name": "CapabilityConflictError",
+      "trigger": "Authoritative capability revision conflicts, append conflicts, mutation loses reducer acceptance, or declaration conflicts with existing stream/specification/revision.",
+      "disposition": "REJECTED",
+      "rationale": "Cached rows cannot authorize stale or conflicting catalog writes.",
+      "tests": [
+        "SKL-015",
+        "SKL-016"
+      ]
+    },
+    {
+      "id": "EXC-058",
+      "name": "ValueError",
+      "trigger": "Artifact stream exceeds max_size, staging arguments are invalid, or orphan-GC min_age_seconds is negative.",
+      "disposition": "REJECTED",
+      "rationale": "Invalid bounds fail explicitly; oversize staging removes its temporary file.",
+      "tests": [
+        "ART-037",
+        "ART-039"
+      ]
+    },
+    {
+      "id": "EXC-059",
+      "name": "EvalSourceMismatchError",
+      "trigger": "Trace/dataset digest or count mismatches content, optional dataset artifact verification fails, report source bindings differ, or evaluator snapshots fail post-execution source verification.",
+      "disposition": "REJECTED",
+      "rationale": "A report must bind the content actually evaluated.",
+      "tests": [
+        "EVL-013",
+        "EVL-014",
+        "EVL-015"
       ]
     }
   ]

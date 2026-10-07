@@ -24,7 +24,8 @@
           "to": "FAILED",
           "allowed": true,
           "tests": [
-            "EXT-022"
+            "EXT-026",
+            "EXT-028"
           ]
         },
         {
@@ -80,7 +81,8 @@
           "to": "FAILED",
           "allowed": true,
           "tests": [
-            "EXT-013"
+            "EXT-013",
+            "EXT-027"
           ]
         },
         {
@@ -98,11 +100,18 @@
           "tests": [
             "EXT-011"
           ]
+        },
+        {
+          "from": "VALIDATED",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": []
         }
       ],
       "gaps": [
         "GAP-EXT-TRANS-01: VALIDATED -> ENABLED: Needs test coverage for nominal enablement after valid discovery.",
-        "GAP-EXT-TRANS-02: DISABLED -> ENABLED: Needs test coverage for re-enabling a previously disabled extension."
+        "GAP-EXT-TRANS-02: DISABLED -> ENABLED: Needs test coverage for re-enabling a previously disabled extension.",
+        "VALIDATED -> FAILED is implemented; the reviewed closure tests do not explicitly establish this source-state case."
       ]
     },
     "Artifact": {
@@ -168,17 +177,10 @@
         {
           "from": "STAGED",
           "to": "COMMITTED",
-          "allowed": false,
+          "allowed": true,
           "tests": [
-            "ART-023"
-          ]
-        },
-        {
-          "from": "DIGESTED",
-          "to": "COMMITTED",
-          "allowed": false,
-          "tests": [
-            "GAP-ART-TRANS-01"
+            "ART-038",
+            "ART-041"
           ]
         },
         {
@@ -191,7 +193,6 @@
         }
       ],
       "gaps": [
-        "GAP-ART-TRANS-01: DIGESTED -> COMMITTED (Forbidden): Needs test proving commit fails if verification was skipped.",
         "GAP-ART-TRANS-02: TAMPERED -> VERIFIED (Forbidden): Needs test proving a tampered file cannot be re-verified without re-staging."
       ]
     },
@@ -211,7 +212,8 @@
           "to": "ACTIVE",
           "allowed": true,
           "tests": [
-            "WRK-003"
+            "WRK-003",
+            "WRK-014"
           ]
         },
         {
@@ -343,7 +345,8 @@
           "to": "VALIDATED",
           "allowed": true,
           "tests": [
-            "SKL-001"
+            "SKL-001",
+            "SKL-016"
           ]
         },
         {
@@ -359,7 +362,8 @@
           "to": "SUSPENDED",
           "allowed": true,
           "tests": [
-            "SKL-003"
+            "SKL-003",
+            "SKL-015"
           ]
         },
         {
@@ -407,67 +411,52 @@
     },
     "EvalRun": {
       "states": [
-        "PENDING",
-        "RUNNING",
-        "PASSED",
-        "FAILED",
-        "INCONCLUSIVE"
+        "SOURCE_CHECK",
+        "EVALUATOR_EXECUTION",
+        "SNAPSHOT_CHECK",
+        "REPORT_SEALED",
+        "REJECTED"
       ],
       "transitions": [
         {
-          "from": "PENDING",
-          "to": "RUNNING",
+          "from": "SOURCE_CHECK",
+          "to": "EVALUATOR_EXECUTION",
           "allowed": true,
           "tests": [
-            "EVL-003"
+            "EVL-014"
           ]
         },
         {
-          "from": "RUNNING",
-          "to": "PASSED",
+          "from": "SOURCE_CHECK",
+          "to": "REJECTED",
           "allowed": true,
           "tests": [
-            "EVL-003"
+            "EVL-013",
+            "EVL-014"
           ]
         },
         {
-          "from": "RUNNING",
-          "to": "FAILED",
+          "from": "EVALUATOR_EXECUTION",
+          "to": "SNAPSHOT_CHECK",
           "allowed": true,
           "tests": [
-            "EVL-003"
+            "EVL-015"
           ]
         },
         {
-          "from": "RUNNING",
-          "to": "INCONCLUSIVE",
+          "from": "SNAPSHOT_CHECK",
+          "to": "REJECTED",
           "allowed": true,
           "tests": [
-            "EVL-004"
+            "EVL-015"
           ]
         },
         {
-          "from": "PASSED",
-          "to": "RUNNING",
-          "allowed": false,
+          "from": "SNAPSHOT_CHECK",
+          "to": "REPORT_SEALED",
+          "allowed": true,
           "tests": [
-            "EVL-005"
-          ]
-        },
-        {
-          "from": "FAILED",
-          "to": "RUNNING",
-          "allowed": false,
-          "tests": [
-            "EVL-005"
-          ]
-        },
-        {
-          "from": "INCONCLUSIVE",
-          "to": "RUNNING",
-          "allowed": false,
-          "tests": [
-            "EVL-005"
+            "EVL-014"
           ]
         }
       ],
@@ -536,67 +525,68 @@
     "Restore": {
       "states": [
         "VERIFY_MANIFEST",
-        "RESTORE_AUTHORITATIVE",
-        "GENERATION_FENCED",
-        "REBUILD_PROJECTIONS",
-        "RESTORED",
+        "STAGE_AND_VERIFY",
+        "CHECK_WORKSPACE_DATABASES",
+        "MOVE_PREVIOUS_WORKSPACE",
+        "PUBLISH_RESTORED_WORKSPACE",
+        "PREVIOUS_WORKSPACE_RECOVERED",
         "ABORTED"
       ],
       "transitions": [
         {
           "from": "VERIFY_MANIFEST",
-          "to": "RESTORE_AUTHORITATIVE",
+          "to": "STAGE_AND_VERIFY",
           "allowed": true,
           "tests": [
             "BCK-002"
           ]
         },
         {
-          "from": "RESTORE_AUTHORITATIVE",
-          "to": "GENERATION_FENCED",
+          "from": "STAGE_AND_VERIFY",
+          "to": "CHECK_WORKSPACE_DATABASES",
           "allowed": true,
           "tests": [
-            "BCK-004"
+            "BCK-013"
           ]
         },
         {
-          "from": "GENERATION_FENCED",
-          "to": "REBUILD_PROJECTIONS",
-          "allowed": true,
-          "tests": [
-            "BCK-003"
-          ]
-        },
-        {
-          "from": "REBUILD_PROJECTIONS",
-          "to": "RESTORED",
-          "allowed": true,
-          "tests": [
-            "BCK-003"
-          ]
-        },
-        {
-          "from": "VERIFY_MANIFEST",
+          "from": "CHECK_WORKSPACE_DATABASES",
           "to": "ABORTED",
           "allowed": true,
           "tests": [
-            "BCK-007"
+            "BCK-013"
           ]
         },
         {
-          "from": "RESTORE_AUTHORITATIVE",
-          "to": "ABORTED",
+          "from": "CHECK_WORKSPACE_DATABASES",
+          "to": "MOVE_PREVIOUS_WORKSPACE",
           "allowed": true,
           "tests": [
-            "BCK-006"
+            "BCK-013"
           ]
         },
         {
-          "from": "VERIFY_MANIFEST",
-          "to": "REBUILD_PROJECTIONS",
-          "allowed": false,
+          "from": "MOVE_PREVIOUS_WORKSPACE",
+          "to": "PUBLISH_RESTORED_WORKSPACE",
+          "allowed": true,
           "tests": [
-            "BCK-005"
+            "BCK-013"
+          ]
+        },
+        {
+          "from": "MOVE_PREVIOUS_WORKSPACE",
+          "to": "PREVIOUS_WORKSPACE_RECOVERED",
+          "allowed": true,
+          "tests": [
+            "BCK-014"
+          ]
+        },
+        {
+          "from": "PUBLISH_RESTORED_WORKSPACE",
+          "to": "PUBLISH_RESTORED_WORKSPACE",
+          "allowed": true,
+          "tests": [
+            "BCK-014"
           ]
         }
       ],

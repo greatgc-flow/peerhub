@@ -324,6 +324,76 @@
       "tests": [
         "RUN-008"
       ]
+    },
+    {
+      "id": "EXC-088",
+      "name": "A2AExecutionUncertainError",
+      "trigger": "A task submission or its outcome cannot be established (journaled submitting record without evidence).",
+      "disposition": "REJECTED",
+      "rationale": "Uncertain is never replayed or treated as absent.",
+      "tests": [
+        "A2A-013"
+      ]
+    },
+    {
+      "id": "EXC-089",
+      "name": "A2ATaskUnknownToRemoteError",
+      "trigger": "The remote reports the task unknown.",
+      "disposition": "HANDLED",
+      "rationale": "The id is released only when the transport proves absence; otherwise it stays uncertain until abandon_task.",
+      "tests": [
+        "A2A-013"
+      ]
+    },
+    {
+      "id": "EXC-090",
+      "name": "A2ATransportUnavailableError",
+      "trigger": "The HTTP binding fails (envelope, identity, size, deadline, redirect).",
+      "disposition": "REJECTED",
+      "rationale": "Hostile or broken responses never produce a mapped state.",
+      "tests": [
+        "A2A-013"
+      ]
+    },
+    {
+      "id": "EXC-091",
+      "name": "A2AClaimLostError",
+      "trigger": "Another adapter holds the submission claim token for the task id.",
+      "disposition": "REJECTED",
+      "rationale": "Two adapters over one journal cannot both send.",
+      "tests": [
+        "A2A-013"
+      ]
+    },
+    {
+      "id": "EXC-092",
+      "name": "CostBoundExceededError",
+      "trigger": "Journal-summed attempt cost reaches cost_budget, or an attempt does not report a finite cost under a budget.",
+      "disposition": "REJECTED",
+      "rationale": "Unreported cost is unknown, never zero.",
+      "tests": [
+        "ORC-013"
+      ]
+    },
+    {
+      "id": "EXC-093",
+      "name": "UnsupportedExecutionBoundError",
+      "trigger": "A bound the runner cannot enforce (for example a hard deadline) is requested.",
+      "disposition": "REJECTED",
+      "rationale": "Strict mode requires a runner that declares hard_cancel.",
+      "tests": [
+        "RUN-013"
+      ]
+    },
+    {
+      "id": "EXC-094",
+      "name": "RuntimeCancellationError",
+      "trigger": "A cancel could not confirm that the process tree is dead.",
+      "disposition": "REJECTED",
+      "rationale": "The job stays RUNNING and is never reported CANCELLED.",
+      "tests": [
+        "RUN-013"
+      ]
     }
   ]
 }

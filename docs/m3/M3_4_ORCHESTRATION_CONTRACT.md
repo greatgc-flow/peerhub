@@ -100,7 +100,7 @@ The Orchestration module (`peerhub.m3.orchestration`) provides:
 
 ## Closure update (2026-10-08)
 
-Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. State-machine and exception JSON catalogs are updated separately.
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. The state-machine and exception JSON catalogs carry the same update.
 
 - `PlanBounds` supports a `cost_budget`. `PlanStep` execution payloads now contain a `cost` result. Cost is aggregated across attempts and executor restarts. Unreported costs evaluate as "unknown" (not zero), and if a budget is enforced, missing costs fail the execution.
 - `PlanStep` utilizes deterministic `when` and `stop_if` predicates. Skipping an unfulfilled `when` step automatically skips all of its dependents. `stop_if` cleanly halts the remaining plan.

@@ -246,7 +246,8 @@
         "COMPLETED",
         "FAILED",
         "BOUNDS_EXCEEDED",
-        "CANCELLED"
+        "CANCELLED",
+        "STOPPED"
       ],
       "initial": "PENDING",
       "terminal": [
@@ -296,6 +297,14 @@
           "tests": [
             "ORC-008"
           ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "STOPPED",
+          "allowed": true,
+          "tests": [
+            "ORC-013"
+          ]
         }
       ],
       "gaps": []
@@ -306,7 +315,8 @@
         "RUNNING",
         "COMPLETED",
         "FAILED",
-        "MAY_HAVE_STARTED"
+        "MAY_HAVE_STARTED",
+        "SKIPPED"
       ],
       "initial": "PENDING",
       "terminal": [
@@ -353,12 +363,24 @@
           "tests": [
             "ORC-005"
           ]
+        },
+        {
+          "from": "PENDING",
+          "to": "SKIPPED",
+          "allowed": true,
+          "tests": [
+            "ORC-013"
+          ]
         }
       ],
       "gaps": []
     },
     "A2ATaskLifecycle": {
       "states": [
+        "SUBMITTING",
+        "UNCERTAIN",
+        "NOT_STARTED",
+        "ABANDONED",
         "SUBMITTED",
         "RUNNING",
         "COMPLETED",
@@ -410,6 +432,46 @@
           "allowed": true,
           "tests": [
             "A2A-008"
+          ]
+        },
+        {
+          "from": "SUBMITTING",
+          "to": "SUBMITTED",
+          "allowed": true,
+          "tests": [
+            "A2A-013"
+          ]
+        },
+        {
+          "from": "SUBMITTING",
+          "to": "UNCERTAIN",
+          "allowed": true,
+          "tests": [
+            "A2A-013"
+          ]
+        },
+        {
+          "from": "UNCERTAIN",
+          "to": "NOT_STARTED",
+          "allowed": true,
+          "tests": [
+            "A2A-013"
+          ]
+        },
+        {
+          "from": "UNCERTAIN",
+          "to": "ABANDONED",
+          "allowed": true,
+          "tests": [
+            "A2A-013"
+          ]
+        },
+        {
+          "from": "NOT_STARTED",
+          "to": "SUBMITTING",
+          "allowed": true,
+          "tests": [
+            "A2A-013"
           ]
         }
       ],
@@ -468,6 +530,14 @@
           "allowed": true,
           "tests": [
             "RUN-009"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "RUNNING",
+          "allowed": true,
+          "tests": [
+            "RUN-013"
           ]
         }
       ],
