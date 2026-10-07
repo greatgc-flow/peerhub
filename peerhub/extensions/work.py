@@ -15,10 +15,10 @@ import json
 import re
 from pathlib import Path
 import sqlite3
-from typing import Any, ClassVar, Iterable, cast
+from typing import Any, ClassVar, Iterable, Iterator, cast
 
 from peerhub.core.models import Record
-from peerhub.core.store import CoreStore
+from peerhub.core.store import CoreStore, IdempotencyConflictError
 
 
 class WorkError(Exception):
@@ -177,6 +177,56 @@ class WorkProjection:
         self._save_work_projection(work)
         return work
 
+    @staticmethod
+    def _item_from_state(it: dict[str, Any]) -> WorkItem:
+        return WorkItem(
+            work_id=cast(str, it["work_id"]), stream_id=cast(str, it["stream_id"]), state=cast(str, it["state"]),
+            revision=cast(int, it["revision"]), title=cast(str, it["title"]), spec=cast(dict[str, Any], it["spec"]),
+            artifacts=list(cast(list[str], it["artifacts"])), checkpoint=cast(dict[str, Any] | None, it["checkpoint"]),
+            created_at=cast(str, it["created_at"]), updated_at=cast(str, it["updated_at"]),
+        )
+
+    def _stream_records(self, stream_id: str, page_size: int = 500) -> Iterator[Record]:
+        position = 0
+        while batch := self.store.read_records(stream_id, after_position=position, limit=page_size):
+            yield from batch
+            position = batch[-1].position
+
+    def _authoritative(self, work_id: str, accepted: set[str] | None = None) -> WorkItem:
+        """The work item as the ordered stream Records define it, repairing a stale projection (crash or another writer).
+
+        CAS decisions must use this, never the cached projection row: the Record is the authority."""
+        cached = self.get_work(work_id)
+        items, _ = self._fold(self._stream_records(cached.stream_id), accepted)
+        state = items.get(work_id)
+        if state is None:
+            raise WorkNotFoundError(f"Work item {work_id!r} has no authoritative Records in stream {cached.stream_id!r}")
+        item = self._item_from_state(state)
+        if item != cached:
+            self._save_work_projection(item)
+        return item
+
+    def _append(self, **record: Any) -> Record:
+        """Append a state-changing Record; the store's idempotency conflict on the same `work-id-revision` key means another
+        writer already took that revision, which is a revision conflict for the caller."""
+        try:
+            return self.store.append_record(**record)
+        except IdempotencyConflictError as exc:
+            body = record.get("body")
+            if isinstance(body, dict):  # the loser's cache must not stay stale
+                self._authoritative(cast(str, cast(dict[str, Any], body).get("work_id")))
+            raise WorkRevisionConflictError(f"Another writer already took this Work revision: {exc}") from exc
+
+    def _confirm(self, work_id: str, record_id: str) -> WorkItem:
+        """After appending: succeed only if the reducer accepted OUR record; a concurrent writer that won the revision
+        leaves ours ignored on replay, so acknowledging it would be a lost update."""
+        accepted: set[str] = set()
+        item = self._authoritative(work_id, accepted)
+        if record_id not in accepted:
+            raise WorkRevisionConflictError(
+                f"Work {work_id!r}: the change was appended but lost to a concurrent writer (authoritative revision is {item.revision})")
+        return item
+
     def transition_work(
         self,
         work_id: str,
@@ -186,7 +236,7 @@ class WorkProjection:
         author_peer_id: str | None = None,
     ) -> WorkItem:
         """Transition work item state with CAS optimistic revision gating."""
-        current = self.get_work(work_id)
+        current = self._authoritative(work_id)
 
         if current.state in self.TERMINAL_STATES:
             raise ForbiddenTransitionError(
@@ -217,7 +267,7 @@ class WorkProjection:
         }
 
         # Authoritative Core record append
-        self.store.append_record(
+        appended = self._append(
             stream_id=current.stream_id,
             author_peer_id=self._resolve_author(current.stream_id, author_peer_id),
             kind="m2.work.transitioned",
@@ -226,21 +276,7 @@ class WorkProjection:
             created_at=now,
         )
 
-        updated = WorkItem(
-            work_id=current.work_id,
-            stream_id=current.stream_id,
-            state=target_state,
-            revision=new_rev,
-            title=current.title,
-            spec=current.spec,
-            artifacts=list(current.artifacts),
-            checkpoint=current.checkpoint,
-            created_at=current.created_at,
-            updated_at=now,
-        )
-
-        self._save_work_projection(updated)
-        return updated
+        return self._confirm(work_id, appended.record_id)
 
     def checkpoint_work(
         self,
@@ -252,7 +288,7 @@ class WorkProjection:
         """Save checkpoint data on active work item and advance revision."""
         if not isinstance(cast(object, checkpoint_data), dict):
             raise InvalidWorkPayloadError("Checkpoint must be a JSON object")
-        current = self.get_work(work_id)
+        current = self._authoritative(work_id)
 
         if current.state in self.TERMINAL_STATES:
             raise ForbiddenTransitionError(
@@ -275,7 +311,7 @@ class WorkProjection:
             "checkpointed_at": now,
         }
 
-        self.store.append_record(
+        appended = self._append(
             stream_id=current.stream_id,
             author_peer_id=self._resolve_author(current.stream_id, author_peer_id),
             kind="m2.work.checkpointed",
@@ -284,21 +320,7 @@ class WorkProjection:
             created_at=now,
         )
 
-        updated = WorkItem(
-            work_id=current.work_id,
-            stream_id=current.stream_id,
-            state=current.state,
-            revision=new_rev,
-            title=current.title,
-            spec=current.spec,
-            artifacts=list(current.artifacts),
-            checkpoint=checkpoint_data,
-            created_at=current.created_at,
-            updated_at=now,
-        )
-
-        self._save_work_projection(updated)
-        return updated
+        return self._confirm(work_id, appended.record_id)
 
     def link_artifact(
         self,
@@ -310,7 +332,7 @@ class WorkProjection:
         """Link an immutable CAS artifact digest to a work item."""
         if not isinstance(cast(object, digest), str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise InvalidWorkPayloadError("Artifact reference must be a lowercase SHA-256 digest")
-        current = self.get_work(work_id)
+        current = self._authoritative(work_id)
 
         if current.revision != expected_revision:
             raise WorkRevisionConflictError(
@@ -331,7 +353,7 @@ class WorkProjection:
             "linked_at": now,
         }
 
-        self.store.append_record(
+        appended = self._append(
             stream_id=current.stream_id,
             author_peer_id=self._resolve_author(current.stream_id, author_peer_id),
             kind="m2.work.artifact_linked",
@@ -340,21 +362,7 @@ class WorkProjection:
             created_at=now,
         )
 
-        updated = WorkItem(
-            work_id=current.work_id,
-            stream_id=current.stream_id,
-            state=current.state,
-            revision=new_rev,
-            title=current.title,
-            spec=current.spec,
-            artifacts=new_artifacts,
-            checkpoint=current.checkpoint,
-            created_at=current.created_at,
-            updated_at=now,
-        )
-
-        self._save_work_projection(updated)
-        return updated
+        return self._confirm(work_id, appended.record_id)
 
     def get_work(self, work_id: str) -> WorkItem:
         """Fetch a work item projection from SQLite by its work_id."""
@@ -425,10 +433,8 @@ class WorkProjection:
             ),
         )
 
-    def rebuild_projection(self, records: Iterable[Record]) -> int:
-        """Wipe projection tables and rebuild state entirely from ordered Core records."""
-        self._init_db()
-
+    def _fold(self, records: Iterable[Record], accepted: set[str] | None = None) -> tuple[dict[str, dict[str, Any]], int]:
+        """The single ordered-Record reducer: pure, no database access. `accepted` collects the record ids the reducer applied."""
         items: dict[str, dict[str, Any]] = {}
         applied_count = 0
         positions: dict[str, int] = {}
@@ -497,6 +503,8 @@ class WorkProjection:
                     "updated_at": created_str,
                 }
                 applied_count += 1
+                if accepted is not None:
+                    accepted.add(record.record_id)
 
             elif kind == "m2.work.transitioned":
                 raw_wid = p.get("work_id")
@@ -511,6 +519,8 @@ class WorkProjection:
                     raw_trans_at = p.get("transitioned_at")
                     it["updated_at"] = raw_trans_at if isinstance(raw_trans_at, str) else record.created_at
                     applied_count += 1
+                    if accepted is not None:
+                        accepted.add(record.record_id)
 
             elif kind == "m2.work.checkpointed":
                 raw_wid = p.get("work_id")
@@ -524,6 +534,8 @@ class WorkProjection:
                 raw_chk_at = p.get("checkpointed_at")
                 it["updated_at"] = raw_chk_at if isinstance(raw_chk_at, str) else record.created_at
                 applied_count += 1
+                if accepted is not None:
+                    accepted.add(record.record_id)
 
             elif kind == "m2.work.artifact_linked":
                 raw_wid = p.get("work_id")
@@ -539,6 +551,15 @@ class WorkProjection:
                 raw_linked_at = p.get("linked_at")
                 it["updated_at"] = raw_linked_at if isinstance(raw_linked_at, str) else record.created_at
                 applied_count += 1
+                if accepted is not None:
+                    accepted.add(record.record_id)
+
+        return items, applied_count
+
+    def rebuild_projection(self, records: Iterable[Record]) -> int:
+        """Wipe projection tables and rebuild state entirely from ordered Core records."""
+        self._init_db()
+        items, applied_count = self._fold(records)
 
         # Replace the projection atomically: a failure while reading `records` above never reaches the DELETE, and a
         # failure here rolls the whole replacement back, so readers never see an empty or half-built projection.
