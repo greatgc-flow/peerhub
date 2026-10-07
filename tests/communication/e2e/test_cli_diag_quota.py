@@ -1,4 +1,4 @@
-"""M1 public CLI gate item 2/3: `diag quota` (read-only Observation evidence) and an EFFECTIVE `diag health --obs-db`.
+"""M1 public CLI gate item 2/3: `diag quota` (read-only Observation evidence) and an EFFECTIVE `diag health --observation-db`.
 Oracles are independent: rows are seeded with raw SQL (not through the Observation write path), expected values are literals."""
 import hashlib
 import json
@@ -161,14 +161,14 @@ def test_quota_obs_db_reads_other_workspace_and_never_creates(ws, tmp_path, caps
     other = ObservationHarness(tmp_path / "wsB")
     seed(other.db_path, rows=[("peer:z", "quota", None, "MEASURED", 3, {"remaining": 7}, "src-z")])
     missing = tmp_path / "nope.db"
-    code, out, _ = run(capsys, missing, "diag", "quota", "--json", "--obs-db", str(other.db_path))  # --db itself is not needed
+    code, out, _ = run(capsys, missing, "diag", "quota", "--json", "--observation-db", str(other.db_path))  # --db itself is not needed
     rep = json.loads(out)
     assert code == 0 and rep["source_db"] == str(other.db_path) and not missing.exists()
     assert [(i["subject_ref"], i["measurements"]) for g in rep["pools"] for i in g["items"]] == [("peer:z", {"remaining": 7})]
     code, out, _ = run(capsys, ws.db_path, "diag", "quota", "--json")  # positive control: default reads --db, not the other one
     assert "peer:z" not in out and "peer:a" in out
     gone = tmp_path / "gone.db"
-    code, out, _ = run(capsys, ws.db_path, "diag", "quota", "--json", "--obs-db", str(gone))
+    code, out, _ = run(capsys, ws.db_path, "diag", "quota", "--json", "--observation-db", str(gone))
     assert code == 5 and not gone.exists()
 
 
@@ -182,12 +182,12 @@ def test_health_obs_db_is_effective(ws, tmp_path, capsys):
     own = json.loads(out)
     assert code == 0 and own["status"] == "OK" and own["stream_id"] == "s"
     assert own["observations"] == {"source_db": str(ws.db_path), "status": "OK", "latest_total": 4, "by_state": {"MEASURED": 2, "STALE": 1, "UNAVAILABLE": 1}, "error": None}
-    code, out, _ = run(capsys, ws.db_path, "diag", "health", "--stream", "s", "--obs-db", str(other.db_path))
+    code, out, _ = run(capsys, ws.db_path, "diag", "health", "--stream", "s", "--observation-db", str(other.db_path))
     rep = json.loads(out)
     assert rep["stream_id"] == "s" and rep["members"] == ["a"]  # stream part still from --db
     assert rep["observations"]["source_db"] == str(other.db_path) and rep["observations"]["by_state"] == {"MEASURED": 2, "UNAVAILABLE": 1} and rep["observations"]["latest_total"] == 3
     gone = tmp_path / "gone.db"
-    code, out, _ = run(capsys, ws.db_path, "diag", "health", "--stream", "s", "--obs-db", str(gone))
+    code, out, _ = run(capsys, ws.db_path, "diag", "health", "--stream", "s", "--observation-db", str(gone))
     rep = json.loads(out)
     assert code == 0 and rep["status"] == "OK" and rep["observations"]["status"] == "UNAVAILABLE" and not gone.exists()
 

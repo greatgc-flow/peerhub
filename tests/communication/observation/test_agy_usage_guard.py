@@ -140,7 +140,7 @@ def test_refresh_quota_without_warnings_has_empty_list(fake, tmp_path):
 def cli(db, fake, *args):
     with patch("time.sleep", lambda s: sleeps.append(s)):
         try:
-            return main(["--db", str(db), "observation", "refresh", "--peers", "ag", "--sys-dir", str(fake.sys_dir), *args])
+            return main(["--db", str(db), "observation", "refresh", "--peers", "ag", "--system-dir", str(fake.sys_dir), *args])
         except SystemExit as e:
             return e.code
 

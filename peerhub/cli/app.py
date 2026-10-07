@@ -133,7 +133,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     observation_sub = observation_parser.add_subparsers(dest="action", required=True)
     refresh = observation_sub.add_parser("refresh", help="Collect provider quota into append-only Observation evidence")
     refresh.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"])
-    refresh.add_argument("--sys-dir", type=Path, help="Explicit portable provider installation directory")
+    refresh.add_argument("--system-dir", dest="sys_dir", type=Path, help="Explicit portable provider installation directory")
     refresh.add_argument("--timeout-seconds", type=float, default=15)
 
     from peerhub.cli.monitor import register_monitor_parser
@@ -151,7 +151,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     d_health = diag_sub.add_parser("health", help="Inspect stream or store health (read-only)")
     d_health.add_argument("--stream", default=None, dest="stream_id",
                           help="Optional stream ID to inspect (default: inspects entire store and active streams)")
-    d_health.add_argument("--obs-db", default=None, metavar="PATH",
+    d_health.add_argument("--observation-db", dest="obs_db", default=None, metavar="PATH",
                           help="Read the observations summary from this OTHER PeerHub workspace database (opened read-only, never created); "
                                "default: the --db database. The stream part always comes from --db.")
     d_health.epilog = "examples: peerhub diag health | peerhub diag health --stream s1"
@@ -160,12 +160,12 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                                   description="Latest quota/rate_limit Observation per subject/pool exactly as Diag evaluates it "
                                               "(MEASURED/STALE/UNKNOWN/UNAVAILABLE). Missing evidence is UNKNOWN, never unlimited. "
                                               "Exit: 0 ok, 4 storage fault/corrupt evidence, 5 database or observation tables unavailable, 6 schema version.")
-    d_quota.add_argument("--obs-db", default=None, metavar="PATH",
+    d_quota.add_argument("--observation-db", dest="obs_db", default=None, metavar="PATH",
                          help="Read observations from this OTHER PeerHub workspace database (opened read-only, never created); default: the --db database")
     d_quota.add_argument("--peer", default=None, help="Only this subject_ref (exact match)")
     d_quota.add_argument("--pool", default=None, help="Only this resource_pool_ref (exact match)")
     d_quota.add_argument("--json", action="store_true", help="Machine-readable output (schema_version 1.0) instead of the table")
-    d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --obs-db other_ws.db"
+    d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --observation-db other_ws.db"
 
     # legacy import (the --db option is the PeerHub TARGET store; --source is the legacy v0.x database, opened read-only)
     legacy_parser = subparsers.add_parser("legacy-import", help="Import a legacy v0.x store (dry-run first)")

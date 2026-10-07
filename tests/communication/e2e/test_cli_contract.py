@@ -232,7 +232,7 @@ def dh_stream(e):
 def dh_obsdb(e):
     db, q = e.fresh(), _quota_world(e)
     own = e.j(db, "diag", "health", "--stream", "s")["observations"]
-    other = e.j(db, "diag", "health", "--stream", "s", "--obs-db", str(q))["observations"]
+    other = e.j(db, "diag", "health", "--stream", "s", "--observation-db", str(q))["observations"]
     assert own["source_db"] == str(db) and own["status"] == "UNAVAILABLE"
     assert other["source_db"] == str(q) and other["latest_total"] == 2 and other["status"] == "OK"
 
@@ -240,7 +240,7 @@ def dh_obsdb(e):
 def dq_obsdb(e):
     db, q = e.fresh(), _quota_world(e)
     assert e.j(db, "diag", "quota", "--json", code=5)["status"] == "UNAVAILABLE"
-    assert e.j(db, "diag", "quota", "--json", "--obs-db", str(q))["status"] == "OK"
+    assert e.j(db, "diag", "quota", "--json", "--observation-db", str(q))["status"] == "OK"
 
 
 def dq_peer(e):
@@ -295,8 +295,8 @@ EFFECT = {
     "record read --stream": rr_stream, "record read --after": rr_after, "record read --limit": rr_limit,
     "offset get --peer": og_peer, "offset get --stream": og_stream, "offset advance --peer": oa_peer, "offset advance --stream": oa_stream,
     "offset advance --position": oa_position, "offset advance --revision": oa_revision,
-    "diag health --stream": dh_stream, "diag health --obs-db": dh_obsdb,
-    "diag quota --obs-db": dq_obsdb, "diag quota --peer": dq_peer, "diag quota --pool": dq_pool, "diag quota --json": dq_json,
+    "diag health --stream": dh_stream, "diag health --observation-db": dh_obsdb,
+    "diag quota --observation-db": dq_obsdb, "diag quota --peer": dq_peer, "diag quota --pool": dq_pool, "diag quota --json": dq_json,
     "legacy-import dry-run --source": li_source, "legacy-import apply --source": li_apply_source, "legacy-import apply --plan-digest": li_digest,
 }
 

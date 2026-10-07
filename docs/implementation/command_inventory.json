@@ -154,7 +154,7 @@
           "default": null,
           "dest": "obs_db",
           "flags": [
-            "--obs-db"
+            "--observation-db"
           ],
           "positional": false,
           "required": false,
@@ -189,7 +189,7 @@
           "default": null,
           "dest": "obs_db",
           "flags": [
-            "--obs-db"
+            "--observation-db"
           ],
           "positional": false,
           "required": false,
@@ -359,7 +359,7 @@
           "default": null,
           "dest": "sys_dir",
           "flags": [
-            "--sys-dir"
+            "--system-dir"
           ],
           "positional": false,
           "required": false,

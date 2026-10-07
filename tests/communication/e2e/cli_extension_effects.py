@@ -101,7 +101,7 @@ def refresh_effect(e, option):
     argv = ["observation", "refresh", "--peers", "cc"]
     if option == "--peers":
         argv[-1] = "cx"
-    elif option == "--sys-dir":
+    elif option == "--system-dir":
         argv += [option, str(e.tmp)]
     elif option == "--timeout-seconds":
         argv += [option, "2"]
@@ -111,7 +111,7 @@ def refresh_effect(e, option):
     assert result["observations"][0]["state"] == "ABSENT"
     if option == "--peers":
         assert captured[0]["instance_id"] == "cx" and result["observations"][0]["subject_ref"] == "cx"
-    elif option == "--sys-dir":
+    elif option == "--system-dir":
         assert captured[0]["sys_dir"] == e.tmp
     else:
         assert captured[0]["deadline_sec"] == 2
@@ -173,6 +173,6 @@ EFFECT["diag --json"] = diag_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
                for option in ("--live", "--interval-seconds", "--cycles")})
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
-               for option in ("--peers", "--sys-dir", "--timeout-seconds")})
+               for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
                for option in ("--interval-seconds", "--cycles", "--peers", "--timeout-seconds", "--json", "--allow-agy-token-use", "--collect-every", "--view")})
