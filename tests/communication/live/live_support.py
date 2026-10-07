@@ -69,6 +69,18 @@ def load_evidence(path: Path | None = None) -> dict:
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {"schema": "peerhub-m1-live-evidence/1", "providers": {}}
 
 
+def replace_with_retry(src: Path, dst: Path, attempts: int = 20, delay: float = 0.05) -> None:
+    """os.replace that rides out a transient Windows PermissionError (another process briefly holds the target open)."""
+    for n in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if n == attempts - 1:
+                raise
+            time.sleep(min(delay * (n + 1), 0.5))
+
+
 def merge_evidence(kind: str, section: str, entry: dict, path: Path | None = None) -> Path:
     """Merge one sanitized section for a provider (atomic replace). Entries never contain prompts, responses or secrets."""
     p = path or evidence_path()
@@ -78,7 +90,7 @@ def merge_evidence(kind: str, section: str, entry: dict, path: Path | None = Non
     doc["providers"].setdefault(kind, {})[section] = entry
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, p)
+    replace_with_retry(tmp, p)
     return p
 
 
