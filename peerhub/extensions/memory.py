@@ -257,15 +257,30 @@ class MemoryStore:
                               sort_keys=True, ensure_ascii=False).encode("utf-8")
         return ContextPack("pack-" + hashlib.sha256(identity).hexdigest(), selected, tokens, max_tokens)
 
-    def rebuild_from_records(self, core_store: CoreStore) -> int:
-        """Strict lifecycle replay; invalid source rolls back the old projection unchanged."""
+    def rebuild_from_records(self, core_store: CoreStore, *, quarantine: bool = False) -> int:
+        """Lifecycle replay from the authoritative Records.
+
+        Default (strict): an invalid event aborts the rebuild and the old projection stays unchanged. With `quarantine=True` an
+        invalid historical event is skipped atomically (no partial effect) and listed in `self.quarantined` with its reason, so
+        nothing is silently dropped and later valid history still rebuilds; events that depend on a skipped one are quarantined too.
+        """
         items: dict[str, MemoryItem] = {}
         origins: dict[str, str] = {}
         count = 0
+        self.quarantined: list[dict[str, str]] = []
         for rec in source_records(core_store):
             if not rec.kind.startswith("m3.memory."):
                 continue
-            self._replay(items, origins, rec)
+            if not quarantine:
+                self._replay(items, origins, rec)
+            else:
+                before_items, before_origins = dict(items), dict(origins)
+                try:
+                    self._replay(items, origins, rec)
+                except MemoryStateTransitionError as exc:
+                    items, origins = before_items, before_origins
+                    self.quarantined.append({"record_id": rec.record_id, "kind": rec.kind, "reason": str(exc)})
+                    continue
             count += 1
         with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")

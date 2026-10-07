@@ -194,3 +194,36 @@ def test_memory_committed_event_recovers_after_projection_write_failure(tmp_path
     recovered = memory.get_memory(event.body["item"]["memory_id"])
     assert asdict(recovered) == event.body["item"]
     assert recovered.state == "CANDIDATE"  # recovery does not invent acceptance
+
+
+def test_quarantine_mode_skips_invalid_history_reports_it_and_keeps_valid_memories(tmp_path, core):
+    memory = durable(tmp_path, core)
+    good = memory.propose_memory("good", "kept", "fact:good")
+    memory.accept_memory(good.memory_id)
+    item = memory.propose_memory("key", "content", "fact:1")
+    accepted = memory.accept_memory(item.memory_id)
+    memory.revoke_memory(item.memory_id)
+    core.append_record(stream_id="events", author_peer_id="a", kind="m3.memory.accepted",
+        body={"schema_version": "1.0", "item": asdict(replace(accepted, revision=4))}, idempotency_key="bad", created_at=accepted.updated_at)
+    core.append_record(stream_id="events", author_peer_id="a", kind="m3.memory.proposed",
+        body={"key": "bare", "content": "no schema"}, idempotency_key="bad2", created_at="2026-10-06T00:00:00Z")
+    fresh = MemoryStore(tmp_path / "rebuilt.db")
+    with pytest.raises(MemoryStateTransitionError):  # strict stays the default
+        fresh.rebuild_from_records(core)
+    applied = fresh.rebuild_from_records(core, quarantine=True)
+    assert applied >= 3 and len(fresh.quarantined) == 2  # nothing silently dropped: both bad events are listed with a reason
+    assert all(q["record_id"] and q["reason"] for q in fresh.quarantined)
+    assert fresh.get_memory(good.memory_id).state == "ACCEPTED"  # later/other valid history still rebuilt
+    assert fresh.get_memory(item.memory_id).state == "REVOKED"  # the skipped reactivation did not resurrect it
+    assert MemoryStore(tmp_path / "rebuilt.db").get_memory(good.memory_id) == fresh.get_memory(good.memory_id)  # durable
+
+
+def test_quarantine_skip_is_atomic_per_event(tmp_path, core):
+    memory = durable(tmp_path, core)
+    item = memory.propose_memory("key", "content", "fact:1")
+    before = memory.get_memory(item.memory_id)
+    core.append_record(stream_id="events", author_peer_id="a", kind="m3.memory.accepted",
+        body={"schema_version": "1.0", "item": asdict(replace(before, revision=9))}, idempotency_key="bad", created_at=before.updated_at)
+    fresh = MemoryStore(tmp_path / "r2.db")
+    fresh.rebuild_from_records(core, quarantine=True)
+    assert fresh.get_memory(item.memory_id).state == before.state and fresh.get_memory(item.memory_id).revision == before.revision
