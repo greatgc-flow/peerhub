@@ -82,3 +82,25 @@ def test_skill_tree_digest_framing_has_no_boundary_collisions(tmp_path):
     (two / "b").write_bytes(b"3")
     assert SkillCatalogEngine.compute_directory_digest(two)[0] != d2  # content still changes the digest
     assert SkillCatalogEngine.compute_directory_digest(two) == SkillCatalogEngine.compute_directory_digest(two)  # deterministic
+
+
+def test_export_verified_streams_a_blob_and_never_publishes_a_tampered_one(tmp_path):
+    import os
+    import stat
+
+    from peerhub.extensions.artifact import ArtifactNotFoundError, ArtifactTamperedError
+
+    store = ArtifactStore(tmp_path / "a")
+    data = b"0123456789" * 50_000  # 500 kB, several chunks
+    digest = store.commit_staged(store.stage_bytes(data))
+    out = tmp_path / "out" / "copy.bin"
+    assert store.export_verified(digest, out, chunk_size=4096) == len(data) and out.read_bytes() == data
+    blob = store.resolve_path(digest)
+    os.chmod(blob, stat.S_IREAD | stat.S_IWRITE)
+    blob.write_bytes(data[:-1] + b"X")  # tamper with the committed blob
+    bad = tmp_path / "out" / "bad.bin"
+    with pytest.raises(ArtifactTamperedError):
+        store.export_verified(digest, bad)
+    assert not bad.exists() and not list((tmp_path / "out").glob(".export-*"))  # no destination, no leftover temp
+    with pytest.raises(ArtifactNotFoundError):
+        store.export_verified("0" * 64, tmp_path / "out" / "none.bin")

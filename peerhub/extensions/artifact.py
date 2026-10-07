@@ -284,6 +284,41 @@ class ArtifactStore:
             )
         return bytes(prefix), total
 
+    def export_verified(self, digest: str, dest: Path | str, chunk_size: int = 65536) -> int:
+        """Copy a committed blob to `dest` with bounded memory; `dest` appears only if the content verifies.
+
+        The bytes are streamed into a sibling temp file while hashing, compared with the digest, and only then moved into place
+        (a tampered or truncated blob never produces a destination file). Returns the byte count."""
+        import hashlib
+        import tempfile
+
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        target_path = self.resolve_path(digest)
+        if not target_path.is_file():
+            raise ArtifactNotFoundError(f"Artifact {digest} not found on disk at {target_path}")
+        out = Path(dest)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=out.parent, prefix=".export-")
+        tmp = Path(tmp_name)
+        hasher, total = hashlib.sha256(), 0
+        try:
+            with os.fdopen(fd, "wb") as sink, open(target_path, "rb") as src:
+                while chunk := src.read(chunk_size):
+                    hasher.update(chunk)
+                    sink.write(chunk)
+                    total += len(chunk)
+                sink.flush()
+                os.fsync(sink.fileno())
+            if hasher.hexdigest() != digest:
+                raise ArtifactTamperedError(
+                    f"Artifact digest mismatch: expected {digest}, got {hasher.hexdigest()} (tampered or truncated)")
+            os.replace(tmp, out)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        return total
+
     def sweep_staging(self, max_age_seconds: float = 86400.0) -> list[Path]:
         """Sweep stranded temporary staging files in .tmp older than max_age_seconds."""
         import time
