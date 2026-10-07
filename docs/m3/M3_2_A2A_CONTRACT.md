@@ -86,3 +86,5 @@ Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10
 - The old contract's A2A lifecycle totally lacked the `SUBMITTING`, `UNCERTAIN`, and `ABANDONED` states.
 - It lacked the `abandon_task` and `reconcile_task` definitions on the interface.
 - It assumed immediate synchronous outcomes rather than handling durable reconciliation, state-locking on restarts, and the total call deadline.
+
+**Interop limit (checked 2026-10-08):** the HTTP binding speaks `tasks/send`, `tasks/get`, `tasks/cancel`. The official `a2a-sdk` 1.2.2 serves `SendMessage`/`GetTask`/`CancelTask` (its v0.3 compat layer: `message/send`, `tasks/get`, `tasks/cancel`), so the binding does not interoperate with current third-party A2A servers, and the client-chosen task id (our idempotency identity) differs from the standard's server-assigned id. Not fixed here: it needs a task-id model redesign.

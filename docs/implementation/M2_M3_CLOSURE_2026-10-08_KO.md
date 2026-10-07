@@ -51,6 +51,7 @@ AST/JSONPath 조건식 · 분산 큐 · 우아한 종료 단계(SIGINT→SIGKILL
 - **ProcessRuntimeAdapter**는 신뢰된 argv를 가정한다(실패 격리와 취소이지 보안 sandbox가 아님). Python plugin도 in-process 실행이다.
 - Windows long-path 동작과 symlink 권한이 필요한 테스트는 이 호스트에서 실행하지 못했다.
 - `idempotent=True`로 선언된 단계의 MAY_HAVE_STARTED 재시도는 journal 없는 실행에서만 허용된다(명시적 선언을 증거로 간주). 내구 실행에서는 항상 reconcile이 필요하다.
+- **A2A 상호운용 점검(2026-10-08, v0.12.1 이후):** 공식 `a2a-sdk` 1.2.2의 소스를 확인했다. 현재 프로토콜은 `SendMessage`/`GetTask`/`CancelTask`이고 v0.3 호환 계층도 `message/send`·`tasks/get`·`tasks/cancel`을 쓴다. 우리 HTTP 바인딩의 `tasks/send`는 그 어디에도 없어서 **현재 제3자 A2A 서버와는 호환되지 않는다**(`tasks/get`·`tasks/cancel`만 v0.3과 같다). 또한 우리 멱등성은 클라이언트가 정한 task id를 전제하는데 표준은 서버가 task id를 부여한다. 맞추려면 task id 모델부터 다시 설계해야 하므로 이번에는 하지 않고 한계로만 확정한다. 이 바인딩은 `HttpA2ATransport`를 만족하는 자체 서버/호환 서버용이다.
 
 ## 승격 상태와 게이트 증거
 M1 Exit는 PASS했다(v0.12.0: 후보 커밋에 묶인 live·패키지 증거와 CI 매트릭스). `MILESTONE_GATES`의 M2→M3, M3→Optional 항목은 아래 증거로 GREEN이며, 모두 main CI(ubuntu/windows × 3.11–3.14)에서 매번 실행된다.
