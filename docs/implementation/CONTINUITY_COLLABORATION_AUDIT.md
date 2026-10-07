@@ -1,5 +1,10 @@
 # Continuity and collaboration implementation audit
 
+> **2026-10-08 상태 갱신:** 아래 "Remaining findings at audit snapshot"의 항목(Backup 경계, Work/Skill CAS, Memory·Search rebuild,
+> Orchestration 비용/병렬/조건/hard cancel, A2A transport 등)은 `M2_M3_CLOSURE_2026-10-08_KO.md`의 결정과 테스트로 닫혔다.
+> 이 문서는 감사 당시의 스냅샷으로 남긴다.
+
+
 Date: 2026-10-06. This is a working-tree audit, not an exact-head promotion or release attestation.
 
 ## Authority and scope
