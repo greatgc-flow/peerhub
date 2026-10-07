@@ -117,48 +117,6 @@ def refresh_effect(e, option):
         assert captured[0]["deadline_sec"] == 2
 
 
-def watch_effect(e, option):
-    """`observation refresh --interval-seconds/--count`: N explicit collections, NDJSON, the requested pause between them."""
-    db = e.fresh(False)
-    polls, sleeps = [], []
-
-    def probe(**kw):
-        polls.append(kw)
-        ev = SimpleNamespace(state=EvidenceState.ABSENT, value=None, evidence_ref="test", source_tag="fake",
-                             observed_at=100, captured_at=100)
-        return [SimpleNamespace(evidence=ev)]
-
-    interval, count = ("0.5", "3") if option == "--interval-seconds" else ("0.01", "2")
-    with patch("peerhub.extensions.quota_probes.poll_claude_usage", probe),          patch("peerhub.extensions.quota_probes.poll_codex_usage", probe),          patch("time.sleep", lambda s: sleeps.append(s)):
-        code, out, _err = e.run(db, "observation", "refresh", "--peers", "cc", "--interval-seconds", interval, "--count", count)
-    lines = [json.loads(x) for x in out.splitlines() if x.strip()]
-    assert code == 0 and len(lines) == int(count) == len(polls)  # one compact JSON line per collection, exactly --count of them
-    assert sleeps == [float(interval)] * (int(count) - 1)  # pause between collections, none after the last
-    assert all(x["observations"][0]["state"] == "ABSENT" for x in lines)
-
-
-def agy_keep_going_effect(e, option):
-    """`observation refresh --keep-going-on-agy-token-use`: without it, watch mode stops (exit 1) at the first agy token-consumption event."""
-    polls = []
-
-    def probe(**kw):
-        polls.append(kw)
-        ev = SimpleNamespace(state=EvidenceState.ERROR, value=None, evidence_ref="agy_usage_consumed_tokens", source_tag="fake",
-                             observed_at=100, captured_at=100)
-        return [SimpleNamespace(evidence=ev, extra={"reason": "agy_usage_consumed_tokens", "consumed_tokens": 94000, "warning": "tokens used"})]
-
-    def watch(*flag):
-        polls.clear()
-        with patch("peerhub.extensions.quota_probes.poll_agy_usage", probe), patch("time.sleep", lambda s: None):
-            code, _out, err = e.run(e.fresh(False), "observation", "refresh", "--peers", "ag", "--interval-seconds", "0.01", "--count", "3", *flag)
-        return code, err, len(polls)
-
-    code, err, n = watch()
-    assert (code, n) == (1, 1) and "--keep-going-on-agy-token-use" in err  # default: stop after the first violation
-    code, err, n = watch(option)
-    assert (code, n) == (1, 3) and err.count("tokens used") == 3  # explicit flag: all 3 collections run
-
-
 def monitor_effect(e, option):
     db = e.fresh(False)
     captured = []
@@ -174,19 +132,19 @@ def monitor_effect(e, option):
         from types import SimpleNamespace
         ev = SimpleNamespace(state=EvidenceState.ERROR, value=None, evidence_ref="agy_usage_consumed_tokens", source_tag="fake", observed_at=100, captured_at=100)
         return [SimpleNamespace(evidence=ev, extra={"reason": "x", "consumed_tokens": 1, "warning": "tokens used"})]
-    argv = ["monitor", "--count", "1"]
-    if option == "--interval-seconds":
-        argv = ["monitor", "--count", "2", option, "3.14"]  # the pause happens between cycles: two cycles, one sleep
-    elif option == "--count":
-        argv = ["monitor", "--count", "2"]
+    argv = ["monitor", "--cycles", "1"]
+    if option == "--interval":
+        argv = ["monitor", "--cycles", "2", option, "3.14"]  # the pause happens between cycles: two cycles, one sleep
+    elif option == "--cycles":
+        argv = ["monitor", "--cycles", "2"]
     elif option == "--peers":
         argv += [option, "cx"]
-    elif option == "--timeout-seconds":
+    elif option == "--timeout":
         argv += [option, "2"]
-    elif option == "--refresh-every":
-        argv = ["monitor", "--count", "2", "--refresh-every", "2"]
-    elif option == "--keep-going-on-agy-token-use":
-        argv = ["monitor", "--count", "2", "--peers", "ag", option]
+    elif option == "--collect-every":
+        argv = ["monitor", "--cycles", "2", "--collect-every", "2"]
+    elif option == "--allow-agy-token-use":
+        argv = ["monitor", "--cycles", "2", "--peers", "ag", option]
     elif option == "--json":
         argv += [option]
     elif option == "--view":
@@ -194,17 +152,17 @@ def monitor_effect(e, option):
     sleeps = []
     with patch("peerhub.extensions.quota_probes.poll_claude_usage", probe), \
          patch("peerhub.extensions.quota_probes.poll_codex_usage", probe), \
-         patch("peerhub.extensions.quota_probes.poll_agy_usage", probe_agy if option == "--keep-going-on-agy-token-use" else probe), \
+         patch("peerhub.extensions.quota_probes.poll_agy_usage", probe_agy if option == "--allow-agy-token-use" else probe), \
          patch("time.sleep", lambda s: sleeps.append(s)):
         code, out, err = e.run(db, *argv)
     if option == "--view":
         assert "QUOTA" in out and "refresh:" in err and "[" not in out  # rich layout, no colour off a pipe
-    elif option == "--interval-seconds": assert sleeps == [3.14]
-    elif option == "--count": assert len(sleeps) == 1
+    elif option == "--interval": assert sleeps == [3.14]
+    elif option == "--cycles": assert len(sleeps) == 1
     elif option == "--peers": assert captured[0]["instance_id"] == "cx"
-    elif option == "--timeout-seconds": assert captured[0]["deadline_sec"] == 2
-    elif option == "--refresh-every": assert len(captured) == 3
-    elif option == "--keep-going-on-agy-token-use": assert code == 1 and err.count("tokens used") == 2
+    elif option == "--timeout": assert captured[0]["deadline_sec"] == 2
+    elif option == "--collect-every": assert len(captured) == 3
+    elif option == "--allow-agy-token-use": assert code == 1 and err.count("tokens used") == 2
     elif option == "--json": import json; assert "cycle" in json.loads(out.splitlines()[0])
 
 
@@ -216,8 +174,5 @@ EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
                for option in ("--live", "--interval-seconds", "--count")})
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
                for option in ("--peers", "--sys-dir", "--timeout-seconds")})
-EFFECT.update({f"observation refresh {option}": (lambda e, option=option: watch_effect(e, option))
-               for option in ("--interval-seconds", "--count")})
-EFFECT["observation refresh --keep-going-on-agy-token-use"] = lambda e: agy_keep_going_effect(e, "--keep-going-on-agy-token-use")
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
-               for option in ("--interval-seconds", "--count", "--peers", "--timeout-seconds", "--json", "--keep-going-on-agy-token-use", "--refresh-every", "--view")})
+               for option in ("--interval", "--cycles", "--peers", "--timeout", "--json", "--allow-agy-token-use", "--collect-every", "--view")})

@@ -261,10 +261,30 @@
       "command": "monitor",
       "options": [
         {
-          "default": 0,
-          "dest": "count",
+          "default": false,
+          "dest": "allow_agy_token_use",
           "flags": [
-            "--count"
+            "--allow-agy-token-use"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": 1,
+          "dest": "collect_every",
+          "flags": [
+            "--collect-every"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 0,
+          "dest": "cycles",
+          "flags": [
+            "--cycles"
           ],
           "positional": false,
           "required": false,
@@ -272,9 +292,9 @@
         },
         {
           "default": 60.0,
-          "dest": "interval_seconds",
+          "dest": "interval",
           "flags": [
-            "--interval-seconds"
+            "--interval"
           ],
           "positional": false,
           "required": false,
@@ -291,16 +311,6 @@
           "takes_value": false
         },
         {
-          "default": false,
-          "dest": "keep_going_on_agy_token_use",
-          "flags": [
-            "--keep-going-on-agy-token-use"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        },
-        {
           "default": "['cx', 'cc', 'ag']",
           "dest": "peers",
           "flags": [
@@ -311,20 +321,10 @@
           "takes_value": true
         },
         {
-          "default": 1,
-          "dest": "refresh_every",
-          "flags": [
-            "--refresh-every"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
           "default": 15.0,
-          "dest": "timeout_seconds",
+          "dest": "timeout",
           "flags": [
-            "--timeout-seconds"
+            "--timeout"
           ],
           "positional": false,
           "required": false,
@@ -345,36 +345,6 @@
     {
       "command": "observation refresh",
       "options": [
-        {
-          "default": null,
-          "dest": "count",
-          "flags": [
-            "--count"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
-          "default": null,
-          "dest": "interval_seconds",
-          "flags": [
-            "--interval-seconds"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
-          "default": false,
-          "dest": "keep_going_on_agy_token_use",
-          "flags": [
-            "--keep-going-on-agy-token-use"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        },
         {
           "default": "['cx', 'cc', 'ag']",
           "dest": "peers",

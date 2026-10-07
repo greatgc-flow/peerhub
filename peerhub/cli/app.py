@@ -20,7 +20,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from peerhub._console import tolerant_streams
-from peerhub.cli.support import agy_token_use as _agy_token_use, print_warnings as _print_warnings
+from peerhub.cli.support import print_warnings as _print_warnings
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SchemaVersionError
 from peerhub.core.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
@@ -135,14 +135,6 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     refresh.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"])
     refresh.add_argument("--sys-dir", type=Path, help="Explicit portable provider installation directory")
     refresh.add_argument("--timeout-seconds", type=float, default=15)
-    refresh.add_argument("--interval-seconds", type=float, default=None,
-                         help="Watch mode: collect again every N seconds (positive); one compact JSON line per collection (NDJSON). "
-                              "Default: a single collection. Pair with `peerhub diag --live` in another terminal to watch the evidence")
-    refresh.add_argument("--count", type=int, default=None,
-                         help="Watch mode: stop after N collections (0 = until interrupted; default 0 when --interval-seconds is given)")
-
-    refresh.add_argument("--keep-going-on-agy-token-use", action="store_true",
-                         help="Watch mode: keep collecting after agy /usage consumed model tokens (default: stop with exit 1 at the first event)")
 
     from peerhub.cli.monitor import register_monitor_parser
     register_monitor_parser(subparsers)
@@ -153,7 +145,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence")
     diag_parser.add_argument("--interval-seconds", type=float, default=2, help="Live snapshot interval (positive seconds)")
     diag_parser.add_argument("--count", type=int, default=0, help="Live snapshot count; 0 watches until interrupted")
-    diag_parser.epilog = "examples: peerhub diag | peerhub diag --json | peerhub diag --live | peerhub observation refresh | peerhub observation refresh --interval-seconds 60 (keeps evidence fresh; run it next to `peerhub diag --live`)"
+    diag_parser.epilog = "examples: peerhub diag | peerhub diag --json | peerhub diag --live | peerhub observation refresh | peerhub monitor (collects quota evidence every cycle and draws the dashboard)"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
     
     d_health = diag_sub.add_parser("health", help="Inspect stream or store health (read-only)")
@@ -229,49 +221,11 @@ def _run_observation_cli(args: argparse.Namespace) -> int:
     from peerhub.extensions.quota_capture import refresh_quota
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
     CoreStore(args.db)  # infrastructure bootstrap; the collector itself owns only Observation tables
-    if args.interval_seconds is None:
-        result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
-        print(json.dumps(result, indent=2, ensure_ascii=True))
-        _print_warnings(result)
-        return 0 if result["status"] == "OK" else 1
-    return _watch_observation(args)
+    result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
+    print(json.dumps(result, indent=2, ensure_ascii=True))
+    _print_warnings(result)
+    return 0 if result["status"] == "OK" else 1
 
-
-
-
-def _validate_observation_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if args.interval_seconds is not None and not args.interval_seconds > 0:
-        parser.error("--interval-seconds must be a positive number")
-    if args.count is not None and args.interval_seconds is None:
-        parser.error("--count requires --interval-seconds")
-    if args.count is not None and args.count < 0:
-        parser.error("--count must be >= 0")
-
-
-def _watch_observation(args: argparse.Namespace) -> int:
-    """Explicit collector loop (Observation is the only writer; Diag stays read-only and never refreshes)."""
-    import time
-
-    from peerhub.extensions.quota_capture import refresh_quota
-    total = 0 if args.count is None else args.count
-    done, worst = 0, 0
-    try:
-        while True:
-            result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
-            print(json.dumps(result, ensure_ascii=True, separators=(",", ":")), flush=True)
-            _print_warnings(result)
-            if result["status"] != "OK":
-                worst = 1
-            if _agy_token_use(result) and not args.keep_going_on_agy_token_use:
-                print("error: agy /usage consumed model tokens; stopping watch mode so quota is not burned every interval "
-                      "(pass --keep-going-on-agy-token-use to continue)", file=sys.stderr, flush=True)
-                return 1
-            done += 1
-            if total and done >= total:
-                return worst
-            time.sleep(args.interval_seconds)
-    except KeyboardInterrupt:
-        return worst
 
 def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     tolerant_streams()
@@ -291,7 +245,6 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             from peerhub.cli.monitor import run_monitor
             return run_monitor(args, parser)
         if args.subcommand == "observation":
-            _validate_observation_args(parser, args)
             return _run_observation_cli(args)
         if args.subcommand == "legacy-import":  # before CoreStore(): a dry-run must not create or migrate the target
             from peerhub.core.legacy_import import LegacyImporter, LegacyPlanChangedError, LegacySourceError
