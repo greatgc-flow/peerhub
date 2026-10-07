@@ -273,7 +273,7 @@
     {
       "id": "REQ-ART-006",
       "area": "ArtifactStore",
-      "statement": "Identical artifact content commits and uploads are fully idempotent, returning the existing reference seamlessly without redundant IO.",
+      "statement": "Identical artifact commits return the existing digest after full streamed verification and renew its GC grace; deduplication does not eliminate verification IO.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
       "tests": [
@@ -311,7 +311,7 @@
     {
       "id": "REQ-ART-008",
       "area": "ArtifactStore",
-      "statement": "Artifact lifecycle state transitions (STAGED/DIGESTED/VERIFIED/COMMITTED/REFERENCED/TAMPERED/ORPHANED) enforce linear progression and strictly forbid skip transitions.",
+      "statement": "Artifact stage, digest, verification, and commit are operational phases; commit_staged verifies its StagedArtifact internally before publication.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
       "tests": [
@@ -413,7 +413,7 @@
     {
       "id": "REQ-WRK-003",
       "area": "WorkProjection",
-      "statement": "Work mutations and transitions require expected_revision matching current projection revision for deterministic race resolution.",
+      "statement": "Work mutations require expected_revision matching the authoritative Record-derived revision; success requires reducer acceptance of the caller's mutation Record.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
       "tests": [
@@ -557,7 +557,7 @@
     {
       "id": "REQ-SKL-006",
       "area": "SkillCatalog",
-      "statement": "Wiping SQLite skill index and replaying stream records + directory scan reconstructs 100% equivalent state.",
+      "statement": "Replaying authoritative Records alone reconstructs the logical skill and capability projections without rescanning directories or replacing recorded digests.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
       "tests": [
@@ -576,7 +576,7 @@
     {
       "id": "REQ-EVL-001",
       "area": "EvalTelemetry",
-      "statement": "Execution trace capture produces immutable, structured spans with deterministic provenance and timestamps.",
+      "statement": "Trace capture produces structured frozen dataclass fields and tuple spans with a deterministic content digest; nested dictionaries remain mutable and require source verification.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
       "tests": [
@@ -719,7 +719,7 @@
     {
       "id": "REQ-BCK-003",
       "area": "BackupRecovery",
-      "statement": "Generation fencing increments epoch on restore, invalidating stale writers and protecting against write regressions.",
+      "statement": "Offline restore writes a fresh workspace identity that fences old CoreStore instances; the numeric restore epoch follows the implemented current-generation rule, and older backup generations are rejected only when allow_rollback=False.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
       "tests": [
@@ -895,6 +895,177 @@
       ],
       "risk_tags": [
         "SECURITY"
+      ]
+    },
+    {
+      "id": "REQ-EXT-009",
+      "area": "ExtensionHost",
+      "statement": "Boot isolates manifest discovery failures and repeatedly fails closed over ENABLED dependency chains; dependencies accept unpinned IDs or identical registered-version pins, missing entrypoints reject enablement, and changed registered versions are not silently adopted.",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "priority": "P0",
+      "tests": [
+        "EXT-025",
+        "EXT-026",
+        "EXT-027",
+        "EXT-028",
+        "EXT-029"
+      ],
+      "required_dimensions": [
+        "lifecycle",
+        "validation",
+        "recovery"
+      ],
+      "risk_tags": [
+        "FAILURE_ISOLATION"
+      ]
+    },
+    {
+      "id": "REQ-ART-011",
+      "area": "ArtifactStore",
+      "statement": "Artifact staging supports an optional byte bound; duplicate verification streams existing blobs; GC grace uses commit time and renews on deduplication; verified export publishes only after digest verification; new shard publication attempts POSIX shard and root directory fsync.",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "priority": "P0",
+      "tests": [
+        "ART-037",
+        "ART-038",
+        "ART-039",
+        "ART-040",
+        "ART-041"
+      ],
+      "required_dimensions": [
+        "bounds",
+        "integrity",
+        "durability"
+      ],
+      "risk_tags": [
+        "INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-WRK-006",
+      "area": "WorkProjection",
+      "statement": "Work CAS uses ordered authoritative Records and confirms acceptance of the caller's mutation Record; stale or missing projections recover after append/save crashes, creation retries obey the implemented identity/revision conditions, and rebuild replacement is atomic.",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "priority": "P0",
+      "tests": [
+        "WRK-013",
+        "WRK-014",
+        "WRK-015"
+      ],
+      "required_dimensions": [
+        "concurrency",
+        "recovery",
+        "atomicity"
+      ],
+      "risk_tags": [
+        "REBUILDABILITY"
+      ]
+    },
+    {
+      "id": "REQ-SKL-007",
+      "area": "SkillCatalog",
+      "statement": "Skill and capability CAS uses ordered authoritative Records and confirms the caller's mutation acceptance; missing registration projections recover from Records, and rebuild atomically replaces both projections without skill_roots or disk digest adoption.",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "priority": "P0",
+      "tests": [
+        "SKL-015",
+        "SKL-016",
+        "SKL-017"
+      ],
+      "required_dimensions": [
+        "concurrency",
+        "recovery",
+        "atomicity"
+      ],
+      "risk_tags": [
+        "REBUILDABILITY"
+      ]
+    },
+    {
+      "id": "REQ-SKL-008",
+      "area": "SkillCatalog",
+      "statement": "Skill tree digests frame sorted path bytes and streamed file content with 8-byte big-endian lengths and reject streamed-size changes; the standard-library frontmatter fallback parses the tested inline-list forms consistently with PyYAML.",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "priority": "P0",
+      "tests": [
+        "SKL-018",
+        "SKL-019"
+      ],
+      "required_dimensions": [
+        "integrity",
+        "validation"
+      ],
+      "risk_tags": [
+        "INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-BCK-007",
+      "area": "BackupRecovery",
+      "statement": "Offline restore replaces the whole managed workspace after checking every top-level database, discards prior derived databases from the restored workspace, retains the previous directory, recovers it when a crash leaves the target absent, and never reverts a present restored target solely because an intent marker remains.",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "priority": "P0",
+      "tests": [
+        "BCK-013",
+        "BCK-014"
+      ],
+      "required_dimensions": [
+        "recovery",
+        "concurrency"
+      ],
+      "risk_tags": [
+        "DURABILITY"
+      ]
+    },
+    {
+      "id": "REQ-BCK-008",
+      "area": "BackupRecovery",
+      "statement": "Derived rebuild delegates to a caller-supplied rebuild_projection port and streams all authoritative record pages; Backup does not construct WorkProjection from a database path.",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "priority": "P0",
+      "tests": [
+        "BCK-015"
+      ],
+      "required_dimensions": [
+        "rebuild"
+      ],
+      "risk_tags": [
+        "REBUILDABILITY"
+      ]
+    },
+    {
+      "id": "REQ-EVL-007",
+      "area": "EvalTelemetry",
+      "statement": "Evaluation recomputes trace/dataset digests and dataset count, optionally verifies the dataset artifact, binds reports to target_digest, and exposes verification of report integrity and supplied source identity.",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "priority": "P0",
+      "tests": [
+        "EVL-013",
+        "EVL-014"
+      ],
+      "required_dimensions": [
+        "integrity",
+        "provenance"
+      ],
+      "risk_tags": [
+        "INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-EVL-008",
+      "area": "EvalTelemetry",
+      "statement": "Evaluators receive deep private source snapshots; post-execution source verification rejects the tested content mutations without changing the caller's nested trace or dataset objects.",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "priority": "P0",
+      "tests": [
+        "EVL-015"
+      ],
+      "required_dimensions": [
+        "integrity",
+        "isolation"
+      ],
+      "risk_tags": [
+        "INTEGRITY"
       ]
     }
   ]

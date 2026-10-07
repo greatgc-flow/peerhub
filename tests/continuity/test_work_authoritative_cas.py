@@ -23,6 +23,7 @@ def two_views(tmp_path: Path, store: CoreStore):
     return WorkProjection(tmp_path / "a.db", store=store), WorkProjection(tmp_path / "b.db", store=store)
 
 
+@pytest.mark.catalog_id("WRK-013")
 def test_a_stale_projection_is_repaired_before_the_cas_decision(tmp_path, store):
     a, b = two_views(tmp_path, store)
     a.create_work(stream_id="s1", work_id="w", title="T")
@@ -35,6 +36,7 @@ def test_a_stale_projection_is_repaired_before_the_cas_decision(tmp_path, store)
     assert b.transition_work("w", 2, "BLOCKED").revision == 3
 
 
+@pytest.mark.catalog_id("WRK-014")
 def test_a_crash_between_append_and_projection_save_does_not_wedge_the_work_item(tmp_path, store, monkeypatch):
     p = WorkProjection(tmp_path / "p.db", store=store)
     p.create_work(stream_id="s1", work_id="w", title="T")
@@ -46,6 +48,7 @@ def test_a_crash_between_append_and_projection_save_does_not_wedge_the_work_item
     assert p.transition_work("w", 2, "BLOCKED").state == "BLOCKED"  # the next operation sees revision 2 and continues
 
 
+@pytest.mark.catalog_id("WRK-013")
 def test_a_change_that_lost_the_race_is_not_acknowledged(tmp_path, store, monkeypatch):
     a, b = two_views(tmp_path, store)
     a.create_work(stream_id="s1", work_id="w", title="T")
@@ -69,6 +72,7 @@ def test_a_change_that_lost_the_race_is_not_acknowledged(tmp_path, store, monkey
     assert b.get_work("w").state == "ACTIVE" and b.get_work("w").revision == 2
 
 
+@pytest.mark.catalog_id("WRK-013")
 def test_concurrent_transitions_from_independent_views_have_exactly_one_winner(tmp_path, store):
     a, b = two_views(tmp_path, store)
     a.create_work(stream_id="s1", work_id="w", title="T")
@@ -93,6 +97,7 @@ def test_concurrent_transitions_from_independent_views_have_exactly_one_winner(t
     assert a.get_work("w").state == winner and a.get_work("w").revision == 2
 
 
+@pytest.mark.catalog_id("WRK-014")
 def test_a_crash_after_the_creation_record_does_not_wedge_the_new_work_item(tmp_path, store, monkeypatch):
     p = WorkProjection(tmp_path / "p.db", store=store)
     monkeypatch.setattr(WorkProjection, "_save_work_projection", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("crash")))
@@ -104,6 +109,7 @@ def test_a_crash_after_the_creation_record_does_not_wedge_the_new_work_item(tmp_
     assert p.get_work("w").revision == 2
 
 
+@pytest.mark.catalog_id("WRK-014")
 def test_recreating_after_a_creation_crash_is_idempotent_and_different_content_conflicts(tmp_path, store, monkeypatch):
     from peerhub.extensions.work import WorkAlreadyExistsError
 

@@ -18,6 +18,7 @@ def write_ext(root: Path, ext_id: str, version: str = "1.0.0", deps: list[str] |
     return d
 
 
+@pytest.mark.catalog_id("EXT-025")
 def test_boot_discovers_every_manifest_and_isolates_a_broken_one(tmp_path):
     exts = tmp_path / "exts"
     write_ext(exts, "ext_a")
@@ -31,6 +32,7 @@ def test_boot_discovers_every_manifest_and_isolates_a_broken_one(tmp_path):
     assert host.get_state("ext_a") == host.get_state("ext_b") == "DISCOVERED"  # the broken one did not stop the others
 
 
+@pytest.mark.catalog_id("EXT-027")
 def test_boot_after_restart_restores_manifests_and_keeps_enabled_state(tmp_path):
     exts = tmp_path / "exts"
     write_ext(exts, "ext_a")
@@ -42,6 +44,7 @@ def test_boot_after_restart_restores_manifests_and_keeps_enabled_state(tmp_path)
     assert h2.boot()["failed"] == {} and "ext_a" in h2.manifests and h2.get_state("ext_a") == "ENABLED"
 
 
+@pytest.mark.catalog_id("EXT-026")
 def test_exact_version_pin_is_enforced_and_unpinned_accepts_any(tmp_path):
     exts = tmp_path / "exts"
     write_ext(exts, "ext_core", "1.0.1")
@@ -56,6 +59,7 @@ def test_exact_version_pin_is_enforced_and_unpinned_accepts_any(tmp_path):
     assert host.get_state("ext_pinned") == "FAILED"
 
 
+@pytest.mark.catalog_id("EXT-026")
 def test_exact_pin_matches_only_the_identical_version_string(tmp_path):
     for registered, ok in (("1.0.0", True), ("1.0.0-rc", False), ("1.0.10", False)):
         base = tmp_path / registered
@@ -71,6 +75,7 @@ def test_exact_pin_matches_only_the_identical_version_string(tmp_path):
                 host.enable("ext_user")
 
 
+@pytest.mark.catalog_id("EXT-027")
 def test_boot_fails_closed_for_an_enabled_extension_whose_dependency_went_away(tmp_path):
     exts = tmp_path / "exts"
     write_ext(exts, "ext_core")
@@ -85,6 +90,7 @@ def test_boot_fails_closed_for_an_enabled_extension_whose_dependency_went_away(t
     assert ExtensionHost(tmp_path / "host.db").get_state("ext_user") == "FAILED"
 
 
+@pytest.mark.catalog_id("EXT-029")
 def test_a_changed_manifest_version_is_not_adopted_silently(tmp_path):
     exts = tmp_path / "exts"
     d = write_ext(exts, "ext_a", "1.0.0")
@@ -97,6 +103,7 @@ def test_a_changed_manifest_version_is_not_adopted_silently(tmp_path):
     assert fresh.boot()["errors"]["ext_a"].startswith("RegistrationConflictError")
 
 
+@pytest.mark.catalog_id("EXT-026")
 @pytest.mark.parametrize("bad", ["ext_core>=1.0", "ext_core==", "Core", "ext_core==1.0.0==2", "ext_core ==1.0.0"])
 def test_dependency_syntax_is_exact_or_unpinned_only(bad):
     with pytest.raises(SchemaValidationError):
@@ -104,6 +111,7 @@ def test_dependency_syntax_is_exact_or_unpinned_only(bad):
     assert validate_manifest({"id": "ext_x", "version": "1", "entrypoint": "m.py", "dependencies": ["ext_core", "ext_core2==1.2.3"]})
 
 
+@pytest.mark.catalog_id("EXT-028")
 def test_a_missing_entrypoint_fails_enablement_instead_of_leaving_metadata_enabled(tmp_path):
     from peerhub.extensions.host import ExtensionHookError
 
@@ -117,6 +125,7 @@ def test_a_missing_entrypoint_fails_enablement_instead_of_leaving_metadata_enabl
     assert host.get_state("ext_a") == "FAILED" and "ext_a" not in host.loaded_modules
 
 
+@pytest.mark.catalog_id("EXT-027")
 def test_boot_cascades_a_dependency_failure_even_when_the_dependent_sorts_first(tmp_path):
     exts = tmp_path / "exts"
     write_ext(exts, "ext_a_user", deps=["ext_b_mid"])  # sorts BEFORE its dependency
@@ -133,6 +142,7 @@ def test_boot_cascades_a_dependency_failure_even_when_the_dependent_sorts_first(
     assert {host.get_state(e) for e in report["failed"]} == {"FAILED"}
 
 
+@pytest.mark.catalog_id("EXT-027")
 def test_boot_fails_an_enabled_extension_whose_manifest_became_unreadable(tmp_path):
     exts = tmp_path / "exts"
     d = write_ext(exts, "ext_a")
@@ -145,3 +155,27 @@ def test_boot_fails_an_enabled_extension_whose_manifest_became_unreadable(tmp_pa
     report = ExtensionHost(tmp_path / "host.db", extensions_dir=exts).boot()
     assert "ext_a" in report["errors"] and report["failed"]["ext_a"].startswith("manifest missing")
     assert "ext_user" in report["failed"]  # its dependency is gone, so it cannot stay enabled either
+
+
+def test_ext_022_a_discovered_extension_that_fails_validation_goes_straight_to_failed(tmp_path):
+    """EXT-022: DISCOVERED -> FAILED strictly (never through VALIDATED/ENABLED), and a broken sibling folder cannot stop the scan."""
+    from peerhub.extensions.host import ExtensionHookError
+
+    exts = tmp_path / "exts"
+    ok = write_ext(exts, "ext_ok")
+    broken = write_ext(exts, "ext_broken")
+    (broken / "main.py").unlink()  # a valid manifest whose module is gone: it fails validation when enabled
+    junk = exts / "ext_junk"
+    junk.mkdir()
+    (junk / "manifest.json").write_text("[]")  # not even an object
+    host = ExtensionHost(tmp_path / "host.db", extensions_dir=exts)
+    report = host.boot()
+    assert sorted(report["discovered"]) == ["ext_broken", "ext_ok"] and "ext_junk" in report["errors"]
+    assert host.get_state("ext_broken") == "DISCOVERED"
+    states = []
+    original = host.transition
+    host.transition = lambda ext, target: (states.append(target), original(ext, target))[1]  # type: ignore[method-assign]
+    with pytest.raises(ExtensionHookError):
+        host.enable("ext_broken")
+    assert states == ["FAILED"] and host.get_state("ext_broken") == "FAILED"  # no VALIDATED/ENABLED in between
+    assert host.enable("ext_ok") == "ENABLED" and ok.is_dir()  # the healthy one is unaffected

@@ -67,3 +67,54 @@ The Extension Host exposes a strictly typed API boundary:
 - Core -> Host: `boot()`, `dispatch_event(Event)`
 - Host -> DB: `read_registry()`, `update_state()`
 - Host -> Extension: `run_migration()`, `invoke_hook(Event)`
+
+---
+
+## Closure update (2026-10-08)
+
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. State-machine and exception JSON catalogs are updated separately.
+
+Section 2: replace the nonexistent `validate(manifest)` interface and revise `enable`/add `boot`:
+
+```markdown
+- `validate_manifest(data) -> ExtensionManifest`: Validates manifest fields and dependency syntax without importing extension code. Errors: `SchemaValidationError`.
+- `boot() -> dict[str, Any]`: Discovers manifests under the configured `extensions_dir` and rechecks persisted ENABLED extensions. Returns `discovered`, `errors`, and `failed`.
+- `enable(ext_id) -> str`: Checks dependencies and entrypoint availability, advances lifecycle state, and loads the entrypoint. Errors: `MissingDependencyError`, `ForbiddenTransitionError`, `ExtensionHookError`. Schema migration and hook registration are separate operations.
+```
+
+Section 3: replace the `dependencies` property:
+
+```json
+"dependencies": {
+  "type": "array",
+  "items": {
+    "type": "string",
+    "pattern": "^ext_[a-z0-9_]+(?:==[A-Za-z0-9][A-Za-z0-9.+_-]*)?$"
+  }
+}
+```
+
+Section 4: replace **Boot & Discovery Timing** and **Version Dependencies**, then add:
+
+```markdown
+- **Boot & Discovery Timing:** At `boot()`, the Host scans immediate child directories of the configured `extensions_dir` containing `manifest.json`, in sorted order. Each discovery failure is reported in `errors` and does not prevent discovery of other extensions. Boot discovery does not import extension entrypoints. A valid persisted ENABLED state is retained without reconstructing its runtime module.
+- **Version Dependencies:** Dependencies accept `ext_id` (any registered version) or `ext_id==exact.version` (identical registered version string). Every dependency must be installed and ENABLED. Ranges, whitespace-bearing specifications, empty pins, and dependency solvers are unsupported. Invalid syntax raises `SchemaValidationError`; unmet dependencies raise `MissingDependencyError`.
+- **Fail-Closed Boot:** An ENABLED registry entry without an available in-memory manifest is changed to FAILED. ENABLED extensions with missing entrypoints or unmet dependencies are also changed to FAILED. Dependency checks repeat until no further extension fails, including dependents that sort before their failed dependency.
+- **Registered Version Identity:** Discovery does not silently adopt a manifest version different from the version stored in the registry; it raises `RegistrationConflictError`.
+- **Missing Entrypoint:** Enabling a newly discovered extension whose entrypoint file is missing raises `ExtensionHookError`, records FAILED, and does not register a loaded module.
+```
+
+Section 5: replace the **Missing Dependency** and **Core Reboot** rows; add the remaining rows:
+
+```markdown
+| Missing Dependency during enablement | Dependency is absent, disabled, or does not match an exact pin | Reject enablement with `MissingDependencyError`; a newly discovered extension becomes FAILED. | test_ext_026_dependency_forms |
+| Core Reboot | Runtime modules and hooks are absent | `boot()` rediscovers metadata and rechecks persisted ENABLED states without importing entrypoints. | test_ext_027_boot_fail_closed |
+| Invalid manifest during boot | One discovery fails | Report the directory in `errors`; continue discovering other extensions. | test_ext_025_boot_discovery |
+| Missing entrypoint during enablement | Valid manifest has no module file | Raise `ExtensionHookError`; record FAILED without a loaded module. | test_ext_028_missing_entrypoint |
+| Dependency failure during boot | ENABLED chain contains an unavailable dependency | Repeat checks until every affected ENABLED dependent becomes FAILED. | test_ext_027_boot_fail_closed |
+| Manifest version changed | Disk version differs from registered version | Reject discovery with `RegistrationConflictError`; do not replace registered version silently. | test_ext_029_registered_version |
+```
+
+**Wrong/obsolete:** “exact-version matches only” excludes implemented unpinned dependencies; “rebuilds state seamlessly” implies runtime restoration that boot does not perform; `enable()` does not itself migrate schemas or bind hooks. Also, do not describe dependency failure as halting the process.
+
+A verified implementation limitation worth preserving: the transition table does **not** allow `DISABLED -> FAILED`. Consequently, do not generalize the newly discovered missing-entrypoint/dependency failure guarantees to every possible source state.

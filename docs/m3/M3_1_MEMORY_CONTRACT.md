@@ -68,3 +68,16 @@ The Memory module (`peerhub.m3.memory`) provides:
 ```
 - Active context packs only incorporate items in `ACCEPTED` state.
 - Attempting invalid state transitions raises `MemoryStateTransitionError`.
+
+---
+
+## Closure update (2026-10-08)
+
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. State-machine and exception JSON catalogs are updated separately.
+
+- When rebuilding from incomplete or malformed events, the default behavior is to fail closed. 
+- The `rebuild_from_records` interface accepts a `quarantine=True` mode, which atomically skips invalid events. Skipped events are explicitly cataloged with their failure reasons (silent data loss is forbidden).
+
+**Superseded or missing in the original text:**
+- `rebuild_from_records(core_store: CoreStore)` was listed without the `quarantine: bool = False` argument.
+- It lacked the explicit fail-closed / no-silent-loss semantics.

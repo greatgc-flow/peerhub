@@ -196,6 +196,7 @@ def test_memory_committed_event_recovers_after_projection_write_failure(tmp_path
     assert recovered.state == "CANDIDATE"  # recovery does not invent acceptance
 
 
+@pytest.mark.catalog_id("MEM-013")
 def test_quarantine_mode_skips_invalid_history_reports_it_and_keeps_valid_memories(tmp_path, core):
     memory = durable(tmp_path, core)
     good = memory.propose_memory("good", "kept", "fact:good")
@@ -218,6 +219,7 @@ def test_quarantine_mode_skips_invalid_history_reports_it_and_keeps_valid_memori
     assert MemoryStore(tmp_path / "rebuilt.db").get_memory(good.memory_id) == fresh.get_memory(good.memory_id)  # durable
 
 
+@pytest.mark.catalog_id("MEM-013")
 def test_quarantine_skip_is_atomic_per_event(tmp_path, core):
     memory = durable(tmp_path, core)
     item = memory.propose_memory("key", "content", "fact:1")
@@ -229,6 +231,7 @@ def test_quarantine_skip_is_atomic_per_event(tmp_path, core):
     assert fresh.get_memory(item.memory_id).state == before.state and fresh.get_memory(item.memory_id).revision == before.revision
 
 
+@pytest.mark.catalog_id("MEM-013")
 def test_a_bound_store_keeps_its_quarantine_policy_across_automatic_refreshes(tmp_path, core):
     seed = durable(tmp_path, core)
     good = seed.propose_memory("good", "kept", "fact:good")

@@ -43,6 +43,7 @@ def chain(n: int, **bounds) -> Plan:
 
 
 # ------------------------------------------------------------------------------------------------ cost
+@pytest.mark.catalog_id("ORC-013")
 def test_cost_budget_stops_the_plan_when_exceeded():
     plan = chain(3, cost_budget=10.0)
     ran: list[str] = []
@@ -62,6 +63,7 @@ def test_no_attempt_starts_once_the_budget_is_spent():
         PlanExecutor().execute_plan(plan, lambda s, a: done(s, a, cost=5.0))  # spent == budget after s0: exhausted
 
 
+@pytest.mark.catalog_id("ORC-013")
 def test_unreported_cost_is_unknown_not_zero_when_a_budget_exists():
     with pytest.raises(PlanStepExecutionError, match="report its cost"):
         PlanExecutor().execute_plan(chain(1, cost_budget=1.0), lambda s, a: done(s, a))  # no cost reported
@@ -92,6 +94,7 @@ def test_cost_is_summed_across_attempts_and_survives_a_restart(journal):
     assert fresh.recover_cost(plan) == 12.0  # a new process sees the same spend: no evasion by crash-restart
 
 
+@pytest.mark.catalog_id("ORC-013")
 def test_a_restarted_executor_starts_nothing_once_the_durable_budget_is_spent(journal):
     plan = Plan("restart", "t", [PlanStep("a", "x", {}), PlanStep("b", "x", {}, depends_on=["a"]), PlanStep("c", "x", {}, depends_on=["b"])],
                 bounds=PlanBounds(cost_budget=5.0))
@@ -140,6 +143,7 @@ def test_when_skips_the_untaken_branch_and_skips_its_dependents(route, ran):
     assert summary.steps_executed == len(ran)  # skipping is a decision, not an invocation
 
 
+@pytest.mark.catalog_id("ORC-013")
 def test_when_requires_exact_type_and_value_and_unknown_never_matches():
     plan = Plan("t", "t", [PlanStep("g", "x", {}), PlanStep("n", "x", {}, depends_on=["g"], when={"step_id": "g", "key": "ok", "equals": True})])
     for output in ({"ok": 1}, {"ok": "true"}, {}, None):  # 1 is not True; missing/unknown is not a match
@@ -162,6 +166,7 @@ def test_stop_if_ends_the_plan_cleanly_without_running_the_rest():
     assert ran == ["a", "b"] and summary.status == "STOPPED" and "c" not in summary.step_results
 
 
+@pytest.mark.catalog_id("ORC-013")
 def test_a_stop_is_honoured_after_a_restart(journal):
     plan = Plan("stopper", "t", [PlanStep("a", "x", {}, stop_if={"key": "go", "equals": "no"}), PlanStep("b", "x", {}, depends_on=["a"])])
     journal.accept_plan(plan, accepted_by="operator")
@@ -186,12 +191,14 @@ def test_malformed_conditions_are_rejected_before_anything_runs(bad_step):
 
 
 # ---------------------------------------------------------------------------------------- depth, parallel
+@pytest.mark.catalog_id("ORC-013")
 def test_max_depth_is_enforced_from_the_dependency_chain():
     with pytest.raises(PlanBoundExceededError, match="max_depth"):
         PlanExecutor().execute_plan(chain(4, max_depth=3), lambda s, a: done(s, a))
     assert PlanExecutor().execute_plan(chain(3, max_depth=3), lambda s, a: done(s, a)).status == "COMPLETED"
 
 
+@pytest.mark.catalog_id("ORC-013")
 def test_parallel_runs_independent_steps_concurrently_but_never_above_max_fanout():
     steps = [PlanStep(f"s{i}", "x", {}) for i in range(6)]
     plan = Plan("fan", "t", steps, bounds=PlanBounds(max_fanout=2))
@@ -264,6 +271,7 @@ def test_strict_mode_needs_a_runner_that_declares_hard_cancellation():
     assert runner.deadline is not None and 0 < runner.deadline - time.monotonic() <= 30.5
 
 
+@pytest.mark.catalog_id("ORC-013")
 def test_parallel_journal_appends_are_never_entered_concurrently(journal):
     """The executor itself must serialize durable appends: a spy that detects re-entrancy fails if the lock is removed."""
     inside, overlaps = 0, []
@@ -290,6 +298,7 @@ def test_parallel_journal_appends_are_never_entered_concurrently(journal):
     assert summary.status == "COMPLETED" and overlaps == []
 
 
+@pytest.mark.catalog_id("RUN-013")
 def test_a_job_that_finishes_exactly_at_the_deadline_is_used_not_discarded():
     from peerhub.extensions.orchestration import HardDeadlineStepRunner
 

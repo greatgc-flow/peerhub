@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "generated_on": "2026-10-05",
-  "count": 110,
+  "count": 146,
   "tests": [
     {
       "id": "EXT-001",
@@ -3000,6 +3000,566 @@
         "packaging"
       ],
       "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-025",
+      "tier": "integration",
+      "title": "Boot isolates broken manifest discovery",
+      "requirements": [
+        "REQ-EXT-009"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle"
+      ],
+      "setup": "Two valid extension directories and one malformed manifest.",
+      "action": "Invoke boot.",
+      "oracle": "Both valid IDs are discovered; malformed directory is reported; valid extensions remain DISCOVERED.",
+      "failure_injection": "malformed JSON",
+      "evidence": "tests/continuity/test_host_boot_and_dependencies.py::test_boot_discovers_every_manifest_and_isolates_a_broken_one",
+      "live_provider": false,
+      "dimensions": [
+        "lifecycle",
+        "validation"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-026",
+      "tier": "integration",
+      "title": "Dependency syntax and identical version pins",
+      "requirements": [
+        "REQ-EXT-009"
+      ],
+      "priority": "P0",
+      "markers": [
+        "validation"
+      ],
+      "setup": "Enabled dependency with pinned and unpinned dependents.",
+      "action": "Validate syntax and enable dependents against matching and different registered versions.",
+      "oracle": "Unpinned accepts any enabled registered version; exact pin requires identical string; malformed specifications reject.",
+      "failure_injection": "version mismatch and malformed dependency",
+      "evidence": "tests/continuity/test_host_boot_and_dependencies.py::test_exact_version_pin_is_enforced_and_unpinned_accepts_any; test_exact_pin_matches_only_the_identical_version_string; test_dependency_syntax_is_exact_or_unpinned_only",
+      "live_provider": false,
+      "dimensions": [
+        "validation",
+        "lifecycle"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-027",
+      "tier": "integration",
+      "title": "Boot preserves valid metadata and cascades dependency failures",
+      "requirements": [
+        "REQ-EXT-009"
+      ],
+      "priority": "P0",
+      "markers": [
+        "recovery"
+      ],
+      "setup": "Previously enabled extensions followed by restart, disabled dependency, missing entrypoint, or unreadable manifest.",
+      "action": "Boot a fresh Host.",
+      "oracle": "Valid ENABLED metadata survives; unavailable manifest/dependency/entrypoint fails closed through the whole chain regardless of sorting.",
+      "failure_injection": "lost dependency, entrypoint, or manifest",
+      "evidence": "tests/continuity/test_host_boot_and_dependencies.py::test_boot_after_restart_restores_manifests_and_keeps_enabled_state; test_boot_fails_closed_for_an_enabled_extension_whose_dependency_went_away; test_boot_cascades_a_dependency_failure_even_when_the_dependent_sorts_first; test_boot_fails_an_enabled_extension_whose_manifest_became_unreadable",
+      "live_provider": false,
+      "dimensions": [
+        "lifecycle",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-028",
+      "tier": "integration",
+      "title": "Missing entrypoint rejects newly discovered enablement",
+      "requirements": [
+        "REQ-EXT-009"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle"
+      ],
+      "setup": "Valid discovered manifest with entrypoint removed.",
+      "action": "Enable the extension.",
+      "oracle": "ExtensionHookError; FAILED state; no loaded module.",
+      "failure_injection": "missing entrypoint",
+      "evidence": "tests/continuity/test_host_boot_and_dependencies.py::test_a_missing_entrypoint_fails_enablement_instead_of_leaving_metadata_enabled",
+      "live_provider": false,
+      "dimensions": [
+        "lifecycle"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EXT-029",
+      "tier": "integration",
+      "title": "Changed disk version does not replace registered identity",
+      "requirements": [
+        "REQ-EXT-009"
+      ],
+      "priority": "P0",
+      "markers": [
+        "validation"
+      ],
+      "setup": "Register version 1 then change manifest to version 2.",
+      "action": "Discover and boot with a fresh Host.",
+      "oracle": "RegistrationConflictError is raised/reported.",
+      "failure_injection": "changed version",
+      "evidence": "tests/continuity/test_host_boot_and_dependencies.py::test_a_changed_manifest_version_is_not_adopted_silently",
+      "live_provider": false,
+      "dimensions": [
+        "validation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-037",
+      "tier": "unit",
+      "title": "Stream byte bound rejects oversize without leftover staging",
+      "requirements": [
+        "REQ-ART-011"
+      ],
+      "priority": "P0",
+      "markers": [
+        "bounds"
+      ],
+      "setup": "Streams at and above a supplied byte limit.",
+      "action": "Stage with max_size and test a negative limit.",
+      "oracle": "Exact limit succeeds; oversize and negative limit raise ValueError; failed stage leaves no temporary file.",
+      "failure_injection": "oversize input",
+      "evidence": "tests/continuity/test_art_gc_bounds.py::test_stage_stream_max_size_rejects_oversize_and_leaves_no_staging",
+      "live_provider": false,
+      "dimensions": [
+        "bounds"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ART-038",
+      "tier": "unit",
+      "title": "Duplicate commit verifies without read_bytes",
+      "requirements": [
+        "REQ-ART-011"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integrity"
+      ],
+      "setup": "Committed blob with read_bytes patched to fail.",
+      "action": "Commit identical staged bytes.",
+      "oracle": "Existing digest is returned without calling read_bytes.",
+      "failure_injection": "full-buffer read forbidden",
+      "evidence": "tests/continuity/test_art_gc_bounds.py::test_duplicate_commit_verifies_existing_blob_without_loading_it",
+      "live_provider": false,
+      "dimensions": [
+        "integrity"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-039",
+      "tier": "unit",
+      "title": "GC grace starts at commit and renews on deduplication",
+      "requirements": [
+        "REQ-ART-011"
+      ],
+      "priority": "P0",
+      "markers": [
+        "durability"
+      ],
+      "setup": "Fresh and old blobs, old staging, and an old deduplicated blob.",
+      "action": "Commit or deduplicate, then run orphan cleanup with grace.",
+      "oracle": "Fresh commits and renewed blobs survive; old orphan is removed; default zero grace removes remaining orphan; negative grace rejects.",
+      "failure_injection": "old modification times",
+      "evidence": "tests/continuity/test_art_gc_bounds.py::test_cleanup_orphans_grace_period_keeps_fresh_blobs; test_gc_grace_is_measured_from_commit_time_not_staging_time; test_re_referencing_an_old_unreferenced_blob_renews_its_lease",
+      "live_provider": false,
+      "dimensions": [
+        "durability",
+        "bounds"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ART-040",
+      "tier": "unit",
+      "title": "Verified export publishes valid content only",
+      "requirements": [
+        "REQ-ART-011"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integrity"
+      ],
+      "setup": "Multichunk blob then tampered committed content.",
+      "action": "Export valid, tampered, and missing blobs.",
+      "oracle": "Valid export matches bytes/count; tampering leaves no destination or temporary export; missing blob raises ArtifactNotFoundError.",
+      "failure_injection": "tampered blob",
+      "evidence": "tests/continuity/test_art_gc_bounds.py::test_export_verified_streams_a_blob_and_never_publishes_a_tampered_one",
+      "live_provider": false,
+      "dimensions": [
+        "integrity"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "ART-041",
+      "tier": "unit",
+      "title": "Commit requests shard and new-root-entry sync",
+      "requirements": [
+        "REQ-ART-011"
+      ],
+      "priority": "P0",
+      "markers": [
+        "durability"
+      ],
+      "setup": "Spy on _fsync_dir for new and existing shard commits.",
+      "action": "Commit two blobs in the same shard.",
+      "oracle": "New shard requests shard then root sync; existing shard requests shard sync only. Test proves calls, not physical crash durability.",
+      "failure_injection": "none",
+      "evidence": "tests/continuity/test_art_gc_bounds.py::test_commit_fsyncs_the_shard_directory_on_posix; test_a_new_shard_syncs_its_parent_and_an_existing_shard_does_not",
+      "live_provider": false,
+      "dimensions": [
+        "durability"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "WRK-013",
+      "tier": "concurrency",
+      "title": "Work CAS repairs stale views and rejects losing changes",
+      "requirements": [
+        "REQ-WRK-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency"
+      ],
+      "setup": "Independent Work projections over one authoritative stream.",
+      "action": "Use stale revisions and race legal transitions.",
+      "oracle": "Stale cache repairs; losing caller gets WorkRevisionConflictError; replay agrees with exactly one winner.",
+      "failure_injection": "read-to-append race",
+      "evidence": "tests/continuity/test_work_authoritative_cas.py::test_a_stale_projection_is_repaired_before_the_cas_decision; test_a_change_that_lost_the_race_is_not_acknowledged; test_concurrent_transitions_from_independent_views_have_exactly_one_winner",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "WRK-014",
+      "tier": "fault",
+      "title": "Work recovers durable Records with missing or stale projections",
+      "requirements": [
+        "REQ-WRK-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "recovery"
+      ],
+      "setup": "Projection save fails after creation or transition append.",
+      "action": "Restore saving, mutate, or retry identical/conflicting creation.",
+      "oracle": "Record-derived state permits continuation; identical missing-row revision-1 creation repairs without another Record; conflicting content rejects.",
+      "failure_injection": "projection-save exception",
+      "evidence": "tests/continuity/test_work_authoritative_cas.py::test_a_crash_after_the_creation_record_does_not_wedge_the_new_work_item; test_recreating_after_a_creation_crash_is_idempotent_and_different_content_conflicts; test_a_crash_between_append_and_projection_save_does_not_wedge_the_work_item",
+      "live_provider": false,
+      "dimensions": [
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "WRK-015",
+      "tier": "fault",
+      "title": "Failed Work rebuild preserves existing projection",
+      "requirements": [
+        "REQ-WRK-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "atomicity"
+      ],
+      "setup": "Existing work item and exploding record source or replacement writer.",
+      "action": "Rebuild with injected failure.",
+      "oracle": "Existing item remains after record-source failure and replacement transaction rollback.",
+      "failure_injection": "record-source and write exception",
+      "evidence": "tests/continuity/test_projection_atomic_rebuild.py::test_work_rebuild_failing_record_source_keeps_existing_projection; test_work_rebuild_failing_write_rolls_back_the_delete",
+      "live_provider": false,
+      "dimensions": [
+        "atomicity"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-015",
+      "tier": "concurrency",
+      "title": "Skill and capability CAS uses authoritative Records",
+      "requirements": [
+        "REQ-SKL-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency"
+      ],
+      "setup": "Independent skill/catalog views over one stream.",
+      "action": "Mutate stale views and race skill transitions/capability updates.",
+      "oracle": "Caches repair; losing changes reject; concurrent capability updates have one winner.",
+      "failure_injection": "stale cache and mutation race",
+      "evidence": "tests/continuity/test_skill_catalog_authoritative_cas.py::test_a_stale_skill_projection_is_repaired_before_the_cas_decision; test_a_skill_change_that_lost_the_race_is_not_acknowledged; test_a_stale_capability_projection_is_repaired_and_a_lost_race_is_not_acknowledged; test_concurrent_capability_updates_have_exactly_one_winner",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-016",
+      "tier": "fault",
+      "title": "Skill/catalog creation and mutation save failures recover",
+      "requirements": [
+        "REQ-SKL-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "recovery"
+      ],
+      "setup": "Durable registration/declaration or transition with projection save failing.",
+      "action": "Restore saving, transition/update, and retry registration or conflicting declaration.",
+      "oracle": "Missing rows recover from Records; skill registration is not duplicated; conflicting capability declaration rejects; stale transition projection resumes.",
+      "failure_injection": "projection-save exception",
+      "evidence": "tests/continuity/test_skill_catalog_authoritative_cas.py::test_a_crash_after_the_registration_record_does_not_wedge_skill_or_capability; test_a_crash_between_skill_append_and_projection_save_does_not_wedge_the_skill",
+      "live_provider": false,
+      "dimensions": [
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-017",
+      "tier": "fault",
+      "title": "Record-only skill/catalog rebuild preserves authority and failed-source state",
+      "requirements": [
+        "REQ-SKL-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "atomicity"
+      ],
+      "setup": "Recorded skill/capability state, changed skill files, and an exploding record source.",
+      "action": "Rebuild without skill_roots and verify integrity.",
+      "oracle": "Recorded digest survives; drift raises SkillTamperedError; failed record source preserves existing capability.",
+      "failure_injection": "disk drift and record-source exception",
+      "evidence": "tests/continuity/test_skill_catalog.py::test_skl_rebuild_never_adopts_disk_content_and_drift_is_detected; test_skl_014_wipe_sqlite_table_rebuild_full_state; tests/continuity/test_projection_atomic_rebuild.py::test_skill_rebuild_failing_record_source_keeps_existing_projection",
+      "live_provider": false,
+      "dimensions": [
+        "atomicity",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-018",
+      "tier": "unit",
+      "title": "Tree digest frames boundaries and rejects changed streamed size",
+      "requirements": [
+        "REQ-SKL-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integrity"
+      ],
+      "setup": "Trees colliding under old NUL framing and a file grown during hashing.",
+      "action": "Compute directory digests.",
+      "oracle": "Distinct trees differ; stable hashing is deterministic; streamed-size change raises SecurityBoundaryError.",
+      "failure_injection": "boundary-like bytes and concurrent growth",
+      "evidence": "tests/continuity/test_art_gc_bounds.py::test_skill_tree_digest_framing_has_no_boundary_collisions; test_a_skill_file_that_changes_while_being_hashed_is_rejected_not_framed_wrongly",
+      "live_provider": false,
+      "dimensions": [
+        "integrity"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-019",
+      "tier": "unit",
+      "title": "Fallback parses tested inline lists consistently",
+      "requirements": [
+        "REQ-SKL-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "validation"
+      ],
+      "setup": "Frontmatter with plain/quoted inline list entries and empty list.",
+      "action": "Parse normally and with yaml import unavailable.",
+      "oracle": "Both parses equal the explicit expected dictionary.",
+      "failure_injection": "yaml ImportError",
+      "evidence": "tests/continuity/test_art_gc_bounds.py::test_skill_frontmatter_fallback_parses_inline_lists_like_pyyaml",
+      "live_provider": false,
+      "dimensions": [
+        "validation"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-013",
+      "tier": "integration",
+      "title": "Restore boundary includes extension databases",
+      "requirements": [
+        "REQ-BCK-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "recovery"
+      ],
+      "setup": "Managed target with core and derived databases; optional active extension writer.",
+      "action": "Restore over idle and busy targets.",
+      "oracle": "Idle restore discards derived databases from target and retains them in previous directory; busy extension writer rejects before directory swap; foreign files reject.",
+      "failure_injection": "active extension transaction",
+      "evidence": "tests/continuity/test_restore_extension_dbs.py::test_restore_succeeds_over_a_workspace_with_derived_databases_and_discards_them; test_restore_refuses_while_any_extension_database_has_an_active_writer; test_foreign_files_still_make_the_target_unmanaged",
+      "live_provider": false,
+      "dimensions": [
+        "recovery",
+        "concurrency"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-014",
+      "tier": "fault",
+      "title": "Directory recovery restores absent target and preserves completed restore",
+      "requirements": [
+        "REQ-BCK-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "recovery"
+      ],
+      "setup": "Crash between renames or stale intent marker after completed swap.",
+      "action": "Recover interrupted restore.",
+      "oracle": "Absent target recovers every previous database; present restored target is retained and stale marker removed.",
+      "failure_injection": "os._exit between renames and stale marker",
+      "evidence": "tests/continuity/test_restore_extension_dbs.py::test_hard_crash_between_renames_recovers_every_database_of_the_previous_workspace; test_a_stale_intent_marker_after_a_completed_swap_never_reverts_the_restored_workspace",
+      "live_provider": false,
+      "dimensions": [
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "BCK-015",
+      "tier": "integration",
+      "title": "Derived rebuild accepts supplied projection and reads all pages",
+      "requirements": [
+        "REQ-BCK-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "rebuild"
+      ],
+      "setup": "105 authoritative creation Records and caller-constructed WorkProjection.",
+      "action": "Call rebuild_derived_projections with page_size=10.",
+      "oracle": "All 105 items rebuild; read cursors cover every page; supplied projection port is used.",
+      "failure_injection": "none",
+      "evidence": "tests/continuity/test_backup_safety.py::test_work_rebuild_reads_all_pages_not_only_first_slice; tests/continuity/test_backup_recovery.py::test_bck_003_full_projection_rebuild_after_disaster",
+      "live_provider": false,
+      "dimensions": [
+        "rebuild"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-013",
+      "tier": "unit",
+      "title": "Evaluation rejects forged source digest or count",
+      "requirements": [
+        "REQ-EVL-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integrity"
+      ],
+      "setup": "Trace with changed content and copied digest; dataset with forged digest/count.",
+      "action": "Run evaluation.",
+      "oracle": "EvalSourceMismatchError before a report is returned.",
+      "failure_injection": "forged source metadata",
+      "evidence": "tests/continuity/test_eval.py::test_run_eval_rejects_a_trace_whose_digest_does_not_match_its_content; test_run_eval_rejects_a_dataset_whose_digest_or_count_is_made_up",
+      "live_provider": false,
+      "dimensions": [
+        "integrity"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-014",
+      "tier": "integration",
+      "title": "Report binds trace digest and optionally verifies dataset artifact",
+      "requirements": [
+        "REQ-EVL-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "provenance"
+      ],
+      "setup": "Registered dataset, trace, and a store; separately an unregistered dataset.",
+      "action": "Run evaluation and verify supplied report sources.",
+      "oracle": "target_digest equals trace digest; valid sources verify; same trace ID with different content rejects; missing dataset artifact rejects when store is supplied.",
+      "failure_injection": "source substitution and absent artifact",
+      "evidence": "tests/continuity/test_eval.py::test_report_names_the_trace_digest_and_verify_report_sources_checks_it; test_dataset_must_exist_in_the_artifact_store_when_a_store_is_given",
+      "live_provider": false,
+      "dimensions": [
+        "integrity",
+        "provenance"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "EVL-015",
+      "tier": "unit",
+      "title": "Evaluator mutations reject without changing caller sources",
+      "requirements": [
+        "REQ-EVL-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "isolation"
+      ],
+      "setup": "Evaluators mutate nested trace attributes or dataset expectations.",
+      "action": "Run evaluation.",
+      "oracle": "Post-execution verification raises EvalSourceMismatchError; caller's nested source content remains unchanged.",
+      "failure_injection": "evaluator input mutation",
+      "evidence": "tests/continuity/test_eval.py::test_an_evaluator_that_mutates_its_inputs_cannot_produce_a_report_for_other_content",
+      "live_provider": false,
+      "dimensions": [
+        "integrity",
+        "isolation"
+      ],
+      "case_type": "negative",
       "deterministic": true
     }
   ]

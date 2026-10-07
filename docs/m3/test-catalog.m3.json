@@ -2112,6 +2112,158 @@
       ],
       "case_type": "positive",
       "deterministic": true
+    },
+    {
+      "id": "SRC-013",
+      "tier": "integration",
+      "title": "Exact metadata predicates",
+      "requirements": [
+        "REQ-SRC-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "search",
+        "metadata"
+      ],
+      "setup": "Index with diverse metadata scalars.",
+      "action": "Search with exact predicates and a limit.",
+      "oracle": "Only type-and-value-exact hits return; limit applies after the filter; malformed predicates raise ValueError.",
+      "failure_injection": "none",
+      "evidence": [
+        "tests/collaboration/test_search_exact_metadata.py::test_exact_predicates_filter_hits",
+        "tests/collaboration/test_search_exact_metadata.py::test_match_is_exact_by_type",
+        "tests/collaboration/test_search_exact_metadata.py::test_limit_applies_after_the_metadata_filter",
+        "tests/collaboration/test_search_exact_metadata.py::test_invalid_metadata_rejected"
+      ],
+      "live_provider": false,
+      "dimensions": [
+        "search"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MEM-013",
+      "tier": "integration",
+      "title": "Quarantine rebuild",
+      "requirements": [
+        "REQ-MEM-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "memory",
+        "recovery"
+      ],
+      "setup": "Core stream with valid and malformed memory events.",
+      "action": "Rebuild strictly, then with quarantine; read through a bound store.",
+      "oracle": "Strict fails closed; quarantine keeps valid memories, lists each skipped event with a reason, atomic per event, policy survives refreshes.",
+      "failure_injection": "injected faults",
+      "evidence": [
+        "tests/collaboration/test_memory_search_recovery.py::test_quarantine_mode_skips_invalid_history_reports_it_and_keeps_valid_memories",
+        "tests/collaboration/test_memory_search_recovery.py::test_quarantine_skip_is_atomic_per_event",
+        "tests/collaboration/test_memory_search_recovery.py::test_a_bound_store_keeps_its_quarantine_policy_across_automatic_refreshes"
+      ],
+      "live_provider": false,
+      "dimensions": [
+        "memory"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "A2A-013",
+      "tier": "integration",
+      "title": "Durable journal, reconciliation and the HTTP binding",
+      "requirements": [
+        "REQ-A2A-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "a2a",
+        "journal",
+        "http"
+      ],
+      "setup": "Adapter with a durable journal and an in-process JSON-RPC server.",
+      "action": "Submit, crash, restart, reconcile, abandon, call with hostile responses.",
+      "oracle": "Submissions are journaled first; uncertain stays uncertain; ids are abandoned and burned, never reused; hostile envelopes are rejected.",
+      "failure_injection": "injected faults",
+      "evidence": [
+        "tests/collaboration/test_a2a_durable_http.py::test_http_binding_runs_a_task_through_to_a_mapped_terminal_state",
+        "tests/collaboration/test_a2a_durable_http.py::test_http_not_found_never_releases_the_id_it_can_only_be_abandoned_and_burned",
+        "tests/collaboration/test_a2a_durable_http.py::test_a_crash_after_the_submitting_record_restores_as_uncertain_and_never_blind_replays",
+        "tests/collaboration/test_a2a_durable_http.py::test_two_adapters_over_one_journal_cannot_both_send_the_same_task",
+        "tests/collaboration/test_a2a_durable_http.py::test_terminal_evidence_is_immutable_and_conflicting_evidence_is_not_swallowed",
+        "tests/collaboration/test_a2a_durable_http.py::test_the_timeout_is_a_total_deadline_not_a_per_read_timeout"
+      ],
+      "live_provider": false,
+      "dimensions": [
+        "a2a"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-013",
+      "tier": "integration",
+      "title": "Cost budget, predicates, parallel fan-out, max_depth",
+      "requirements": [
+        "REQ-ORC-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "orchestration",
+        "cost",
+        "parallel"
+      ],
+      "setup": "Plans with budgets, predicates and fan-out, executed with and without a durable journal.",
+      "action": "Execute, crash and resume.",
+      "oracle": "Budget stops further attempts and survives restarts; branches skip deterministically; fan-out never exceeds max_fanout and appends never overlap.",
+      "failure_injection": "none",
+      "evidence": [
+        "tests/collaboration/test_orchestration_m3_closure.py::test_cost_budget_stops_the_plan_when_exceeded",
+        "tests/collaboration/test_orchestration_m3_closure.py::test_unreported_cost_is_unknown_not_zero_when_a_budget_exists",
+        "tests/collaboration/test_orchestration_m3_closure.py::test_a_restarted_executor_starts_nothing_once_the_durable_budget_is_spent",
+        "tests/collaboration/test_orchestration_m3_closure.py::test_when_requires_exact_type_and_value_and_unknown_never_matches",
+        "tests/collaboration/test_orchestration_m3_closure.py::test_a_stop_is_honoured_after_a_restart",
+        "tests/collaboration/test_orchestration_m3_closure.py::test_parallel_runs_independent_steps_concurrently_but_never_above_max_fanout",
+        "tests/collaboration/test_orchestration_m3_closure.py::test_parallel_journal_appends_are_never_entered_concurrently",
+        "tests/collaboration/test_orchestration_m3_closure.py::test_max_depth_is_enforced_from_the_dependency_chain"
+      ],
+      "live_provider": false,
+      "dimensions": [
+        "orchestration"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "RUN-013",
+      "tier": "integration",
+      "title": "Process adapter, hard cancel and deadline runner",
+      "requirements": [
+        "REQ-RUN-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "runtime_port",
+        "process"
+      ],
+      "setup": "ProcessRuntimeAdapter with real subprocess trees.",
+      "action": "Cancel, overrun the deadline, simulate an unconfirmed kill.",
+      "oracle": "Process trees die and are confirmed; unconfirmed kills are reported honestly; no raw shell exists.",
+      "failure_injection": "injected faults",
+      "evidence": [
+        "tests/collaboration/test_runtime_port_process.py::test_cancel_kills_the_whole_process_tree_and_reports_cancelled",
+        "tests/collaboration/test_runtime_port_process.py::test_an_unconfirmed_kill_is_never_reported_as_cancelled",
+        "tests/collaboration/test_runtime_port_process.py::test_strict_orchestration_kills_overrunning_work_at_the_deadline",
+        "tests/collaboration/test_orchestration_m3_closure.py::test_a_job_that_finishes_exactly_at_the_deadline_is_used_not_discarded"
+      ],
+      "live_provider": false,
+      "dimensions": [
+        "runtime_port"
+      ],
+      "case_type": "fault",
+      "deterministic": true
     }
   ]
 }

@@ -62,3 +62,18 @@ The Runtime Port module (`peerhub.m3.runtime_port`) provides:
    │ COMPLETED │ │ FAILED │   │ CANCELLED │
    └───────────┘ └────────┘   └───────────┘
 ```
+
+---
+
+## Closure update (2026-10-08)
+
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. State-machine and exception JSON catalogs are updated separately.
+
+- The module includes a `ProcessRuntimeAdapter` that implements local execution via subprocess, using a strictly populated fixed argv template (`shell=False`). No raw shells are permitted.
+- `cancel`: Calling cancellation MUST kill the entire process tree and *confirm* termination.
+- A cancellation request where the kill cannot be confirmed raises `RuntimeCancellationError`, and the job honestly remains in the `RUNNING` state.
+- `HardDeadlineStepRunner` enforces strict time bounds. Deadlines trigger a kill. If unconfirmed, the step resolves to `MAY_HAVE_STARTED`. Orchestration respects a `require_hard_deadline=True` mode, requiring compliant runners.
+
+**Superseded or missing in the original text:**
+- The old contract only named `LoopbackRuntimeAdapter`.
+- It assumed that calling `cancel` automatically shifted the state to `CANCELLED` and neglected the reality of unconfirmed kills.

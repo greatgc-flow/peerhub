@@ -22,6 +22,7 @@ def names(results):
     return sorted(r.metadata["name"] for r in results)
 
 
+@pytest.mark.catalog_id("SRC-013")
 def test_exact_predicates_filter_hits(index):
     assert names(index.search("benchmark")) == ["a", "b", "c"]
     assert names(index.search("benchmark", metadata={"owner": "eval-team"})) == ["a", "b"]
@@ -30,17 +31,20 @@ def test_exact_predicates_filter_hits(index):
     assert index.search("benchmark", metadata={"missing": "x"}) == []
 
 
+@pytest.mark.catalog_id("SRC-013")
 def test_match_is_exact_by_type(index):
     assert names(index.search("benchmark", metadata={"flag": True})) == ["a", "c"]
     assert index.search("benchmark", metadata={"rank": True}) == []  # True is not 1
     assert index.search("benchmark", metadata={"rank": "1"}) == []  # "1" is not 1
 
 
+@pytest.mark.catalog_id("SRC-013")
 def test_limit_applies_after_the_metadata_filter(index):
     assert len(index.search("benchmark", limit=1, metadata={"owner": "other"})) == 1
     assert len(index.search("benchmark", limit=1, metadata={"owner": "eval-team"})) == 1
 
 
+@pytest.mark.catalog_id("SRC-013")
 def test_invalid_metadata_rejected(index):
     for bad in ({"k": ["list"]}, {"k": {"n": 1}}, {1: "x"}):
         with pytest.raises(ValueError):

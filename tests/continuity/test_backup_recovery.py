@@ -105,6 +105,7 @@ def test_bck_002_authoritative_restore_first(env: dict[str, Any]) -> None:
 # -------------------------------------------------------------------------
 # BCK-003: Full projection rebuild after disaster restore yields identical work items
 # -------------------------------------------------------------------------
+@pytest.mark.catalog_id("BCK-015")
 def test_bck_003_full_projection_rebuild_after_disaster(env: dict[str, Any]) -> None:
     work_proj: WorkProjection = env["work_projection"]
 

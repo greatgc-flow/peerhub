@@ -8,6 +8,7 @@ import pytest
 from peerhub.extensions.artifact import ArtifactStore
 
 
+@pytest.mark.catalog_id("ART-037")
 def test_stage_stream_max_size_rejects_oversize_and_leaves_no_staging(tmp_path):
     store = ArtifactStore(tmp_path / "a")
     with pytest.raises(ValueError, match="max_size"):
@@ -18,6 +19,7 @@ def test_stage_stream_max_size_rejects_oversize_and_leaves_no_staging(tmp_path):
         store.stage_stream(io.BytesIO(b""), max_size=-1)
 
 
+@pytest.mark.catalog_id("ART-038")
 def test_duplicate_commit_verifies_existing_blob_without_loading_it(tmp_path, monkeypatch):
     store = ArtifactStore(tmp_path / "a")
     d = store.commit_staged(store.stage_bytes(b"payload"))
@@ -25,6 +27,7 @@ def test_duplicate_commit_verifies_existing_blob_without_loading_it(tmp_path, mo
     assert store.commit_staged(store.stage_bytes(b"payload")) == d
 
 
+@pytest.mark.catalog_id("ART-039")
 def test_cleanup_orphans_grace_period_keeps_fresh_blobs(tmp_path):
     store = ArtifactStore(tmp_path / "a")
     fresh = store.commit_staged(store.stage_bytes(b"fresh"))
@@ -38,6 +41,7 @@ def test_cleanup_orphans_grace_period_keeps_fresh_blobs(tmp_path):
         store.cleanup_orphans(set(), min_age_seconds=-1)
 
 
+@pytest.mark.catalog_id("ART-041")
 def test_commit_fsyncs_the_shard_directory_on_posix(tmp_path, monkeypatch):
     import sys
 
@@ -49,6 +53,7 @@ def test_commit_fsyncs_the_shard_directory_on_posix(tmp_path, monkeypatch):
     assert sys.platform  # platform skip lives inside _fsync_dir itself
 
 
+@pytest.mark.catalog_id("SKL-019")
 def test_skill_frontmatter_fallback_parses_inline_lists_like_pyyaml(monkeypatch):
     import importlib
 
@@ -67,6 +72,7 @@ def test_skill_frontmatter_fallback_parses_inline_lists_like_pyyaml(monkeypatch)
     assert SkillCatalogEngine._parse_yaml_frontmatter(text) == with_yaml == {"name": "demo", "tags": ["a", "b", "c"], "empty": [], "plain": "value"}
 
 
+@pytest.mark.catalog_id("SKL-018")
 def test_skill_tree_digest_framing_has_no_boundary_collisions(tmp_path):
     from peerhub.extensions.skills import SkillCatalogEngine
 
@@ -84,6 +90,7 @@ def test_skill_tree_digest_framing_has_no_boundary_collisions(tmp_path):
     assert SkillCatalogEngine.compute_directory_digest(two) == SkillCatalogEngine.compute_directory_digest(two)  # deterministic
 
 
+@pytest.mark.catalog_id("ART-040")
 def test_export_verified_streams_a_blob_and_never_publishes_a_tampered_one(tmp_path):
     import os
     import stat
@@ -106,6 +113,7 @@ def test_export_verified_streams_a_blob_and_never_publishes_a_tampered_one(tmp_p
         store.export_verified("0" * 64, tmp_path / "out" / "none.bin")
 
 
+@pytest.mark.catalog_id("ART-039")
 def test_gc_grace_is_measured_from_commit_time_not_staging_time(tmp_path):
     store = ArtifactStore(tmp_path / "a")
     staged = store.stage_bytes(b"slow writer")
@@ -116,6 +124,7 @@ def test_gc_grace_is_measured_from_commit_time_not_staging_time(tmp_path):
     assert store.resolve_path(digest).is_file()
 
 
+@pytest.mark.catalog_id("ART-039")
 def test_re_referencing_an_old_unreferenced_blob_renews_its_lease(tmp_path):
     store = ArtifactStore(tmp_path / "a")
     digest = store.commit_staged(store.stage_bytes(b"shared"))
@@ -125,6 +134,7 @@ def test_re_referencing_an_old_unreferenced_blob_renews_its_lease(tmp_path):
     assert store.cleanup_orphans(set(), min_age_seconds=3600) == []  # GC must not remove it before the reference lands
 
 
+@pytest.mark.catalog_id("ART-041")
 def test_a_new_shard_syncs_its_parent_and_an_existing_shard_does_not(tmp_path, monkeypatch):
     import hashlib
     from pathlib import Path
@@ -142,6 +152,7 @@ def test_a_new_shard_syncs_its_parent_and_an_existing_shard_does_not(tmp_path, m
     assert calls == [shard]  # the shard already existed: only its own entry needs syncing
 
 
+@pytest.mark.catalog_id("SKL-018")
 def test_a_skill_file_that_changes_while_being_hashed_is_rejected_not_framed_wrongly(tmp_path, monkeypatch):
     from peerhub.extensions import skills as skills_mod
     from peerhub.extensions.boundary import SecurityBoundaryError

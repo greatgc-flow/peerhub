@@ -52,3 +52,62 @@
 - Host -> ArtifactStore: `stage()`, `commit()`
 - Core -> ArtifactStore: `read(ref)`
 - ArtifactStore -> OS: `os.rename()`, `hashlib.sha256()`, `mkstemp()`, `fsync()`
+
+---
+
+## Closure update (2026-10-08)
+
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. State-machine and exception JSON catalogs are updated separately.
+
+Section 1: replace the staging-GC bullet:
+
+```markdown
+  - **Garbage Collection (GC):** `sweep_staging(max_age_seconds=86400.0)` explicitly removes old staging files; the ArtifactStore and Host do not automatically invoke this sweep at boot. `cleanup_orphans(referenced_digests, min_age_seconds=0.0)` removes unreferenced committed blobs using the caller-supplied reference set.
+```
+
+Section 2: replace the interface list:
+
+```markdown
+- `stage_stream(stream, chunk_size=65536, max_size=None) -> StagedArtifact`: Streams bytes into a temporary file while computing SHA-256; fsyncs the staged file. `chunk_size` must be a positive integer. A supplied `max_size` must be a non-negative integer; exceeding it raises `ValueError` before the excess chunk is written, and removes the temporary file.
+- `commit_staged(staged) -> str`: Verifies staged content and publishes the digest-addressed blob with `os.replace`. Errors: `ForbiddenTransitionError`, `SecurityBoundaryError`, `ArtifactTamperedError`, and filesystem errors.
+- `read_bytes(digest) -> bytes`: Returns the complete blob after digest verification. Errors: `ArtifactNotFoundError`, `ArtifactTamperedError`.
+- `read_verified_prefix(digest, limit, chunk_size=65536) -> tuple[bytes, int]`: Streams and verifies the entire blob while retaining only the requested prefix; returns the prefix and total size.
+- `resolve_path(digest) -> Path`: Validates the reference and artifact path boundary. Errors: `InvalidArtifactReferenceError`, `SecurityBoundaryError`.
+- `export_verified(digest, dest, chunk_size=65536) -> int`: Streams the blob into a sibling temporary file, fsyncs it, verifies its digest, and only then replaces `dest`. Returns the exported byte count. Verification failure removes the temporary file and does not publish the export.
+```
+
+Section 3: replace the numbered sequence and deduplication bullet:
+
+```markdown
+1. **Stage & Digest** the stream into `.tmp` using bounded chunks and simultaneous SHA-256 calculation.
+2. **Bound Check** each chunk before writing it when `max_size` is supplied.
+3. **Staging Durability** via file fsync before returning `StagedArtifact`.
+4. **Commit Verification** rehashes the staged file and checks its size against `StagedArtifact`.
+5. **Atomic Blob Commit** publishes the file with `os.replace` to `artifacts/<digest[:2]>/<digest>`.
+6. **Commit-Time Grace** resets the committed blob's modification time; orphan-GC grace is measured from commit rather than the earlier staging write.
+7. **Directory Durability** attempts to fsync the shard directory on POSIX, and also the artifact root when a new shard was created. Directory fsync is skipped on Windows and is best-effort when the OS rejects it.
+8. **Core Record Reference** is appended separately by the caller after blob commit.
+- **Idempotency & Deduplication:** An existing blob is fully verified through streamed `read_verified_prefix(digest, 0)` before redundant staging is discarded. This path does not load the complete existing blob into memory and refreshes its modification time, renewing its orphan-GC grace period.
+- **GC Grace:** `min_age_seconds` must be non-negative. An unreferenced blob younger than the supplied grace period is retained. The default is zero; callers running GC beside writers must supply an appropriate grace period.
+- **Lifecycle Representation:** Stage, digest, verification, and commit are operational phases, not separately persisted artifact status values. `commit_staged` accepts `StagedArtifact` and performs verification internally.
+```
+
+Section 4: replace these rows:
+
+```markdown
+| Core DB Crash | Blob committed, no Record | Caller-driven orphan cleanup may remove the blob after any configured commit-time grace period. | test_art_039_gc_commit_grace |
+| Duplicate commit | Existing digest-addressed blob | Stream-verify the existing blob, renew its GC grace, and discard redundant staging. | test_art_038_streamed_dedup |
+| Export verification failure | Temporary export contains untrusted bytes | Remove the temporary export; do not replace the destination. | test_art_040_verified_export |
+```
+
+Delete **Local DB Lost**: this ArtifactStore has no metadata index DB.
+
+Section 6: replace **Path Lengths**:
+
+```markdown
+- **Path Lengths:** Artifact paths use `pathlib.Path`; this implementation does not explicitly add the Windows `\\?\` prefix. Long-path support depends on the host environment.
+```
+
+Section 8: replace interface names with the implemented names above, and replace `os.rename()` with `os.replace()`.
+
+**Wrong/obsolete:** automatic Host-boot sweeping, metadata-index writes/recovery, `os.rename` as the publication primitive, deduplication without verification IO, unconditional directory durability, and a separately enforced persisted artifact lifecycle.
