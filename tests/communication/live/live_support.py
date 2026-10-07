@@ -16,7 +16,9 @@ EVIDENCE_DIR = ROOT / "docs" / "implementation" / "live_evidence"
 OPT_IN_ENV = "PEERHUB_LIVE"
 PROVIDERS = ("cc", "cx", "ag")
 PROMPT = "Reply with OK"  # <= 20 tokens, fixed tiny response contract
-_SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "node_modules", ".venv", "build", "dist", ".mypy_cache", ".ruff_cache"}
+# `.peerhub` is PeerHub's own git-ignored runtime state (databases, live-gate output): a user's running `peerhub monitor`
+# rewrites it at any time, and no provider call may be blamed for that. Provider writes elsewhere in the project still fail LIVE-006.
+_SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "node_modules", ".venv", "build", "dist", ".mypy_cache", ".ruff_cache", ".peerhub"}
 _CACHE: dict[str, dict] = {}
 
 
