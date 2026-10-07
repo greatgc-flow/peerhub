@@ -102,3 +102,16 @@ def test_dependency_syntax_is_exact_or_unpinned_only(bad):
     with pytest.raises(SchemaValidationError):
         validate_manifest({"id": "ext_x", "version": "1", "entrypoint": "m.py", "dependencies": [bad]})
     assert validate_manifest({"id": "ext_x", "version": "1", "entrypoint": "m.py", "dependencies": ["ext_core", "ext_core2==1.2.3"]})
+
+
+def test_a_missing_entrypoint_fails_enablement_instead_of_leaving_metadata_enabled(tmp_path):
+    from peerhub.extensions.host import ExtensionHookError
+
+    exts = tmp_path / "exts"
+    d = write_ext(exts, "ext_a")
+    (d / "main.py").unlink()  # the manifest is valid but the module it names is gone
+    host = ExtensionHost(tmp_path / "host.db", extensions_dir=exts)
+    host.boot()
+    with pytest.raises(ExtensionHookError, match="entrypoint"):
+        host.enable("ext_a")
+    assert host.get_state("ext_a") == "FAILED" and "ext_a" not in host.loaded_modules

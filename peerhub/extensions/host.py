@@ -280,6 +280,11 @@ class ExtensionHost:
                 self.transition(ext_id, "FAILED")
                 raise
 
+        if manifest and ext_id in self.manifest_dirs and not (self.manifest_dirs[ext_id] / manifest.entrypoint).is_file():
+            # Never leave metadata ENABLED without a runtime module: a missing entrypoint is a failed enablement.
+            self.transition(ext_id, "FAILED")
+            raise ExtensionHookError(f"Extension {ext_id!r} entrypoint {manifest.entrypoint!r} is missing")
+
         if current_state == "DISCOVERED":
             self.transition(ext_id, "VALIDATED")
             self.transition(ext_id, "ENABLED")
