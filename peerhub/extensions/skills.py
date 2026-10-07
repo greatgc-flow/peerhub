@@ -187,11 +187,16 @@ class SkillCatalogEngine:
                 all_files.append((rel_path, p))
 
         all_files.sort(key=lambda x: x[0])
+        # Length-prefixed framing (8-byte big-endian lengths): no byte sequence inside a path or a file can be mistaken for a
+        # boundary, so two different directory trees can never share a digest. Files are streamed, memory stays bounded.
         for rel_path, file_path in all_files:
-            hasher.update(rel_path.encode("utf-8"))
-            hasher.update(b"\x00")
-            hasher.update(file_path.read_bytes())
-            hasher.update(b"\x00")
+            name = rel_path.encode("utf-8")
+            hasher.update(len(name).to_bytes(8, "big"))
+            hasher.update(name)
+            hasher.update(file_path.stat().st_size.to_bytes(8, "big"))
+            with file_path.open("rb") as stream:
+                while chunk := stream.read(65536):
+                    hasher.update(chunk)
             file_count += 1
 
         return hasher.hexdigest(), file_count
@@ -659,12 +664,11 @@ class SkillCatalogEngine:
             ),
         )
 
-    def rebuild_index(
-        self,
-        records: Iterable[Record],
-        skill_roots: Iterable[Path | str] | None = None,
-    ) -> int:
-        """Wipe projection tables and rebuild state from directory scan and stream records."""
+    def rebuild_index(self, records: Iterable[Record]) -> int:
+        """Rebuild the projection from the authoritative stream Records only.
+
+        The skill directories are never rescanned here: a recorded digest must not be silently replaced by whatever is on disk.
+        Drift between a recorded digest and the directory is detected by `verify_skill_integrity` (`SkillTamperedError`)."""
         self._init_db()
 
         applied_count = 0

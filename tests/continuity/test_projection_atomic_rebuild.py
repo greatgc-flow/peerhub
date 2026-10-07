@@ -53,7 +53,7 @@ def test_skill_rebuild_failing_record_source_keeps_existing_projection(tmp_path,
     cat.declare_capability(stream_id="s1", capability_id="cap-1", spec={"k": "v"})
     records = list(store.read_records(stream_id="s1"))
     with pytest.raises(RuntimeError):
-        cat.rebuild_index(_exploding(records), [])
+        cat.rebuild_index(_exploding(records))
     assert cat.get_capability("cap-1").capability_id == "cap-1"
 
 

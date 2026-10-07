@@ -197,7 +197,7 @@ def test_skill_rebuild_rejects_conflicting_transition_and_volatile_catalog(tmp_p
     store.append_record(stream_id="main", author_peer_id="alice", kind="m2.catalog.declared",
         body={"capability_id": "bad", "spec": {"nested": {"quota": 99}}, "revision": 1},
         idempotency_key="bad-catalog", created_at="2026-10-06T00:00:00Z")
-    catalog.rebuild_index(store.read_records("main"), [])
+    catalog.rebuild_index(store.read_records("main"))
     assert catalog.get_skill("review").state == "VALIDATED"
     with pytest.raises(LookupError):
         catalog.get_capability("bad")

@@ -326,9 +326,7 @@ def test_skl_014_wipe_sqlite_table_rebuild_full_state(
 
     # Rebuild from Core Stream records and skill directory root
     records = store.read_records(stream_id="s1")
-    rebuilt_count = catalog_engine.rebuild_index(
-        records=records, skill_roots=[valid_skill_dir.parent]
-    )
+    rebuilt_count = catalog_engine.rebuild_index(records=records)
 
     assert rebuilt_count >= 3
 
@@ -344,3 +342,18 @@ def test_skl_014_wipe_sqlite_table_rebuild_full_state(
     assert after_cap.capability_id == before_cap.capability_id
     assert after_cap.revision == before_cap.revision == 1
     assert after_cap.spec == before_cap.spec
+
+
+def test_skl_rebuild_never_adopts_disk_content_and_drift_is_detected(
+    catalog_engine: SkillCatalogEngine, valid_skill_dir: Path, store: CoreStore
+):
+    """Rebuild replays Records only: edited files neither change the recorded digest nor pass integrity verification."""
+    from peerhub.extensions.skills import SkillTamperedError
+
+    catalog_engine.index_skill(stream_id="s1", skill_dir=valid_skill_dir)
+    recorded = catalog_engine.get_skill("code_review").tree_digest
+    (valid_skill_dir / "extra.txt").write_text("edited after registration", encoding="utf-8")
+    catalog_engine.rebuild_index(records=store.read_records(stream_id="s1"))
+    assert catalog_engine.get_skill("code_review").tree_digest == recorded  # the Record, not the disk, is the authority
+    with pytest.raises(SkillTamperedError):
+        catalog_engine.verify_skill_integrity("code_review")

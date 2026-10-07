@@ -65,3 +65,20 @@ def test_skill_frontmatter_fallback_parses_inline_lists_like_pyyaml(monkeypatch)
 
     monkeypatch.setattr(importlib, "import_module", no_yaml)
     assert SkillCatalogEngine._parse_yaml_frontmatter(text) == with_yaml == {"name": "demo", "tags": ["a", "b", "c"], "empty": [], "plain": "value"}
+
+
+def test_skill_tree_digest_framing_has_no_boundary_collisions(tmp_path):
+    from peerhub.extensions.skills import SkillCatalogEngine
+
+    one, two = tmp_path / "one", tmp_path / "two"
+    one.mkdir()
+    two.mkdir()
+    (one / "a").write_bytes(b"1\x00b\x002")  # a single file whose content imitates a boundary and a second file
+    (two / "a").write_bytes(b"1")
+    (two / "b").write_bytes(b"2")
+    d1, c1 = SkillCatalogEngine.compute_directory_digest(one)
+    d2, c2 = SkillCatalogEngine.compute_directory_digest(two)
+    assert (c1, c2) == (1, 2) and d1 != d2  # with `path NUL content NUL` framing these two trees collided
+    (two / "b").write_bytes(b"3")
+    assert SkillCatalogEngine.compute_directory_digest(two)[0] != d2  # content still changes the digest
+    assert SkillCatalogEngine.compute_directory_digest(two) == SkillCatalogEngine.compute_directory_digest(two)  # deterministic
