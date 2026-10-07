@@ -176,7 +176,7 @@
       "command": "diag quota",
       "options": [
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"

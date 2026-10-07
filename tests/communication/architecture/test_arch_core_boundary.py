@@ -211,3 +211,32 @@ def test_arch_005_core_identity_is_not_runtime_identity(harness):
         assert not any(k in ser or k in str(ser.get("metadata")) for k in desc)
         assert not any(w in f for f in Peer.model_fields for w in ("session", "pid", "process", "profile"))
     assert harness.state_digest() == digest
+
+
+# ----------------------------------------------------------------------------- extension independence (composition root = peerhub/cli)
+_OBSERVATION_DIAG = ("observation.py", "observation_model.py", "quota_capture.py", "quota_probes.py", "quota_types.py",
+                     "diag.py", "diag_quota.py", "diag_watch.py", "schema_guard.py")
+_ALLOWED_EXTENSION_IMPORTS = {"peerhub.extensions.observation", "peerhub.extensions.observation_model", "peerhub.extensions.quota_types",
+                              "peerhub.extensions.schema_guard", "peerhub.extensions.diag", "peerhub.extensions.peer_kinds", "peerhub.extensions.quota_probes",
+                              "peerhub.extensions.adapters.binary_resolution"}  # shared, dependency-free helpers inside the M1 trio
+
+
+def _extension_imports(path):
+    import ast
+
+    out = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("peerhub.extensions"):
+            out.add(node.module)
+        elif isinstance(node, ast.Import):
+            out |= {a.name for a in node.names if a.name.startswith("peerhub.extensions")}
+    return out
+
+
+def test_arch_observation_and_diag_do_not_import_the_bridge_or_m2_m3_extensions():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3] / "peerhub" / "extensions"
+    bad = {name: sorted(m for m in _extension_imports(root / name) if m not in _ALLOWED_EXTENSION_IMPORTS)
+           for name in _OBSERVATION_DIAG}
+    assert {k: v for k, v in bad.items() if v} == {}  # e.g. quota_capture importing ask.ALIASES coupled Observation to the Bridge entry

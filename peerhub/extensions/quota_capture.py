@@ -9,7 +9,7 @@ import math
 from pathlib import Path
 from typing import Any, Callable
 
-from peerhub.extensions.ask import ALIASES
+from peerhub.extensions.peer_kinds import ALIASES
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool, epoch_to_iso
 from peerhub.extensions.quota_types import ResetCreditObserved

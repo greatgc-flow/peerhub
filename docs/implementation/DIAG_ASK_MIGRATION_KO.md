@@ -33,7 +33,7 @@ peerhub ask cx "Reply with OK" --stream demo --request-id demo-001 --json
 peerhub ask cx --query-file prompt.txt --workspace . --model MODEL --effort low
 ```
 
-`--db PATH`는 command 앞의 global option이다. 명시한 경로가 없더라도 다른 workspace DB로 대체하지 않는다. `--obs-db`는 `PEERHUB_DB`와 별도로 선택할 수 있다.
+`--db PATH`는 command 앞의 global option이다. 명시한 경로가 없더라도 다른 workspace DB로 대체하지 않는다. `--observation-db`는 `PEERHUB_DB`와 별도로 선택할 수 있다.
 
 ## 삭제한 부분과 유지한 부분
 

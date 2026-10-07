@@ -142,3 +142,20 @@ def test_error_rows_show_the_recorded_reason():
     assert _badge(row, False, False) == "x ERROR claude_usage_timeout"
     bare = _Row({"subject_ref": "cc", "kind": "quota", "state": "ERROR", "payload": {}}, 0.0)
     assert _badge(bare, False, False) == "x ERROR"
+
+
+def test_dashboard_flags_are_honoured_or_rejected_never_silently_ignored(tmp_path, capsys):
+    import json as _json
+
+    from peerhub.cli.app import main as cli
+
+    db = str(tmp_path / "f.db")
+    cli(["--db", db, "peer", "register", "--peer", "a"])
+    capsys.readouterr()
+    assert cli(["--db", db, "diag", "--json", "quota"]) in (0, 5)  # parent --json is no longer lost
+    assert _json.loads(capsys.readouterr().out)["schema_version"] == "1.0"
+    for argv in (["diag", "--view", "rich", "health"], ["diag", "--json", "health"]):
+        with pytest.raises(SystemExit) as exc:
+            cli(["--db", db, *argv])
+        assert exc.value.code == 2
+    assert "diag" in capsys.readouterr().err

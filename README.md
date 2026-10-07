@@ -22,6 +22,7 @@ peerhub ask cx "Summarize this repository" --stream review --request-id review-0
 
 # Explicit collection may contact provider CLIs.
 peerhub observation refresh --peers cx cc ag
+peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory
 
 # Read committed observations without probing or writing.
 peerhub diag
@@ -41,7 +42,7 @@ peerhub ask cx "Reply briefly" --profile cx.standard --silence-timeout-seconds 3
 
 Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer identities can be registered with `peer register --peer worker --adapter cx`.
 
-`ask` supports explicit `--profile`, `--model`, `--effort`, `--timeout-seconds`, optional `--silence-timeout-seconds`, `--max-output-bytes`, `--author` and `--json`. Profile policy resolves workspace → global → packaged defaults; it does not assert measured model availability. Retrying the same `--request-id` reuses a completed response. A different prompt or binding conflicts, and an uncertain execution requires explicit reconciliation before another execution. Conversation continuity currently uses bounded Stream history; native provider-session resume is not claimed.
+`ask` supports explicit `--profile`, `--model`, `--effort`, `--timeout-seconds`, optional `--silence-timeout-seconds`, `--max-output-bytes`, `--author-peer` and `--json`. Profile policy resolves workspace → global → packaged defaults; it does not assert measured model availability. Retrying the same `--request-id` reuses a completed response. A different prompt or binding conflicts, and an uncertain execution requires explicit reconciliation before another execution. Conversation continuity currently uses bounded Stream history; native provider-session resume is not claimed.
 
 Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
 

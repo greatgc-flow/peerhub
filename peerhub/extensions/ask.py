@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from peerhub.extensions.adapters import CliRuntimeTarget
+from peerhub.extensions.peer_kinds import ALIASES  # noqa: F401  (re-exported for existing importers)
 from peerhub.extensions.bridge import Bridge, CycleResult, RuntimeTarget
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, StaleClaimError
 from peerhub.core.models import Peer, Stream, utc_now_iso
@@ -19,7 +20,6 @@ from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionE
 from peerhub.core.store import AlreadyExistsError, CoreStore, StorageCorruptError, storage_errors
 from peerhub.core.workspace import Workspace
 
-ALIASES = {"codex": "cx", "cx": "cx", "claude": "cc", "cc": "cc", "agy": "ag", "ag": "ag"}
 
 
 def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None = None,

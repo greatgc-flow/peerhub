@@ -163,7 +163,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                          help="Read observations from this OTHER PeerHub workspace database (opened read-only, never created); default: the --db database")
     d_quota.add_argument("--peer", default=None, help="Only this subject_ref (exact match)")
     d_quota.add_argument("--pool", default=None, help="Only this resource_pool_ref (exact match)")
-    d_quota.add_argument("--json", action="store_true", help="Machine-readable output (schema_version 1.0) instead of the table")
+    d_quota.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Machine-readable output (schema_version 1.0) instead of the table")
     d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --observation-db other_ws.db"
 
     # legacy import (the --db option is the PeerHub TARGET store; --source is the legacy v0.x database, opened read-only)
@@ -226,6 +226,16 @@ def _run_observation_cli(args: argparse.Namespace) -> int:
     return 0 if result["status"] == "OK" else 1
 
 
+def _reject_dashboard_flags_on_subcommand(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Dashboard-only flags must not be accepted and silently ignored by a diag subcommand."""
+    if args.action is None:
+        return
+    if args.view != "plain":
+        parser.error("diag --view applies to the dashboard, not to diag subcommands")
+    if args.json and args.action == "health":
+        parser.error("diag health always prints JSON; --json applies to the dashboard and `diag quota`")
+
+
 def _run_light_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     """Commands that never open CoreStore through main(): file maintenance, the monitor loop, explicit collection."""
     if args.subcommand == "store":
@@ -266,6 +276,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             print(json.dumps(report, indent=2, ensure_ascii=True))
             return 0
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
+            _reject_dashboard_flags_on_subcommand(parser, args)
             if args.action is not None and (args.live or args.count or args.interval_seconds != 2):
                 parser.error("--live/--cycles/--interval-seconds apply to the dashboard, not diag subcommands")
             if not args.live and (args.count or args.interval_seconds != 2):
