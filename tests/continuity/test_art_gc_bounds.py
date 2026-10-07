@@ -47,3 +47,21 @@ def test_commit_fsyncs_the_shard_directory_on_posix(tmp_path, monkeypatch):
     d = store.commit_staged(store.stage_bytes(b"z"))
     assert calls == [store.resolve_path(d).parent]
     assert sys.platform  # platform skip lives inside _fsync_dir itself
+
+
+def test_skill_frontmatter_fallback_parses_inline_lists_like_pyyaml(monkeypatch):
+    import importlib
+
+    from peerhub.extensions.skills import SkillCatalogEngine
+
+    text = "name: demo\ntags: [a, 'b', \"c\"]\nempty: []\nplain: value\n"
+    with_yaml = SkillCatalogEngine._parse_yaml_frontmatter(text)
+    real = importlib.import_module
+
+    def no_yaml(name, *a, **k):
+        if name == "yaml":
+            raise ImportError(name)
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(importlib, "import_module", no_yaml)
+    assert SkillCatalogEngine._parse_yaml_frontmatter(text) == with_yaml == {"name": "demo", "tags": ["a", "b", "c"], "empty": [], "plain": "value"}

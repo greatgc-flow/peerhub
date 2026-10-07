@@ -231,8 +231,12 @@ class SkillCatalogEngine:
             if ":" in line:
                 k, v = line.split(":", 1)
                 k = k.strip()
-                v = v.strip().strip("\"'")
+                v = v.strip()
                 current_key = k
+                if v.startswith("[") and v.endswith("]"):  # inline list, as PyYAML reads `tags: [a, b]`
+                    result[k] = [i.strip().strip("\"'") for i in v[1:-1].split(",") if i.strip()]
+                    continue
+                v = v.strip("\"'")
                 if v:
                     result[k] = v
                 else:
