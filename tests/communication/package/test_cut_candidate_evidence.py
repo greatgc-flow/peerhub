@@ -341,6 +341,24 @@ def workflow_problems(wf):
     for n in G3_FILES:
         if f"junit/{n}.xml" not in ev_run:
             bad.append(f"evidence step does not read junit/{n}.xml")
+    mx = wf["jobs"].get("matrix")
+    if mx is None:
+        bad.append("publish.yml needs a `matrix` job that proves every declared Python x OS cell for this candidate")
+    else:
+        ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]["build"]["strategy"]["matrix"]
+        declared = {"os": sorted(ci["os"]), "python-version": sorted(ci["python-version"])}
+        got = mx.get("strategy", {}).get("matrix", {})
+        if {"os": sorted(got.get("os", [])), "python-version": sorted(got.get("python-version", []))} != declared:
+            bad.append("matrix job cells differ from the declared support matrix in ci.yml")
+        if "build" not in mx.get("needs", []):
+            bad.append("matrix job must need build (it is bound to the exact built wheels)")
+        mstamp = [st for st in mx.get("steps", []) if "--stamp-junit" in st.get("run", "")]
+        if len(mstamp) != 1 or mstamp[0].get("if") != "always()" or "--gate G4 " not in mstamp[0]["run"] or "--dist dist" not in mstamp[0]["run"]:
+            bad.append("matrix job must stamp its JUnit with --gate G4 --dist dist (package scope) under if: always()")
+        if mx.get("continue-on-error"):
+            bad.append("matrix job must fail closed")
+        if "matrix" not in wf["jobs"]["release-evidence"]["needs"] or "junit/g4-matrix-" not in ev_run:
+            bad.append("release-evidence must need the matrix job and read its per-cell JUnit files")
     pub = wf["jobs"]["publish"]
     cond = str(pub.get("if", ""))
     if "github.event_name == 'release'" not in cond:
@@ -405,6 +423,17 @@ def _mutate(kind):
         wf["jobs"]["publish"]["needs"].remove("release-evidence")
     elif kind == "evidence-continue-on-error":
         wf["jobs"]["release-evidence"]["continue-on-error"] = True
+    elif kind == "matrix-dropped-from-needs":
+        wf["jobs"]["release-evidence"]["needs"].remove("matrix")
+    elif kind == "matrix-cell-dropped":
+        wf["jobs"]["matrix"]["strategy"]["matrix"]["python-version"].remove("3.14")
+    elif kind == "matrix-not-package-scoped":
+        st = next(st for st in wf["jobs"]["matrix"]["steps"] if "--stamp-junit" in st.get("run", ""))
+        st["run"] = st["run"].replace("--dist dist", "")
+    elif kind == "matrix-continue-on-error":
+        wf["jobs"]["matrix"]["continue-on-error"] = True
+    elif kind == "evidence-ignores-matrix":
+        ev_step["run"] = ev_step["run"].replace("junit/g4-matrix-", "junit/other-")
     elif kind == "evidence-skips-g3-slow":
         ev_step["run"] = ev_step["run"].replace("--junit junit/g3-slow.xml", "")
     return wf
@@ -414,7 +443,8 @@ def _mutate(kind):
                                   "g3-continue-on-error", "stamp-not-always", "g4-stamp-before-build",
                                   "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow", "no-gate-arg",
                                   "publish-always", "publish-no-release-event",
-                                  "publish-drops-evidence-need", "evidence-continue-on-error"])
+                                  "publish-drops-evidence-need", "evidence-continue-on-error", "matrix-dropped-from-needs",
+                                  "matrix-cell-dropped", "matrix-not-package-scoped", "matrix-continue-on-error", "evidence-ignores-matrix"])
 def test_cut_022_mutated_workflows_are_caught(kind):
     assert workflow_problems(_mutate(kind)), kind
 
