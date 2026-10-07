@@ -63,7 +63,9 @@ include = ["peerhub*"]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]
 addopts = "-ra -m 'not slow and not e2e and not live and not soak'"
-timeout = 60
+# Per-test hang guard. On Windows pytest-timeout ends the WHOLE session when it fires, and a loaded CI runner can stall a single
+# SQLite commit for tens of seconds, so 60 s turned one disk stall into a lost job. 180 s still catches a real deadlock.
+timeout = 180
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "e2e: marks tests as End-to-End tier (deselect with '-m \"not e2e\"')",
