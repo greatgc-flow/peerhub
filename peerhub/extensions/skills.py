@@ -17,6 +17,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any, ClassVar, Iterable, cast, Iterator
 
+from peerhub.extensions.sqlite_tx import sqlite_tx
 from peerhub.core.models import Record
 from peerhub.core.store import CoreStore, IdempotencyConflictError
 from peerhub.extensions.artifact import SecurityBoundaryError
@@ -124,7 +125,7 @@ class SkillCatalogEngine:
         self._init_db()
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("""
@@ -581,13 +582,13 @@ class SkillCatalogEngine:
 
     def list_skills(self) -> list[SkillItem]:
         """Enumerate projected canonical skills in deterministic identity order."""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             ids = [row[0] for row in conn.execute("SELECT skill_id FROM ext_skills ORDER BY skill_id")]
         return [self.get_skill(skill_id) for skill_id in ids]
 
     def get_skill(self, skill_id: str) -> SkillItem:
         """Fetch skill projection by ID."""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             row = conn.execute(
                 """
                 SELECT skill_id, stream_id, name, description, version, state,
@@ -618,7 +619,7 @@ class SkillCatalogEngine:
 
     def search_skills(self, query: str, tags: list[str] | None = None) -> list[SkillItem]:
         """Search curated skill metadata, not provider runtime observations."""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             ids = [row[0] for row in conn.execute("SELECT skill_id FROM ext_skills ORDER BY skill_id")]
         needle = query.casefold()
         return [item for skill_id in ids if
@@ -627,7 +628,7 @@ class SkillCatalogEngine:
 
     def get_capability(self, capability_id: str) -> CapabilityItem:
         """Fetch capability projection by ID."""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             row = conn.execute(
                 """
                 SELECT capability_id, stream_id, spec_json, revision, created_at, updated_at
@@ -650,7 +651,7 @@ class SkillCatalogEngine:
 
     def _save_skill_projection(self, skill: SkillItem, conn: sqlite3.Connection | None = None) -> None:
         if conn is None:
-            with sqlite3.connect(self.db_path) as own:
+            with sqlite_tx(self.db_path) as own:
                 self._save_skill_projection(skill, own)
             return
         conn.execute(
@@ -691,7 +692,7 @@ class SkillCatalogEngine:
 
     def _save_capability_projection(self, cap: CapabilityItem, conn: sqlite3.Connection | None = None) -> None:
         if conn is None:
-            with sqlite3.connect(self.db_path) as own:
+            with sqlite_tx(self.db_path) as own:
                 self._save_capability_projection(cap, own)
             return
         conn.execute(
@@ -877,7 +878,7 @@ class SkillCatalogEngine:
         return applied_count
 
     def _replace_projection(self, skills_state: dict[str, dict[str, Any]], capabilities_state: dict[str, dict[str, Any]]) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             conn.execute("DELETE FROM ext_skills;")
             conn.execute("DELETE FROM ext_capabilities;")
             for sk in skills_state.values():

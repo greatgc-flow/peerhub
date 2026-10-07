@@ -19,6 +19,7 @@ import sqlite3
 import sys
 from typing import Any, Callable, ClassVar
 
+from peerhub.extensions.sqlite_tx import sqlite_tx
 from peerhub.extensions.manifest import ExtensionManifest, SchemaValidationError, parse_dependency, validate_manifest
 
 
@@ -92,7 +93,7 @@ class ExtensionHost:
         self._init_db()
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("""
@@ -135,7 +136,7 @@ class ExtensionHost:
                 f"Extension ID {ext_id!r} already registered with different manifest"
             )
 
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             row = conn.execute(
                 "SELECT state, schema_version FROM m2_extension_registry WHERE id = ?",
                 (ext_id,),
@@ -193,7 +194,7 @@ class ExtensionHost:
 
     def get_state(self, ext_id: str) -> str:
         """Get the current lifecycle state of an extension from the database registry."""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             row = conn.execute(
                 "SELECT state FROM m2_extension_registry WHERE id = ?",
                 (ext_id,),
@@ -213,7 +214,7 @@ class ExtensionHost:
                 f"Forbidden transition from {current_state} to {target_state} for extension {ext_id!r}"
             )
 
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             conn.execute(
                 "UPDATE m2_extension_registry SET state = ? WHERE id = ?",
                 (target_state, ext_id),
@@ -221,7 +222,7 @@ class ExtensionHost:
         return target_state
 
     def _registered_version(self, ext_id: str) -> str | None:
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             row = conn.execute("SELECT version FROM m2_extension_registry WHERE id = ?", (ext_id,)).fetchone()
         return None if row is None else str(row[0])
 
@@ -388,7 +389,7 @@ class ExtensionHost:
                 )
 
         # 2. Execute migration inside transaction
-        with sqlite3.connect(self.db_path, isolation_level=None) as conn:
+        with sqlite_tx(self.db_path, isolation_level=None) as conn:
             conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("BEGIN IMMEDIATE")
             violation: list[str] = []

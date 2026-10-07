@@ -17,6 +17,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any, ClassVar, Iterable, Iterator, cast
 
+from peerhub.extensions.sqlite_tx import sqlite_tx
 from peerhub.core.models import Record
 from peerhub.core.store import CoreStore, IdempotencyConflictError
 
@@ -87,7 +88,7 @@ class WorkProjection:
         self._init_db()
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             conn.execute("PRAGMA journal_mode = WAL;")
             conn.execute("PRAGMA foreign_keys = ON;")
             conn.execute("""
@@ -366,7 +367,7 @@ class WorkProjection:
 
     def get_work(self, work_id: str) -> WorkItem:
         """Fetch a work item projection from SQLite by its work_id."""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             row = conn.execute(
                 """
                 SELECT work_id, stream_id, state, revision, title, spec_json,
@@ -394,13 +395,13 @@ class WorkProjection:
 
     def list_work(self) -> list[WorkItem]:
         """Return the current flat work projection; no synthetic parent hierarchy."""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             ids = [row[0] for row in conn.execute("SELECT work_id FROM ext_work_items ORDER BY work_id")]
         return [self.get_work(work_id) for work_id in ids]
 
     def _save_work_projection(self, work: WorkItem, conn: sqlite3.Connection | None = None) -> None:
         if conn is None:
-            with sqlite3.connect(self.db_path) as own:
+            with sqlite_tx(self.db_path) as own:
                 self._save_work_projection(work, own)
             return
         conn.execute(
@@ -563,7 +564,7 @@ class WorkProjection:
 
         # Replace the projection atomically: a failure while reading `records` above never reaches the DELETE, and a
         # failure here rolls the whole replacement back, so readers never see an empty or half-built projection.
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite_tx(self.db_path) as conn:
             conn.execute("DELETE FROM ext_work_items;")
             for it in items.values():
                 work = WorkItem(
