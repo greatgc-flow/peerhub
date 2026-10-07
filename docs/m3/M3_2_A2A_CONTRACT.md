@@ -76,7 +76,7 @@ The A2A module (`peerhub.m3.a2a`) provides:
 
 Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. The state-machine and exception JSON catalogs carry the same update.
 
-- A2A execution requires `a2a_journal.py` to write a durable `submitting` record (containing an atomic claim token, endpoint, and attempt number) before a remote call.
+- A2A execution with a journal configured writes (via `a2a_journal.py`) a durable `submitting` record (containing an atomic claim token, endpoint, and attempt number) before a remote call. An adapter without a journal has no durability and no uncertain recovery.
 - Any unresolved `submitting` state on restart resolves to `UNCERTAIN` to prevent blind replay.
 - `reconcile_task`: If the remote has the task, it is adopted. If the remote has no record, the task is safely resolved to `NOT_STARTED` ONLY on guaranteed deterministic transports (e.g., loopback). On non-guaranteed transports (e.g., HTTP), the task remains `UNCERTAIN` to protect against late arrivals. Reconciliation can only be made to the originally submitted endpoint.
 - `abandon_task`: The only valid action for an unresolved `UNCERTAIN` task. It permanently burns the ID, records a reason, and a new ID must be used for retries.

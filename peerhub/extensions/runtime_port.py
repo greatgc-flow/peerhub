@@ -478,7 +478,9 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
     @staticmethod
     def _kill_tree(proc: subprocess.Popen[bytes]) -> None:
         if os.name == "nt":
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15)
+            done = subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15)
+            if done.returncode != 0:  # the whole tree is not confirmed gone
+                raise OSError(f"taskkill exited {done.returncode}")
         else:
             import signal
             try:

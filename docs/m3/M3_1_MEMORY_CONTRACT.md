@@ -79,5 +79,5 @@ Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10
 - The `rebuild_from_records` interface accepts a `quarantine=True` mode, which atomically skips invalid events. Skipped events are explicitly cataloged with their failure reasons (silent data loss is forbidden).
 
 **Superseded or missing in the original text:**
-- `rebuild_from_records(core_store: CoreStore)` was listed without the `quarantine: bool = False` argument.
+- `rebuild_from_records(core_store: CoreStore)` was listed without the keyword-only `quarantine: bool | None = None` argument (None defers to the store policy).
 - It lacked the explicit fail-closed / no-silent-loss semantics.

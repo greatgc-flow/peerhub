@@ -24,7 +24,7 @@ The Search module (`peerhub.m3.search`) provides:
   - `score: float`
   - `retrieval_method: str` ("LEXICAL_FTS" | "EXACT" | "METADATA")
   - `source_watermark: str`
-  - `metadata: dict[str, Any]`
+  - `metadata: dict[str, str | int | float | bool | None] | None` (exact scalar predicates)
 - `SearchIndex(db_path: Path)`:
   - `index_record(record: Record) -> None`
   - `index_artifact(digest: str, metadata: dict[str, Any], snippet: str = "") -> None`

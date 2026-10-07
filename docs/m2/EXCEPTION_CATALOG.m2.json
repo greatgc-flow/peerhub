@@ -478,7 +478,7 @@
     {
       "id": "EXC-047",
       "name": "BackupManifestMissingError",
-      "trigger": "Missing or unreadable backup_manifest.json.",
+      "trigger": "backup_manifest.json is missing; an unreadable or unparsable manifest raises BackupCorruptedError.",
       "disposition": "REJECTED",
       "rationale": "Proof-of-backup manifest is strictly required.",
       "tests": [

@@ -185,3 +185,13 @@ def test_a_rejected_submission_is_a_certain_failure_and_the_runner_needs_the_pro
         HardDeadlineStepRunner(LoopbackRuntimeAdapter())  # the in-process loopback cannot interrupt a handler
     with pytest.raises(UnsupportedExecutionBoundError):
         PlanExecutor(require_hard_deadline=True).execute_plan(Plan("p", "t", [PlanStep("s", "x", {})]), lambda s, a: None)  # type: ignore[arg-type,return-value]
+
+
+def test_a_failed_taskkill_is_reported_not_swallowed_so_cancel_cannot_claim_a_dead_tree(monkeypatch):
+    from types import SimpleNamespace
+    from peerhub.extensions import runtime_port
+
+    monkeypatch.setattr(runtime_port.os, "name", "nt")
+    monkeypatch.setattr(runtime_port.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1))
+    with pytest.raises(OSError):
+        runtime_port.ProcessRuntimeAdapter._kill_tree(SimpleNamespace(pid=1))
