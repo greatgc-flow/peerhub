@@ -248,10 +248,20 @@ class SearchIndex:
             )
             self._commit(conn)
 
-    def search(self, query: str, doc_type: str | None = None, limit: int = 10) -> list[SearchResult]:
-        """Perform lexical FTS search with optional doc_type filtering."""
+    def search(self, query: str, doc_type: str | None = None, limit: int = 10,
+               metadata: dict[str, str | int | float | bool | None] | None = None) -> list[SearchResult]:
+        """Perform lexical FTS search with optional doc_type filtering.
+
+        `metadata` adds exact-match predicates on top-level metadata keys (every pair must be present and equal by type
+        and value; `True` never matches `1`). They filter the FTS hits before `limit` is applied.
+        """
         if not isinstance(cast(object, limit), int) or isinstance(limit, bool) or limit <= 0:
             raise ValueError("search limit must be a positive integer")
+        if metadata is not None:
+            if not isinstance(cast(object, metadata), dict) or not all(
+                    isinstance(cast(object, k), str) and isinstance(cast(object, v), (str, int, float, bool, type(None)))
+                    for k, v in metadata.items()):
+                raise ValueError("search metadata must be a dict of string keys to scalar values")
         fts_query = _sanitize_fts_query(query)
         if fts_query == '""':
             return []
@@ -271,12 +281,13 @@ class SearchIndex:
             JOIN doc_meta m ON fts.doc_id = m.doc_id
             WHERE fts_documents MATCH ? {type_clause}
             ORDER BY rank_score ASC, fts.doc_id ASC
-            LIMIT ?;
+            {"" if metadata else "LIMIT ?"};
         """
         params: list[Any] = [fts_query]
         if doc_type is not None:
             params.append(doc_type)
-        params.append(limit)
+        if not metadata:
+            params.append(limit)
 
         try:
             with self._connection() as conn:
@@ -287,6 +298,8 @@ class SearchIndex:
         results: list[SearchResult] = []
         for r in rows:
             meta = cast(dict[str, Any], json.loads(r["metadata_json"])) if r["metadata_json"] else {}
+            if metadata and not all(k in meta and type(meta[k]) is type(v) and meta[k] == v for k, v in metadata.items()):
+                continue
             # Mandatory provenance validation
             if not r["source_ref"] or not r["source_watermark"]:
                 raise SearchProvenanceMissingError(f"Missing provenance for search hit {r['doc_id']}")
@@ -307,6 +320,8 @@ class SearchIndex:
                     metadata=meta,
                 )
             )
+            if len(results) >= limit:
+                break
         return results
 
     def rebuild_from_sources(
