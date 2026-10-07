@@ -178,6 +178,46 @@ jobs:
           name: dist
           path: dist/
 
+  matrix:
+    # G4 support matrix (REL-010/011, TD-18): every declared Python x OS cell must really pass the matrix tests for THIS candidate.
+    # The results are stamped to the candidate and the exact built wheels (package scope), so release-evidence accepts a foreign
+    # cell's skip only when another accepted file holds a real pass of that exact case. Archived runs never count.
+    needs: [build]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: dist
+          path: dist/
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run the support-matrix tests on this cell
+        run: python -u -m pytest -q --junitxml="junit/g4-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml" tests/communication/package/test_rel_matrix.py
+      - name: Bind this cell's JUnit to the candidate (commit, policy, exact wheels)
+        if: always()
+        run: python -m tools.release_evidence --stamp-junit "junit/g4-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml" --gate G4 --commit "$(git rev-parse HEAD)" --dist dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: junit-g4-matrix-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: junit/g4-matrix-*.xml
+
   gate-g7-invariant:
     # G7 zero-tolerance invariant scan: every catalog id is traced to a test and the architecture/invariant checks pass again on a clean checkout.
     needs: [live-validation, build]
@@ -200,7 +240,7 @@ jobs:
 
   release-evidence:
     # G5 evidence index + hashes: fails (exit 1) unless every blocking catalog test passed and every requirement is covered.
-    needs: [gate-g0-fast, gate-g1-core, gate-g2-extensions, live-validation, build, gate-g7-invariant]
+    needs: [gate-g0-fast, gate-g1-core, gate-g2-extensions, live-validation, build, matrix, gate-g7-invariant]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -220,7 +260,7 @@ jobs:
           path: junit/
           merge-multiple: true
       - name: Generate release evidence bundle
-        run: python -m tools.release_evidence --junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml --dist dist --out evidence --commit "$(git rev-parse HEAD)" --candidate --policy-file docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json --release-policy docs/m1_impl/release-policy.json
+        run: python -m tools.release_evidence --junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml $(for f in junit/g4-matrix-*.xml; do printf -- '--junit %s ' "$f"; done) --dist dist --out evidence --commit "$(git rev-parse HEAD)" --candidate --policy-file docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json --release-policy docs/m1_impl/release-policy.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
