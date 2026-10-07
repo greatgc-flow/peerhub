@@ -52,5 +52,20 @@ AST/JSONPath 조건식 · 분산 큐 · 우아한 종료 단계(SIGINT→SIGKILL
 - Windows long-path 동작과 symlink 권한이 필요한 테스트는 이 호스트에서 실행하지 못했다.
 - `idempotent=True`로 선언된 단계의 MAY_HAVE_STARTED 재시도는 journal 없는 실행에서만 허용된다(명시적 선언을 증거로 간주). 내구 실행에서는 항상 reconcile이 필요하다.
 
-## 승격 상태
-M2/M3를 VERIFIED로 올리지 않는다. 승격은 M1 Exit(후보 커밋에 묶인 live·패키지 증거와 CI)가 먼저 PASS한 뒤에 한다.
+## 승격 상태와 게이트 증거
+M1 Exit는 PASS했다(v0.12.0: 후보 커밋에 묶인 live·패키지 증거와 CI 매트릭스). `MILESTONE_GATES`의 M2→M3, M3→Optional 항목은 아래 증거로 GREEN이며, 모두 main CI(ubuntu/windows × 3.11–3.14)에서 매번 실행된다.
+
+| 게이트 | 증거 |
+|---|---|
+| Artifact provenance/digest | `test_art_gc_bounds.py`, `test_art_security.py` (ART-037~041) |
+| Work replay/rebuild | `test_work_authoritative_cas.py`, `test_projection_atomic_rebuild.py`, `test_deleting_every_derived_projection_and_rebuilding_from_records_is_logically_identical` |
+| Skill/Catalog drift | `test_skill_catalog.py`, `test_skill_catalog_authoritative_cas.py` (SKL-015~018) |
+| MCP security/boundary | `tests/communication/architecture/test_arch_extension_graph.py`, MCP 경계 테스트 |
+| Backup restore/replay | `test_backup_safety.py`, `test_backup_recovery.py`, `test_restore_extension_dbs.py` (BCK-013~015) |
+| Eval dataset/regression | `test_eval.py` (EVL-013~015) |
+| Search/Memory provenance | `test_search_exact_metadata.py`, `test_memory_search_recovery.py` |
+| A2A isolation | `test_a2a_durable_http.py` (A2A-013) |
+| Routing/Orchestration failure isolation | `test_orchestration_m3_closure.py`, `test_runtime_port_process.py` (ORC-013, RUN-013) |
+| M1/M2 fallback | `test_m1_works_with_every_m2_and_m3_extension_disabled`, `test_m2_works_with_the_whole_m3_layer_disabled` |
+
+`roadmap.json`의 `status`는 설계 깊이를 뜻하는 frozen 사양 필드다(M1도 출시 후 `DESIGN_FROZEN` 그대로). 따라서 수정하지 않는다. M2/M3의 "production activation"은 위 증거에 더해 M2/M3 포함 릴리스 후보의 candidate-bound 증거(다음 릴리스의 `release-evidence`)로 확정한다.
