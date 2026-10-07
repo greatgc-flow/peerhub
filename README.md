@@ -82,6 +82,9 @@ python -m pytest -q
 pyright
 python tools/command_inventory.py --check
 python tools/traceability.py --upto 9
+
+# Real provider canaries spend quota: local only, never in CI (refuses when CI is set).
+python -m tools.live_gate --yes
 ```
 
 Real providers are opt-in: set `PEERHUB_LIVE=1` and select `live`, `slow` or `e2e` under `tests/communication/live`. Soak is separately opt-in with `PEERHUB_SOAK=1`. Local checks do not promote a milestone or authorize a release; candidate-matched CI, live and package evidence still apply.
