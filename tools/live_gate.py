@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--yes", action="store_true", help="acknowledge that this spends real provider quota")
     ap.add_argument("--only", choices=[s[0] for s in STAGES], help="run a single stage")
     ap.add_argument("--allow-dirty", action="store_true", help="stamp even though the working tree has uncommitted changes")
-    ap.add_argument("--out", type=Path, default=ROOT / ".peerhub" / "live-gate", help="JUnit output directory")
+    ap.add_argument("--out", type=Path, default=ROOT / ".peerhub" / "work" / "live-gate", help="JUnit output directory")
     args = ap.parse_args(argv)
     if os.environ.get("CI"):
         print("refusing to run in CI: the live gate is local-only", file=sys.stderr)

@@ -49,7 +49,9 @@ Quota is collected separately from diagnostics. `diag --fresh` has been replaced
 
 ## Store selection and existing data
 
-New workspaces use `.peerhub/core.db`. Existing `.peerhub/m1.db` stores are discovered and reused without moving the database or its WAL files. Discovery prefers the nearest workspace; the current filename wins within that workspace.
+New workspaces use `.peerhub/core.db`. Existing `.peerhub/m1.db` stores are discovered and reused without moving the database or its WAL files. Discovery prefers the nearest workspace (current directory, `<cwd>/peerhub`, then parents). If one workspace has BOTH names, the call is refused (exit 2) because either file would hide the other's data: pick one with `--db PATH` or `PEERHUB_DB`. `peerhub diag health` reports `store_selection` (path and how it was chosen: `env`, `explicit`, `discovered`, `workspace-default`, `default`).
+
+`peerhub store rename-legacy [--workspace DIR]` renames `.peerhub/m1.db` to `.peerhub/core.db` only when no other process uses the database (it folds the WAL into the main file first, never overwrites an existing destination, and reports instead of claiming success if a writer reopened the old name). Backup and restore expect the name `core.db`, so rename before relying on them. Stop `peerhub monitor` and any other PeerHub process first. Developer scratch (live-gate JUnit etc.) goes under `.peerhub/work/`; the top of `.peerhub/` holds the database and its `restore.epoch` metadata.
 
 Use global `--db PATH` before the command, or `PEERHUB_DB`, to select a store explicitly. An explicit missing path is never redirected to another store. `ask --workspace DIR` uses that directory's store unless a database was explicitly selected. Read-only commands do not create a missing store.
 

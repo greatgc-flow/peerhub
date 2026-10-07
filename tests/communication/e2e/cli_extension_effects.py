@@ -170,9 +170,28 @@ def monitor_effect(e, option):
     elif option == "--json": import json; assert "cycle" in json.loads(out.splitlines()[0])
 
 
+
+def store_workspace_effect(e):
+    """`store rename-legacy --workspace`: acts on THAT workspace's .peerhub, not on the current directory."""
+    import sqlite3
+    from contextlib import closing
+    ws = e.tmp / "ws-store"
+    (ws / ".peerhub").mkdir(parents=True)
+    with closing(sqlite3.connect(ws / ".peerhub" / "m1.db")) as c:
+        c.execute("CREATE TABLE t(v)")
+        c.commit()
+    other = e.tmp / "elsewhere"
+    other.mkdir()
+    code, out, _ = e.run(other / "unused.db", "store", "rename-legacy", "--workspace", str(ws))
+    assert code == 0 and json.loads(out)["status"] == "RENAMED"
+    assert (ws / ".peerhub" / "core.db").is_file() and not (ws / ".peerhub" / "m1.db").exists()
+    assert not (other / ".peerhub").exists()
+
+
 EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for option in (
     "peer", "prompt", "--query-file", "--stream", "--request-id", "--author-peer", "--workspace", "-w", "--model",
     "--effort", "--timeout-seconds", "--max-output-bytes", "--json", "--profile", "-p", "--silence-timeout-seconds")}
+EFFECT["store rename-legacy --workspace"] = store_workspace_effect
 EFFECT["diag --json"] = diag_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
                for option in ("--live", "--interval-seconds", "--cycles", "--view")})

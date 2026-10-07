@@ -97,7 +97,7 @@ jobs:
 
   # Provider CLIs are logged in only on the maintainer's machine, so the live gate never runs on a remote runner.
   # `python -m tools.live_gate --yes` (clean checkout of the release commit) writes g3.xml / g3-slow.xml / g3-e2e.xml bound to that
-  # commit; the maintainer attaches them to the GitHub Release (`gh release upload <tag> .peerhub/live-gate/g3*.xml`). This job only
+  # commit; the maintainer attaches them to the GitHub Release (`gh release upload <tag> .peerhub/work/live-gate/g3*.xml`). This job only
   # fetches those three exact files into an isolated directory; missing files fail it (publish stays blocked), and the
   # release-evidence job below still verifies candidate binding, freshness and PASS of every live catalog test.
   live-validation:

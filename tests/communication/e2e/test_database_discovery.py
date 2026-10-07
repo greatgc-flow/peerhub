@@ -1,6 +1,8 @@
 """Naming cleanup must never orphan existing stores or move live SQLite/WAL files."""
 from pathlib import Path
 
+import pytest
+
 from peerhub.cli.app import DEFAULT_DB_PATH, _resolve_db_path, main
 from peerhub.core.models import Peer
 from peerhub.core.store import CoreStore
@@ -21,11 +23,13 @@ def test_previous_default_is_discovered_without_rename_or_new_store(tmp_path, mo
     assert not (tmp_path / DEFAULT_DB_PATH).exists()
 
 
-def test_current_name_wins_within_same_workspace(tmp_path, monkeypatch):
+def test_both_names_in_one_workspace_are_ambiguous_and_refused(tmp_path, monkeypatch):
     seed(tmp_path / ".peerhub" / "m1.db")
-    current = seed(tmp_path / DEFAULT_DB_PATH)
+    seed(tmp_path / DEFAULT_DB_PATH)
     monkeypatch.chdir(tmp_path)
-    assert Path(_resolve_db_path(DEFAULT_DB_PATH)) == current
+    with pytest.raises(SystemExit) as exc:
+        _resolve_db_path(DEFAULT_DB_PATH)
+    assert exc.value.code == 2  # neither file may silently hide the other's data
 
 
 def test_nearest_previous_store_wins_over_parent_workspace(tmp_path, monkeypatch):

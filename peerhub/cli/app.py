@@ -22,34 +22,28 @@ from typing import Any
 from pydantic import BaseModel
 
 from peerhub._console import tolerant_streams
+from peerhub.cli.store_select import DEFAULT_DB_PATH, LEGACY_DB_PATH, StoreAmbiguousError, StoreSelection, select_store
 from peerhub.cli.support import print_warnings as _print_warnings
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SchemaVersionError
 from peerhub.core.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
 
 
-DEFAULT_DB_PATH = ".peerhub/core.db"
-_PREVIOUS_DEFAULT_DB_PATH = ".peerhub/m1.db"  # existing durable data: read-only discovery, never renamed here
+_PREVIOUS_DEFAULT_DB_PATH = LEGACY_DB_PATH
+
+
+def _select_db(configured_path: str, *, use_env: bool = True, discover: bool = True,
+               workspace_root: Path | None = None) -> StoreSelection:
+    try:
+        return select_store(configured_path, use_env=use_env, discover=discover, workspace_root=workspace_root)
+    except StoreAmbiguousError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
 
 
 def _resolve_db_path(configured_path: str, *, use_env: bool = True, discover: bool = True,
                      workspace_root: Path | None = None) -> str:
-    import os
-    if use_env and "PEERHUB_DB" in os.environ:
-        return os.environ["PEERHUB_DB"]
-    if configured_path != DEFAULT_DB_PATH or not discover:
-        return configured_path
-    if workspace_root is not None:
-        roots = [workspace_root.resolve()]
-    else:
-        current = Path.cwd().resolve()
-        roots = [current, current / "peerhub", *current.parents]
-    for root in roots:
-        for relative in (DEFAULT_DB_PATH, _PREVIOUS_DEFAULT_DB_PATH):
-            candidate = root / relative
-            if candidate.is_file():
-                return str(candidate)
-    return str(workspace_root / DEFAULT_DB_PATH) if workspace_root is not None else configured_path
+    return _select_db(configured_path, use_env=use_env, discover=discover, workspace_root=workspace_root).path
 
 
 def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
@@ -140,6 +134,8 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     from peerhub.cli.monitor import register_monitor_parser
     register_monitor_parser(subparsers)
+    from peerhub.cli.store_cmd import register_store_parser
+    register_store_parser(subparsers)
 
     # diag
     diag_parser = subparsers.add_parser("diag", help="Readonly diagnostics")
@@ -230,6 +226,17 @@ def _run_observation_cli(args: argparse.Namespace) -> int:
     return 0 if result["status"] == "OK" else 1
 
 
+def _run_light_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Commands that never open CoreStore through main(): file maintenance, the monitor loop, explicit collection."""
+    if args.subcommand == "store":
+        from peerhub.cli.store_cmd import run_store
+        return run_store(args)
+    if args.subcommand == "monitor":
+        from peerhub.cli.monitor import run_monitor
+        return run_monitor(args, parser)
+    return _run_observation_cli(args)
+
+
 def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     tolerant_streams()
     parser = build_parser(prog=prog)
@@ -237,18 +244,16 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     actual = sys.argv[1:] if argv is None else argv
     explicit_db = any(a == "--db" or a.startswith("--db=") for a in actual)
     if hasattr(args, "db") and args.db:
-        args.db = _resolve_db_path(args.db, discover=not explicit_db)
+        selection = _select_db(args.db, discover=not explicit_db)
+        args.db, args.db_source = selection.path, selection.source
     if getattr(args, "obs_db", None):
         args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
 
     try:
         if args.subcommand == "ask":
             return _run_ask_cli(args, parser, argv)
-        if args.subcommand == "monitor":
-            from peerhub.cli.monitor import run_monitor
-            return run_monitor(args, parser)
-        if args.subcommand == "observation":
-            return _run_observation_cli(args)
+        if args.subcommand in ("store", "monitor", "observation"):
+            return _run_light_command(args, parser)
         if args.subcommand == "legacy-import":  # before CoreStore(): a dry-run must not create or migrate the target
             from peerhub.core.legacy_import import LegacyImporter, LegacyPlanChangedError, LegacySourceError
 
@@ -317,6 +322,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                         result = {
                             "status": rep.status,
                             "store": args.db,
+                            "store_selection": {"path": args.db, "source": getattr(args, "db_source", "unknown")},
                             "snapshot": rep.snapshot,
                             "total_peers": len(peers_data),
                             "total_streams": len(streams_data),
