@@ -8,7 +8,7 @@ import pytest
 
 from peerhub.core.models import Peer, Stream, StreamState
 from peerhub.core.store import CoreStore
-from peerhub.extensions.work import WorkProjection, WorkRevisionConflictError
+from peerhub.extensions.work import ForbiddenTransitionError, WorkProjection, WorkRevisionConflictError
 
 
 @pytest.fixture
@@ -79,13 +79,15 @@ def test_concurrent_transitions_from_independent_views_have_exactly_one_winner(t
         barrier.wait()
         try:
             results.append(("ok", view.transition_work("w", 1, target).state))
-        except WorkRevisionConflictError:
+        except (WorkRevisionConflictError, ForbiddenTransitionError):  # losing = the revision was taken, or the winner made it terminal
             results.append(("conflict", target))
+        except BaseException as exc:  # never swallow an unexpected failure inside the thread
+            results.append(("unexpected", repr(exc)))
 
     threads = [threading.Thread(target=run, args=(a, "ACTIVE")), threading.Thread(target=run, args=(b, "CANCELLED"))]
     [t.start() for t in threads]
     [t.join() for t in threads]
-    assert sorted(r[0] for r in results) == ["conflict", "ok"]
+    assert sorted(r[0] for r in results) == ["conflict", "ok"], results
     winner = next(r[1] for r in results if r[0] == "ok")
     a.rebuild_projection(store.read_records("s1"))
     assert a.get_work("w").state == winner and a.get_work("w").revision == 2

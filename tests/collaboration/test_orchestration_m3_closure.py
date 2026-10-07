@@ -260,7 +260,8 @@ def test_strict_mode_needs_a_runner_that_declares_hard_cancellation():
 
     runner = Hard()
     assert PlanExecutor(require_hard_deadline=True).execute_plan(chain(1, timeout_seconds=30.0), runner).status == "COMPLETED"
-    assert runner.deadline is not None and 0 < runner.deadline - time.monotonic() <= 30.0  # the executor binds the plan deadline
+    # the executor binds the plan deadline (a small tolerance: the Windows monotonic clock ticks every ~15.6 ms)
+    assert runner.deadline is not None and 0 < runner.deadline - time.monotonic() <= 30.5
 
 
 def test_parallel_journal_appends_are_never_entered_concurrently(journal):
