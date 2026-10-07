@@ -78,9 +78,10 @@ def test_rel_006_publish_job_cannot_run_when_the_live_provider_gate_fails():
 
 def test_rel_006_live_gate_covers_every_advertised_provider_and_a_missing_gate_blocks_publish():
     wf = _wf("publish.yml")
+    from tools import live_gate
+    assert sorted(live_gate.PROVIDER_CLIS) == ["agy", "claude", "codex"]  # the local gate refuses to run unless every advertised provider CLI exists
     text = yaml.safe_dump(wf["jobs"]["live-validation"])
-    for exe in ("claude.cmd", "codex.cmd", "agy.exe"):
-        assert exe in text, exe  # the live job verifies/exercises each advertised provider CLI
+    assert "self-hosted" not in text and all(f"{n}.xml" in text for n in ("g3", "g3-slow", "g3-e2e"))  # remote job only fetches local evidence
     # missing live job: publish still names it in needs -> unresolved dependency -> fail closed (does not run)
     gone = copy.deepcopy(wf)
     del gone["jobs"]["live-validation"]
@@ -277,17 +278,17 @@ def test_rel_006_mutated_yaml_per_gate_is_caught(gate):
 def test_rel_006_live_job_selects_the_six_m1_live_tests_with_opt_in():
     wf = yaml.safe_load(PUBLISH_TEXT)
     live = wf["jobs"]["live-validation"]
-    assert str(live["env"]["PEERHUB_LIVE"]) == "1" and "self-hosted" in live["runs-on"]
-    steps = [st.get("run", "") for st in live["steps"]]
-    cmd = next(c for c in steps if "-m live" in c)
-    assert "tests/communication/live" in cmd and "--junitxml" in cmd
+    assert live["runs-on"] == "ubuntu-latest"  # provider logins exist only locally: the job fetches evidence, it never calls providers
+    from tools import live_gate
+    assert [(m, n) for m, _, n in live_gate.STAGES] == [("live", "g3.xml"), ("slow", "g3-slow.xml"), ("e2e", "g3-e2e.xml")]
+    cmd = " ".join(f"-m {m}" for m, _, _ in live_gate.STAGES)
     import json
     ids = sorted(t["id"] for t in json.loads((REPO / "docs/m1_spec/06_GUIDES/TEST_SET/test-catalog.json").read_text(encoding="utf-8"))["tests"]
                  if t.get("live_provider"))
     assert ids == ["LIVE-004", "LIVE-005", "LIVE-006", "LIVE-AG-001", "LIVE-CC-001", "LIVE-CX-001"]
     col = pkg_env.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "-m", "live", "tests/communication/live"], cwd=REPO)
     assert len(re.findall(r"::test_live_", col.stdout)) == 6, col.stdout  # `-m live` (not slow/e2e) really selects all six
-    assert not re.search(r"-m (slow|e2e)\b", cmd)  # the old selectors deselect all six
+    assert cmd.startswith("-m live")  # the first local stage selects the six; slow/e2e would deselect all six
 
 
 def test_rel_006_publish_evidence_job_runs_the_release_evidence_tool_over_every_gate_junit():

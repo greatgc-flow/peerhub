@@ -278,7 +278,8 @@ def test_cut_020_no_hard_coded_time_threshold_in_the_tool():
 
 
 GATE_JOBS = (("gate-g0-fast", "G0", ["g0"]), ("gate-g1-core", "G1", ["g1"]), ("gate-g2-extensions", "G2", ["g2"]),
-             ("live-validation", "G3", ["g3", "g3-slow", "g3-e2e"]), ("build", "G4", ["g4"]))
+             ("build", "G4", ["g4"]))
+G3_FILES = ("g3", "g3-slow", "g3-e2e")  # produced and stamped locally by `python -m tools.live_gate`, fetched from the Release assets
 
 
 def workflow_problems(wf):
@@ -318,6 +319,28 @@ def workflow_problems(wf):
             build = [i for i, x in enumerate(steps) if "python -m build" in x.get("run", "")]
             if not build or idx_stamp[0] < build[0] or "--dist dist" not in st["run"]:
                 bad.append("build: G4 must be stamped after the build with --dist dist")
+    live = wf["jobs"]["live-validation"]
+    if live.get("runs-on") != "ubuntu-latest":
+        bad.append("live-validation must not depend on a provider machine (provider logins exist only locally)")
+    if live.get("continue-on-error"):
+        bad.append("live-validation must fail closed")
+    lsteps = live["steps"]
+    fetch = [i for i, st in enumerate(lsteps) if "gh release download" in st.get("run", "")]
+    if len(fetch) != 1:
+        bad.append("live-validation: needs exactly one Release-asset fetch step")
+    else:
+        run = lsteps[fetch[0]]["run"]
+        for n in G3_FILES:
+            if f"--pattern {n}.xml" not in run:
+                bad.append(f"live-validation: {n}.xml is not fetched by exact name")
+        if "test -s" not in run or "exit 1" not in run:
+            bad.append("live-validation: a missing or empty evidence file must fail the job")
+        up = [i for i, x in enumerate(lsteps) if "upload-artifact" in x.get("uses", "") and str(x.get("with", {}).get("name")) == "junit-g3"]
+        if not up or min(up) < fetch[0]:
+            bad.append("live-validation: junit-g3 must be uploaded after the fetch")
+    for n in G3_FILES:
+        if f"junit/{n}.xml" not in ev_run:
+            bad.append(f"evidence step does not read junit/{n}.xml")
     pub = wf["jobs"]["publish"]
     cond = str(pub.get("if", ""))
     if "github.event_name == 'release'" not in cond:
@@ -347,11 +370,21 @@ def _mutate(kind):
     build = wf["jobs"]["build"]["steps"]
     if kind == "no-release-policy":
         ev_step["run"] = ev_step["run"].replace("--release-policy docs/m1_impl/release-policy.json", "")
-    elif kind == "g3-junit-not-written":
-        for st in live:
-            st["run"] = st.get("run", "").replace("--junitxml=junit/g3.xml", "")
+    elif kind == "g3-self-hosted":
+        wf["jobs"]["live-validation"]["runs-on"] = ["self-hosted", "Windows", "X64", "peerhub-live"]
+    elif kind == "g3-no-presence-check":
+        st = next(st for st in live if "gh release download" in st.get("run", ""))
+        st["run"] = st["run"].replace("test -s", "true")
+    elif kind == "g3-fetch-missing-file":
+        st = next(st for st in live if "gh release download" in st.get("run", ""))
+        st["run"] = st["run"].replace("--pattern g3-e2e.xml", "")
+    elif kind == "g3-upload-before-fetch":
+        i = next(i for i, st in enumerate(live) if "upload-artifact" in st.get("uses", ""))
+        live.insert(0, live.pop(i))
+    elif kind == "g3-continue-on-error":
+        wf["jobs"]["live-validation"]["continue-on-error"] = True
     elif kind == "stamp-not-always":
-        next(st for st in live if "--stamp-junit" in st.get("run", "")).pop("if")
+        next(st for st in wf["jobs"]["gate-g0-fast"]["steps"] if "--stamp-junit" in st.get("run", "")).pop("if")
     elif kind == "g4-stamp-before-build":
         i = next(i for i, st in enumerate(build) if "--stamp-junit" in st.get("run", ""))
         build.insert(0, build.pop(i))
@@ -364,12 +397,6 @@ def _mutate(kind):
     elif kind == "no-gate-arg":
         st = next(st for st in build if "--stamp-junit" in st.get("run", ""))
         st["run"] = st["run"].replace("--gate G4 ", "")
-    elif kind == "g3-slow-and-e2e-one-step":
-        i = next(i for i, st in enumerate(live) if "-m slow" in st.get("run", ""))
-        live[i]["run"] += chr(10) + live[i + 1]["run"]
-        del live[i + 1]
-    elif kind == "g3-e2e-not-always":
-        next(st for st in live if "-m e2e" in st.get("run", "")).pop("if")
     elif kind == "publish-always":
         wf["jobs"]["publish"]["if"] = "always() && " + wf["jobs"]["publish"]["if"]
     elif kind == "publish-no-release-event":
@@ -383,9 +410,10 @@ def _mutate(kind):
     return wf
 
 
-@pytest.mark.parametrize("kind", ["no-release-policy", "g3-junit-not-written", "stamp-not-always", "g4-stamp-before-build",
-                                  "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow", "no-gate-arg", "g3-slow-and-e2e-one-step",
-                                  "g3-e2e-not-always", "publish-always", "publish-no-release-event",
+@pytest.mark.parametrize("kind", ["no-release-policy", "g3-self-hosted", "g3-no-presence-check", "g3-fetch-missing-file", "g3-upload-before-fetch",
+                                  "g3-continue-on-error", "stamp-not-always", "g4-stamp-before-build",
+                                  "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow", "no-gate-arg",
+                                  "publish-always", "publish-no-release-event",
                                   "publish-drops-evidence-need", "evidence-continue-on-error"])
 def test_cut_022_mutated_workflows_are_caught(kind):
     assert workflow_problems(_mutate(kind)), kind
