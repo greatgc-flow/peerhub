@@ -555,9 +555,11 @@ def poll_claude_usage(
         try:
             stdout, stderr = proc.communicate(timeout=deadline_sec)
         except subprocess.TimeoutExpired:
-            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl),)
-    except Exception:
-        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl),)
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl,
+                                 extra={"reason": "claude_usage_timeout"}),)
+    except Exception as exc:
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl,
+                             extra={"reason": f"claude_usage_spawn_failed:{type(exc).__name__}"}),)
     finally:
         if proc is not None:
             # 1. Kill the spawned process and its own tracked tree.
@@ -594,7 +596,8 @@ def poll_claude_usage(
     quotas = _parse_claude_usage(text, now=dt_now)
     
     if not quotas:
-        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl),)
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl,
+                             extra={"reason": "claude_usage_unparseable"}),)
         
     results: list[UsageObserved] = []
     for q in quotas:

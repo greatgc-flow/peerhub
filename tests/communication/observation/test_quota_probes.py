@@ -81,6 +81,18 @@ def test_poll_claude_usage_timeout_fail_closed(monkeypatch):
     obs = res[0]
     assert obs.evidence.state == EvidenceState.ERROR
     assert obs.evidence.value is None
+    assert obs.extra["reason"] == "claude_usage_timeout"  # the stored ERROR says WHY (a loaded machine vs. a changed CLI)
+
+
+def test_poll_claude_usage_spawn_failure_records_the_error_type(monkeypatch):
+    def boom(*args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(subprocess, "Popen", boom)
+    monkeypatch.setattr("peerhub.extensions.quota_probes._real_binary", lambda _peer, _sys_dir=None: "dummy.exe")
+    obs = poll_claude_usage(DummyIdSource(), "inst-1", "prof-1")[0]
+    assert obs.evidence.state == EvidenceState.ERROR and obs.extra["reason"] == "claude_usage_spawn_failed:PermissionError"
+
 
 def test_poll_claude_usage_unparseable_output_fail_closed(monkeypatch):
     class FakeProc:
@@ -105,6 +117,7 @@ def test_poll_claude_usage_unparseable_output_fail_closed(monkeypatch):
     obs = res[0]
     assert obs.evidence.state == EvidenceState.ERROR
     assert obs.evidence.value is None
+    assert obs.extra["reason"] == "claude_usage_unparseable"
 
 def test_poll_claude_usage_success_parsing(monkeypatch):
     class FakeProc:

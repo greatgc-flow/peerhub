@@ -103,7 +103,7 @@ def _pool_label(ref: object) -> str:
 
 
 class _Row:
-    __slots__ = ("peer", "pool", "kind", "state", "age", "used", "headroom", "diff", "window", "left")
+    __slots__ = ("peer", "pool", "kind", "state", "age", "used", "headroom", "diff", "window", "left", "reason")
 
     def __init__(self, item: Obj, read_at: float) -> None:
         payload = _obj(item.get("payload"))
@@ -112,6 +112,8 @@ class _Row:
         self.kind = str(item.get("kind") or "quota")
         self.state = str(item.get("state") or "UNKNOWN")
         self.age = _num(item.get("age_seconds"))
+        why = payload.get("reason")
+        self.reason = str(why) if isinstance(why, str) else ""
         rf = _num(payload.get("remaining_fraction"))
         measured = self.state in ("MEASURED", "STALE") and rf is not None
         self.headroom = min(1.0, max(0.0, rf)) if measured and rf is not None else None
@@ -134,9 +136,9 @@ def _badge(row: _Row, color: bool, unicode: bool) -> str:
     if row.state == "STALE":
         return _paint(f"{warn} STALE {age}".rstrip(), RED + BOLD, color)
     if row.state == "ERROR":
-        return _paint(f"{cross} ERROR", RED + BOLD, color)
+        return _paint(f"{cross} ERROR" + (f" {_ellipsis(row.reason, 28)}" if row.reason else ""), RED + BOLD, color)
     if row.state == "UNAVAILABLE":
-        return _paint(f"{cross} UNAVAILABLE", YELLOW, color)
+        return _paint(f"{cross} UNAVAILABLE" + (f" {_ellipsis(row.reason, 28)}" if row.reason else ""), YELLOW, color)
     return _paint(f"{ask} UNKNOWN", DIM, color)
 
 

@@ -133,3 +133,12 @@ def test_tick_redraws_each_second_with_a_counting_down_next_refresh():
         monitor.time.monotonic, monitor.time.sleep = real_mono, real_sleep
     assert sleeps == [1.0, 1.0, 1.0] and [f[0] for f in frames] == [101.0, 102.0, 103.0]
     assert [f[1] for f in frames] == [9.0, 8.0, 7.0]
+
+
+def test_error_rows_show_the_recorded_reason():
+    from peerhub.cli.view import _Row, _badge
+
+    row = _Row({"subject_ref": "cc", "kind": "quota", "state": "ERROR", "payload": {"reason": "claude_usage_timeout"}}, 0.0)
+    assert _badge(row, False, False) == "x ERROR claude_usage_timeout"
+    bare = _Row({"subject_ref": "cc", "kind": "quota", "state": "ERROR", "payload": {}}, 0.0)
+    assert _badge(bare, False, False) == "x ERROR"
