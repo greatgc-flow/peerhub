@@ -1,7 +1,7 @@
 # AG (Gemini) review triage, 2026-10-07
 
 Reports were model output and were treated as unverified. Each finding was reproduced (RED test or snippet) before any change.
-Commit column: filled by the commit that contains the fix (branch `feat/extension-cutover-2026-10-06`, one triage commit).
+Commit column: filled by the commit that contains the fix (branch `feat/extension-cutover-2026-10-06`, one triage commit, see git log).
 
 | id | claim | verdict | evidence | commit |
 |---|---|---|---|---|
