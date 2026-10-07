@@ -34,7 +34,7 @@ peerhub ask ag --query-file prompt.txt --workspace . --model MODEL --json
 peerhub ask cx "Reply briefly" --profile cx.standard --silence-timeout-seconds 30
 ```
 
-Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer identities can be registered with `peer register --id worker --adapter cx`.
+Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer identities can be registered with `peer register --peer worker --adapter cx`.
 
 `ask` supports explicit `--profile`, `--model`, `--effort`, `--timeout-seconds`, optional `--silence-timeout-seconds`, `--max-output-bytes`, `--author` and `--json`. Profile policy resolves workspace → global → packaged defaults; it does not assert measured model availability. Retrying the same `--request-id` reuses a completed response. A different prompt or binding conflicts, and an uncertain execution requires explicit reconciliation before another execution. Conversation continuity currently uses bounded Stream history; native provider-session resume is not claimed.
 

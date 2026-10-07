@@ -50,7 +50,7 @@ def test_explicit_error_handler_choice_is_not_overridden():
 def test_cli_json_output_is_lossless_under_any_console_encoding(tmp_path):
     db = tmp_path / "core.db"
     for enc in ("cp1252", "ascii", "utf-8"):
-        cp = pkg_env.run([sys.executable, "-m", "peerhub.cli.app", "--db", str(db), "peer", "register", "--id", "p-" + enc, "--name", TEXT],
+        cp = pkg_env.run([sys.executable, "-m", "peerhub.cli.app", "--db", str(db), "peer", "register", "--peer", "p-" + enc, "--name", TEXT],
                          cwd=REPO, env={**pkg_env.clean_env({"PYTHONIOENCODING": enc}), "PYTHONPATH": str(REPO)})
         assert cp.returncode == 0, cp.stderr
         assert json.loads(cp.stdout)["display_name"] == TEXT  # ASCII-escaped JSON: exact round trip, no replacement

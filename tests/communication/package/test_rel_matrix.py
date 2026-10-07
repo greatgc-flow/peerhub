@@ -116,9 +116,9 @@ def _smoke(installed, workdir):
     db = workdir / "core.db"
     def cli(*a):
         return pkg_env.run([installed.script("peerhub"), "--db", str(db), *a], cwd=workdir)
-    assert cli("peer", "register", "--id", "a").returncode == 0
-    assert cli("stream", "create", "--id", "s", "--members", "a").returncode == 0
-    r = cli("record", "append", "--stream", "s", "--author", "a", "--kind", "message", "--body", '"hi"', "--idemp-key", "k",
+    assert cli("peer", "register", "--peer", "a").returncode == 0
+    assert cli("stream", "create", "--stream", "s", "--members", "a").returncode == 0
+    r = cli("record", "append", "--stream", "s", "--author-peer", "a", "--kind", "message", "--body", '"hi"', "--idempotency-key", "k",
             "--created-at", "2026-10-04T00:00:00Z")
     assert r.returncode == 0, r.stderr
     got = cli("record", "read", "--stream", "s")
@@ -239,11 +239,11 @@ def test_rel_011_os_matrix_cell_path_and_newline_smoke(py, os_, installed, tmp_p
     def cli(*a):
         return pkg_env.run([installed.script("peerhub"), "--db", str(db), *a], cwd=work)  # NO PYTHONUTF8: default console encoding
 
-    assert cli("peer", "register", "--id", "a").returncode == 0
-    assert cli("stream", "create", "--id", "s", "--members", "a").returncode == 0
+    assert cli("peer", "register", "--peer", "a").returncode == 0
+    assert cli("stream", "create", "--stream", "s", "--members", "a").returncode == 0
     for i, body in enumerate(BODIES):
-        r = cli("record", "append", "--stream", "s", "--author", "a", "--kind", "message", "--body", json.dumps(body, ensure_ascii=False),
-                "--idemp-key", f"k{i}", "--created-at", "2026-10-04T00:00:00Z")
+        r = cli("record", "append", "--stream", "s", "--author-peer", "a", "--kind", "message", "--body", json.dumps(body, ensure_ascii=False),
+                "--idempotency-key", f"k{i}", "--created-at", "2026-10-04T00:00:00Z")
         assert r.returncode == 0, (i, r.stderr)
         assert json.loads(r.stdout)["body"] == body  # lossless in the command's own output
     read = cli("record", "read", "--stream", "s")  # after restart (new process)

@@ -117,12 +117,12 @@ def test_mig_003_cli_reports_future_schema_with_a_dedicated_exit_code_and_no_wri
 
     db = _make_db(tmp_path / "core.db", user_version=CURRENT_VERSION + 1)
     before = tree_fingerprint(tmp_path)
-    assert main(["--db", str(db), "peer", "get", "--id", "p1"]) == 6
+    assert main(["--db", str(db), "peer", "get", "--peer", "p1"]) == 6
     err = capsys.readouterr().err
     assert "SCHEMA VERSION" in err and "upgrade" in err.lower()
     assert tree_fingerprint(tmp_path) == before
     ok = _make_db(tmp_path / "ok.db", user_version=CURRENT_VERSION)  # control
-    assert main(["--db", str(ok), "peer", "get", "--id", "p1"]) == 0
+    assert main(["--db", str(ok), "peer", "get", "--peer", "p1"]) == 0
 
 
 # ------------------------------------------------------------------ cutover (side-by-side, MIGRATION_CUTOVER.md)

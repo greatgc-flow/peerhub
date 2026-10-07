@@ -100,11 +100,11 @@ def test_rel_003_fresh_workspace_smoke_with_restart_and_crash(installed, outside
     db = ws / "core.db"
     assert not db.exists()
     for peer in ("a", "b"):
-        assert _cli(installed, outside, db, "peer", "register", "--id", peer).returncode == 0  # each call = a new process
-    assert _cli(installed, outside, db, "stream", "create", "--id", "s", "--members", "a", "b").returncode == 0
+        assert _cli(installed, outside, db, "peer", "register", "--peer", peer).returncode == 0  # each call = a new process
+    assert _cli(installed, outside, db, "stream", "create", "--stream", "s", "--members", "a", "b").returncode == 0
     for i in (1, 2):
-        r = _cli(installed, outside, db, "record", "append", "--stream", "s", "--author", "a", "--kind", "message",
-                 "--body", json.dumps(f"m{i}"), "--idemp-key", f"k{i}", "--created-at", "2026-10-04T00:00:00Z")
+        r = _cli(installed, outside, db, "record", "append", "--stream", "s", "--author-peer", "a", "--kind", "message",
+                 "--body", json.dumps(f"m{i}"), "--idempotency-key", f"k{i}", "--created-at", "2026-10-04T00:00:00Z")
         assert r.returncode == 0, r.stderr
     recs = json.loads(_cli(installed, outside, db, "record", "read", "--stream", "s").stdout)
     assert [(r["position"], r["body"]) for r in recs] == [(1, "m1"), (2, "m2")]
@@ -119,8 +119,8 @@ def test_rel_003_fresh_workspace_smoke_with_restart_and_crash(installed, outside
     assert crash.returncode == 17
     assert len(json.loads(_cli(installed, outside, db, "record", "read", "--stream", "s").stdout)) == 2
     for _ in range(2):  # the retry is idempotent
-        r = _cli(installed, outside, db, "record", "append", "--stream", "s", "--author", "a", "--kind", "message",
-                 "--body", json.dumps("third"), "--idemp-key", "k3", "--created-at", "2026-10-04T00:00:00Z")
+        r = _cli(installed, outside, db, "record", "append", "--stream", "s", "--author-peer", "a", "--kind", "message",
+                 "--body", json.dumps("third"), "--idempotency-key", "k3", "--created-at", "2026-10-04T00:00:00Z")
         assert r.returncode == 0, r.stderr
     final = json.loads(_cli(installed, outside, db, "record", "read", "--stream", "s").stdout)
     assert [(r["position"], r["body"]) for r in final] == [(1, "m1"), (2, "m2"), (3, "third")]
@@ -215,10 +215,10 @@ def test_rel_009_installed_artifact_runs_without_dev_dependencies(installed, out
     # initialize a workspace and validate the packaged schemas against what the runtime actually emits
     db = tmp_path / "ws" / "core.db"
     db.parent.mkdir()
-    assert _cli(installed, outside, db, "peer", "register", "--id", "a").returncode == 0
-    assert _cli(installed, outside, db, "stream", "create", "--id", "s", "--members", "a").returncode == 0
-    rec = _cli(installed, outside, db, "record", "append", "--stream", "s", "--author", "a", "--kind", "message", "--body", '"x"',
-               "--idemp-key", "k", "--created-at", "2026-10-04T00:00:00Z")
+    assert _cli(installed, outside, db, "peer", "register", "--peer", "a").returncode == 0
+    assert _cli(installed, outside, db, "stream", "create", "--stream", "s", "--members", "a").returncode == 0
+    rec = _cli(installed, outside, db, "record", "append", "--stream", "s", "--author-peer", "a", "--kind", "message", "--body", '"x"',
+               "--idempotency-key", "k", "--created-at", "2026-10-04T00:00:00Z")
     assert rec.returncode == 0, rec.stderr
     emitted = json.loads(rec.stdout)
     req = installed.run(["-I", "-c", "import importlib.resources as r, json; print(json.dumps(json.loads(r.files('peerhub.core')"

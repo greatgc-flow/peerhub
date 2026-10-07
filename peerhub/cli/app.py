@@ -61,24 +61,24 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     peer_sub = peer_parser.add_subparsers(dest="action", required=True)
     
     p_reg = peer_sub.add_parser("register", help="Register a peer")
-    p_reg.add_argument("--peer", "--id", required=True, dest="peer_id")
+    p_reg.add_argument("--peer", required=True, dest="peer_id")
     p_reg.add_argument("--name", dest="display_name")
     p_reg.add_argument("--adapter", dest="adapter_ref")
 
     p_get = peer_sub.add_parser("get", help="Get a peer")
-    p_get.add_argument("--peer", "--id", required=True, dest="peer_id")
+    p_get.add_argument("--peer", required=True, dest="peer_id")
 
     # stream
     stream_parser = subparsers.add_parser("stream", help="Stream commands")
     st_sub = stream_parser.add_subparsers(dest="action", required=True)
     
     s_create = st_sub.add_parser("create", help="Create a stream")
-    s_create.add_argument("--stream", "--id", required=True, dest="stream_id")
+    s_create.add_argument("--stream", required=True, dest="stream_id")
     s_create.add_argument("--title")
     s_create.add_argument("--members", nargs="*", default=[])
 
     s_show = st_sub.add_parser("show", help="Show stream details")
-    s_show.add_argument("--stream", "--id", required=True, dest="stream_id")
+    s_show.add_argument("--stream", required=True, dest="stream_id")
 
     # record
     record_parser = subparsers.add_parser("record", help="Record commands")
@@ -86,10 +86,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     r_append = rec_sub.add_parser("append", help="Append a record")
     r_append.add_argument("--stream", required=True, dest="stream_id")
-    r_append.add_argument("--author-peer", "--author", required=True, dest="author_peer_id")
+    r_append.add_argument("--author-peer", required=True, dest="author_peer_id")
     r_append.add_argument("--kind", required=True)
     r_append.add_argument("--body", required=True, help="JSON body string")
-    r_append.add_argument("--idempotency-key", "--idemp-key", required=True, dest="idemp_key")
+    r_append.add_argument("--idempotency-key", required=True, dest="idemp_key")
     r_append.add_argument("--created-at", default=None, help="RFC3339; pass the same value on retries (part of the idempotency digest)")
     r_append.add_argument("--targets", nargs="*", default=[])
 

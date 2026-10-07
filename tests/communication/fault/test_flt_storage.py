@@ -378,7 +378,7 @@ def test_flt_013_cli_reports_storage_failure_with_its_own_exit_code(tmp_path, ca
 
     cp = _corrupt_copy(tmp_path, how)
     sha = file_sha(cp)
-    rc = main(["--db", str(cp), "peer", "get", "--id", "a"])
+    rc = main(["--db", str(cp), "peer", "get", "--peer", "a"])
     err = capsys.readouterr().err
     assert rc == code  # "none" is the positive control: a pristine copy works through the same entrypoint
     if code:

@@ -29,12 +29,12 @@ def test_e2e_009_core_remains_useful_with_all_extensions_disabled(tmp_path):
                             "import peerhub.extensions.bridge"], cwd=ROOT, capture_output=True, text=True, timeout=60)
     assert probe.returncode != 0 and "extension disabled" in probe.stderr  # the blocker really blocks (control for the rest)
     for p in ("a", "b"):
-        assert ok(cli(db, "peer", "register", "--id", p))["peer_id"] == p
-    assert ok(cli(db, "stream", "create", "--id", "s", "--members", "a", "b"))["members"] == ["a", "b"]
-    recs = [ok(cli(db, "record", "append", "--stream", "s", "--author", "a", "--kind", "message", "--body", json.dumps(f"m{i}"),
-                   "--idemp-key", f"k{i}", "--created-at", CT)) for i in range(3)]
+        assert ok(cli(db, "peer", "register", "--peer", p))["peer_id"] == p
+    assert ok(cli(db, "stream", "create", "--stream", "s", "--members", "a", "b"))["members"] == ["a", "b"]
+    recs = [ok(cli(db, "record", "append", "--stream", "s", "--author-peer", "a", "--kind", "message", "--body", json.dumps(f"m{i}"),
+                   "--idempotency-key", f"k{i}", "--created-at", CT)) for i in range(3)]
     assert [r["position"] for r in recs] == [1, 2, 3]
-    again = ok(cli(db, "record", "append", "--stream", "s", "--author", "a", "--kind", "message", "--body", '"m1"', "--idemp-key", "k1", "--created-at", CT))
+    again = ok(cli(db, "record", "append", "--stream", "s", "--author-peer", "a", "--kind", "message", "--body", '"m1"', "--idempotency-key", "k1", "--created-at", CT))
     assert again["record_id"] == recs[1]["record_id"]  # idempotent retry in a fresh process
     read = ok(cli(db, "record", "read", "--stream", "s", "--after", "1"))
     assert [(r["position"], r["body"]) for r in read] == [(2, "m1"), (3, "m2")]

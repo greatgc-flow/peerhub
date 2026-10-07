@@ -62,10 +62,10 @@ def test_retired_selection_cannot_modify_a_populated_store(tmp_path):
     db = tmp_path / "core.db"
     CoreStore(db).register_peer(Peer(peer_id="original"))
     before = hashlib.sha256(db.read_bytes()).hexdigest()
-    retired = peerhub(["--db", str(db), "peer", "get", "--id", "original"], tmp_path, PEERHUB_CLI="legacy")
+    retired = peerhub(["--db", str(db), "peer", "get", "--peer", "original"], tmp_path, PEERHUB_CLI="legacy")
     assert retired.returncode == 2
     assert hashlib.sha256(db.read_bytes()).hexdigest() == before
-    current = peerhub(["--db", str(db), "peer", "get", "--id", "original"], tmp_path)
+    current = peerhub(["--db", str(db), "peer", "get", "--peer", "original"], tmp_path)
     assert current.returncode == 0 and "original" in current.stdout
 
 

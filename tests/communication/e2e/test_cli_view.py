@@ -5,7 +5,7 @@ from peerhub.cli.view import bar, human_duration, render_view, use_color
 def _report(items, tmp_path):
     from peerhub.cli.app import main
     db = str(tmp_path / "v.db")
-    assert main(["--db", db, "peer", "register", "--id", "a"]) == 0
+    assert main(["--db", db, "peer", "register", "--peer", "a"]) == 0
     from peerhub.extensions.diag import ReadonlyDiag
     return ReadonlyDiag(db).render(["peers", "streams", "resource_pools", "observations"])
 

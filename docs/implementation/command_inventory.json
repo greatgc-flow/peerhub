@@ -454,8 +454,7 @@
           "default": null,
           "dest": "peer_id",
           "flags": [
-            "--peer",
-            "--id"
+            "--peer"
           ],
           "positional": false,
           "required": true,
@@ -490,8 +489,7 @@
           "default": null,
           "dest": "peer_id",
           "flags": [
-            "--peer",
-            "--id"
+            "--peer"
           ],
           "positional": false,
           "required": true,
@@ -506,8 +504,7 @@
           "default": null,
           "dest": "author_peer_id",
           "flags": [
-            "--author-peer",
-            "--author"
+            "--author-peer"
           ],
           "positional": false,
           "required": true,
@@ -537,8 +534,7 @@
           "default": null,
           "dest": "idemp_key",
           "flags": [
-            "--idempotency-key",
-            "--idemp-key"
+            "--idempotency-key"
           ],
           "positional": false,
           "required": true,
@@ -628,8 +624,7 @@
           "default": null,
           "dest": "stream_id",
           "flags": [
-            "--stream",
-            "--id"
+            "--stream"
           ],
           "positional": false,
           "required": true,
@@ -654,8 +649,7 @@
           "default": null,
           "dest": "stream_id",
           "flags": [
-            "--stream",
-            "--id"
+            "--stream"
           ],
           "positional": false,
           "required": true,
