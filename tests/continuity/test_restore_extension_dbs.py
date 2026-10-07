@@ -112,3 +112,17 @@ def test_hard_crash_between_renames_recovers_every_database_of_the_previous_work
     for name in DERIVED:
         with closing(sqlite3.connect(target / name)) as c:
             assert c.execute("SELECT v FROM t").fetchall() == [("live",)]
+
+
+def test_a_stale_intent_marker_after_a_completed_swap_never_reverts_the_restored_workspace(tmp_path):
+    """Crash after BOTH renames but before the marker was deleted: recovery must keep the restored state."""
+    target = tmp_path / "target"
+    make_core(target, "live")
+    restore_authoritative(bundle(tmp_path), target)  # a completed restore; the previous directory is kept next to it
+    previous = next(tmp_path.glob("target.pre-restore-*"))
+    from peerhub.core.workspace import restore_intent_path
+
+    restore_intent_path(target).write_text(previous.name, encoding="utf-8")  # the marker the crash left behind
+    assert recover_interrupted_restore(target) is False  # nothing is reverted because the workspace exists
+    assert peers(target / "core.db") == ["restored"] and previous.is_dir()
+    assert not restore_intent_path(target).exists()  # the stale marker is just removed
