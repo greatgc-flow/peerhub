@@ -24,12 +24,12 @@ The Search module (`peerhub.m3.search`) provides:
   - `score: float`
   - `retrieval_method: str` ("LEXICAL_FTS" | "EXACT" | "METADATA")
   - `source_watermark: str`
-  - `metadata: dict[str, str | int | float | bool | None] | None` (exact scalar predicates)
+  - `metadata: dict[str, Any]`
 - `SearchIndex(db_path: Path)`:
   - `index_record(record: Record) -> None`
   - `index_artifact(digest: str, metadata: dict[str, Any], snippet: str = "") -> None`
   - `index_skill(skill_id: str, name: str, description: str, tags: list[str]) -> None`
-  - `search(query: str, doc_type: str | None = None, limit: int = 10) -> list[SearchResult]`
+  - `search(query: str, doc_type: str | None = None, limit: int = 10, metadata: dict[str, str | int | float | bool | None] | None = None) -> list[SearchResult]` (`metadata` = exact scalar predicates applied before `limit`)
   - `rebuild_from_sources(core_store: CoreStore, artifact_store: ArtifactStore | None = None, skill_catalog: SkillCatalog | None = None) -> int`
   - `clear() -> None`
   - `close() -> None`
