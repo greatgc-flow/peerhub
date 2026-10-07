@@ -11,6 +11,7 @@ Implements Core Invariant 9 & 10:
 from __future__ import annotations
 
 import collections
+import concurrent.futures
 import dataclasses
 import datetime
 import math
@@ -20,6 +21,7 @@ import json
 import uuid
 import copy
 import sqlite3
+import threading
 from typing import Any, Callable, cast
 
 
@@ -51,6 +53,10 @@ class UnsupportedExecutionBoundError(OrchestrationError):
     """No hard-cancellable runtime binding is available for strict execution."""
 
 
+class CostBoundExceededError(PlanBoundExceededError):
+    """Reported cost reached or exceeded the accepted plan's cost budget (Invariant 9)."""
+
+
 @dataclasses.dataclass(frozen=True)
 class PlanBounds:
     max_depth: int = 5
@@ -58,6 +64,7 @@ class PlanBounds:
     max_fanout: int = 10
     max_attempts: int = 3
     timeout_seconds: float = 300.0
+    cost_budget: float | None = None  # None = no budget. With a budget every attempt result must report a finite cost >= 0.
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -70,6 +77,7 @@ class PlanBounds:
             max_fanout=int(data.get("max_fanout", 10)),
             max_attempts=int(data.get("max_attempts", 3)),
             timeout_seconds=float(data.get("timeout_seconds", 300.0)),
+            cost_budget=None if data.get("cost_budget") is None else float(data["cost_budget"]),
         )
 
 
@@ -81,6 +89,11 @@ class PlanStep:
     idempotent: bool = True
     depends_on: list[str] = dataclasses.field(default_factory=lambda: list[str]())
     max_attempts: int = 3
+    # Deterministic conditions over COMMITTED outputs (no expression language):
+    #   when    = {"step_id": <a dependency>, "key": k, "equals": v}  -> the step is SKIPPED unless that output matches exactly
+    #   stop_if = {"key": k, "equals": v}                             -> after this step, a match STOPS the plan cleanly
+    when: dict[str, Any] | None = None
+    stop_if: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -96,6 +109,8 @@ class PlanStep:
             idempotent=bool(data.get("idempotent", True)),
             depends_on=deps,
             max_attempts=int(data.get("max_attempts", 3)),
+            when=dict(data["when"]) if data.get("when") is not None else None,
+            stop_if=dict(data["stop_if"]) if data.get("stop_if") is not None else None,
         )
 
 
@@ -103,9 +118,10 @@ class PlanStep:
 class StepExecutionResult:
     step_id: str
     attempt: int
-    status: str  # COMPLETED | FAILED | MAY_HAVE_STARTED
+    status: str  # COMPLETED | FAILED | MAY_HAVE_STARTED | SKIPPED (engine decision, never a runner result)
     output: dict[str, Any] | None = None
     error: str | None = None
+    cost: float | None = None  # None = not reported (UNKNOWN, never treated as zero)
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -118,6 +134,7 @@ class StepExecutionResult:
             status=str(data["status"]),
             output=dict(data["output"]) if data.get("output") is not None else None,
             error=str(data["error"]) if data.get("error") is not None else None,
+            cost=float(data["cost"]) if data.get("cost") is not None else None,
         )
 
 
@@ -159,10 +176,11 @@ class Plan:
 @dataclasses.dataclass(frozen=True)
 class PlanExecutionSummary:
     plan_id: str
-    status: str  # COMPLETED | FAILED | BOUNDS_EXCEEDED | CANCELLED
+    status: str  # COMPLETED | STOPPED | FAILED | BOUNDS_EXCEEDED | CANCELLED
     steps_executed: int
     step_results: dict[str, StepExecutionResult]
     elapsed_seconds: float
+    total_cost: float = 0.0  # sum of REPORTED costs over every attempt, including earlier runs of the same durable plan
 
 
 def _plan_json(plan: Plan) -> str:
@@ -242,7 +260,8 @@ class RecordPlanJournal:
             "plan_json": serialized, "plan_digest": digest,
             "accepted_by": accepted_by, "evidence_refs": evidence_refs or [],
             "accepted_at": now.isoformat(), "deadline": deadline,
-            "cost_budget": None, "cost_accounting": "NOT_CONFIGURED",
+            "cost_budget": plan.bounds.cost_budget,
+            "cost_accounting": "RESULT_REPORTED" if plan.bounds.cost_budget is not None else "NOT_CONFIGURED",
         })
         return record.record_id
 
@@ -262,14 +281,24 @@ class RecordPlanJournal:
                 results[result.step_id] = result
         return results, str(accepted[0].body["deadline"])
 
+    def recover_cost(self, plan: Plan) -> float:
+        """Total REPORTED cost over every committed attempt of this plan (all runs and resumes)."""
+        seen: dict[tuple[str, int], float] = {}
+        for record in self._records(plan.plan_id):
+            if record.kind == "m3.orchestration.result":
+                result = StepExecutionResult.from_dict(record.body["result"])
+                if result.cost is not None:
+                    seen[(result.step_id, result.attempt)] = result.cost
+        return float(sum(seen.values()))
+
     def record_attempt(self, plan: Plan, result: StepExecutionResult, owner: str, *, running: bool) -> None:
         if not owner or result.step_id not in {s.step_id for s in plan.steps} or result.attempt < 1:
             raise PlanStateTransitionError("Attempt evidence must bind a valid plan step, attempt and owner.")
         if running and result.status != "MAY_HAVE_STARTED":
             raise PlanStateTransitionError("Pre-invocation evidence cannot assert a terminal outcome.")
-        if not running and result.status not in ("COMPLETED", "FAILED", "MAY_HAVE_STARTED"):
+        if not running and result.status not in ("COMPLETED", "FAILED", "MAY_HAVE_STARTED", "SKIPPED"):
             raise PlanStateTransitionError("Unsupported execution certainty.")
-        if not running:
+        if not running and result.status != "SKIPPED":
             prior = [r for r in self._records(plan.plan_id) if r.kind == "m3.orchestration.running"
                      and r.body["result"]["step_id"] == result.step_id
                      and r.body["result"]["attempt"] == result.attempt]
@@ -284,16 +313,23 @@ class RecordPlanJournal:
 
 
 class PlanExecutor:
-    """Best-effort callable executor with optional durable accepted evidence.
+    """Bounded executor of an explicitly accepted plan.
 
-    Strict hard-deadline mode fails closed until a cancellable runtime is bound.
-    Checking an arbitrary callback's duration is not hard cancellation.
+    Serial by default; `parallel=True` runs up to `bounds.max_fanout` independent ready steps at once (the runner must then be
+    thread-safe; durable journal appends are serialized). Without a hard-cancellable runner a callback that overruns the deadline
+    is only *detected* after it returns: `require_hard_deadline=True` therefore needs a runner that declares
+    `hard_cancellable = True` (see `runtime_port.HardDeadlineStepRunner`), which kills its work at the deadline.
+
+    Cost: with `bounds.cost_budget` every attempt must report a finite cost (unreported = unknown, never zero). Spending is summed
+    from the durable journal across attempts and resumes and checked BEFORE each attempt and after each result, so a restart
+    cannot evade the budget. A single attempt (and, in parallel mode, up to `max_fanout` in-flight attempts) can overshoot it.
     """
 
     def __init__(self, journal: RecordPlanJournal | None = None,
-                 *, require_hard_deadline: bool = False) -> None:
+                 *, require_hard_deadline: bool = False, parallel: bool = False) -> None:
         self.journal = journal
         self.require_hard_deadline = require_hard_deadline
+        self.parallel = parallel
 
     def execute_plan(
         self,
@@ -332,13 +368,13 @@ class PlanExecutor:
                         f"MAY_HAVE_STARTED status and is non-idempotent (Invariant 10)."
                     )
 
-        # Check if all steps already completed
-        all_completed = all(
+        # Check if every step is already resolved (completed or skipped)
+        all_resolved = all(
             step.step_id in recorded_results
-            and recorded_results[step.step_id].status == "COMPLETED"
+            and recorded_results[step.step_id].status in ("COMPLETED", "SKIPPED")
             for step in plan.steps
         )
-        if all_completed and len(plan.steps) > 0:
+        if all_resolved and len(plan.steps) > 0:
             raise PlanStateTransitionError(
                 f"Cannot resume plan '{plan.plan_id}': all steps already completed."
             )
@@ -347,14 +383,23 @@ class PlanExecutor:
             plan, initial_results=dict(recorded_results), step_runner=step_runner
         )
 
+    @staticmethod
+    def _matches(predicate: dict[str, Any], result: StepExecutionResult | None) -> bool:
+        """Exact (type and value) match of one committed output key. Anything missing or unknown is NOT a match."""
+        if result is None or result.status != "COMPLETED" or result.output is None:
+            return False
+        key, expected = predicate["key"], predicate["equals"]
+        return key in result.output and type(result.output[key]) is type(expected) and result.output[key] == expected
+
     def _run(
         self,
         plan: Plan,
         initial_results: dict[str, StepExecutionResult],
         step_runner: Callable[[PlanStep, int], StepExecutionResult],
     ) -> PlanExecutionSummary:
-        if self.require_hard_deadline:
-            raise UnsupportedExecutionBoundError("No hard-cancellable runtime is bound; strict production execution is unsupported.")
+        if self.require_hard_deadline and getattr(step_runner, "hard_cancellable", False) is not True:
+            raise UnsupportedExecutionBoundError(
+                "Strict execution needs a step runner that declares hard_cancellable (e.g. runtime_port.HardDeadlineStepRunner).")
         owner = uuid.uuid4().hex
         deadline: datetime.datetime | None = None
         if self.journal is not None:
@@ -368,158 +413,189 @@ class PlanExecutor:
                 raise PlanBoundExceededError(f"{name} must be a positive integer.")
         if not math.isfinite(plan.bounds.timeout_seconds) or plan.bounds.timeout_seconds <= 0:
             raise PlanBoundExceededError("timeout_seconds must be finite and positive.")
+        budget = plan.bounds.cost_budget
+        if budget is not None and (isinstance(budget, bool) or not math.isfinite(budget) or budget < 0):
+            raise PlanBoundExceededError("cost_budget must be a finite number >= 0 (or None for no budget).")
         step_ids = {s.step_id for s in plan.steps}
         for key, result in initial_results.items():
             if key not in step_ids or result.step_id != key or result.attempt < 1:
                 raise PlanStateTransitionError("Recorded result does not bind to this plan's step.")
-            if result.status not in ("COMPLETED", "FAILED", "MAY_HAVE_STARTED"):
+            if result.status not in ("COMPLETED", "FAILED", "MAY_HAVE_STARTED", "SKIPPED"):
                 raise PlanStateTransitionError("Unsupported recorded step status; safe recovery requires certainty.")
-        prior_attempts = sum(result.attempt for result in initial_results.values())
+        prior_attempts = sum(result.attempt for result in initial_results.values() if result.status != "SKIPPED")
 
         start_time = time.monotonic()
-        results: dict[str, StepExecutionResult] = dict(initial_results)
-        steps_executed_in_this_run = 0
-
         step_map = {s.step_id: s for s in plan.steps}
-        in_degree: dict[str, int] = collections.defaultdict(int)
-        adjacency: dict[str, list[str]] = collections.defaultdict(list)
+        results: dict[str, StepExecutionResult] = dict(initial_results)
+        lock = threading.Lock()
+        reserved = 0  # attempts started in this run (reserved before invocation so parallel steps cannot exceed max_steps)
+        spent = self.journal.recover_cost(plan) if self.journal is not None else float(
+            sum(r.cost for r in initial_results.values() if r.cost is not None))
+        flags = {"failed": False, "abort": False, "stop": False}
 
-        for s in plan.steps:
-            for dep in s.depends_on:
-                adjacency[dep].append(s.step_id)
-            in_degree[s.step_id] = len(s.depends_on)
+        if self.require_hard_deadline:
+            remaining = plan.bounds.timeout_seconds
+            if deadline is not None:
+                remaining = min(remaining, (deadline - datetime.datetime.now(datetime.timezone.utc)).total_seconds())
+            bind = getattr(step_runner, "set_deadline", None)
+            if callable(bind):
+                bind(time.monotonic() + max(0.0, remaining))
 
-        # Ready queue
-        ready_queue: collections.deque[str] = collections.deque()
-        for s in plan.steps:
-            if s.step_id in results and results[s.step_id].status == "COMPLETED":
-                # already satisfied
-                continue
-            # check if all dependencies are satisfied
-            deps_met = all(
-                dep in results and results[dep].status == "COMPLETED"
-                for dep in s.depends_on
-            )
-            if deps_met:
-                ready_queue.append(s.step_id)
+        def resolved(step_id: str) -> bool:
+            r = results.get(step_id)
+            return r is not None and r.status in ("COMPLETED", "SKIPPED")
 
-        failed = False
+        def overrun() -> bool:
+            return (time.monotonic() - start_time) > plan.bounds.timeout_seconds or (
+                deadline is not None and datetime.datetime.now(datetime.timezone.utc) >= deadline)
 
-        while ready_queue:
-            # Check timeout bound
-            elapsed = time.monotonic() - start_time
-            if elapsed > plan.bounds.timeout_seconds:
-                raise PlanBoundExceededError(
-                    f"Execution of plan '{plan.plan_id}' exceeded timeout limit of "
-                    f"{plan.bounds.timeout_seconds}s (elapsed {elapsed:.2f}s)."
-                )
+        # A recorded stop condition is honoured on resume: the plan already stopped there.
+        for sid, res in list(results.items()):
+            cond = step_map[sid].stop_if
+            if cond is not None and self._matches(cond, res):
+                flags["stop"] = True
 
-            current_id = ready_queue.popleft()
-            step = step_map[current_id]
-
-            # Check max_steps bound
-            if steps_executed_in_this_run >= plan.bounds.max_steps:
-                raise PlanBoundExceededError(
-                    f"Execution of plan '{plan.plan_id}' exceeded max_steps limit "
-                    f"of {plan.bounds.max_steps} steps."
-                )
-
-            # Execute step with bounded retry
+        def run_step(step: PlanStep) -> str:
+            """Returns 'completed' | 'skipped' | 'failed' | 'stop'. Raises a bound/ambiguity error to abort the plan."""
+            nonlocal reserved, spent
+            with lock:
+                skip = any(results[d].status == "SKIPPED" for d in step.depends_on) or (
+                    step.when is not None and not self._matches(step.when, results.get(step.when["step_id"])))
+                if skip:
+                    note = StepExecutionResult(step.step_id, 1, "SKIPPED", error="condition not met or dependency skipped")
+                    results[step.step_id] = note
+                    if self.journal is not None:
+                        self.journal.record_attempt(plan, note, owner, running=False)
+                    return "skipped"
             previous = results.get(step.step_id)
             attempt = previous.attempt + 1 if previous is not None else 1
             max_step_attempts = min(step.max_attempts, plan.bounds.max_attempts)
-            step_completed = False
-
             while attempt <= max_step_attempts:
-                if prior_attempts + steps_executed_in_this_run >= plan.bounds.max_steps:
-                    raise PlanBoundExceededError(
-                        f"Execution of plan '{plan.plan_id}' exhausted max_steps across attempts/resumes."
-                    )
-                # Check timeout before each attempt
-                if (time.monotonic() - start_time) > plan.bounds.timeout_seconds:
-                    raise PlanBoundExceededError(
-                        f"Execution of plan '{plan.plan_id}' exceeded timeout limit "
-                        f"of {plan.bounds.timeout_seconds}s."
-                    )
-
-                if deadline is not None and datetime.datetime.now(datetime.timezone.utc) >= deadline:
-                    raise PlanBoundExceededError("Accepted plan's absolute deadline has expired.")
-                if self.journal is not None:
-                    self.journal.record_attempt(plan, StepExecutionResult(
-                        step.step_id, attempt, "MAY_HAVE_STARTED", error="RUNNING; outcome not committed"
-                    ), owner, running=True)
+                with lock:
+                    if flags["abort"]:
+                        return "failed"
+                    if prior_attempts + reserved >= plan.bounds.max_steps:
+                        raise PlanBoundExceededError(
+                            f"Execution of plan '{plan.plan_id}' exhausted max_steps across attempts/resumes.")
+                    if budget is not None and spent >= budget:
+                        raise CostBoundExceededError(
+                            f"Plan '{plan.plan_id}' reached its cost budget ({spent} of {budget}); no further attempt is started.")
+                    if overrun():
+                        raise PlanBoundExceededError(
+                            f"Execution of plan '{plan.plan_id}' exceeded its timeout or absolute deadline.")
+                    if self.journal is not None:
+                        self.journal.record_attempt(plan, StepExecutionResult(
+                            step.step_id, attempt, "MAY_HAVE_STARTED", error="RUNNING; outcome not committed"
+                        ), owner, running=True)
+                    reserved += 1
                 res = step_runner(PlanStep.from_dict(step.to_dict()), attempt)
-                steps_executed_in_this_run += 1
-                if res.step_id != step.step_id or res.attempt != attempt or res.status not in (
-                    "COMPLETED", "FAILED", "MAY_HAVE_STARTED"
-                ):
-                    raise PlanStepExecutionError("Runner result does not bind to the invoked step and attempt.")
-                results[step.step_id] = res
-                if self.journal is not None:
-                    self.journal.record_attempt(plan, res, owner, running=False)
-                # A final step must not bypass the deadline. This detects an
-                # overrun, but an arbitrary synchronous callback cannot be safely
-                # interrupted; hard cancellation requires a bounded runtime port.
-                if (time.monotonic() - start_time) > plan.bounds.timeout_seconds or (
-                    deadline is not None and datetime.datetime.now(datetime.timezone.utc) >= deadline
-                ):
-                    raise PlanBoundExceededError(
-                        f"Execution of plan '{plan.plan_id}' exceeded timeout during step '{step.step_id}'."
-                    )
+                with lock:
+                    if res.step_id != step.step_id or res.attempt != attempt or res.status not in (
+                        "COMPLETED", "FAILED", "MAY_HAVE_STARTED"
+                    ):
+                        raise PlanStepExecutionError("Runner result does not bind to the invoked step and attempt.")
+                    if res.cost is not None and (isinstance(res.cost, bool) or not math.isfinite(res.cost) or res.cost < 0):
+                        raise PlanStepExecutionError("A reported cost must be a finite number >= 0.")
+                    if budget is not None and res.status != "MAY_HAVE_STARTED" and res.cost is None:
+                        raise PlanStepExecutionError(
+                            "This plan has a cost budget: every attempt result must report its cost (unreported is unknown, not zero).")
+                    results[step.step_id] = res
+                    if res.cost is not None:
+                        spent += res.cost
+                    if self.journal is not None:
+                        self.journal.record_attempt(plan, res, owner, running=False)
+                    # A final step must not bypass the deadline. This detects an overrun; only a hard-cancellable runner
+                    # bounds the work itself.
+                    if overrun():
+                        raise PlanBoundExceededError(
+                            f"Execution of plan '{plan.plan_id}' exceeded timeout during step '{step.step_id}'.")
+                    if budget is not None and spent > budget:
+                        raise CostBoundExceededError(
+                            f"Plan '{plan.plan_id}' exceeded its cost budget ({spent} of {budget}) during step '{step.step_id}'.")
 
-                if res.status == "COMPLETED":
-                    step_completed = True
-                    break
+                    if res.status == "COMPLETED":
+                        if step.stop_if is not None and self._matches(step.stop_if, res):
+                            return "stop"
+                        return "completed"
 
-                if res.status == "MAY_HAVE_STARTED":
-                    if self.journal is not None or not step.idempotent:
-                        # Invariant 10: blind replay strictly forbidden
-                        raise AmbiguousExecutionReplayForbiddenError(
-                            f"Step '{step.step_id}' returned MAY_HAVE_STARTED and is "
-                            f"non-idempotent. Blind replay is forbidden (Invariant 10)."
-                        )
-                    # If idempotent, we can boundedly retry if attempts remain
-                    attempt += 1
-                    continue
+                    if res.status == "MAY_HAVE_STARTED":
+                        if self.journal is not None or not step.idempotent:
+                            # Invariant 10: blind replay strictly forbidden
+                            raise AmbiguousExecutionReplayForbiddenError(
+                                f"Step '{step.step_id}' returned MAY_HAVE_STARTED and is "
+                                f"non-idempotent. Blind replay is forbidden (Invariant 10)."
+                            )
+                    attempt += 1  # FAILED, or MAY_HAVE_STARTED of an explicitly idempotent step: bounded retry
+            return "failed"
 
-                if res.status == "FAILED":
-                    attempt += 1
-                    continue
+        def downstream(step_id: str) -> list[str]:
+            return [s.step_id for s in plan.steps if step_id in s.depends_on]
 
-            if not step_completed:
-                failed = True
-                break
+        def ready_now() -> list[str]:
+            return [s.step_id for s in plan.steps
+                    if not resolved(s.step_id) and all(resolved(d) for d in s.depends_on)]
 
-            # Enqueue newly satisfied downstream steps
-            for downstream_id in adjacency[current_id]:
-                downstream_step = step_map[downstream_id]
-                if downstream_id in results and results[downstream_id].status == "COMPLETED":
-                    continue
-                deps_met = all(
-                    dep in results and results[dep].status == "COMPLETED"
-                    for dep in downstream_step.depends_on
-                )
-                if deps_met and downstream_id not in ready_queue:
-                    ready_queue.append(downstream_id)
+        if not flags["stop"]:
+            queued: set[str] = set()
+            ready: collections.deque[str] = collections.deque()
+
+            def enqueue(candidates: list[str]) -> None:
+                for sid in candidates:
+                    if sid not in queued and not resolved(sid) and all(resolved(d) for d in step_map[sid].depends_on):
+                        queued.add(sid)
+                        ready.append(sid)
+
+            enqueue(ready_now())
+
+            def settle(step_id: str, outcome: str) -> None:
+                if outcome == "failed":
+                    flags["failed"] = True
+                elif outcome == "stop":
+                    flags["stop"] = True
+                else:
+                    enqueue(downstream(step_id))
+
+            if not self.parallel:
+                while ready and not flags["failed"] and not flags["stop"]:
+                    sid = ready.popleft()
+                    settle(sid, run_step(step_map[sid]))
+            else:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=plan.bounds.max_fanout) as pool:
+                    inflight: dict[concurrent.futures.Future[str], str] = {}
+                    error: BaseException | None = None
+                    while True:
+                        while (ready and len(inflight) < plan.bounds.max_fanout and not flags["failed"]
+                               and not flags["stop"] and error is None):
+                            sid = ready.popleft()
+                            inflight[pool.submit(run_step, step_map[sid])] = sid
+                        if not inflight:
+                            break
+                        done, _ = concurrent.futures.wait(inflight, return_when=concurrent.futures.FIRST_COMPLETED)
+                        for fut in done:
+                            sid = inflight.pop(fut)
+                            try:
+                                settle(sid, fut.result())
+                            except BaseException as exc:  # a bound/ambiguity abort: stop starting, let in-flight steps finish
+                                flags["abort"] = True
+                                error = error or exc
+                    if error is not None:
+                        raise error
 
         total_elapsed = time.monotonic() - start_time
-        final_status = "FAILED" if failed else "COMPLETED"
-
-        # Check if all steps in plan were completed
-        if not failed:
-            all_done = all(
-                s.step_id in results and results[s.step_id].status == "COMPLETED"
-                for s in plan.steps
-            )
-            if not all_done:
-                final_status = "FAILED"
+        if flags["failed"]:
+            final_status = "FAILED"
+        elif flags["stop"]:
+            final_status = "STOPPED"
+        else:
+            final_status = "COMPLETED" if all(resolved(s.step_id) for s in plan.steps) else "FAILED"
 
         return PlanExecutionSummary(
             plan_id=plan.plan_id,
             status=final_status,
-            steps_executed=steps_executed_in_this_run,
+            steps_executed=reserved,
             step_results=results,
             elapsed_seconds=total_elapsed,
+            total_cost=spent,
         )
 
     def _validate_dag(self, plan: Plan) -> None:
@@ -560,3 +636,39 @@ class PlanExecutor:
             raise PlanDependencyCycleError(
                 f"Plan '{plan.plan_id}' contains circular step dependencies."
             )
+
+        for step in plan.steps:  # conditions are deterministic predicates over committed outputs, validated up front
+            if step.when is not None:
+                w = step.when
+                if (set(w) != {"step_id", "key", "equals"} or not isinstance(w["key"], str)
+                        or w["step_id"] not in step.depends_on):
+                    raise PlanStateTransitionError(
+                        f"Step '{step.step_id}': when must be {{step_id (one of depends_on), key, equals}}.")
+            if step.stop_if is not None:
+                c = step.stop_if
+                if set(c) != {"key", "equals"} or not isinstance(c["key"], str):
+                    raise PlanStateTransitionError(f"Step '{step.step_id}': stop_if must be {{key, equals}}.")
+
+        # Longest dependency chain (in steps) must fit max_depth (checked on an acyclic graph).
+        depth: dict[str, int] = {}
+        for sid in self._topological(plan):
+            depth[sid] = 1 + max((depth[d] for d in next(s for s in plan.steps if s.step_id == sid).depends_on), default=0)
+        max_depth = plan.bounds.max_depth
+        if type(max_depth) is int and depth and max(depth.values()) > max_depth:
+            raise PlanBoundExceededError(
+                f"Plan '{plan.plan_id}' has a dependency chain of {max(depth.values())} steps, above max_depth {max_depth}.")
+
+    @staticmethod
+    def _topological(plan: Plan) -> list[str]:
+        indeg = {s.step_id: len(s.depends_on) for s in plan.steps}
+        order: list[str] = []
+        queue = collections.deque(sid for sid, d in indeg.items() if d == 0)
+        while queue:
+            node = queue.popleft()
+            order.append(node)
+            for s in plan.steps:
+                if node in s.depends_on:
+                    indeg[s.step_id] -= 1
+                    if indeg[s.step_id] == 0:
+                        queue.append(s.step_id)
+        return order
