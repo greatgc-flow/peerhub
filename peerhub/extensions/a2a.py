@@ -15,7 +15,7 @@ import copy
 import threading
 import json
 import math
-from typing import Any, Protocol, cast
+from typing import Any, Callable, Protocol, cast
 
 
 class A2AError(Exception):
@@ -48,6 +48,12 @@ class A2ATransportUnavailableError(A2AError):
 
 class A2AExecutionUncertainError(A2AError):
     """Submission may have happened; explicit remote reconciliation is required."""
+
+
+class A2ATaskUnknownToRemoteError(A2AError):
+    """Raised by a transport's `lookup` when the remote DEFINITIVELY reports that it never saw the task.
+
+    Any other failure (timeout, 5xx, malformed answer) must stay a plain exception: it does not prove the task never started."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -135,6 +141,11 @@ class A2ATaskResponse:
         }
 
 
+def _same_execution(a: ExternalExecutionRef, b: ExternalExecutionRef) -> bool:
+    """Execution identity is the remote system and its task/run ids; `opaque_state` is evidence that may evolve."""
+    return (a.remote_system, a.remote_task_id, a.remote_run_id) == (b.remote_system, b.remote_task_id, b.remote_run_id)
+
+
 class A2ATransport(Protocol):
     """Injected external protocol boundary. Implementations must honor timeout_s.
 
@@ -145,12 +156,26 @@ class A2ATransport(Protocol):
     def poll(self, card: AgentCard, current: A2ATaskResponse, timeout_s: float) -> A2ATaskResponse | None: ...
     def cancel(self, card: AgentCard, current: A2ATaskResponse, timeout_s: float) -> A2ATaskResponse: ...
 
+    # Optional (needed only for reconciliation): ask the remote about a task by its idempotency identity (the task id).
+    # Return the remote's response if it knows the task; raise A2ATaskUnknownToRemoteError only if it definitively does not.
+    def lookup(self, card: AgentCard, request: A2ATaskRequest, timeout_s: float) -> A2ATaskResponse: ...
+
 
 class LoopbackA2ATransport:
     """Explicit deterministic test binding; no remote endpoint or execution claimed."""
+    def __init__(self) -> None:
+        self._seen: dict[str, A2ATaskResponse] = {}  # what this simulated remote has durably accepted
+
     def submit(self, card: AgentCard, request: A2ATaskRequest, timeout_s: float) -> A2ATaskResponse:
-        return A2ATaskResponse(request.task_id, "SUBMITTED", ExternalExecutionRef(
+        response = A2ATaskResponse(request.task_id, "SUBMITTED", ExternalExecutionRef(
             card.agent_id, f"loopback:{request.task_id}", f"loopback-run:{request.task_id}", {"transport": "loopback"}))
+        self._seen[request.task_id] = response
+        return response
+
+    def lookup(self, card: AgentCard, request: A2ATaskRequest, timeout_s: float) -> A2ATaskResponse:
+        if request.task_id not in self._seen:
+            raise A2ATaskUnknownToRemoteError(f"loopback remote never saw {request.task_id!r}")
+        return self._seen[request.task_id]
 
     def poll(self, card: AgentCard, current: A2ATaskResponse, timeout_s: float) -> A2ATaskResponse | None:
         return None  # progress is supplied explicitly by the test's observation ingress
@@ -162,10 +187,13 @@ class LoopbackA2ATransport:
 class A2AAdapter:
     """Manages remote agent cards, identity isolation, and task bridging."""
 
-    def __init__(self, transport: A2ATransport | None = None, *, timeout_s: float = 30) -> None:
+    def __init__(self, transport: A2ATransport | None = None, *, timeout_s: float = 30, journal: Any | None = None) -> None:
         if not math.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError("Transport timeout must be finite and positive")
         self._transport = transport
+        self._journal = journal  # optional durable evidence (a2a_journal.A2ATaskJournal); without it nothing survives a restart
+        self._requests: dict[str, A2ATaskRequest] = {}
+        self._attempts: dict[str, int] = {}
         self._lock = threading.RLock()
         self._timeout_s = timeout_s
         self._uncertain: set[str] = set()
@@ -174,6 +202,56 @@ class A2AAdapter:
         self._tasks: dict[str, A2ATaskResponse] = {}
         self._request_bindings: dict[str, str] = {}
         self._observations: dict[str, list[tuple[bool, float]]] = {}  # agent_id -> [(success, latency_ms)]
+        if journal is not None:
+            self._restore()
+
+    def _restore(self) -> None:
+        """Rebuild the cache from the durable Records: known tasks keep their last status, an unresolved submission is UNCERTAIN."""
+        assert self._journal is not None
+        for task_id, state in self._journal.load().items():
+            self._requests[task_id] = state.request
+            self._request_bindings[task_id] = state.binding
+            self._attempts[task_id] = state.attempt
+            if state.response is not None:
+                self._tasks[task_id] = state.response
+            else:
+                self._uncertain.add(task_id)
+
+    def uncertain_tasks(self) -> list[str]:
+        """Task ids whose submission outcome is unknown and must be reconciled with the remote (never replayed)."""
+        with self._lock:
+            return sorted(self._uncertain)
+
+    def reconcile_task(self, task_id: str) -> A2ATaskResponse | None:
+        """Resolve an uncertain submission by asking the remote about the task id.
+
+        Found -> adopt the remote's state (the task is then an ordinary tracked task). Definitively unknown to the remote ->
+        recorded as not started, the id is released and a retry is a NEW attempt. Anything else leaves it uncertain."""
+        with self._lock:
+            if task_id not in self._uncertain:
+                raise A2AStateTransitionError(f"Task '{task_id}' is not awaiting reconciliation")
+            request = self._requests[task_id]
+            card = self._cards.get(request.target_agent_id)
+            if card is None:
+                raise A2AAgentNotFoundError(f"Cannot reconcile '{task_id}': agent card '{request.target_agent_id}' is not registered")
+            lookup = cast("Callable[..., A2ATaskResponse] | None", getattr(self._transport, "lookup", None))
+            if self._transport is None or not callable(lookup):
+                raise A2ATransportUnavailableError("The configured transport cannot reconcile; the task stays uncertain")
+            try:
+                found = lookup(copy.deepcopy(card), copy.deepcopy(request), self._timeout_s)
+            except A2ATaskUnknownToRemoteError:
+                if self._journal is not None:
+                    self._journal.record_not_started(task_id, self._attempts.get(task_id, 1))
+                self._uncertain.discard(task_id)
+                self._requests.pop(task_id, None)
+                self._request_bindings.pop(task_id, None)
+                return None
+            self._validate_response(found, task_id, card.agent_id)
+            if self._journal is not None:
+                self._journal.record_observed(found)
+            self._tasks[task_id] = copy.deepcopy(found)
+            self._uncertain.discard(task_id)
+            return copy.deepcopy(found)
 
     def register_agent_card(self, card: AgentCard) -> None:
         self._cards[card.agent_id] = copy.deepcopy(card)
@@ -275,11 +353,16 @@ class A2AAdapter:
             raise A2ATransportUnavailableError("Configure an external transport; Agent Card is only a declaration")
         # Mark uncertainty before invoking an external side effect. Never replay a
         # lost or invalid response merely because it was not cached as SUBMITTED.
+        if self._journal is not None:  # durable BEFORE the side effect: a crash now restores as uncertain, never as "not sent"
+            self._attempts[request.task_id] = self._journal.record_submitting(request)
         self._uncertain.add(request.task_id)
         self._request_bindings[request.task_id] = binding
+        self._requests[request.task_id] = copy.deepcopy(request)
         try:
             resp = self._transport.submit(copy.deepcopy(card), copy.deepcopy(request), self._timeout_s)
             self._validate_response(resp, request.task_id, card.agent_id)
+            if self._journal is not None:
+                self._journal.record_observed(resp)
         except Exception as exc:
             raise A2AExecutionUncertainError("Remote submission outcome is uncertain") from exc
         self._tasks[request.task_id] = copy.deepcopy(resp)
@@ -306,7 +389,7 @@ class A2AAdapter:
             observed = self._transport.poll(copy.deepcopy(card), copy.deepcopy(current), self._timeout_s)
             if observed is not None:
                 self._validate_response(observed, task_id, card.agent_id)
-                if observed.external_ref != current.external_ref:
+                if not _same_execution(observed.external_ref, current.external_ref):
                     raise A2AStateTransitionError("Remote execution binding changed during poll")
                 if observed.status != current.status:
                     # Poll may observe completion without an intermediate RUNNING sample.
@@ -351,6 +434,8 @@ class A2AAdapter:
             output=output if output is not None else current.output,
             error=error if error is not None else current.error,
         )
+        if self._journal is not None:
+            self._journal.record_observed(updated)  # each status is durable once; terminal states are never rewritten
         self._tasks[task_id] = copy.deepcopy(updated)
         return copy.deepcopy(updated)
 
@@ -367,6 +452,6 @@ class A2AAdapter:
         card = self._cards[current.external_ref.remote_system]
         response = self._transport.cancel(copy.deepcopy(card), copy.deepcopy(current), self._timeout_s)
         self._validate_response(response, task_id, card.agent_id)
-        if response.external_ref != current.external_ref or response.status != "CANCELLED":
+        if not _same_execution(response.external_ref, current.external_ref) or response.status != "CANCELLED":
             raise A2AStateTransitionError("Cancellation not confirmed for the bound execution")
         return self.update_task_status(task_id, "CANCELLED", response.output, response.error)
