@@ -1,0 +1,246 @@
+{
+  "providers": {
+    "ag": {
+      "canary": {
+        "certainty": "TERMINAL",
+        "duration_s": 11.22,
+        "effort": null,
+        "error": null,
+        "evidence_kinds": [
+          "attempt_created",
+          "about_to_invoke",
+          "started",
+          "terminal",
+          "response_appended",
+          "offset_acked"
+        ],
+        "model": "gemini-3.8-flash-low",
+        "profile": "ag.standard",
+        "project_tree_changed": [],
+        "provider_ws_files_after": [],
+        "response_chars": 3,
+        "response_contains_ok": true,
+        "response_record": true,
+        "status": "delivered",
+        "workspace_outside_project": true
+      },
+      "capabilities": {
+        "interrupt": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "resume": {
+          "cli_status": "supported",
+          "fallback": "fresh session generation with Stream catch-up",
+          "reason": "adapter does not map vendor sessions across restarts",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "steer": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "terminate": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        }
+      },
+      "discovery": {
+        "available": true,
+        "capabilities": {
+          "interrupt": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "resume": {
+            "cli_status": "supported",
+            "fallback": "fresh session generation with Stream catch-up",
+            "reason": "adapter does not map vendor sessions across restarts",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "steer": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "terminate": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          }
+        },
+        "observed_at": "2026-10-07T13:38:35+00:00",
+        "reason": null,
+        "version": "1.3.1",
+        "version_line": "1.3.1"
+      }
+    },
+    "cc": {
+      "canary": {
+        "certainty": "TERMINAL",
+        "duration_s": 4.33,
+        "effort": null,
+        "error": null,
+        "evidence_kinds": [
+          "attempt_created",
+          "about_to_invoke",
+          "started",
+          "terminal",
+          "response_appended",
+          "offset_acked"
+        ],
+        "model": "claude-haiku-4-5-20251001",
+        "profile": "cc.standard",
+        "project_tree_changed": [],
+        "provider_ws_files_after": [],
+        "response_chars": 2,
+        "response_contains_ok": true,
+        "response_record": true,
+        "status": "delivered",
+        "workspace_outside_project": true
+      },
+      "capabilities": {
+        "interrupt": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "resume": {
+          "cli_status": "supported",
+          "fallback": "fresh session generation with Stream catch-up",
+          "reason": "adapter does not map vendor sessions across restarts",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "steer": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "terminate": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        }
+      },
+      "discovery": {
+        "available": true,
+        "capabilities": {
+          "interrupt": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "resume": {
+            "cli_status": "supported",
+            "fallback": "fresh session generation with Stream catch-up",
+            "reason": "adapter does not map vendor sessions across restarts",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "steer": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "terminate": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          }
+        },
+        "observed_at": "2026-10-07T13:38:24+00:00",
+        "reason": null,
+        "version": "2.1.292",
+        "version_line": "2.1.292 (Claude Code)"
+      }
+    },
+    "cx": {
+      "canary": {
+        "certainty": "TERMINAL",
+        "duration_s": 4.59,
+        "effort": "low",
+        "error": null,
+        "evidence_kinds": [
+          "attempt_created",
+          "about_to_invoke",
+          "started",
+          "terminal",
+          "response_appended",
+          "offset_acked"
+        ],
+        "model": "gpt-6-luna",
+        "profile": "cx.standard",
+        "project_tree_changed": [],
+        "provider_ws_files_after": [],
+        "response_chars": 2,
+        "response_contains_ok": true,
+        "response_record": true,
+        "status": "delivered",
+        "workspace_outside_project": true
+      },
+      "capabilities": {
+        "interrupt": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "resume": {
+          "cli_status": "supported",
+          "fallback": "fresh session generation with Stream catch-up",
+          "reason": "adapter does not map vendor sessions across restarts",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "steer": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "terminate": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        }
+      },
+      "discovery": {
+        "available": true,
+        "capabilities": {
+          "interrupt": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "resume": {
+            "cli_status": "supported",
+            "fallback": "fresh session generation with Stream catch-up",
+            "reason": "adapter does not map vendor sessions across restarts",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "steer": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "terminate": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          }
+        },
+        "observed_at": "2026-10-07T13:38:29+00:00",
+        "reason": null,
+        "version": "0.160.1",
+        "version_line": "codex-cli 0.160.1"
+      }
+    }
+  },
+  "schema": "peerhub-m1-live-evidence/1",
+  "updated_at": "2026-10-07T13:38:47+00:00"
+}

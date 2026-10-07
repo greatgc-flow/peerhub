@@ -19,14 +19,14 @@ from jsonschema import FormatChecker
 from jsonschema.validators import Draft202012Validator
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from peerhub.m1.models import assert_json_value, is_rfc3339
-from peerhub.m1.wire import WireValidationError
+from peerhub.core.models import assert_json_value, is_rfc3339
+from peerhub.core.wire import WireValidationError
 
 _SCHEMAS = Path(__file__).parent / "schemas"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 _US = timedelta(microseconds=1)
 
-KNOWN_KINDS = ("reachability", "cli_version", "runtime_capability", "session", "quota", "rate_limit", "activity", "execution_failure")
+KNOWN_KINDS = ("reachability", "cli_version", "runtime_capability", "session", "quota", "rate_limit", "activity", "execution_failure", "reset_credit")
 # Measurement-bearing payload keys: only a MEASURED observation may carry them (honesty rule: unmeasured != 0/healthy/unlimited).
 MEASUREMENT_KEYS = frozenset({"remaining", "remaining_fraction", "remaining_tokens", "remaining_requests", "used", "limit",
                               "requests_per_minute", "tokens_per_minute", "reset_in_seconds", "retry_after_seconds"})

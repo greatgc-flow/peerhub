@@ -20,9 +20,9 @@ jobs:
     timeout-minutes: 180
     continue-on-error: true
     env:
-      PEERHUB_M1_SOAK: "1"
-      PEERHUB_M1_SOAK_SCALE: ${{ github.event.inputs.scale || 'moderate' }}
-      PEERHUB_M1_SOAK_EVIDENCE_DIR: soak-evidence
+      PEERHUB_SOAK: "1"
+      PEERHUB_SOAK_SCALE: ${{ github.event.inputs.scale || 'moderate' }}
+      PEERHUB_SOAK_EVIDENCE_DIR: soak-evidence
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -34,7 +34,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
       - name: Run soak (SOAK-001, SOAK-002)
-        run: python -u -m pytest -q -m soak tests/m1/soak
+        run: python -u -m pytest -q -m soak tests/communication/soak
       - name: Upload evidence JSON
         if: always()
         uses: actions/upload-artifact@v4

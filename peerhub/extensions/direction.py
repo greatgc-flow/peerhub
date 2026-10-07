@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from peerhub.m1.models import AppendRequest, Stream
-from peerhub.m1.store import CasMismatchError
+from peerhub.core.models import AppendRequest, Stream
+from peerhub.core.store import CasMismatchError
 
 
 class DirectionError(ValueError):

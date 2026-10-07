@@ -1,0 +1,410 @@
+"""M2.1 Artifact Content-Addressable Storage Layer.
+
+Adheres strictly to M2_1_ARTIFACT_CONTRACT.md and EXCEPTION_CATALOG.m2.json:
+- 2-tier sharded directory structure: artifacts/<digest[:2]>/<digest>
+- Strict lowercase hex ASCII digest enforcement (64 chars)
+- Strict defense against path traversals, symlinks, and Windows reparse points / junctions
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import re
+import stat
+import sys
+from peerhub.extensions.boundary import SecurityBoundaryError  # noqa: F401  (re-exported)
+from typing import Any, Protocol
+
+
+class ByteStream(Protocol):
+    def read(self, size: int = ..., /) -> bytes: ...
+
+
+
+
+class WindowsJunctionError(SecurityBoundaryError):
+    """Windows junction point or reparse point detected in artifact path."""
+
+
+class InvalidArtifactReferenceError(ValueError):
+    """Artifact digest string fails format, length, or character set constraints."""
+
+
+class ArtifactNotFoundError(LookupError):
+    """Referenced artifact digest not found in physical store."""
+
+
+class ArtifactTamperedError(ValueError):
+    """Artifact content on disk does not match its cryptographic SHA-256 digest."""
+
+
+class ForbiddenTransitionError(RuntimeError):
+    """Attempting an invalid artifact state transition."""
+
+
+HEX_DIGEST_REGEX = re.compile(r"^[0-9a-f]{64}$")
+
+
+class ArtifactStore:
+    """Content-Addressable Storage (CAS) for immutable M2.1 artifacts."""
+
+    def __init__(self, root: Path | str) -> None:
+        self.root = Path(root).resolve()
+        self.tmp_dir = self.root / ".tmp"
+
+    def validate_digest(self, digest: str | Any) -> bool:
+        """Validate that digest is strictly a 64-character lowercase ASCII hex string."""
+        if not isinstance(digest, str):
+            return False
+        return bool(HEX_DIGEST_REGEX.fullmatch(digest))
+
+    def _reject_links(self, path: Path) -> None:
+        current = self.root
+        for part in path.relative_to(self.root).parts:
+            current = current / part
+            if current.is_symlink():
+                raise SecurityBoundaryError("Artifact paths cannot contain symlinks")
+            if current.exists() and getattr(current.lstat(), "st_file_attributes", 0) & 0x400:
+                raise WindowsJunctionError("Artifact paths cannot contain reparse points")
+
+    def resolve_path(self, digest: str) -> Path:
+        """Resolve physical artifact path using 2-tier directory sharding.
+
+        Rejects directory traversal sequences, path separators, and malformed digests.
+        """
+        # Explicitly reject directory traversal sequences before any filesystem resolution
+        if ".." in digest or "/" in digest or "\\" in digest or ":" in digest:
+            raise SecurityBoundaryError(f"Path traversal detected in digest reference: {digest!r}")
+
+        if not self.validate_digest(digest):
+            raise InvalidArtifactReferenceError(f"Invalid lowercase SHA-256 digest reference: {digest!r}")
+
+        target = self.root / digest[:2] / digest
+        self._reject_links(target)
+
+        # Defense-in-depth: Ensure resolved target is strictly within self.root
+        try:
+            target.resolve().relative_to(self.root)
+        except ValueError as e:
+            raise SecurityBoundaryError(f"Resolved path escapes artifact root: {digest!r}") from e
+
+        return target
+
+    def stage_file(self, source: Path | str) -> StagedArtifact:
+        """Stage an existing physical file into the artifact store.
+
+        Rejects symlinks, directories, and Windows junction/reparse points.
+        """
+        src = Path(source)
+
+        # 1. Symlink check (cross-platform)
+        if os.path.islink(src) or src.is_symlink():
+            raise SecurityBoundaryError(f"Symlinks are strictly forbidden as artifact source: {src}")
+
+        # 2. Windows Reparse Point / Junction check
+        if sys.platform == "win32" and src.exists():
+            st = os.lstat(src)
+            reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+            file_attrs = getattr(st, "st_file_attributes", 0)
+            if file_attrs & reparse_flag:
+                raise WindowsJunctionError(f"Windows reparse point detected in artifact path: {src}")
+
+            # Also reject directories if passed as file staging source
+            if src.is_dir():
+                raise WindowsJunctionError(f"Directories cannot be staged as blob artifacts: {src}")
+
+        if not src.is_file():
+            raise FileNotFoundError(f"Source file not found: {src}")
+        with src.open("rb") as stream:
+            return self.stage_stream(stream)
+
+    def stage_stream(self, stream: ByteStream, chunk_size: int = 65536, max_size: int | None = None) -> StagedArtifact:
+        """Stage arbitrary byte stream into a temporary staging file using os.write with fsync.
+
+        `max_size` (optional) rejects a stream longer than that many bytes before the excess is written."""
+        import hashlib
+        import tempfile
+
+        if type(chunk_size) is not int or chunk_size < 1:
+            raise ValueError("chunk_size must be a positive integer")
+        if max_size is not None and (type(max_size) is not int or max_size < 0):
+            raise ValueError("max_size must be a non-negative integer")
+
+        self._reject_links(self.tmp_dir)
+        self.tmp_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path_str = tempfile.mkstemp(dir=self.tmp_dir, prefix="stage-")
+        tmp_path = Path(tmp_path_str)
+
+        hasher = hashlib.sha256()
+        total_size = 0
+        try:
+            while True:
+                chunk: bytes = stream.read(chunk_size)
+                if not chunk:
+                    break
+                if max_size is not None and total_size + len(chunk) > max_size:
+                    raise ValueError(f"Artifact stream exceeds max_size of {max_size} bytes")
+                written = 0
+                while written < len(chunk):
+                    count = os.write(fd, chunk[written:])
+                    if count <= 0:
+                        raise OSError("Artifact staging made no write progress")
+                    written += count
+                hasher.update(chunk)
+                total_size += len(chunk)
+
+            os.fsync(fd)
+        except BaseException:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
+        else:
+            os.close(fd)
+
+        digest = hasher.hexdigest()
+        return StagedArtifact(path=tmp_path, digest=digest, size=total_size)
+
+    def stage_bytes(self, data: bytes) -> StagedArtifact:
+        """Stage in-memory bytes into a temporary staging file with synchronous fsync."""
+        import io
+        return self.stage_stream(io.BytesIO(data))
+
+    def commit_staged(self, staged: StagedArtifact | Any) -> str:
+        """Atomically commit a staged artifact to its final sharded destination."""
+        if staged is None or not isinstance(staged, StagedArtifact):
+            raise ForbiddenTransitionError("Cannot commit unverified or unstaged artifact")
+
+        import hashlib
+        source = staged.path
+        if source.is_symlink() or source.parent.resolve() != self.tmp_dir.resolve():
+            raise SecurityBoundaryError("Artifact commit source must be a regular staging file")
+        self._reject_links(source)
+        if source.exists():
+            hasher = hashlib.sha256()
+            total = 0
+            with source.open("rb") as stream:
+                while chunk := stream.read(65536):
+                    hasher.update(chunk)
+                    total += len(chunk)
+            if total != staged.size or hasher.hexdigest() != staged.digest:
+                raise ArtifactTamperedError("Staged artifact content no longer matches its digest and size")
+
+        target_path = self.resolve_path(staged.digest)
+        new_shard = not target_path.parent.exists()
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if target_path.exists():
+            self.read_verified_prefix(staged.digest, 0)  # Never discard valid staging for a corrupted existing blob (streamed: bounded memory).
+            # Idempotent deduplication: blob already committed and immutable. Re-referencing it renews its GC lease: an old,
+            # unreferenced blob that is being referenced again right now must not be collected before the reference lands.
+            os.utime(target_path, None)
+            if staged.path.exists():
+                staged.path.unlink()
+            return staged.digest
+
+        # Atomic replacement / move
+        try:
+            os.replace(staged.path, target_path)
+            os.utime(target_path, None)  # the GC grace period measures time since COMMIT, not since the (older) staging write
+            self._fsync_dir(target_path.parent)
+            if new_shard:
+                self._fsync_dir(self.root)  # a new shard directory is itself a new entry of the artifact root
+            try:
+                os.chmod(target_path, stat.S_IREAD)
+            except OSError:
+                pass
+        except (FileExistsError, PermissionError):
+            # Only an actually committed, verified concurrent winner is success.
+            if not target_path.is_file():
+                raise
+            self.read_verified_prefix(staged.digest, 0)
+            if staged.path.exists():
+                staged.path.unlink()
+
+        return staged.digest
+
+    @staticmethod
+    def _fsync_dir(directory: Path) -> None:
+        """Persist the new directory entry (POSIX); Windows cannot open directories, so it is skipped there."""
+        if sys.platform == "win32":
+            return
+        try:
+            fd = os.open(directory, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(fd)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
+
+    def read_bytes(self, digest: str) -> bytes:
+        """Read artifact content with read-time cryptographic verification."""
+        import hashlib
+
+        target_path = self.resolve_path(digest)
+        if not target_path.is_file():
+            raise ArtifactNotFoundError(f"Artifact {digest} not found on disk at {target_path}")
+
+        data = target_path.read_bytes()
+        actual_digest = hashlib.sha256(data).hexdigest()
+        if actual_digest != digest:
+            raise ArtifactTamperedError(
+                f"Artifact digest mismatch: expected {digest}, got {actual_digest} (tampered or truncated)"
+            )
+
+        return data
+
+    def read_verified_prefix(self, digest: str, limit: int, chunk_size: int = 65536) -> tuple[bytes, int]:
+        """Return (first `limit` bytes, total size) with the same read-time digest verification as read_bytes.
+
+        The blob is streamed in `chunk_size` pieces, so memory stays bounded for arbitrarily large artifacts while
+        tampering/truncation anywhere in the blob is still detected (ArtifactTamperedError).
+        """
+        import hashlib
+
+        if limit < 0 or chunk_size <= 0:
+            raise ValueError("limit must be >= 0 and chunk_size positive")
+        target_path = self.resolve_path(digest)
+        if not target_path.is_file():
+            raise ArtifactNotFoundError(f"Artifact {digest} not found on disk at {target_path}")
+        h = hashlib.sha256()
+        prefix = bytearray()
+        total = 0
+        with open(target_path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                h.update(chunk)
+                total += len(chunk)
+                if len(prefix) < limit:
+                    prefix += chunk[: limit - len(prefix)]
+        if h.hexdigest() != digest:
+            raise ArtifactTamperedError(
+                f"Artifact digest mismatch: expected {digest}, got {h.hexdigest()} (tampered or truncated)"
+            )
+        return bytes(prefix), total
+
+    def export_verified(self, digest: str, dest: Path | str, chunk_size: int = 65536) -> int:
+        """Copy a committed blob to `dest` with bounded memory; `dest` appears only if the content verifies.
+
+        The bytes are streamed into a sibling temp file while hashing, compared with the digest, and only then moved into place
+        (a tampered or truncated blob never produces a destination file). Returns the byte count."""
+        import hashlib
+        import tempfile
+
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        target_path = self.resolve_path(digest)
+        if not target_path.is_file():
+            raise ArtifactNotFoundError(f"Artifact {digest} not found on disk at {target_path}")
+        out = Path(dest)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=out.parent, prefix=".export-")
+        tmp = Path(tmp_name)
+        hasher, total = hashlib.sha256(), 0
+        try:
+            with os.fdopen(fd, "wb") as sink, open(target_path, "rb") as src:
+                while chunk := src.read(chunk_size):
+                    hasher.update(chunk)
+                    sink.write(chunk)
+                    total += len(chunk)
+                sink.flush()
+                os.fsync(sink.fileno())
+            if hasher.hexdigest() != digest:
+                raise ArtifactTamperedError(
+                    f"Artifact digest mismatch: expected {digest}, got {hasher.hexdigest()} (tampered or truncated)")
+            os.replace(tmp, out)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+        return total
+
+    def sweep_staging(self, max_age_seconds: float = 86400.0) -> list[Path]:
+        """Sweep stranded temporary staging files in .tmp older than max_age_seconds."""
+        import time
+
+        removed: list[Path] = []
+        if not self.tmp_dir.exists():
+            return removed
+
+        now = time.time()
+        for item in self.tmp_dir.iterdir():
+            if item.is_file():
+                try:
+                    mtime = item.stat().st_mtime
+                    if (now - mtime) >= max_age_seconds:
+                        item.unlink()
+                        removed.append(item)
+                except OSError:
+                    # File may be locked by another process or concurrently deleted
+                    pass
+        return removed
+
+    def list_all_digests(self) -> set[str]:
+        """Scan physical sharded directory structure and return all valid committed digests."""
+        digests: set[str] = set()
+        if not self.root.exists():
+            return digests
+
+        for prefix_dir in self.root.iterdir():
+            if prefix_dir.is_dir() and prefix_dir.name != ".tmp" and len(prefix_dir.name) == 2:
+                for file_path in prefix_dir.iterdir():
+                    if file_path.is_file() and HEX_DIGEST_REGEX.match(file_path.name):
+                        digests.add(file_path.name)
+        return digests
+
+    def cleanup_orphans(self, referenced_digests: set[str], min_age_seconds: float = 0.0) -> list[str]:
+        """Identify and delete physical blobs on disk that have no Core references.
+
+        `min_age_seconds` keeps blobs committed more recently than that, so a writer that has committed the blob but not
+        yet persisted its Core reference is not raced (callers running GC beside live writers should pass a grace period).
+        """
+        import time
+
+        if min_age_seconds < 0:
+            raise ValueError("min_age_seconds must be >= 0")
+        all_digests = self.list_all_digests()
+        orphans = [d for d in all_digests if d not in referenced_digests]
+        deleted: list[str] = []
+        now = time.time()
+
+        for digest in orphans:
+            path = self.resolve_path(digest)
+            try:
+                if min_age_seconds and path.is_file() and now - path.stat().st_mtime < min_age_seconds:
+                    continue
+                if path.is_file():
+                    try:
+                        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+                    except OSError:
+                        pass
+                    path.unlink()
+                    deleted.append(digest)
+                    # Clean up parent 2-char prefix folder if empty
+                    parent = path.parent
+                    try:
+                        parent.rmdir()
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+
+        return deleted
+
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class StagedArtifact:
+    """Represents a temporary staged artifact file before atomic commit."""
+
+    path: Path
+    digest: str
+    size: int
+

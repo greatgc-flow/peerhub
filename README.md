@@ -1,218 +1,93 @@
-# peerhub
+# PeerHub
 
-A lightweight, installable coordination layer for orchestrating multiple AI CLI agents (Claude, Codex, Antigravity, ...) as collaborating peers: dispatch, routing, consensus, and health. It's built to eventually replace an existing hand-rolled multi-peer coordination system (`hub.py`) with a proper, tested package.
+A durable communication layer for collaborating AI peers. The Core owns only Peer, Stream, Record and Offset. Runtime delivery, observations, diagnostics, work continuity and collaboration capabilities are extensions.
 
-## Quick start
+## Develop from this checkout
 
-```bash
-pip install peerhub
+Requires Python 3.11–3.14.
 
-# Auto-detect which peer CLIs (agy/claude/codex) are installed and ready
-peerhub adapter discover
+```powershell
+python -m pip install -e ".[dev]"
+peerhub --help
+peerhub --version
+```
 
-# Genuinely dispatch a prompt to a real peer and get its response
-peerhub ask ag "say hello in exactly three words"
+This describes current source, not a newly published release. The public command is `peerhub`; the temporary milestone-specific entrypoint has been retired. `python -m peerhub` and `python -m peerhub.cli` use the same public CLI.
 
-# Live multi-peer quota telemetry, headroom, and failover routing
+## Everyday commands
+
+```powershell
+# Persist the prompt, execute one provider, and persist its response.
+peerhub ask cx "Summarize this repository" --stream review --request-id review-001
+
+# Explicit collection may contact provider CLIs.
+peerhub observation refresh --peers cx cc ag
+peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory
+
+# Read committed observations without probing or writing.
 peerhub diag
+peerhub diag quota --json
+peerhub diag health
+peerhub diag --live --interval-seconds 2
+peerhub diag --view rich
 
-# Check a workspace (reports "uninitialized" if no database yet)
-peerhub status
+# Collect quota evidence and watch the dashboard in one loop.
+peerhub monitor --interval-seconds 60
+peerhub monitor --view plain --cycles 1
+
+# Prompt files, provider working directory, and explicit model binding.
+peerhub ask ag --query-file prompt.txt --workspace . --model MODEL --json
+peerhub ask cx "Reply briefly" --profile cx.standard --silence-timeout-seconds 30
 ```
 
-`peerhub ask` works end-to-end today: it genuinely dispatches through peerhub's own governance, admission, and process-supervision layers and returns the real response. See "Key commands" below for the full reference, including the governance/room/session surface used by automated multi-peer coordination (consensus, task, lesson, room, duty, session, ...) — `peerhub --help` groups all of it into tiers so the everyday commands above aren't buried under the 30 total top-level commands, then prints the complete leaf-command catalog. `-h`, `--help`, and the Windows-style `/?` work at the root and after every nested command path.
+Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer identities can be registered with `peer register --peer worker --adapter cx`.
 
-## Install
+`ask` supports explicit `--profile`, `--model`, `--effort`, `--timeout-seconds`, optional `--silence-timeout-seconds`, `--max-output-bytes`, `--author-peer` and `--json`. Profile policy resolves workspace → global → packaged defaults; it does not assert measured model availability. Retrying the same `--request-id` reuses a completed response. A different prompt or binding conflicts, and an uncertain execution requires explicit reconciliation before another execution. Conversation continuity currently uses bounded Stream history; native provider-session resume is not claimed.
 
-### Option A: Install from PyPI (Recommended)
+Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
 
-```bash
-pip install peerhub
+`diag --live` repeatedly reads committed snapshots only. `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
+
+## Store selection and existing data
+
+The store is `.peerhub/core.db`. Discovery picks the nearest one (current directory, `<cwd>/peerhub`, then parents); `--db PATH` or `PEERHUB_DB` choose explicitly. `peerhub diag health` reports `store_selection` (the path and how it was chosen: `env`, `explicit`, `discovered`, `workspace-default`, `default`). Developer scratch (live-gate JUnit etc.) goes under `.peerhub/work/`; the top of `.peerhub/` holds the database and its `restore.epoch` metadata.
+
+Use global `--db PATH` before the command, or `PEERHUB_DB`, to select a store explicitly. An explicit missing path is never redirected to another store. `ask --workspace DIR` uses that directory's store unless a database was explicitly selected. Read-only commands do not create a missing store.
+
+`legacy-import dry-run/apply --source OLD_DB` remains available for v0 data. It never modifies the source. The v0 runtime, its tests and tools are retired; `PEERHUB_CLI=legacy` returns a migration message. Source rollback is available on `legacy/v0-main-final`, separate from current data.
+
+## Package structure
+
+```text
+peerhub/
+  core/          Peer, Stream, Record, Offset; SQLite and data import
+  extensions/    Bridge, Observation, Diag, Artifact, Work, Search, Routing, …
+  cli/           public parser and command handlers
+  config_data/   packaged provider model defaults
+tests/
+  communication/ Core, delivery, observations, migration and package gates
+  continuity/    extension host, artifacts, work, skills, backup and eval
+  collaboration/ federation, memory, search, routing, orchestration and approval
+tools/
+  command_inventory.py
+  traceability.py
+  release_evidence.py
 ```
 
-### Option B: Install an exact GitHub release
+Milestones describe development progress, not runtime ownership. Frozen specifications, historical evidence and existing durable wire/storage identifiers retain their original names. See [the cleanup decisions and AG review](docs/implementation/STRUCTURE_CLEANUP_KO.md).
 
-```bash
-pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.9.1"
+## Validation
+
+```powershell
+python -m pytest -q
+pyright
+python tools/command_inventory.py --check
+python tools/traceability.py --upto 9
+
+# Real provider canaries spend quota: local only, never in CI (refuses when CI is set).
+python -m tools.live_gate --yes
 ```
 
-The commands above install the stable `v0.9.1` line. Development changes after
-that release remain on `main` until the next version is cut.
+Real providers are opt-in: set `PEERHUB_LIVE=1` and select `live`, `slow` or `e2e` under `tests/communication/live`. Soak is separately opt-in with `PEERHUB_SOAK=1`. Local checks do not promote a milestone or authorize a release; candidate-matched CI, live and package evidence still apply.
 
-### Option C: Local editable development install
-
-```bash
-git clone https://github.com/greatgc-flow/peerhub.git
-cd peerhub
-pip install -e .          # runtime only
-pip install -e .[dev]     # + pytest, pyright, hypothesis, alembic (needed to run tests/type-check locally)
-```
-
-Requires Python >= 3.11 (declared matrix 3.11-3.14 x ubuntu/windows: all 8 cells VERIFIED-CI, green CI run https://github.com/greatgc-flow/peerhub/actions/runs/37189754726, evidence docs/m1_impl/matrix_evidence/ci-run-37189754726.json; the earlier windows py3.11-3.13 local run is VERIFIED-LOCAL, evidence docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json; any future cell without run evidence is UNVERIFIED, TD-18). This installs the `peerhub` package and registers a `peerhub` entrypoint on your PATH (verified via a real sdist build + install: `pyproject.toml`'s `[project.scripts]` defines only `peerhub`, not a separate `hub` alias). `python -m peerhub` works too.
-
-## Key commands
-
-`peerhub --help` is the authoritative command inventory. Every current top-level command is listed here with its one-line purpose.
-
-| Command | What it does |
-|---|---|
-| `peerhub workspace` | Manage the peerhub workspace itself |
-| `peerhub status` | Show the current workspace status |
-| `peerhub config` | Inspect peerhub's own resolved configuration |
-| `peerhub backup` | Back up or restore one workspace |
-| `peerhub adapter` | Manage peerhub adapters |
-| `peerhub diag` | Show live peer diagnostics and quota telemetry |
-| `peerhub broadcast` | Broadcast one prompt to multiple peers |
-| `peerhub health` | Manage peer health |
-| `peerhub peer` | Inspect and recover peer nodes |
-| `peerhub lease` | Inspect session leases |
-| `peerhub broker` | Inspect governance effect delivery status |
-| `peerhub gate` | Check dispatch gate condition for an agent |
-| `peerhub ask` | Send one prompt to a real peer CLI |
-| `peerhub statusline` | Format live statusline for an AI peer |
-| `peerhub consensus` | Manage consensus rounds |
-| `peerhub task` | Manage task lifecycles |
-| `peerhub lesson` | Manage governance lessons |
-| `peerhub directive` | Manage governance directives |
-| `peerhub node` | Manage the peer node registry |
-| `peerhub lock` | Manage durable file locks |
-| `peerhub artifact` | Manage durable named artifact records |
-| `peerhub role` | Manage durable workspace role assignments |
-| `peerhub routing` | Discover candidates and elect capability-fit leaders |
-| `peerhub leadership` | Manage the workspace-global leadership slot |
-| `peerhub feedback` | Manage the governance feedback journal |
-| `peerhub error` | Record durable operational-error evidence |
-| `peerhub alert` | Raise durable alerts for live room participants |
-| `peerhub room` | Manage rooms and messages |
-| `peerhub duty` | Manage terminal duty |
-| `peerhub session` | Manage room-participation sessions |
-
-## Try it
-
-Use a separate workspace for this walkthrough; every command below refers to the same `./peerhub-demo` directory.
-
-```bash
-# Initialize the workspace first.
-peerhub workspace init --workspace ./peerhub-demo
-
-# Send one prompt, then fan the same kind of work out to two configured peers.
-peerhub ask cx "Summarize this repository" --workspace ./peerhub-demo
-peerhub broadcast "List one risk." --peers cx,ag --workspace ./peerhub-demo
-
-# Create, start, and complete a task.
-peerhub task create --workspace ./peerhub-demo --task-id docs-demo --summary "Refresh docs" --spec "Add a usage example." --creator cx
-peerhub task claim-start --workspace ./peerhub-demo --task-id docs-demo --actor cx --request-id docs-demo-request --coordinator cx --attempt-id docs-demo-attempt
-peerhub task complete --workspace ./peerhub-demo --task-id docs-demo --actor cx
-
-# Propose a consensus round and cast its first vote.
-peerhub consensus propose --workspace ./peerhub-demo --round-id docs-demo-round --title "Adopt docs" --question "Adopt the README update?" --body "Approve the proposed README example." --proposer cx --required cx,ag --eligible cx,ag
-peerhub consensus vote --workspace ./peerhub-demo --round-id docs-demo-round --actor cx --choice agree
-```
-
-`ask` also accepts `--workspace PATH` (default `.`), `--profile PROFILE_ID`, `--timeout-seconds`/`--silence-timeout-seconds`/`--max-output-bytes` (process limits), and `--json`. Exit codes: `0` verified response, `2` usage/config/pre-spawn failure (unknown peer, executable not found, readiness probe failed), `3` definite peer/protocol failure, `4` uncertain execution (timeout, lost lease ownership), `130` interrupted. It requires the real peer CLI (`agy.exe`/`claude.cmd`/`codex.cmd`) to be installed and authenticated on your machine — `ask` will tell you clearly if it can't find or run one, rather than failing silently.
-
-### Scenario cookbook (all 30 command groups)
-
-These are safe starting points, not a second command specification. Run
-`peerhub /?` for the generated 109-leaf catalog and `peerhub <path> /?` for
-the authoritative arguments and description at any depth.
-
-| Scenario | Example |
-|---|---|
-| Create a workspace | `peerhub workspace init --workspace ./peerhub-demo` |
-| Inspect it | `peerhub status --workspace ./peerhub-demo --all` |
-| Validate effective config | `peerhub config validate --workspace ./peerhub-demo --json` |
-| Back it up | `peerhub backup workspace --workspace ./peerhub-demo --output ./backups` |
-| Discover installed adapters | `peerhub adapter discover --json` |
-| Inspect telemetry | `peerhub diag --fresh --json` (all quota windows include exact remaining fraction and reset time) |
-| Ask one peer | `peerhub ask cx "Summarize this repository" --workspace ./peerhub-demo` |
-| Ask several peers | `peerhub broadcast "List one risk." --peers cx,ag --workspace ./peerhub-demo` |
-| Check health | `peerhub health check --workspace ./peerhub-demo --peer cc` |
-| Inspect peer lifecycle | `peerhub peer status --workspace ./peerhub-demo --all` |
-| Inspect process leases | `peerhub lease status --workspace ./peerhub-demo` |
-| Inspect delivery backlog | `peerhub broker status --workspace ./peerhub-demo --json` |
-| Check an admission gate | `peerhub gate check cc --workspace ./peerhub-demo` |
-| Render a statusline | `peerhub statusline --peer ag --workspace ./peerhub-demo` |
-| Review consensus rounds | `peerhub consensus list --workspace ./peerhub-demo` |
-| Create governed work | `peerhub task create --workspace ./peerhub-demo --task-id docs-demo --summary "Refresh docs" --spec "Add a usage example." --creator cx` |
-| Sweep expired lessons | `peerhub lesson sweep --workspace ./peerhub-demo` |
-| Review directives | `peerhub directive list --workspace ./peerhub-demo` |
-| Inspect registered nodes | `peerhub node list --workspace ./peerhub-demo` |
-| Inspect file locks | `peerhub lock status --workspace ./peerhub-demo` |
-| Inspect artifact claims | `peerhub artifact status --workspace ./peerhub-demo` |
-| Inspect role assignments | `peerhub role status --workspace ./peerhub-demo` |
-| Discover capability-fit routes | `peerhub routing discover --workspace ./peerhub-demo --needs review` |
-| Inspect leadership | `peerhub leadership status --workspace ./peerhub-demo` |
-| Review feedback gaps | `peerhub feedback list --workspace ./peerhub-demo` |
-| Review operational errors | `peerhub error review list --workspace ./peerhub-demo` |
-| Raise a room alert | `peerhub alert raise --workspace ./peerhub-demo --room-id docs-room --raiser-instance-id cx-1 --raiser-profile-id standard --message "Review blocked"` |
-| Create a collaboration room | `peerhub room create --workspace ./peerhub-demo --room-id docs-room --topic-id docs --title "Docs review" --creator cx --participants cx,ag` |
-| Inspect terminal duty | `peerhub duty status --workspace ./peerhub-demo --room-id docs-room` |
-| Open a participant session | `peerhub session open --workspace ./peerhub-demo --workspace-scope-id demo --room-id docs-room --actor-principal-id cx --instance-id cx-1 --profile-id standard --session-fingerprint cx-1-demo` |
-
-### M1 CLI quota evidence (read-only)
-
-`peerhub-m1 --db ws.db diag quota [--json] [--peer REF] [--pool REF] [--obs-db OTHER_WS.db]` shows the current
-quota/rate-limit Observation evidence (MEASURED/STALE/UNKNOWN/UNAVAILABLE) without probing or refreshing it;
-`peerhub-m1 --db ws.db diag health --stream ID [--obs-db OTHER_WS.db]` adds an observations summary.
-The command list is `docs/m1_impl/command_inventory.json`; gate status is `docs/m1_impl/CUTOVER_GATE_STATUS.md`.
-
-### Feedback loop
-
-Use `feedback add → list → resolve` for product/process gaps, `error report →
-review list → review resolve` for repeatable runtime failures, and `lesson
-propose → approve → activate → retire/supersede` for rules learned from the
-evidence. These are durable workspace records rather than loose notes. The
-group-level `/?` pages contain copyable end-to-end examples. For package bugs,
-use the GitHub issue templates and include `peerhub --version`, `peerhub config
-paths --json`, `peerhub config validate --json`, and `peerhub diag --json`;
-remove prompts/transcripts or secrets before attaching output.
-
-## Status
-
-**Released as v0.9.1.** Patch release resolving the two-layer Claude quota exhaustion
-classification and error propagation defect: stream-json 429 rejections are classified
-as quota exhaustion rather than generic protocol errors, and `QUOTA_EXHAUSTED` propagates
-directly through the dispatch `terminal_error_code` layer.
-
-**Released as v0.9.0.** All twelve advertised AG/Claude/Codex profiles
-(`standard`, `effort`, `deepthink`, and `pro` for each peer) have reviewed
-packaged model bindings and live dispatch evidence. `diag --live` now
-polls the portable runtime without requiring an initialized workspace, labels
-measured quota separately from executable-only discovery, and refuses to
-recommend a critical quota/pacing target. The complete 109-leaf CLI supports
-`-h`, `--help`, and `/?` recursively, with generated descriptions, argument
-help, workflows, and feedback-loop examples. Adapter contracts and active docs
-now match AG 1.2.12, Claude Code 2.1.283 stream JSON, and Codex 0.157.1 JSONL.
-The full governance/room/session surface still dispatches through PeerHub's
-governance, admission, and process-supervision layers; intentional direct CLI
-boundaries remain enumerated in
-`docs/design/peerhub-production-call-map-R1.json`.
-
-For the detailed development history — implementation status by feature, deferred items with their triggers, the hub.py-replacement roadmap, and the full architecture debate record — see [`docs/STATUS.md`](docs/STATUS.md).
-
-## Run the tests
-
-```bash
-pytest -q                 # fast suite, no real CLI calls
-pytest -q -m slow          # + the real-adapter integration tests (needs real CLIs installed & authenticated, real wall-clock time)
-pytest -q -m e2e           # + genuine end-to-end `peerhub ask` dispatch through a real peer CLI (separate marker from slow -- also needs real CLIs)
-pyright                    # static type check, should report 0 errors
-```
-
-The deterministic suite runs on every push and pull request. The `slow` and
-`e2e` tiers consume real provider quota, so they run on the dedicated
-`peerhub-live` self-hosted runner for releases and for changes to adapters,
-provider protocols, model bindings, or quota telemetry. PyPI publication is
-blocked until both live tiers pass. The runner must have authenticated
-`agy.exe`, `claude.cmd`, and `codex.cmd` commands on `PATH`. Fork pull requests
-never run automatically on that credential-bearing machine; after reviewing a
-fork, a maintainer can use the live workflow's manual dispatch on a trusted ref.
-Manual dispatch of the publish workflow validates and builds an artifact but
-does not publish it—only a published GitHub Release can reach PyPI.
-
-## Contributing / reporting issues
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute, report a bug, or request a feature.
-
-This repo's own convention (see `docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md`) is to never cite a specific "current passing count" in this file — it changes with nearly every commit. Run `pytest -q` yourself for the real, current number.
+Historical evidence is retained separately: the 2026-10-04 archived snapshot has [VERIFIED-LOCAL records](docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json), and the recorded CI head has [VERIFIED-CI records](docs/m1_impl/matrix_evidence/ci-run-37189754726.json). Those records preserve their original paths and apply only to the recorded snapshot/head, not this changed worktree.

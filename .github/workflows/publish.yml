@@ -3,7 +3,12 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      evidence_tag:
+        description: "Release tag whose assets hold the locally produced G3 evidence (dry runs)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -28,10 +33,10 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Run G0 fast (architecture/schema/unit/property/meta/security-static) tests
-        run: python -u -m pytest -q --junitxml=junit/g0.xml tests/m1/architecture tests/m1/schema tests/unit/m1 tests/m1/property tests/m1/meta tests/m1/security
+        run: python -u -m pytest -q --junitxml=junit/g0.xml tests/communication/architecture tests/communication/schema tests/communication/unit tests/communication/property tests/communication/meta tests/communication/security
       - name: Bind G0 JUnit to the cutover candidate (source, selector, policy, gate definitions)
         if: always()
-        run: python -m tools.m1_release_evidence --stamp-junit junit/g0.xml --gate G0 --commit "$(git rev-parse HEAD)"
+        run: python -m tools.release_evidence --stamp-junit junit/g0.xml --gate G0 --commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -54,17 +59,17 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Run G1 core (SQLite/concurrency/multiprocess/fault/migration) tests
-        run: python -u -m pytest -q --junitxml=junit/g1.xml tests/m1/core tests/m1/migration tests/m1/concurrency tests/m1/fault tests/m1/integration
+        run: python -u -m pytest -q --junitxml=junit/g1.xml tests/communication/core tests/communication/migration tests/communication/concurrency tests/communication/fault tests/communication/integration
       - name: Bind G1 JUnit to the cutover candidate (source, selector, policy, gate definitions)
         if: always()
-        run: python -m tools.m1_release_evidence --stamp-junit junit/g1.xml --gate G1 --commit "$(git rev-parse HEAD)"
+        run: python -m tools.release_evidence --stamp-junit junit/g1.xml --gate G1 --commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: junit-g1
           path: junit/g1.xml
 
-  gate-g2-m1:
+  gate-g2-extensions:
     # G2 M1 (Bridge/Observation/Diag/fake-runtime E2E) (release-gates.json): blocking; publish needs it directly and via the evidence job.
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -80,66 +85,50 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Run G2 M1 (Bridge/Observation/Diag/fake-runtime E2E) tests
-        run: python -u -m pytest -q --junitxml=junit/g2.xml tests/m1/bridge tests/m1/observation tests/m1/diag tests/m1/control tests/m1/adapters tests/m1/e2e
+        run: python -u -m pytest -q --junitxml=junit/g2.xml tests/communication/bridge tests/communication/observation tests/communication/diag tests/communication/control tests/communication/adapters tests/communication/e2e
       - name: Bind G2 JUnit to the cutover candidate (source, selector, policy, gate definitions)
         if: always()
-        run: python -m tools.m1_release_evidence --stamp-junit junit/g2.xml --gate G2 --commit "$(git rev-parse HEAD)"
+        run: python -m tools.release_evidence --stamp-junit junit/g2.xml --gate G2 --commit "$(git rev-parse HEAD)"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
           name: junit-g2
           path: junit/g2.xml
 
-  # Releases intentionally wait for real provider validation. Keep the
-  # credential-bearing runner offline except while reviewing a trusted release
-  # or workflow dispatch; an unavailable runner must block, not bypass, publish.
+  # Provider CLIs are logged in only on the maintainer's machine, so the live gate never runs on a remote runner.
+  # `python -m tools.live_gate --yes` (clean checkout of the release commit) writes g3.xml / g3-slow.xml / g3-e2e.xml bound to that
+  # commit; the maintainer attaches them to the GitHub Release (`gh release upload <tag> .peerhub/work/live-gate/g3*.xml`). This job only
+  # fetches those three exact files into an isolated directory; missing files fail it (publish stays blocked), and the
+  # release-evidence job below still verifies candidate binding, freshness and PASS of every live catalog test.
   live-validation:
-    # G3 (release-gates.json). Opt-in: PEERHUB_M1_LIVE=1 AND `-m live` (LIVE-CC-001, LIVE-CX-001, LIVE-AG-001, LIVE-004, LIVE-005, LIVE-006).
-    needs: [gate-g2-m1]
-    runs-on: [self-hosted, Windows, X64, peerhub-live]
-    timeout-minutes: 30
-    env:
-      PEERHUB_M1_LIVE: "1"
+    # G3 (release-gates.json): LIVE-CC-001, LIVE-CX-001, LIVE-AG-001, LIVE-004, LIVE-005, LIVE-006 come from the local evidence.
+    needs: [gate-g2-extensions]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
-      - name: Use an isolated venv from the runner's own Python
-        # actions/setup-python cannot install into a self-hosted toolcache without admin rights (it hung on this runner), and
-        # `pip install -e .[dev]` into the runner's own environment would replace its peerhub install: build a throwaway venv.
-        shell: pwsh
+      - name: Fetch the locally produced G3 evidence from the Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: ${{ github.event.release.tag_name || inputs.evidence_tag }}
         run: |
-          python -c "import sys; assert sys.version_info >= (3, 11), sys.version"
-          python -m virtualenv "$env:RUNNER_TEMP\peerhub-live-venv"
-          "$env:RUNNER_TEMP\peerhub-live-venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
-      - name: Install test dependencies
-        run: python -m pip install -e ".[dev]"
-      - name: Verify authenticated provider CLIs
-        shell: pwsh
-        run: |
-          Get-Command agy.exe -ErrorAction Stop
-          Get-Command claude.cmd -ErrorAction Stop
-          Get-Command codex.cmd -ErrorAction Stop
-      - name: Run M1 live canaries (marker live, PEERHUB_M1_LIVE=1)
-        run: python -u -m pytest -q -m live --junitxml=junit/g3.xml tests/m1/live
-      - name: Run paid/live legacy release gate (slow)
-        if: always()
-        run: python -u -m pytest -q -m slow --junitxml=junit/g3-slow.xml
-      - name: Run paid/live legacy release gate (e2e)
-        if: always()
-        run: python -u -m pytest -q -m e2e --junitxml=junit/g3-e2e.xml
-      - name: Bind G3 JUnit to the cutover candidate (source, selector, policy, gate definitions)
-        if: always()
-        run: python -m tools.m1_release_evidence --stamp-junit junit/g3.xml --stamp-junit junit/g3-slow.xml --stamp-junit junit/g3-e2e.xml --gate G3 --commit "$(git rev-parse HEAD)"
+          if [ -z "$EVIDENCE_TAG" ]; then
+            echo "::error::No release tag to read G3 evidence from (manual runs need the evidence_tag input)"
+            exit 1
+          fi
+          mkdir -p g3-assets junit
+          gh release download "$EVIDENCE_TAG" --repo "$GITHUB_REPOSITORY" --dir g3-assets             --pattern g3.xml --pattern g3-slow.xml --pattern g3-e2e.xml
+          for f in g3.xml g3-slow.xml g3-e2e.xml; do
+            test -s "g3-assets/$f" || { echo "::error::Release $EVIDENCE_TAG has no $f (run tools.live_gate locally and upload it)"; exit 1; }
+            cp "g3-assets/$f" "junit/$f"
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
         with:
           name: junit-g3
           path: junit/g3*.xml
 
   build:
     # G4 package (wheel/sdist/runtime-data/clean-install/support-matrix/restart)
-    needs: [gate-g2-m1]
+    needs: [gate-g2-extensions]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -170,7 +159,7 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Run G4 package tests
-        run: python -u -m pytest -q --junitxml=junit/g4.xml tests/m1/package
+        run: python -u -m pytest -q --junitxml=junit/g4.xml tests/communication/package
       - name: Build sdist and wheel
         run: |
           python -m pip install --upgrade pip build twine
@@ -178,7 +167,7 @@ jobs:
           python -m twine check --strict dist/*
       - name: Bind G4 JUnit to the cutover candidate (source, selector, policy, gate definitions)
         if: always()
-        run: python -m tools.m1_release_evidence --stamp-junit junit/g4.xml --gate G4 --commit "$(git rev-parse HEAD)" --dist dist
+        run: python -m tools.release_evidence --stamp-junit junit/g4.xml --gate G4 --commit "$(git rev-parse HEAD)" --dist dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -205,13 +194,13 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Traceability scan (no missing ids)
-        run: python -m tools.m1_traceability
+        run: python -m tools.traceability
       - name: Invariant scan
-        run: python -u -m pytest -q tests/m1/architecture tests/m1/meta
+        run: python -u -m pytest -q tests/communication/architecture tests/communication/meta
 
   release-evidence:
     # G5 evidence index + hashes: fails (exit 1) unless every blocking catalog test passed and every requirement is covered.
-    needs: [gate-g0-fast, gate-g1-core, gate-g2-m1, live-validation, build, gate-g7-invariant]
+    needs: [gate-g0-fast, gate-g1-core, gate-g2-extensions, live-validation, build, gate-g7-invariant]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -231,7 +220,7 @@ jobs:
           path: junit/
           merge-multiple: true
       - name: Generate release evidence bundle
-        run: python -m tools.m1_release_evidence --junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml --dist dist --out evidence --commit "$(git rev-parse HEAD)" --candidate --policy-file docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json --release-policy docs/m1_impl/release-policy.json
+        run: python -m tools.release_evidence --junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml --dist dist --out evidence --commit "$(git rev-parse HEAD)" --candidate --policy-file docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json --release-policy docs/m1_impl/release-policy.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -239,7 +228,7 @@ jobs:
           path: evidence/
 
   publish:
-    needs: [gate-g0-fast, gate-g1-core, gate-g2-m1, live-validation, build, gate-g7-invariant, release-evidence]
+    needs: [gate-g0-fast, gate-g1-core, gate-g2-extensions, live-validation, build, gate-g7-invariant, release-evidence]
     # Manual dispatch is a safe live-validation/build dry run. Only a published
     # GitHub Release may mint an OIDC token and publish the resulting artifact.
     if: github.event_name == 'release'

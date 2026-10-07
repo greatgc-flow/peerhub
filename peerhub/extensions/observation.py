@@ -1,4 +1,4 @@
-"""PeerHub M1 First-Party Extension: Observation store (append-only evidence) + Resource Pool registry.
+"""PeerHub first-party extension: Observation store (append-only evidence) + Resource Pool registry.
 
 Rules (OBSERVATION_AND_DIAG.md, PEER_CARDINALITY_RESOURCE_POOL.md, TD-13/TD-23):
 - Observations are immutable evidence; refresh = new observation identity. UPDATE/DELETE/replace are rejected by triggers.
@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, cast
 
-from peerhub.m1.migrations import rollback_quietly
+from peerhub.core.migrations import rollback_quietly
 from .observation_model import (
     EvidenceState,
     FreshnessPolicy,

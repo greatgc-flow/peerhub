@@ -8,6 +8,7 @@ session generation with a Stream catch-up. interrupt/terminate/steer are not imp
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -16,7 +17,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence, cast
+from typing import Any, Callable, Iterable, Mapping, Sequence, cast
 
 from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_S, BoundedProcess, ProcessResult,
                                                  SpawnFailure, check_argv, run_bounded)
@@ -123,6 +124,8 @@ class AgSpec(ProviderSpec):
         a = ["-p", prompt, "--output-format", "json"]
         if model:
             a += ["--model", model]
+        if effort:
+            a += ["--effort", effort]
         return a
 
     def parse(self, stdout: str) -> str:
@@ -148,6 +151,11 @@ def resolve_binary(spec: ProviderSpec) -> list[str] | None:
     for n in names:
         p = shutil.which(n)
         if p:
+            if Path(p).suffix.lower() in (".cmd", ".bat"):
+                from peerhub.extensions.adapters.binary_resolution import resolve_direct_binary
+                direct = resolve_direct_binary(Path(p))
+                if direct:
+                    return direct
             return [p]
     return None
 
@@ -161,19 +169,39 @@ class CliRuntimeTarget:
     supports_steer = False
 
     def __init__(self, kind: str, workspace: str | Path, *, model: str | None = None, effort: str | None = None,
+                 profile: str | None = None, silence_timeout_s: float | None = None,
                  command: Sequence[str] | None = None, timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
-                 env_extra: Mapping[str, str] | None = None, extra_secrets: Iterable[str] = ()) -> None:
+                 env_extra: Mapping[str, str] | None = None, extra_secrets: Iterable[str] = (),
+                 on_output: Callable[[str], None] | None = None) -> None:
         if kind not in SPECS:
             raise ValueError(f"unknown provider kind {kind!r}")
+        if silence_timeout_s is not None and (not math.isfinite(silence_timeout_s) or silence_timeout_s <= 0):
+            raise ValueError("silence timeout must be finite and positive")
+        if profile is not None:
+            from peerhub.extensions.adapters.profiles import qualified_profile, resolve_profile
+            profile = qualified_profile(kind, profile)
+            profile_model, profile_effort = resolve_profile(kind, profile, workspace)
+            model = model if model is not None else profile_model
+            effort = effort if effort is not None else profile_effort
         for v in (model, effort):
             if v is not None and not _MODEL_RE.match(v):
                 raise ValueError("model/effort contains unsupported characters")
+        if kind == "ag" and effort is not None:
+            if effort not in ("low", "medium", "high", "xhigh", "max"):
+                raise ValueError("ag effort must be low, medium, high, xhigh or max")
+            # AG advertises effort-qualified model IDs. Do not send contradictory
+            # settings and silently let vendor precedence choose a different tier.
+            suffix = model.rsplit("-", 1)[-1] if model else None
+            if suffix in ("low", "medium", "high") and suffix != effort:
+                raise ValueError("ag effort conflicts with the effort-qualified model")
         self.runtime_kind = kind
         self._spec = SPECS[kind]
         self._workspace = str(workspace)
         self._model, self._effort = model, effort
+        self._profile, self._silence_timeout_s = profile, silence_timeout_s
         self._command = list(command) if command is not None else None
         self._timeout_s, self._max_bytes = timeout_s, max_bytes
+        self._on_output = on_output
         self._env = {**os.environ, **(env_extra or {})}
         self._san = Sanitizer(secrets=[*env_secrets(self._env), *extra_secrets])
         self.evidence: deque[dict[str, Any]] = deque(maxlen=100)  # sanitized and bounded
@@ -237,7 +265,8 @@ class CliRuntimeTarget:
         return f"adapter:{self.runtime_kind}:v1"
 
     def binding(self) -> str:
-        return f"{self._model or 'default'}/{self._effort or 'default'}"
+        binding = f"{self._model or 'default'}/{self._effort or 'default'}"
+        return f"{self._profile}/{binding}" if self._profile is not None else binding
 
     def create_session(self) -> str:
         return f"{self.runtime_kind}-local-{uuid.uuid4().hex}"  # a local handle: one process per delivery, no vendor call
@@ -275,8 +304,49 @@ class CliRuntimeTarget:
             check_argv(argv)
         except ValueError as e:
             raise PrespawnError(san.clean(str(e), EXCERPT_CHARS)) from e
+        pending = bytearray()
+        emitted = False
+
+        def stream_stdout(chunk: bytes) -> None:
+            nonlocal emitted
+            pending.extend(chunk)
+            while b"\n" in pending:
+                line, _, tail = pending.partition(b"\n")
+                pending[:] = tail
+                events = _json_lines(line.decode("utf-8", "replace"))
+                if not events:
+                    continue
+                event = events[0]
+                text = None
+                if self.runtime_kind == "cx" and event.get("type") == "item.completed":
+                    item = event.get("item", {})
+                    if isinstance(item, dict) and cast("dict[str, Any]", item).get("type") == "agent_message":
+                        text = cast("dict[str, Any]", item).get("text")
+                elif self.runtime_kind == "cc":
+                    if event.get("type") == "assistant":
+                        message = event.get("message", {})
+                        content: Any = cast("dict[str, Any]", message).get("content", []) if isinstance(message, dict) else []
+                        if isinstance(content, list):
+                            parts: list[str] = []
+                            for p in cast("list[Any]", content):
+                                if isinstance(p, dict):
+                                    block = cast("dict[str, Any]", p)
+                                    piece = block.get("text")
+                                    if block.get("type") == "text" and isinstance(piece, str):
+                                        parts.append(piece)
+                            text = "".join(parts)
+                    elif not emitted and event.get("type") == "result" and event.get("is_error") is False:
+                        text = event.get("result")
+                elif self.runtime_kind == "ag" and event.get("is_error") not in (True,):
+                    text = event.get("response")
+                if isinstance(text, str) and text and self._on_output is not None:
+                    self._on_output(self._san.clean(text))
+                    emitted = True
+
         proc = BoundedProcess(argv, stdin=prompt.encode("utf-8") if self._spec.stdin_prompt else None, cwd=self._workspace,
-                              env=self._env, timeout_s=self._timeout_s, max_bytes=self._max_bytes)
+                              env=self._env, timeout_s=self._timeout_s, max_bytes=self._max_bytes,
+                              silence_timeout_s=self._silence_timeout_s,
+                              on_stdout=stream_stdout if self._on_output else None)
         try:
             proc.start()
         except SpawnFailure as e:
@@ -293,7 +363,10 @@ class CliRuntimeTarget:
                 proc.abort()
                 self._note("aborted", pid=proc.pid)
         self._note("exited", pid=res.pid, returncode=res.returncode, timed_out=res.timed_out,
+                   silence_timed_out=res.silence_timed_out,
                    output_exceeded=res.output_exceeded, duration_s=round(res.duration_s, 3))
+        if res.silence_timed_out:
+            raise RuntimeTargetError(f"{self.runtime_kind} produced no stdout/stderr for {self._silence_timeout_s} seconds; process killed")
         if res.timed_out:
             yield ("timeout", self._timeout_s)
             return

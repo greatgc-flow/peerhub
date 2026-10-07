@@ -1,3 +1,0 @@
-"""
-surface_manifest package
-"""

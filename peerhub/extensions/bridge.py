@@ -26,8 +26,8 @@ from typing import Any, Callable, Iterable, Mapping, Protocol, cast
 
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, StaleClaimError
 from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, ProjectedRecords, build_catch_up, project_catch_up
-from peerhub.m1.models import Record
-from peerhub.m1.store import CasMismatchError, CoreStore, IdempotencyConflictError
+from peerhub.core.models import Record
+from peerhub.core.store import CasMismatchError, CoreStore, IdempotencyConflictError
 
 NOT_STARTED, MAY_HAVE_STARTED, STARTED, TERMINAL = "NOT_STARTED", "MAY_HAVE_STARTED", "STARTED", "TERMINAL"
 _ALLOWED = {
