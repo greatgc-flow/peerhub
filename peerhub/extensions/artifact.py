@@ -120,13 +120,17 @@ class ArtifactStore:
         with src.open("rb") as stream:
             return self.stage_stream(stream)
 
-    def stage_stream(self, stream: ByteStream, chunk_size: int = 65536) -> StagedArtifact:
-        """Stage arbitrary byte stream into a temporary staging file using os.write with fsync."""
+    def stage_stream(self, stream: ByteStream, chunk_size: int = 65536, max_size: int | None = None) -> StagedArtifact:
+        """Stage arbitrary byte stream into a temporary staging file using os.write with fsync.
+
+        `max_size` (optional) rejects a stream longer than that many bytes before the excess is written."""
         import hashlib
         import tempfile
 
         if type(chunk_size) is not int or chunk_size < 1:
             raise ValueError("chunk_size must be a positive integer")
+        if max_size is not None and (type(max_size) is not int or max_size < 0):
+            raise ValueError("max_size must be a non-negative integer")
 
         self._reject_links(self.tmp_dir)
         self.tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -140,6 +144,8 @@ class ArtifactStore:
                 chunk: bytes = stream.read(chunk_size)
                 if not chunk:
                     break
+                if max_size is not None and total_size + len(chunk) > max_size:
+                    raise ValueError(f"Artifact stream exceeds max_size of {max_size} bytes")
                 written = 0
                 while written < len(chunk):
                     count = os.write(fd, chunk[written:])
@@ -193,7 +199,7 @@ class ArtifactStore:
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
         if target_path.exists():
-            self.read_bytes(staged.digest)  # Never discard valid staging for a corrupted existing blob.
+            self.read_verified_prefix(staged.digest, 0)  # Never discard valid staging for a corrupted existing blob (streamed: bounded memory).
             # Idempotent deduplication: blob already committed and immutable
             if staged.path.exists():
                 staged.path.unlink()
@@ -202,6 +208,7 @@ class ArtifactStore:
         # Atomic replacement / move
         try:
             os.replace(staged.path, target_path)
+            self._fsync_dir(target_path.parent)
             try:
                 os.chmod(target_path, stat.S_IREAD)
             except OSError:
@@ -210,11 +217,27 @@ class ArtifactStore:
             # Only an actually committed, verified concurrent winner is success.
             if not target_path.is_file():
                 raise
-            self.read_bytes(staged.digest)
+            self.read_verified_prefix(staged.digest, 0)
             if staged.path.exists():
                 staged.path.unlink()
 
         return staged.digest
+
+    @staticmethod
+    def _fsync_dir(directory: Path) -> None:
+        """Persist the new directory entry (POSIX); Windows cannot open directories, so it is skipped there."""
+        if sys.platform == "win32":
+            return
+        try:
+            fd = os.open(directory, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(fd)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
 
     def read_bytes(self, digest: str) -> bytes:
         """Read artifact content with read-time cryptographic verification."""
@@ -295,15 +318,26 @@ class ArtifactStore:
                         digests.add(file_path.name)
         return digests
 
-    def cleanup_orphans(self, referenced_digests: set[str]) -> list[str]:
-        """Identify and delete physical blobs on disk that have no Core references."""
+    def cleanup_orphans(self, referenced_digests: set[str], min_age_seconds: float = 0.0) -> list[str]:
+        """Identify and delete physical blobs on disk that have no Core references.
+
+        `min_age_seconds` keeps blobs committed more recently than that, so a writer that has committed the blob but not
+        yet persisted its Core reference is not raced (callers running GC beside live writers should pass a grace period).
+        """
+        import time
+
+        if min_age_seconds < 0:
+            raise ValueError("min_age_seconds must be >= 0")
         all_digests = self.list_all_digests()
         orphans = [d for d in all_digests if d not in referenced_digests]
         deleted: list[str] = []
+        now = time.time()
 
         for digest in orphans:
             path = self.resolve_path(digest)
             try:
+                if min_age_seconds and path.is_file() and now - path.stat().st_mtime < min_age_seconds:
+                    continue
                 if path.is_file():
                     try:
                         os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
