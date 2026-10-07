@@ -64,7 +64,9 @@
           ]
         }
       ],
-      "gaps": []
+      "gaps": [
+        "CLOSED is not enforced: close() is a no-op and the index stays usable."
+      ]
     },
     "MemoryItem": {
       "states": [
@@ -170,7 +172,9 @@
           ]
         }
       ],
-      "gaps": []
+      "gaps": [
+        "EXPIRED is not implemented: a decision is a frozen record with no lifecycle or expiry operation."
+      ]
     },
     "ApprovalLifecycle": {
       "states": [
@@ -307,7 +311,9 @@
           ]
         }
       ],
-      "gaps": []
+      "gaps": [
+        "BOUNDS_EXCEEDED and CANCELLED are not returned statuses: the executor raises bound exceptions and has no plan-cancel operation; it returns COMPLETED, STOPPED or FAILED."
+      ]
     },
     "StepLifecycle": {
       "states": [
@@ -373,7 +379,9 @@
           ]
         }
       ],
-      "gaps": []
+      "gaps": [
+        "MAY_HAVE_STARTED -> RUNNING is forbidden except a bounded retry of an idempotent=True step without a journal."
+      ]
     },
     "A2ATaskLifecycle": {
       "states": [
@@ -387,7 +395,7 @@
         "FAILED",
         "CANCELLED"
       ],
-      "initial": "SUBMITTED",
+      "initial": "SUBMITTING",
       "terminal": [
         "COMPLETED",
         "FAILED",

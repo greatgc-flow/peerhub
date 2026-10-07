@@ -478,7 +478,9 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
     @staticmethod
     def _kill_tree(proc: subprocess.Popen[bytes]) -> None:
         if os.name == "nt":
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15)
+            done = subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15)
+            if done.returncode != 0 and not (done.returncode == 128 and proc.poll() is not None):  # 128: parent already gone; orphans of a dead parent cannot be enumerated (known limit)
+                raise OSError(f"taskkill exited {done.returncode}")
         else:
             import signal
             try:

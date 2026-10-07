@@ -348,9 +348,9 @@
     {
       "id": "EXC-090",
       "name": "A2ATransportUnavailableError",
-      "trigger": "The HTTP binding fails (envelope, identity, size, deadline, redirect).",
+      "trigger": "No transport is configured, the endpoint is rejected (scheme, redirect), the remote answers an HTTP error, the total deadline expires, or the transport cannot reconcile or cancel.",
       "disposition": "REJECTED",
-      "rationale": "Hostile or broken responses never produce a mapped state.",
+      "rationale": "The task stays uncertain. Malformed envelopes, identity mismatches, oversize responses and unmapped states raise A2AStateTransitionError.",
       "tests": [
         "A2A-013"
       ]
@@ -368,9 +368,9 @@
     {
       "id": "EXC-092",
       "name": "CostBoundExceededError",
-      "trigger": "Journal-summed attempt cost reaches cost_budget, or an attempt does not report a finite cost under a budget.",
+      "trigger": "Journal-summed attempt cost is strictly greater than cost_budget after an attempt (equality stops only a later attempt).",
       "disposition": "REJECTED",
-      "rationale": "Unreported cost is unknown, never zero.",
+      "rationale": "A missing or non-finite cost under a budget raises PlanStepExecutionError (unreported is unknown, never zero); MAY_HAVE_STARTED results are exempt from the missing-cost check only (a non-finite reported cost still raises) and need reconcile or an idempotent retry.",
       "tests": [
         "ORC-013"
       ]

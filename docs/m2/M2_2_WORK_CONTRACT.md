@@ -113,9 +113,9 @@ Section 4: replace the expected-revision sentence and add:
 Section 5: add:
 
 ```markdown
-| Creation Record durable, projection save fails | Work is absent from cached reads | Locate it from authoritative streams on mutation; an identical revision-1 creation retry repairs the row without another creation Record. | test_wrk_012_creation_recovery |
-| Rebuild record source fails | Existing projection remains | Fold fails before replacement begins; preserve existing rows. | test_wrk_013_atomic_rebuild |
-| Rebuild replacement write fails | Transaction is rolled back | Restore the existing projection, including rows deleted inside the transaction. | test_wrk_013_atomic_rebuild |
+| Creation Record durable, projection save fails | Work is absent from cached reads | Locate it from authoritative streams on mutation; an identical revision-1 creation retry repairs the row without another creation Record. | WRK-014 |
+| Rebuild record source fails | Existing projection remains | Fold fails before replacement begins; preserve existing rows. | WRK-015 |
+| Rebuild replacement write fails | Transaction is rolled back | Restore the existing projection, including rows deleted inside the transaction. | WRK-015 |
 ```
 
 Replace the malformed-payload row’s recovery text with:
