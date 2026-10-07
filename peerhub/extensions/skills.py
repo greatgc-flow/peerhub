@@ -592,66 +592,72 @@ class SkillCatalogEngine:
             updated_at=row[5],
         )
 
-    def _save_skill_projection(self, skill: SkillItem) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO ext_skills (
-                    skill_id, stream_id, name, description, version, state,
-                    revision, tree_digest, file_count, path, tags_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(skill_id) DO UPDATE SET
-                    stream_id = excluded.stream_id,
-                    name = excluded.name,
-                    description = excluded.description,
-                    version = excluded.version,
-                    state = excluded.state,
-                    revision = excluded.revision,
-                    tree_digest = excluded.tree_digest,
-                    file_count = excluded.file_count,
-                    path = excluded.path,
-                    tags_json = excluded.tags_json,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    skill.skill_id,
-                    skill.stream_id,
-                    skill.name,
-                    skill.description,
-                    skill.version,
-                    skill.state,
-                    skill.revision,
-                    skill.tree_digest,
-                    skill.file_count,
-                    skill.path,
-                    json.dumps(skill.tags),
-                    skill.created_at,
-                    skill.updated_at,
-                ),
-            )
+    def _save_skill_projection(self, skill: SkillItem, conn: sqlite3.Connection | None = None) -> None:
+        if conn is None:
+            with sqlite3.connect(self.db_path) as own:
+                self._save_skill_projection(skill, own)
+            return
+        conn.execute(
+            """
+            INSERT INTO ext_skills (
+                skill_id, stream_id, name, description, version, state,
+                revision, tree_digest, file_count, path, tags_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(skill_id) DO UPDATE SET
+                stream_id = excluded.stream_id,
+                name = excluded.name,
+                description = excluded.description,
+                version = excluded.version,
+                state = excluded.state,
+                revision = excluded.revision,
+                tree_digest = excluded.tree_digest,
+                file_count = excluded.file_count,
+                path = excluded.path,
+                tags_json = excluded.tags_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                skill.skill_id,
+                skill.stream_id,
+                skill.name,
+                skill.description,
+                skill.version,
+                skill.state,
+                skill.revision,
+                skill.tree_digest,
+                skill.file_count,
+                skill.path,
+                json.dumps(skill.tags),
+                skill.created_at,
+                skill.updated_at,
+            ),
+        )
 
-    def _save_capability_projection(self, cap: CapabilityItem) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO ext_capabilities (
-                    capability_id, stream_id, spec_json, revision, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(capability_id) DO UPDATE SET
-                    stream_id = excluded.stream_id,
-                    spec_json = excluded.spec_json,
-                    revision = excluded.revision,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    cap.capability_id,
-                    cap.stream_id,
-                    json.dumps(cap.spec),
-                    cap.revision,
-                    cap.created_at,
-                    cap.updated_at,
-                ),
-            )
+    def _save_capability_projection(self, cap: CapabilityItem, conn: sqlite3.Connection | None = None) -> None:
+        if conn is None:
+            with sqlite3.connect(self.db_path) as own:
+                self._save_capability_projection(cap, own)
+            return
+        conn.execute(
+            """
+            INSERT INTO ext_capabilities (
+                capability_id, stream_id, spec_json, revision, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(capability_id) DO UPDATE SET
+                stream_id = excluded.stream_id,
+                spec_json = excluded.spec_json,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at
+            """,
+            (
+                cap.capability_id,
+                cap.stream_id,
+                json.dumps(cap.spec),
+                cap.revision,
+                cap.created_at,
+                cap.updated_at,
+            ),
+        )
 
     def rebuild_index(
         self,
@@ -660,9 +666,6 @@ class SkillCatalogEngine:
     ) -> int:
         """Wipe projection tables and rebuild state from directory scan and stream records."""
         self._init_db()
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("DELETE FROM ext_skills;")
-            conn.execute("DELETE FROM ext_capabilities;")
 
         applied_count = 0
         skills_state: dict[str, dict[str, Any]] = {}
@@ -799,33 +802,41 @@ class SkillCatalogEngine:
                     cp["updated_at"] = raw_upd_at if isinstance(raw_upd_at, str) else record.created_at
                     applied_count += 1
 
-        for sk in skills_state.values():
-            skill_obj = SkillItem(
-                skill_id=cast(str, sk["skill_id"]),
-                stream_id=cast(str, sk["stream_id"]),
-                name=cast(str, sk["name"]),
-                description=cast(str, sk["description"]),
-                version=cast(str, sk["version"]),
-                state=cast(str, sk["state"]),
-                revision=cast(int, sk["revision"]),
-                tree_digest=cast(str, sk["tree_digest"]),
-                file_count=cast(int, sk["file_count"]),
-                path=cast(str, sk["path"]),
-                tags=cast(list[str], sk["tags"]),
-                created_at=cast(str, sk["created_at"]),
-                updated_at=cast(str, sk["updated_at"]),
-            )
-            self._save_skill_projection(skill_obj)
-
-        for cp in capabilities_state.values():
-            cap_obj = CapabilityItem(
-                capability_id=cast(str, cp["capability_id"]),
-                stream_id=cast(str, cp["stream_id"]),
-                spec=cast(dict[str, Any], cp["spec"]),
-                revision=cast(int, cp["revision"]),
-                created_at=cast(str, cp["created_at"]),
-                updated_at=cast(str, cp["updated_at"]),
-            )
-            self._save_capability_projection(cap_obj)
+        # Replace both projections atomically: nothing is deleted until the full state has been computed, and a failure
+        # while writing rolls everything back, so readers never see an empty or half-built projection.
+        self._replace_projection(skills_state, capabilities_state)
 
         return applied_count
+
+    def _replace_projection(self, skills_state: dict[str, dict[str, Any]], capabilities_state: dict[str, dict[str, Any]]) -> None:
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM ext_skills;")
+            conn.execute("DELETE FROM ext_capabilities;")
+            for sk in skills_state.values():
+                skill_obj = SkillItem(
+                    skill_id=cast(str, sk["skill_id"]),
+                    stream_id=cast(str, sk["stream_id"]),
+                    name=cast(str, sk["name"]),
+                    description=cast(str, sk["description"]),
+                    version=cast(str, sk["version"]),
+                    state=cast(str, sk["state"]),
+                    revision=cast(int, sk["revision"]),
+                    tree_digest=cast(str, sk["tree_digest"]),
+                    file_count=cast(int, sk["file_count"]),
+                    path=cast(str, sk["path"]),
+                    tags=cast(list[str], sk["tags"]),
+                    created_at=cast(str, sk["created_at"]),
+                    updated_at=cast(str, sk["updated_at"]),
+                )
+                self._save_skill_projection(skill_obj, conn)
+
+            for cp in capabilities_state.values():
+                cap_obj = CapabilityItem(
+                    capability_id=cast(str, cp["capability_id"]),
+                    stream_id=cast(str, cp["stream_id"]),
+                    spec=cast(dict[str, Any], cp["spec"]),
+                    revision=cast(int, cp["revision"]),
+                    created_at=cast(str, cp["created_at"]),
+                    updated_at=cast(str, cp["updated_at"]),
+                )
+                self._save_capability_projection(cap_obj, conn)

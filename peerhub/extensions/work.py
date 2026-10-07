@@ -390,43 +390,44 @@ class WorkProjection:
             ids = [row[0] for row in conn.execute("SELECT work_id FROM ext_work_items ORDER BY work_id")]
         return [self.get_work(work_id) for work_id in ids]
 
-    def _save_work_projection(self, work: WorkItem) -> None:
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO ext_work_items (
-                    work_id, stream_id, state, revision, title, spec_json,
-                    artifacts_json, checkpoint_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(work_id) DO UPDATE SET
-                    stream_id = excluded.stream_id,
-                    state = excluded.state,
-                    revision = excluded.revision,
-                    title = excluded.title,
-                    spec_json = excluded.spec_json,
-                    artifacts_json = excluded.artifacts_json,
-                    checkpoint_json = excluded.checkpoint_json,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    work.work_id,
-                    work.stream_id,
-                    work.state,
-                    work.revision,
-                    work.title,
-                    json.dumps(work.spec),
-                    json.dumps(work.artifacts),
-                    json.dumps(work.checkpoint) if work.checkpoint is not None else None,
-                    work.created_at,
-                    work.updated_at,
-                ),
-            )
+    def _save_work_projection(self, work: WorkItem, conn: sqlite3.Connection | None = None) -> None:
+        if conn is None:
+            with sqlite3.connect(self.db_path) as own:
+                self._save_work_projection(work, own)
+            return
+        conn.execute(
+            """
+            INSERT INTO ext_work_items (
+                work_id, stream_id, state, revision, title, spec_json,
+                artifacts_json, checkpoint_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(work_id) DO UPDATE SET
+                stream_id = excluded.stream_id,
+                state = excluded.state,
+                revision = excluded.revision,
+                title = excluded.title,
+                spec_json = excluded.spec_json,
+                artifacts_json = excluded.artifacts_json,
+                checkpoint_json = excluded.checkpoint_json,
+                updated_at = excluded.updated_at
+            """,
+            (
+                work.work_id,
+                work.stream_id,
+                work.state,
+                work.revision,
+                work.title,
+                json.dumps(work.spec),
+                json.dumps(work.artifacts),
+                json.dumps(work.checkpoint) if work.checkpoint is not None else None,
+                work.created_at,
+                work.updated_at,
+            ),
+        )
 
     def rebuild_projection(self, records: Iterable[Record]) -> int:
         """Wipe projection tables and rebuild state entirely from ordered Core records."""
         self._init_db()
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("DELETE FROM ext_work_items;")
 
         items: dict[str, dict[str, Any]] = {}
         applied_count = 0
@@ -539,19 +540,23 @@ class WorkProjection:
                 it["updated_at"] = raw_linked_at if isinstance(raw_linked_at, str) else record.created_at
                 applied_count += 1
 
-        for it in items.values():
-            work = WorkItem(
-                work_id=cast(str, it["work_id"]),
-                stream_id=cast(str, it["stream_id"]),
-                state=cast(str, it["state"]),
-                revision=cast(int, it["revision"]),
-                title=cast(str, it["title"]),
-                spec=cast(dict[str, Any], it["spec"]),
-                artifacts=cast(list[str], it["artifacts"]),
-                checkpoint=cast(dict[str, Any] | None, it["checkpoint"]),
-                created_at=cast(str, it["created_at"]),
-                updated_at=cast(str, it["updated_at"]),
-            )
-            self._save_work_projection(work)
+        # Replace the projection atomically: a failure while reading `records` above never reaches the DELETE, and a
+        # failure here rolls the whole replacement back, so readers never see an empty or half-built projection.
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("DELETE FROM ext_work_items;")
+            for it in items.values():
+                work = WorkItem(
+                    work_id=cast(str, it["work_id"]),
+                    stream_id=cast(str, it["stream_id"]),
+                    state=cast(str, it["state"]),
+                    revision=cast(int, it["revision"]),
+                    title=cast(str, it["title"]),
+                    spec=cast(dict[str, Any], it["spec"]),
+                    artifacts=cast(list[str], it["artifacts"]),
+                    checkpoint=cast(dict[str, Any] | None, it["checkpoint"]),
+                    created_at=cast(str, it["created_at"]),
+                    updated_at=cast(str, it["updated_at"]),
+                )
+                self._save_work_projection(work, conn)
 
         return applied_count
