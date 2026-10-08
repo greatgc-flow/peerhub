@@ -582,7 +582,7 @@
     {
       "id": "REQ-A2A-003",
       "area": "A2A",
-      "statement": "Remote execution protocol state is captured through opaque ExternalExecutionRef, avoiding leakage into local state machines.",
+      "statement": "Remote execution protocol state is captured through opaque ExternalExecutionRef, including the server-assigned remote task id; the local task id is sent as message.messageId, avoiding leakage into local state machines.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
       "tests": [
@@ -600,7 +600,7 @@
     {
       "id": "REQ-A2A-004",
       "area": "A2A",
-      "statement": "A2A task dispatch, polling, and cancellation follow explicit lifecycle states with timeout and failure handling.",
+      "statement": "A2A task dispatch, polling, and cancellation use A2A 1.0 JSON-RPC over HTTP (SendMessage/GetTask/CancelTask, A2A-Version: 1.0) and map TASK_STATE_* states to explicit local lifecycle states with timeout and failure handling; direct Message answers, streaming, and unmapped states fail closed.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
       "tests": [
@@ -794,7 +794,7 @@
     {
       "id": "REQ-A2A-007",
       "area": "A2A",
-      "statement": "With a journal configured, A2A writes a durable submitting Record (claim token, endpoint, attempt) before any remote call (an adapter without a journal tracks uncertain submissions only in memory: nothing survives a restart); an unresolved submission restores as uncertain and is never replayed; an 'unknown to the remote' answer releases the id only on a transport that proves absence, otherwise the task stays uncertain until abandon_task burns the id; reconciliation uses the original endpoint; the HTTP binding verifies the JSON-RPC envelope, identity and integer error codes and enforces a total call deadline.",
+      "statement": "With a journal configured, A2A writes a durable submitting Record (claim token, endpoint, attempt) before any remote call (an adapter without a journal tracks uncertain submissions only in memory: nothing survives a restart); an unresolved submission restores as uncertain and is never replayed; an 'unknown to the remote' answer releases the id only on a transport that proves absence, otherwise the task stays uncertain until abandon_task burns the id; reconciliation uses the original endpoint; reconcile_task(task_id, remote_task_id=None) requires an operator-supplied candidate remote id for HTTP and adopts only when remote history carries our local task id as messageId; no candidate or missing/mismatched history raises A2AExecutionUncertainError and leaves the task uncertain; the HTTP binding verifies the JSON-RPC envelope, identity and integer error codes and enforces a total call deadline.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
       "priority": "P0",
       "tests": [

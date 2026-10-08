@@ -328,7 +328,7 @@
     {
       "id": "EXC-088",
       "name": "A2AExecutionUncertainError",
-      "trigger": "A task submission or its outcome cannot be established (journaled submitting record without evidence).",
+      "trigger": "A task submission or its outcome cannot be established (including a journaled submitting record without evidence); HTTP reconciliation has no candidate remote id, lacks matching history messageId, or receives TASK_NOT_FOUND.",
       "disposition": "REJECTED",
       "rationale": "Uncertain is never replayed or treated as absent.",
       "tests": [
@@ -350,7 +350,7 @@
       "name": "A2ATransportUnavailableError",
       "trigger": "No transport is configured, the endpoint is rejected (scheme, redirect), the remote answers an HTTP error, the total deadline expires, or the transport cannot reconcile or cancel.",
       "disposition": "REJECTED",
-      "rationale": "The task stays uncertain. Malformed envelopes, identity mismatches, oversize responses and unmapped states raise A2AStateTransitionError.",
+      "rationale": "The task stays uncertain. Malformed envelopes, identity mismatches, oversize responses, unmapped states and direct Message answers raise A2AStateTransitionError in the HTTP transport; dispatch wraps submission failures as A2AExecutionUncertainError.",
       "tests": [
         "A2A-013"
       ]

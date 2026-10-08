@@ -462,6 +462,7 @@
           "from": "UNCERTAIN",
           "to": "NOT_STARTED",
           "allowed": true,
+          "guard": "Only when the transport proves absence; HTTP TASK_NOT_FOUND leaves the task UNCERTAIN.",
           "tests": [
             "A2A-013"
           ]
