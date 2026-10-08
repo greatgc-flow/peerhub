@@ -15,8 +15,9 @@ import json
 import re
 from pathlib import Path
 import sqlite3
-from typing import Any, ClassVar, Iterable, Iterator, cast
+from typing import Any, ClassVar, Iterable, cast
 
+from peerhub.extensions.authoritative import authoritative_item, stream_records
 from peerhub.extensions.sqlite_tx import sqlite_tx
 from peerhub.core.models import Record
 from peerhub.core.store import CoreStore, IdempotencyConflictError
@@ -142,7 +143,7 @@ class WorkProjection:
         spec_data = spec or {}
         located = self._find_stream(work_id)
         if located is not None:  # the creation Record exists but the projection row is missing (crash between the two)
-            items, _ = self._fold(self._stream_records(located))
+            items, _ = self._fold(stream_records(self.store, located))
             record_state = self._item_from_state(items[work_id])
             if (located == stream_id and record_state.title == title and record_state.spec == spec_data
                     and record_state.revision == 1):
@@ -199,38 +200,19 @@ class WorkProjection:
     def _find_stream(self, work_id: str) -> str | None:
         """The stream whose Records create `work_id`, for the rare case that the projection row is missing."""
         for stream in self.store.list_streams():
-            items, _ = self._fold(self._stream_records(stream.stream_id))
+            items, _ = self._fold(stream_records(self.store, stream.stream_id))
             if work_id in items:
                 return stream.stream_id
         return None
-
-    def _stream_records(self, stream_id: str, page_size: int = 500) -> Iterator[Record]:
-        position = 0
-        while batch := self.store.read_records(stream_id, after_position=position, limit=page_size):
-            yield from batch
-            position = batch[-1].position
 
     def _authoritative(self, work_id: str, accepted: set[str] | None = None) -> WorkItem:
         """The work item as the ordered stream Records define it, repairing a stale projection (crash or another writer).
 
         CAS decisions must use this, never the cached projection row: the Record is the authority."""
-        try:
-            cached: WorkItem | None = self.get_work(work_id)
-            stream_id = cached.stream_id
-        except WorkNotFoundError:  # projection row missing (crash after the creation Record): locate it from the Records
-            cached = None
-            found = self._find_stream(work_id)
-            if found is None:
-                raise
-            stream_id = found
-        items, _ = self._fold(self._stream_records(stream_id), accepted)
-        state = items.get(work_id)
-        if state is None:
-            raise WorkNotFoundError(f"Work item {work_id!r} has no authoritative Records in stream {stream_id!r}")
-        item = self._item_from_state(state)
-        if item != cached:
-            self._save_work_projection(item)
-        return item
+        return cast(WorkItem, authoritative_item(
+            get_cached=lambda: self.get_work(work_id), locate=lambda: self._find_stream(work_id),
+            replay=lambda stream_id: self._fold(stream_records(self.store, stream_id), accepted)[0].get(work_id),
+            build=self._item_from_state, save=self._save_work_projection, not_found=WorkNotFoundError, what="Work item", identity=work_id))
 
     def _append(self, **record: Any) -> Record:
         """Append a state-changing Record; the store's idempotency conflict on the same `work-id-revision` key means another
