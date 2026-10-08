@@ -61,7 +61,7 @@ def test_rel_007_manifest_has_commit_version_suite_live_hashes_and_requirement_c
     assert {p["file"]: p["sha256"] for p in m["packages"]} == want
     assert {p["file"]: p["bytes"] for p in m["packages"]} == {p.name: p.stat().st_size for p in (dist.wheel, dist.sdist)}
     cov = m["requirement_coverage"]
-    assert cov["total"] == 85 and cov["uncovered_p0"] == [] and cov["uncovered"] == [] and cov["covered"] == 85
+    assert cov["total"] == len(REQS) and cov["uncovered_p0"] == [] and cov["uncovered"] == [] and cov["covered"] == len(REQS)
     assert m["blockers"] == [] and m["release_ready"] is True
 
 

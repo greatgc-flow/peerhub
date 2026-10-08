@@ -27,7 +27,7 @@
 - State machines: `STATE_MACHINE_COVERAGE.json`
 - Exception space: `EXCEPTION_CATALOG.json`
 - Cross-feature interactions: `INTERACTION_MATRIX.json`
-- Requirement↔Test: `TEST_TRACEABILITY_MATRIX.*`
+- Requirement↔Test: `python -m tools.traceability` 출력
 
 ## 4. 종료 조건
 
