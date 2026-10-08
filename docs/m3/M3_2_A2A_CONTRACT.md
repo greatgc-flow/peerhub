@@ -52,6 +52,8 @@ The A2A module (`peerhub.m3.a2a`) provides:
   - `dispatch_task(request: A2ATaskRequest) -> A2ATaskResponse`
   - `poll_task(task_id: str) -> A2ATaskResponse`
   - `cancel_task(task_id: str) -> A2ATaskResponse`
+  - `reconcile_task(task_id: str, remote_task_id: str | None = None) -> A2ATaskResponse | None`
+  - `abandon_task(task_id: str, reason: str) -> None`
 
 ## 3. A2A Task State Machine
 ```text
@@ -78,13 +80,13 @@ Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10
 
 - A2A execution with a journal configured writes (via `a2a_journal.py`) a durable `submitting` record (containing an atomic claim token, endpoint, and attempt number) before a remote call. An adapter without a journal tracks uncertain submissions only in memory: nothing survives a restart.
 - Any unresolved `submitting` state on restart resolves to `UNCERTAIN` to prevent blind replay.
-- `reconcile_task`: If the remote has the task, it is adopted. If the remote has no record, the task is safely resolved to `NOT_STARTED` ONLY on guaranteed deterministic transports (e.g., loopback). On non-guaranteed transports (e.g., HTTP), the task remains `UNCERTAIN` to protect against late arrivals. Reconciliation can only be made to the originally submitted endpoint.
-- `abandon_task`: The only valid action for an unresolved `UNCERTAIN` task. It permanently burns the ID, records a reason, and a new ID must be used for retries.
-- Single external binding (`a2a_http.py`): Supports JSON-RPC over HTTPS or loopback HTTP (redirects strictly forbidden). Enforces JSON-RPC 2.0 envelopes, integer error codes, response size bounds, an overall call deadline, and unmapped remote states fail closed.
+- `reconcile_task(task_id, remote_task_id=None)`: For HTTP, the operator must supply a candidate server-assigned `remote_task_id`; the task is adopted only if its history carries our local task id as `messageId`. A missing candidate or missing/mismatched history raises `A2AExecutionUncertainError` and leaves the task `UNCERTAIN`. If the remote has no record, the task is safely resolved to `NOT_STARTED` ONLY on guaranteed deterministic transports (e.g., loopback). On non-guaranteed transports (e.g., HTTP), the task remains `UNCERTAIN` to protect against late arrivals. Reconciliation can only be made to the originally submitted endpoint.
+- `abandon_task`: Explicitly gives up an `UNCERTAIN` task that cannot be reconciled. It permanently burns the ID, records a reason, and a new ID must be used for retries.
+- Single external binding (`a2a_http.py`): Supports A2A 1.0 JSON-RPC over HTTPS or loopback HTTP (`SendMessage`, `GetTask`, `CancelTask`, `A2A-Version: 1.0`; redirects strictly forbidden). Maps `TASK_STATE_SUBMITTED`/`WORKING`/`COMPLETED`/`FAILED`/`REJECTED`/`CANCELED` to local `SUBMITTED`/`RUNNING`/`COMPLETED`/`FAILED`/`FAILED`/`CANCELLED`. Direct Message answers and streaming are unsupported and fail closed. Enforces JSON-RPC 2.0 envelopes, integer error codes, response size bounds, an overall call deadline, and unmapped remote states fail closed.
 
 **Superseded or missing in the original text:**
 - The old contract's A2A lifecycle totally lacked the `SUBMITTING`, `UNCERTAIN`, and `ABANDONED` states.
-- It lacked the `abandon_task` and `reconcile_task` definitions on the interface.
+- It originally lacked the `abandon_task` and `reconcile_task` definitions on the interface.
 - It assumed immediate synchronous outcomes rather than handling durable reconciliation, state-locking on restarts, and the total call deadline.
 
-**Interop limit (checked 2026-10-08):** the HTTP binding speaks `tasks/send`, `tasks/get`, `tasks/cancel`. The official `a2a-sdk` 1.2.2 serves `SendMessage`/`GetTask`/`CancelTask` (its v0.3 compat layer: `message/send`, `tasks/get`, `tasks/cancel`), so the binding does not interoperate with current third-party A2A servers, and the client-chosen task id (our idempotency identity) differs from the standard's server-assigned id. Not fixed here: it needs a task-id model redesign.
+**Interop result and limits (checked 2026-10-08):** `tools/a2a_sdk_interop.py` verified `SendMessage`, `GetTask`, `CancelTask`, reconciliation by history `messageId`, and `TASK_NOT_FOUND` against the official `a2a-sdk` 1.2.2 server using A2A 1.0 JSON-RPC. The server assigns task ids; our local task id is sent as `message.messageId` and the returned remote id is kept in `ExternalExecutionRef`. A lost `SendMessage` answer cannot be looked up by our local id: reconciliation requires the operator's candidate remote id and matching history, otherwise it remains uncertain until successful reconciliation or `abandon_task`. HTTP `TASK_NOT_FOUND` does not prove absence or release the local id. Cancelling a held task returned adapter `CANCELLED` and remote `TASK_STATE_CANCELED`; other third-party servers are untested. Direct Message answers and streaming remain unsupported (fail closed).

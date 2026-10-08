@@ -30,8 +30,8 @@ def ask_effect(e, option):
         argv = ["ask", "cx", "--query-file", str(query), "--json"]
     elif option in ("--workspace", "-w"):
         argv += [option, str(e.tmp)]
-    elif option == "--json":
-        pass
+    elif option in ("--json", "--writable"):
+        argv += [option] if option == "--writable" else []
     else:
         value = {"--stream": "conversation", "--request-id": "stable", "--author-peer": "operator",
                  "--model": "custom-model", "--effort": "low", "--timeout-seconds": "12",
@@ -61,6 +61,10 @@ def ask_effect(e, option):
             expected_value = {"model": "custom-model", "effort": "low", "timeout_s": 12, "max_bytes": 1234,
                               "profile": "cx.standard", "silence_timeout_s": 3}[key]
             assert captured[0][2][key] == expected_value
+        elif option == "--writable":
+            assert captured[0][2]["writable"] is True
+            e.j(db, "ask", "cx", "again", "--json")  # not passing the flag keeps the default
+            assert captured[1][2]["writable"] is False
         elif option == "--json":
             code, out, err = e.run(db, "ask", "cx", "next")
             assert code == 0 and out.strip() == "hello"
@@ -171,7 +175,7 @@ def monitor_effect(e, option):
 
 EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for option in (
     "peer", "prompt", "--query-file", "--stream", "--request-id", "--author-peer", "--workspace", "-w", "--model",
-    "--effort", "--timeout-seconds", "--max-output-bytes", "--json", "--profile", "-p", "--silence-timeout-seconds")}
+    "--effort", "--writable", "--timeout-seconds", "--max-output-bytes", "--json", "--profile", "-p", "--silence-timeout-seconds")}
 EFFECT["diag --json"] = diag_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
                for option in ("--live", "--interval-seconds", "--cycles", "--view")})

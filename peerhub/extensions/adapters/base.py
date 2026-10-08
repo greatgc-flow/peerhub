@@ -42,7 +42,7 @@ class ProviderSpec:
     stdin_prompt: bool
     max_prompt_bytes: int = MAX_PROMPT_BYTES  # provider-specific inline limit (argv-borne prompts are far smaller)
 
-    def argv(self, model: str | None, effort: str | None, prompt: str) -> list[str]:
+    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False) -> list[str]:
         raise NotImplementedError
 
     def parse(self, stdout: str) -> str:
@@ -67,12 +67,14 @@ def _json_lines(text: str) -> list[dict[str, Any]]:
 class CcSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "cc", "claude", "--resume", True
 
-    def argv(self, model: str | None, effort: str | None, prompt: str) -> list[str]:
+    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False) -> list[str]:
         a = ["-p", "-", "--output-format", "stream-json", "--verbose"]
         if model:
             a += ["--model", model]
         if effort:
             a += ["--effort", effort]
+        if writable:
+            a += ["--permission-mode", "acceptEdits"]
         return a
 
     def parse(self, stdout: str) -> str:
@@ -92,8 +94,8 @@ class CcSpec(ProviderSpec):
 class CxSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "cx", "codex", "resume", True
 
-    def argv(self, model: str | None, effort: str | None, prompt: str) -> list[str]:
-        a = ["exec", "--skip-git-repo-check", "-s", "read-only"]
+    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False) -> list[str]:
+        a = ["exec", "--skip-git-repo-check", "-s", "workspace-write" if writable else "read-only"]
         if model:
             a += ["-m", model]
         if effort:
@@ -120,12 +122,14 @@ class AgSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "ag", "agy", "--conversation", False
     max_prompt_bytes = 30_000 if sys.platform == "win32" else 120_000  # prompt travels in argv: CreateProcess ~32k chars / MAX_ARG_STRLEN
 
-    def argv(self, model: str | None, effort: str | None, prompt: str) -> list[str]:
+    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False) -> list[str]:
         a = ["-p", prompt, "--output-format", "json"]
         if model:
             a += ["--model", model]
         if effort:
             a += ["--effort", effort]
+        if writable:
+            a += ["--mode", "accept-edits"]
         return a
 
     def parse(self, stdout: str) -> str:
@@ -169,7 +173,7 @@ class CliRuntimeTarget:
     supports_steer = False
 
     def __init__(self, kind: str, workspace: str | Path, *, model: str | None = None, effort: str | None = None,
-                 profile: str | None = None, silence_timeout_s: float | None = None,
+                 profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False,
                  command: Sequence[str] | None = None, timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
                  env_extra: Mapping[str, str] | None = None, extra_secrets: Iterable[str] = (),
                  on_output: Callable[[str], None] | None = None) -> None:
@@ -199,6 +203,7 @@ class CliRuntimeTarget:
         self._workspace = str(workspace)
         self._model, self._effort = model, effort
         self._profile, self._silence_timeout_s = profile, silence_timeout_s
+        self._writable = writable  # peers are read-only unless the caller explicitly asks for write access
         self._command = list(command) if command is not None else None
         self._timeout_s, self._max_bytes = timeout_s, max_bytes
         self._on_output = on_output
@@ -299,7 +304,7 @@ class CliRuntimeTarget:
         base = self._base()
         if base is None:
             raise PrespawnError(f"{self._spec.binary} executable not found")
-        argv = [*base, *self._spec.argv(self._model, self._effort, prompt)]
+        argv = [*base, *self._spec.argv(self._model, self._effort, prompt, self._writable)]
         try:
             check_argv(argv)
         except ValueError as e:

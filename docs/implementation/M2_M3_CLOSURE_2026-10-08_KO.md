@@ -45,13 +45,13 @@ AST/JSONPath 조건식 · 분산 큐 · 우아한 종료 단계(SIGINT→SIGKILL
 검토 후에도 **바꾸지 않은 것**: (1) 복원 직전 idle 점검과 swap 사이의 경합 — 복원은 오프라인 전제이며 live 상태를 교체하는 작업이고 파생 DB는 폐기되므로 점검은 안전망일 뿐 fence가 아니다. (2) "swap 완료 뒤 남은 의도 마커가 새 DB를 되돌린다"는 주장은 사실이 아니다 — 복구는 workspace 디렉터리가 없을 때만 되돌리고 있으면 마커만 지운다(`test_a_stale_intent_marker_after_a_completed_swap_never_reverts_the_restored_workspace`).
 
 ## 정직한 한계
-- **A2A**: HTTP binding은 같은 JSON-RPC subset을 구현한 in-process 서버로 검증했다. **제3자 A2A 서버와의 상호운용은 검증하지 않았다.** HTTPS 대상이 사설/link-local 주소여도 허용한다(일반적인 SSRF 격리는 이 binding의 범위가 아니다).
+- **A2A**: HTTP binding은 같은 JSON-RPC subset을 구현한 in-process 서버로 검증했다. **공식 SDK 서버 검증 결과는 아래 상호운용 점검 항목에 기록했으며, 그 외 제3자 서버는 미검증이다.** HTTPS 대상이 사설/link-local 주소여도 허용한다(일반적인 SSRF 격리는 이 binding의 범위가 아니다).
 - **비용**: 시도 사이에 검사하므로 단일 시도(병렬에서는 최대 `max_fanout`개의 진행 중 시도)가 예산을 넘길 수 있다.
 - **병렬 실행**은 opt-in이며 runner의 thread-safety는 호출자 책임이다.
 - **ProcessRuntimeAdapter**는 신뢰된 argv를 가정한다(실패 격리와 취소이지 보안 sandbox가 아님). Python plugin도 in-process 실행이다.
 - Windows long-path 동작과 symlink 권한이 필요한 테스트는 이 호스트에서 실행하지 못했다.
 - `idempotent=True`로 선언된 단계의 MAY_HAVE_STARTED 재시도는 journal 없는 실행에서만 허용된다(명시적 선언을 증거로 간주). 내구 실행에서는 항상 reconcile이 필요하다.
-- **A2A 상호운용 점검(2026-10-08, v0.12.1 이후):** 공식 `a2a-sdk` 1.2.2의 소스를 확인했다. 현재 프로토콜은 `SendMessage`/`GetTask`/`CancelTask`이고 v0.3 호환 계층도 `message/send`·`tasks/get`·`tasks/cancel`을 쓴다. 우리 HTTP 바인딩의 `tasks/send`는 그 어디에도 없어서 **현재 제3자 A2A 서버와는 호환되지 않는다**(`tasks/get`·`tasks/cancel`만 v0.3과 같다). 또한 우리 멱등성은 클라이언트가 정한 task id를 전제하는데 표준은 서버가 task id를 부여한다. 맞추려면 task id 모델부터 다시 설계해야 하므로 이번에는 하지 않고 한계로만 확정한다. 이 바인딩은 `HttpA2ATransport`를 만족하는 자체 서버/호환 서버용이다.
+- **A2A 상호운용 점검(2026-10-08, v0.12.1 이후):** `tools/a2a_sdk_interop.py`로 공식 `a2a-sdk` 1.2.2 서버에 대해 A2A 1.0 JSON-RPC의 `SendMessage`, `GetTask`, `CancelTask`, history의 `messageId`를 통한 재조정, `TASK_NOT_FOUND`를 검증했다. HTTP 바인딩은 `SendMessage`/`GetTask`/`CancelTask`, `TASK_STATE_*`, `A2A-Version: 1.0`을 사용한다. 서버가 task id를 부여하며 로컬 task id는 `message.messageId`로 보낸다. `SendMessage` 응답을 잃으면 로컬 id로 조회할 수 없어 `reconcile_task(task_id, remote_task_id=None)`에 운영자가 후보 원격 id를 제공해야 하며, 원격 history에 로컬 `messageId`가 있을 때만 채택한다. 후보 id가 없거나 history가 없거나 일치하지 않으면 `A2AExecutionUncertainError`로 uncertain을 유지하며, 해결하지 못하면 `abandon_task`로 로컬 id를 영구 폐기한다. HTTP의 `TASK_NOT_FOUND`도 부재를 보증하지 않아 id를 해제하지 않는다. 대기 중인 task를 `CancelTask`로 취소했을 때 adapter는 `CANCELLED`, 원격 상태는 `TASK_STATE_CANCELED`를 반환했다. 다른 제3자 서버는 미검증이다. 직접 Message 응답과 streaming은 지원하지 않으며 fail closed한다.
 
 ## 승격 상태와 게이트 증거
 M1 Exit는 PASS했다(v0.12.0: 후보 커밋에 묶인 live·패키지 증거와 CI 매트릭스). `MILESTONE_GATES`의 M2→M3, M3→Optional 항목은 아래 증거로 GREEN이며, 모두 main CI(ubuntu/windows × 3.11–3.14)에서 매번 실행된다.

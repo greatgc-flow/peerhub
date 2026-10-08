@@ -113,6 +113,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser.add_argument("--model")
     ask_parser.add_argument("--effort")
     ask_parser.add_argument("-p", "--profile", help="Explicit Runtime Target profile; model/effort override its defaults")
+    ask_parser.add_argument("--writable", action="store_true", help="Let the peer write files in the workspace (default: read-only)")
     ask_parser.add_argument("--timeout-seconds", type=float, default=60)
     ask_parser.add_argument("--silence-timeout-seconds", type=float, default=None,
                             help="Abort after this many seconds without stdout/stderr; execution remains uncertain")
@@ -184,7 +185,7 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         print(text, end="", flush=True)
     result = ask(args.db, args.peer, prompt, stream_id=args.stream_id, request_id=args.request_id,
                  author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
-                 profile=args.profile, silence_timeout_s=args.silence_timeout_seconds,
+                 profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                  timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
                  on_output=None if args.json else show_output)
     if args.json:

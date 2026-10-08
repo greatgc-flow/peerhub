@@ -104,6 +104,16 @@
           "takes_value": true
         },
         {
+          "default": false,
+          "dest": "writable",
+          "flags": [
+            "--writable"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": null,
           "dest": "profile",
           "flags": [
