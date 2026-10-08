@@ -29,7 +29,7 @@ binding into CLI flags.
 |---|---|---|
 | `cc.standard` | `claude-haiku-4-5-20251001` | vendor default |
 | `cc.effort` | `claude-sonnet-5-5` | `high` |
-| `cc.deepthink` | `claude-opus-5-5` | `xhigh` |
+| `cc.deepthink` | `claude-opus-5-5` | `high` |
 | `cc.pro` | `claude-fable-5-1` | `high` |
 
 ## Verify and troubleshoot

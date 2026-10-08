@@ -7,16 +7,16 @@ sources are the adapter modules, `peerhub/config_data/model-defaults.toml`, and
 
 ## Supported surface
 
-| Peer | Binary / observed version (2026-10-01) | Input / output | Create / resume |
+| Peer | Binary / observed version (2026-10-08) | Input / output | Create / resume |
 |---|---|---|---|
-| `ag` | `agy.exe` 1.2.14 | `-p` argument / flat JSON | new / `--conversation ID` |
-| `cc` | `claude.cmd` 2.1.286 | stdin / stream JSON | new / `--resume ID --autocompact auto` |
-| `cx` | `codex.cmd` 0.159.3 | argument / JSONL events | `exec` / `exec resume ... ID` |
+| `ag` | `agy.exe` 1.3.1 | `-p` argument / flat JSON | new / `--conversation ID` |
+| `cc` | `claude.cmd` 2.1.293 | stdin / stream JSON | new / `--resume ID --autocompact auto` |
+| `cx` | `codex.cmd` 0.161.0 | argument / JSONL events | `exec` / `exec resume ... ID` |
 
 | Peer | `standard` | `effort` | `deepthink` | `pro` |
 |---|---|---|---|---|
 | `ag` | `gemini-3.8-flash-low` | `gemini-3.8-flash-high` | `gemini-3.1-pro-low` | `gemini-3.1-pro-high` |
-| `cc` | `claude-haiku-4-5-20251001` | `claude-sonnet-5-5` (`high`) | `claude-opus-5-5` (`xhigh`) | `claude-fable-5-1` (`high`) |
+| `cc` | `claude-haiku-4-5-20251001` | `claude-sonnet-5-5` (`high`) | `claude-opus-5-5` (`high`) | `claude-fable-5-1` (`high`) |
 | `cx` | `gpt-6-luna` (`low`) | `gpt-6.1-sol` (`high`) | `gpt-6.1-sol` (`xhigh`) | `gpt-6-astra` (`xhigh`) |
 
 Exact invocation and decoder details are in [ag.md](ag.md), [cc.md](cc.md), and
