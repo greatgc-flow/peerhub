@@ -23,7 +23,7 @@ from peerhub.extensions.work import WorkProjection
 
 REPO = Path(__file__).resolve().parents[2]
 M3_MODULES = ("search", "memory", "a2a", "a2a_http", "a2a_journal", "routing", "orchestration", "approval", "runtime_port", "source_records")
-M2_MODULES = ("work", "artifact", "skills", "mcp", "backup", "eval", "host", "manifest", "sqlite_tx", "boundary")
+M2_MODULES = ("work", "artifact", "skills", "mcp", "backup", "eval", "host", "manifest", "sqlite_tx", "boundary", "authoritative")
 M2_M3_MODULES = M2_MODULES + M3_MODULES
 
 PRELUDE = textwrap.dedent("""

@@ -17,8 +17,9 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
-from typing import Any, ClassVar, Iterable, cast, Iterator
+from typing import Any, ClassVar, Iterable, cast
 
+from peerhub.extensions.authoritative import authoritative_item, stream_records
 from peerhub.extensions.sqlite_tx import sqlite_tx
 from peerhub.core.models import Record
 from peerhub.core.store import CoreStore, IdempotencyConflictError
@@ -348,16 +349,10 @@ class SkillCatalogEngine:
         self._save_skill_projection(skill)
         return skill
 
-    def _stream_records(self, stream_id: str, page_size: int = 500) -> Iterator[Record]:
-        position = 0
-        while batch := self.store.read_records(stream_id, after_position=position, limit=page_size):
-            yield from batch
-            position = batch[-1].position
-
     def _find_stream(self, *, skill_id: str | None = None, capability_id: str | None = None) -> str | None:
         """The stream whose Records create the skill/capability, for the rare case that its projection row is missing."""
         for stream in self.store.list_streams():
-            skills, caps, _n = self._fold(self._stream_records(stream.stream_id))
+            skills, caps, _n = self._fold(stream_records(self.store, stream.stream_id))
             if (skill_id is not None and skill_id in skills) or (capability_id is not None and capability_id in caps):
                 return stream.stream_id
         return None
@@ -365,42 +360,17 @@ class SkillCatalogEngine:
     def _authoritative_skill(self, skill_id: str, accepted: set[str] | None = None) -> SkillItem:
         """The skill as the ordered stream Records define it, repairing a stale projection (crash or another writer).
         CAS decisions must use this, never the cached projection row: the Record is the authority."""
-        try:
-            cached: SkillItem | None = self.get_skill(skill_id)
-            stream_id = cached.stream_id
-        except SkillNotFoundError:  # projection row missing (crash after the registration Record): locate it from the Records
-            cached = None
-            found = self._find_stream(skill_id=skill_id)
-            if found is None:
-                raise
-            stream_id = found
-        skills, _caps, _n = self._fold(self._stream_records(stream_id), accepted)
-        state = skills.get(skill_id)
-        if state is None:
-            raise SkillNotFoundError(f"Skill {skill_id!r} has no authoritative Records in stream {stream_id!r}")
-        item = self._skill_from_state(state)
-        if item != cached:
-            self._save_skill_projection(item)
-        return item
+        return cast(SkillItem, authoritative_item(
+            get_cached=lambda: self.get_skill(skill_id), locate=lambda: self._find_stream(skill_id=skill_id),
+            replay=lambda stream_id: self._fold(stream_records(self.store, stream_id), accepted)[0].get(skill_id),
+            build=self._skill_from_state, save=self._save_skill_projection, not_found=SkillNotFoundError, what="Skill", identity=skill_id))
 
     def _authoritative_capability(self, capability_id: str, accepted: set[str] | None = None) -> CapabilityItem:
-        try:
-            cached: CapabilityItem | None = self.get_capability(capability_id)
-            stream_id = cached.stream_id
-        except CapabilityNotFoundError:
-            cached = None
-            found = self._find_stream(capability_id=capability_id)
-            if found is None:
-                raise
-            stream_id = found
-        _skills, caps, _n = self._fold(self._stream_records(stream_id), accepted)
-        state = caps.get(capability_id)
-        if state is None:
-            raise CapabilityNotFoundError(f"Capability {capability_id!r} has no authoritative Records in stream {stream_id!r}")
-        item = self._capability_from_state(state)
-        if item != cached:
-            self._save_capability_projection(item)
-        return item
+        return cast(CapabilityItem, authoritative_item(
+            get_cached=lambda: self.get_capability(capability_id), locate=lambda: self._find_stream(capability_id=capability_id),
+            replay=lambda stream_id: self._fold(stream_records(self.store, stream_id), accepted)[1].get(capability_id),
+            build=self._capability_from_state, save=self._save_capability_projection, not_found=CapabilityNotFoundError,
+            what="Capability", identity=capability_id))
 
     @staticmethod
     def _skill_from_state(sk: dict[str, Any]) -> SkillItem:

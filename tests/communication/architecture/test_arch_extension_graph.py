@@ -25,8 +25,8 @@ ALLOWED: dict[str, set[str]] = {
     "diag_watch": {"diag"},
     # M2
     "host": {"manifest", "sqlite_tx"},
-    "work": {"sqlite_tx"},
-    "skills": {"boundary", "sqlite_tx"},
+    "work": {"authoritative", "sqlite_tx"},
+    "skills": {"authoritative", "boundary", "sqlite_tx"},
     "artifact": {"boundary"},
     # M3
     "a2a": {"a2a_journal"},  # one A2A unit: the adapter lazily uses its durable journal
@@ -90,7 +90,7 @@ def test_extension_import_graph_matches_the_documented_allowlist():
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
     m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
           "quota_types", "diag", "diag_quota", "diag_watch", "peer_kinds", "schema_guard", "adapters"}
-    helpers = {"sqlite_tx", "boundary", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules
+    helpers = {"sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:
             continue
