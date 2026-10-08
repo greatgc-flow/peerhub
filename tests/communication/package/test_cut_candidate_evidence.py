@@ -1,5 +1,5 @@
 """Cutover gate item 6: candidate-matched verification. Evidence must be a current PASS bound to the exact candidate
-(source revision, package digests, selector default, policy, gate definitions); freshness comes ONLY from the policy file.
+(source revision, package digests, policy, gate definitions); freshness comes ONLY from the policy file.
 Synthetic JUnit + a fake dist directory keep this fast; oracles are literal expectations, not the tool's own functions."""
 import json
 import re
@@ -51,17 +51,6 @@ def release_policy(tmp_path, name, ttl="keep", **over):
     f = tmp_path / name
     f.write_text(json.dumps(p, indent=2), encoding="utf-8")
     return f
-
-
-def alt_repo(tmp_path, selector="m1"):
-    """A minimal repo root whose shipped selector default differs (stamps evidence for a different candidate)."""
-    root = tmp_path / "altrepo"
-    for rel in (ev.POLICY_REL, ev.GATES_REL):
-        (root / rel).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(REPO / rel, root / rel)
-    (root / ev.SELECTOR_SOURCE).parent.mkdir(parents=True, exist_ok=True)
-    (root / ev.SELECTOR_SOURCE).write_text(f'DEFAULT_CLI_SELECTOR = "{selector}"\n', encoding="utf-8")
-    return root
 
 
 class Env:
@@ -165,7 +154,7 @@ def holds(m):
 def test_cut_010_positive_control_current_bound_all_green_is_release_ready(env):
     m = env.manifest([env.evidence(age=60)])
     assert m["blockers"] == [] and m["hold_reasons"] == [] and m["release_ready"] is True
-    assert re.fullmatch(r"[0-9a-f]{64}", m["candidate"]["candidate_id"]) and m["candidate"]["selector_default"] == "core"
+    assert re.fullmatch(r"[0-9a-f]{64}", m["candidate"]["candidate_id"])
     assert m["candidate"]["source_revision"] == SHA and len(m["candidate"]["package_sha256"]) == 2
     assert [b["status"] for b in m["evidence_bindings"]] == ["accepted"]
 
@@ -178,15 +167,13 @@ def test_cut_011_stale_evidence_holds_with_an_explicit_reason(env):
     assert env.manifest([env.evidence(age=ttl - 5)])["release_ready"] is True  # just inside the window
 
 
-@pytest.mark.parametrize("what,field", [("sha", "source_revision"), ("wheel", "package_sha256"), ("selector", "selector_default"),
+@pytest.mark.parametrize("what,field", [("sha", "source_revision"), ("wheel", "package_sha256"),
                                          ("policy", "policy_sha256")])
 def test_cut_012_evidence_for_another_candidate_is_rejected(env, tmp_path, what, field):
     if what == "sha":
         j = env.evidence(commit="b" * 40)
     elif what == "wheel":
         j = env.evidence(dist=make_dist(tmp_path / "otherdist", b"another-wheel"))
-    elif what == "selector":
-        j = env.evidence(repo=alt_repo(tmp_path))
     else:
         j = env.evidence(policy=policy_with(tmp_path, "other-policy.json", on_timeout="ESCALATE"))
     m = env.manifest([j])
@@ -237,11 +224,11 @@ def test_cut_016_missing_or_invalid_release_policy_threshold_is_refused(env, tmp
 
 
 def test_cut_017_candidate_id_is_deterministic_and_sensitive_to_every_field(env):
-    base = dict(commit=SHA, package_sha256=["1" * 64, "2" * 64], selector="legacy", policy_path=POLICY, gates_path=REPO / ev.GATES_REL)
+    base = dict(commit=SHA, package_sha256=["1" * 64, "2" * 64], policy_path=POLICY, gates_path=REPO / ev.GATES_REL)
     f = ev.candidate_fields(**base)
     cid = ev.candidate_id(f)
     assert cid == ev.candidate_id(ev.candidate_fields(**{**base, "package_sha256": ["2" * 64, "1" * 64]}))  # order-independent, deterministic
-    for k, v in (("commit", "c" * 40), ("package_sha256", ["1" * 64, "3" * 64]), ("selector", "m1")):
+    for k, v in (("commit", "c" * 40), ("package_sha256", ["1" * 64, "3" * 64])):
         assert ev.candidate_id(ev.candidate_fields(**{**base, k: v})) != cid, k
     assert ev.candidate_id({**f, "policy_sha256": "0" * 64}) != cid
     assert ev.candidate_id({**f, "gate_definition_sha256": "0" * 64}) != cid

@@ -39,4 +39,4 @@
 6. orphan/dangling test = 0
 7. package validator PASS
 
-현재 baseline: **88 requirements / 210 tests**.
+현재 baseline: **85 requirements / 205 tests**.

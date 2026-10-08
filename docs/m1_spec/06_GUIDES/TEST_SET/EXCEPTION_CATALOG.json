@@ -652,39 +652,6 @@
       "trigger": ""
     },
     {
-      "id": "EX-083",
-      "category": "Migration",
-      "case": "legacy dry-run",
-      "status": "COVERED",
-      "tests": [
-        "IMP-001"
-      ],
-      "rationale": "",
-      "trigger": ""
-    },
-    {
-      "id": "EX-084",
-      "category": "Migration",
-      "case": "legacy repeated import",
-      "status": "COVERED",
-      "tests": [
-        "IMP-003"
-      ],
-      "rationale": "",
-      "trigger": ""
-    },
-    {
-      "id": "EX-085",
-      "category": "Migration",
-      "case": "malformed legacy row",
-      "status": "COVERED",
-      "tests": [
-        "IMP-004"
-      ],
-      "rationale": "",
-      "trigger": ""
-    },
-    {
       "id": "EX-086",
       "category": "Release",
       "case": "artifact missing runtime data",
@@ -729,17 +696,6 @@
         "REL-006"
       ],
       "rationale": "Required live gate fails/holds publish rather than being treated as success.",
-      "trigger": ""
-    },
-    {
-      "id": "EX-090",
-      "category": "Cutover",
-      "case": "legacy command missing disposition",
-      "status": "COVERED",
-      "tests": [
-        "REL-012"
-      ],
-      "rationale": "",
       "trigger": ""
     },
     {

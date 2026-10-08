@@ -7,8 +7,8 @@
   "files": [
     {
       "path": "01_M1/ACCEPTANCE_DOD.md",
-      "bytes": 2179,
-      "sha256": "a768c432b6f7b0251dfa2b5ba36bae5bea385697a9a787099c4d3ab2edf007db"
+      "bytes": 2194,
+      "sha256": "c51b75f2e76d2cea2a35ecf177dada38cba5fb9eb7833266278bb418dfc317ba"
     },
     {
       "path": "01_M1/BOUNDARY_MAP.md",
@@ -37,8 +37,8 @@
     },
     {
       "path": "01_M1/MIGRATION_CUTOVER.md",
-      "bytes": 569,
-      "sha256": "081ff7a7abf5a84ec058d109e1e8726a870b9f6cd5f74cb9920ae5c22b42ce81"
+      "bytes": 609,
+      "sha256": "aede42695a2eae4ed17a392d81219915a2200c4099e291f7405d3022094bdc05"
     },
     {
       "path": "01_M1/OBSERVATION_AND_DIAG.md",
@@ -69,16 +69,6 @@
       "path": "01_M1/STREAM_RECORD_OFFSET.md",
       "bytes": 848,
       "sha256": "5ec8b4a4a6b553b5b4f5dc35bc560fa6cc118448658803fb519644bfce7f890b"
-    },
-    {
-      "path": "02_EXTENSIONS/109_COMMAND_DISPOSITION.csv",
-      "bytes": 14470,
-      "sha256": "2b9b2230e75d42951431b3028b8de250c90a59318ab1a5e1425db911c122dae7"
-    },
-    {
-      "path": "02_EXTENSIONS/109_COMMAND_DISPOSITION.md",
-      "bytes": 17028,
-      "sha256": "d1b1fc5de038b052c606a8f242e892420e1ea0cdae07443162d5d1272fcaa55a"
     },
     {
       "path": "02_EXTENSIONS/EXTENSION_CATALOG.md",
@@ -217,18 +207,18 @@
     },
     {
       "path": "06_GUIDES/TEST_SET/BOUNDARY_EXCEPTION_MATRIX.md",
-      "bytes": 8161,
-      "sha256": "8ea8d14e301cb452725583949ee7dfc169a326bbf91c8ecd226a19be3c70c434"
+      "bytes": 7873,
+      "sha256": "92c0dc5b4bed72af2a69d2f83141d9c7ab608c0968179fce6bbfac5838c84acd"
     },
     {
       "path": "06_GUIDES/TEST_SET/EXCEPTION_CATALOG.json",
-      "bytes": 22278,
-      "sha256": "0544e576042f0bcb771db8a235af988e6b8c37a422276d867b51bb6f1bb4d9cf"
+      "bytes": 21398,
+      "sha256": "bf5b9d449604dd4ef56d3790109eff76125623cf2a78f6905f2546ee4efa6eee"
     },
     {
       "path": "06_GUIDES/TEST_SET/FAULT_INJECTION_MATRIX.md",
-      "bytes": 3418,
-      "sha256": "ca2e2a11aeadb8ad08a24333392ab74b93ce446b6339fadbd440ca2b8b816898"
+      "bytes": 3222,
+      "sha256": "fbd6c0116fcd73ed3a25dd0b224d98eae1bc53dfa572efc138a82a2eb8fc47c9"
     },
     {
       "path": "06_GUIDES/TEST_SET/FIXTURES_FAKES_HARNESS.md",
@@ -237,8 +227,8 @@
     },
     {
       "path": "06_GUIDES/TEST_SET/INTERACTION_MATRIX.json",
-      "bytes": 8566,
-      "sha256": "ab73d914ef350652b793fa30aae045bcb6baff1c35a89600c114a0df2af6ee21"
+      "bytes": 8166,
+      "sha256": "b0182292f681f680b13000d3304fdd49362b7467df73bb7b75ba76ed6a86440d"
     },
     {
       "path": "06_GUIDES/TEST_SET/PYTEST_LAYOUT_AND_COMMANDS.md",
@@ -248,7 +238,7 @@
     {
       "path": "06_GUIDES/TEST_SET/README.md",
       "bytes": 1670,
-      "sha256": "50443650d6731259ec60c18e6034cab466f92c19c8a2611da6173c419ac28f17"
+      "sha256": "8476a91285f165b9c2b0e36c343610963790499c9b473af1c6da90528cf1e048"
     },
     {
       "path": "06_GUIDES/TEST_SET/RECURSIVE_MECE_MODEL.json",
@@ -258,7 +248,7 @@
     {
       "path": "06_GUIDES/TEST_SET/RECURSIVE_MECE_MODEL.md",
       "bytes": 1307,
-      "sha256": "b8da1b13234999f67d4de1472454d7eefbf21786615164fa76ba4564ed9c145c"
+      "sha256": "4cde48934c0fd0e717d6a6bfeb935d215f3e423560ccf07cc62175b3567228a4"
     },
     {
       "path": "06_GUIDES/TEST_SET/RED_SEQUENCE.md",
@@ -277,13 +267,13 @@
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_CASE_CATALOG.csv",
-      "bytes": 74367,
-      "sha256": "a9e833e5531de794ab762adaf6bd8ea0708a17f32ed678314a4ab1a765a8d344"
+      "bytes": 72649,
+      "sha256": "0a075d8904204a1340c6dfe6425965f42d7ee3eb827704ddd659809b8fc6c2f9"
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_CASE_CATALOG.md",
-      "bytes": 101506,
-      "sha256": "30c8c474c93f53b861b524b0cb59fff77781d45fcf309b25931ca15aa9207d67"
+      "bytes": 99137,
+      "sha256": "a58de04849cf7a1728566fd6baae67fcc32a7de431acfc01c0d5e6e0dd2d00a0"
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
@@ -297,28 +287,28 @@
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json",
-      "bytes": 24724,
-      "sha256": "08810fc465996702bdf4b6330c4981e1ef233364a9d0c4a0aad655a64438106f"
+      "bytes": 24135,
+      "sha256": "96a95defacb000097ccfa5df74fd0b7983aadbab083f223e7330f885101a7177"
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MATRIX.md",
-      "bytes": 2932,
-      "sha256": "097d1c51c2b2bf12c5e79b4931677067be7d81356e8d7572e6b3df6a1c2991c5"
+      "bytes": 2877,
+      "sha256": "9a81becb1c44031f055e4dc88a089fdc39b351c12f58fb8bd800463a9a8e402f"
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_STRATEGY.md",
       "bytes": 2387,
-      "sha256": "5390df5cd508731e2bbf71af95d9d25710a10375527278cc0385c45837e05ffb"
+      "sha256": "0b4e7ba886c6377cc54532f26f8c08faebedddcbcfe303de4cedfcfc76adb63e"
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_TRACEABILITY_MATRIX.csv",
-      "bytes": 27501,
-      "sha256": "c18f7b5ab9f00e3a6d2b6c2c2118f8dc7f28377aad371ab1b941368c466dbc59"
+      "bytes": 26605,
+      "sha256": "75312e41095cec003b760abe764a83f84b9e829bb1d44bd6ee70bf34318719f4"
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_TRACEABILITY_MATRIX.md",
-      "bytes": 7635,
-      "sha256": "3851ac4f7f0ea92d8b2301a9130cce0816b2377479e3a76e78bacd3aaaf41eda"
+      "bytes": 7409,
+      "sha256": "9f49b205b547279352b0a0d8f24aa29c4b3f207a473d92b913d87eb662a3f16a"
     },
     {
       "path": "06_GUIDES/TEST_SET/exception-catalog.schema.json",
@@ -337,8 +327,8 @@
     },
     {
       "path": "06_GUIDES/TEST_SET/requirements.json",
-      "bytes": 50796,
-      "sha256": "6fa7e526d49279dd3f92b332d9e22d7e33d98d3ba334d010bdb6564c4951952d"
+      "bytes": 49066,
+      "sha256": "1ec28c2fd5880684236cfbecb90dc5aed8548a7f77583d5d6abfc93b9ae7315e"
     },
     {
       "path": "06_GUIDES/TEST_SET/requirements.schema.json",
@@ -352,8 +342,8 @@
     },
     {
       "path": "06_GUIDES/TEST_SET/test-catalog.json",
-      "bytes": 175524,
-      "sha256": "df5fd02e303ce73e2c1486c2ef6d0ffff71a3aaffceb87c829cb7e0b06ff0751"
+      "bytes": 171469,
+      "sha256": "8be73eaa053af273b97bcb0ebcc5513ee752e3194bcb0541de9144db70cce0ba"
     },
     {
       "path": "06_GUIDES/TEST_SET/test-catalog.schema.json",
@@ -427,8 +417,8 @@
     },
     {
       "path": "08_LIFECYCLE/INVARIANT_CATALOG.md",
-      "bytes": 1373,
-      "sha256": "727f32f841d8663631c6351f97f61ab2700b9c9fb75e3fad5f0d303372b8761b"
+      "bytes": 1347,
+      "sha256": "413f891c5c83088cb13b282846223bfb495e39c67747acd117fef16f7c571505"
     },
     {
       "path": "08_LIFECYCLE/OPERATIONS_OBSERVABILITY_SLO.md",
@@ -497,8 +487,8 @@
     },
     {
       "path": "08_LIFECYCLE/closed-loop.json",
-      "bytes": 5840,
-      "sha256": "fc8d126389f387761ab883e1a0004c9caf3f4a0fab69e269c94aa8bea85901c0"
+      "bytes": 5794,
+      "sha256": "784709e8ab172994c1d7194c5e63ebb09894459e3d53930d0a1c2004c490a2d2"
     },
     {
       "path": "08_LIFECYCLE/closed-loop.schema.json",
@@ -542,8 +532,8 @@
     },
     {
       "path": "09_ROADMAP/M1_PUBLIC_CLI_CUTOVER_GATE.md",
-      "bytes": 1511,
-      "sha256": "0423eb38d6dff0e6b82e0580765d0f6ada21e7c4250947f9c75fe1e655d70a64"
+      "bytes": 1499,
+      "sha256": "ed659ef30e2da1585b714b081f722ed25509afce40a2e4fa430a4060eb6b615d"
     },
     {
       "path": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
@@ -583,7 +573,7 @@
     {
       "path": "09_ROADMAP/PEERHUB_MASTER_ROADMAP_KO.md",
       "bytes": 7278,
-      "sha256": "5a8be2a437f402f3d01f9d6aee741a95413b251252cf2dd2199689b5f4c55888"
+      "sha256": "ccd0f526966ab69b8ad2aa85f28177707e2d31ea6b09713bc81201de38d5b193"
     },
     {
       "path": "09_ROADMAP/README.md",
@@ -612,8 +602,8 @@
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/CONFORMANCE_MATRIX.md",
-      "bytes": 2722,
-      "sha256": "e9703ca874ea57be1354f2249a15f61ea3fb6f9442c0eb2d212a95e74dddbe0b"
+      "bytes": 2737,
+      "sha256": "eaf0e84faed30b53d831c72ce6e32502bb8852dba1e31d95995317062de613aa"
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/STANDARDIZATION_EXCEPTIONS.md",
@@ -637,8 +627,8 @@
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/product-conformance.json",
-      "bytes": 5846,
-      "sha256": "65d5a475bd1572afbfa28dbc411323239c5fb505b49190ac5ddf07a4fb306730"
+      "bytes": 5861,
+      "sha256": "fe5ab89f9063937460df54f93db3c468b8271997b30c41263eb8d59a7535c17b"
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/product-conformance.schema.json",
@@ -667,8 +657,8 @@
     },
     {
       "path": "FINAL_M1_DECISION_KO.md",
-      "bytes": 3898,
-      "sha256": "222f6641d97279daa4b071076b8772b64426e53ea761e692764627a2eabb619d"
+      "bytes": 3925,
+      "sha256": "70548af0b562a4bab61009c5aa4b73f8e9d2dec628c6e0340e48f125139c40ed"
     },
     {
       "path": "FINAL_ROADMAP_DECISION_KO.md",
@@ -677,8 +667,8 @@
     },
     {
       "path": "START_HERE_KO.md",
-      "bytes": 2874,
-      "sha256": "eecc1b9a25e9591deda89f4420da28d523fe441fd9100bcc39686932f83202a1"
+      "bytes": 2759,
+      "sha256": "478af802040c0989cbf2444f896306a22afc15df727e92d05fdcf2a7634b917e"
     },
     {
       "path": "USAGE_GUIDE_KO.md",
@@ -697,8 +687,8 @@
     },
     {
       "path": "tools/validate_package.py",
-      "bytes": 39393,
-      "sha256": "75afb1ce244415c4bd89da6bdada12ecd4a885cad5ccba453c720c90b33e0bb1"
+      "bytes": 35620,
+      "sha256": "32fd6073b78181021d2a664b324672480ae25083b203c96217629c6e62f2a9e4"
     },
     {
       "path": "tools/validate_unified_conformance.py",

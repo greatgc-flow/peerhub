@@ -63,14 +63,10 @@
 | EX-080 | Migration | interrupted schema migration | **COVERED** | MIG-001 |
 | EX-081 | Migration | supported upgrade | **COVERED** | MIG-002 |
 | EX-082 | Migration | future major/unsupported downgrade | **COVERED** | MIG-003 |
-| EX-083 | Migration | legacy dry-run | **COVERED** | IMP-001 |
-| EX-084 | Migration | legacy repeated import | **COVERED** | IMP-003 |
-| EX-085 | Migration | malformed legacy row | **COVERED** | IMP-004 |
 | EX-086 | Release | artifact missing runtime data | **COVERED** | REL-008, REL-009 |
 | EX-087 | Release | undeclared dev dependency | **COVERED** | REL-009 |
 | EX-088 | Release | declared Python/OS not tested | **COVERED** | REL-010, REL-011 |
 | EX-089 | Release | provider auth/quota unavailable | **COVERED** | LIVE-004, REL-006 |
-| EX-090 | Cutover | legacy command missing disposition | **COVERED** | REL-012 |
 | EX-100 | Resource | very large Stream/cardinality | **COVERED** | SOAK-001, SOAK-002 |
 | EX-101 | Resource | true process OOM by host exhaustion | **OUT_OF_SCOPE** | Add isolated chaos/soak environment if production SLO requires OOM behavior certification. |
 | EX-102 | Security | credential/secret redaction in arbitrary Observation payload | **DEFERRED** | Define sensitivity metadata/redaction policy before exposing Diag/evidence outside trusted local boundary. |

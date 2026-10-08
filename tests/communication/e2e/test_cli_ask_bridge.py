@@ -52,7 +52,6 @@ def test_default_cli_ask_has_no_legacy_import(tmp_path, monkeypatch, capsys):
     real_ask = module.ask
     monkeypatch.setattr(module, "ask", lambda *a, **kw: real_ask(*a, **kw, runtime=FakeRuntimeTarget()))
     assert not hasattr(cli, "legacy_main")
-    monkeypatch.delenv("PEERHUB_CLI", raising=False)
     assert cli.main(["--db", str(tmp_path / "core.db"), "ask", "cx", "hello", "--json"]) == 0
     assert '"certainty": "TERMINAL"' in capsys.readouterr().out
 

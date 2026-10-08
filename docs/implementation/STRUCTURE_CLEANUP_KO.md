@@ -1,4 +1,6 @@
 # 제품 구조 정리와 v0 retirement
+> **2026-10-08:** `core.legacy_import`, 그 frozen fixture와 importer 테스트, `PEERHUB_CLI` selector는 모두 제거되었다. 단일 `peerhub` CLI만 남고, v0 소스는 Git 브랜치 `legacy/v0-main-final`에서만 접근한다. 아래 서술은 당시 기록이다.
+
 
 ## 판단 기준
 

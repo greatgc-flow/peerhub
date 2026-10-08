@@ -1,4 +1,6 @@
 # diag / ask 확장 이관 — 수정된 작업 기준
+> **2026-10-08:** `core.legacy_import`, 그 frozen fixture와 importer 테스트, `PEERHUB_CLI` selector는 모두 제거되었다. 단일 `peerhub` CLI만 남고, v0 소스는 Git 브랜치 `legacy/v0-main-final`에서만 접근한다. 아래 서술은 당시 기록이다.
+
 
 이 문서는 1차 이관 기록이다. 이후 v0 retirement와 역할 기반 경로 정리는 [현재 구조 정리](STRUCTURE_CLEANUP_KO.md)를 따른다. 아래의 "잔여" 항목은 당시 상태이며 현재 제품에 v0 runtime이 남아 있다는 뜻이 아니다.
 

@@ -3,12 +3,12 @@
 이 디렉터리는 구현 전에 RED를 작성할 수 있는 **machine-readable test contract**입니다.
 
 ## 핵심 SSOT
-- `requirements.json` — **88 requirements** + required dimensions
-- `test-catalog.json` — **210 concrete tests**
+- `requirements.json` — **85 requirements** + required dimensions
+- `test-catalog.json` — **205 concrete tests**
 - `RECURSIVE_MECE_MODEL.json/.md` — 테스트 공간 분할/종료 조건
 - `STATE_MACHINE_COVERAGE.json` — 상태 전이/금지 전이 coverage
-- `EXCEPTION_CATALOG.json` — **89** 예외/경계/장애 terminal disposition
-- `INTERACTION_MATRIX.json` — **36** high-risk cross-feature interactions
+- `EXCEPTION_CATALOG.json` — **85** 예외/경계/장애 terminal disposition
+- `INTERACTION_MATRIX.json` — **34** high-risk cross-feature interactions
 
 ## 사람이 읽는 View
 - `TEST_TRACEABILITY_MATRIX.*`
@@ -26,8 +26,8 @@
 5. P0 required dimension은 live를 제외하고 P0 deterministic evidence가 있어야 합니다.
 6. META tests + package validator가 테스트셋 자체 drift를 차단합니다.
 
-현재 baseline: **88 requirements / 210 tests / OPEN exception 0 / uncovered required interaction 0**.
+현재 baseline: **85 requirements / 205 tests / OPEN exception 0 / uncovered required interaction 0**.
 
 ## Release gate traceability
 
-`TEST_RELEASE_GATE_MAP.json`이 210개 테스트를 primary release gate에 1:1 배정합니다. Gate dependency는 `../../08_LIFECYCLE/release-gates.json`이 정의합니다.
+`TEST_RELEASE_GATE_MAP.json`이 205개 테스트를 primary release gate에 1:1 배정합니다. Gate dependency는 `../../08_LIFECYCLE/release-gates.json`이 정의합니다.

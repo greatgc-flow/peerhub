@@ -1017,30 +1017,6 @@
       "tier": "property"
     },
     {
-      "test_id": "IMP-001",
-      "primary_gate": "G1",
-      "priority": "P1",
-      "tier": "migration"
-    },
-    {
-      "test_id": "IMP-002",
-      "primary_gate": "G1",
-      "priority": "P1",
-      "tier": "migration"
-    },
-    {
-      "test_id": "IMP-003",
-      "primary_gate": "G1",
-      "priority": "P1",
-      "tier": "migration"
-    },
-    {
-      "test_id": "IMP-004",
-      "primary_gate": "G1",
-      "priority": "P1",
-      "tier": "fault"
-    },
-    {
       "test_id": "REL-008",
       "primary_gate": "G4",
       "priority": "P0",
@@ -1060,12 +1036,6 @@
     },
     {
       "test_id": "REL-011",
-      "primary_gate": "G4",
-      "priority": "P0",
-      "tier": "package"
-    },
-    {
-      "test_id": "REL-012",
       "primary_gate": "G4",
       "priority": "P0",
       "tier": "package"

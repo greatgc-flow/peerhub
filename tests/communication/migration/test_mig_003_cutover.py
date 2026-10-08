@@ -1,5 +1,5 @@
-"""Wave 7: MIG-003 future major schema / unsupported downgrade fail explicitly + side-by-side cutover and rollback rules
-(MIGRATION_CUTOVER.md; RELEASE_PROMOTION_ROLLBACK.md "Rollback" principles 1-4)."""
+"""Wave 7: MIG-003 future major schema / unsupported downgrade fail explicitly; the retired runtime packages stay absent
+(MIGRATION_CUTOVER.md)."""
 import hashlib
 import json
 import sqlite3
@@ -11,8 +11,7 @@ from peerhub.core.migrations import CURRENT_VERSION, SchemaVersionError, run_mig
 from peerhub.core.models import Peer
 from peerhub.core.store import CoreStore
 from peerhub.core.workspace import SnapshotInvalidError, Workspace
-from tests.communication.harness.legacy_fixture import make_legacy, raw_dump, tree_fingerprint
-from tests.communication.harness.migration_fixtures import FIXTURE_MIGRATIONS
+from tests.communication.harness.migration_fixtures import FIXTURE_MIGRATIONS, tree_fingerprint
 
 pytestmark = [pytest.mark.migration, pytest.mark.compatibility]
 
@@ -125,12 +124,12 @@ def test_mig_003_cli_reports_future_schema_with_a_dedicated_exit_code_and_no_wri
     assert main(["--db", str(ok), "peer", "get", "--peer", "p1"]) == 0
 
 
-# ------------------------------------------------------------------ cutover (side-by-side, MIGRATION_CUTOVER.md)
+# ------------------------------------------------------------------ cutover (single package, MIGRATION_CUTOVER.md)
 LEGACY_PACKAGES = ["adapters", "application", "dispatch", "events", "governance", "health",
                    "persistence", "routing", "state", "telemetry", "m1", "m2", "m3"]
 
 
-def test_mig_003_retired_runtime_is_absent_but_user_data_importer_is_available():
+def test_mig_003_retired_runtime_is_absent():
     import importlib
 
     import peerhub
@@ -140,36 +139,3 @@ def test_mig_003_retired_runtime_is_absent_but_user_data_importer_is_available()
         assert not (root / pkg).exists(), pkg
         with pytest.raises(ModuleNotFoundError):
             importlib.import_module(f"peerhub.{pkg}")
-    assert importlib.import_module("peerhub.core.legacy_import").LegacyImporter
-
-
-def test_mig_003_rollback_after_cutover_discards_m1_target_and_legacy_source_is_still_usable(tmp_path):
-    """Rollback principle: binary and data rollback are separate; the importer never touches the legacy store, so rolling
-    back to v0 is 'stop using the M1 target' -- the legacy database is still a valid, complete, openable v0 store."""
-    from peerhub.core.legacy_import import LegacyImporter
-
-    src = make_legacy(_in(tmp_path, "legacy", "l.db"))
-    before = tree_fingerprint(src.parent)
-    target = tmp_path / "m1" / "core.db"
-    LegacyImporter(src, target).apply()
-    target.unlink()  # roll back the cutover: drop the M1 data only
-    assert tree_fingerprint(src.parent) == before
-    home_id = raw_dump(src, "workspace_identity", "singleton", "workspace_home_id")[0][0]  # identity the legacy runtime bound
-    assert home_id and len(home_id) == 32  # frozen generated identity survives without a legacy runtime
-    assert raw_dump(src, "event_log", "outbox_position", "event_id") == [("e1",), ("e2",), ("e3",)]
-    # and a re-cutover after the rollback is a clean, complete import again
-    rep = LegacyImporter(src, target).apply()
-    assert rep["totals"]["imported_units"] == 2
-
-
-def test_mig_003_importer_refuses_a_future_schema_m1_target_without_writes(tmp_path):
-    from peerhub.core.legacy_import import LegacyImporter
-
-    src = make_legacy(tmp_path / "l.db")
-    target = _make_db(_in(tmp_path, "m1", "core.db"), user_version=CURRENT_VERSION + 1)
-    before = tree_fingerprint(tmp_path)
-    for call in ("dry_run", "apply"):
-        with pytest.raises(SchemaVersionError):
-            getattr(LegacyImporter(src, target), call)()
-    assert tree_fingerprint(tmp_path) == before
-    assert json.dumps(raw_dump(target, "peers", "peer_id", "peer_id")) == '[["p1"]]'

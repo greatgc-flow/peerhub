@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import build_parser, main
-from tests.communication.harness.legacy_fixture import make_legacy
 from tests.communication.spec import ROOT
 from tools import command_inventory as inv
 
@@ -20,7 +19,7 @@ def test_inventory_file_equals_the_real_parser():
     committed = json.loads(inv.INVENTORY.read_text(encoding="utf-8"))
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
-        "ask", "diag health", "diag quota", "legacy-import apply", "legacy-import dry-run", "monitor", "observation refresh", "offset advance", "offset get", "peer get", "peer register",
+        "ask", "diag health", "diag quota", "monitor", "observation refresh", "offset advance", "offset get", "peer get", "peer register",
         "record append", "record read", "stream create", "stream show"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
@@ -261,31 +260,6 @@ def dq_json(e):
     assert e.run(q, "diag", "quota")[1].lstrip().startswith("quota/rate-limit evidence")  # not JSON without the flag
 
 
-def _legacy(e):
-    src = e.tmp / "legacy"
-    src.mkdir(exist_ok=True)
-    return make_legacy(src / f"legacy{e.n}.db")
-
-
-def li_source(e, cmd="dry-run"):
-    db, src = e.fresh(False), _legacy(e)
-    assert e.j(db, "legacy-import", cmd, "--source", str(src))["totals"]["imported_units"] >= 0 if cmd == "dry-run" else True
-    code, _, err = e.run(db, "legacy-import", cmd, "--source", str(e.tmp / "missing.db"))
-    assert code == 7 and "LEGACY IMPORT REFUSED" in err  # a different source changes the outcome
-
-
-def li_apply_source(e):
-    li_source(e, "apply")
-
-
-def li_digest(e):
-    db, src = e.fresh(False), _legacy(e)
-    plan = e.j(db, "legacy-import", "dry-run", "--source", str(src))["plan_digest"]
-    code, _, err = e.run(db, "legacy-import", "apply", "--source", str(src), "--plan-digest", "0" * len(plan))
-    assert code == 7 and "refused" in err.lower()
-    assert e.j(db, "legacy-import", "apply", "--source", str(src), "--plan-digest", plan)["totals"]["imported_units"] > 0
-
-
 EFFECT = {
     "* --db": x_db,
     "peer register --peer": reg_id, "peer register --name": reg_name, "peer register --adapter": reg_adapter, "peer get --peer": get_id,
@@ -297,7 +271,6 @@ EFFECT = {
     "offset advance --position": oa_position, "offset advance --revision": oa_revision,
     "diag health --stream": dh_stream, "diag health --observation-db": dh_obsdb,
     "diag quota --observation-db": dq_obsdb, "diag quota --peer": dq_peer, "diag quota --pool": dq_pool, "diag quota --json": dq_json,
-    "legacy-import dry-run --source": li_source, "legacy-import apply --source": li_apply_source, "legacy-import apply --plan-digest": li_digest,
 }
 
 from tests.communication.e2e.cli_extension_effects import EFFECT as EXTENSION_EFFECT
@@ -349,7 +322,7 @@ def test_leaf_help_exit_zero_lists_every_option_and_unknown_option_exits_2(leaf,
 
 def test_root_help_and_bad_invocations(capsys):
     code, out, err = run(capsys, "x.db", "--help")
-    assert code == 0 and all(w in out for w in ("peer", "stream", "record", "offset", "diag", "legacy-import"))
+    assert code == 0 and all(w in out for w in ("peer", "stream", "record", "offset", "diag"))
     code, out, err = run(capsys, "x.db")
     assert code == 2 and "required" in err and "Traceback" not in err
     code, out, err = run(capsys, "x.db", "diag", "nonsense")

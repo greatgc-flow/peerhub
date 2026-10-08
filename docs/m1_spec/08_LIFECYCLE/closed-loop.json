@@ -236,9 +236,7 @@
       "on_breach": "HOLD_OR_ROLLBACK",
       "requirements": [
         "REQ-MIG-001",
-        "REQ-MIG-002",
-        "REQ-IMP-001",
-        "REQ-IMP-002"
+        "REQ-MIG-002"
       ]
     }
   ],

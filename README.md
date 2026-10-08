@@ -54,7 +54,7 @@ The store is `.peerhub/core.db`. Discovery picks the nearest one (current direct
 
 Use global `--db PATH` before the command, or `PEERHUB_DB`, to select a store explicitly. An explicit missing path is never redirected to another store. `ask --workspace DIR` uses that directory's store unless a database was explicitly selected. Read-only commands do not create a missing store.
 
-`legacy-import dry-run/apply --source OLD_DB` remains available for v0 data. It never modifies the source. The v0 runtime, its tests and tools are retired; `PEERHUB_CLI=legacy` returns a migration message. Source rollback is available on `legacy/v0-main-final`, separate from current data.
+The v0 runtime, its importer, the `PEERHUB_CLI` selector and the 109-command table were removed (2026-10-08); the v0 source is kept only on the Git branch `legacy/v0-main-final`.
 
 ## Package structure
 

@@ -45,7 +45,7 @@ def flip_one_byte(p):
 def test_rel_004_validator_passes_on_the_package_and_generated_views_have_not_drifted(pkg_copy):
     cp = validate(pkg_copy)
     assert cp.returncode == 0 and "RESULT=PASS" in cp.stdout.splitlines(), cp.stdout[-2000:]
-    for line in ("legacy_commands=109", "m1_tests=210", "gate_mapped_tests=210"):
+    for line in ("m1_tests=205", "gate_mapped_tests=205"):
         assert line in cp.stdout.splitlines(), line
     def view(n):  # generate_docs.py writes via write_text: newline translation is platform behaviour, not drift
         return (pkg_copy / "03_STANDARDS" / n).read_bytes().replace(b"\r\n", b"\n").strip()
@@ -68,7 +68,7 @@ def test_rel_004_source_version_matches_built_metadata_and_schema_copies_match_t
         for n in names:
             assert sha(REPO / f"peerhub/{pkg}/schemas/{n}.schema.json") == sha(spec / f"{n}.schema.json"), (pkg, n)  # no source/spec drift
     cat = json.loads((SPEC / "06_GUIDES/TEST_SET/test-catalog.json").read_text(encoding="utf-8"))
-    assert cat["count"] == len(cat["tests"]) == 210
+    assert cat["count"] == len(cat["tests"]) == 205
 
 
 # ----------------------------------------------------------------------------------------------------- REL-013

@@ -14,9 +14,5 @@ New M1 Core      -> side-by-side vertical slice
 4. fake Bridge.
 5. real CC/CX/AG.
 6. pause/resume/crash/catch-up.
-7. explicit importer for 꼭 필요한 data만.
-8. compatibility aliases 판단.
-9. cutover.
-10. old data retention 별도 결정.
-
-기존 기능은 삭제 전 109/109 disposition을 유지합니다.
+7. cutover (2026-10-08: 단일 `peerhub` 진입점만 남음; v0 import/selector/disposition 표는 제거됨, 과거 v0는 Git 보존 브랜치로만 접근).
+8. 이후 변경은 현재 Core schema 호환(MIG-001..003)만 보장합니다.

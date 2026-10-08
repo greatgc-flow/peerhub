@@ -27,7 +27,6 @@ ROOT = Path(__file__).resolve().parents[1]
 TEST_SET = ROOT / "docs/m1_spec/06_GUIDES/TEST_SET"
 POLICY_REL = "docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json"
 GATES_REL = "docs/m1_spec/08_LIFECYCLE/release-gates.json"
-SELECTOR_SOURCE = "peerhub/cli/selector.py"
 PROP = "candidate."  # JUnit <property> namespace written by stamp_junit
 # Binding properties every candidate-bound JUnit must carry. `id` is the holistic identity hash: a JUnit stamped without package digests
 # (gates G0-G3, produced before the build) carries the id of the identity WITHOUT package_sha256 ("source scope"); a JUnit stamped with
@@ -35,7 +34,7 @@ PROP = "candidate."  # JUnit <property> namespace written by stamp_junit
 # scope and requires equality, so a stripped or edited property, a forged id or swapped wheels all fail. Tests of the package gate (G4)
 # only count from package-scoped files.
 PACKAGE_GATE = "G4"
-REQUIRED_BINDING = ("source_revision", "selector_default", "policy_sha256", "gate_definition_sha256", "stamped_at", "id", "gate")
+REQUIRED_BINDING = ("source_revision", "policy_sha256", "gate_definition_sha256", "stamped_at", "id", "gate")
 
 
 def _sha(p: Path) -> str:
@@ -106,21 +105,14 @@ def junit_outcomes(paths: list[Path], ids: list[str]) -> dict[str, str]:
     return out
 
 
-def selector_default(root: Path = ROOT) -> str:
-    m = re.search(r"""DEFAULT_CLI_SELECTOR\s*(?::[^=]+)?=\s*["']([^"']+)["']""", (root / SELECTOR_SOURCE).read_text(encoding="utf-8"))
-    if not m:
-        raise ValueError(f"cannot parse DEFAULT_CLI_SELECTOR from {SELECTOR_SOURCE}")
-    return m.group(1)
-
-
 def _package_shas(dist_dir: Path) -> list[str]:
     return sorted(_sha(p) for p in Path(dist_dir).glob("*") if p.suffix == ".whl" or p.name.endswith(".tar.gz"))
 
 
-def candidate_fields(*, commit: str, package_sha256: list[str], selector: str, policy_path: Path, gates_path: Path) -> dict:
+def candidate_fields(*, commit: str, package_sha256: list[str], policy_path: Path, gates_path: Path) -> dict:
     """Cutover candidate identity: everything that makes evidence for one candidate invalid for another."""
     policy = json.loads(Path(policy_path).read_text(encoding="utf-8"))
-    return {"source_revision": commit, "package_sha256": sorted(package_sha256), "selector_default": selector,
+    return {"source_revision": commit, "package_sha256": sorted(package_sha256),
             "policy_schema_version": policy.get("schema_version"), "policy_sha256": _sha(Path(policy_path)),
             "gate_definition_sha256": _sha(Path(gates_path))}
 
@@ -165,13 +157,13 @@ def stamp_junit(path: Path, *, commit: str, gate: str, repo_root: Path = ROOT, d
     policy_path = Path(policy_path) if policy_path else Path(repo_root) / POLICY_REL
     if not re.fullmatch(r"G[0-9]", gate):
         raise ValueError(f"gate must look like G0..G9, not {gate!r}")
-    props = {"gate": gate, "source_revision": commit, "selector_default": selector_default(Path(repo_root)), "policy_sha256": _sha(policy_path),
+    props = {"gate": gate, "source_revision": commit, "policy_sha256": _sha(policy_path),
              "gate_definition_sha256": _sha(Path(repo_root) / GATES_REL),
              "stamped_at": (at or _now()).astimezone(timezone.utc).isoformat()}
     pkgs = _package_shas(dist_dir) if dist_dir is not None else []
     if dist_dir is not None:
         props["package_sha256"] = ",".join(pkgs)
-    fields = candidate_fields(commit=commit, package_sha256=pkgs, selector=props["selector_default"], policy_path=policy_path,
+    fields = candidate_fields(commit=commit, package_sha256=pkgs, policy_path=policy_path,
                               gates_path=Path(repo_root) / GATES_REL)
     props["id"] = candidate_id(scoped_fields(fields, dist_dir is not None))
     tree = ET.parse(path)
@@ -222,7 +214,7 @@ def assess_evidence(junit_paths: list[Path], cand: dict, ttl: int, skew: int, no
             continue
         pkg = "package_sha256" in props
         scope = "package" if pkg else "source"
-        diff = [k for k in ("source_revision", "selector_default", "policy_sha256", "gate_definition_sha256") if props[k] != cand[k]]
+        diff = [k for k in ("source_revision", "policy_sha256", "gate_definition_sha256") if props[k] != cand[k]]
         if pkg and props["package_sha256"] != ",".join(cand["package_sha256"]):
             diff.append("package_sha256")
         if props["id"] != candidate_id(scoped_fields(cand, pkg)):
@@ -266,7 +258,7 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
     if candidate:
         pol_path = Path(policy_path) if policy_path else Path(repo_root) / POLICY_REL
         pol = json.loads(pol_path.read_text(encoding="utf-8"))
-        fields = candidate_fields(commit=commit, package_sha256=_package_shas(dist_dir), selector=selector_default(Path(repo_root)),
+        fields = candidate_fields(commit=commit, package_sha256=_package_shas(dist_dir),
                                   policy_path=pol_path, gates_path=Path(repo_root) / GATES_REL)
         cid = candidate_id(fields)
         cand_block = {**fields, "candidate_id": cid}
