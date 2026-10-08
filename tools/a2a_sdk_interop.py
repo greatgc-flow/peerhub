@@ -2,7 +2,7 @@
 
 Needs a virtualenv with `a2a-sdk[http-server]` and uvicorn:  python -m tools.a2a_sdk_interop <path-to-that-venv-python>
 Starts tools/a2a_sdk_echo_server.py (SDK server classes, A2A 1.0 JSON-RPC on 127.0.0.1:18765), then drives HttpA2ATransport through
-SendMessage -> GetTask -> reconcile by messageId -> TASK_NOT_FOUND. Exit 1 on any mismatch.
+SendMessage -> GetTask -> reconcile by messageId -> TASK_NOT_FOUND, plus CancelTask. Exit 1 on any mismatch.
 """
 from __future__ import annotations
 
@@ -40,7 +40,14 @@ def main(argv: list[str]) -> int:
             raise AssertionError("an unknown remote task must raise")
         except A2ATaskUnknownToRemoteError:
             pass
-        print("PASS  a2a-sdk interop: SendMessage, GetTask, reconcile by messageId, TASK_NOT_FOUND")
+        held = adapter.dispatch_task(A2ATaskRequest("interop-hold", "sdk", "echo", {"text": "hold"}))
+        assert held.status in {"SUBMITTED", "RUNNING"}, held
+        cancelled = adapter.cancel_task("interop-hold")
+        assert cancelled.status == "CANCELLED", cancelled
+        remote = HttpA2ATransport().poll(card, cancelled, 10)
+        assert remote is not None and remote.status == "CANCELLED", remote
+        assert remote.external_ref.opaque_state.get("state") == "TASK_STATE_CANCELED", remote
+        print("PASS  a2a-sdk interop: SendMessage, GetTask, reconcile by messageId, TASK_NOT_FOUND, CancelTask")
         return 0
     except AssertionError as exc:
         print(f"FAIL  {exc}")

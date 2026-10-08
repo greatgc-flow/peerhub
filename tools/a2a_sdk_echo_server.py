@@ -1,7 +1,7 @@
 # Run: D:\PkgDev\_sys\data\temp\a2a_venv\Scripts\python.exe -B echo_server.py
 # A2A 1.0 JSON-RPC endpoint: http://127.0.0.1:18765/
 # Clients must send the HTTP header A2A-Version: 1.0.
-# Methods: SendMessage and GetTask; message.role is ROLE_USER.
+# Methods: SendMessage, GetTask and CancelTask; message.role is ROLE_USER.
 import sys
 
 sys.dont_write_bytecode = True
@@ -38,13 +38,19 @@ class EchoExecutor(AgentExecutor):
             raise ValueError("A message is required")
 
         contents = []
+        hold = False
         for part in message.parts:
             if part.HasField("text"):
                 contents.append(part.text)
+                hold = hold or part.text == "hold"
             elif part.HasField("data"):
+                data = MessageToDict(part.data)
+                input_parameters = data.get("input", {})
+                if isinstance(input_parameters, dict):
+                    hold = hold or input_parameters.get("text") == "hold"
                 contents.append(
                     json.dumps(
-                        MessageToDict(part.data),
+                        data,
                         ensure_ascii=False,
                         sort_keys=True,
                     )
@@ -60,6 +66,8 @@ class EchoExecutor(AgentExecutor):
 
         updater = TaskUpdater(event_queue, task.id, task.context_id)
         await updater.start_work()
+        if hold:
+            return
         await updater.add_artifact(
             [Part(text="echo: " + "\n".join(contents))],
             name="echo",
@@ -75,7 +83,7 @@ class EchoExecutor(AgentExecutor):
 
 card = AgentCard(
     name="Echo",
-    description="Completes each message with one echo text artifact.",
+    description="Echoes messages; holds input text 'hold' working until canceled.",
     version="1.0.0",
     supported_interfaces=[
         AgentInterface(
