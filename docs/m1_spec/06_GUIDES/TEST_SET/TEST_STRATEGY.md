@@ -12,10 +12,10 @@
 7. **test-of-tests**로 재귀적 MECE를 자동 검증.
 
 ## 현재 baseline
-- Requirements: **88**
-- Tests: **210**
-- Exceptions classified: **89**, OPEN 0
-- High-risk interactions: **36**, uncovered REQUIRED 0
+- Requirements: **85**
+- Tests: **205**
+- Exceptions classified: **85**, OPEN 0
+- High-risk interactions: **34**, uncovered REQUIRED 0
 - State machines: **6**, OPEN transition 0
 - Required-dimension uncovered: **0**
 

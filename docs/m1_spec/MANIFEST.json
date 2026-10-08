@@ -248,7 +248,7 @@
     {
       "path": "06_GUIDES/TEST_SET/RECURSIVE_MECE_MODEL.md",
       "bytes": 1307,
-      "sha256": "b8da1b13234999f67d4de1472454d7eefbf21786615164fa76ba4564ed9c145c"
+      "sha256": "4cde48934c0fd0e717d6a6bfeb935d215f3e423560ccf07cc62175b3567228a4"
     },
     {
       "path": "06_GUIDES/TEST_SET/RED_SEQUENCE.md",
@@ -298,7 +298,7 @@
     {
       "path": "06_GUIDES/TEST_SET/TEST_STRATEGY.md",
       "bytes": 2387,
-      "sha256": "5390df5cd508731e2bbf71af95d9d25710a10375527278cc0385c45837e05ffb"
+      "sha256": "0b4e7ba886c6377cc54532f26f8c08faebedddcbcfe303de4cedfcfc76adb63e"
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_TRACEABILITY_MATRIX.csv",
