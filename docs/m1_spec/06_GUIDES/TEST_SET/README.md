@@ -11,12 +11,8 @@
 - `INTERACTION_MATRIX.json` — **34** high-risk cross-feature interactions
 
 ## 사람이 읽는 View
-- `TEST_TRACEABILITY_MATRIX.*`
-- `TEST_CASE_CATALOG.*`
-- `BOUNDARY_EXCEPTION_MATRIX.md`
-- `FAULT_INJECTION_MATRIX.md`
 - `RED_SEQUENCE.md`
-- `RELEASE_GATE_MATRIX.md`
+- 요구사항↔테스트 표는 파일로 두지 않는다: `python -m tools.traceability`가 만든다.
 
 ## 핵심 규칙
 1. requirement가 테스트 하나만 갖는 것으로 완료되지 않습니다.
