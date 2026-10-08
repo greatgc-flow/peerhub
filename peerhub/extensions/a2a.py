@@ -255,8 +255,9 @@ class A2AAdapter:
         with self._lock:
             return sorted(self._uncertain)
 
-    def reconcile_task(self, task_id: str) -> A2ATaskResponse | None:
-        """Resolve an uncertain submission by asking the remote about the task id.
+    def reconcile_task(self, task_id: str, remote_task_id: str | None = None) -> A2ATaskResponse | None:
+        """Resolve an uncertain submission by asking the remote about it (`remote_task_id`: the operator's candidate when the
+        remote assigns ids and the transport cannot find the task by our id).
 
         Found -> adopt the remote's state (the task is then an ordinary tracked task). Definitively unknown to the remote ->
         recorded as not started, the id is released and a retry is a NEW attempt. Anything else leaves it uncertain."""
@@ -272,7 +273,8 @@ class A2AAdapter:
             if self._transport is None or not callable(lookup):
                 raise A2ATransportUnavailableError("The configured transport cannot reconcile; the task stays uncertain")
             try:
-                found = lookup(copy.deepcopy(card), copy.deepcopy(request), self._timeout_s)
+                extra = {} if remote_task_id is None else {"remote_task_id": remote_task_id}
+                found = lookup(copy.deepcopy(card), copy.deepcopy(request), self._timeout_s, **extra)
             except A2ATaskUnknownToRemoteError as exc:
                 if getattr(self._transport, "definitive_absence", False) is not True:
                     # "not found now" does not prove that an earlier, slow send can never arrive: keep it uncertain.

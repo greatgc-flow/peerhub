@@ -1,6 +1,6 @@
-"""One bounded external A2A binding (M3.2): JSON-RPC 2.0 over HTTP, `tasks/send`, `tasks/get`, `tasks/cancel`.
+"""One bounded external A2A binding (M3.2): A2A 1.0 JSON-RPC 2.0 over HTTP, `SendMessage`, `GetTask`, `CancelTask`.
 
-Binding profile `a2a-jsonrpc-subset`. It maps the remote protocol to PeerHub's small task states and keeps the remote protocol
+Binding profile `a2a-1.0-jsonrpc`. It maps the remote protocol to PeerHub's small task states and keeps the remote protocol
 state opaque in `ExternalExecutionRef` (an A2A Task is never a PeerHub Work, an A2A message never a Record). Properties:
 
 - https only; plain http is accepted for loopback hosts only (explicit local testing/dev), never for a remote host
@@ -9,12 +9,14 @@ state opaque in `ExternalExecutionRef` (an A2A Task is never a PeerHub Work, an 
   returned task id must be the one that was asked for (a response about someone else's task is rejected)
 - it cannot PROVE that a task was never started (a slow send may still arrive after a "not found"), so `definitive_absence` is False:
   an uncertain task is resolved by finding it, or by an explicit `abandon_task` that burns the id
-- the task id is the remote idempotency identity, so `lookup` (`tasks/get`) can reconcile an uncertain submission
+- the SERVER assigns the task id: our local task id is the `messageId` (the duplicate-detection identity), the remote id is learned from the
+  answer. A lost answer therefore cannot be looked up by our id: `lookup` needs a candidate remote id from the operator and adopts it
+  only when the remote task's history carries our `messageId`; otherwise the task stays uncertain until `abandon_task`
 - an unmapped remote state (input-required, auth-required, unknown, ...) fails closed instead of being guessed
 - credentials are injected by the composition root as headers; they are never part of an Agent Card or a Record
 
-Honest scope: exercised against an in-process JSON-RPC server that implements the same subset. Interoperability with third-party
-A2A servers is NOT verified here.
+Honest scope: wire names and shapes follow A2A 1.0 (JSON-RPC binding, `A2A-Version: 1.0`); tasks only, a direct Message answer is refused.
+See docs/m3/M3_2_A2A_CONTRACT.md for what was verified against a third-party implementation.
 """
 
 from __future__ import annotations
@@ -28,12 +30,12 @@ import urllib.request
 import uuid
 from typing import Any, Mapping, cast
 
-from peerhub.extensions.a2a import (A2AStateTransitionError, A2ATaskRequest, A2ATaskResponse, A2ATaskUnknownToRemoteError,
+from peerhub.extensions.a2a import (A2AExecutionUncertainError, A2AStateTransitionError, A2ATaskRequest, A2ATaskResponse, A2ATaskUnknownToRemoteError,
                                     A2ATransportUnavailableError, AgentCard, ExternalExecutionRef)
 
 TASK_NOT_FOUND = -32001  # A2A "task not found" JSON-RPC error code
-_STATES = {"submitted": "SUBMITTED", "working": "RUNNING", "completed": "COMPLETED", "failed": "FAILED",
-           "rejected": "FAILED", "canceled": "CANCELLED"}
+_STATES = {"TASK_STATE_SUBMITTED": "SUBMITTED", "TASK_STATE_WORKING": "RUNNING", "TASK_STATE_COMPLETED": "COMPLETED",
+           "TASK_STATE_FAILED": "FAILED", "TASK_STATE_REJECTED": "FAILED", "TASK_STATE_CANCELED": "CANCELLED"}
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -79,7 +81,7 @@ class HttpA2ATransport:
         rpc_id = uuid.uuid4().hex
         body = json.dumps({"jsonrpc": "2.0", "id": rpc_id, "method": method, "params": params}, allow_nan=False).encode("utf-8")
         request = urllib.request.Request(self._endpoint(card), data=body, method="POST",
-                                         headers={"Content-Type": "application/json", **self._headers})
+                                         headers={"Content-Type": "application/json", "A2A-Version": "1.0", **self._headers})
         opener = urllib.request.build_opener(_NoRedirect)
         deadline = time.monotonic() + timeout_s
         try:
@@ -131,9 +133,9 @@ class HttpA2ATransport:
             chunks.append(chunk)
 
     @staticmethod
-    def _to_response(card: AgentCard, task_id: str, result: dict[str, Any], expected_remote_id: str) -> A2ATaskResponse:
+    def _to_response(card: AgentCard, task_id: str, result: dict[str, Any], expected_remote_id: str | None) -> A2ATaskResponse:
         remote_id = result.get("id")
-        if remote_id != expected_remote_id:  # the answer must be about the task we asked for
+        if expected_remote_id is not None and remote_id != expected_remote_id:  # the answer must be about the task we asked for
             raise A2AStateTransitionError("Remote answered about a different task than the one requested")
         status = result.get("status")
         raw_state = cast(dict[str, Any], status).get("state") if isinstance(status, dict) else None
@@ -151,28 +153,45 @@ class HttpA2ATransport:
         output: dict[str, Any] | None = {"artifacts": cast(list[Any], artifacts)} if mapped == "COMPLETED" and isinstance(artifacts, list) else None
         return A2ATaskResponse(task_id, mapped, ExternalExecutionRef(
             card.agent_id, remote_id, str(context) if context else remote_id,
-            {"transport": "a2a-jsonrpc-subset", "state": raw_state}), output=output, error=error)
+            {"transport": "a2a-1.0-jsonrpc", "state": raw_state}), output=output, error=error)
 
     # --------------------------------------------------------------------- port
     def submit(self, card: AgentCard, request: A2ATaskRequest, timeout_s: float) -> A2ATaskResponse:
-        params = {"id": request.task_id,
-                  "message": {"role": "user", "parts": [{"kind": "data", "data": {"action": request.action,
-                                                                                   "input": request.input_parameters}}]}}
-        return self._to_response(card, request.task_id, self._rpc(card, "tasks/send", params, timeout_s), request.task_id)
+        params = {"message": {"messageId": request.task_id, "role": "ROLE_USER",
+                              "parts": [{"data": {"action": request.action, "input": request.input_parameters}}]}}
+        result = self._rpc(card, "SendMessage", params, timeout_s)
+        task = result.get("task")
+        if not isinstance(task, dict):  # a direct Message answer carries no task to track
+            raise A2AStateTransitionError("Remote answered SendMessage without a task (direct messages are unsupported)")
+        return self._to_response(card, request.task_id, cast(dict[str, Any], task), None)
+
+    def _get(self, card: AgentCard, local_id: str, remote_id: str, method: str, timeout_s: float) -> A2ATaskResponse:
+        result = self._rpc(card, method, {"id": remote_id}, timeout_s)
+        task = cast(dict[str, Any], result.get("task", result))  # GetTask/CancelTask answer with the Task itself
+        return self._to_response(card, local_id, task, remote_id)
 
     def poll(self, card: AgentCard, current: A2ATaskResponse, timeout_s: float) -> A2ATaskResponse | None:
-        remote_id = current.external_ref.remote_task_id
-        return self._to_response(card, current.task_id, self._rpc(card, "tasks/get", {"id": remote_id}, timeout_s), remote_id)
+        return self._get(card, current.task_id, current.external_ref.remote_task_id, "GetTask", timeout_s)
 
     def cancel(self, card: AgentCard, current: A2ATaskResponse, timeout_s: float) -> A2ATaskResponse:
-        remote_id = current.external_ref.remote_task_id
-        return self._to_response(card, current.task_id, self._rpc(card, "tasks/cancel", {"id": remote_id}, timeout_s), remote_id)
+        return self._get(card, current.task_id, current.external_ref.remote_task_id, "CancelTask", timeout_s)
 
-    def lookup(self, card: AgentCard, request: A2ATaskRequest, timeout_s: float) -> A2ATaskResponse:
+    def lookup(self, card: AgentCard, request: A2ATaskRequest, timeout_s: float, remote_task_id: str | None = None) -> A2ATaskResponse:
+        """Reconcile an uncertain submission. The server assigned the id, so the operator must supply the candidate remote id."""
+        if remote_task_id is None:
+            raise A2AExecutionUncertainError(
+                f"Task {request.task_id!r}: the remote assigns task ids, so an uncertain send cannot be looked up by our id; "
+                "reconcile with the remote task id (checked against our messageId) or abandon_task")
         try:
-            return self._to_response(card, request.task_id, self._rpc(card, "tasks/get", {"id": request.task_id}, timeout_s), request.task_id)
+            result = self._rpc(card, "GetTask", {"id": remote_task_id}, timeout_s)
         except RemoteRpcError as exc:
             if exc.code == TASK_NOT_FOUND:
-                raise A2ATaskUnknownToRemoteError(f"remote has no task {request.task_id!r}") from exc
+                raise A2ATaskUnknownToRemoteError(f"remote has no task {remote_task_id!r}") from exc
             raise
-
+        task = cast(dict[str, Any], result.get("task", result))
+        history = task.get("history")
+        if not isinstance(history, list) or not any(isinstance(m, dict) and cast(dict[str, Any], m).get("messageId") == request.task_id
+                                                    for m in cast(list[Any], history)):
+            raise A2AExecutionUncertainError(
+                f"Remote task {remote_task_id!r} does not carry our messageId {request.task_id!r}; not adopting it")
+        return self._to_response(card, request.task_id, task, remote_task_id)
