@@ -171,9 +171,9 @@ def test_rel_005_live_and_soak_tests_are_deselected_by_the_default_command(tmp_p
 
 # ----------------------------------------------------------------------------- REL-006 (textual YAML mutations + gate DAG linkage)
 PUBLISH_TEXT = (REPO / ".github/workflows/publish.yml").read_text(encoding="utf-8")
-GATE_JOB = {"G0": "gate-g0-fast", "G1": "gate-g1-core", "G2": "gate-g2-extensions", "G3": "live-validation", "G4": "build",
-            "G5": "release-evidence", "G7": "gate-g7-invariant"}  # release-gates.json blocking gate -> publish.yml job that provides it
-PUBLISH_NEEDS = "needs: [gate-g0-fast, gate-g1-core, gate-g2-extensions, live-validation, build, gate-g7-invariant, release-evidence]"
+GATE_JOB = {"G0": "verify", "G1": "verify", "G2": "verify", "G3": "live-validation", "G4": "build",
+            "G5": "release-evidence", "G7": "verify"}  # release-gates.json blocking gate -> publish.yml job that provides it
+PUBLISH_NEEDS = "needs: [verify, live-validation, build, release-evidence]"
 
 
 def _mutate(text, how):
@@ -242,7 +242,12 @@ def test_rel_006_every_blocking_gate_in_release_gates_json_maps_to_a_job_in_publ
     for job in clo:  # no bypass anywhere in the closure or on publish itself
         assert not _bypass(wf["jobs"][job]), f"{job}: continue-on-error/always() bypass"
     assert not _bypass(wf["jobs"]["publish"])
-    for g in blocking:  # gate DAG edges are honoured: each dependency's job is in the closure of the dependent's job
+    assert closure(wf, "publish") == {"verify", "live-validation", "build", "matrix", "release-evidence"}
+    assert _needs(wf["jobs"]["verify"]) == []
+    assert _needs(wf["jobs"]["live-validation"]) == ["verify"]
+    assert _needs(wf["jobs"]["build"]) == ["verify"]
+    # G0/G1/G2/G7 now share a job; their success jointly gates downstream evidence.
+    for g in ("G3", "G4", "G5"):
         for dep in gates[g]["depends_on"]:
             assert GATE_JOB[dep] in closure(wf, GATE_JOB[g]), f"{g} must wait for {dep}"
     ok = {GATE_JOB[g]: "success" for g in blocking}
@@ -298,3 +303,25 @@ def test_rel_006_publish_evidence_job_runs_the_release_evidence_tool_over_every_
         assert f"junit/{g}.xml" in run
     ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     assert "pytest" in yaml.safe_dump(ci["jobs"]["build"]) and not ci["jobs"]["build"].get("continue-on-error")  # CI runner is blocking
+
+
+def test_rel_006_verify_runs_the_same_gate_selections_sequentially_without_providers():
+    wf = _wf("publish.yml")
+    assert set(wf["jobs"]) == {"verify", "live-validation", "build", "matrix", "release-evidence", "publish"}
+    verify = wf["jobs"]["verify"]
+    assert _needs(verify) == []
+    runs = [step["run"] for step in verify["steps"] if "run" in step]
+    tests = [run for run in runs if "pytest" in run]
+    assert tests == [
+        "python -u -m pytest -q --junitxml=junit/g0.xml tests/communication/architecture tests/communication/schema tests/communication/unit tests/communication/property tests/communication/meta tests/communication/security",
+        "python -u -m pytest -q --junitxml=junit/g1.xml tests/communication/core tests/communication/migration tests/communication/concurrency tests/communication/fault tests/communication/integration",
+        "python -u -m pytest -q --junitxml=junit/g2.xml tests/communication/bridge tests/communication/observation tests/communication/diag tests/communication/control tests/communication/adapters tests/communication/e2e",
+        "python -u -m pytest -q tests/communication/architecture tests/communication/meta",
+    ]
+    assert runs.index("python -m tools.traceability") > runs.index(tests[2])
+    for job in wf["jobs"].values():
+        for step in job["steps"]:
+            run = step.get("run", "")
+            assert not re.search(r"(?:^|[;&\n])\s*(?:claude|codex|agy)(?:\s|$)", run)
+            assert "-m tools.live_gate" not in run
+            assert "tests/communication/live" not in run

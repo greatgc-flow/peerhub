@@ -264,7 +264,7 @@ def test_cut_020_no_hard_coded_time_threshold_in_the_tool():
     assert str(ttl) not in src and "--ttl" not in src and not re.search(r"timedelta\(|\b(3600|86400|604800)\b", src)
 
 
-GATE_JOBS = (("gate-g0-fast", "G0", ["g0"]), ("gate-g1-core", "G1", ["g1"]), ("gate-g2-extensions", "G2", ["g2"]),
+GATE_JOBS = (("verify", "G0", ["g0"]), ("verify", "G1", ["g1"]), ("verify", "G2", ["g2"]),
              ("build", "G4", ["g4"]))
 G3_FILES = ("g3", "g3-slow", "g3-e2e")  # produced and stamped locally by `python -m tools.live_gate`, fetched from the Release assets
 
@@ -272,6 +272,9 @@ G3_FILES = ("g3", "g3-slow", "g3-e2e")  # produced and stamped locally by `pytho
 def workflow_problems(wf):
     """Structural contract of publish.yml for candidate evidence; returns human-readable problems (empty = ok)."""
     bad = []
+    verify = wf["jobs"].get("verify")
+    if verify is None or verify.get("needs") or verify.get("continue-on-error"):
+        bad.append("verify must exist, need nothing and fail closed")
     ev_run = next((st["run"] for st in wf["jobs"]["release-evidence"]["steps"] if "release_evidence" in st.get("run", "")), "")
     for need in ("--candidate", f"--policy-file {ev.POLICY_REL}", "--release-policy docs/m1_impl/release-policy.json"):
         if need not in ev_run:
@@ -279,8 +282,8 @@ def workflow_problems(wf):
     if "--ttl" in ev_run:
         bad.append("evidence step passes a ttl")
     for job, gate, names in GATE_JOBS:
-        steps = wf["jobs"][job]["steps"]
-        idx_stamp = [i for i, st in enumerate(steps) if "--stamp-junit" in st.get("run", "")]
+        steps = wf["jobs"].get(job, {}).get("steps", [])
+        idx_stamp = [i for i, st in enumerate(steps) if "--stamp-junit" in st.get("run", "") and any(f"--stamp-junit junit/{n}.xml" in st["run"] for n in names)]
         if len(idx_stamp) != 1:
             bad.append(f"{job}: needs exactly one stamp step")
             continue
@@ -299,7 +302,7 @@ def workflow_problems(wf):
                 bad.append(f"{job}: no test step before the stamp writes junit/{n}.xml")
             if f"junit/{n}.xml" not in ev_run:
                 bad.append(f"evidence step does not read junit/{n}.xml")
-        up = [i for i, x in enumerate(steps) if "upload-artifact" in x.get("uses", "") and "junit" in str(x.get("with", {}).get("name", ""))]
+        up = [i for i, x in enumerate(steps) if "upload-artifact" in x.get("uses", "") and str(x.get("with", {}).get("name", "")) in {f"junit-{n}" for n in names}]
         if not up or min(up) < idx_stamp[0]:
             bad.append(f"{job}: junit must be uploaded after the stamp step")
         if job == "build":
@@ -339,6 +342,9 @@ def workflow_problems(wf):
             bad.append("matrix job cells differ from the declared support matrix in ci.yml")
         if "build" not in mx.get("needs", []):
             bad.append("matrix job must need build (it is bound to the exact built wheels)")
+        tests = [st for st in mx.get("steps", []) if "pytest" in st.get("run", "")]
+        if len(tests) != 1 or tests[0].get("env", {}).get("PEERHUB_DIST_DIR") != "${{ github.workspace }}/dist":
+            bad.append("matrix tests must consume the downloaded dist via PEERHUB_DIST_DIR")
         mstamp = [st for st in mx.get("steps", []) if "--stamp-junit" in st.get("run", "")]
         if len(mstamp) != 1 or mstamp[0].get("if") != "always()" or "--gate G4 " not in mstamp[0]["run"] or "--dist dist" not in mstamp[0]["run"]:
             bad.append("matrix job must stamp its JUnit with --gate G4 --dist dist (package scope) under if: always()")
@@ -352,7 +358,7 @@ def workflow_problems(wf):
         bad.append("publish must require a release event")
     if any(f in cond for f in ("always()", "failure()", "cancelled()", "!cancelled()")):
         bad.append("publish must not override the implicit success() of its needs")
-    if "release-evidence" not in pub["needs"] or not set(j for j, _, _ in GATE_JOBS) | {"gate-g7-invariant"} <= set(pub["needs"]):
+    if "release-evidence" not in pub["needs"] or not set(j for j, _, _ in GATE_JOBS) | {"verify"} <= set(pub["needs"]):
         bad.append("publish must need every gate job and release-evidence")
     evj = wf["jobs"]["release-evidence"]
     if evj.get("continue-on-error"):
@@ -389,7 +395,7 @@ def _mutate(kind):
     elif kind == "g3-continue-on-error":
         wf["jobs"]["live-validation"]["continue-on-error"] = True
     elif kind == "stamp-not-always":
-        next(st for st in wf["jobs"]["gate-g0-fast"]["steps"] if "--stamp-junit" in st.get("run", "")).pop("if")
+        next(st for st in wf["jobs"]["verify"]["steps"] if "--stamp-junit" in st.get("run", "")).pop("if")
     elif kind == "g4-stamp-before-build":
         i = next(i for i, st in enumerate(build) if "--stamp-junit" in st.get("run", ""))
         build.insert(0, build.pop(i))
@@ -417,6 +423,12 @@ def _mutate(kind):
     elif kind == "matrix-not-package-scoped":
         st = next(st for st in wf["jobs"]["matrix"]["steps"] if "--stamp-junit" in st.get("run", ""))
         st["run"] = st["run"].replace("--dist dist", "")
+    elif kind == "matrix-rebuilds-dist":
+        next(st for st in wf["jobs"]["matrix"]["steps"] if "pytest" in st.get("run", "")).pop("env")
+    elif kind == "verify-needs-build":
+        wf["jobs"]["verify"]["needs"] = ["build"]
+    elif kind == "verify-missing":
+        del wf["jobs"]["verify"]
     elif kind == "matrix-continue-on-error":
         wf["jobs"]["matrix"]["continue-on-error"] = True
     elif kind == "evidence-ignores-matrix":
@@ -431,7 +443,7 @@ def _mutate(kind):
                                   "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow", "no-gate-arg",
                                   "publish-always", "publish-no-release-event",
                                   "publish-drops-evidence-need", "evidence-continue-on-error", "matrix-dropped-from-needs",
-                                  "matrix-cell-dropped", "matrix-not-package-scoped", "matrix-continue-on-error", "evidence-ignores-matrix"])
+                                  "verify-missing", "verify-needs-build", "matrix-rebuilds-dist", "matrix-cell-dropped", "matrix-not-package-scoped", "matrix-continue-on-error", "evidence-ignores-matrix"])
 def test_cut_022_mutated_workflows_are_caught(kind):
     assert workflow_problems(_mutate(kind)), kind
 

@@ -1,6 +1,7 @@
-"""Package-tier fixtures: ONE build and ONE fresh-venv install per session, all under pytest's temp root (outside the repo)."""
+"""Package-tier fixtures: Supplied distributions or ONE local build, and ONE fresh-venv install per session under pytest's temp root (outside the repo)."""
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +31,17 @@ class Installed:
 
 @pytest.fixture(scope="session")
 def dist(tmp_path_factory) -> Dist:
+    supplied = os.environ.get("PEERHUB_DIST_DIR")
+    if supplied is not None:
+        directory = Path(supplied).resolve()
+        wheels = sorted(p for p in directory.glob("*.whl") if p.is_file())
+        sdists = sorted(p for p in directory.glob("*.tar.gz") if p.is_file())
+        if not supplied or len(wheels) != 1 or len(sdists) != 1:
+            raise pytest.UsageError(
+                f"PEERHUB_DIST_DIR={supplied!r} must contain exactly one wheel (*.whl) "
+                f"and one sdist (*.tar.gz); found {len(wheels)} wheel(s), {len(sdists)} sdist(s)"
+            )
+        return Dist(pkg_env.REPO, wheels[0], sdists[0])
     root = tmp_path_factory.mktemp("pkg-build")
     src = pkg_env.copy_checkout(root / "checkout")
     wheel, sdist = pkg_env.build_dist(src, root / "dist")
