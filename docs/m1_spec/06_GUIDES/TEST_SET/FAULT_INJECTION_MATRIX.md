@@ -23,5 +23,4 @@
 | `CTL-002` | terminate/kill raises | Cancel Record remains committed; failure evidence explicit; no rollback of durable history/Offset. |
 | `OBS-012` | probe timeout/exception | At most explicit Observation evidence changes; Peer/Stream/Record/Offset and routing/runtime invocations remain unchanged. |
 | `DIA-009` | log open raises permission/IO error | Core/Observation sections render; log section reports explicit unavailable/error; no chmod/repair/write attempted. |
-| `IMP-004` | malformed legacy record | Previously committed valid imports remain consistent according to declared transaction granularity; malformed item reported; no partial malformed object. |
 | `FLT-014` | late terminal callback to stale generation | A is fenced before any response Record/Offset mutation; uncertainty/late evidence may be recorded only through safe non-authoritative evidence path. |

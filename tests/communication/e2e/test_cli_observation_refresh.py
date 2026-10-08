@@ -22,7 +22,6 @@ def test_quota_refresh_and_readonly_dashboard(tmp_path, monkeypatch, capsys):
     with sqlite3.connect(db) as conn:
         before = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
     assert not hasattr(cli, "legacy_main")
-    monkeypatch.delenv("PEERHUB_CLI", raising=False)
     assert cli.main(["--db", str(db), "diag"]) == 0
     out = capsys.readouterr().out
     assert "headroom=75.0%" in out and "STALE" in out and "window=5h" in out

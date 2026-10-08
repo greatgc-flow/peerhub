@@ -33,8 +33,7 @@
 - corrupt authoritative store는 explicit failure, auto-repair 금지.
 
 ## Migration / Cutover
-- legacy importer source read-only + dry-run first + idempotent apply;
-- 109/109 legacy disposition 유지.
+- 현재 Core schema 호환: 지원 버전 업그레이드, 미래/미지원 schema는 쓰기 없이 거부(MIG-001..003).
 
 ## Release
 - package build/install/runtime-data completeness;
@@ -46,7 +45,7 @@
 ## Recursive MECE Test Traceability
 
 `06_GUIDES/TEST_SET/`가 machine-readable SSOT입니다.
-현재 **88 requirements / 210 tests**이며 다음을 validator가 강제합니다.
+현재 **85 requirements / 205 tests**이며 다음을 validator가 강제합니다.
 
 - requirement coverage 100%
 - required dimension coverage 100%

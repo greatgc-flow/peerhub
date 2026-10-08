@@ -1,7 +1,9 @@
 """Migration test fixtures: legacy unversioned schema (what Wave 1 shipped) and a test-only N->N+1 step."""
 from __future__ import annotations
 
+import hashlib
 import sqlite3
+from pathlib import Path
 
 from peerhub.core.migrations import MIGRATIONS, Migration
 
@@ -37,3 +39,12 @@ def _step_add_peer_note(conn: sqlite3.Connection) -> None:
 
 
 FIXTURE_MIGRATIONS = [*MIGRATIONS, Migration(MIGRATIONS[-1].version + 1, "fixture_add_peer_note", _step_add_peer_note)]
+
+
+def tree_fingerprint(directory: Path) -> dict[str, str]:
+    """sha256 of every file under `directory` (relative posix path -> hash): detects any byte or file-set change."""
+    out = {}
+    for p in sorted(Path(directory).rglob("*")):
+        if p.is_file():
+            out[p.relative_to(directory).as_posix()] = hashlib.sha256(p.read_bytes()).hexdigest()
+    return out

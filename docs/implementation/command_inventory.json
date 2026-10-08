@@ -218,46 +218,6 @@
       ]
     },
     {
-      "command": "legacy-import apply",
-      "options": [
-        {
-          "default": null,
-          "dest": "plan_digest",
-          "flags": [
-            "--plan-digest"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
-          "default": null,
-          "dest": "source",
-          "flags": [
-            "--source"
-          ],
-          "positional": false,
-          "required": true,
-          "takes_value": true
-        }
-      ]
-    },
-    {
-      "command": "legacy-import dry-run",
-      "options": [
-        {
-          "default": null,
-          "dest": "source",
-          "flags": [
-            "--source"
-          ],
-          "positional": false,
-          "required": true,
-          "takes_value": true
-        }
-      ]
-    },
-    {
       "command": "monitor",
       "options": [
         {
@@ -725,10 +685,6 @@
           "takes_value": true
         }
       ]
-    },
-    {
-      "command": "legacy-import",
-      "options": []
     },
     {
       "command": "observation",

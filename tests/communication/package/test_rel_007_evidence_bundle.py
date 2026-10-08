@@ -61,7 +61,7 @@ def test_rel_007_manifest_has_commit_version_suite_live_hashes_and_requirement_c
     assert {p["file"]: p["sha256"] for p in m["packages"]} == want
     assert {p["file"]: p["bytes"] for p in m["packages"]} == {p.name: p.stat().st_size for p in (dist.wheel, dist.sdist)}
     cov = m["requirement_coverage"]
-    assert cov["total"] == 88 and cov["uncovered_p0"] == [] and cov["uncovered"] == [] and cov["covered"] == 88
+    assert cov["total"] == 85 and cov["uncovered_p0"] == [] and cov["uncovered"] == [] and cov["covered"] == 85
     assert m["blockers"] == [] and m["release_ready"] is True
 
 
@@ -78,10 +78,10 @@ def test_rel_007_missing_live_canaries_and_uncovered_p0_requirements_block_relea
 @pytest.mark.parametrize("bad_status", ["failed", "skipped", "error"])
 def test_rel_007_a_non_passing_test_uncovers_exactly_its_requirements(tmp_path, dist_dir, bad_status):
     outcomes = {i: "passed" for i in all_ids(live=True)}
-    outcomes["REL-012"] = bad_status  # REL-012 is the only test of REQ-LEGACY-001 (requirements.json)
+    outcomes["SCH-003"] = bad_status  # SCH-003 is the only test of REQ-CORE-002 (requirements.json)
     m = manifest(tmp_path, dist_dir, outcomes)
-    assert m["requirement_coverage"]["uncovered_p0"] == ["REQ-LEGACY-001"] and m["release_ready"] is False
-    outcomes["REL-012"] = "passed"
+    assert m["requirement_coverage"]["uncovered_p0"] == ["REQ-CORE-002"] and m["release_ready"] is False
+    outcomes["SCH-003"] = "passed"
     outcomes["REL-013"] = bad_status  # REQ-REL-007 needs BOTH REL-013 and REL-014
     assert manifest(tmp_path, dist_dir, outcomes)["requirement_coverage"]["uncovered_p0"] == ["REQ-REL-007"]
     outcomes.pop("REL-014")  # absent evidence is not a pass either
@@ -158,7 +158,7 @@ def _with_message(path, tid, tag, message=None):
     path.write_text(text.replace(old, f"<testcase classname='tests.x' name={quoteattr(name)}><{tag}{attr}/></testcase>"), encoding="utf-8")
 
 
-@pytest.mark.parametrize("tid", ["IMP-003", "ARCH-001", "REL-012"])  # IMP-003 is the reported repro (its only requirement REQ-IMP-002)
+@pytest.mark.parametrize("tid", ["CTL-004", "ARCH-001", "SCH-003"])  # CTL-004 is the reported repro (its only requirement REQ-CONTROL-004)
 @pytest.mark.parametrize("bad", ["failed", "error", "skipped", "missing"])
 def test_rel_007_w9_any_blocking_test_not_passed_flips_readiness(tmp_path, dist_dir, tid, bad):
     base = {i: "passed" for i in all_ids(live=True)}
@@ -171,8 +171,8 @@ def test_rel_007_w9_any_blocking_test_not_passed_flips_readiness(tmp_path, dist_
     assert m["release_ready"] is False
     assert any(f"blocking test {tid}" in b for b in m["blockers"]), m["blockers"]
     assert m["unverified_blocking_tests"][tid] == ("missing" if bad == "missing" else "failed" if bad == "failed" else bad)
-    if tid == "IMP-003":
-        assert "REQ-IMP-002" in m["requirement_coverage"]["uncovered"] and any("uncovered requirement" in b for b in m["blockers"])
+    if tid == "CTL-004":
+        assert "REQ-CONTROL-004" in m["requirement_coverage"]["uncovered"] and any("uncovered requirement" in b for b in m["blockers"])
 
 
 @pytest.mark.parametrize("message,accepted", [("LIVE-OPT-IN[env=PEERHUB_LIVE;required=1;marker=live]: off", True),
@@ -181,9 +181,9 @@ def test_rel_007_w9_any_blocking_test_not_passed_flips_readiness(tmp_path, dist_
 def test_rel_007_w9_skip_is_accepted_only_with_machine_readable_reason_and_is_never_a_pass(tmp_path, dist_dir, message, accepted):
     base = {i: "passed" for i in all_ids(live=True)}
     j = junit(tmp_path / "junit.xml", base)
-    _with_message(j, "IMP-003", "skipped", message)
+    _with_message(j, "CTL-004", "skipped", message)
     m = ev.build_manifest(repo_root=REPO, junit_paths=[j], dist_dir=dist_dir)
-    assert m["unverified_blocking_tests"]["IMP-003"] == ("not_verified" if accepted else "skipped")
+    assert m["unverified_blocking_tests"]["CTL-004"] == ("not_verified" if accepted else "skipped")
     assert m["deterministic_suite"]["not_verified"] == (1 if accepted else 0) and m["deterministic_suite"]["passed"] == len(all_ids(live=False)) - 1
     assert m["release_ready"] is False  # an accepted skip stays explicit and unverified, never ready
 

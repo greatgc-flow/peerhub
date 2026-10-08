@@ -44,7 +44,7 @@ Offset
 `Diag`는 Observation을 읽어 보여줄 뿐 refresh/repair/restart/route하지 않습니다.
 
 ### M1 Exit
-- 88 requirements / 210 tests baseline GREEN
+- 85 requirements / 205 tests baseline GREEN
 - SQLite concurrency/crash/idempotency GREEN
 - Bridge fencing/execution certainty GREEN
 - Observation honesty/freshness GREEN

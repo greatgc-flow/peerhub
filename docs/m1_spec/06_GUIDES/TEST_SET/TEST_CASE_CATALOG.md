@@ -1,6 +1,6 @@
 # Test Case Catalog
 
-> **210 tests** — SSOT는 `test-catalog.json`입니다.
+> **205 tests** — SSOT는 `test-catalog.json`입니다.
 
 ## ARCH-001 — Core import graph forbids Extension dependency
 
@@ -1861,50 +1861,6 @@
 - Failure injection: none
 - Live provider: False
 
-## IMP-001 — Legacy importer dry-run is source and target read-only
-
-- Tier/Priority/Type: `migration` / `P1` / `negative`
-- Requirements: REQ-IMP-001
-- Dimensions: migration, negative, read-only
-- Setup: Copy legacy v0.x fixture and empty M1 target.
-- Action: Run importer dry-run/report.
-- Oracle: Source and target hashes/rows are unchanged; report lists only declared mappings/unmapped items.
-- Failure injection: none
-- Live provider: False
-
-## IMP-002 — Legacy apply imports only declared mappings and leaves source untouched
-
-- Tier/Priority/Type: `migration` / `P1` / `positive`
-- Requirements: REQ-IMP-001
-- Dimensions: e2e, migration, persistence
-- Setup: Legacy fixture with mapped and unmapped entities.
-- Action: Run explicit apply.
-- Oracle: Only declared M1 entities appear; source bytes unchanged; unmapped items reported, not guessed.
-- Failure injection: none
-- Live provider: False
-
-## IMP-003 — Repeated legacy import is idempotent
-
-- Tier/Priority/Type: `migration` / `P1` / `positive`
-- Requirements: REQ-IMP-002
-- Dimensions: idempotency, migration, persistence
-- Setup: Apply same legacy fixture once.
-- Action: Apply again.
-- Oracle: No duplicate Peer/Stream/Record; counts/digests stable; report marks already imported items.
-- Failure injection: none
-- Live provider: False
-
-## IMP-004 — Malformed legacy row is isolated without corrupting prior imports
-
-- Tier/Priority/Type: `fault` / `P1` / `fault`
-- Requirements: REQ-IMP-002
-- Dimensions: fault, migration, recovery
-- Setup: Legacy fixture contains valid rows then malformed/unmapped row.
-- Action: Apply import with per-item/report boundary.
-- Oracle: Previously committed valid imports remain consistent according to declared transaction granularity; malformed item reported; no partial malformed object.
-- Failure injection: malformed legacy record
-- Live provider: False
-
 ## REL-008 — Wheel/sdist include required runtime schemas catalogs and skills
 
 - Tier/Priority/Type: `package` / `P0` / `positive`
@@ -1946,17 +1902,6 @@
 - Setup: CI metadata declares supported OSes; Windows temp paths include spaces/non-ASCII.
 - Action: Run minimal install/workspace/append/restart smoke per supported OS matrix.
 - Oracle: Every declared OS passes or is removed from declared support; Windows path/newline handling is lossless.
-- Failure injection: none
-- Live provider: False
-
-## REL-012 — 109 legacy dispositions exactly match frozen call-map
-
-- Tier/Priority/Type: `package` / `P0` / `positive`
-- Requirements: REQ-LEGACY-001
-- Dimensions: compatibility, consistency, package
-- Setup: Load 109_COMMAND_DISPOSITION.csv and CURRENT_REPO_COMMAND_MAP_20261003.json.
-- Action: Compare count, command path, order/effect and uniqueness.
-- Oracle: Exactly 109 unique rows match frozen evidence 1:1; no legacy command is unclassified.
 - Failure injection: none
 - Live provider: False
 

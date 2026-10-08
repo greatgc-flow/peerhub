@@ -15,7 +15,7 @@
 | UPS-OBS | **COMPLY** | Observation owns quota/rate/runtime evidence; Diag is strict read-only; action/recovery is separate. | Exact common pattern. |
 | UPS-EVID | **COMPLY** | Record/evidence/source identity, release evidence and gate freshness are explicit. | Matches common contract. |
 | UPS-SEC | **COMPLY** | Fencing/idempotency/readonly diag/public-port-only extension writes/fail-closed storage. | Matches trust-boundary contract. |
-| UPS-MIG | **COMPLY** | 109 legacy commands classified; historical lesson/directive/task/governance names do not force old domains to return. | Disposition-driven migration. |
-| UPS-TEST | **COMPLY** | 88 requirements/210 tests plus state/exception/interaction/fault/meta closure. | Stronger than common baseline. |
+| UPS-MIG | **COMPLY** | The retired v0 command surface was removed (2026-10-08); historical lesson/directive/task/governance names do not force old domains to return. | Single current CLI. |
+| UPS-TEST | **COMPLY** | 85 requirements/205 tests plus state/exception/interaction/fault/meta closure. | Stronger than common baseline. |
 | UPS-REL | **COMPLY** | Candidate-bound gates, live/package gates and evidence freshness policy. | Matches common release assurance. |
 | UPS-DOC | **COMPLY** | Machine SSOT plus generated/views and validator drift checks. | Matches common SSOT rule. |

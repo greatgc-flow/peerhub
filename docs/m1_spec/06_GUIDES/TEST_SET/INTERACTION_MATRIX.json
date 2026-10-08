@@ -223,16 +223,6 @@
       ]
     },
     {
-      "id": "INT-021",
-      "a": "Legacy import",
-      "b": "Repeated run",
-      "risk": "duplicate M1 data",
-      "status": "REQUIRED",
-      "tests": [
-        "IMP-003"
-      ]
-    },
-    {
       "id": "INT-022",
       "a": "Unicode/special text",
       "b": "Canonical digest",
@@ -263,16 +253,6 @@
       "status": "REQUIRED",
       "tests": [
         "REL-006"
-      ]
-    },
-    {
-      "id": "INT-025",
-      "a": "Legacy disposition",
-      "b": "Cutover",
-      "risk": "silent feature deletion",
-      "status": "REQUIRED",
-      "tests": [
-        "REL-012"
       ]
     },
     {

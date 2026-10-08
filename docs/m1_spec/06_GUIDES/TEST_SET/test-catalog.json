@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "generated_on": "2026-10-03",
-  "count": 210,
+  "count": 205,
   "tests": [
     {
       "id": "ARCH-001",
@@ -4646,110 +4646,6 @@
       "deterministic": true
     },
     {
-      "id": "IMP-001",
-      "tier": "migration",
-      "title": "Legacy importer dry-run is source and target read-only",
-      "requirements": [
-        "REQ-IMP-001"
-      ],
-      "priority": "P1",
-      "markers": [
-        "migration",
-        "cutover"
-      ],
-      "dimensions": [
-        "migration",
-        "negative",
-        "read-only"
-      ],
-      "case_type": "negative",
-      "setup": "Copy legacy v0.x fixture and empty M1 target.",
-      "action": "Run importer dry-run/report.",
-      "oracle": "Source and target hashes/rows are unchanged; report lists only declared mappings/unmapped items.",
-      "failure_injection": "none",
-      "evidence": "pytest/JUnit result + assertion output",
-      "live_provider": false,
-      "deterministic": true
-    },
-    {
-      "id": "IMP-002",
-      "tier": "migration",
-      "title": "Legacy apply imports only declared mappings and leaves source untouched",
-      "requirements": [
-        "REQ-IMP-001"
-      ],
-      "priority": "P1",
-      "markers": [
-        "migration",
-        "cutover"
-      ],
-      "dimensions": [
-        "e2e",
-        "migration",
-        "persistence"
-      ],
-      "case_type": "positive",
-      "setup": "Legacy fixture with mapped and unmapped entities.",
-      "action": "Run explicit apply.",
-      "oracle": "Only declared M1 entities appear; source bytes unchanged; unmapped items reported, not guessed.",
-      "failure_injection": "none",
-      "evidence": "pytest/JUnit result + assertion output",
-      "live_provider": false,
-      "deterministic": true
-    },
-    {
-      "id": "IMP-003",
-      "tier": "migration",
-      "title": "Repeated legacy import is idempotent",
-      "requirements": [
-        "REQ-IMP-002"
-      ],
-      "priority": "P1",
-      "markers": [
-        "migration",
-        "cutover"
-      ],
-      "dimensions": [
-        "idempotency",
-        "migration",
-        "persistence"
-      ],
-      "case_type": "positive",
-      "setup": "Apply same legacy fixture once.",
-      "action": "Apply again.",
-      "oracle": "No duplicate Peer/Stream/Record; counts/digests stable; report marks already imported items.",
-      "failure_injection": "none",
-      "evidence": "pytest/JUnit result + assertion output",
-      "live_provider": false,
-      "deterministic": true
-    },
-    {
-      "id": "IMP-004",
-      "tier": "fault",
-      "title": "Malformed legacy row is isolated without corrupting prior imports",
-      "requirements": [
-        "REQ-IMP-002"
-      ],
-      "priority": "P1",
-      "markers": [
-        "migration",
-        "fault"
-      ],
-      "dimensions": [
-        "fault",
-        "migration",
-        "recovery"
-      ],
-      "case_type": "fault",
-      "setup": "Legacy fixture contains valid rows then malformed/unmapped row.",
-      "action": "Apply import with per-item/report boundary.",
-      "oracle": "Previously committed valid imports remain consistent according to declared transaction granularity; malformed item reported; no partial malformed object.",
-      "failure_injection": "malformed legacy record",
-      "evidence": "pytest/JUnit result + assertion output",
-      "live_provider": false,
-      "deterministic": true
-    },
-    {
       "id": "REL-008",
       "tier": "package",
       "title": "Wheel/sdist include required runtime schemas catalogs and skills",
@@ -4851,32 +4747,6 @@
       "setup": "CI metadata declares supported OSes; Windows temp paths include spaces/non-ASCII.",
       "action": "Run minimal install/workspace/append/restart smoke per supported OS matrix.",
       "oracle": "Every declared OS passes or is removed from declared support; Windows path/newline handling is lossless.",
-      "failure_injection": "none",
-      "evidence": "pytest/JUnit result + assertion output",
-      "live_provider": false,
-      "deterministic": true
-    },
-    {
-      "id": "REL-012",
-      "tier": "package",
-      "title": "109 legacy dispositions exactly match frozen call-map",
-      "requirements": [
-        "REQ-LEGACY-001"
-      ],
-      "priority": "P0",
-      "markers": [
-        "package",
-        "traceability"
-      ],
-      "dimensions": [
-        "compatibility",
-        "consistency",
-        "package"
-      ],
-      "case_type": "positive",
-      "setup": "Load 109_COMMAND_DISPOSITION.csv and CURRENT_REPO_COMMAND_MAP_20261003.json.",
-      "action": "Compare count, command path, order/effect and uniqueness.",
-      "oracle": "Exactly 109 unique rows match frozen evidence 1:1; no legacy command is unclassified.",
       "failure_injection": "none",
       "evidence": "pytest/JUnit result + assertion output",
       "live_provider": false,

@@ -58,44 +58,6 @@ actual=(std_dir/"STANDARDS_DECISION_TABLE.md").read_text(encoding="utf-8").strip
 if actual != "\n".join(expected).strip():
     errors.append("STANDARDS_DECISION_TABLE.md drifted from standards_registry.json")
 
-# PeerHub frozen legacy-v0 109 command completeness
-disp=root/"02_EXTENSIONS"/"109_COMMAND_DISPOSITION.csv"
-if disp.exists():
-    with disp.open(encoding="utf-8-sig",newline="") as f:
-        rows=list(csv.DictReader(f))
-    emit(f"legacy_commands={len(rows)}")
-    if len(rows)!=109: errors.append(f"Expected 109 command rows, got {len(rows)}")
-    if len({r["command"] for r in rows})!=len(rows): errors.append("Duplicate command")
-    for r in rows:
-        if not r["disposition"] or not r["target_component"] or not r["milestone"]:
-            errors.append("Incomplete command disposition: "+repr(r))
-
-    # Compare disposition against the frozen legacy-v0 call-map evidence snapshot. Filename is retained because the frozen M1 catalog references it.
-    evidence_path=root/"07_AUDIT"/"CURRENT_REPO_COMMAND_MAP_20261003.json"
-    evidence=json.loads(evidence_path.read_text(encoding="utf-8"))
-    commands=evidence.get("commands",[])
-    if evidence.get("measurement",{}).get("leaf_command_count") != 109:
-        errors.append("Frozen legacy evidence does not declare 109 leaf commands")
-    if len(commands) != 109:
-        errors.append(f"Expected 109 frozen legacy command evidence rows, got {len(commands)}")
-    if len(commands)==len(rows):
-        for i,(r,c) in enumerate(zip(rows,commands),1):
-            if r["command"] != c.get("path") or r["current_effect"] != c.get("effect"):
-                errors.append(f"Command disposition drift at row {i}: {r['command']}/{r['current_effect']} != {c.get('path')}/{c.get('effect')}")
-
-    if evidence.get("evidence_role") != "LEGACY_V0_FROZEN_COMMAND_BASELINE": errors.append("109 command evidence must be explicitly marked legacy baseline")
-    cur_path=root/"07_AUDIT"/"CURRENT_M1_IMPLEMENTATION_SNAPSHOT_20261005.json"
-    cur=json.loads(cur_path.read_text(encoding="utf-8"))
-    if cur.get("head") != "4a6994e7f73933a30c5d4e8ee538cd7d736f06ce": errors.append("Current M1 implementation snapshot head drift")
-    surfaces=cur.get("installed_cli_surfaces",[])
-    m1s=[x for x in surfaces if x.get("entrypoint")=="peerhub-m1"]
-    legs=[x for x in surfaces if x.get("entrypoint")=="peerhub"]
-    if len(m1s)!=1 or m1s[0].get("leaf_command_count")!=11: errors.append("Current M1 CLI surface must record 11 side-by-side leaves")
-    if len(legs)!=1 or legs[0].get("leaf_command_evidence")!=109: errors.append("Legacy default CLI surface evidence must remain 109")
-    if not (root/"09_ROADMAP"/"M1_PUBLIC_CLI_CUTOVER_GATE.md").is_file(): errors.append("M1 public CLI cutover gate missing")
-    emit("current_m1_sidecar_cli_commands=11")
-
-
 # M1 test-set completeness / recursive-MECE traceability
 test_dir=root/"06_GUIDES"/"TEST_SET"
 if test_dir.exists():
@@ -434,26 +396,13 @@ if road_dir.exists():
     quota=[x for x in road.get("capability_anchors",[]) if x.get("capability")=="quota observation/display"]
     if len(quota)!=1 or quota[0].get("milestone")!="M1" or "Diag" not in quota[0].get("owner",""):
         errors.append("quota/Diag capability must remain anchored in M1")
-    # Legacy command map must now be fully assigned to M1/M2/M3/optional tracks; no temporary N remains.
-    if disp.exists():
-        allowed_milestones={"M1","M2","M3",*expected_opt}
-        bad=[r["command"] for r in rows if r.get("milestone") not in allowed_milestones]
-        if bad: errors.append("Legacy commands have unassigned/unknown roadmap milestone: "+",".join(bad[:10]))
-        if any(r.get("milestone")=="N" for r in rows): errors.append("Legacy command roadmap still contains temporary N milestone")
-        if not any(r.get("milestone")=="M2" for r in rows): errors.append("Legacy command roadmap has no M2 assignments")
-        if not any(r.get("milestone")=="M3" for r in rows): errors.append("Legacy command roadmap has no M3 assignments")
-
     if road.get('core_contract',{}).get('frozen_through') != 'ALL_REQUIRED_AND_OPTIONAL_TRACKS': errors.append('Core freeze must cover optional tracks too')
     if 'Generic Extension Host' not in [c for x in road.get('milestones',[]) if x.get('id')=='M2' for c in x.get('capabilities',[])]: errors.append('M2 must distinguish Generic Extension Host from M1 static modules')
     if 'Remote Runtime Port/Adapter Contract' not in [c for x in road.get('milestones',[]) if x.get('id')=='M3' for c in x.get('capabilities',[])]: errors.append('M3.6 must be remote runtime port/adapter contract, not mandatory HA')
-    if any(r.get('command')=='routing elect-leader' and r.get('milestone')!='M4-D' for r in rows): errors.append('routing elect-leader must remain optional M4-D')
     _depth={m.get('id'):m.get('design_depth') for m in road.get('milestones',[])}
     if _depth != {'M1':'TDD_READY','M2':'ROADMAP_FROZEN_PRE_TDD_REQUIRED','M3':'ROADMAP_FROZEN_PRE_TDD_REQUIRED'}: errors.append('roadmap design_depth drift')
     if any(not t.get('depends_on_capabilities') for t in road.get('optional_tracks',[])): errors.append('optional track capability dependency missing')
     if any('Remote Runtime Adapter Boundary' in str(x) for x in road.get('cross_milestone_rules',[])): errors.append('stale M3.6 Remote Runtime Adapter Boundary wording')
-    for r in rows:
-        if (r.get('command','').startswith('lesson ') or r.get('command','').startswith('directive ')) and r.get('disposition')!='SUPERSEDE': errors.append('historical lesson/directive commands must be SUPERSEDE, not recreated')
-
     emit(f"roadmap_required_milestones={len(milestones)}")
     emit(f"roadmap_optional_tracks={len(opt)}")
     emit("roadmap_core_boundary=PASS" if not [e for e in errors if e.startswith("Roadmap") or "roadmap" in e.lower() or "quota/Diag" in e] else "roadmap_core_boundary=FAIL")

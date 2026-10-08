@@ -11,4 +11,4 @@
 | INV-005 | Diag read-only 경로는 상태를 변경하지 않는다. | REQ-DIAG-001 | `HOLD_OR_ROLLBACK` |
 | INV-006 | corrupt authoritative store는 silent repair/continue하지 않는다. | REQ-PERSIST-004 | `INCIDENT` |
 | INV-007 | 동일 idempotency key의 상이 payload를 성공 처리하지 않는다. | REQ-IDEM-002, REQ-IDEM-004 | `HOLD_OR_ROLLBACK` |
-| INV-008 | Migration/cutover는 committed Core identity, provenance, ordering, idempotency 및 Offset 불변식을 손실하거나 재해석하지 않는다. | REQ-MIG-001, REQ-MIG-002, REQ-IMP-001, REQ-IMP-002 | `HOLD_OR_ROLLBACK` |
+| INV-008 | Migration/cutover는 committed Core identity, provenance, ordering, idempotency 및 Offset 불변식을 손실하거나 재해석하지 않는다. | REQ-MIG-001, REQ-MIG-002 | `HOLD_OR_ROLLBACK` |

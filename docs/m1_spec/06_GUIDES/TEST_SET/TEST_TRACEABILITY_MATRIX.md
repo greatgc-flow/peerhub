@@ -1,6 +1,6 @@
 # Test Traceability Matrix
 
-> Requirements: **88** / Tests: **210**
+> Requirements: **85** / Tests: **205**
 
 | Requirement | Area | P | Missing dimensions | Tests |
 |---|---|---|---|---|
@@ -72,11 +72,8 @@
 | `REQ-DIAG-004` | Diag Inputs | P0 | **NONE** | DIA-009 |
 | `REQ-SEC-001` | Data Integrity / Security | P0 | **NONE** | PROP-007, SEC-001 |
 | `REQ-RES-001` | Capacity / Resource | P1 | **NONE** | SOAK-001, SOAK-002, PROP-009 |
-| `REQ-IMP-001` | Legacy Import / Cutover | P1 | **NONE** | IMP-001, IMP-002 |
-| `REQ-IMP-002` | Legacy Import / Cutover | P1 | **NONE** | IMP-003, IMP-004 |
 | `REQ-REL-005` | Package Contents | P0 | **NONE** | REL-008, REL-009 |
 | `REQ-REL-006` | Compatibility Matrix | P0 | **NONE** | REL-010, REL-011 |
-| `REQ-LEGACY-001` | Legacy Disposition | P0 | **NONE** | REL-012 |
 | `REQ-META-001` | Test Meta-Quality | P0 | **NONE** | META-001 |
 | `REQ-META-002` | Test Meta-Quality | P0 | **NONE** | META-002 |
 | `REQ-META-003` | Test Meta-Quality | P0 | **NONE** | META-003 |

@@ -20,7 +20,7 @@ def test_public_ask_live_returns_a_durable_response(tmp_path, provider):
             "--timeout-seconds", "240", "--json"]
     if profile["effort"]:
         args += ["--effort", profile["effort"]]
-    env = {**os.environ, "PYTHONPATH": str(ROOT), "PEERHUB_CLI": "core"}
+    env = {**os.environ, "PYTHONPATH": str(ROOT)}
     first = subprocess.run(args, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=300)
     assert first.returncode == 0, first.stdout + first.stderr
     result = json.loads(first.stdout)

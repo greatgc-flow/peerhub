@@ -1461,48 +1461,6 @@
       ]
     },
     {
-      "id": "REQ-IMP-001",
-      "area": "Legacy Import / Cutover",
-      "statement": "Legacy import is explicit and side-by-side: source v0.x data is not mutated in place, dry-run/report precedes apply, and only declared mappings enter M1.",
-      "source": "01_M1/MIGRATION_CUTOVER.md",
-      "priority": "P1",
-      "required_dimensions": [
-        "migration",
-        "negative",
-        "read-only",
-        "e2e"
-      ],
-      "risk_tags": [
-        "MIGRATION",
-        "CUTOVER"
-      ],
-      "tests": [
-        "IMP-001",
-        "IMP-002"
-      ]
-    },
-    {
-      "id": "REQ-IMP-002",
-      "area": "Legacy Import / Cutover",
-      "statement": "Repeated legacy import is idempotent; invalid/unmapped legacy items are isolated and reported without corrupting already imported M1 state.",
-      "source": "01_M1/MIGRATION_CUTOVER.md",
-      "priority": "P1",
-      "required_dimensions": [
-        "migration",
-        "idempotency",
-        "fault",
-        "recovery"
-      ],
-      "risk_tags": [
-        "MIGRATION",
-        "CUTOVER"
-      ],
-      "tests": [
-        "IMP-003",
-        "IMP-004"
-      ]
-    },
-    {
       "id": "REQ-REL-005",
       "area": "Package Contents",
       "statement": "Built artifacts contain all runtime schemas/catalogs/skills required by advertised M1 features and exclude development-only/generated junk not declared for runtime.",
@@ -1540,25 +1498,6 @@
       "tests": [
         "REL-010",
         "REL-011"
-      ]
-    },
-    {
-      "id": "REQ-LEGACY-001",
-      "area": "Legacy Disposition",
-      "statement": "Before cutover/removal, every current legacy leaf command remains exactly once in the disposition inventory and matches frozen repository call-map evidence.",
-      "source": "01_M1/MIGRATION_CUTOVER.md; 02_EXTENSIONS/109_COMMAND_DISPOSITION.csv",
-      "priority": "P0",
-      "required_dimensions": [
-        "consistency",
-        "compatibility",
-        "package"
-      ],
-      "risk_tags": [
-        "CUTOVER",
-        "TRACEABILITY"
-      ],
-      "tests": [
-        "REL-012"
       ]
     },
     {

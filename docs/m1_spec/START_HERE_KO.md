@@ -43,7 +43,6 @@ Readonly Diag
 6. `09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md`
 7. `09_ROADMAP/M3_FEDERATED_INTELLIGENT_COLLABORATION.md`
 8. `09_ROADMAP/OPTIONAL_CAPABILITY_TRACKS.md`
-9. `02_EXTENSIONS/109_COMMAND_DISPOSITION.md`
 10. `06_GUIDES/TEST_SET/README.md`
 11. `08_LIFECYCLE/README.md`
 12. `07_AUDIT/FINAL_RECURSIVE_AUDIT.md`
@@ -51,9 +50,8 @@ Readonly Diag
 ## 기준선
 
 - Repo evidence: `greatgc-flow/peerhub` main `4a6994e7f73933a30c5d4e8ee538cd7d736f06ce`
-- legacy v0 leaf commands: **109/109 assigned** (migration baseline)
 - current M1 side-by-side CLI: **11 leaf commands**; default `peerhub` cutover is separate
-- M1 test baseline: **88 requirements / 210 tests**
+- M1 test baseline: **85 requirements / 205 tests**
 - global `AGENTS.md`: intentionally absent
 
 ## 개발 시작

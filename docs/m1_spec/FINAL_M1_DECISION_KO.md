@@ -65,16 +65,16 @@ Telemetry export -> OTel Adapter
 
 ## 현행 repo delta 확인
 
-2026-10-04 현재 main `4a6994e7...`에는 M1 구현이 병합되었습니다. 과거 109-command 표는 legacy migration/disposition 증적으로 유지하며, 새 `peerhub-m1` side-by-side CLI와 기본 `peerhub` public cutover는 별도 maturity/gate로 관리합니다. **Core 계약은 Peer/Stream/Record/Offset 그대로입니다.** `workspace reset`/`backup global`은 Backup/Recovery future extension으로 유지합니다.
+2026-10-04 현재 main `4a6994e7...`에는 M1 구현이 병합되었습니다. 과거 109-command 표와 v0 importer/selector는 2026-10-08에 제거되었고(v0는 Git 보존 브랜치), 새 `peerhub-m1` side-by-side CLI와 기본 `peerhub` public cutover는 별도 maturity/gate로 관리합니다. **Core 계약은 Peer/Stream/Record/Offset 그대로입니다.** `workspace reset`/`backup global`은 Backup/Recovery future extension으로 유지합니다.
 
 ## TDD-ready test baseline
 
-M1 계약은 `06_GUIDES/TEST_SET/`의 **88 requirements / 210 test cases**로 추적됩니다. Core invariants, SQLite race/crash, Bridge fencing/certainty, Observation honesty, strict read-only Diag, fake-runtime E2E, real-provider canary, clean install/publish gate까지 설계 완료했습니다.
+M1 계약은 `06_GUIDES/TEST_SET/`의 **85 requirements / 205 test cases**로 추적됩니다. Core invariants, SQLite race/crash, Bridge fencing/certainty, Observation honesty, strict read-only Diag, fake-runtime E2E, real-provider canary, clean install/publish gate까지 설계 완료했습니다.
 
 ## TDD / Recursive MECE baseline
 
-- Requirements: **88**
-- Tests: **210**
+- Requirements: **85**
+- Tests: **205**
 - Requirement required-dimension coverage: validator enforced
 - State/Exception/Interaction inventories: terminal closure required
 - Provider live와 soak는 deterministic CI와 분리
@@ -86,7 +86,7 @@ M1 계약은 `06_GUIDES/TEST_SET/`의 **88 requirements / 210 test cases**로 �
 ## 종·횡 최종 교차점검 R3
 
 - invariant SSOT 8/8 requirement 역추적
-- test→release gate 210/210 machine mapping
+- test→release gate 205/205 machine mapping
 - release gate DAG explicit/fail-closed
 - signal route→lifecycle/runbook resolvability
 - rollback 후 unresolved Problem follow-up closure 규칙

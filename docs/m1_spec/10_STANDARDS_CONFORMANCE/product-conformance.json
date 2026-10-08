@@ -75,13 +75,13 @@
     {
       "id": "UPS-MIG",
       "status": "COMPLY",
-      "implementation": "109 legacy commands classified; historical lesson/directive/task/governance names do not force old domains to return.",
-      "rationale": "Disposition-driven migration."
+      "implementation": "The retired v0 command surface was removed (2026-10-08); historical lesson/directive/task/governance names do not force old domains to return.",
+      "rationale": "Single current CLI."
     },
     {
       "id": "UPS-TEST",
       "status": "COMPLY",
-      "implementation": "88 requirements/210 tests plus state/exception/interaction/fault/meta closure.",
+      "implementation": "85 requirements/205 tests plus state/exception/interaction/fault/meta closure.",
       "rationale": "Stronger than common baseline."
     },
     {

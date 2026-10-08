@@ -6,8 +6,7 @@ Commands (canonical inventory: docs/implementation/command_inventory.json, deriv
   record append / read
   offset get / advance
   diag health / quota   (read-only; quota never refreshes evidence)
-  legacy-import dry-run / apply   (explicit side-by-side importer of a legacy v0.x store; MIGRATION_CUTOVER step 7)
-Exit codes: 0 ok, 1 error, 2 idempotency conflict, 3 CAS lost, 4 storage fault, 5 diag unavailable, 6 schema version, 7 legacy import refused.
+Exit codes: 0 ok, 1 error, 2 idempotency conflict, 3 CAS lost, 4 storage fault, 5 diag unavailable, 6 schema version.
 """
 
 from __future__ import annotations
@@ -159,15 +158,6 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     d_quota.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Machine-readable output (schema_version 1.0) instead of the table")
     d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --observation-db other_ws.db"
 
-    # legacy import (the --db option is the PeerHub TARGET store; --source is the legacy v0.x database, opened read-only)
-    legacy_parser = subparsers.add_parser("legacy-import", help="Import a legacy v0.x store (dry-run first)")
-    legacy_sub = legacy_parser.add_subparsers(dest="action", required=True)
-    for name in ("dry-run", "apply"):
-        lp = legacy_sub.add_parser(name, help=f"{name} the legacy import")
-        lp.add_argument("--source", required=True, help="Path to the legacy SQLite database (never modified)")
-        if name == "apply":
-            lp.add_argument("--plan-digest", default=None, help="plan_digest from a prior dry-run; apply is refused if the plan changed")
-
     return parser
 
 
@@ -254,17 +244,6 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             return _run_ask_cli(args, parser, argv)
         if args.subcommand in ("monitor", "observation"):
             return _run_light_command(args, parser)
-        if args.subcommand == "legacy-import":  # before CoreStore(): a dry-run must not create or migrate the target
-            from peerhub.core.legacy_import import LegacyImporter, LegacyPlanChangedError, LegacySourceError
-
-            try:
-                imp = LegacyImporter(args.source, args.db)
-                report = imp.dry_run() if args.action == "dry-run" else imp.apply(expected_plan_digest=args.plan_digest)
-            except (LegacySourceError, LegacyPlanChangedError) as e:
-                print(f"LEGACY IMPORT REFUSED ({type(e).__name__}): {e}", file=sys.stderr)
-                return 7
-            print(json.dumps(report, indent=2, ensure_ascii=True))
-            return 0
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
             _reject_dashboard_flags_on_subcommand(parser, args)
             if args.action is not None and (args.live or args.count or args.interval_seconds != 2):
