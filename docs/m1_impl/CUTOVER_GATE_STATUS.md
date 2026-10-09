@@ -1,5 +1,7 @@
 # M1 public CLI cutover gate status
 
+Historical cutover record: milestone CLI names, source/test paths, flags, selector/importer, the 109-command table, side-by-side CLI assumptions and the old candidate identity below describe the retired implementation; current commands use the single `peerhub` CLI, `--observation-db`, and `tools/release_evidence.py` (source revision + package digests), with `peerhub observation refresh` followed by `peerhub diag` for fresh diagnostics.
+
 Scope: the `peerhub-m1` public CLI (`peerhub/m1_cli.py`). Numbering follows the cutover gate brief (items 1-7).
 
 | # | Gate item | Status | Evidence |

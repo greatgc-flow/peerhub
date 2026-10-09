@@ -24,6 +24,15 @@ Method: independent opinions from ag·cx → mutual rebuttals → direct measure
 4. Implement `control.cancel` through process tree termination (`supports_terminate`). After termination, an in-progress delivery does not finish as a normal response.
 
 ## Paired Measurement (2026-10-09, `python -m tools.context_bench`)
+
+Reproduce the paired measurement with:
+
+```bash
+python -m tools.context_bench --peer cc|cx|ag --turns 6 [--gap-seconds S] [--model M] [--effort E]
+```
+
+Choose one of `cc`, `cx` or `ag`; square brackets denote optional arguments, not literal shell syntax. The benchmark calls the real provider CLI for both fresh and resumed strategies and spends quota. Use `--gap-seconds` to compare warm-cache turns with turns beyond the cache lifetime, and `--model` / `--effort` to select the binding.
+
 Workload: a 259-line task list (about 6.5k tokens) plus one lookup question per turn; fresh = PeerHub-style injection of the document and prior turns into a new session, resume = native session resume. All answers were correct (6/6 in every run).
 
 | Case | Fresh | Resume | Resume / Fresh |
@@ -46,6 +55,6 @@ The cheapest experiment was run (cc, haiku, 6 fresh turns, the 259-line document
 Verdict: **drop** the layout/checkpoint follow-up; explicit native resume is the mechanism that earns cache hits. Revisit only if a CLI exposes a stable cache key or cache breakpoints.
 
 ## Follow-up Candidates (After Measurement)
-- Stable prefix layout: fixed instructions + a versioned checkpoint (summary Record) → changing recent records → current question. A sliding window changes the prefix and invalidates the cache.
+- **Superseded by [Prefix-Stable Layout / Checkpoint: Not Pursued](#prefix-stable-layout--checkpoint-not-pursued).** Stable prefix layout: fixed instructions + a versioned checkpoint (summary Record) → changing recent records → current question. A sliding window changes the prefix and invalidates the cache.
 - Compare fresh sessions and resume in paired measurements at 2·10·50 turns, with intervals within and beyond the cache lifetime (input, cache reads/writes, output, latency, correctness when files change).
 - Measure subscription quotas separately from API cost conversion.
