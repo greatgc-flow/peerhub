@@ -3,7 +3,7 @@
 Semantics (TD-11): PrespawnError ONLY when the OS never created the process (or an argument/prompt was rejected before spawn);
 once a process exists, any failure is reported as RuntimeTargetError / a timeout event (uncertain), never as pre-spawn.
 Sessions: the adapter is NOT resumable (resume_session -> "unsupported", never synthesized); the Bridge falls back to a fresh
-session generation with a Stream catch-up. interrupt/terminate/steer are not implemented and reported unsupported.
+session generation with a Stream catch-up. terminate kills the active local process tree; interrupt/steer are unsupported.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 import uuid
 from collections import deque
 from datetime import datetime, timezone
@@ -216,7 +217,7 @@ class CliRuntimeTarget:
 
     resumable = False
     supports_interrupt = False
-    supports_terminate = False
+    supports_terminate = True
     supports_steer = False
 
     def __init__(self, kind: str, workspace: str | Path, *, model: str | None = None, effort: str | None = None,
@@ -254,6 +255,8 @@ class CliRuntimeTarget:
         self._command = list(command) if command is not None else None
         self._timeout_s, self._max_bytes = timeout_s, max_bytes
         self._on_output = on_output
+        self._active_lock = threading.Lock()
+        self._active: dict[str, BoundedProcess] = {}
         self._env = {**os.environ, **(env_extra or {})}
         self._san = Sanitizer(secrets=[*env_secrets(self._env), *extra_secrets])
         self.evidence: deque[dict[str, Any]] = deque(maxlen=100)  # sanitized and bounded
@@ -280,7 +283,9 @@ class CliRuntimeTarget:
     def discover(self, timeout_s: float = 20.0) -> dict[str, Any]:
         """Observed version + capabilities as timestamped evidence. Unavailable/unsupported is reported, never synthesized."""
         caps: dict[str, dict[str, Any]] = {c: {"status": "unsupported", "source": "adapter", "reason": "not implemented by this adapter"}
-                                 for c in ("interrupt", "terminate", "steer")}
+                                 for c in ("interrupt", "steer")}
+        caps["terminate"] = {"status": "supported", "source": "adapter",
+                             "reason": "kills active local process tree and observes exit"}
         info: dict[str, Any] = {"provider": self.runtime_kind, "observed_at": _now(), "available": False, "version": None,
                                 "version_line": None, "reason": None}
         try:
@@ -326,6 +331,19 @@ class CliRuntimeTarget:
     def resume_session(self, external_session_id: str) -> str:
         self._note("resume_unsupported")
         return "unsupported"
+
+    def terminate(self, external_session_id: str) -> None:
+        with self._active_lock:
+            proc = self._active.get(external_session_id)
+            if proc is None:
+                raise RuntimeTargetError("nothing running")
+        # Keep the process reference, not the registry lock, during the bounded OS wait.
+        # A racing session replacement cannot redirect this cancellation to a new process.
+        try:
+            proc.terminate()
+        except OSError as e:
+            raise RuntimeTargetError(str(e)) from e
+        self._note("terminated", pid=proc.pid)
 
     @staticmethod
     def _prompt(record: Any, catch_up: list[Any]) -> str:
@@ -408,7 +426,12 @@ class CliRuntimeTarget:
                               silence_timeout_s=self._silence_timeout_s,
                               on_stdout=stream_stdout if self._on_output else None)
         try:
-            proc.start()
+            # Publish only after spawn; serialize registration with external cancellation.
+            with self._active_lock:
+                if external_session_id in self._active:
+                    raise PrespawnError("delivery already running for session")
+                proc.start()
+                self._active[external_session_id] = proc
         except SpawnFailure as e:
             self._note("prespawn_failure")
             raise PrespawnError(san.clean(f"cannot spawn {self._spec.binary}: {e}", EXCERPT_CHARS)) from e
@@ -422,9 +445,14 @@ class CliRuntimeTarget:
             if not finished:  # consumer stopped iterating (fenced/closed): never leave an orphan process
                 proc.abort()
                 self._note("aborted", pid=proc.pid)
+            with self._active_lock:
+                if self._active.get(external_session_id) is proc:
+                    del self._active[external_session_id]
         self._note("exited", pid=res.pid, returncode=res.returncode, timed_out=res.timed_out,
                    silence_timed_out=res.silence_timed_out,
-                   output_exceeded=res.output_exceeded, duration_s=round(res.duration_s, 3))
+                   output_exceeded=res.output_exceeded, aborted=res.aborted, duration_s=round(res.duration_s, 3))
+        if res.aborted:
+            raise RuntimeTargetError(f"{self.runtime_kind} delivery aborted by termination request")
         if res.silence_timed_out:
             raise RuntimeTargetError(f"{self.runtime_kind} produced no stdout/stderr for {self._silence_timeout_s} seconds; process killed")
         if res.timed_out:

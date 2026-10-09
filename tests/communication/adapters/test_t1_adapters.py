@@ -1,8 +1,10 @@
 """T1: real CLI adapters (cc/cx/ag) behind RuntimeTarget, exercised against python fake CLIs (no real provider, deterministic)."""
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -221,7 +223,8 @@ def test_t1_discovery_unavailable_is_reported_not_synthesized(mk, tmp_path):
 def test_t1_capabilities_adapter_never_claims_more_than_it_implements(mk, help_resume, cli):
     caps = mk("cx", env_extra={"FAKE_HELP_RESUME": help_resume}).discover()["capabilities"]
     assert caps["resume"]["cli_status"] == cli and caps["resume"]["status"] == "unsupported" and caps["resume"]["fallback"]
-    assert all(caps[c]["status"] == "unsupported" for c in ("interrupt", "terminate", "steer"))
+    assert caps["terminate"]["status"] == "supported"
+    assert all(caps[c]["status"] == "unsupported" for c in ("interrupt", "steer"))
 
 
 def test_t1_resume_is_unsupported_and_spawns_nothing(mk):
@@ -245,18 +248,55 @@ def test_t1_bridge_control_effects_report_unsupported_not_done(tmp_path, mk):
 
 
 @pytest.mark.parametrize("kind", ["cc", "cx", "ag"])
-def test_t1_unsupported_cancel_never_claims_process_termination(tmp_path, mk, kind):
+def test_t1_cancel_without_local_process_reports_failed(tmp_path, mk, kind):
     h = BridgeHarness(tmp_path / "ws")
     bseed(h)
     running(h)
     c = ctl(h, "control.cancel", "c1")
     res = h.handle_control(c.record_id, mk(kind), "b")
-    assert res.runtime_outcome == "unsupported" and not calls(mk.log)  # nothing was spawned or signalled
+    assert res.runtime_outcome == "failed" and res.detail["error"] == "nothing running"
+    assert not calls(mk.log)  # persisted STARTED evidence is not proof of a live local process
     ev = [r for r in sql(h, "SELECT kind, detail FROM bridge_evidence WHERE kind='control_applied'") if '"control_kind": "control.cancel"' in r[1]]
-    assert len(ev) == 1 and '"runtime_outcome": "unsupported"' in ev[0][1] and "terminated" not in ev[0][1].lower()
+    assert len(ev) == 1 and '"runtime_outcome": "failed"' in ev[0][1] and '"error": "nothing running"' in ev[0][1]
     from tests.communication.fakes import FakeRuntimeTarget  # positive control: only a runtime that implements terminate reports done
     c2 = ctl(h, "control.cancel", "c2")
     assert h.handle_control(c2.record_id, FakeRuntimeTarget(), "b").runtime_outcome == "done"
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_t1_bridge_cancel_running_cli_is_done_and_delivery_uncertain(tmp_path, mk, kind):
+    started = threading.Event()
+    h = BridgeHarness(tmp_path / "ws", fault_hook=lambda point: started.set()
+                      if point == "bridge.after_runtime_start" else None)
+    (r,) = bseed(h)
+    a = mk(kind, "hang", timeout_s=30)
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        delivery = worker.submit(h.delivery_cycle, "b", "s", a)
+        try:
+            assert started.wait(10), "delivery did not start"
+            c = ctl(h, "control.cancel", "cancel-live")
+            result = h.handle_control(c.record_id, a, "b")
+            assert result.runtime_outcome == "done"
+            assert h.handle_control(c.record_id, a, "b").runtime_outcome == "done"  # durable replay
+            res = delivery.result(timeout=20)
+        finally:
+            with a._active_lock:
+                active_ids = list(a._active)
+            for ext in active_ids:
+                try:
+                    a.terminate(ext)
+                except RuntimeTargetError:
+                    pass
+    assert res.status == "uncertain" and res.certainty == "STARTED"
+    assert responses(h) == [] and offset_row(h)[0] == 0
+    assert not pid_alive(exited(a)["pid"])
+    delivery_kinds = kinds(h, delivery_rows(h, r.record_id)[-1][0])
+    assert "runtime_error" in delivery_kinds and "terminal" not in delivery_kinds
+    assert h.delivery_cycle("b", "s", a).status == "blocked_uncertain"
+    assert len(calls(mk.log)) <= 1  # cancellation may beat fake CLI startup; never replay
+    ev = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='control_applied'")
+    assert any('"runtime_outcome": "done"' in row[0] for row in ev)
+    assert all('"runtime_outcome": "unsupported"' not in row[0] for row in ev)
 
 
 # ---------------------------------------------------------------- pre-spawn argument validation

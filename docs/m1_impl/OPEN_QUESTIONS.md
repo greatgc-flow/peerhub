@@ -143,7 +143,7 @@
 
 ## Wave 8 / T1 (real adapters, live canary)
 - Q-W8-1 (OWNER): adapters are not resumable (vendor session ids are not persisted/mapped); each generation is a fresh vendor call with Stream catch-up. Vendor CLIs support resume (cli_status supported). Decide whether M1 requires real resume.
-- Q-W8-2 (OWNER): interrupt/terminate/steer are unsupported on real adapters (pause/cancel only gate delivery; a running process is only killed on timeout/consumer stop).
+- Q-W8-2 (OWNER, updated Stage 2): CLI terminate supports process-tree cancellation with observed exit; interrupt/steer remain unsupported. Cancelled deliveries remain uncertain and cannot auto-replay. See ADAPTER_CAPABILITIES.md.
 - Q-W8-3: LIVE gate shape: skip-by-default via addopts deselection plus an opt-in skip reason; provider-unavailable = skip with `LIVE-PROVIDER-UNAVAILABLE[...]` and recorded evidence (not a failure).
 - Q-W8-4: cx runs with `-s read-only` and prompt on stdin (`-`); cc/ag run with default tool permissions in an empty temp cwd (isolation by cwd, not by vendor sandbox). cc/ag flags beyond the documented ones were not added.
 - Q-W8-5: evidence file date is UTC (2026-10-03 file for a 2026-10-04 local run); the file merges per-provider sections.

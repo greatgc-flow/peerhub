@@ -9,20 +9,24 @@ Two different things are reported separately (ACCEPTANCE_DOD, LIVE-004):
 | deliver (fresh vendor call per delivery) | yes | yes | yes | supported |
 | resume | CLI `--resume` observed | CLI `resume` observed | CLI `--conversation` observed | **unsupported** (`resume_session` -> "unsupported", spawns nothing) |
 | interrupt | vendor-dependent | vendor-dependent | vendor-dependent | **unsupported** |
-| terminate | vendor-dependent | vendor-dependent | vendor-dependent | **unsupported** |
+| terminate | local process tree | local process tree | local process tree | **supported** (active local delivery only; observed exit required) |
 | steer | vendor-dependent | vendor-dependent | vendor-dependent | **unsupported** |
 
 Rules in M1:
 - Fallback for resume = a fresh session generation plus Stream catch-up (bounded, TD-12). Vendor session ids are not persisted or mapped.
-- pause/cancel/redirect only gate delivery (durable intent before any effect). The best-effort runtime effect (interrupt/terminate/steer) reports
-  `runtime_outcome = unsupported`; it is never reported `done`, and the adapter is never signalled.
-- An unsupported cancel never claims process termination: no evidence or result says a process was terminated. The only process kills are
-  internal (output limit, timeout, consumer stopped iterating) and are reported as runtime errors with uncertainty, never as a cancel.
+- Control intent is committed before any runtime effect. Pause/redirect retain unsupported interrupt/steer outcomes.
+- Cancel invokes terminate for the persisted target: a thread-safe registry maps external_session_id to the active local BoundedProcess.
+  Windows uses `taskkill /T /F`; POSIX starts a private session and kills its process group with `killpg`.
+  The runtime waits for observed process exit before reporting success; an unconfirmed kill raises RuntimeTargetError (Bridge outcome `failed`).
+- Cancellation marks the in-flight delivery aborted; it raises RuntimeTargetError after start, leaving uncertainty and no response or auto-replay.
+- No active local process raises RuntimeTargetError("nothing running"), never a successful kill. The Bridge records `failed` if durable
+  STARTED/MAY_HAVE_STARTED evidence still targets that session; its existing absent/stale target checks retain `nothing_running`/`stale_target`.
+- The registry belongs to the runtime instance owning delivery. Another runtime instance/process cannot claim to kill an unregistered invocation.
 - Capabilities are discovered with timestamped evidence; unavailable or unsupported is reported, never synthesized.
 
-Verified by: `tests/m1/adapters/test_t1_adapters.py` (`test_t1_capabilities_adapter_never_claims_more_than_it_implements`,
-`test_t1_bridge_control_effects_report_unsupported_not_done`, `test_t1_unsupported_cancel_never_claims_process_termination[cc|cx|ag]`).
-Code audit: no code path in the adapters or the Bridge reports termination of a vendor process on cancel; no change was needed.
+Coverage: `tests/communication/adapters/test_t1_adapters.py` (capability discovery, unsupported pause,
+cancel without a local process, running CLI cancel with uncertain delivery and no replay), and
+`tests/communication/adapters/test_native_terminate.py` (real child/grandchild tree, cross-thread termination, failed kill/exit observation).
 
 ## M1 Spec Alignment (2026-10-09)
-Current adapters report native resume/interrupt/terminate/steer as unsupported (peerhub/extensions/adapters/base.py). Bridge control intents are capability-gated (peerhub/extensions/bridge.py). Durable fresh-session catch-up is the continuity mechanism; it does NOT stop an already-running provider invocation, and native control stays an optional capability per adapter.
+CLI adapters support native terminate for active local deliveries: control.cancel kills the process tree and waits for observed exit. Resume, interrupt, and steer remain unsupported (peerhub/extensions/adapters/base.py). Bridge control intents are capability-gated (peerhub/extensions/bridge.py). Cancelled deliveries remain uncertain and cannot auto-replay; a missing local process raises RuntimeTargetError("nothing running"), recorded as failed when durable delivery evidence still identifies a target. Bridge targets already known to be absent or stale retain nothing_running/stale_target outcomes. Durable fresh-session catch-up provides continuity but does not itself stop a provider invocation.

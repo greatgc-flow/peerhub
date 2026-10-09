@@ -12,7 +12,7 @@ Consultation (cx + ag consensus, DECISIONS.md "D-OWN-*"): A1, A3, B6, B7, B8 and
 | A4 pre-start failure vs durability | Resolved and implemented: separate persisted invocation marker, no certainty downgrade anywhere (FB-005, D-OWN-A4) |
 | A5 ORIGINAL_LINKS drift | Logged (FB-004); package stays frozen |
 | B6 legacy importer scope | Retired 2026-10-08 (importer removed) |
-| B7 real adapters | Accepted: no real resume/interrupt/terminate/steer in M1; fallback fresh generation + catch-up; `ADAPTER_CAPABILITIES.md` |
+| B7 real adapters | Stage 2: native CLI process-tree terminate supported; resume/interrupt/steer unsupported; fallback fresh generation + catch-up; `ADAPTER_CAPABILITIES.md` |
 | B8 cancel semantics | Accepted (D-W4-7, D-W4-9) |
 | C safe defaults | Accepted; all 8 Python/OS matrix cells are now VERIFIED-CI (green run https://github.com/greatgc-flow/peerhub/actions/runs/37189754726; evidence docs/m1_impl/matrix_evidence/ci-run-37189754726.json); a cell without run evidence stays UNVERIFIED (TD-18); windows py3.11-3.13 also VERIFIED-LOCAL (docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json). The live-provider-validation job (self-hosted) is still pending/not run in hosted CI |
 
