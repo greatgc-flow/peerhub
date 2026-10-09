@@ -8,7 +8,7 @@
     {
       "path": "01_M1/ACCEPTANCE_DOD.md",
       "bytes": 2182,
-      "sha256": "98958ba0d704e47d62b460fb8baec9b2d533482ac2f6a5c9e080c00e1c815669"
+      "sha256": "f9add1a92d6b7ddaa2067a135c4b95a83858d38d307dc07860f71ad7cff064c9"
     },
     {
       "path": "01_M1/BOUNDARY_MAP.md",
@@ -283,7 +283,7 @@
     {
       "path": "06_GUIDES/TEST_SET/TEST_STRATEGY.md",
       "bytes": 2438,
-      "sha256": "14373a952f290e43002781b18fd75d2c108d7979652652982d6d6240f3367c2a"
+      "sha256": "07e7ada3f64fe088ea5148e3ff7fbb78a37b570be714a2725bdd76e957ee6a48"
     },
     {
       "path": "06_GUIDES/TEST_SET/exception-catalog.schema.json",
@@ -548,7 +548,7 @@
     {
       "path": "09_ROADMAP/PEERHUB_MASTER_ROADMAP.md",
       "bytes": 7170,
-      "sha256": "a8ffcadcc0e983498f5388e824a596f3c6e618c8cdf9705e3f4c522eaa038bb3"
+      "sha256": "6acdbc1312cb8843a58326680ac388a7a96c6c6e0aed0676d97915d37c1db129"
     },
     {
       "path": "09_ROADMAP/README.md",
@@ -577,8 +577,8 @@
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/CONFORMANCE_MATRIX.md",
-      "bytes": 3187,
-      "sha256": "a04597a8d592cd49c171da244316ca16e8cb3354f3a22e635f179475230b5471"
+      "bytes": 3160,
+      "sha256": "c62f2b4f7a56928c7f61d6d546fb70fd3a2133f6c6872f2a49c3bf9d791789b1"
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/STANDARDIZATION_EXCEPTIONS.md",
@@ -633,7 +633,7 @@
     {
       "path": "FINAL_M1_DECISION.md",
       "bytes": 3983,
-      "sha256": "bccc6cb5d7b2e329cf3948658ba8097200236e3cda017f8e4aa1a49879a0e24b"
+      "sha256": "cf6a27e92fbe179591d13673589d45dc46507728eca5a6d78f55caef63897405"
     },
     {
       "path": "FINAL_ROADMAP_DECISION.md",
@@ -643,7 +643,7 @@
     {
       "path": "START_HERE.md",
       "bytes": 2736,
-      "sha256": "db2fbb399c2248e8552679870f5f1325effcf9f5db1630d0de046c7ede9f2c2a"
+      "sha256": "64c00b796526670f9fa98d13cddc8926310f9695707db333955de680adc1f409"
     },
     {
       "path": "USAGE_GUIDE.md",

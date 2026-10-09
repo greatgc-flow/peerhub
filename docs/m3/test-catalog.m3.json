@@ -23,7 +23,8 @@
       "live_provider": false,
       "dimensions": [
         "architecture",
-        "fts"
+        "fts",
+        "invariant"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -48,7 +49,8 @@
       "live_provider": false,
       "dimensions": [
         "provenance",
-        "validation"
+        "validation",
+        "schema"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -124,7 +126,8 @@
       "live_provider": false,
       "dimensions": [
         "artifacts",
-        "indexing"
+        "indexing",
+        "fts"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -248,7 +251,8 @@
       "live_provider": false,
       "dimensions": [
         "fault",
-        "integrity"
+        "integrity",
+        "recovery"
       ],
       "case_type": "negative",
       "deterministic": true
@@ -298,7 +302,8 @@
       "live_provider": false,
       "dimensions": [
         "architecture",
-        "packaging"
+        "packaging",
+        "dependencies"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -323,7 +328,8 @@
       "live_provider": false,
       "dimensions": [
         "architecture",
-        "immutability"
+        "immutability",
+        "invariant"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -421,7 +427,8 @@
       "live_provider": false,
       "dimensions": [
         "context_pack",
-        "budget"
+        "budget",
+        "bounded"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -470,7 +477,8 @@
       "live_provider": false,
       "dimensions": [
         "supersession",
-        "selection"
+        "selection",
+        "exclusion"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -518,7 +526,8 @@
       "live_provider": false,
       "dimensions": [
         "rebuild",
-        "determinism"
+        "determinism",
+        "replay"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -617,7 +626,8 @@
       "live_provider": false,
       "dimensions": [
         "architecture",
-        "select_only"
+        "select_only",
+        "invariant"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -667,7 +677,8 @@
       "live_provider": false,
       "dimensions": [
         "determinism",
-        "reproducibility"
+        "reproducibility",
+        "replay"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -716,7 +727,9 @@
       "live_provider": false,
       "dimensions": [
         "security",
-        "safety"
+        "safety",
+        "invariant",
+        "unknown_evidence"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -741,7 +754,9 @@
       "live_provider": false,
       "dimensions": [
         "security",
-        "quota"
+        "quota",
+        "invariant",
+        "unknown_evidence"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -765,7 +780,8 @@
       "live_provider": false,
       "dimensions": [
         "evaluation",
-        "ranking"
+        "ranking",
+        "transparency"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -888,7 +904,8 @@
       "live_provider": false,
       "dimensions": [
         "architecture",
-        "packaging"
+        "packaging",
+        "dependencies"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -899,7 +916,7 @@
       "title": "ApprovalRequest lifecycle happy path: REQUESTED -> APPROVED -> CONSUMED",
       "requirements": [
         "REQ-APP-001",
-        "REQ-APP-002"
+        "REQ-APP-003"
       ],
       "priority": "P0",
       "markers": [
@@ -914,7 +931,8 @@
       "live_provider": false,
       "dimensions": [
         "approval",
-        "state_machine"
+        "state_machine",
+        "lifecycle"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -924,7 +942,7 @@
       "tier": "approval",
       "title": "ApprovalNotFound raised when non-existent approval ID is referenced",
       "requirements": [
-        "REQ-APP-001"
+        "REQ-APP-003"
       ],
       "priority": "P0",
       "markers": [
@@ -949,7 +967,6 @@
       "tier": "approval",
       "title": "Approval rejection transitions state to REJECTED with reason",
       "requirements": [
-        "REQ-APP-001",
         "REQ-APP-003"
       ],
       "priority": "P0",
@@ -975,6 +992,7 @@
       "tier": "approval",
       "title": "Expired approval token cannot be approved or consumed",
       "requirements": [
+        "REQ-APP-003",
         "REQ-APP-004"
       ],
       "priority": "P0",
@@ -990,7 +1008,9 @@
       "live_provider": false,
       "dimensions": [
         "approval",
-        "ttl"
+        "ttl",
+        "expiration",
+        "timeout"
       ],
       "case_type": "negative",
       "deterministic": true
@@ -1026,7 +1046,8 @@
       "tier": "invariant",
       "title": "Invariant 11: Exact-effect binding (digest mismatch rejected)",
       "requirements": [
-        "REQ-APP-003"
+        "REQ-APP-001",
+        "REQ-APP-005"
       ],
       "priority": "P0",
       "markers": [
@@ -1042,7 +1063,10 @@
       "live_provider": false,
       "dimensions": [
         "invariant",
-        "security"
+        "security",
+        "digest",
+        "tamper",
+        "verification"
       ],
       "case_type": "negative",
       "deterministic": true
@@ -1052,7 +1076,7 @@
       "tier": "approval",
       "title": "Effect digest calculation is deterministic across arbitrary key orderings",
       "requirements": [
-        "REQ-APP-003"
+        "REQ-APP-001"
       ],
       "priority": "P0",
       "markers": [
@@ -1078,7 +1102,7 @@
       "tier": "approval",
       "title": "Consuming unapproved (REQUESTED) request raises ApprovalStateTransitionError",
       "requirements": [
-        "REQ-APP-002"
+        "REQ-APP-003"
       ],
       "priority": "P0",
       "markers": [
@@ -1103,7 +1127,7 @@
       "tier": "approval",
       "title": "Database persistence restores approval requests across engine restarts",
       "requirements": [
-        "REQ-APP-005"
+        "REQ-APP-003"
       ],
       "priority": "P0",
       "markers": [
@@ -1128,7 +1152,7 @@
       "tier": "approval",
       "title": "Approving already REJECTED or CONSUMED request raises ApprovalStateTransitionError",
       "requirements": [
-        "REQ-APP-001"
+        "REQ-APP-003"
       ],
       "priority": "P0",
       "markers": [
@@ -1153,7 +1177,7 @@
       "tier": "approval",
       "title": "List and filter approval requests by state and requester",
       "requirements": [
-        "REQ-APP-005"
+        "REQ-APP-003"
       ],
       "priority": "P0",
       "markers": [
@@ -1193,7 +1217,8 @@
       "live_provider": false,
       "dimensions": [
         "architecture",
-        "packaging"
+        "packaging",
+        "dependencies"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -1219,7 +1244,8 @@
       "live_provider": false,
       "dimensions": [
         "orchestration",
-        "dag"
+        "dag",
+        "lifecycle"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -1270,7 +1296,8 @@
       "live_provider": false,
       "dimensions": [
         "invariant",
-        "bounds"
+        "bounds",
+        "safety"
       ],
       "case_type": "negative",
       "deterministic": true
@@ -1502,7 +1529,8 @@
       "live_provider": false,
       "dimensions": [
         "architecture",
-        "packaging"
+        "packaging",
+        "dependencies"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -1528,7 +1556,8 @@
       "live_provider": false,
       "dimensions": [
         "invariant",
-        "identity"
+        "identity",
+        "quarantine"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -1580,7 +1609,8 @@
       "live_provider": false,
       "dimensions": [
         "invariant",
-        "trust"
+        "trust",
+        "card"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -1631,7 +1661,9 @@
       "live_provider": false,
       "dimensions": [
         "a2a",
-        "encapsulation"
+        "encapsulation",
+        "isolation",
+        "protocol"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -1682,7 +1714,8 @@
       "live_provider": false,
       "dimensions": [
         "a2a",
-        "lifecycle"
+        "lifecycle",
+        "dispatch"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -1732,7 +1765,8 @@
       "live_provider": false,
       "dimensions": [
         "a2a",
-        "validation"
+        "validation",
+        "catalog"
       ],
       "case_type": "negative",
       "deterministic": true
@@ -1807,7 +1841,8 @@
       "live_provider": false,
       "dimensions": [
         "architecture",
-        "packaging"
+        "packaging",
+        "dependencies"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -1833,7 +1868,8 @@
       "live_provider": false,
       "dimensions": [
         "invariant",
-        "security"
+        "security",
+        "capability"
       ],
       "case_type": "negative",
       "deterministic": true
@@ -1883,7 +1919,8 @@
       "live_provider": false,
       "dimensions": [
         "runtime_port",
-        "lifecycle"
+        "lifecycle",
+        "api"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -1933,7 +1970,9 @@
       "live_provider": false,
       "dimensions": [
         "runtime_port",
-        "failure_injection"
+        "failure_injection",
+        "fake",
+        "isolation"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -1983,7 +2022,8 @@
       "live_provider": false,
       "dimensions": [
         "runtime_port",
-        "collect"
+        "collect",
+        "error_handling"
       ],
       "case_type": "negative",
       "deterministic": true
@@ -2008,7 +2048,8 @@
       "live_provider": false,
       "dimensions": [
         "runtime_port",
-        "collect"
+        "collect",
+        "error_handling"
       ],
       "case_type": "negative",
       "deterministic": true
@@ -2033,7 +2074,8 @@
       "live_provider": false,
       "dimensions": [
         "runtime_port",
-        "cancellation"
+        "cancellation",
+        "state_machine"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -2108,7 +2150,8 @@
       "live_provider": false,
       "dimensions": [
         "architecture",
-        "packaging"
+        "packaging",
+        "dependencies"
       ],
       "case_type": "positive",
       "deterministic": true
@@ -2263,6 +2306,112 @@
         "runtime_port"
       ],
       "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "SRC-014",
+      "tier": "integration",
+      "title": "Repeated authoritative search rebuild preserves source identity",
+      "requirements": [
+        "REQ-SRC-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration"
+      ],
+      "setup": "Search index, CoreStore, verified artifact and indexed skill.",
+      "action": "Rebuild twice from identical authoritative sources.",
+      "oracle": "The skill result, including its source watermark, is identical after the second rebuild.",
+      "failure_injection": "none",
+      "evidence": [
+        "tests/collaboration/test_memory_search_recovery.py::test_search_rebuild_includes_verified_artifacts_and_skill_sources"
+      ],
+      "live_provider": false,
+      "dimensions": [
+        "rebuild",
+        "idempotency",
+        "provenance"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "APP-013",
+      "tier": "integration",
+      "title": "Concurrent approval consumers accept exactly one grant",
+      "requirements": [
+        "REQ-APP-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration"
+      ],
+      "setup": "Two independent ApprovalEngine instances with one approved exact-effect token.",
+      "action": "Synchronize digest checks and consume concurrently.",
+      "oracle": "Exactly one consumer succeeds; the other reports ALREADY_CONSUMED and persisted state is CONSUMED.",
+      "failure_injection": "none",
+      "evidence": [
+        "tests/collaboration/test_approval.py::test_single_use_across_concurrent_engines"
+      ],
+      "live_provider": false,
+      "dimensions": [
+        "single_use",
+        "atomicity",
+        "concurrency"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-014",
+      "tier": "integration",
+      "title": "Durable execution requires an accepted exact plan",
+      "requirements": [
+        "REQ-ORC-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration"
+      ],
+      "setup": "RecordPlanJournal backed by CoreStore and a plan awaiting acceptance.",
+      "action": "Reject unaccepted and altered plans, then execute the accepted plan.",
+      "oracle": "Unaccepted and altered plans cannot invoke the runner; accepted execution records its completed result.",
+      "failure_injection": "none",
+      "evidence": [
+        "tests/collaboration/test_orchestration.py::test_durable_plan_requires_acceptance_and_exact_binding"
+      ],
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "authority"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ORC-015",
+      "tier": "integration",
+      "title": "Durable restart uses recorded results and rejects caller fabrication",
+      "requirements": [
+        "REQ-ORC-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration"
+      ],
+      "setup": "Accepted two-step plan with the first step durably completed in RecordPlanJournal.",
+      "action": "Reject fabricated resume results and restart from the journal.",
+      "oracle": "Only the remaining step executes; the completed step is recovered from authoritative Records.",
+      "failure_injection": "none",
+      "evidence": [
+        "tests/collaboration/test_orchestration.py::test_durable_restart_skips_completed_and_ignores_caller_fabrication"
+      ],
+      "live_provider": false,
+      "dimensions": [
+        "recovery",
+        "provenance"
+      ],
+      "case_type": "positive",
       "deterministic": true
     }
   ]

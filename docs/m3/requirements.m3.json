@@ -9,10 +9,6 @@
       "statement": "Invariant 2: Search index is a rebuildable projection and never authoritative truth.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SRC-001",
-        "SRC-004"
-      ],
       "required_dimensions": [
         "invariant",
         "rebuild"
@@ -27,10 +23,6 @@
       "statement": "Search results must always include source provenance (source_ref, doc_type, score, retrieval_method, source_watermark).",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SRC-002",
-        "SRC-003"
-      ],
       "required_dimensions": [
         "provenance",
         "schema"
@@ -45,10 +37,6 @@
       "statement": "Lexical full-text search (FTS5) indexes record bodies, artifact metadata, and skill descriptions with token snippet extraction.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SRC-005",
-        "SRC-006"
-      ],
       "required_dimensions": [
         "fts",
         "indexing"
@@ -63,10 +51,6 @@
       "statement": "Rebuilding search index re-indexes 100% of available CoreStore records, artifacts, and skills without data loss or duplicate drift.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SRC-007",
-        "SRC-008"
-      ],
       "required_dimensions": [
         "rebuild",
         "idempotency"
@@ -81,10 +65,6 @@
       "statement": "Search index handles malformed queries and corrupted indices gracefully with clean error reporting and auto-rebuild capability.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SRC-009",
-        "SRC-010"
-      ],
       "required_dimensions": [
         "fault",
         "recovery"
@@ -99,10 +79,6 @@
       "statement": "Core imports M3 = 0, and search index implementation uses only Python standard library modules (REL-009).",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SRC-011",
-        "SRC-012"
-      ],
       "required_dimensions": [
         "architecture",
         "dependencies"
@@ -117,10 +93,6 @@
       "statement": "Invariant 3: Memory items are derived from records and never overwrite or mutate authoritative source records.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MEM-001",
-        "MEM-002"
-      ],
       "required_dimensions": [
         "invariant",
         "provenance"
@@ -135,10 +107,6 @@
       "statement": "Memory lifecycle transitions strictly follow CANDIDATE -> ACCEPTED -> SUPERSEDED / REVOKED and CANDIDATE -> REJECTED.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MEM-003",
-        "MEM-004"
-      ],
       "required_dimensions": [
         "lifecycle",
         "state_machine"
@@ -153,10 +121,6 @@
       "statement": "Invariant 4: Context Pack assemblies are strictly bounded by token budgets and enforce deterministic truncation.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MEM-005",
-        "MEM-006"
-      ],
       "required_dimensions": [
         "context_pack",
         "bounded"
@@ -171,10 +135,6 @@
       "statement": "Superseded and revoked memory items are excluded from active context packs, and supersession links are preserved.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MEM-007",
-        "MEM-008"
-      ],
       "required_dimensions": [
         "supersession",
         "exclusion"
@@ -189,10 +149,6 @@
       "statement": "Memory items can be rebuilt and verified from underlying CoreStore event stream records.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MEM-009",
-        "MEM-010"
-      ],
       "required_dimensions": [
         "rebuild",
         "replay"
@@ -207,10 +163,6 @@
       "statement": "Core and M2 remain completely independent and functional when memory module is disabled, with zero external dependencies.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MEM-011",
-        "MEM-012"
-      ],
       "required_dimensions": [
         "architecture",
         "packaging"
@@ -225,10 +177,6 @@
       "statement": "Invariant 7: Routing selects candidates based on policy and never executes or mutates work.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RTG-001",
-        "RTG-002"
-      ],
       "required_dimensions": [
         "invariant",
         "select_only"
@@ -243,10 +191,6 @@
       "statement": "Deterministic decision replay: identical request, candidates, and policy revision produce identical decision digest.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RTG-003",
-        "RTG-004"
-      ],
       "required_dimensions": [
         "determinism",
         "replay"
@@ -261,10 +205,6 @@
       "statement": "Invariant 8: UNKNOWN evidence is never treated as healthy, unlimited, or supported by default.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RTG-005",
-        "RTG-006"
-      ],
       "required_dimensions": [
         "invariant",
         "unknown_evidence"
@@ -279,10 +219,6 @@
       "statement": "Evaluation breakdown includes candidate eligibility, scores, rank, and rejection reasons.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RTG-007",
-        "RTG-008"
-      ],
       "required_dimensions": [
         "transparency",
         "evaluation"
@@ -297,10 +233,6 @@
       "statement": "Missing eligible candidates raise NoEligibleRouteCandidateError cleanly without hang or crash.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RTG-009",
-        "RTG-010"
-      ],
       "required_dimensions": [
         "fault",
         "error_handling"
@@ -315,10 +247,6 @@
       "statement": "Zero dev-dependency violation: router runs on standard library and does not import external ML or solver libraries.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RTG-011",
-        "RTG-012"
-      ],
       "required_dimensions": [
         "architecture",
         "dependencies"
@@ -333,10 +261,6 @@
       "statement": "Invariant 11: Approval tokens are strictly bound to target effect payload cryptographic digest.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "APP-001",
-        "APP-002"
-      ],
       "required_dimensions": [
         "invariant",
         "digest"
@@ -351,10 +275,6 @@
       "statement": "Invariant 11: Single-use consumption gate prevents double-spending or replay of approved grants.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "APP-003",
-        "APP-004"
-      ],
       "required_dimensions": [
         "single_use",
         "atomicity"
@@ -369,10 +289,6 @@
       "statement": "Approval lifecycle enforces REQUESTED -> APPROVED -> CONSUMED and REQUESTED -> REJECTED / EXPIRED.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "APP-005",
-        "APP-006"
-      ],
       "required_dimensions": [
         "lifecycle",
         "state_machine"
@@ -387,10 +303,6 @@
       "statement": "Expired approval tokens cannot be approved or consumed, transitioning deterministically to EXPIRED.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "APP-007",
-        "APP-008"
-      ],
       "required_dimensions": [
         "expiration",
         "timeout"
@@ -405,10 +317,6 @@
       "statement": "Side-effect payload tampering or partial parameter alteration raises ApprovalEffectMismatchError.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "APP-009",
-        "APP-010"
-      ],
       "required_dimensions": [
         "tamper",
         "verification"
@@ -423,10 +331,6 @@
       "statement": "Zero dev-dependency violation: approval engine runs on standard library sqlite3 without external consensus frameworks.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "APP-011",
-        "APP-012"
-      ],
       "required_dimensions": [
         "architecture",
         "dependencies"
@@ -441,10 +345,6 @@
       "statement": "Orchestration is a bounded executor of an explicit accepted plan, with authority anchored strictly in Work/Record/Artifact.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ORC-001",
-        "ORC-002"
-      ],
       "required_dimensions": [
         "architecture",
         "authority"
@@ -459,10 +359,6 @@
       "statement": "Invariant 9: Orchestration is always bounded by max_depth, max_steps, max_fanout, max_attempts, and timeout.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ORC-003",
-        "ORC-004"
-      ],
       "required_dimensions": [
         "bounds",
         "safety"
@@ -477,10 +373,6 @@
       "statement": "Invariant 10: MAY_HAVE_STARTED results forbid blind retry unless explicit idempotency verification is guaranteed.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ORC-005",
-        "ORC-006"
-      ],
       "required_dimensions": [
         "certainty",
         "retry"
@@ -495,10 +387,6 @@
       "statement": "Step execution respects dependency graph ordering and propagates step failures or cancellations cleanly.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ORC-007",
-        "ORC-008"
-      ],
       "required_dimensions": [
         "dag",
         "lifecycle"
@@ -513,10 +401,6 @@
       "statement": "Crash recovery re-hydrates execution state from recorded evidence without replay duplication.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ORC-009",
-        "ORC-010"
-      ],
       "required_dimensions": [
         "recovery",
         "provenance"
@@ -531,10 +415,6 @@
       "statement": "Zero dev-dependency violation: orchestration engine runs on standard library without external workflow engines (REL-009).",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ORC-011",
-        "ORC-012"
-      ],
       "required_dimensions": [
         "architecture",
         "dependencies"
@@ -549,10 +429,6 @@
       "statement": "Invariant 5: A2A remote identities are strictly quarantined and never become PeerHub identities implicitly.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "A2A-001",
-        "A2A-002"
-      ],
       "required_dimensions": [
         "identity",
         "quarantine"
@@ -567,10 +443,6 @@
       "statement": "Invariant 6: Agent Card declarations are treated as untrusted claims, distinct from measured operational reality.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "A2A-003",
-        "A2A-004"
-      ],
       "required_dimensions": [
         "card",
         "trust"
@@ -585,10 +457,6 @@
       "statement": "Remote execution protocol state is captured through opaque ExternalExecutionRef, including the server-assigned remote task id; the local task id is sent as message.messageId, avoiding leakage into local state machines.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "A2A-005",
-        "A2A-006"
-      ],
       "required_dimensions": [
         "protocol",
         "isolation"
@@ -603,10 +471,6 @@
       "statement": "A2A task dispatch, polling, and cancellation use A2A 1.0 JSON-RPC over HTTP (SendMessage/GetTask/CancelTask, A2A-Version: 1.0) and map TASK_STATE_* states to explicit local lifecycle states with timeout and failure handling; direct Message answers, streaming, and unmapped states fail closed.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "A2A-007",
-        "A2A-008"
-      ],
       "required_dimensions": [
         "lifecycle",
         "dispatch"
@@ -621,10 +485,6 @@
       "statement": "A2A adapter validates AgentCard registration and ensures missing agents raise A2AAgentNotFoundError.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "A2A-009",
-        "A2A-010"
-      ],
       "required_dimensions": [
         "catalog",
         "validation"
@@ -639,10 +499,6 @@
       "statement": "Zero dev-dependency violation: A2A adapter runs on Python standard library without external RPC/Agent frameworks (REL-009).",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "A2A-011",
-        "A2A-012"
-      ],
       "required_dimensions": [
         "architecture",
         "dependencies"
@@ -657,10 +513,6 @@
       "statement": "Invariant 12: Remote runtime is strictly capability-bound; unrestricted arbitrary remote shells are forbidden.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RUN-001",
-        "RUN-002"
-      ],
       "required_dimensions": [
         "invariant",
         "capability"
@@ -675,10 +527,6 @@
       "statement": "Public runtime port exposes probe, submit, get, cancel, and collect operations with explicit job states.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RUN-003",
-        "RUN-004"
-      ],
       "required_dimensions": [
         "api",
         "lifecycle"
@@ -693,10 +541,6 @@
       "statement": "Deterministic Loopback adapter verifies failure isolation and controlled error injection.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RUN-005",
-        "RUN-006"
-      ],
       "required_dimensions": [
         "fake",
         "isolation"
@@ -711,10 +555,6 @@
       "statement": "Collecting incomplete or failed jobs raises RuntimeJobNotReadyError or RuntimeJobFailedError.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RUN-007",
-        "RUN-008"
-      ],
       "required_dimensions": [
         "collect",
         "error_handling"
@@ -729,10 +569,6 @@
       "statement": "Job cancellation transitions active job to CANCELLED state and prevents further execution.",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RUN-009",
-        "RUN-010"
-      ],
       "required_dimensions": [
         "cancellation",
         "state_machine"
@@ -747,10 +583,6 @@
       "statement": "Zero dev-dependency violation: Runtime Port runs on standard library without external cluster/RPC frameworks (REL-009).",
       "source": "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "RUN-011",
-        "RUN-012"
-      ],
       "required_dimensions": [
         "architecture",
         "dependencies"
@@ -765,9 +597,6 @@
       "statement": "Search supports exact metadata predicates (metadata={key: scalar}, equal by type and value; True is not 1); they filter hits before limit is applied; non-scalar values or non-string keys raise ValueError.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "SRC-013"
-      ],
       "required_dimensions": [
         "search"
       ],
@@ -781,9 +610,6 @@
       "statement": "Memory rebuild is strict (an invalid event aborts and keeps the old projection) unless the store/rebuild opts into quarantine, which skips an invalid event atomically and lists it with its reason; the policy applies to every automatic refresh.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "MEM-013"
-      ],
       "required_dimensions": [
         "memory"
       ],
@@ -797,9 +623,6 @@
       "statement": "With a journal configured, A2A writes a durable submitting Record (claim token, endpoint, attempt) before any remote call (an adapter without a journal tracks uncertain submissions only in memory: nothing survives a restart); an unresolved submission restores as uncertain and is never replayed; an 'unknown to the remote' answer releases the id only on a transport that proves absence, otherwise the task stays uncertain until abandon_task burns the id; reconciliation uses the original endpoint; reconcile_task(task_id, remote_task_id=None) requires an operator-supplied candidate remote id for HTTP and adopts only when remote history carries our local task id as messageId; no candidate or missing/mismatched history raises A2AExecutionUncertainError and leaves the task uncertain; the HTTP binding verifies the JSON-RPC envelope, identity and integer error codes and enforces a total call deadline.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "A2A-013"
-      ],
       "required_dimensions": [
         "a2a"
       ],
@@ -813,9 +636,6 @@
       "statement": "A plan may carry a cost_budget (each attempt must then report a finite cost; unreported is unknown, never zero; spend is summed from the durable journal across attempts and restarts), deterministic when/stop_if predicates (a skipped step skips its dependents; stop_if ends the plan as STOPPED), an opt-in parallel mode bounded by max_fanout with serialized journal appends, and a max_depth checked against the real dependency chain.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "ORC-013"
-      ],
       "required_dimensions": [
         "orchestration"
       ],
@@ -829,9 +649,6 @@
       "statement": "ProcessRuntimeAdapter runs a capability as a fixed argv (shell=False, declared parameters only); cancel kills the whole process tree and confirms it, otherwise it raises RuntimeCancellationError and the job stays RUNNING; HardDeadlineStepRunner kills work at the plan deadline (a confirmed kill is a certain failure, an unconfirmed one MAY_HAVE_STARTED, a job that finished on its own is used, not discarded), and require_hard_deadline accepts only runners that declare this.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "RUN-013"
-      ],
       "required_dimensions": [
         "runtime_port"
       ],

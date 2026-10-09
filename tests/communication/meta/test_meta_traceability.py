@@ -1,6 +1,7 @@
 import pytest
 
 from tests.communication.spec import TESTSET, catalog, catalog_ids, load
+from tools.traceability import requirement_tests, required_dimension_gaps
 
 pytestmark = [pytest.mark.meta, pytest.mark.traceability]
 
@@ -9,21 +10,14 @@ pytestmark = [pytest.mark.meta, pytest.mark.traceability]
 def test_meta_001_requirement_dimension_coverage_complete():
     reqs = load(TESTSET / "requirements.json")["requirements"]
     tests = catalog()
-    by_req: dict[str, list[dict]] = {}
-    for t in tests:
-        for r in t["requirements"]:
-            by_req.setdefault(r, []).append(t)
+    by_req = requirement_tests(tests)
     known = {r["id"] for r in reqs}
     assert not (set(by_req) - known), f"tests reference unknown requirements: {sorted(set(by_req) - known)}"
-    problems = []
+    problems = list(required_dimension_gaps(reqs, by_req))
     for r in reqs:
         linked = by_req.get(r["id"], [])
-        dims = {d for t in linked for d in t["dimensions"]}
-        uncovered = set(r["required_dimensions"]) - dims
-        if uncovered:
-            problems.append((r["id"], sorted(uncovered)))
         if sorted(r["tests"]) != sorted(t["id"] for t in linked):
-            problems.append((r["id"], "declared tests != reverse index"))
+            problems.append((r["id"], ["declared tests != reverse index"]))
     assert not problems, problems
 
 

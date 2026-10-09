@@ -51,7 +51,7 @@ Readonly Diag
 
 - Repo evidence: `greatgc-flow/peerhub` main `4a6994e7f73933a30c5d4e8ee538cd7d736f06ce`
 - current M1 side-by-side CLI: **11 leaf commands**; default `peerhub` cutover is separate
-- M1 test baseline: **85 requirements / 205 tests**
+- M1 test baseline: **85 requirements / 207 tests**
 - global `AGENTS.md`: intentionally absent
 
 ## Development Start

@@ -105,6 +105,7 @@ def test_recovery_covers_records_after_ten_thousand(tmp_path, core, monkeypatch)
     assert seen == list(range(1, 10006))
 
 
+@pytest.mark.catalog_id("SRC-014")
 def test_search_rebuild_includes_verified_artifacts_and_skill_sources(tmp_path, core):
     artifacts = ArtifactStore(tmp_path / "artifacts")
     digest = artifacts.commit_staged(artifacts.stage_bytes(b"artifactneedle immutable bytes"))

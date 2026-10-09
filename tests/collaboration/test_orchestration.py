@@ -377,6 +377,7 @@ def journal(tmp_path: Path) -> RecordPlanJournal:
     return RecordPlanJournal(store, "execution", "executor")
 
 
+@pytest.mark.catalog_id("ORC-014")
 def test_durable_plan_requires_acceptance_and_exact_binding(journal: RecordPlanJournal) -> None:
     plan = Plan("accepted", "explicit", [PlanStep("s", "effect", {})])
     executor = PlanExecutor(journal)
@@ -409,6 +410,7 @@ def test_running_is_durable_before_callback_and_crash_blocks_replay(journal: Rec
         PlanExecutor(journal).execute_plan(plan, lambda s, a: pytest.fail("blind replay"))
 
 
+@pytest.mark.catalog_id("ORC-015")
 def test_durable_restart_skips_completed_and_ignores_caller_fabrication(journal: RecordPlanJournal) -> None:
     plan = Plan("restart", "restart", [PlanStep("a", "effect", {}), PlanStep("b", "effect", {}, depends_on=["a"])])
     journal.accept_plan(plan, accepted_by="operator")
