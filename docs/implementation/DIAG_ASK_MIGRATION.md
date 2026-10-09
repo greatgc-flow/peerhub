@@ -35,13 +35,20 @@ peerhub ask cx "Reply with OK" --stream demo --request-id demo-001 --json
 peerhub ask cx --query-file prompt.txt --workspace . --model MODEL --effort low
 ```
 
-`--db PATH` is a global option before the command. Even if the specified path does not exist, it does not substitute another workspace DB. `--observation-db` can be selected separately from `PEERHUB_DB`.
+`--db PATH` is a global option before the command. Even if the specified path does not exist, it does not substitute another workspace DB. `diag quota --observation-db PATH` and `diag health --observation-db PATH`
+can select an observation store separately from `PEERHUB_DB`.
 
 ## Removed and Retained Parts
 
 Deleted the duplicate initial implementation `extensions/session_bridge.py` and its dedicated `tests/unit/m1/test_extensions.py`. Actual Bridge claim / fencing / certainty tests replace them. Also updated future-schema rejection tests to target the current store. Deleted files can be recovered from the Git commit at the start of work.
 
-Provider adapters do not currently claim to implement native session resume / interrupt / steer. Fresh generation + bounded catch-up in Session Bridge is the current continuity path. There is no claim that v0 `--profile`, silence timeout, live monitor, and optional-domain presentation have been restored unchanged. Required UX is migrated separately under each extension contract without reintroducing a generic platform.
+At the initial migration, continuity used fresh generation + bounded catch-up.
+Current cc/cx/ag adapters support compatible native session reuse through
+`ask --resume`, with bounded catch-up when reuse is incompatible. Current `ask`
+also supports `--profile` and `--silence-timeout-seconds`; `diag --live` reads
+committed snapshots, while `monitor` explicitly collects observations. These
+current commands do not restore every v0 control surface. See the
+[README](../../README.md#everyday-commands) for current usage.
 
 ## Validation and Release Boundaries
 

@@ -1,8 +1,9 @@
 # docs/compatibility/ — Index
 
-This directory maintains the empirical contracts and observation logs used to test and verify compatibility with external peer CLI binaries.
+This directory preserves historical observations about external peer CLI binaries.
+Current invocation contracts are documented in the [adapter guide](../adapters/README.md)
+and implemented in `peerhub/extensions/adapters`.
 
 ## Files
 
-- [peer-cli-contracts.toml](peer-cli-contracts.toml) — Machine-readable specification of expected flags, help tokens, and behaviors for external peer CLIs (ag, cc, cx).
 - [peer-cli-observations.md](peer-cli-observations.md) — Recorded empirical observations, version drifts, and vendor divergence notes from live CLI probing.

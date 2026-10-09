@@ -1,6 +1,10 @@
 # PeerHub Usage/Evolution Guide
 
-This document explains the target UX and the available scope by milestone. It is not a document that guarantees the exact legacy v0.x CLI syntax.
+This document explains target UX and milestone scope. For runnable current
+commands, use the [README Core recipe](../../README.md#core-recipe) and
+[everyday commands](../../README.md#everyday-commands). Task control below is
+a target workflow; the public CLI exposes only the commands listed by
+`peerhub --help`.
 
 ## M1 — Basic Collaboration
 
@@ -46,10 +50,12 @@ Opt-in to required Tracks only. UI/Notification/Enterprise/HA/Role are not condi
 ## Package Validation
 
 ```powershell
-python .\tools\validate_package.py
+python docs/m1_spec/tools/seal_package.py
 ```
 
-The screen output and `PACKAGE_VALIDATION.txt` will remain identical.
+Run from the repository root after any edit under `docs/m1_spec`. This rebuilds
+`MANIFEST.json` and `SHA256SUMS.txt` and validates the package; the validation
+report is recorded in `PACKAGE_VALIDATION.txt`.
 
 ## Development/Operation Closed Loop
 
@@ -68,6 +74,13 @@ Requirement
 For Gates, only exact candidate-bound fresh PASS is valid. queued/running/cancelled/stale/unavailable do not satisfy the blocking gate.
 
 
-## 2026-10-04 current implementation note
+## Current CLI and historical cutover
 
-PeerHub main `4a6994e7...` now contains the M1 implementation. The legacy 109-command table is migration evidence; `peerhub-m1` is currently side-by-side and default `peerhub` cutover remains gated.
+The side-by-side `peerhub-m1` entrypoint and the legacy 109-command runtime
+have been retired. `peerhub`, `python -m peerhub`, and `python -m peerhub.cli`
+use the same public CLI. The v0 source is retained only on the Git branch
+`legacy/v0-main-final`; see the [structure cleanup](../implementation/STRUCTURE_CLEANUP.md).
+
+By default `ask` starts a fresh session with bounded Stream catch-up.
+`ask --resume` requests compatible native cc/cx/ag session reuse, with fresh
+session fallback when incompatible. Repeat the flag on each continuing ask.

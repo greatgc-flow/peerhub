@@ -22,12 +22,12 @@ PeerHub resolves model configuration centrally (workspace binding, then global
 configuration, then packaged defaults). The adapter only translates a resolved
 binding into CLI flags.
 
-| Profile | Packaged model | Effort |
-|---|---|---|
-| `cc.standard` | `claude-haiku-4-5-20251001` | vendor default |
-| `cc.effort` | `claude-sonnet-5-5` | `high` |
-| `cc.deepthink` | `claude-opus-5-5` | `high` |
-| `cc.pro` | `claude-fable-5-1` | `high` |
+Profile models and efforts are defined in the
+[model profile manifest](../model-profiles/model-profiles.json); see its `profiles`
+object for this provider. The manifest is checked against packaged defaults.
+
+`ask --writable` adds `--permission-mode acceptEdits`. Compatible native resume
+uses `--resume SESSION_ID` when `ask --resume` is requested.
 
 ## Verify and troubleshoot
 
@@ -39,4 +39,4 @@ peerhub monitor
 
 The vendor CLI owns authentication, account quotas, network access, and model
 availability. A live facts failure must be reviewed before changing packaged
-defaults or compatibility contracts.
+defaults or adapter behavior.

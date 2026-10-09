@@ -8,25 +8,26 @@ This page documents the current production contract. Historical migration notes 
 - Executable: `agy.exe` (observed version `1.2.12` on 2026-09-28)
 - Transport: process pipe; the prompt is passed with `-p`
 - Output: flat JSON; `response` is canonical text.
-- Inline prompt limit: 1,000,000 UTF-8 bytes
+- Inline prompt limit: 30,000 UTF-8 bytes on Windows; 120,000 elsewhere
+- Oversized evidence: rejected before spawn, including bounded catch-up
 - Artifact references: not supported
 
 Create invocations are equivalent to:
 
 ```text
-agy.exe -p <prompt> --output-format json [--model MODEL] [--effort EFFORT]
+agy.exe -p <prompt> --output-format json [--model MODEL] [--effort EFFORT] [--mode accept-edits]
 ```
 
 PeerHub resolves model configuration centrally (workspace binding, then global
 configuration, then packaged defaults). The adapter only translates a resolved
 binding into CLI flags; it does not contain model-selection policy.
 
-| Profile | Packaged model | Separate effort |
-|---|---|---|
-| `ag.standard` | `gemini-3.8-flash-low` | none |
-| `ag.effort` | `gemini-3.8-flash-high` | none |
-| `ag.deepthink` | `gemini-3.1-pro-low` | none |
-| `ag.pro` | `gemini-3.1-pro-high` | none |
+Profile models and efforts are defined in the
+[model profile manifest](../model-profiles/model-profiles.json); see its `profiles`
+object for this provider. The manifest is checked against packaged defaults.
+
+`--mode accept-edits` is added only for `ask --writable`. Compatible native
+resume uses `--conversation SESSION_ID` when `ask --resume` is requested.
 
 ## Verify and troubleshoot
 

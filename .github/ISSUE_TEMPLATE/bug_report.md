@@ -26,4 +26,4 @@ assignees: ''
 
 ## Relevant diagnostics
 
-<!-- If relevant, paste `peerhub diag` and/or `peerhub status` output. -->
+<!-- Paste `peerhub diag --json` and `peerhub --version` output when relevant. -->
