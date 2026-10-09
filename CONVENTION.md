@@ -6,7 +6,7 @@ The communication Core owns only Peer, Stream, Record and Offset. It never impor
 
 Use role-based package and file names: `core`, `extensions`, `cli`, and a capability's name. Development milestones belong in roadmap and audit records. Existing immutable Record kinds, schema IDs and durable table names are compatibility contracts; renaming a Python module is not permission to rewrite them.
 
-The CLI translates public input into Core or extension operations. It has no legacy runtime proxy. The user-data importer remains read-only toward its v0 source.
+The CLI translates public input into Core or extension operations. It has no legacy runtime proxy. The v0 runtime and importer are removed; v0 source is archived on branch `legacy/v0-main-final`.
 
 ## Durability and evidence
 

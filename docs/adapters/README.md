@@ -8,11 +8,11 @@ configuration surface.
 
 ## 1. Active Peer Adapters
 
-| Peer | Adapter Doc | Implementation | Target Peer Binary |
-|---|---|---|---|
-| **ag** | [ag.md](ag.md) | `peerhub.adapters.agy_adapter` | `agy.exe` (Antigravity CLI) |
-| **cc** | [cc.md](cc.md) | `peerhub.adapters.claude_adapter` | `claude.cmd` (Claude Code) |
-| **cx** | [cx.md](cx.md) | `peerhub.adapters.codex_adapter` | `codex.cmd` (Codex CLI) |
+| Peer | Adapter Doc | Target Peer Binary |
+|---|---|---|
+| **ag** | [ag.md](ag.md) | `agy.exe` (Antigravity CLI) |
+| **cc** | [cc.md](cc.md) | `claude.cmd` (Claude Code) |
+| **cx** | [cx.md](cx.md) | `codex.cmd` (Codex CLI) |
 
 ## 2. CLI Reference & Contracts
 

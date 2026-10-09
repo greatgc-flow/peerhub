@@ -133,13 +133,15 @@ jobs:
           }
       - name: Install test dependencies
         run: python -m pip install -e ".[dev]"
-      - name: Run G4 package tests
-        run: python -u -m pytest -q --junitxml=junit/g4.xml tests/communication/package
       - name: Build sdist and wheel
         run: |
           python -m pip install --upgrade pip build twine
           python -m build
           python -m twine check --strict dist/*
+      - name: Run G4 package tests against the built distributions
+        env:
+          PEERHUB_DIST_DIR: ${{ github.workspace }}/dist
+        run: python -u -m pytest -q --junitxml=junit/g4.xml tests/communication/package
       - name: Bind G4 JUnit to the cutover candidate (source, policy, gate definitions)
         if: always()
         run: python -m tools.release_evidence --stamp-junit junit/g4.xml --gate G4 --commit "$(git rev-parse HEAD)" --dist dist
@@ -155,8 +157,8 @@ jobs:
 
   matrix:
     # G4 support matrix (REL-010/011, TD-18): every declared Python x OS cell must really pass the matrix tests for THIS candidate.
-    # The results are stamped to the candidate and the exact built wheels (package scope), so release-evidence accepts a foreign
-    # cell's skip only when another accepted file holds a real pass of that exact case. Archived runs never count.
+    # Each cell runs only its own environment against the downloaded dist; the results are stamped to the candidate and the exact
+    # built wheels (package scope). Archived runs never count.
     needs: [build]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45

@@ -1,7 +1,6 @@
 # Claude Code (`cc`) adapter
 
-This page documents the current production contract implemented by
-`peerhub.adapters.claude_adapter`. Historical migration notes live under
+This page documents the current production contract. Historical migration notes live under
 [`checkpoints/`](checkpoints/) and are not operational guidance.
 
 ## Current contract
@@ -9,16 +8,14 @@ This page documents the current production contract implemented by
 - Executable: `claude.cmd` (observed version `2.1.283` on 2026-09-28)
 - Transport: process pipe; the prompt is written to standard input
 - Output: stream JSON; `result` is canonical text, `is_error` marks vendor
-  failure, and the init/result records provide the resumable session ID
+  failure.
 - Inline prompt limit: 1,000,000 UTF-8 bytes
-- Oversized evidence: staged as an ephemeral PeerHub artifact with a bounded
-  summary in the prompt; the vendor CLI receives no direct artifact reference
+- Oversized evidence: rejected before spawn
 
-Create and resume invocations are equivalent to:
+Create invocations are equivalent to:
 
 ```text
 claude.cmd -p - --output-format stream-json --verbose [--model MODEL] [--effort EFFORT]
-claude.cmd -p - --output-format stream-json --verbose [--model MODEL] [--effort EFFORT] --resume ID --autocompact auto
 ```
 
 PeerHub resolves model configuration centrally (workspace binding, then global
@@ -35,9 +32,9 @@ binding into CLI flags.
 ## Verify and troubleshoot
 
 ```powershell
-peerhub adapter discover --json
-claude.cmd --version
-python -m tools.peerhub_facts --live
+peerhub observation refresh
+peerhub diag
+peerhub monitor
 ```
 
 The vendor CLI owns authentication, account quotas, network access, and model
