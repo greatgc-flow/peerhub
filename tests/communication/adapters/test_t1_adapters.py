@@ -59,7 +59,8 @@ def exited(a):
 def test_t1_success_events_and_invocation_shape(mk, kind):
     a = mk(kind, model="m-test", effort="low" if kind != "ag" else None)
     ev = drain(a.deliver(a.create_session(), rec(), []))
-    assert [e[0] for e in ev] == ["started", "terminal"] and ev[1][1] == {"response": "OK"}
+    assert [e[0] for e in ev] == ["started", "terminal"] and ev[1][1]["response"] == "OK"
+    assert set(ev[1][1]) <= {"response", "usage", "vendor_session"}
     (c,) = calls(mk.log)
     assert os.path.samefile(c["cwd"], mk.ws)
     assert "Reply with OK" in c["prompt"]
@@ -67,7 +68,7 @@ def test_t1_success_events_and_invocation_shape(mk, kind):
         assert c["argv"][:2] == ["-p", "Reply with OK"] and "--model" in c["argv"]
     else:
         assert "Reply with OK" not in " ".join(c["argv"])  # prompt travels on stdin, never in argv
-    assert a.binding() == ("m-test/low" if kind != "ag" else "m-test/default")
+    assert a.binding().split("#")[0] == ("m-test/low" if kind != "ag" else "m-test/default")
 
 
 @pytest.mark.parametrize("kind", KINDS)

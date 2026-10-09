@@ -1,6 +1,6 @@
 """Compare fresh context injection with native resume (direct CLI calls).
 
-Usage: python -m tools.context_bench --peer cc|cx --turns N
+Usage: python -m tools.context_bench --peer cc|cx|ag --turns N
        [--gap-seconds S] [--model M] [--effort E]
 Each strategy uses an empty temporary directory; resume keeps it across turns.
 """
@@ -15,15 +15,15 @@ import tempfile
 import time
 
 
-def workload(turns):
+def workload(turns, item_count=259):
     rng = random.Random(20261009)
     items = [{"code": f"{rng.randrange(100000):05d}",
               "owner": f"user{rng.randrange(100)}",
               "status": rng.choice(("open", "closed")),
-              "note": f"word-{rng.randrange(1000):03d}"} for _ in range(259)]
+              "note": f"word-{rng.randrange(1000):03d}"} for _ in range(item_count)]
     document = "\n".join(f"Item {i}: " + " ".join(f"{k} {v}" for k, v in item.items())
                          for i, item in enumerate(items, 1))
-    order = list(range(259))
+    order = list(range(item_count))
     rng.shuffle(order)
     questions = []
     for t, index in enumerate(order[:turns]):
@@ -40,7 +40,7 @@ def invoke(args, prompt, cwd, session):
             cmd += ["--effort", args.effort]
         if session:
             cmd += ["--resume", session]
-    else:
+    elif args.peer == "cx":
         cmd = ["codex", "exec"] + (["resume", session] if session else [])
         cmd += ["--json", "-m", args.model, "-c", f"model_reasoning_effort={args.effort or 'low'}",
                 "--skip-git-repo-check"]
@@ -48,10 +48,19 @@ def invoke(args, prompt, cwd, session):
         if not session:
             cmd += ["-s", "read-only"]
         cmd += ["-"]
+    else:
+        # Inline prompts share Windows' roughly 30,000-character argv budget.
+        if len(prompt.encode("utf-8")) > 24_000:
+            print("# WARNING: ag prompt exceeds 24000 bytes; Windows argv may exceed its limit.")
+        cmd = ["agy.exe", "-p", prompt, "--model", args.model, "--output-format", "json"]
+        if args.effort:
+            cmd += ["--effort", args.effort]
+        if session:
+            cmd += ["--conversation", session]
     executable = shutil.which(cmd[0])
     if executable is None:
         raise FileNotFoundError(f"{cmd[0]} is not on PATH")
-    proc = subprocess.run([executable, *cmd[1:]], input=prompt, cwd=cwd,
+    proc = subprocess.run([executable, *cmd[1:]], input=None if args.peer == "ag" else prompt, cwd=cwd,
                           capture_output=True, encoding="utf-8", errors="replace")
     if proc.stderr:
         print(proc.stderr, end="")
@@ -66,7 +75,7 @@ def invoke(args, prompt, cwd, session):
             cached = int(usage.get("cache_read_input_tokens", 0))
             written = int(usage.get("cache_creation_input_tokens", 0))
             total = int(usage.get("input_tokens", 0)) + cached + written
-        else:
+        elif args.peer == "cx":
             events = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
             failed = any(e.get("type") in ("error", "turn.failed") for e in events)
             usage, answers = {}, []
@@ -80,6 +89,15 @@ def invoke(args, prompt, cwd, session):
                     answers.append(item.get("text", ""))
             answer, cost, written = "\n".join(answers), 0.0, 0
             total, cached = int(usage.get("input_tokens", 0)), int(usage.get("cached_input_tokens", 0))
+        else:
+            result = json.loads(proc.stdout)
+            failed = result.get("is_error", False) or result.get("error")
+            usage = result.get("usage", {})
+            answer = result.get("response", "")
+            session = result.get("conversation_id", session)
+            total = int(usage.get("input_tokens", 0))
+            cached = int(usage.get("cache_read_tokens", 0))
+            cost, written = 0.0, 0
         if proc.returncode or failed or not usage:
             raise ValueError(f"CLI failed or returned no usage (exit {proc.returncode})")
         return answer, session, [total, cached, written, int(usage.get("output_tokens", 0)), cost]
@@ -95,9 +113,14 @@ def benchmark(args, strategy, document, questions):
         columns.append("cost_usd")
     if args.peer == "cx" and strategy == "RESUME":
         print("# Usage after the first turn is the delta from the previous turn of the same session.")
+    if args.peer == "ag":
+        columns += ["raw_input_tokens", "raw_cache_read_tokens", "raw_output_tokens"]
+        if strategy == "RESUME":
+            print("# ag usage rule: use deltas only if turn-2 raw input > 1.6x turn-1 raw input; otherwise per-turn.")
     print("\t".join(columns + ["correct", "seconds"]), flush=True)
     totals, history, session, prior_cost, correct_count = [0, 0, 0, 0, 0.0], [], "", 0.0, 0
     prior_usage = None
+    ag_cumulative = False
     seconds = 0.0
     with tempfile.TemporaryDirectory(prefix=f"context_bench_{strategy.lower()}_") as cwd:
         for turn, (question, expected) in enumerate(questions, 1):
@@ -108,7 +131,18 @@ def benchmark(args, strategy, document, questions):
             started = time.perf_counter()
             try:
                 answer, new_session, values = invoke(args, prompt, cwd, session)
+                raw_usage = values[:4]
                 if strategy == "RESUME":
+                    if args.peer == "ag":
+                        if turn == 2:
+                            ag_cumulative = (new_session == session and prior_usage is not None
+                                             and raw_usage[0] > 1.6 * prior_usage[0])
+                            rule = "cumulative deltas" if ag_cumulative else "per-turn raw counters"
+                            print(f"# ag usage rule applied: {rule} (criterion: turn-2 input > 1.6x turn-1 input and same conversation).")
+                        if ag_cumulative and prior_usage is not None and new_session == session:
+                            values[:4] = [current - previous for current, previous
+                                          in zip(raw_usage, prior_usage)]
+                        prior_usage = raw_usage
                     if args.peer == "cx":
                         cumulative_usage = values[:4]
                         if prior_usage is not None and new_session == session:
@@ -131,6 +165,8 @@ def benchmark(args, strategy, document, questions):
                    str(values[2]) if args.peer == "cc" else "-", str(values[3])]
             if args.peer == "cc":
                 row.append(f"{values[4]:.8f}")
+            if args.peer == "ag":
+                row += [str(raw_usage[i]) for i in (0, 1, 3)]
             print("\t".join(row + ["yes" if correct else "no", f"{elapsed:.3f}"]), flush=True)
             history += [f"[{2 * turn - 1} q{turn} user question] {question}",
                         f"[{2 * turn} a{turn} {args.peer} answer] {answer}"]
@@ -148,7 +184,7 @@ def benchmark(args, strategy, document, questions):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--peer", choices=("cc", "cx"), required=True)
+    parser.add_argument("--peer", choices=("cc", "cx", "ag"), required=True)
     parser.add_argument("--turns", type=int, required=True)
     parser.add_argument("--gap-seconds", type=float, default=0)
     parser.add_argument("--model")
@@ -156,8 +192,10 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.turns <= 259 or not 0 <= args.gap_seconds < float("inf"):
         raise ValueError("turns must be 1..259 and gap-seconds must be finite and nonnegative")
-    args.model = args.model or ("claude-haiku-4-5-20251001" if args.peer == "cc" else "gpt-6-luna")
-    document, questions = workload(args.turns)
+    args.model = args.model or {"cc": "claude-haiku-4-5-20251001", "cx": "gpt-6-luna",
+                               "ag": "gemini-3.8-flash-low"}[args.peer]
+    # Keep ag's default document near 100 lines; larger turn counts still get unique questions.
+    document, questions = workload(args.turns, max(100, args.turns) if args.peer == "ag" else 259)
     fresh = benchmark(args, "FRESH", document, questions)
     resume = benchmark(args, "RESUME", document, questions)
     ratio = lambda a, b: f"{a / b:.6f}" if b else "n/a"
