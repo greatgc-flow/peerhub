@@ -33,6 +33,9 @@ def test_soak_is_g6_non_blocking_and_publish_does_not_depend_on_it():
     # positive control: a blocking gate is recognised as blocking by the same check
     assert gates["G2"]["blocking"] is True
     assert "soak" not in (WF / "publish.yml").read_text(encoding="utf-8").lower()
+    publish = load("publish.yml")["jobs"]
+    assert "verify" in publish and not publish["verify"].get("needs")
+    assert set(publish["publish"]["needs"]) == {"verify", "live-validation", "build", "release-evidence"}
     for name in ("ci.yml", "publish.yml"):
         for job in load(name)["jobs"].values():
             assert "soak" not in str(job.get("needs", ""))

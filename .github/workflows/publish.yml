@@ -18,10 +18,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  gate-g0-fast:
-    # G0 fast (architecture/schema/unit/property/meta/security-static) (release-gates.json): blocking; publish needs it directly and via the evidence job.
+  verify:
+    # G0, G1, G2 and G7: sequential deterministic verification; publish waits for all of them.
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 210
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -43,21 +43,6 @@ jobs:
           name: junit-g0
           path: junit/g0.xml
 
-  gate-g1-core:
-    # G1 core (SQLite/concurrency/multiprocess/fault/migration) (release-gates.json): blocking; publish needs it directly and via the evidence job.
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    needs: [gate-g0-fast]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.12"
-          cache: "pip"
-      - name: Install test dependencies
-        run: python -m pip install -e ".[dev]"
       - name: Run G1 core (SQLite/concurrency/multiprocess/fault/migration) tests
         run: python -u -m pytest -q --junitxml=junit/g1.xml tests/communication/core tests/communication/migration tests/communication/concurrency tests/communication/fault tests/communication/integration
       - name: Bind G1 JUnit to the cutover candidate (source, policy, gate definitions)
@@ -69,21 +54,6 @@ jobs:
           name: junit-g1
           path: junit/g1.xml
 
-  gate-g2-extensions:
-    # G2 M1 (Bridge/Observation/Diag/fake-runtime E2E) (release-gates.json): blocking; publish needs it directly and via the evidence job.
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    needs: [gate-g1-core]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.12"
-          cache: "pip"
-      - name: Install test dependencies
-        run: python -m pip install -e ".[dev]"
       - name: Run G2 M1 (Bridge/Observation/Diag/fake-runtime E2E) tests
         run: python -u -m pytest -q --junitxml=junit/g2.xml tests/communication/bridge tests/communication/observation tests/communication/diag tests/communication/control tests/communication/adapters tests/communication/e2e
       - name: Bind G2 JUnit to the cutover candidate (source, policy, gate definitions)
@@ -95,6 +65,11 @@ jobs:
           name: junit-g2
           path: junit/g2.xml
 
+      - name: Traceability scan (no missing ids)
+        run: python -m tools.traceability
+      - name: Invariant scan
+        run: python -u -m pytest -q tests/communication/architecture tests/communication/meta
+
   # Provider CLIs are logged in only on the maintainer's machine, so the live gate never runs on a remote runner.
   # `python -m tools.live_gate --yes` (clean checkout of the release commit) writes g3.xml / g3-slow.xml / g3-e2e.xml bound to that
   # commit; the maintainer attaches them to the GitHub Release (`gh release upload <tag> .peerhub/work/live-gate/g3*.xml`). This job only
@@ -102,7 +77,7 @@ jobs:
   # release-evidence job below still verifies candidate binding, freshness and PASS of every live catalog test.
   live-validation:
     # G3 (release-gates.json): LIVE-CC-001, LIVE-CX-001, LIVE-AG-001, LIVE-004, LIVE-005, LIVE-006 come from the local evidence.
-    needs: [gate-g2-extensions]
+    needs: [verify]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -128,7 +103,7 @@ jobs:
 
   build:
     # G4 package (wheel/sdist/runtime-data/clean-install/support-matrix/restart)
-    needs: [gate-g2-extensions]
+    needs: [verify]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -208,6 +183,8 @@ jobs:
       - name: Install test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Run the support-matrix tests on this cell
+        env:
+          PEERHUB_DIST_DIR: ${{ github.workspace }}/dist
         run: python -u -m pytest -q --junitxml="junit/g4-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml" tests/communication/package/test_rel_matrix.py
       - name: Bind this cell's JUnit to the candidate (commit, policy, exact wheels)
         if: always()
@@ -218,29 +195,9 @@ jobs:
           name: junit-g4-matrix-${{ matrix.os }}-py${{ matrix.python-version }}
           path: junit/g4-matrix-*.xml
 
-  gate-g7-invariant:
-    # G7 zero-tolerance invariant scan: every catalog id is traced to a test and the architecture/invariant checks pass again on a clean checkout.
-    needs: [live-validation, build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.12"
-          cache: "pip"
-      - name: Install test dependencies
-        run: python -m pip install -e ".[dev]"
-      - name: Traceability scan (no missing ids)
-        run: python -m tools.traceability
-      - name: Invariant scan
-        run: python -u -m pytest -q tests/communication/architecture tests/communication/meta
-
   release-evidence:
     # G5 evidence index + hashes: fails (exit 1) unless every blocking catalog test passed and every requirement is covered.
-    needs: [gate-g0-fast, gate-g1-core, gate-g2-extensions, live-validation, build, matrix, gate-g7-invariant]
+    needs: [verify, live-validation, build, matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -268,7 +225,7 @@ jobs:
           path: evidence/
 
   publish:
-    needs: [gate-g0-fast, gate-g1-core, gate-g2-extensions, live-validation, build, gate-g7-invariant, release-evidence]
+    needs: [verify, live-validation, build, release-evidence]
     # Manual dispatch is a safe live-validation/build dry run. Only a published
     # GitHub Release may mint an OIDC token and publish the resulting artifact.
     if: github.event_name == 'release'
