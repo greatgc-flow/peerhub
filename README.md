@@ -14,6 +14,25 @@ peerhub --version
 
 This describes current source, not a newly published release. The public command is `peerhub`; the temporary milestone-specific entrypoint has been retired. `python -m peerhub` and `python -m peerhub.cli` use the same public CLI.
 
+## Core recipe
+
+The Core stores Peers, Streams, immutable Records, and per-peer Offsets.
+These commands use a new `core-demo` Stream in the selected store and call no provider:
+
+```powershell
+peerhub peer register --peer reader --name "Demo reader"
+peerhub stream create --stream core-demo --members reader
+peerhub record append --stream core-demo --author-peer reader --kind message --body '"Hello"' --idempotency-key core-demo-001 --created-at 2026-10-10T00:00:00Z
+peerhub record read --stream core-demo --after 0 --limit 10
+peerhub offset get --peer reader --stream core-demo
+peerhub offset advance --peer reader --stream core-demo --position 1 --revision 1
+peerhub offset get --peer reader --stream core-demo
+```
+
+On an existing Stream, advance to the position you actually read and pass the
+revision returned by `offset get`; the revision is a compare-and-swap guard.
+Keep the same body, timestamp, and idempotency key when retrying an append.
+
 ## Everyday commands
 
 ```powershell
@@ -35,10 +54,12 @@ peerhub diag --view rich
 peerhub monitor --interval-seconds 60
 peerhub monitor --view plain --cycles 1
 
-# Prompt files, provider working directory, and explicit model binding.
-peerhub ask ag --query-file prompt.txt --workspace . --model MODEL --json
-peerhub ask cx "Reply briefly" --profile cx.standard --silence-timeout-seconds 30
+# Review with a second provider using a declared profile.
+peerhub ask cc "Explain the Core Peer, Stream, Record and Offset flow" --stream learning --request-id learning-001 --profile cc.standard --json
 ```
+
+The two `ask` examples require the corresponding vendor CLI to be installed and
+authenticated, and spend provider quota. See the [adapter guide](docs/adapters/README.md).
 
 Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer identities can be registered with `peer register --peer worker --adapter cx`.
 
@@ -77,6 +98,29 @@ tools/
 ```
 
 Milestones describe development progress, not runtime ownership. Frozen specifications, historical evidence and existing durable wire/storage identifiers retain their original names. See [the cleanup decisions and AG review](docs/implementation/STRUCTURE_CLEANUP.md).
+
+## Doc map
+
+- [CONTRIBUTING.md](CONTRIBUTING.md): maintainer setup, tests, feedback, and release gates.
+- [Adapter guide](docs/adapters/README.md) and [CLI reference](docs/adapters/peer-cli-reference.md): provider invocation and troubleshooting.
+- [Configuration](docs/config-hierarchy.md) and [model profiles](docs/model-profiles/model-profiles.json): store selection and profile defaults.
+- [Usage/evolution guide](docs/m1_spec/USAGE_GUIDE.md): Core flow and milestone scope.
+- [Structure cleanup](docs/implementation/STRUCTURE_CLEANUP.md): current ownership and retired surfaces.
+- [M2 contracts](docs/m2/README.md): extension host and durable continuity contracts.
+
+## Limitations
+
+- Paths containing spaces or special characters can expose quoting problems in
+  external Windows launchers. See the [recorded path hazards](docs/reviews/mece-audit-2026-09-20-cross-repo.md).
+- Node.js based CLIs depend on their runtime and launcher installation; portable
+  layouts may resolve differently. See the [CLI observations](docs/compatibility/peer-cli-observations.md)
+  and [adapter reference](docs/adapters/peer-cli-reference.md).
+- Windows console or pipe encoding can affect non-ASCII output. See the
+  [recorded encoding failure](docs/m1_impl/wave7_report.md) and
+  [adapter reference](docs/adapters/peer-cli-reference.md#external-limitations).
+
+These are environment warnings; historical observations do not establish a
+current failure on every installation.
 
 ## Validation
 

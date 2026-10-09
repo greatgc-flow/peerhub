@@ -1,5 +1,9 @@
 # peer CLI observations
 
+Historical evidence: entries retain retired module paths and references to the
+removed `peer-cli-contracts.toml`. Use the [adapter guide](../adapters/README.md)
+for current runtime contracts.
+
 Durable home for empirically-discovered facts about the external peer CLIs,
 so they stop being rediscovered by hand every session
 (`docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md`, "Where the expected facts live").

@@ -2,8 +2,8 @@
 
 This directory documents the current peer CLI adapters supported by PeerHub and
 their invocation and decoding contracts. Runtime truth is jointly defined by the
-adapter source, packaged model defaults, machine-checkable compatibility
-contracts, and reviewed observations; no document contains a second independent
+adapter source, packaged model defaults, the model profile manifest,
+and reviewed observations; no document contains a second independent
 configuration surface.
 
 ## 1. Active Peer Adapters

@@ -1,11 +1,11 @@
-# M2 Pre-TDD Contracts (M2.0 Minimal Extension Host, M2.1 Artifact)
+# M2 Pre-TDD Contracts (M2.0–M2.6 Durable Work Continuity)
 
 Status: **RATIFIED FROZEN.** Drafted 2026-10-05 from the R9 roadmap package (09_ROADMAP/M2_*), mechanically validated
-(18 requirements / 60 tests, every requirement linked by >= 2 tests, required dimensions covered, no duplicate ids,
+(current catalogs: 56 requirements / 146 tests, every requirement linked by >= 2 tests, required dimensions covered, no duplicate ids,
 state-machine and exception-catalog test references all resolve). Decisions 1–8 ratified and codified into the contracts.
 
 Files: `M2_0_EXTENSION_HOST_CONTRACT.md`, `M2_1_ARTIFACT_CONTRACT.md`, `requirements.m2.json`, `test-catalog.m2.json`, `STATE_MACHINES.m2.json`,
-`EXCEPTION_CATALOG.m2.json`, `RED_SEQUENCE.m2.md`. M1 defect classes probed: `docs/m1_impl/CX_FINAL_CHECKLIST.md`.
+`EXCEPTION_CATALOG.m2.json`, `RED_SEQUENCE.m2.md`, plus the M2.2–M2.6 Work, Skill/Catalog, MCP, Backup/Recovery, and Eval contracts. M1 defect classes probed: `docs/m1_impl/CX_FINAL_CHECKLIST.md`.
 
 ## Ratified Architecture Decisions (SSOT)
 

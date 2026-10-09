@@ -86,8 +86,8 @@
   "instructions": [
     "1. Run each sources[*].command (skip a peer whose CLI is absent) and read versions with '<cli> --version'.",
     "2. Compare against profiles using tier_rules; present a diff of proposed changes to the user and wait for approval. Observations are evidence, not policy: never change packaged defaults without approval.",
-    "3. After approval edit every file in update_targets together: new values, a new revision (YYYY-MM-DD.N, also defaults_revision in model-defaults.toml), observed_at and observed_versions.",
-    "4. Run: python -m pytest -q tests/communication/adapters (test_model_profiles_manifest.py fails on any drift between this file, the toml and the doc tables).",
+    "3. After approval update the manifest and packaged defaults together; review the linked adapter docs in update_targets for invocation or version changes: new values, a new revision (YYYY-MM-DD.N, also defaults_revision in model-defaults.toml), observed_at and observed_versions.",
+    "4. Run: python -m pytest -q tests/communication/adapters (test_model_profiles_manifest.py fails on any drift between this file, the toml and the documentation links).",
     "5. Optional, ask first (uses a little quota): python -m tools.model_ping [profile_id ...] pings each profile once and checks WHICH model answered (cc: modelUsage, cx: session log, ag: CLI log). Report failures verbatim.",
     "6. Do not commit, push or release unless the user asks. Answer the user in their language; keep internal text English."
   ]

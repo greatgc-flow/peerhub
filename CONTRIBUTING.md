@@ -42,6 +42,9 @@ explains the change and the checks you ran.
 
 Use the GitHub bug-report or feature-request templates when applicable. They
 collect the reproduction and environment details needed to work on an issue.
+Include lessons/feedback from using the docs or CLI: what was confusing, what
+you tried, and the wording or behavior that would have helped. See the
+[development/operation closed loop](docs/m1_spec/USAGE_GUIDE.md#developmentoperation-closed-loop).
 
 ## Releasing
 
