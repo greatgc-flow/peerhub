@@ -28,7 +28,7 @@ def opt_in_reason() -> str | None:
         return "LIVE-CI-DISABLED: real provider calls are local-only"
     if os.environ.get(OPT_IN_ENV) == "1":
         return None
-    return f"LIVE-OPT-IN[env={OPT_IN_ENV};required=1;marker=live/slow/e2e/canary]: real provider calls are disabled unless {OPT_IN_ENV}=1 and an explicit provider marker is selected"
+    return f"LIVE-OPT-IN[env={OPT_IN_ENV};required=1;marker=live]: real provider calls are disabled unless {OPT_IN_ENV}=1 and -m live"
 
 
 def lowest_profile(kind: str) -> dict:
