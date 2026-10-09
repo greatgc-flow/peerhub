@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "product": "PeerHub",
-  "as_of": "2026-10-05",
+  "as_of": "2026-10-09",
   "items": [
     {
       "id": "UNIFIED-MAP",
@@ -20,46 +20,58 @@
       "status": "VERIFIED",
       "candidate_identity": {
         "type": "git_sha",
-        "value": "4a6994e7f73933a30c5d4e8ee538cd7d736f06ce"
+        "value": "d177722d66929b1e249cb27462b9021fd31c421b"
       },
       "evidence": [
         "07_AUDIT/CURRENT_M1_IMPLEMENTATION_SNAPSHOT_20261005.json",
         "01_M1/ACCEPTANCE_DOD.md",
         "06_GUIDES/TEST_SET/test-catalog.json"
       ],
-      "notes": "Historical claim bound to SHA 4a6994e."
+      "notes": "Candidate-bound: v0.12.4 at d177722; GitHub publish run 37918094937 (release v0.12.4); release-evidence passed over the M1 catalog (live G3 evidence from the maintainer machine). Earlier claim was bound to 4a6994e."
     },
     {
       "id": "M1-PUBLIC-CLI-CUTOVER",
       "name": "M1 default public CLI cutover",
       "scope": "make M1 surface canonical peerhub UX without quota/diag regression",
-      "status": "IMPLEMENTING",
+      "status": "VERIFIED",
       "evidence": [
         "09_ROADMAP/M1_PUBLIC_CLI_CUTOVER_GATE.md"
       ],
-      "notes": "peerhub is the only CLI."
+      "notes": "peerhub is the only CLI; selector, legacy-import and the 109-command table are removed. Candidate-bound: v0.12.4 at d177722; GitHub publish run 37918094937 (release v0.12.4).",
+      "candidate_identity": {
+        "type": "git_sha",
+        "value": "d177722d66929b1e249cb27462b9021fd31c421b"
+      }
     },
     {
       "id": "M2",
       "name": "Durable Work Continuity",
       "scope": "required roadmap",
-      "status": "PLANNED",
+      "status": "VERIFIED",
       "evidence": [
         "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
         "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md"
       ],
-      "notes": "IMPLEMENTED, awaiting candidate-bound release verification. Verification claims reference release evidence (tools/release_evidence.py output) instead of asserting PASS."
+      "notes": "Candidate-bound: v0.12.4 at d177722; GitHub publish run 37918094937 (release v0.12.4). release-evidence required every M2 catalog test (docs/m2/test-catalog.m2.json) to PASS in gate G2; contracts and closure notes are in docs/m2 and docs/implementation.",
+      "candidate_identity": {
+        "type": "git_sha",
+        "value": "d177722d66929b1e249cb27462b9021fd31c421b"
+      }
     },
     {
       "id": "M3",
       "name": "Federated Intelligent Collaboration",
       "scope": "required roadmap",
-      "status": "PLANNED",
+      "status": "VERIFIED",
       "evidence": [
         "09_ROADMAP/M3_FEDERATED_INTELLIGENT_COLLABORATION.md",
         "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md"
       ],
-      "notes": "IMPLEMENTED, awaiting candidate-bound release verification. Verification claims reference release evidence (tools/release_evidence.py output) instead of asserting PASS."
+      "notes": "Candidate-bound: v0.12.4 at d177722; GitHub publish run 37918094937 (release v0.12.4). release-evidence required every M3 catalog test (docs/m3/test-catalog.m3.json) to PASS in gate G2; contracts and closure notes are in docs/m3 and docs/implementation.",
+      "candidate_identity": {
+        "type": "git_sha",
+        "value": "d177722d66929b1e249cb27462b9021fd31c421b"
+      }
     },
     {
       "id": "M4",

@@ -622,8 +622,8 @@
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/product-maturity.json",
-      "bytes": 2532,
-      "sha256": "eab75ff1e3c594ac6f4eb3f42bd952367657357be36866f7e2b7ada956385582"
+      "bytes": 3404,
+      "sha256": "8a5bc8b221eb95840a61858e7b53737eb8a93d2317a074443cde3d40dcfc1e57"
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/product-maturity.schema.json",
@@ -667,8 +667,8 @@
     },
     {
       "path": "tools/validate_package.py",
-      "bytes": 35620,
-      "sha256": "32fd6073b78181021d2a664b324672480ae25083b203c96217629c6e62f2a9e4"
+      "bytes": 36151,
+      "sha256": "33833d96280fdd80f0eba198291d6772f9fe997f1a30a1241bee4856ee66685f"
     },
     {
       "path": "tools/validate_unified_conformance.py",

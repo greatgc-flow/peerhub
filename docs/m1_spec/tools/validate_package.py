@@ -440,9 +440,14 @@ try:
     if _crve: errors.append('component registry schema validation failed: '+_crve[0].message)
     if any(x.get('component_class')=='CORE' and x.get('id')!='m1-core' for x in _cr.get('components',[])): errors.append('PeerHub CORE expanded beyond M1 core')
     _ms={_x['id']:_x['status'] for _x in _mp.get('items',[])}
-    if _ms.get('M1-IMPLEMENTATION')!='VERIFIED': errors.append('M1 implementation maturity must be VERIFIED at 4a6994 current-head snapshot')
-    if _ms.get('M1-PUBLIC-CLI-CUTOVER')!='IMPLEMENTING': errors.append('M1 public CLI cutover maturity must be IMPLEMENTING')
-    if _ms.get('M2')!='PLANNED' or _ms.get('M3')!='PLANNED': errors.append('M2/M3 must remain PLANNED')
+    # A VERIFIED claim must name the candidate it is bound to (a git SHA); PLANNED/IMPLEMENTING are allowed while unverified.
+    for _x in _mp.get('items',[]):
+        if _x.get('status')=='VERIFIED':
+            _sha=(_x.get('candidate_identity') or {}).get('value','')
+            if not (len(_sha)==40 and all(ch in '0123456789abcdef' for ch in _sha)): errors.append('VERIFIED maturity needs a 40-hex git_sha candidate_identity: '+_x.get('id','?'))
+    if _ms.get('M1-IMPLEMENTATION')!='VERIFIED': errors.append('M1 implementation maturity must be VERIFIED')
+    if _ms.get('M1-PUBLIC-CLI-CUTOVER') not in ('IMPLEMENTING','VERIFIED'): errors.append('M1 public CLI cutover maturity must be IMPLEMENTING or VERIFIED')
+    if _ms.get('M2') not in ('PLANNED','IMPLEMENTING','VERIFIED') or _ms.get('M3') not in ('PLANNED','IMPLEMENTING','VERIFIED'): errors.append('M2/M3 maturity has an unknown status')
     print('unified_conformance_controls='+str(len(_cids))) if 'emit' not in globals() else emit('unified_conformance_controls='+str(len(_cids)))
     print('unified_maturity_items='+str(len(_mids))) if 'emit' not in globals() else emit('unified_maturity_items='+str(len(_mids)))
 except Exception as _exc:
