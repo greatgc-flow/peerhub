@@ -24,6 +24,8 @@ _CACHE: dict[str, dict] = {}
 
 def opt_in_reason() -> str | None:
     """None when live runs are allowed; otherwise a machine-readable skip reason."""
+    if os.environ.get("CI"):
+        return "LIVE-CI-DISABLED: real provider calls are local-only"
     if os.environ.get(OPT_IN_ENV) == "1":
         return None
     return f"LIVE-OPT-IN[env={OPT_IN_ENV};required=1;marker=live]: real provider calls are disabled unless {OPT_IN_ENV}=1 and -m live"

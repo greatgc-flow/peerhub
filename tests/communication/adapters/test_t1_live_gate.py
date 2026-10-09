@@ -19,12 +19,12 @@ def run_pytest(*args, env_extra=None, drop=()):
 
 
 def test_t1_live_default_run_deselects_live_tests():
-    r = run_pytest("tests/communication/live", "-q", drop=(ls.OPT_IN_ENV,))
+    r = run_pytest("tests/communication/live", "-q", drop=(ls.OPT_IN_ENV, "CI"))
     assert "deselected" in r.stdout and "passed" not in r.stdout and "failed" not in r.stdout.replace("0 failed", "")
 
 
 def test_t1_live_marker_without_opt_in_skips_with_machine_readable_reason():
-    r = run_pytest("tests/communication/live", "-m", "live", "-rs", "-q", drop=(ls.OPT_IN_ENV,))
+    r = run_pytest("tests/communication/live", "-m", "live", "-rs", "-q", drop=(ls.OPT_IN_ENV, "CI"))
     assert r.returncode == 0, r.stdout
     assert r.stdout.count("LIVE-OPT-IN[env=PEERHUB_LIVE;required=1;marker=live]") >= 1
     assert "6 skipped" in r.stdout and "passed" not in r.stdout and "failed" not in r.stdout
@@ -33,7 +33,8 @@ def test_t1_live_marker_without_opt_in_skips_with_machine_readable_reason():
     assert "6 skipped" in r0.stdout and "passed" not in r0.stdout
 
 
-def test_t1_live_opt_in_reason_function():
+def test_t1_live_opt_in_reason_function(monkeypatch):
+    monkeypatch.delenv("CI", raising=False)
     saved = os.environ.pop(ls.OPT_IN_ENV, None)
     try:
         assert ls.opt_in_reason().startswith("LIVE-OPT-IN[")
