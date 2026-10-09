@@ -1,4 +1,5 @@
 """Explicit profile policy and post-spawn inactivity safety, without provider calls."""
+import json
 import os
 import sqlite3
 import sys
@@ -25,8 +26,8 @@ def isolated_config(tmp_path, monkeypatch):
 def test_explicit_standard_profile_resolves_packaged_policy(tmp_path, kind):
     model, effort = resolve_profile(kind, f"{kind}.standard", tmp_path)
     runtime = CliRuntimeTarget(kind, tmp_path, profile=f"{kind}.standard")
-    assert model and runtime.binding() == f"{kind}.standard/{model}/{effort or 'default'}"
-    assert CliRuntimeTarget(kind, tmp_path).binding() == "default/default"
+    assert model and runtime.binding().split("#")[0] == f"{kind}.standard/{model}/{effort or 'default'}"
+    assert CliRuntimeTarget(kind, tmp_path).binding().split("#")[0] == "default/default"
     assert not runtime.resumable  # selecting a policy does not invent capabilities
 
 
@@ -39,7 +40,7 @@ def test_profile_precedence_and_explicit_overrides(tmp_path):
     (workspace_config / "models.toml").write_text('[profiles."cx.standard"]\nmodel="workspace"\n', encoding="utf-8")
     assert resolve_profile("cx", "cx.standard", tmp_path) == ("workspace", "medium")
     runtime = CliRuntimeTarget("cx", tmp_path, profile="cx.standard", model="explicit", effort="low")
-    assert runtime.binding() == "cx.standard/explicit/low"
+    assert runtime.binding().split("#")[0] == "cx.standard/explicit/low"
 
 
 @pytest.mark.parametrize("content", [
@@ -65,7 +66,7 @@ def test_custom_cli_default_profile_and_registered_peer(tmp_path, monkeypatch):
     config.mkdir()
     (config / "models.toml").write_text('[profiles."cx.custom"]\nselection_mode="cli_default"\n', encoding="utf-8")
     assert resolve_profile("cx", "cx.custom", tmp_path) == (None, None)
-    assert CliRuntimeTarget("cx", tmp_path, profile="cx.custom").binding() == "cx.custom/default/default"
+    assert CliRuntimeTarget("cx", tmp_path, profile="cx.custom").binding().split("#")[0] == "cx.custom/default/default"
     db = tmp_path / "core.db"
     CoreStore(db).register_peer(Peer(peer_id="reviewer", adapter_ref="codex"))
     import peerhub.extensions.ask as module

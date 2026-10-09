@@ -2,11 +2,13 @@
 
 Semantics (TD-11): PrespawnError ONLY when the OS never created the process (or an argument/prompt was rejected before spawn);
 once a process exists, any failure is reported as RuntimeTargetError / a timeout event (uncertain), never as pre-spawn.
-Sessions: the adapter is NOT resumable (resume_session -> "unsupported", never synthesized); the Bridge falls back to a fresh
-session generation with a Stream catch-up. terminate kills the active local process tree; interrupt/steer are unsupported.
+Sessions: native resume is explicit and supported for cc/cx/ag with a caller-supplied vendor id.
+Fresh deliveries expose candidate ids for the Bridge to persist. terminate kills the active local process tree;
+interrupt/steer are unsupported.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -28,6 +30,7 @@ from peerhub.extensions.bridge import PrespawnError, RuntimeEvent, RuntimeTarget
 MAX_PROMPT_BYTES = 1_000_000
 EXCERPT_CHARS = 300
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_SESSION_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,200}")
 _VERSION_RE = re.compile(r"\d+\.\d+\.\d+[0-9A-Za-z.+-]*")
 _WIN_EXT = {"claude": ["claude.cmd", "claude.exe"], "codex": ["codex.cmd", "codex.exe"], "agy": ["agy.exe", "agy.cmd"]}
 
@@ -43,16 +46,35 @@ class ProviderSpec:
     stdin_prompt: bool
     max_prompt_bytes: int = MAX_PROMPT_BYTES  # provider-specific inline limit (argv-borne prompts are far smaller)
 
-    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False) -> list[str]:
+    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
+             vendor_session_id: str | None = None) -> list[str]:
         raise NotImplementedError
 
     def parse(self, stdout: str) -> str:
         """Return canonical response text or raise ValueError (garbage / vendor error)."""
         raise NotImplementedError
 
+    def parse_session_id(self, stdout: str) -> str | None:
+        """Return a bounded, unambiguous vendor session candidate, when available."""
+        return None
+
     def parse_usage(self, stdout: str) -> dict[str, int] | None:
         """Return reported request usage; absent counters stay unknown, never synthesized as zero."""
         return None
+
+
+def _session_id(value: object) -> str | None:
+    return value if isinstance(value, str) and _SESSION_ID_RE.fullmatch(value) else None
+
+
+def _consistent_session_id(events: list[dict[str, Any]], key: str, candidate: object) -> str | None:
+    selected = _session_id(candidate)
+    if selected is None:
+        return None
+    for event in events:
+        if key in event and _session_id(event[key]) != selected:
+            return None
+    return selected
 
 
 def _usage_fields(usage: object, fields: Mapping[str, str]) -> dict[str, int] | None:
@@ -84,8 +106,11 @@ def _json_lines(text: str) -> list[dict[str, Any]]:
 class CcSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "cc", "claude", "--resume", True
 
-    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False) -> list[str]:
+    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
+             vendor_session_id: str | None = None) -> list[str]:
         a = ["-p", "-", "--output-format", "stream-json", "--verbose"]
+        if vendor_session_id is not None:
+            a += ["--resume", vendor_session_id]
         if model:
             a += ["--model", model]
         if effort:
@@ -107,6 +132,12 @@ class CcSpec(ProviderSpec):
             raise ValueError("cc result is not text")
         return cast(str, r["result"])
 
+    def parse_session_id(self, stdout: str) -> str | None:
+        events = _json_lines(stdout)
+        results = [e for e in events if e.get("type") == "result"]
+        successful = [e for e in results if e.get("is_error") is False and e.get("subtype", "success") == "success"]
+        return _consistent_session_id(events, "session_id", successful[-1].get("session_id") if successful else None)
+
     def parse_usage(self, stdout: str) -> dict[str, int] | None:
         results = [e for e in _json_lines(stdout) if e.get("type") == "result"]
         usage = results[-1].get("usage") if results else None
@@ -124,8 +155,13 @@ class CcSpec(ProviderSpec):
 class CxSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "cx", "codex", "resume", True
 
-    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False) -> list[str]:
-        a = ["exec", "--skip-git-repo-check", "-s", "workspace-write" if writable else "read-only"]
+    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
+             vendor_session_id: str | None = None) -> list[str]:
+        if vendor_session_id is not None:
+            # exec resume inherits the session sandbox and does not accept -s.
+            a = ["exec", "resume", vendor_session_id, "--skip-git-repo-check"]
+        else:
+            a = ["exec", "--skip-git-repo-check", "-s", "workspace-write" if writable else "read-only"]
         if model:
             a += ["-m", model]
         if effort:
@@ -147,7 +183,13 @@ class CxSpec(ProviderSpec):
             raise ValueError("cx output has no turn.completed after the last agent_message (incomplete)")
         return "\n".join(msgs)
 
+    def parse_session_id(self, stdout: str) -> str | None:
+        events = _json_lines(stdout)
+        started = [e for e in events if e.get("type") == "thread.started"]
+        return _consistent_session_id(events, "thread_id", started[-1].get("thread_id") if started else None)
+
     def parse_usage(self, stdout: str) -> dict[str, int] | None:
+        # On resumed threads these are raw cumulative counters; the Bridge will store baselines.
         results = [e for e in _json_lines(stdout) if e.get("type") == "turn.completed"]
         return _usage_fields(results[-1].get("usage") if results else None,
                              {"input_tokens": "input_tokens", "cached_input_tokens": "cached_input_tokens",
@@ -158,7 +200,8 @@ class AgSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "ag", "agy", "--conversation", False
     max_prompt_bytes = 30_000 if sys.platform == "win32" else 120_000  # prompt travels in argv: CreateProcess ~32k chars / MAX_ARG_STRLEN
 
-    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False) -> list[str]:
+    def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
+             vendor_session_id: str | None = None) -> list[str]:
         a = ["-p", prompt, "--output-format", "json"]
         if model:
             a += ["--model", model]
@@ -166,6 +209,8 @@ class AgSpec(ProviderSpec):
             a += ["--effort", effort]
         if writable:
             a += ["--mode", "accept-edits"]
+        if vendor_session_id is not None:
+            a += ["--conversation", vendor_session_id]
         return a
 
     def parse(self, stdout: str) -> str:
@@ -182,6 +227,15 @@ class AgSpec(ProviderSpec):
             raise ValueError("ag reported an error")
         return cast(str, v["response"])
 
+    def parse_session_id(self, stdout: str) -> str | None:
+        try:
+            result: object = json.loads(stdout.strip())
+        except ValueError:
+            return None
+        if not isinstance(result, dict):
+            return None
+        return _session_id(cast("dict[str, Any]", result).get("conversation_id"))
+
     def parse_usage(self, stdout: str) -> dict[str, int] | None:
         try:
             result: object = json.loads(stdout.strip())
@@ -189,7 +243,7 @@ class AgSpec(ProviderSpec):
             return None
         if not isinstance(result, dict):
             return None
-        # AG counters may be cumulative per conversation; each ask starts a fresh conversation, so these are per-ask.
+        # AG usage may be cumulative per conversation on resume; the benchmark will determine this.
         return _usage_fields(cast("dict[str, Any]", result).get("usage"),
                              {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_tokens",
                               "output_tokens": "output_tokens"})
@@ -221,7 +275,7 @@ class CliRuntimeTarget:
     supports_steer = False
 
     def __init__(self, kind: str, workspace: str | Path, *, model: str | None = None, effort: str | None = None,
-                 profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False,
+                 profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False, resume: bool = False,
                  command: Sequence[str] | None = None, timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
                  env_extra: Mapping[str, str] | None = None, extra_secrets: Iterable[str] = (),
                  on_output: Callable[[str], None] | None = None) -> None:
@@ -246,6 +300,8 @@ class CliRuntimeTarget:
             suffix = model.rsplit("-", 1)[-1] if model else None
             if suffix in ("low", "medium", "high") and suffix != effort:
                 raise ValueError("ag effort conflicts with the effort-qualified model")
+        self.resumable = resume
+        self._resume_sessions: dict[str, str] = {}  # explicit caller-provided bindings only, never inferred from output
         self.runtime_kind = kind
         self._spec = SPECS[kind]
         self._workspace = str(workspace)
@@ -310,8 +366,8 @@ class CliRuntimeTarget:
                 cli_resume = "supported" if h.returncode == 0 and self._spec.resume_flag in (h.stdout + h.stderr).decode("utf-8", "replace") else "unsupported"
             except SpawnFailure:
                 cli_resume = "unavailable"
-        caps["resume"] = {"status": "unsupported", "source": "adapter", "cli_status": cli_resume,
-                          "reason": "adapter does not map vendor sessions across restarts",
+        caps["resume"] = {"status": "supported" if self.resumable else "unsupported", "source": "adapter", "cli_status": cli_resume,
+                          "reason": "explicit vendor session binding" if self.resumable else "native resume is disabled",
                           "fallback": "fresh session generation with Stream catch-up"}
         info["capabilities"] = caps
         self._note("discover", available=ok, version=info["version"])
@@ -319,18 +375,32 @@ class CliRuntimeTarget:
 
     # ---- RuntimeTarget
     def fingerprint(self) -> str:
-        return f"adapter:{self.runtime_kind}:v1"
+        return f"adapter:{self.runtime_kind}:v2"
 
     def binding(self) -> str:
         binding = f"{self._model or 'default'}/{self._effort or 'default'}"
-        return f"{self._profile}/{binding}" if self._profile is not None else binding
+        binding = f"{self._profile}/{binding}" if self._profile is not None else binding
+        # The provider cwd and write mode decide whether a native session may be reused; keep the path itself out of Records.
+        scope = f"{os.path.normcase(str(Path(self._workspace).resolve()))}|{'w' if self._writable else 'r'}"
+        return f"{binding}#{hashlib.sha256(scope.encode('utf-8')).hexdigest()[:12]}"
 
     def create_session(self) -> str:
         return f"{self.runtime_kind}-local-{uuid.uuid4().hex}"  # a local handle: one process per delivery, no vendor call
 
-    def resume_session(self, external_session_id: str) -> str:
-        self._note("resume_unsupported")
-        return "unsupported"
+    def resume_session(self, external_session_id: str, *, vendor_session_id: str | None = None) -> str:
+        """Bind an explicit vendor id; the one-argument Bridge call remains valid."""
+        if not self.resumable:
+            self._note("resume_unsupported")
+            return "unsupported"
+        if vendor_session_id is None:
+            return "missing"
+        if _session_id(vendor_session_id) is None:
+            return "rejected"
+        with self._active_lock:
+            if external_session_id in self._active:
+                return "rejected"
+            self._resume_sessions[external_session_id] = vendor_session_id
+        return "ok"
 
     def terminate(self, external_session_id: str) -> None:
         with self._active_lock:
@@ -377,7 +447,9 @@ class CliRuntimeTarget:
         base = self._base()
         if base is None:
             raise PrespawnError(f"{self._spec.binary} executable not found")
-        argv = [*base, *self._spec.argv(self._model, self._effort, prompt, self._writable)]
+        with self._active_lock:
+            vendor_session_id = self._resume_sessions.get(external_session_id)
+        argv = [*base, *self._spec.argv(self._model, self._effort, prompt, self._writable, vendor_session_id)]
         try:
             check_argv(argv)
         except ValueError as e:
@@ -470,4 +542,9 @@ class CliRuntimeTarget:
         usage = self._spec.parse_usage(res.stdout.decode("utf-8", "replace"))
         if usage is not None:
             payload["usage"] = usage
+        vendor_session_id = self._spec.parse_session_id(res.stdout.decode("utf-8", "replace"))
+        if vendor_session_id is not None:
+            source = {"cc": "cc.result.session_id", "cx": "cx.thread.started",
+                      "ag": "ag.conversation_id"}[self.runtime_kind]
+            payload["vendor_session"] = {"id": vendor_session_id, "source": source}
         yield ("terminal", payload)
