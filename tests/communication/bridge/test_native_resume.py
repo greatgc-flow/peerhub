@@ -218,11 +218,12 @@ def test_fresh_projection_remains_bounded(tmp_path):
     assert details(h, result)["effective_mode"] == "fresh"
 
 
-def test_cx_cumulative_usage_reports_delta_and_omits_decreased_counters(tmp_path):
+@pytest.mark.parametrize("kind", ["cx", "ag"])
+def test_cumulative_usage_reports_delta_and_omits_decreased_counters(tmp_path, kind):
     h = BridgeHarness(tmp_path / "ws")
     bseed(h)
     rt = NativeRuntimeTarget()
-    rt.runtime_kind = "cx"
+    rt.runtime_kind = kind
     for key, raw, expected in [(None, {"input_tokens": 100, "output_tokens": 20}, {"input_tokens": 100, "output_tokens": 20}),
                                ("second", {"input_tokens": 130, "output_tokens": 25}, {"input_tokens": 30, "output_tokens": 5}),
                                ("third", {"input_tokens": 5, "output_tokens": 1}, None)]:

@@ -34,8 +34,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         raise ValueError("timeout and output limit must be positive")
     if silence_timeout_s is not None and (not math.isfinite(silence_timeout_s) or silence_timeout_s <= 0):
         raise ValueError("silence timeout must be finite and positive")
-    if runtime is not None and (profile is not None or silence_timeout_s is not None or writable):
-        raise ValueError("profile/silence timeout/writable must be configured on an explicitly supplied runtime")
+    if runtime is not None and (profile is not None or silence_timeout_s is not None or writable or resume):
+        raise ValueError("profile/silence timeout/writable/resume must be configured on an explicitly supplied runtime")
     if author == peer_id:
         raise ValueError("ask author and target peer must differ")
     # Resolve adapter configuration before any bootstrap/migration or prompt append.
@@ -53,6 +53,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             elif tables:
                 raise StorageCorruptError("database does not contain the communication Core schema; v0 support is archived on branch legacy/v0-main-final")
     kind = ALIASES.get(adapter_ref or peer_id)
+    if resume and kind is None:
+        raise ValueError("resume is only supported for CLI peers with adapter cx, cc or ag")
     if runtime is None:
         if kind is None:
             raise ValueError("register this peer with --adapter cx, cc or ag before asking it")

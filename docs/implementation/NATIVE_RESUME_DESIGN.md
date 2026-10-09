@@ -1,6 +1,6 @@
 # Explicit Per-Thread Native Resume (cc, cx, ag) - Design
 
-Status: approved design (ag/cx cross-critique, 2026-10-09), implemented in three stages. Motivation and measurements: `CONTEXT_EFFICIENCY.md`.
+Status: implemented (all three stages, 2026-10-10; design approved by ag/cx cross-critique, 2026-10-09). Motivation and measurements: `CONTEXT_EFFICIENCY.md`.
 Principles: Records stay the authority; a fresh session with bounded catch-up stays the default and the fallback; resume is an explicit per-ask opt-in; ag is supported but measured no token saving (`CONTEXT_EFFICIENCY.md`); it is an explicit opt-in for continuity only
 
 ## Surface

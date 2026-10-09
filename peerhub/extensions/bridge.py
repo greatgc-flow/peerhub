@@ -1035,7 +1035,7 @@ class Bridge:
             if vendor_id is None:
                 return {}
             raw_usage: dict[str, Any] | None = cast("dict[str, Any] | None", result.get("usage"))
-            if m["runtime_kind"] == "cx" and isinstance(raw_usage, dict):
+            if m["runtime_kind"] in ("cx", "ag") and isinstance(raw_usage, dict):
                 previous = json.loads(m["usage_json"]) if m["usage_json"] else None
                 if previous is not None:
                     usage = ({k: v - previous[k] for k, v in raw_usage.items()}
