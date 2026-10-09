@@ -648,6 +648,18 @@
       "positional": false,
       "required": false,
       "takes_value": true
+    },
+    {
+      "default": "==SUPPRESS==",
+      "dest": "version",
+      "flags": [
+        "--version",
+        "-v",
+        "-V"
+      ],
+      "positional": false,
+      "required": false,
+      "takes_value": false
     }
   ],
   "groups": [

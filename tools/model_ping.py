@@ -87,7 +87,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--peer", choices=sorted(PINGS), help="only this peer")
     args = ap.parse_args(argv)
     profiles = json.loads(MANIFEST.read_text(encoding="utf-8"))["profiles"]
+    unknown = sorted(set(args.profiles) - profiles.keys())
+    if unknown:
+        ap.error(f"unknown profile ids: {', '.join(unknown)}")
     chosen = [p for p in profiles if (not args.profiles or p in args.profiles) and (not args.peer or p.startswith(args.peer + "."))]
+    if not chosen:
+        ap.error("no profiles selected")
     failed = 0
     for pid in chosen:
         peer = pid.split(".")[0]

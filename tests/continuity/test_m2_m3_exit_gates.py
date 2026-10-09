@@ -216,7 +216,7 @@ def test_the_gate_module_lists_name_only_real_extension_modules_and_never_the_m1
     ext = REPO / "peerhub" / "extensions"
     assert all((ext / f"{name}.py").is_file() for name in M2_M3_MODULES)  # a renamed module must not silently escape the gate
     m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
-          "quota_types", "diag", "diag_quota", "diag_watch", "peer_kinds", "schema_guard"}
+          "quota_types", "binary_resolution", "process_tree", "diag", "diag_quota", "diag_watch", "peer_kinds", "schema_guard"}
     assert not (m1 & set(M2_M3_MODULES))
     # every extension module is classified: nothing can quietly sit outside both the M1 set and the gated sets
     classified = m1 | set(M2_M3_MODULES) | {"direction"}

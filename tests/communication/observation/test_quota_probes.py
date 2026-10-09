@@ -33,6 +33,7 @@ def test_real_binary_returns_literal_path_not_resolved(monkeypatch, tmp_path):
             return poisoned
         return self
 
+    monkeypatch.setenv("PEERHUB_CC_BINARY", str(cand))
     monkeypatch.setattr(Path, "resolve", fake_resolve)
 
     result = _real_binary("cc", sys_dir)
@@ -461,7 +462,7 @@ def test_poll_agy_usage_success(tmp_path):
 
 
 def test_real_binary_default_and_overrides(monkeypatch, tmp_path):
-    # 1. Default legacy layout
+    # Implicit legacy layout is ignored, even when it exists.
     sys_dir = tmp_path / "_sys"
     default_npm = sys_dir / "env" / "nodejs" / "npm-global"
     default_npm.mkdir(parents=True)
@@ -474,8 +475,9 @@ def test_real_binary_default_and_overrides(monkeypatch, tmp_path):
     monkeypatch.delenv("PEERHUB_CC_BINARY", raising=False)
     monkeypatch.delenv("PEERHUB_CX_BINARY", raising=False)
 
-    assert _real_binary("cc", sys_dir) == str(cc_default)
-    assert _real_binary("cx", sys_dir) == str(cx_default)
+    monkeypatch.setattr("peerhub.extensions.quota_probes.shutil.which", lambda name: None)
+    assert _real_binary("cc", sys_dir) is None
+    assert _real_binary("cx", sys_dir) is None
 
     # 2. PEERHUB_NPM_GLOBAL_DIR override
     custom_npm = tmp_path / "custom_npm"
@@ -526,11 +528,11 @@ def test_poll_claude_usage_config_dir_override(monkeypatch, tmp_path):
     sys_dir.mkdir(parents=True)
     ids = DummyIdSource()
 
-    # Default: legacy (sys_dir / claude / config)
+    # Existing _sys does not override vendor configuration.
     monkeypatch.delenv("PEERHUB_CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     poll_claude_usage(ids, "inst-1", "prof-1", sys_dir=sys_dir)
-    assert captured_envs[-1]["CLAUDE_CONFIG_DIR"] == str((sys_dir / "claude" / "config").resolve())
+    assert "CLAUDE_CONFIG_DIR" not in captured_envs[-1]
 
     # Override: PEERHUB_CLAUDE_CONFIG_DIR
     custom_cfg = tmp_path / "custom_claude_config"
@@ -588,7 +590,7 @@ def test_poll_agy_usage_log_path_override(monkeypatch, tmp_path):
     assert res[0].evidence.state == EvidenceState.MEASURED
 
 
-def test_resolve_sys_dir_infers_portable_root_from_interpreter(monkeypatch, tmp_path):
+def test_resolve_sys_dir_does_not_infer_layout_from_interpreter(monkeypatch, tmp_path):
     portable_sys = tmp_path / "portable" / "_sys"
     interpreter = portable_sys / "env" / "venv" / "Scripts" / "python.exe"
     interpreter.parent.mkdir(parents=True)
@@ -597,4 +599,97 @@ def test_resolve_sys_dir_infers_portable_root_from_interpreter(monkeypatch, tmp_
     monkeypatch.delenv("PEERHUB_SYS_DIR", raising=False)
     monkeypatch.setattr("peerhub.extensions.quota_probes.sys.executable", str(interpreter))
 
-    assert resolve_sys_dir() == portable_sys
+    assert resolve_sys_dir() == tmp_path / "_sys"
+
+
+@pytest.fixture(autouse=True)
+def _mock_probe_cleanup(monkeypatch):
+    # Fake PIDs must never reach the OS; dedicated tests verify the shared helper.
+    monkeypatch.setattr("peerhub.extensions.quota_probes.kill_process_tree", lambda proc: True)
+
+
+@pytest.mark.parametrize("peer", ["ag", "cc", "cx"])
+def test_missing_explicit_binary_never_searches_path(monkeypatch, tmp_path, peer):
+    key = f"PEERHUB_{peer.upper()}_BINARY"
+    monkeypatch.setenv(key, str(tmp_path / "missing"))
+    monkeypatch.setattr("peerhub.extensions.quota_probes.shutil.which",
+                        lambda name: pytest.fail("explicit override must not fall through"))
+    with pytest.raises(FileNotFoundError, match=key):
+        _real_binary(peer)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), True, -0.1, 1.5, 101])
+def test_ag_invalid_fraction_is_never_measured(value, tmp_path):
+    import json
+    path = tmp_path / "quota.json"
+    path.write_text(json.dumps({"quota": {"gemini-5h": {
+        "remaining_fraction": value, "reset_in_seconds": 1800}}}), encoding="utf-8")
+    obs = poll_agy_usage(DummyIdSource(), "ag", "standard", log_path=path)[0]
+    assert obs.evidence.state == EvidenceState.ERROR
+    assert obs.evidence.value is None
+    envelope = {"command": {"name": "usage", "data": {"groups": [{"buckets": [
+        {"id": "gemini-5h", "remaining_fraction": value, "reset_time": "2026-10-10T12:00:00Z"},
+        {"id": "gemini-weekly", "remaining_fraction": 0.5, "reset_time": "2026-10-10T12:00:00Z"}
+    ]}]}}}
+    assert _parse_agy_usage_output(json.dumps(envelope)) == {}
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), True, -0.1, 101])
+def test_claude_invalid_percent_is_never_measured(value, monkeypatch):
+    from peerhub.extensions.quota_probes import _claude_usage_emit
+    from datetime import datetime, timezone
+    now = datetime(2026, 10, 10, tzinfo=timezone.utc)
+    assert _claude_usage_emit("current session", value, "1pm", now) is None
+    class Proc:
+        pid = 9999
+        def communicate(self, timeout):
+            return f"Current session: {value}% used resets 1pm", ""
+    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda *a: ["claude"])
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Proc())
+    obs = poll_claude_usage(DummyIdSource(), "cc", "standard", clock=lambda: now.timestamp())[0]
+    assert obs.evidence.state == EvidenceState.ERROR and obs.evidence.value is None
+
+
+@pytest.mark.parametrize("value", [0.0, 1.0])
+def test_fraction_boundaries_are_valid(value):
+    from peerhub.extensions.quota_probes import _valid_fraction
+    assert _valid_fraction(value)
+
+
+@pytest.mark.parametrize("value", [0, 1.5, 100])
+def test_claude_percent_boundaries_are_valid(value):
+    from peerhub.extensions.quota_probes import _claude_usage_emit
+    assert _claude_usage_emit("current session", value, "1pm")["used_frac"] == value / 100
+
+
+def test_claude_probe_uses_shared_posix_tree_cleanup(monkeypatch):
+    from peerhub.extensions import process_tree
+    from peerhub.extensions import quota_probes as probes
+    calls, groups = [], []
+    class Proc:
+        pid = 12345
+        def communicate(self, timeout):
+            raise subprocess.TimeoutExpired("claude", timeout)
+    monkeypatch.setattr(probes.sys, "platform", "linux")
+    monkeypatch.setattr(probes, "kill_process_tree", process_tree.kill_process_tree)
+    monkeypatch.setattr(process_tree.os, "killpg", lambda pid, sig: groups.append(pid), raising=False)
+    monkeypatch.setattr(process_tree.signal, "SIGKILL", 9, raising=False)
+    monkeypatch.setattr(probes, "_real_command", lambda *a: ["claude"])
+    monkeypatch.setattr(probes.subprocess, "Popen", lambda *a, **k: (calls.append(k) or Proc()))
+    obs = poll_claude_usage(DummyIdSource(), "cc", "standard")[0]
+    assert obs.evidence.state == EvidenceState.ERROR
+    assert calls[0]["start_new_session"] is True and groups == [12345]
+
+
+def test_ag_does_not_read_implicit_legacy_log(monkeypatch, tmp_path):
+    import json
+    path = tmp_path / "_sys" / "data" / "temp" / "ag_statusline_stdin.log"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"quota": {"gemini-5h": {
+        "remaining_fraction": 0.5, "reset_in_seconds": 1800}}}), encoding="utf-8")
+    monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
+    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda *a: None)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PEERHUB_SYS_DIR", raising=False)
+    obs = poll_agy_usage(DummyIdSource(), "ag", "standard")[0]
+    assert obs.evidence.state == EvidenceState.UNKNOWN and obs.evidence.value is None

@@ -43,6 +43,8 @@ def _resolve_db_path(configured_path: str, *, use_env: bool = True, discover: bo
 def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     description = "PeerHub CLI"
     parser = argparse.ArgumentParser(prog=prog, description=description)
+    from peerhub._version import __version__
+    parser.add_argument("--version", "-v", "-V", action="version", version=f"peerhub {__version__}")
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Path to SQLite database")
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
@@ -236,13 +238,12 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     args = parser.parse_args(argv)
     actual = sys.argv[1:] if argv is None else argv
     explicit_db = any(a == "--db" or a.startswith("--db=") for a in actual)
-    if hasattr(args, "db") and args.db:
-        selection = _select_db(args.db, discover=not explicit_db)
-        args.db, args.db_source = selection.path, selection.source
-    if getattr(args, "obs_db", None):
-        args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
-
     try:
+        if hasattr(args, "db") and args.db:
+            selection = _select_db(args.db, discover=not explicit_db)
+            args.db, args.db_source = selection.path, selection.source
+        if getattr(args, "obs_db", None):
+            args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":
             return _run_ask_cli(args, parser, argv)
         if args.subcommand in ("monitor", "observation"):

@@ -10,9 +10,10 @@ import tempfile
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from typing import Sequence, Optional, TypedDict, Callable, cast, Any
+from typing import Sequence, Optional, TypedDict, Callable, cast, Any, TypeGuard
 
-from peerhub.extensions.adapters.binary_resolution import CLAUDE_CMD, CODEX_CMD
+from peerhub.extensions.binary_resolution import CLAUDE_CMD, CODEX_CMD
+from peerhub.extensions.process_tree import kill_process_tree
 from peerhub.extensions.quota_types import IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement, ResetCreditObserved
 
 AGY_QUOTA_FAMILIES = (("gemini-5h", "G-5H"), ("gemini-weekly", "G-7D"), ("3p-5h", "3P-5H"), ("3p-weekly", "3P-7D"))
@@ -38,29 +39,7 @@ def resolve_sys_dir(sys_dir: Optional[Path] = None) -> Path:
         if p.exists() and p.is_dir():
             return p
 
-    # Workspace-relative installs remain the first implicit fallback.
-    workspace_sys = Path.cwd() / "_sys"
-    if workspace_sys.exists() and workspace_sys.is_dir():
-        return workspace_sys
-
-    # Portable installs run peerhub from ``<portable-root>/_sys/env/venv``.
-    # Discover that root from the active interpreter instead of baking in a
-    # drive letter or requiring every shell to export PEERHUB_SYS_DIR.
-    try:
-        executable = Path(sys.executable).resolve()
-        for parent in executable.parents:
-            if parent.name.lower() == "_sys" and (parent / "env").is_dir():
-                return parent
-    except OSError:
-        pass
-
-    # Preserve the historical non-existent-path fallback so callers can
-    # report ABSENT cleanly in ordinary non-portable environments.
-    return workspace_sys
-
-
-# Backwards-compatible private alias for callers predating the public helper.
-_resolve_sys_dir = resolve_sys_dir
+    return Path.cwd() / "_sys"
 
 
 def _resolve_workspace_root(sys_dir: Path) -> Path:
@@ -137,7 +116,7 @@ def _parse_claude_usage_reset(text: str, now: Optional[datetime] = None) -> Opti
         dt = dt + timedelta(days=1)
     return dt
 
-def _claude_usage_emit(section: str, used_pct: str, reset_text: str, now: Optional[datetime] = None) -> Optional[ClaudeQuotaDict]:
+def _claude_usage_emit(section: str, used_pct: str | float, reset_text: str, now: Optional[datetime] = None) -> Optional[ClaudeQuotaDict]:
     key = str(section or "").strip().lower()
     spec = _CLAUDE_USAGE_SECTIONS.get(key)
     if not spec:
@@ -146,8 +125,13 @@ def _claude_usage_emit(section: str, used_pct: str, reset_text: str, now: Option
     if reset_at is None:
         return None
     try:
-        used_frac = max(0.0, min(1.0, float(used_pct) / 100.0))
-    except (TypeError, ValueError):
+        if isinstance(used_pct, bool):
+            return None
+        pct = float(used_pct)
+        if not math.isfinite(pct) or not 0.0 <= pct <= 100.0:
+            return None
+        used_frac = pct / 100.0
+    except (TypeError, ValueError, OverflowError):
         return None
     label, window_hours = spec
     return {
@@ -165,7 +149,7 @@ def _parse_claude_usage(text: str, now: Optional[datetime] = None) -> list[Claud
     current_pct = None
     inline = re.compile(
         r"^(Current session|Current week \(all models\)|Current week \(Fable\)):"
-        r"\s*([0-9]+(?:\.[0-9]+)?)%\s+used\b.*?\bresets\s+(.+)$",
+        r"\s*([^\s%]+)%\s+used\b.*?\bresets\s+(.+)$",
         re.IGNORECASE,
     )
     section_names = {k.lower(): k for k in _CLAUDE_USAGE_SECTIONS}
@@ -176,8 +160,9 @@ def _parse_claude_usage(text: str, now: Optional[datetime] = None) -> list[Claud
         m = inline.match(line)
         if m:
             row = _claude_usage_emit(m.group(1), m.group(2), m.group(3), now=now)
-            if row:
-                rows.append(row)
+            if row is None:
+                return []
+            rows.append(row)
             current_section = None
             current_pct = None
             continue
@@ -187,7 +172,7 @@ def _parse_claude_usage(text: str, now: Optional[datetime] = None) -> list[Claud
             current_pct = None
             continue
         if current_section and current_pct is None:
-            m_pct = re.search(r"([0-9]+(?:\.[0-9]+)?)%\s+used\b", line, re.IGNORECASE)
+            m_pct = re.search(r"([^\s%]+)%\s+used\b", line, re.IGNORECASE)
             if m_pct:
                 current_pct = m_pct.group(1)
             continue
@@ -195,69 +180,36 @@ def _parse_claude_usage(text: str, now: Optional[datetime] = None) -> list[Claud
             m_reset = re.search(r"\bresets?\s+(.+)$", line, re.IGNORECASE)
             if m_reset:
                 row = _claude_usage_emit(current_section, current_pct, m_reset.group(1), now=now)
-                if row:
-                    rows.append(row)
+                if row is None:
+                    return []
+                rows.append(row)
                 current_section = None
                 current_pct = None
     return rows
 
 def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
-    # Legacy P:\ / hub.py-environment compatibility: in the legacy unified
-    # environment, node CLI binaries live in _sys/env/nodejs/npm-global.
-    # Configurable via PEERHUB_NPM_GLOBAL_DIR or PEERHUB_CC_BINARY/PEERHUB_CX_BINARY;
-    # defaults to legacy resolved_sys / "env" / "nodejs" / "npm-global".
-    resolved_sys = resolve_sys_dir(sys_dir)
-    cli_dir = resolved_sys / "cli"
-    if peer == "ag":
-        cand_override = os.environ.get("PEERHUB_AG_BINARY")
-        if cand_override:
-            cand = Path(cand_override)
-        else:
-            portable = resolved_sys / "tools" / "agy" / "agy.exe"
-            discovered = shutil.which("agy.exe") or shutil.which("agy")
-            cand = portable if portable.exists() else Path(discovered) if discovered else portable
-    elif peer == "cc":
-        cand_override = os.environ.get("PEERHUB_CC_BINARY")
-        if cand_override:
-            cand = Path(cand_override)
-        else:
-            npm_global = Path(os.environ.get("PEERHUB_NPM_GLOBAL_DIR", resolved_sys / "env" / "nodejs" / "npm-global"))
-            cand = npm_global / CLAUDE_CMD
-    elif peer == "cx":
-        cand_override = os.environ.get("PEERHUB_CX_BINARY")
-        if cand_override:
-            cand = Path(cand_override)
-        else:
-            npm_global = Path(os.environ.get("PEERHUB_NPM_GLOBAL_DIR", resolved_sys / "env" / "nodejs" / "npm-global"))
-            cand = npm_global / CODEX_CMD
-    else:
+    names = {"ag": ("agy.exe", "agy"), "cc": (CLAUDE_CMD, "claude"), "cx": (CODEX_CMD, "codex")}
+    if peer not in names:
         return None
-        
-    if not cand.exists():
-        command_names = {
-            "ag": ("agy.exe", "agy"),
-            "cc": (CLAUDE_CMD, "claude"),
-            "cx": (CODEX_CMD, "codex"),
-        }.get(peer, ())
-        discovered = next(
-            (found for name in command_names if (found := shutil.which(name))),
-            None,
-        )
+    override_key = f"PEERHUB_{peer.upper()}_BINARY"
+    override = os.environ.get(override_key)
+    if override is not None:
+        cand = Path(override)
+        if not override or not cand.is_file():
+            raise FileNotFoundError(f"{override_key} points to a missing file: {override!r}")
+    else:
+        npm = os.environ.get("PEERHUB_NPM_GLOBAL_DIR")
+        configured = Path(npm) / names[peer][0] if npm and peer in ("cc", "cx") else None
+        discovered = str(configured) if configured and configured.is_file() else next(
+            (found for name in names[peer] if (found := shutil.which(name))), None)
         if discovered is None:
             return None
         cand = Path(discovered)
     resolved = cand.resolve()
-    if resolved == cli_dir.resolve() or cli_dir.resolve() in resolved.parents:
+    cli_dir = (resolve_sys_dir(sys_dir) / "cli").resolve()
+    if resolved == cli_dir or cli_dir in resolved.parents:
         raise RuntimeError(f"refusing wrapper binary for {peer}: {resolved}")
-    # Return the literal (unresolved) path, not `resolved`: on this portable
-    # install, `env/nodejs/npm-global` is a junction, and .resolve() follows
-    # it to a physical path containing "&" (a cmd.exe command separator).
-    # `.cmd`/`.bat` files are always invoked through cmd.exe, so passing that
-    # resolved path as argv[0] makes cmd.exe misparse its own invocation and
-    # the child exits immediately -- confirmed by reproducing both the
-    # literal and resolved forms directly. The `resolved` form is still used
-    # above for the wrapper-directory safety check only.
-    return str(cand)
+    return str(cand)  # keep literal paths: resolved junction targets may contain cmd.exe metacharacters
 
 
 def _real_command(peer: str, sys_dir: Optional[Path] = None) -> Optional[list[str]]:
@@ -265,7 +217,7 @@ def _real_command(peer: str, sys_dir: Optional[Path] = None) -> Optional[list[st
     if not raw_bin:
         return None
     cand = Path(raw_bin)
-    from peerhub.extensions.adapters.binary_resolution import resolve_direct_binary
+    from peerhub.extensions.binary_resolution import resolve_direct_binary
     if peer in ("cc", "cx"):
         if cand.suffix.lower() == ".cmd":
             result = resolve_direct_binary(cand)
@@ -273,6 +225,31 @@ def _real_command(peer: str, sys_dir: Optional[Path] = None) -> Optional[list[st
                 return result
         return [raw_bin]
     return [raw_bin]
+
+
+def _cleanup_probe(proc: subprocess.Popen[str]) -> None:
+    try:
+        kill_process_tree(proc)
+    except Exception:
+        pass  # best-effort cleanup must not discard the probe result
+    if sys.platform != "win32":
+        return
+    # Windows retains PPID after wrapper exit; preserve cleanup of that lineage only.
+    try:
+        import psutil
+        for child in psutil.process_iter(["pid", "ppid"]):
+            try:
+                if child.info.get("ppid") == proc.pid:
+                    kill_process_tree(cast(Any, child))
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
+def _valid_fraction(value: object) -> TypeGuard[int | float]:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and 0.0 <= value <= 1.0 and math.isfinite(value))
 
 
 def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
@@ -331,15 +308,17 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
             bucket_id = bucket.get("id")
             remaining = bucket.get("remaining_fraction")
             reset_time = bucket.get("reset_time")
+            if isinstance(bucket_id, str) and bucket_id in known_ids and not _valid_fraction(remaining):
+                return {}
             if (
                 not isinstance(bucket_id, str)
                 or bucket_id not in known_ids
-                or not isinstance(remaining, (int, float))
+                or not _valid_fraction(remaining)
                 or not isinstance(reset_time, str)
             ):
                 continue
             buckets[bucket_id] = {
-                "remaining_fraction": max(0.0, min(1.0, float(remaining))),
+                "remaining_fraction": float(remaining),
                 "reset_time": reset_time,
             }
     return buckets
@@ -519,24 +498,12 @@ def poll_claude_usage(
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at, freshness_ttl),)
 
     env = os.environ.copy()
-    # Legacy P:\ / hub.py-environment compatibility: Claude CLI configuration
-    # directory in the legacy frozen environment lives at _sys/claude/config.
-    # Configurable via PEERHUB_CLAUDE_CONFIG_DIR or existing CLAUDE_CONFIG_DIR;
-    # defaults to legacy (resolved_sys / "claude" / "config").
     claude_cfg_dir = (
         os.environ.get("PEERHUB_CLAUDE_CONFIG_DIR")
         or env.get("CLAUDE_CONFIG_DIR")
     )
     if claude_cfg_dir:
         env["CLAUDE_CONFIG_DIR"] = claude_cfg_dir
-    elif resolved_sys.is_dir():
-        # Compatibility with a portable runtime is discovered by PeerHub;
-        # Engram never needs to inject a PeerHub-specific bridge. A normal
-        # standalone pip install has no _sys tree and leaves Claude's own
-        # default configuration resolution untouched.
-        env["CLAUDE_CONFIG_DIR"] = str(
-            (resolved_sys / "claude" / "config").resolve()
-        )
 
     # Direct binary invocation (bypassing claude.cmd wrapper per pattern a)
     # avoids both cmd.exe '&' splitting and orphaned grandchild process leaks.
@@ -551,6 +518,7 @@ def poll_claude_usage(
             stderr=subprocess.PIPE,
             text=True,
             errors="replace",
+            start_new_session=sys.platform != "win32",
         )
         try:
             stdout, stderr = proc.communicate(timeout=deadline_sec)
@@ -562,34 +530,7 @@ def poll_claude_usage(
                              extra={"reason": f"claude_usage_spawn_failed:{type(exc).__name__}"}),)
     finally:
         if proc is not None:
-            # 1. Kill the spawned process and its own tracked tree.
-            try:
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                                capture_output=True, timeout=10)
-            except Exception:
-                pass
-            # 2. Catch a grandchild left behind if an intermediate wrapper
-            # exited early (breaking the tree taskkill /T just walked).
-            # Identify it by real PPID lineage (its ppid field == our
-            # spawned proc.pid), NOT by name+creation-time -- that heuristic
-            # previously matched (and force-killed) ANY node.exe/claude.exe
-            # on the whole machine merely started within the same ~5s
-            # window, e.g. an unrelated VS Code extension host or another
-            # Claude Code session. A ppid-field scan still finds a genuine
-            # grandchild even after its direct parent has already exited
-            # (Windows does not clear a child's recorded ppid on parent
-            # exit), without risking an unrelated process sharing a name.
-            try:
-                import psutil
-                for p in psutil.process_iter(['pid', 'ppid']):
-                    try:
-                        if p.info.get('ppid') == proc.pid:
-                            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.info['pid'])],
-                                           capture_output=True, timeout=5)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            _cleanup_probe(proc)
 
     text = "\n".join(str(part) for part in (stdout, stderr) if part)
     dt_now = datetime.fromtimestamp(observed_at, tz=timezone.utc).astimezone()
@@ -670,7 +611,8 @@ def poll_codex_usage(
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
-            cwd=str(workspace_root)
+            cwd=str(workspace_root),
+            start_new_session=sys.platform != "win32",
         )
 
         q: "queue.Queue[str | None]" = queue.Queue()
@@ -862,34 +804,7 @@ def poll_codex_usage(
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
     finally:
         if proc is not None:
-            # 1. Kill the spawned process and its own tracked tree.
-            try:
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                               capture_output=True, timeout=10)
-            except Exception:
-                pass
-            # 2. Catch a grandchild left behind if an intermediate wrapper
-            # exited early (breaking the tree taskkill /T just walked).
-            # Identify it by real PPID lineage (its ppid field == our
-            # spawned proc.pid), NOT by name+creation-time -- that heuristic
-            # previously matched (and force-killed) ANY node.exe/codex.exe
-            # on the whole machine merely started within the same ~5s
-            # window, e.g. an unrelated VS Code extension host or another
-            # Codex session. A ppid-field scan still finds a genuine
-            # grandchild even after its direct parent has already exited
-            # (Windows does not clear a child's recorded ppid on parent
-            # exit), without risking an unrelated process sharing a name.
-            try:
-                import psutil
-                for p in psutil.process_iter(['pid', 'ppid']):
-                    try:
-                        if p.info.get('ppid') == proc.pid:
-                            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.info['pid'])],
-                                           capture_output=True, timeout=5)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+            _cleanup_probe(proc)
 
 def poll_agy_usage(
     ids: IdSource,
@@ -901,12 +816,11 @@ def poll_agy_usage(
     log_path: Optional[str | Path] = None,
     sys_dir: Optional[Path] = None,
 ) -> Sequence[UsageObserved]:
-    """Poll Agy's local ``/usage`` command, with statusline fallback.
+    """Poll Agy's local ``/usage`` command, with explicitly configured statusline fallback.
 
     The slash command returns account quota without dispatching a model turn.
     Current Agy reports zero input/output/thinking tokens for this operation.
-    An explicitly supplied ``log_path`` keeps the deterministic legacy-file
-    contract and skips the executable probe.
+    An explicitly supplied ``log_path`` skips the executable probe.
     """
     
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
@@ -959,17 +873,13 @@ def poll_agy_usage(
                         quota_dict_typed = parsed
             except (OSError, subprocess.SubprocessError, ValueError):
                 pass
-    # Legacy P:\ / hub.py-environment compatibility: Antigravity statusline log
-    # in the legacy frozen environment lives at _sys/data/temp/ag_statusline_stdin.log.
-    # Configurable via PEERHUB_AG_STATUSLINE_LOG; defaults to legacy
-    # resolved_sys / "data" / "temp" / "ag_statusline_stdin.log".
-    default_log_path = (
-        Path(os.environ["PEERHUB_AG_STATUSLINE_LOG"])
-        if "PEERHUB_AG_STATUSLINE_LOG" in os.environ
-        else (resolved_sys / "data" / "temp" / "ag_statusline_stdin.log")
-    )
     if quota_dict_typed is None:
-        path = Path(log_path) if log_path is not None else default_log_path
+        configured_log = log_path if log_path is not None else os.environ.get("PEERHUB_AG_STATUSLINE_LOG")
+        if configured_log is None and sys_dir is not None:
+            configured_log = resolved_sys / "data" / "temp" / "ag_statusline_stdin.log"
+        if configured_log is None:
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.UNKNOWN, observed_at_now, freshness_ttl, peer="ag"),)
+        path = Path(configured_log)
         try:
             st = path.stat()
             mtime = int(st.st_mtime)
@@ -1000,11 +910,12 @@ def poll_agy_usage(
         q = cast(dict[str, Any], q_raw)
             
         rem = q.get("remaining_fraction")
-        if not isinstance(rem, (int, float)):
-            continue
+        if not _valid_fraction(rem):
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, evidence_observed_at, freshness_ttl,
+                                 peer="ag", extra={"reason": "invalid_remaining_fraction"}),)
             
-        used_frac = max(0.0, min(1.0, 1.0 - float(rem)))
-        remaining_frac = max(0.0, 1.0 - used_frac)
+        remaining_frac = float(rem)
+        used_frac = 1.0 - remaining_frac
         
         window_hours = 5.0 if "5H" in label else 168.0
         window_sec = int(window_hours * 3600)

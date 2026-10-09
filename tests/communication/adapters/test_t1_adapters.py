@@ -348,3 +348,14 @@ def test_t1_catch_up_is_in_prompt_and_bounded(mk):
     with pytest.raises(PrespawnError, match="exceeding the ag inline limit"):
         drain(mk("ag").deliver("s", rec("now"), [SimpleNamespace(record_id="r0", body="z" * over, author_peer_id="a")]))
     assert len(calls(mk.log)) == 2
+
+
+def test_leading_dash_prompt_is_data_for_every_provider():
+    from peerhub.extensions.adapters.base import AgSpec, CcSpec, CxSpec
+    for prompt in ("-h", "--help", "-", "ordinary", "\n-h"):
+        args = AgSpec().argv(None, None, prompt)
+        assert args[args.index("-p") + 1] == ("\n" + prompt if prompt.startswith("-") else prompt)
+        for spec in (CcSpec(), CxSpec()):
+            assert spec.stdin_prompt
+            if prompt != "-":
+                assert prompt not in spec.argv(None, None, prompt)

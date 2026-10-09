@@ -5,13 +5,14 @@ import io
 import math
 import os
 import queue
-import signal
 import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence, cast
+
+from peerhub.extensions.process_tree import kill_process_tree
 
 DEFAULT_TIMEOUT_S = 120.0
 DEFAULT_MAX_BYTES = 1_048_576
@@ -42,22 +43,6 @@ def check_argv(argv: Sequence[Any]) -> None:
     if sys.platform == "win32" and os.path.splitext(argv[0])[1].lower() in (".cmd", ".bat"):
         if any(_CMD_UNSAFE & set(a) for a in argv[1:]):  # Windows runs .cmd through cmd.exe: metacharacters would be interpreted
             raise ValueError("argument contains characters unsafe for a .cmd wrapper")
-
-
-def _kill_tree(proc: "subprocess.Popen[bytes]") -> bool:
-    """Return whether the OS accepted a whole-tree kill (exit is observed separately)."""
-    try:
-        if sys.platform == "win32":
-            result = subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                                    capture_output=True, timeout=10, check=False)
-            if result.returncode == 0:
-                return True
-            proc.kill()  # best-effort cleanup, but cannot claim whole-tree termination
-            return False
-        os.killpg(proc.pid, signal.SIGKILL)  # start() creates a private session/process group
-        return True
-    except (OSError, subprocess.SubprocessError):
-        return False
 
 
 class BoundedProcess:
@@ -147,7 +132,7 @@ class BoundedProcess:
                 raise OSError("nothing running")
             # Even a racing zero exit must not become a successful delivery after cancellation.
             self._aborted.set()
-            killed = _kill_tree(p)
+            killed = kill_process_tree(p)
             try:
                 p.wait(timeout=10)
             except subprocess.TimeoutExpired as e:
@@ -160,7 +145,7 @@ class BoundedProcess:
         with self._kill_lock:
             self._aborted.set()
             if self._proc is not None and self._proc.poll() is None:
-                _kill_tree(self._proc)
+                kill_process_tree(self._proc)
         self.wait()
 
     def wait(self) -> ProcessResult:
@@ -182,7 +167,7 @@ class BoundedProcess:
             time.sleep(0.02)
         with self._kill_lock:
             if p.poll() is None:
-                _kill_tree(p)
+                kill_process_tree(p)
         try:
             p.wait(timeout=10)
         except subprocess.TimeoutExpired:

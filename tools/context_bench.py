@@ -156,7 +156,7 @@ def benchmark(args, strategy, document, questions):
                 correct = expected in answer
             except (OSError, ValueError, TypeError, KeyError) as exc:
                 print(str(exc))
-                break
+                raise ValueError(f"{strategy} turn {turn} failed: {exc}") from exc
             elapsed = time.perf_counter() - started
             seconds += elapsed
             correct_count += correct
@@ -171,27 +171,28 @@ def benchmark(args, strategy, document, questions):
             history += [f"[{2 * turn - 1} q{turn} user question] {question}",
                         f"[{2 * turn} a{turn} {args.peer} answer] {answer}"]
             if strategy == "RESUME" and not session:
-                print("CLI returned no native session ID; cannot resume.")
-                break
+                raise ValueError("CLI returned no native session ID; cannot resume.")
     share = totals[1] / totals[0] if totals[0] else 0
     written = str(totals[2]) if args.peer == "cc" else "-"
     cost = f" cost_usd={totals[4]:.8f}" if args.peer == "cc" else ""
     print(f"TOTAL input_tokens={totals[0]} cached={totals[1]} written={written} output={totals[3]}"
           f"{cost} uncached_input={totals[0] - totals[1]} cached_share={share:.2%}"
           f" correct={correct_count}/{len(questions)} seconds={seconds:.3f}")
+    if not questions or correct_count != len(questions):
+        raise ValueError(f"{strategy} invalid run: correct={correct_count}/{len(questions)}")
     return totals
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--peer", choices=("cc", "cx", "ag"), required=True)
     parser.add_argument("--turns", type=int, required=True)
     parser.add_argument("--gap-seconds", type=float, default=0)
     parser.add_argument("--model")
     parser.add_argument("--effort")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if not 1 <= args.turns <= 259 or not 0 <= args.gap_seconds < float("inf"):
-        raise ValueError("turns must be 1..259 and gap-seconds must be finite and nonnegative")
+        parser.error("turns must be 1..259 and gap-seconds must be finite and nonnegative")
     args.model = args.model or {"cc": "claude-haiku-4-5-20251001", "cx": "gpt-6-luna",
                                "ag": "gemini-3.8-flash-low"}[args.peer]
     # Keep ag's default document near 100 lines; larger turn counts still get unique questions.
@@ -204,8 +205,9 @@ def main():
 
 
 if __name__ == "__main__":
+    import sys
     try:
         main()
-    except (Exception, KeyboardInterrupt, SystemExit) as exc:
-        if not isinstance(exc, SystemExit):
-            print(str(exc))
+    except (Exception, KeyboardInterrupt) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
