@@ -1,4 +1,4 @@
-"""M1 release evidence bundle (REL-007): commit/version, deterministic suite result, live canaries, package hashes and a
+"""M1/M2/M3 release evidence bundle (REL-007): commit/version, deterministic suite result, live canaries, package hashes and a
 requirement coverage summary, with SHA-256 checksums over every bundle file.
 
 Fail closed: `release_ready` is true only if EVERY catalog test on a blocking gate (any priority; everything but G6) has a PASSED
@@ -56,8 +56,23 @@ def _test_ids(name: str, ids: list[str]) -> list[str]:
 ALLOWED_SKIP = re.compile(r"^(LIVE-OPT-IN|LIVE-PROVIDER-UNAVAILABLE|SOAK-OPT-IN|CI-ONLY)\[[^\]]*\]")
 
 
-def junit_outcomes(paths: list[Path], ids: list[str]) -> dict[str, str]:
+def _m23_test_ids(case: ET.Element, ids: set[str]) -> set[str]:
+    # Match the function-name grammar and range expansion in traceability.m23_covered_ids.
+    named = re.match(r"test_([a-z0-9]{2,4})_(\d{3}(?:_(?:and|to)_\d{3}|_\d{3})*)", case.get("name", ""))
+    found = set()
+    if named:
+        prefix, numbers = named.groups()
+        nums = re.findall(r"\d{3}", numbers)
+        if "_to_" in numbers and len(nums) >= 2:
+            nums = [f"{n:03d}" for n in range(int(nums[0]), int(nums[1]) + 1)]
+        found.update(f"{prefix.upper()}-{n}" for n in nums)
+    found.update(p.get("value", "") for p in case.findall("properties/property") if p.get("name") == "catalog_id")
+    return found & ids
+
+
+def junit_outcomes(paths: list[Path], ids: list[str], m23_ids: set[str] | None = None) -> dict[str, str]:
     """Every observed case for a catalog ID must pass; skips never reconcile to passes."""
+    m23_ids = m23_ids or set()
     seen: dict[str, list[str]] = {}
     for p in paths:
         for case in ET.parse(p).getroot().iter("testcase"):
@@ -69,8 +84,9 @@ def junit_outcomes(paths: list[Path], ids: list[str]) -> dict[str, str]:
             elif (skip := case.find("skipped")) is not None:
                 reason = (skip.get("message") or skip.text or "").strip()
                 outcome = "not_verified" if ALLOWED_SKIP.match(reason) else "skipped"
-            for tid in _test_ids(case.get("name", ""), ids):
-                seen.setdefault(tid, []).append(outcome)
+            matched = set(_test_ids(case.get("name", ""), [i for i in ids if i not in m23_ids])) | _m23_test_ids(case, m23_ids)
+            for tid in matched:
+                seen.setdefault(tid, []).append("skipped" if tid in m23_ids and outcome == "not_verified" else outcome)
     out = {}
     for tid in ids:
         res = seen.get(tid)
@@ -215,7 +231,11 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
     catalog = json.loads((ts / "test-catalog.json").read_text(encoding="utf-8"))["tests"]
     reqs = json.loads((ts / "requirements.json").read_text(encoding="utf-8"))["requirements"]
     gates = {e["test_id"]: e["primary_gate"] for e in json.loads((ts / "TEST_RELEASE_GATE_MAP.json").read_text(encoding="utf-8"))["entries"]}
-    ids = [t["id"] for t in catalog]
+    m23_catalog = [t for rel in ("docs/m2/test-catalog.m2.json", "docs/m3/test-catalog.m3.json")
+                   for t in json.loads((Path(repo_root) / rel).read_text(encoding="utf-8"))["tests"]]
+    m23_ids = {t["id"] for t in m23_catalog}
+    gates.update({i: "G2" for i in m23_ids})  # All M2/M3 catalog tests block in the deterministic verify gate.
+    ids = [t["id"] for t in catalog + m23_catalog]
     live_ids = [t["id"] for t in catalog if t.get("live_provider")]
     if commit is None:
         cp = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(repo_root), capture_output=True, text=True)
@@ -239,9 +259,9 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
         used_junit = [p for p, b in zip(used_junit, bindings) if b["status"] == "accepted"]
         if not pkg_junit:
             holds.append(f"HOLD: no current JUnit carries the package digests of the dist being released (gate {PACKAGE_GATE} evidence)")
-    outcomes = junit_outcomes(used_junit, ids)
+    outcomes = junit_outcomes(used_junit, ids, m23_ids)
     if candidate:  # package-gate tests are evidence only from files bound to the released package digests
-        pkg_out = junit_outcomes(pkg_junit, ids)
+        pkg_out = junit_outcomes(pkg_junit, ids, m23_ids)
         outcomes = {i: (pkg_out[i] if gates[i] == PACKAGE_GATE else outcomes[i]) for i in ids}
     blockers: list[str] = list(holds)
     if not re.fullmatch(r"[0-9a-f]{40}", commit):

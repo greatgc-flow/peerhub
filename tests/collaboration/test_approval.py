@@ -9,14 +9,17 @@ Verifies Core Invariant 11:
 
 from __future__ import annotations
 
+import datetime
 import sys
-import time
 import threading
+import types
+import time
 from dataclasses import replace
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import pytest
 
+from peerhub.extensions import approval as approval_module
 from peerhub.extensions.approval import (
     ApprovalEngine,
     ApprovalRequest,
@@ -102,7 +105,17 @@ def test_app_003_rejection(temp_db: Path) -> None:
         engine.close()
 
 
-def test_app_004_expired(temp_db: Path) -> None:
+def _clock_ahead(seconds: float) -> types.SimpleNamespace:
+    """The `datetime` module as seen by the approval engine, with now() moved forward."""
+    class _Later(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return super().now(tz) + datetime.timedelta(seconds=seconds)
+
+    return types.SimpleNamespace(datetime=_Later, timezone=datetime.timezone, timedelta=datetime.timedelta)
+
+
+def test_app_004_expired(temp_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """APP-004: Expired approval token cannot be approved or consumed."""
     engine = ApprovalEngine(temp_db)
     try:
@@ -123,10 +136,10 @@ def test_app_004_expired(temp_db: Path) -> None:
             action_type="deploy2",
             effect_payload=payload,
             requested_by="agent-dave",
-            ttl_seconds=1,
+            ttl_seconds=60,
         )
         engine.approve(req2.approval_id, approver="admin")
-        time.sleep(1.1)
+        monkeypatch.setattr(approval_module, "datetime", _clock_ahead(120))  # deterministic: no sleeping, no slow-runner race
 
         with pytest.raises(ApprovalExpiredError):
             engine.consume_approval(req2.approval_id, effect_payload=payload)

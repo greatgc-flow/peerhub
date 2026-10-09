@@ -320,7 +320,7 @@ def test_rel_006_verify_runs_the_same_gate_selections_sequentially_without_provi
     assert tests == [
         "python -u -m pytest -q --junitxml=junit/g0.xml tests/communication/architecture tests/communication/schema tests/communication/unit tests/communication/property tests/communication/meta tests/communication/security",
         "python -u -m pytest -q --junitxml=junit/g1.xml tests/communication/core tests/communication/migration tests/communication/concurrency tests/communication/fault tests/communication/integration",
-        "python -u -m pytest -q --junitxml=junit/g2.xml tests/communication/bridge tests/communication/observation tests/communication/diag tests/communication/control tests/communication/adapters tests/communication/e2e",
+        "python -u -m pytest -q --junitxml=junit/g2.xml tests/communication/bridge tests/communication/observation tests/communication/diag tests/communication/control tests/communication/adapters tests/communication/e2e tests/continuity tests/collaboration",
         "python -u -m pytest -q tests/communication/architecture tests/communication/meta",
     ]
     assert runs.index("python -m tools.traceability") > runs.index(tests[2])

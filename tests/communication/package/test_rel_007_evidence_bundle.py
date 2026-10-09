@@ -16,6 +16,8 @@ pytestmark = [pytest.mark.package, pytest.mark.release, pytest.mark.evidence, py
 
 TS = REPO / "docs/m1_spec/06_GUIDES/TEST_SET"
 CATALOG = json.loads((TS / "test-catalog.json").read_text(encoding="utf-8"))["tests"]
+M23_CATALOG = [t for rel in ("docs/m2/test-catalog.m2.json", "docs/m3/test-catalog.m3.json")
+               for t in json.loads((REPO / rel).read_text(encoding="utf-8"))["tests"]]
 REQS = {r["id"]: r for r in json.loads((TS / "requirements.json").read_text(encoding="utf-8"))["requirements"]}
 LIVE_IDS = ["LIVE-CC-001", "LIVE-CX-001", "LIVE-AG-001", "LIVE-004", "LIVE-005", "LIVE-006", "LIVE-007", "LIVE-008"]  # literal
 SOAK_IDS = ["SOAK-001", "SOAK-002"]
@@ -37,7 +39,7 @@ def junit(path, outcomes):
 
 
 def all_ids(*, live, soak=False):
-    ids = [t["id"] for t in CATALOG]
+    ids = [t["id"] for t in CATALOG + M23_CATALOG]
     return [i for i in ids if (live or i not in LIVE_IDS) and (soak or i not in SOAK_IDS)]
 
 

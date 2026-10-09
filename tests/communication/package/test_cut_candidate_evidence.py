@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 from tests.communication.harness.pkg_env import REPO
-from tests.communication.package.test_rel_007_evidence_bundle import all_ids, junit
+from tests.communication.package.test_rel_007_evidence_bundle import M23_CATALOG, all_ids, junit
 from tools import release_evidence as ev
 
 pytestmark = [pytest.mark.package, pytest.mark.evidence]
@@ -184,6 +184,7 @@ def test_cut_012_evidence_for_another_candidate_is_rejected(env, tmp_path, what,
 def test_cut_013_missing_blocking_gate_evidence_holds_naming_the_gate(env):
     gate_of = {e["test_id"]: e["primary_gate"] for e in json.loads(
         (REPO / "docs/m1_spec/06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json").read_text(encoding="utf-8"))["entries"]}
+    gate_of.update({t["id"]: "G2" for t in M23_CATALOG})
     outcomes = {i: "passed" for i in all_ids(live=True) if gate_of[i] != "G1"}
     m = env.manifest([env.evidence(outcomes, age=1)])
     assert m["release_ready"] is False and "HOLD: blocking gate G1 has no complete current PASS evidence" in holds(m)
@@ -514,6 +515,7 @@ def test_cut_027_missing_junit_file_is_a_hold_not_a_crash(env, tmp_path):
 
 GATE_OF = {e["test_id"]: e["primary_gate"] for e in json.loads(
     (REPO / "docs/m1_spec/06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json").read_text(encoding="utf-8"))["entries"]}
+GATE_OF.update({t["id"]: "G2" for t in M23_CATALOG})
 
 
 def test_cut_028_future_timestamps_are_rejected_beyond_the_policy_skew_tolerance(env, tmp_path):
@@ -583,6 +585,9 @@ def test_cut_031_a_gate_needs_every_one_of_its_tests_to_pass(env):
 def test_cut_032_requirement_without_linked_tests_is_uncovered_not_a_crash(tmp_path):
     root = tmp_path / "repo"
     shutil.copytree(REPO / "docs/m1_spec/06_GUIDES/TEST_SET", root / "docs/m1_spec/06_GUIDES/TEST_SET")
+    for milestone in ("m2", "m3"):
+        (root / "docs" / milestone).mkdir()
+        shutil.copy2(REPO / f"docs/{milestone}/test-catalog.{milestone}.json", root / f"docs/{milestone}/test-catalog.{milestone}.json")
     (root / "peerhub").mkdir()
     shutil.copy2(REPO / "peerhub/_version.py", root / "peerhub/_version.py")
     rp = root / "docs/m1_spec/06_GUIDES/TEST_SET/requirements.json"
