@@ -2,6 +2,18 @@
 
 A durable communication layer for collaborating AI peers. The Core owns only Peer, Stream, Record and Offset. Runtime delivery, observations, diagnostics, work continuity and collaboration capabilities are extensions.
 
+## Install
+
+Requires Python 3.11–3.14. Choose one:
+
+```powershell
+pipx install peerhub
+uv tool install peerhub
+pip install peerhub
+```
+
+A winget package is not provided.
+
 ## Develop from this checkout
 
 Requires Python 3.11–3.14.
