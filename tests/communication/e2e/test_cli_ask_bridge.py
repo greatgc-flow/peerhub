@@ -8,16 +8,25 @@ from peerhub.core.store import CoreStore, IdempotencyConflictError
 from tests.communication.fakes import FakeRuntimeTarget
 
 
-def test_response_retry_is_idempotent_and_claim_is_released(tmp_path):
+@pytest.mark.parametrize("usage", [None, {"input_tokens": 18351, "cached_input_tokens": 18176,
+                                        "cache_write_tokens": 0, "output_tokens": 10}])
+def test_response_retry_is_idempotent_and_claim_is_released(tmp_path, usage):
     db = tmp_path / "core.db"
     rt = FakeRuntimeTarget()
-    rt.script_deliver(("started", "exec-1"), ("terminal", {"response": "answer"}))
+    payload = {"response": "answer", **({"usage": usage} if usage is not None else {})}
+    rt.script_deliver(("started", "exec-1"), ("terminal", payload))
     result = ask(db, "cx", "question", request_id="req", runtime=rt)
     assert result["status"] == "delivered" and result["response"] == "answer"
     other = FakeRuntimeTarget()
     replay = ask(db, "cx", "question", request_id="req", runtime=other)
     assert replay["status"] == "recovered_terminal" and replay["response"] == "answer"
     assert other.calls == []
+    response = next(r for r in CoreStore(db).read_records(result["stream_id"]) if r.kind == "response")
+    for data in (result, replay, response.metadata):
+        if usage is None:
+            assert "usage" not in data
+        else:
+            assert data["usage"] == usage
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT kind FROM observations").fetchall() == [("activity",)]
     assert len([r for r in CoreStore(db).read_records(result["stream_id"]) if r.kind == "response"]) == 1
@@ -54,6 +63,26 @@ def test_default_cli_ask_has_no_legacy_import(tmp_path, monkeypatch, capsys):
     assert not hasattr(cli, "legacy_main")
     assert cli.main(["--db", str(tmp_path / "core.db"), "ask", "cx", "hello", "--json"]) == 0
     assert '"certainty": "TERMINAL"' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_cli_usage_is_json_only(tmp_path, monkeypatch, capsys, json_output):
+    import json
+    from peerhub import cli
+    from peerhub.extensions import ask as module
+    usage = {"input_tokens": 20, "output_tokens": 2}
+    rt = FakeRuntimeTarget()
+    rt.script_deliver(("started", "exec-usage"), ("terminal", {"response": "answer", "usage": usage}))
+    real_ask = module.ask
+    monkeypatch.setattr(module, "ask", lambda *a, **kw: real_ask(*a, **kw, runtime=rt))
+    argv = ["--db", str(tmp_path / "core.db"), "ask", "cx", "hello"]
+    assert cli.main(argv + (["--json"] if json_output else [])) == 0
+    output = capsys.readouterr()
+    assert output.err == ""
+    if json_output:
+        assert json.loads(output.out)["usage"] == usage
+    else:
+        assert output.out == "answer\n"
 
 
 def test_prespawn_is_retryable_without_new_prompt(tmp_path):

@@ -62,10 +62,11 @@ def test_live_004_capability_mismatch_is_reported_never_synthesized():
             assert caps["resume"]["cli_status"] in ("supported", "unsupported", "unavailable")
             adapter, _ = ls.make_adapter(kind, ls.ROOT / "docs")  # never spawned: capability-aware path only
             assert adapter.resumable is False and adapter.resume_session("any-vendor-id") == "unsupported"
-            assert not (adapter.supports_interrupt or adapter.supports_terminate or adapter.supports_steer)
+            assert adapter.supports_terminate and caps["terminate"]["status"] == "supported"
+            assert not (adapter.supports_interrupt or adapter.supports_steer)
         else:
             assert {c["status"] for c in caps.values()} == {"unavailable"} and d["reason"]  # unavailable is reported, not faked
-        assert all(caps[c]["status"] in ("unsupported", "unavailable") for c in ("interrupt", "terminate", "steer"))
+        assert all(caps[c]["status"] in ("unsupported", "unavailable") for c in ("interrupt", "steer"))
         ls.merge_evidence(kind, "capabilities", caps)
     assert checked >= 1, "no provider available: nothing could be checked"
 

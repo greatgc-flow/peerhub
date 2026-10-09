@@ -5,6 +5,7 @@ import io
 import math
 import os
 import queue
+import signal
 import subprocess
 import sys
 import threading
@@ -31,6 +32,7 @@ class ProcessResult:
     output_exceeded: bool
     duration_s: float
     silence_timed_out: bool = False
+    aborted: bool = False
 
 
 def check_argv(argv: Sequence[Any]) -> None:
@@ -42,13 +44,20 @@ def check_argv(argv: Sequence[Any]) -> None:
             raise ValueError("argument contains characters unsafe for a .cmd wrapper")
 
 
-def _kill_tree(proc: "subprocess.Popen[bytes]") -> None:
+def _kill_tree(proc: "subprocess.Popen[bytes]") -> bool:
+    """Return whether the OS accepted a whole-tree kill (exit is observed separately)."""
     try:
         if sys.platform == "win32":
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=10, check=False)
-        proc.kill()
+            result = subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                                    capture_output=True, timeout=10, check=False)
+            if result.returncode == 0:
+                return True
+            proc.kill()  # best-effort cleanup, but cannot claim whole-tree termination
+            return False
+        os.killpg(proc.pid, signal.SIGKILL)  # start() creates a private session/process group
+        return True
     except (OSError, subprocess.SubprocessError):
-        pass
+        return False
 
 
 class BoundedProcess:
@@ -71,6 +80,8 @@ class BoundedProcess:
         self._t0 = 0.0
         self._bufs: dict[str, bytearray] = {"out": bytearray(), "err": bytearray()}
         self._exceeded = threading.Event()
+        self._aborted = threading.Event()
+        self._kill_lock = threading.Lock()
         self._threads: list[threading.Thread] = []
 
     @property
@@ -84,7 +95,8 @@ class BoundedProcess:
         self._last_output = self._t0
         try:
             self._proc = subprocess.Popen(self._argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                          cwd=self._cwd, env=self._env, shell=False)
+                                          cwd=self._cwd, env=self._env, shell=False,
+                                          start_new_session=sys.platform != "win32")
         except (OSError, ValueError) as e:
             raise SpawnFailure(f"{type(e).__name__}: {getattr(e, 'strerror', None) or e}") from e
         p = self._proc
@@ -127,10 +139,28 @@ class BoundedProcess:
         except (OSError, ValueError):
             pass
 
+    def terminate(self) -> None:
+        """Kill the tree and observe exit without consuming delivery output on this thread."""
+        with self._kill_lock:
+            p = self._proc
+            if p is None or p.poll() is not None:
+                raise OSError("nothing running")
+            # Even a racing zero exit must not become a successful delivery after cancellation.
+            self._aborted.set()
+            killed = _kill_tree(p)
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired as e:
+                raise OSError("process exit could not be confirmed") from e
+            if not killed:
+                raise OSError("process-tree termination could not be confirmed")
+
     def abort(self) -> None:
         """Kill and reap (used when the consumer stops iterating a delivery)."""
-        if self._proc is not None and self._proc.poll() is None:
-            _kill_tree(self._proc)
+        with self._kill_lock:
+            self._aborted.set()
+            if self._proc is not None and self._proc.poll() is None:
+                _kill_tree(self._proc)
         self.wait()
 
     def wait(self) -> ProcessResult:
@@ -150,8 +180,9 @@ class BoundedProcess:
                 silence_timed_out = True
                 break
             time.sleep(0.02)
-        if p.poll() is None:
-            _kill_tree(p)
+        with self._kill_lock:
+            if p.poll() is None:
+                _kill_tree(p)
         try:
             p.wait(timeout=10)
         except subprocess.TimeoutExpired:
@@ -167,7 +198,7 @@ class BoundedProcess:
                 pass
         return ProcessResult(pid=p.pid, returncode=p.returncode, stdout=bytes(self._bufs["out"]), stderr=bytes(self._bufs["err"]),
                              timed_out=timed_out, output_exceeded=self._exceeded.is_set(), duration_s=time.monotonic() - self._t0,
-                             silence_timed_out=silence_timed_out)
+                             silence_timed_out=silence_timed_out, aborted=self._aborted.is_set())
 
     def _drain_stdout(self) -> None:
         while not self._chunks.empty():

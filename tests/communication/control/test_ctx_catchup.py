@@ -293,3 +293,27 @@ def test_ctx_002_pinned_projection_never_exceeds_budget_and_stays_ordered(sizes,
             assert newest in got
         if not valid and recs and (mr is None or mr >= 1) and len(item_json(recs[-1]).encode()) <= mb:
             assert got  # an always-empty projection is wrong whenever something fits
+
+
+@pytest.mark.integration
+def test_bridge_default_budget_fits_windows_inline_history_and_explicit_budget_wins(tmp_path):
+    from types import SimpleNamespace
+    from peerhub.extensions.adapters.base import CliRuntimeTarget
+    from peerhub.extensions.catchup import ProjectedRecords
+
+    h = BridgeHarness(tmp_path / "ws")
+    assert h.bridge.catch_up_budget == CatchUpBudget(max_records=100, max_bytes=24_000)
+    records = [SimpleNamespace(position=i, record_id=f"r{i}", author_peer_id="user", kind="prompt", body="한" * 2000)
+               for i in range(1, 7)]
+    projection = project_catch_up(records, h.bridge.catch_up_budget)
+    assert projection.truncated and projection.used_bytes <= 24_000
+    history = ProjectedRecords(projection.records)
+    history.boundary = projection.boundary()
+    prompt = CliRuntimeTarget._prompt(SimpleNamespace(body="current question"), history)
+    assert len(prompt.encode("utf-8")) < 30_000
+    assert "[context truncated:" in prompt and prompt.endswith("current question")
+    assert h.new_bridge("limit", catch_up_limit=7).catch_up_budget == CatchUpBudget(max_records=7, max_bytes=24_000)
+    explicit = CatchUpBudget(max_records=3, max_bytes=50_000)
+    assert h.new_bridge("explicit", catch_up_limit=7, catch_up_budget=explicit).catch_up_budget is explicit
+    unlimited_bytes = CatchUpBudget(max_records=7)
+    assert h.new_bridge("unlimited", catch_up_budget=unlimited_bytes).catch_up_budget is unlimited_bytes
