@@ -48,9 +48,9 @@ for x in stds:
 # Ensure generated standards view exactly matches generator output by regenerating in memory-ish:
 key="general_decision" if (root/"02_STANDARDS").exists() else "peerhub_decision"
 expected=[
-"# 표준·OSS 적용 결정표","",
-"> 이 문서는 `standards_registry.json`에서 생성되는 사람용 View입니다. JSON이 SSOT입니다.","",
-"| 표준/기술 | 검증 버전/상태 | 결정 | 적용 경계 | 가지치기 원칙 | 원본 링크 |",
+"# Standards/OSS Adoption Decision Table","",
+"> This document is a human-readable View generated from `standards_registry.json`. JSON is the SSOT.","",
+"| Standard/Technology | Verified Version/Status | Decision | Application Boundary | Pruning Principle | Source Links |",
 "|---|---|---|---|---|---|"]
 for x in stds:
     expected.append(f"| {x['name']} | {x['version']} / {x['status']} | **{x[key]}** | {x['use']} | {x['prune']} | {'<br>'.join(x['official_urls'])} |")
@@ -515,7 +515,7 @@ for _p in [root/'10_STANDARDS_CONFORMANCE'/'COMPONENT_STRUCTURE_MAPPING.md', roo
     if _p.exists() and 'ADAPTER_PROVIDER' in _p.read_text(encoding='utf-8'): errors.append('stale flat ADAPTER_PROVIDER classification: '+str(_p.relative_to(root)))
 _start=(root/'START_HERE.md').read_text(encoding='utf-8')
 _final=(root/'FINAL_ROADMAP_DECISION.md').read_text(encoding='utf-8')
-if '실제 구현 maturity는 IMPLEMENTED' in _start or '구현 maturity는 IMPLEMENTED' in _final: errors.append('human maturity view stale: M1 current-head is VERIFIED')
+if 'actual implementation maturity is IMPLEMENTED' in _start or 'implementation maturity is IMPLEMENTED' in _final: errors.append('human maturity view stale: M1 current-head is VERIFIED')
 _byid={x['id']:x for x in _cr.get('components',[])}
 if _byid.get('diag',{}).get('state_ownership') not in ([],None): errors.append('readonly diag must not own persisted state')
 _bk=_byid.get('backup-recovery',{}).get('state_ownership',[])

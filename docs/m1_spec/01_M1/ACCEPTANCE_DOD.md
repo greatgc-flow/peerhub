@@ -1,7 +1,7 @@
 # M1 Definition of Done
 
 ## Core
-- concurrent/multi-process append canonical position 충돌 없음;
+- no canonical position conflicts during concurrent/multi-process append;
 - idempotent replay / changed payload conflict;
 - Stream revision CAS + CLOSED append rejection;
 - Offset CAS + monotonic + head-bound;
@@ -15,25 +15,25 @@
 - session loss/resume failure → bounded fresh catch-up;
 - session fingerprint change → fresh generation;
 - pause/cancel intent before runtime side effect;
-- MAY_HAVE_STARTED blind replay 금지;
+- no blind replay of MAY_HAVE_STARTED;
 - duplicate terminal/restart idempotency;
-- double Bridge delivery/fencing 방지.
+- prevent duplicate Bridge delivery/fencing.
 
 ## Observation
-- quota/rate 구분;
-- stale read-time 판정 + TTL/clock-skew boundary;
+- distinguish quota/rate;
+- determine staleness at read time + TTL/clock-skew boundary;
 - UNKNOWN honesty;
 - shared resource pool;
-- probe/quota failure가 Core/routing을 암묵 변경하지 않음.
+- probe/quota failures do not implicitly change Core/routing.
 
 ## Diag
 - strict read-only enforcement;
-- concurrent writer에서도 consistent snapshot;
+- consistent snapshot even with concurrent writers;
 - optional-source failure isolation;
-- corrupt authoritative store는 explicit failure, auto-repair 금지.
+- explicit failure for a corrupt authoritative store; no auto-repair.
 
 ## Migration / Cutover
-- 현재 Core schema 호환: 지원 버전 업그레이드, 미래/미지원 schema는 쓰기 없이 거부(MIG-001..003).
+- current Core schema compatibility: upgrade supported versions; reject future/unsupported schemas without writing (MIG-001..003).
 
 ## Release
 - package build/install/runtime-data completeness;
@@ -44,8 +44,8 @@
 
 ## Recursive MECE Test Traceability
 
-`06_GUIDES/TEST_SET/`가 machine-readable SSOT입니다.
-현재 **85 requirements / 205 tests**이며 다음을 validator가 강제합니다.
+`06_GUIDES/TEST_SET/` is the machine-readable SSOT.
+There are currently **85 requirements / 205 tests**, and the validator enforces the following.
 
 - requirement coverage 100%
 - required dimension coverage 100%
@@ -56,5 +56,5 @@
 
 ## Lifecycle closure
 
-M1 Definition of Done은 publish로 끝나지 않습니다. `08_LIFECYCLE/`의 **Done → Released → Operated → Closed**를 적용합니다. 실제 운영 중 correctness invariant 위반이 없어야 하고, 발견된 signal은 terminal disposition 또는 다음 lifecycle item으로 연결되며 recurrence watch까지 기록되어야 합니다.
+The M1 Definition of Done extends beyond publication. Apply **Done → Released → Operated → Closed** from `08_LIFECYCLE/`. Correctness invariants must hold during actual operation. Every detected signal must lead to a terminal disposition or the next lifecycle item, with recurrence watch also recorded.
 

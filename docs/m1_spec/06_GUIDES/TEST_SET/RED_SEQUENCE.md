@@ -1,13 +1,13 @@
 # RED Sequence — Implementation Order
 
-목표는 구현 편의가 아니라 가장 위험한 불변식을 먼저 실패시키는 것입니다.
+The goal is not implementation convenience, but to fail the most dangerous invariants first.
 
 ## Wave 0 — Meta / Contract / Schema
 - META-001..004
 - ARCH-001..005
 - SCH-001..013
 - PROP-007/008
-- 상태/예외/interaction validator 먼저 RED
+- RED first for state/exception/interaction validators
 
 ## Wave 1 — Core Domain
 - Peer identity
@@ -57,4 +57,4 @@
 - large Stream / many Peer/Stream cardinality
 - evidence-only capacity trends until explicit SLO ratified
 
-각 Wave는 다음 Wave 진입 전에 자기 requirement dimensions + state/exception/interaction coverage가 GREEN이어야 합니다.
+Each Wave must have its requirement dimensions + state/exception/interaction coverage GREEN before entering the next Wave.

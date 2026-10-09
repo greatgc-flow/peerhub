@@ -1,6 +1,6 @@
-# One Source Multi Use + Second Brain 준비
+# One Source Multi Use + Second Brain Preparation
 
-## 원칙
+## Principles
 
 ```text
 Procedure -> Agent Skill
@@ -11,17 +11,17 @@ Collaboration truth -> Stream/Record
 Long/short-term memory -> future Memory Extension
 ```
 
-## 전역 지침 지양
+## Avoid Global Instructions
 Skill FILES are the procedure source, Records are the lifecycle/provenance authority, and the SQLite catalog is a rebuildable projection (peerhub/extensions/skills.py).
 Per-CLI materialization/sync (claude/codex/agy) is DEFERRED until a concrete consumer needs it (design-only, not a defect).
-`AGENTS.md`를 model/catalog/운영지식 DB로 사용하지 않습니다.
+Do not use `AGENTS.md` as a database for models/catalogs/operational knowledge.
 
-## Skill 예
+## Skill Examples
 - token-efficient-collaboration
 - refresh-model-catalog
 - future compatibility verification
 
-## Catalog 예
+## Catalog Examples
 - runtime/model IDs;
 - model/runtime capability facts and supported reasoning efforts;
 - profile selection/binding is a separate declarative policy/config projection;
@@ -30,7 +30,7 @@ Per-CLI materialization/sync (claude/codex/agy) is DEFERRED until a concrete con
 - evidence/observed_at.
 
 ## Second Brain
-향후 Memory Extension은 Record를 source로:
+A future Memory Extension can use Records as its source to generate:
 
 ```text
 short-term context
@@ -39,6 +39,6 @@ semantic memory
 preference/profile memory
 ```
 
-를 생성할 수 있지만 source refs/provenance/supersession을 유지합니다.
+while preserving source refs/provenance/supersession.
 
-Procedural memory는 Skill로 유지합니다. Catalog JSON에는 refresh 절차나 운영 지시를 넣지 않습니다.
+Keep procedural memory in Skills. Do not put refresh procedures or operational instructions in Catalog JSON.

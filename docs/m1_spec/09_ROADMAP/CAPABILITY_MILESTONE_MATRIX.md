@@ -2,10 +2,10 @@
 
 | Capability | Milestone | Owner / Notes |
 |---|---|---|
-| Peer/Stream/Record/Offset | M1 | Core, 이후 변경 금지 |
+| Peer/Stream/Record/Offset | M1 | Core, no changes allowed hereafter |
 | Session continuity | M1 | Session Bridge |
-| quota/rate/version/session 관측 | **M1** | Observation |
-| quota 포함 readonly 진단 | **M1** | Diag |
+| quota/rate/version/session observation | **M1** | Observation |
+| quota readonly diag including quota | **M1** | Diag |
 | Artifact | M2 | opaque ref + provenance |
 | Work/Task View | M2 | rebuildable projection |
 | Skill/Catalog | M2 | canonical SSOT |
@@ -13,7 +13,7 @@
 | Backup/Recovery | M2 | authoritative→rebuild |
 | Eval baseline | M2 | regression feedback |
 | Search/Retrieval | M3 | provenance preserving |
-| Memory/Second Brain baseline | M3 | source rewrite 금지 |
+| Memory/Second Brain baseline | M3 | source rewrite prohibited |
 | A2A | M3 | remote Peer adapter |
 | quota-aware routing | M3 | declarative policy first |
 | Orchestration | M3 | optional extension over M1/M2 |

@@ -1,7 +1,7 @@
-# 미래 Second Brain 연계 가이드
+# Future Second Brain Integration Guide
 
-## 소유 분리
-- 협업 history: Stream/Record.
+## Ownership Separation
+- collaboration history: Stream/Record.
 - active context: Harness/Session.
 - short-term context pack: Memory extension.
 - long-term episodic/semantic memory: Memory extension.
@@ -11,4 +11,4 @@
 ## Memory pipeline
 Record/artifact → candidate → provenance/dedup/supersession → Memory Store → budgeted retrieval → Context Pack.
 
-Memory가 원본 Record를 rewrite하지 않습니다.
+Memory does not rewrite the original Record.

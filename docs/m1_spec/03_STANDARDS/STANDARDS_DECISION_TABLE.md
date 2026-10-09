@@ -1,8 +1,8 @@
-# 표준·OSS 적용 결정표
+# Standards/OSS Adoption Decision Table
 
-> 이 문서는 `standards_registry.json`에서 생성되는 사람용 View입니다. JSON이 SSOT입니다.
+> This document is a human-readable View generated from `standards_registry.json`. JSON is the SSOT.
 
-| 표준/기술 | 검증 버전/상태 | 결정 | 적용 경계 | 가지치기 원칙 | 원본 링크 |
+| Standard/Technology | Verified Version/Status | Decision | Application Boundary | Pruning Principle | Source Links |
 |---|---|---|---|---|---|
 | JSON Schema | Draft 2020-12 / published/current | **ADOPT** | Machine-readable schemas for catalogs, manifests, records at external/data boundaries. | Do not turn every internal Python object into JSON Schema; use it where machine-readable contracts add value. | https://json-schema.org/specification<br>https://json-schema.org/draft/2020-12/ |
 | Agent Skills | Open Agent Skills specification (reviewed 2026-10-01) / open-standard | **ADOPT** | Reusable on-demand procedures, not mutable factual catalogs or global instructions. | Avoid giant always-on AGENTS.md/CLAUDE.md instruction databases. | https://agentskills.io/specification<br>https://developers.openai.com/api/docs/guides/tools-skills |

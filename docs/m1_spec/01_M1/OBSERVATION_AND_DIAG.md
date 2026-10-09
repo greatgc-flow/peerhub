@@ -15,7 +15,7 @@ payload
 schema_version
 ```
 
-M1 kind 후보:
+Candidate M1 kinds:
 
 ```text
 reachability
@@ -28,7 +28,7 @@ activity
 execution_failure
 ```
 
-Quota와 rate limit는 구분합니다.
+Distinguish quota from rate limit.
 
 ## Evidence vocabulary
 
@@ -41,17 +41,17 @@ STALE
 UNKNOWN
 ```
 
-관측되지 않은 값은 0/healthy/unlimited로 만들지 않습니다.
-Freshness는 read 시 재평가합니다.
+Do not represent unobserved values as 0/healthy/unlimited.
+Reevaluate freshness at read time.
 
 ## Diag
 
-Diag는 별도 readonly observer extension.
+Diag is a separate readonly observer extension.
 
-허용:
+Allowed:
 `read Stream/Record/Offset/Observation/log`.
 
-금지:
+Prohibited:
 `append/refresh/interrupt/resume/repair/restart/route`.
 
-가능하면 SQLite `query_only/read-only` 경계를 사용합니다.
+Use SQLite `query_only/read-only` boundaries where possible.

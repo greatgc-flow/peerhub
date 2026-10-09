@@ -25,7 +25,7 @@ created_at
 metadata
 ```
 
-Task/Room/Thread를 독립 Core domain으로 만들지 않습니다.
+Do not create separate Core domains for Task/Room/Thread.
 
 ## Record
 
@@ -47,7 +47,7 @@ appended_at
 schema_version
 ```
 
-`position`이 canonical durable order입니다.
+`position` defines the canonical durable order.
 
 ## Offset
 
@@ -58,7 +58,7 @@ read_through_position
 revision
 ```
 
-Offset은 읽음/전달 위치일 뿐 작업 완료가 아닙니다.
+Offset represents only the read/delivery position, not work completion.
 
 ## Core invariant
-Core는 Extension을 import하지 않습니다.
+Core does not import Extensions.

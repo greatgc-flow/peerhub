@@ -17,4 +17,4 @@
 Orchestration, routing, governance, task engine, long-term memory, artifact lifecycle,
 A2A/MCP server, distributed runtime, general lock/lease system, web UI.
 
-M1은 “현재 모든 기능을 유지한 작은 버전”이 아니라 **제품 목적을 다시 세운 첫 vertical slice**입니다.
+M1 is the **first vertical slice that redefines the product purpose**, rather than “a smaller version retaining all current features”.

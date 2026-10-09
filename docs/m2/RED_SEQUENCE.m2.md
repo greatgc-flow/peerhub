@@ -1,15 +1,15 @@
 # M2.0 & M2.1 RED Sequence
 
-목표는 가장 위험한 불변식(Security, Core 침범, Data Loss)을 가장 먼저 증명하는 것입니다.
+The goal is to prove the most dangerous invariants (Security, Core breach, Data Loss) first.
 
 ## Wave 0 — Isolation & Security Boundaries
-- **EXT-001, EXT-002:** Core imports Extension = 0 검증 (의존성 격리).
-- **ART-005..ART-008:** Artifact path traversal, symlink, unicode collision, reparse points 방어 실패 증명.
+- **EXT-001, EXT-002:** Verify Core imports Extension = 0 (dependency isolation).
+- **ART-005..ART-008:** Prove failure to defend against Artifact path traversal, symlink, unicode collision, reparse points.
 - **EXT-006, EXT-007:** Manifest validation & strict rejection.
 
 ## Wave 1 — Durable Invariants
 - **ART-001, ART-002:** Blob durable before Core reference (ordering crash test).
-- **ART-009, ART-010:** Tamper evidence & immutability bypass 방어 (INSERT OR REPLACE, bit flip).
+- **ART-009, ART-010:** Tamper evidence & immutability bypass defense (INSERT OR REPLACE, bit flip).
 - **EXT-003:** Schema isolation (Extension tables prefixed).
 
 ## Wave 2 — Fault Injection & Concurrency

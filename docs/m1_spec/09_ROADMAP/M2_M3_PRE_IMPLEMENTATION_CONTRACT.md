@@ -1,8 +1,8 @@
 # M2/M3 Pre-Implementation Contract
 
-M1은 TDD-ready입니다. M2/M3는 전체 방향과 경계가 roadmap-frozen인 상태이며 각 slice별 상세 구현계약은 코딩 직전에 작성합니다.
+M1 is TDD-ready. M2/M3 are roadmap-frozen in overall direction and boundaries; detailed implementation contracts for each slice are written right before coding.
 
-각 slice의 최소 산출물:
+Minimum deliverables for each slice:
 1. Charter / non-goals
 2. Authority matrix (authoritative/derived/cache/external)
 3. Public port/API + request/response/error schema
@@ -16,4 +16,4 @@ M1은 TDD-ready입니다. M2/M3는 전체 방향과 경계가 roadmap-frozen인 
 11. Cross-extension interaction matrix
 12. Requirement → RED Test → Gate → DoD
 
-이 12개가 terminal하지 않으면 `IMPLEMENTING`으로 승격하지 않습니다. 불필요한 항목은 N_A/PASS와 근거를 남깁니다.
+If these 12 are not terminal, it will not be promoted to `IMPLEMENTING`. For unnecessary items, leave N_A/PASS and the rationale.

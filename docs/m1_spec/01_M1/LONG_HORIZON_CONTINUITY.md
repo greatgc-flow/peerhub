@@ -1,37 +1,37 @@
 # Long-Horizon Continuity
 
-핵심:
+Key distinction:
 
 ```text
 Stream ≠ Session ≠ Context ≠ Process ≠ Harness
 ```
 
-## 진행현황 질문
-Record → operational event → observation → runtime event 순으로 확인하고,
-부족할 때만 AI에게 직접 질문하여 quota를 소비합니다.
+## Progress Questions
+Check Record → operational event → observation → runtime event in that order,
+and spend quota on direct AI questions only when that evidence is insufficient.
 
-## Session 소실
+## Session Loss
 fresh session + Stream catch-up.
 
 ## Context limit/compaction
-정상 lifecycle로 취급. 전체 transcript 재주입이 아니라 bounded catch-up projection.
+Treat as a normal lifecycle event. Use a bounded catch-up projection rather than reinjecting the entire transcript.
 
 ## Pause
-pause Record 저장 → best-effort interrupt.
+Persist pause Record → best-effort interrupt.
 `PAUSED != ROLLED_BACK`.
 
 ## Resume
-compatible session 우선, 실패 시 fresh generation.
+Prefer a compatible session; use a fresh generation on failure.
 
 ## Redirect
-같은 goal이면 same Stream.
+Use the same Stream for the same goal.
 
 ## New direction
-goal 자체가 달라지면 new Stream. 기존 Stream은 history/reference로 남김.
+Use a new Stream when the goal itself changes. Keep the existing Stream as history/reference.
 
 ## Quota exhaustion
-Core state 불변. Observation만 unavailable/exhausted로 갱신.
-자동 Peer 전환은 미래 Routing/Orchestration extension.
+Core state remains unchanged. Update only Observation to unavailable/exhausted.
+Automatic Peer switching belongs to a future Routing/Orchestration extension.
 
 ## M1 Spec Alignment (2026-10-09)
 CLI adapters support native terminate for active local deliveries: control.cancel kills the process tree and waits for observed exit. Resume, interrupt, and steer remain unsupported (peerhub/extensions/adapters/base.py). Bridge control intents are capability-gated (peerhub/extensions/bridge.py). Cancelled deliveries remain uncertain and cannot auto-replay; a missing local process raises RuntimeTargetError("nothing running"), recorded as failed when durable delivery evidence still identifies a target. Bridge targets already known to be absent or stale retain nothing_running/stale_target outcomes. Durable fresh-session catch-up provides continuity but does not itself stop a provider invocation.
