@@ -60,20 +60,30 @@ def test_art_006_symlink_payload_rejected_as_security_violation(tmp_path):
 
 
 @pytest.mark.security
-def test_art_007_windows_reparse_point_rejected(tmp_path):
-    """ART-007: Windows junction/reparse points are detected and aborted before staging."""
-    if sys.platform != "win32":
-        pytest.skip("Windows-specific reparse point check")
+def test_art_007_windows_reparse_point_rejected(tmp_path, monkeypatch):
+    """ART-007: Windows junction/reparse points are detected and aborted before staging (simulated on every platform)."""
+    import os
+    import types
 
-    artifacts_root = tmp_path / "artifacts"
-    store = ArtifactStore(artifacts_root)
+    from peerhub.extensions import artifact as artifact_module
 
-    junction_source = tmp_path / "junction_dir"
-    junction_source.mkdir()
+    store = ArtifactStore(tmp_path / "artifacts")
+    target = tmp_path / "junction_dir"
+    target.mkdir()
+    real_lstat = os.lstat
 
-    # Verify that the store's path validator checks FILE_ATTRIBUTE_REPARSE_POINT
+    class _Reparse:  # a real stat result that additionally carries the Windows reparse-point attribute
+        def __init__(self, st):
+            self._st = st
+            self.st_file_attributes = stat.FILE_ATTRIBUTE_REPARSE_POINT if hasattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT") else 0x400
+
+        def __getattr__(self, name):
+            return getattr(self._st, name)
+
+    monkeypatch.setattr(artifact_module, "sys", types.SimpleNamespace(platform="win32"))
+    monkeypatch.setattr(artifact_module.os, "lstat", lambda p, *a, **k: _Reparse(real_lstat(p, *a, **k)))
     with pytest.raises((WindowsJunctionError, SecurityBoundaryError)):
-        store.stage_file(junction_source)
+        store.stage_file(target)
 
 
 @pytest.mark.security
