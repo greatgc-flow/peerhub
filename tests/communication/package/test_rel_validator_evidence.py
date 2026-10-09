@@ -65,7 +65,7 @@ def test_rel_004_source_version_matches_built_metadata_and_schema_copies_match_t
     ver = pkg_env.source_version()
     assert pkg_env.wheel_text(dist.wheel, ".dist-info/METADATA").count(f"\nVersion: {ver}\n") == 1
     spec = SPEC / "04_SCHEMAS"
-    for pkg, names in (("core", ("offset", "peer", "record", "stream")), ("extensions", ("peer-observation", "resource-pool"))):
+    for pkg, names in (("core", ("offset", "peer", "record", "stream")), ("extensions", ("peer-observation", "resource-pool", "extension-manifest"))):
         for n in names:
             assert sha(REPO / f"peerhub/{pkg}/schemas/{n}.schema.json") == sha(spec / f"{n}.schema.json"), (pkg, n)  # no source/spec drift
     cat = json.loads((SPEC / "06_GUIDES/TEST_SET/test-catalog.json").read_text(encoding="utf-8"))

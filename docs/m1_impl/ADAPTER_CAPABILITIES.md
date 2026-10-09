@@ -23,3 +23,6 @@ Rules in M1:
 Verified by: `tests/m1/adapters/test_t1_adapters.py` (`test_t1_capabilities_adapter_never_claims_more_than_it_implements`,
 `test_t1_bridge_control_effects_report_unsupported_not_done`, `test_t1_unsupported_cancel_never_claims_process_termination[cc|cx|ag]`).
 Code audit: no code path in the adapters or the Bridge reports termination of a vendor process on cancel; no change was needed.
+
+## M1 Spec Alignment (2026-10-09)
+Current adapters report native resume/interrupt/terminate/steer as unsupported (peerhub/extensions/adapters/base.py). Bridge control intents are capability-gated (peerhub/extensions/bridge.py). Durable fresh-session catch-up is the continuity mechanism; it does NOT stop an already-running provider invocation, and native control stays an optional capability per adapter.

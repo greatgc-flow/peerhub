@@ -27,7 +27,7 @@
         "01_M1/ACCEPTANCE_DOD.md",
         "06_GUIDES/TEST_SET/test-catalog.json"
       ],
-      "notes": "Exact current main: CI 37210765163 and release-gate workflow 37210767689 are SUCCESS, including live validation and evidence bundle."
+      "notes": "Historical claim bound to SHA 4a6994e."
     },
     {
       "id": "M1-PUBLIC-CLI-CUTOVER",
@@ -37,7 +37,7 @@
       "evidence": [
         "09_ROADMAP/M1_PUBLIC_CLI_CUTOVER_GATE.md"
       ],
-      "notes": "peerhub-m1 remains side-by-side; legacy peerhub is still default."
+      "notes": "peerhub is the only CLI."
     },
     {
       "id": "M2",
@@ -48,7 +48,7 @@
         "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
         "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md"
       ],
-      "notes": "Roadmap frozen; slice contracts required before implementation."
+      "notes": "IMPLEMENTED, awaiting candidate-bound release verification. Verification claims reference release evidence (tools/release_evidence.py output) instead of asserting PASS."
     },
     {
       "id": "M3",
@@ -59,7 +59,7 @@
         "09_ROADMAP/M3_FEDERATED_INTELLIGENT_COLLABORATION.md",
         "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md"
       ],
-      "notes": "Roadmap frozen; not implementation-ready until slice contracts close."
+      "notes": "IMPLEMENTED, awaiting candidate-bound release verification. Verification claims reference release evidence (tools/release_evidence.py output) instead of asserting PASS."
     },
     {
       "id": "M4",

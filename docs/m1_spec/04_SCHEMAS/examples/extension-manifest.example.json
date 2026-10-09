@@ -1,0 +1,10 @@
+{
+  "id": "ext_worker",
+  "version": "1.0.0",
+  "entrypoint": "worker.py",
+  "dependencies": [
+    "ext_storage",
+    "ext_catalog==2.0.0"
+  ],
+  "description": "Worker with an unpinned dependency and an exact version pin."
+}

@@ -15,6 +15,9 @@ The Extension Host exposes a strictly typed API boundary:
 - `disable(ext_id)`: Unloads from runtime registry, clears LRU caches, strictly preserves DB data. Errors: `ForbiddenTransitionError`.
 
 ## 3. Manifest JSON Schema
+The canonical schema is `docs/m1_spec/04_SCHEMAS/extension-manifest.schema.json`, shipped unchanged under `peerhub/extensions/schemas/`. Required fields are `id`, `version`, and `entrypoint`; optional fields are `dependencies` (default `[]`) and `description` (default `""`). Dependencies accept `ext_id` or `ext_id==exact.version`, with no ranges. Unknown keys are rejected.
+
+Failure isolation and migration boundaries are host invariants, not manifest options. The Host contains hook exceptions in-process and enforces migration transactions and storage boundaries through its migration API. This is not a security sandbox for extension Python code.
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -24,7 +27,7 @@ The Extension Host exposes a strictly typed API boundary:
     "id": { "type": "string", "pattern": "^ext_[a-z0-9_]+$" },
     "version": { "type": "string" },
     "entrypoint": { "type": "string" },
-    "dependencies": { "type": "array", "items": { "type": "string" } },
+    "dependencies": { "type": "array", "items": { "type": "string", "pattern": "^ext_[a-z0-9_]+(?:==[A-Za-z0-9][A-Za-z0-9.+_-]*)?$" } },
     "description": { "type": "string" }
   },
   "additionalProperties": false
@@ -36,7 +39,7 @@ The Extension Host exposes a strictly typed API boundary:
 - **Ordering:** Discovery MUST precede Validation; Validation MUST precede Enablement.
 - **Boot & Discovery Timing:** At Host boot (`boot()`), all extension manifests in `extensions/` are parsed into a lightweight in-memory metadata index. However, zero Python code is imported or instantiated for extensions that are disabled or unvalidated. Code evaluation only occurs upon explicit `enable()` (Decision #1).
 - **Transactions:** Schema migrations run in strict, isolated SQLite WAL transactions. Concurrent enables block cleanly via timeouts (EXT-017).
-- **Version Dependencies:** Manifest dependencies require exact-version matches only; SemVer constraint solvers are explicitly non-goals for M2.0 (Decision #8). Unmet dependencies reject with `MissingDependencyError`.
+- **Version Dependencies:** Dependencies accept an unpinned `ext_id` or an exact `ext_id==version` pin; ranges and dependency solvers are unsupported. Unmet dependencies reject with `MissingDependencyError`.
 
 ## 5. Crash Matrix & Recovery
 | Crash Point | Resulting State | Recovery Action | Covering Test |
@@ -53,7 +56,7 @@ The Extension Host exposes a strictly typed API boundary:
 ## 7. Null/Empty/Unknown Semantics
 - Unknown manifest keys strictly rejected (EXT-006).
 - Null values for strings strictly rejected (EXT-019).
-- Empty strings allowed only where schema explicitly permits (e.g., `description`).
+- Empty strings are permitted for `version`, `entrypoint`, and `description` by manifest validation; `id` must match its pattern. Entrypoint availability is checked separately by the Host.
 
 ## 8. Migration, Rebuild, Disable, Rollback
 - **Disable:** Unloads modules (via `sys.modules` eviction & GC) and stops hooks. Data tables strictly preserved (EXT-004, EXT-016).

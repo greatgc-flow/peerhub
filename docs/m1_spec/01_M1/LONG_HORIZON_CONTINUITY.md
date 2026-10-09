@@ -32,3 +32,6 @@ goal 자체가 달라지면 new Stream. 기존 Stream은 history/reference로 �
 ## Quota exhaustion
 Core state 불변. Observation만 unavailable/exhausted로 갱신.
 자동 Peer 전환은 미래 Routing/Orchestration extension.
+
+## M1 Spec Alignment (2026-10-09)
+Current adapters report native resume/interrupt/terminate/steer as unsupported (peerhub/extensions/adapters/base.py). Bridge control intents are capability-gated (peerhub/extensions/bridge.py). Durable fresh-session catch-up is the continuity mechanism; it does NOT stop an already-running provider invocation, and native control stays an optional capability per adapter.

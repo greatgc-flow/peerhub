@@ -12,7 +12,8 @@ Long/short-term memory -> future Memory Extension
 ```
 
 ## 전역 지침 지양
-PeerHub이 Claude/Codex/Agy 전체에 role/behavior/system instructions를 자동 주입하지 않습니다.
+Skill FILES are the procedure source, Records are the lifecycle/provenance authority, and the SQLite catalog is a rebuildable projection (peerhub/extensions/skills.py).
+Per-CLI materialization/sync (claude/codex/agy) is DEFERRED until a concrete consumer needs it (design-only, not a defect).
 `AGENTS.md`를 model/catalog/운영지식 DB로 사용하지 않습니다.
 
 ## Skill 예
