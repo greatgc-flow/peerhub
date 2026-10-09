@@ -44,6 +44,8 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer ide
 
 `ask` supports explicit `--profile`, `--model`, `--effort`, `--writable`, `--resume`, `--timeout-seconds`, optional `--silence-timeout-seconds`, `--max-output-bytes`, `--author-peer` and `--json`. Profile policy resolves workspace → global → packaged defaults; it does not assert measured model availability. Retrying the same `--request-id` reuses a completed response. A different prompt or binding conflicts, and an uncertain execution requires explicit reconciliation before another execution. By default, each ask starts a fresh session with bounded Stream catch-up. For CLI peers (cc, cx, ag), `--resume` reuses the native vendor session of this peer/stream when compatible; otherwise it starts a fresh session with bounded catch-up. Repeat the flag on each continuing ask. `--json` includes `effective_mode`, `fallback_reason`, and `injected_record_ids` when the Bridge exposes delivery details.
 
+`--writable` is off by default. It maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` (default `-s read-only`), and ag `--mode accept-edits`. cx resume inherits the sandbox of the initial session and does not accept `-s`; writable mode is therefore part of the session binding, and changing it starts a fresh generation.
+
 Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
 
 `diag --live` repeatedly reads committed snapshots only. `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
