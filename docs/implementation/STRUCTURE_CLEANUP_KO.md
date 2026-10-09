@@ -30,10 +30,6 @@ v0 전용 unit/integration/contract/e2e/static 테스트와 old fixture captures
 
 삭제는 로컬 복구 사본을 `.peerhub/retired-v0-a6c6964ed6f74daf990da36388d9968a/`에 두는 방식으로 진행했다. Git의 영구 복구 기준은 `legacy/v0-main-final` / `57a137cd6a0cc7e89124ea2b87b72995087627a5`다. 사용자 DB·관측·Record는 삭제하지 않았다.
 
-`core.legacy_import`는 사용자 데이터 이관용이므로 유지한다. importer 테스트는 retirement 전에 실제 v0 schema의 DDL 80개와 초기 행을 frozen SQL fixture로 추출해 독립시켰다. fixture는 테스트용이며 사용자 DB에 실행하지 않는다. v0 Python 런타임 없이 source 보존·재import·fault/idempotency 검증을 계속한다.
-
-기존 `PEERHUB_CLI=legacy`는 실행 대신 archive 복구 안내와 exit 2를 반환한다. runtime/attribute proxy는 남기지 않는다. 현행 selector는 `core`이며 `PEERHUB_CLI`를 지정하지 않아도 같은 CLI를 사용한다.
-
 ## 의도적으로 남긴 식별자
 
 - `docs/m1_spec`, `docs/m2`, `docs/m3`: frozen 계약과 catalog의 출처.

@@ -1,4 +1,4 @@
-"""Small helpers shared by the CLI commands that run the quota collector (observation refresh watch, monitor)."""
+"""Small helpers shared by the CLI commands that run the quota collector (observation refresh, monitor)."""
 from __future__ import annotations
 
 import sys

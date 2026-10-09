@@ -2,7 +2,7 @@
 > **2026-10-08:** `core.legacy_import`, 그 frozen fixture와 importer 테스트, `PEERHUB_CLI` selector는 모두 제거되었다. 단일 `peerhub` CLI만 남고, v0 소스는 Git 브랜치 `legacy/v0-main-final`에서만 접근한다. 아래 서술은 당시 기록이다.
 
 
-이 문서는 1차 이관 기록이다. 이후 v0 retirement와 역할 기반 경로 정리는 [현재 구조 정리](STRUCTURE_CLEANUP_KO.md)를 따른다. 아래의 "잔여" 항목은 당시 상태이며 현재 제품에 v0 runtime이 남아 있다는 뜻이 아니다.
+이 문서는 1차 이관 기록이다. 이후 v0 retirement와 역할 기반 경로 정리는 [현재 구조 정리](STRUCTURE_CLEANUP_KO.md)를 따른다. v0 runtime은 현재 제품에서 제거되었다.
 
 기준: `ToGo/PeerHub_VerySimple_MasterRoadmap_FINAL_R9_20261005/START_HERE_KO.md`와 그 문서가 지정한 Core / Session Bridge / Observation / Public CLI Cutover 계약.
 
@@ -40,18 +40,6 @@ peerhub ask cx --query-file prompt.txt --workspace . --model MODEL --effort low
 ## 삭제한 부분과 유지한 부분
 
 중복 초기 구현 `extensions/session_bridge.py`와 그 전용 `tests/unit/m1/test_extensions.py`를 삭제했다. 실제 Bridge claim / fencing / certainty 테스트가 이를 대체한다. 미래 schema 거부 테스트도 현행 store를 대상으로 정리했다. 삭제한 파일은 Git의 작업 시작 commit에서 복구할 수 있다.
-
-전체 v0 삭제는 아직 완료하지 않았다. 현재 남은 실제 의존성:
-
-| 대상 | 삭제 전에 해결할 의존성 |
-|---|---|
-| `cli/_legacy.py`, `cli/commands`, legacy CLI attribute proxy | 명시적 `PEERHUB_CLI=legacy` rollback / compatibility 계약과 해당 cutover 테스트 |
-| `application`, `runtime.py`, `dispatch`, `governance`, `health`, `events`, `state`, old `routing` | v0 CLI / client 내부 의존성; 기본 ask/diag는 이 경로를 사용하지 않음 |
-| old `persistence` / migrations | `tests/m1/harness/legacy_fixture.py`가 실제 v0 schema 생성기를 import함 |
-| old adapters / telemetry / core support / config | v0 rollback 전용 경로와 legacy 테스트; 확장 quota probe에는 더 이상 필요하지 않음 |
-| `tests/unit`, `tests/integration`, `tests/contract`, old e2e | M1/M2/M3·import·package 검증과 구분해 retirement 목록을 확정해야 함 |
-
-다음 삭제 wave에서는 importer의 v0 fixture를 독립된 frozen-schema fixture로 옮기고, runtime import graph를 검사한 뒤 v0 코드와 전용 테스트를 함께 제거한다. `m1.legacy_import`는 사용자 데이터 이관용이므로 삭제 대상에 넣지 않는다. `config_data/model-defaults.toml`을 쓰는 live gate도 보존하거나 extension으로 옮겨야 한다.
 
 Provider adapter는 현재 native session resume / interrupt / steer를 구현했다고 주장하지 않는다. Session Bridge의 fresh generation + bounded catch-up이 현재 continuity 경로다. v0 `--profile`, silence timeout, live monitor 및 optional-domain presentation을 그대로 복원했다고 주장하지 않는다. 필요한 UX는 각 확장 계약에 맞춰 별도로 이관하며 generic 플랫폼을 재도입하지 않는다.
 

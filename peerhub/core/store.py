@@ -398,7 +398,7 @@ class CoreStore:
 
     @contextmanager
     def transaction(self, point: str | None = None):
-        """Public write transaction for multi-statement units of work (e.g. the legacy importer): BEGIN IMMEDIATE, all-or-nothing."""
+        """Public write transaction for multi-statement units of work: BEGIN IMMEDIATE, all-or-nothing."""
         with self._tx(point) as conn:
             yield conn
 

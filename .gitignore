@@ -3,7 +3,6 @@
 
 # hub.py --project-dir ask-temp scratch (peer-subprocess TEMP/TMP when this
 # repo is used as an ask target outside hub.py's own default project root)
-hub_ask_temp/
 
 # Byte-compiled / optimized files
 __pycache__/
@@ -45,13 +44,6 @@ venv.bak/
 # PyPI configuration file -- can carry publish credentials
 .pypirc
 
-# Local hub instance runtime state (mailbox, leases, sessions, IPC scratch)
-# -- operational data, not source; recurs as untracked clutter every
-# session without this (cleaned up 2026-08-02).
-.ai/
-# Same reasoning, different root: hub operational logging written here
-# during dispatch (e.g. operational_errors.jsonl) -- not repo source.
-_sys/
 
 # Ad-hoc review/probe scratch work (e.g. adversarial design-round probes
 # like the one accidentally committed and removed 2026-09-09, see
@@ -66,3 +58,4 @@ r[0-9]*_deadline_*/
 .pytest-*-[0-9a-f]*/
 pytest-cache-files-*/
 tmp[a-z0-9]*/
+search_output.txt

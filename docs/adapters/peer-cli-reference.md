@@ -1,17 +1,17 @@
 # Peer CLI compatibility reference
 
 This is the current cross-peer operator reference. The authoritative runtime
-sources are the adapter modules, `peerhub/config_data/model-defaults.toml`, and
+sources are `peerhub/config_data/model-defaults.toml`, and
 `docs/compatibility/peer-cli-contracts.toml`; historical snapshots under
 `checkpoints/` are provenance only.
 
 ## Supported surface
 
-| Peer | Binary / observed version (2026-10-08) | Input / output | Create / resume |
+| Peer | Binary / observed version (2026-10-08) | Input / output | Invocation |
 |---|---|---|---|
-| `ag` | `agy.exe` 1.3.1 | `-p` argument / flat JSON | new / `--conversation ID` |
-| `cc` | `claude.cmd` 2.1.293 | stdin / stream JSON | new / `--resume ID --autocompact auto` |
-| `cx` | `codex.cmd` 0.161.0 | argument / JSONL events | `exec` / `exec resume ... ID` |
+| `ag` | `agy.exe` 1.3.1 | `-p` argument / flat JSON | new |
+| `cc` | `claude.cmd` 2.1.293 | stdin / stream JSON | new |
+| `cx` | `codex.cmd` 0.161.0 | argument / JSONL events | `exec` |
 
 | Peer | `standard` | `effort` | `deepthink` | `pro` |
 |---|---|---|---|---|
@@ -22,24 +22,12 @@ sources are the adapter modules, `peerhub/config_data/model-defaults.toml`, and
 Exact invocation and decoder details are in [ag.md](ag.md), [cc.md](cc.md), and
 [cx.md](cx.md).
 
-## Verification workflow
-
-Discovery and deterministic contract checks do not spend model tokens:
+## Verify and troubleshoot
 
 ```powershell
-peerhub adapter discover --json
-agy.exe --version
-claude.cmd --version
-codex.cmd --version
-python -m tools.peerhub_facts
-```
-
-The live gate uses installed vendor CLIs, network access, authenticated accounts,
-and may consume quota or incur token cost:
-
-```powershell
-python -m tools.peerhub_facts --live
-python -m pytest -q -m e2e
+peerhub observation refresh
+peerhub diag
+peerhub monitor
 ```
 
 Observed versions and help output are evidence, not self-updating policy. Review
@@ -49,7 +37,6 @@ changing a packaged model default.
 ## External limitations
 
 Vendor authentication, networking, quota telemetry, model retirement, and
-provider-side defaults can change independently of PeerHub. Windows command
-wrappers and vendor sandboxes may also reject special-character or aliased paths.
+provider-side defaults can change independently of PeerHub.
 PeerHub preserves these boundaries, emits actionable diagnostics, and does not
 silently bypass external security controls.

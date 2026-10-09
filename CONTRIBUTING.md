@@ -5,8 +5,9 @@ multiple AI peers.
 
 ## Development setup
 
-peerhub requires Python 3.11 or newer. Clone the repository, then install its
-development dependencies with the editable install documented in README Option C:
+peerhub requires Python 3.11–3.14. Clone the repository, then install its
+development dependencies with the editable install documented in the
+[README setup section](README.md#develop-from-this-checkout):
 
 ```bash
 pip install -e .[dev]

@@ -1,4 +1,4 @@
-"""Console stream setup shared by the legacy and M1 CLIs."""
+"""Console stream setup for the public peerhub CLI."""
 from __future__ import annotations
 
 import os

@@ -51,7 +51,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                 row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id=?", (peer_id,)).fetchone()
                 adapter_ref = row[0] if row else None
             elif tables:
-                raise StorageCorruptError("database does not contain the communication Core schema; import legacy data explicitly")
+                raise StorageCorruptError("database does not contain the communication Core schema; v0 support is archived on branch legacy/v0-main-final")
     kind = ALIASES.get(adapter_ref or peer_id)
     if runtime is None:
         if kind is None:

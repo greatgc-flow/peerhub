@@ -60,7 +60,7 @@ The v0 runtime, its importer, the `PEERHUB_CLI` selector and the 109-command tab
 
 ```text
 peerhub/
-  core/          Peer, Stream, Record, Offset; SQLite and data import
+  core/          Peer, Stream, Record, Offset; SQLite storage
   extensions/    Bridge, Observation, Diag, Artifact, Work, Search, Routing, …
   cli/           public parser and command handlers
   config_data/   packaged provider model defaults

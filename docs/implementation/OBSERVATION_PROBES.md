@@ -14,7 +14,7 @@ Run from the wrong directory, agy does not recognise `/usage` and dispatches a r
 
 - refuses to spawn when the resolved cwd (parent of `_sys`) is not an existing directory or is the system temp directory (evidence_ref `agy_usage_cwd_refused`, nothing is started);
 - evaluates the raw JSON envelope after the run, whatever the exit code: `usage.total_tokens > 0` or `num_turns > 0` -> ERROR `agy_usage_consumed_tokens`; non-numeric token fields -> ERROR `agy_usage_unverifiable_tokens`; `command.name != "usage"` -> ERROR `agy_usage_not_a_command`. The response text is never parsed as quota in these cases. Non-JSON output keeps the legacy statusline-log fallback.
-- records `reason`, `consumed_tokens`, `num_turns` in the ERROR observation payload; `refresh_quota` returns them in a `warnings` list, printed to stderr by `observation refresh` (single and watch mode).
+- records `reason`, `consumed_tokens`, `num_turns` in the ERROR observation payload; `refresh_quota` returns them in a `warnings` list, printed to stderr by `observation refresh` and `monitor` (use `monitor` for repeated collection).
 - `peerhub monitor` stops with exit code 1 after the first token-consumption event; `--allow-agy-token-use` overrides this.
 
 ## Codex reset credits (kind `reset_credit`)
@@ -32,7 +32,7 @@ The `reset_credit` kind extends the Observation kind list of the frozen M1 contr
 
 ## `peerhub monitor`
 
-A convenience command that restores the old `diag --live` experience in ONE process: each cycle collects quota evidence (the same collector as `observation refresh`) and then renders ONE read-only dashboard frame (the same renderer as `diag --live`), then sleeps. The composition lives in the CLI layer (`peerhub/cli/monitor.py`): Diag stays strictly read-only and never refreshes, Observation stays the only writer, and no extension imports another.
+A convenience command that restores the old `diag --live` experience in ONE process: each cycle collects quota evidence (the same collector as `observation refresh`) and then renders ONE read-only dashboard frame (the same renderer as `diag --live`), then sleeps. The composition lives in the CLI layer (`peerhub/cli/monitor.py`): Diag stays strictly read-only and never refreshes, Observation stays the only writer, and extension imports are limited to the allowlist enforced by `tests/communication/architecture/test_arch_extension_graph.py`.
 
 ```
 peerhub monitor [--interval-seconds SECONDS=60] [--cycles N=0] [--peers cx cc ag] [--timeout-seconds SECONDS=15]
@@ -41,7 +41,7 @@ peerhub monitor [--interval-seconds SECONDS=60] [--cycles N=0] [--peers cx cc ag
 
 - `--cycles 0` runs until Ctrl-C (clean exit 0). `--collect-every K` collects every Kth cycle but redraws every cycle.
 - `--json` prints NDJSON: `{"cycle": n, "refresh": {"status", "warnings", "observations"} | {"skipped": true}, "snapshot": <diag --json object>}`.
-- Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when `--count` ended the run; 2 usage error (nothing is collected, no database is created).
+- Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when `--cycles` ended the run; 2 usage error (nothing is collected, no database is created).
 - Every cycle costs one `/usage` read per peer (no model turn; see the probe table above). Do not set intervals of a few seconds.
 
 ### `peerhub monitor --view {auto,rich,plain}`

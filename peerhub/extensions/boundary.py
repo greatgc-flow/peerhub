@@ -1,4 +1,7 @@
-"""Errors shared by extensions that enforce filesystem trust boundaries (a neutral module: extensions never import each other)."""
+"""Errors shared by extensions that enforce filesystem trust boundaries.
+
+Extension imports are limited to the allowlist enforced by
+tests/communication/architecture/test_arch_extension_graph.py."""
 
 from __future__ import annotations
 
