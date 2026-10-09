@@ -102,9 +102,13 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             result = asdict(bridge.run_cycle(token, runtime))
         response_id = result.get("response_record_id")
         with closing(sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
-            row = conn.execute("SELECT body_json FROM records WHERE record_id=?", (response_id,)).fetchone()
+            row = conn.execute("SELECT body_json, metadata_json FROM records WHERE record_id=?", (response_id,)).fetchone()
         result.update(request_id=rid, stream_id=sid, peer_id=peer_id,
                       requested_record_id=rec.record_id, response=json.loads(row[0]) if row else None)
+        if row:
+            metadata = json.loads(row[1])
+            if "usage" in metadata:
+                result["usage"] = metadata["usage"]
         # A conversation may have earlier pending work. Report its progress without claiming this prompt completed.
         if result.get("record_id") != rec.record_id:
             result["processed_status"] = result["status"]

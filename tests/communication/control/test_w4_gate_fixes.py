@@ -400,7 +400,7 @@ def test_brg_008_pause_during_a_failed_resume_stops_every_create_session(tmp_pat
 
 _VALID_CU = {"after_position": 0, "before_position": 3, "candidates": 2, "included_count": 2, "first_position": 1, "last_position": 2,
              "omitted_count": 0, "omitted_through_position": None, "truncated": False, "used_bytes": 10, "used_tokens": 0,
-             "budget": {"max_records": 100, "max_bytes": None, "max_tokens": None}}
+             "budget": {"max_records": 100, "max_bytes": 24_000, "max_tokens": None}}
 
 
 @pytest.mark.catalog_id("CTX-003")
@@ -513,7 +513,7 @@ def test_ctx_003_boundary_metadata_must_match_the_real_projection(bridge_h, lie)
     nxt = _loss_scenario(bridge_h, rt)
     real = {"after_position": 0, "before_position": nxt.position, "candidates": 6, "included_count": 6, "first_position": 1,
             "last_position": 6, "omitted_count": 0, "omitted_through_position": None, "truncated": False, "used_bytes": 0,
-            "used_tokens": 0, "budget": {"max_records": 100, "max_bytes": None, "max_tokens": None}}
+            "used_tokens": 0, "budget": {"max_records": 100, "max_bytes": 24_000, "max_tokens": None}}
     forged = {**real, **lie}
     bridge_h.append_record({**req(body={"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": forged},
                                   key="context-boundary:b:2", author="b"), "kind": "context.boundary"})
@@ -613,7 +613,7 @@ def test_cert_001_reopen_restores_every_extension_trigger_including_claim_tables
 def test_ctx_003_boundary_claiming_a_delivered_position_that_does_not_exist_is_rejected(bridge_h):
     rt = FakeRuntimeTarget()
     _loss_scenario(bridge_h, rt)
-    consistent = build_catch_up(bridge_h.store, "s", CatchUpBudget(max_records=100), after_position=0, before_position=99).boundary()
+    consistent = build_catch_up(bridge_h.store, "s", CatchUpBudget(max_records=100, max_bytes=24_000), after_position=0, before_position=99).boundary()
     bridge_h.append_record({**req(body={"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": consistent},
                                   key="context-boundary:b:2", author="b"), "kind": "context.boundary"})  # self-consistent but no Record 99
     with pytest.raises(BoundaryConflictError, match="context-boundary:b:2"):
@@ -645,7 +645,7 @@ def test_cert_001_consumed_attempt_is_write_once(bridge_h):
 def test_ctx_003_boundary_accurate_for_another_prefix_but_contradicting_the_delivered_position_is_rejected(bridge_h):
     rt = FakeRuntimeTarget()
     nxt = _loss_scenario(bridge_h, rt)
-    prefix = build_catch_up(bridge_h.store, "s", CatchUpBudget(max_records=100), after_position=0, before_position=5).boundary()
+    prefix = build_catch_up(bridge_h.store, "s", CatchUpBudget(max_records=100, max_bytes=24_000), after_position=0, before_position=5).boundary()
     assert prefix["before_position"] == 5 != nxt.position  # describes SOME prefix accurately
     bridge_h.append_record({**req(body={"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": prefix},
                                   key="context-boundary:b:2", author="b"), "kind": "context.boundary"})

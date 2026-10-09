@@ -49,6 +49,22 @@ class ProviderSpec:
         """Return canonical response text or raise ValueError (garbage / vendor error)."""
         raise NotImplementedError
 
+    def parse_usage(self, stdout: str) -> dict[str, int] | None:
+        """Return reported request usage; absent counters stay unknown, never synthesized as zero."""
+        return None
+
+
+def _usage_fields(usage: object, fields: Mapping[str, str]) -> dict[str, int] | None:
+    if not isinstance(usage, dict):
+        return None
+    source = cast("dict[str, Any]", usage)
+    out: dict[str, int] = {}
+    for key, vendor_key in fields.items():
+        value = source.get(vendor_key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            out[key] = value
+    return out or None
+
 
 def _json_lines(text: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -90,6 +106,19 @@ class CcSpec(ProviderSpec):
             raise ValueError("cc result is not text")
         return cast(str, r["result"])
 
+    def parse_usage(self, stdout: str) -> dict[str, int] | None:
+        results = [e for e in _json_lines(stdout) if e.get("type") == "result"]
+        usage = results[-1].get("usage") if results else None
+        counters = _usage_fields(usage, {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_input_tokens",
+                                         "cache_write_tokens": "cache_creation_input_tokens", "output_tokens": "output_tokens"})
+        if counters is not None:
+            # Claude reports uncached input separately; all three counters are needed for total input.
+            if all(key in counters for key in ("input_tokens", "cached_input_tokens", "cache_write_tokens")):
+                counters["input_tokens"] += counters["cached_input_tokens"] + counters["cache_write_tokens"]
+            else:
+                counters.pop("input_tokens", None)
+        return counters or None
+
 
 class CxSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "cx", "codex", "resume", True
@@ -116,6 +145,12 @@ class CxSpec(ProviderSpec):
         if not any(e.get("type") == "turn.completed" for e in events[last_msg + 1:]):
             raise ValueError("cx output has no turn.completed after the last agent_message (incomplete)")
         return "\n".join(msgs)
+
+    def parse_usage(self, stdout: str) -> dict[str, int] | None:
+        results = [e for e in _json_lines(stdout) if e.get("type") == "turn.completed"]
+        return _usage_fields(results[-1].get("usage") if results else None,
+                             {"input_tokens": "input_tokens", "cached_input_tokens": "cached_input_tokens",
+                              "cache_write_tokens": "cache_write_input_tokens", "output_tokens": "output_tokens"})
 
 
 class AgSpec(ProviderSpec):
@@ -145,6 +180,18 @@ class AgSpec(ProviderSpec):
         if v.get("is_error") not in (None, False) or v.get("error") not in (None, False, "", {}):
             raise ValueError("ag reported an error")
         return cast(str, v["response"])
+
+    def parse_usage(self, stdout: str) -> dict[str, int] | None:
+        try:
+            result: object = json.loads(stdout.strip())
+        except ValueError:
+            return None
+        if not isinstance(result, dict):
+            return None
+        # AG counters may be cumulative per conversation; each ask starts a fresh conversation, so these are per-ask.
+        return _usage_fields(cast("dict[str, Any]", result).get("usage"),
+                             {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_tokens",
+                              "output_tokens": "output_tokens"})
 
 
 SPECS: dict[str, ProviderSpec] = {s.kind: s for s in (CcSpec(), CxSpec(), AgSpec())}
@@ -286,8 +333,16 @@ class CliRuntimeTarget:
             b = getattr(r, "body", None)
             return b if isinstance(b, str) else json.dumps(b, ensure_ascii=False, sort_keys=True)
         parts: list[str] = []
-        if catch_up:
-            parts.append("Earlier context:\n" + "\n".join(f"[{getattr(r, 'author_peer_id', '?')}] {txt(r)}" for r in catch_up))  # never truncated here: the Bridge's injected budget decides
+        boundary: object = getattr(catch_up, "boundary", None)
+        if isinstance(boundary, dict):
+            info = cast("dict[str, Any]", boundary)
+            if info.get("truncated") or info.get("omitted_count"):
+                parts.append(f"[context truncated: {info.get('omitted_count', '?')} earlier records omitted "
+                             f"through position {info.get('omitted_through_position', '?')}]")
+        # Bridge projections arrive oldest first; never truncate here: the injected budget decides.
+        for r in catch_up:
+            parts.append(f"[{getattr(r, 'position', '?')} {getattr(r, 'record_id', '?')} "
+                         f"{getattr(r, 'author_peer_id', '?')} {getattr(r, 'kind', '?')}] {txt(r)}")
         parts.append(txt(record))
         return "\n\n".join(parts)
 
@@ -383,4 +438,8 @@ class CliRuntimeTarget:
             text = self._spec.parse(res.stdout.decode("utf-8", "replace"))
         except ValueError as e:
             raise RuntimeTargetError(san.clean(f"unparseable {self.runtime_kind} output: {e}", EXCERPT_CHARS)) from e
-        yield ("terminal", {"response": self._san.clean(text)})  # secrets redacted; the prompt may legitimately be quoted
+        payload: dict[str, Any] = {"response": self._san.clean(text)}  # secrets redacted; the prompt may legitimately be quoted
+        usage = self._spec.parse_usage(res.stdout.decode("utf-8", "replace"))
+        if usage is not None:
+            payload["usage"] = usage
+        yield ("terminal", payload)

@@ -321,7 +321,8 @@ class Bridge:
         self.store, self.claims = store, claims
         self.owner_id, self.lease_sec = owner_id, lease_sec
         self.max_session_attempts, self.catch_up_limit, self.ack_retries = max_session_attempts, catch_up_limit, ack_retries
-        self.catch_up_budget = catch_up_budget if catch_up_budget is not None else CatchUpBudget(max_records=catch_up_limit)
+        # Leave room for the current ask and prompt headers within AG's 30,000-byte Windows inline limit.
+        self.catch_up_budget = catch_up_budget if catch_up_budget is not None else CatchUpBudget(max_records=catch_up_limit, max_bytes=24_000)
         self._hook = fault_hook
         refuse_future_schema(claims.db_path)  # MIG-003: refuse a future schema before any DDL/DML
         with claims.transaction() as conn:
@@ -932,7 +933,8 @@ class Bridge:
         resp = self.store.append_record(
             guard=self.claims.guard(token), stream_id=d["stream_id"], author_peer_id=d["peer_id"], kind="response",
             body=result.get("response", result), reply_to=d["record_id"], created_at=d["terminal_at"],
-            idempotency_key=f"bridge-response:{did}", metadata={"delivery_id": did, "execution_id": d["execution_id"]})
+            idempotency_key=f"bridge-response:{did}", metadata={"delivery_id": did, "execution_id": d["execution_id"],
+                                                             **({"usage": result["usage"]} if "usage" in result else {})})
         with self.claims.fenced(token) as conn:
             if conn.execute("UPDATE bridge_deliveries SET response_record_id=? WHERE delivery_id=? AND response_record_id IS NULL",
                             (resp.record_id, did)).rowcount:
