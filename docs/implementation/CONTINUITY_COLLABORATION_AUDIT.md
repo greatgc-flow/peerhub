@@ -1,7 +1,7 @@
 # Continuity and collaboration implementation audit
 
 > **2026-10-08 상태 갱신:** 아래 "Remaining findings at audit snapshot"의 항목(Backup 경계, Work/Skill CAS, Memory·Search rebuild,
-> Orchestration 비용/병렬/조건/hard cancel, A2A transport 등)은 `M2_M3_CLOSURE_2026-10-08_KO.md`의 결정과 테스트로 닫혔다.
+> Orchestration 비용/병렬/조건/hard cancel, A2A transport 등)은 `M2_M3_CLOSURE_2026-10-08.md`의 결정과 테스트로 닫혔다.
 > 이 문서는 감사 당시의 스냅샷으로 남긴다.
 
 
@@ -9,7 +9,7 @@ Date: 2026-10-06. This is a working-tree audit, not an exact-head promotion or r
 
 ## Authority and scope
 
-The ToGo `START_HERE_KO.md`, mandatory M2/M3 roadmaps and detailed pre-TDD reviews are authoritative. `docs/m2/*CONTRACT.md` and `docs/m3/*CONTRACT.md` describe concrete ports and invariants. Historical milestone import names are not a reason to restore removed runtime packages. Formal frozen maturity being PLANNED does not establish that implementations are absent: all seven continuity and seven collaboration slices have modules and deterministic tests.
+The ToGo `START_HERE.md`, mandatory M2/M3 roadmaps and detailed pre-TDD reviews are authoritative. `docs/m2/*CONTRACT.md` and `docs/m3/*CONTRACT.md` describe concrete ports and invariants. Historical milestone import names are not a reason to restore removed runtime packages. Formal frozen maturity being PLANNED does not establish that implementations are absent: all seven continuity and seven collaboration slices have modules and deterministic tests.
 
 Review focused on recovery, concurrency and public integration rather than reconstructing archived v0 machinery. No live provider calls were made. The v0 archive is a behavioral reference, not authority to reintroduce coordinator, general shell, consensus or hidden orchestration state.
 

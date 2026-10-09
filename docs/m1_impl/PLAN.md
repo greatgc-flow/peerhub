@@ -1,7 +1,7 @@
 # M1 implementation plan (R2 package, 88 requirements / 210 tests)
 
 Source of truth: `docs/m1_spec/` (R2 FINAL package, validated by `docs/m1_spec/tools/validate_package.py`).
-Read order: START_HERE_KO.md, 06_GUIDES/TEST_SET/{README,RED_SEQUENCE,TEST_HARNESS_PORT}.md, then wave-specific specs.
+Read order: START_HERE.md, 06_GUIDES/TEST_SET/{README,RED_SEQUENCE,TEST_HARNESS_PORT}.md, then wave-specific specs.
 
 ## Working rules (all agents)
 

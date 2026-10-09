@@ -75,7 +75,7 @@ Failure isolation and migration boundaries are host invariants, not manifest opt
 
 ## Closure update (2026-10-08)
 
-Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. The state-machine and exception JSON catalogs carry the same update.
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. The state-machine and exception JSON catalogs carry the same update.
 
 Section 2: replace the nonexistent `validate(manifest)` interface and revise `enable`/add `boot`:
 

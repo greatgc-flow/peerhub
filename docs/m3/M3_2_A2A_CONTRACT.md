@@ -76,7 +76,7 @@ The A2A module (`peerhub.m3.a2a`) provides:
 
 ## Closure update (2026-10-08)
 
-Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. The state-machine and exception JSON catalogs carry the same update.
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. The state-machine and exception JSON catalogs carry the same update.
 
 - A2A execution with a journal configured writes (via `a2a_journal.py`) a durable `submitting` record (containing an atomic claim token, endpoint, and attempt number) before a remote call. An adapter without a journal tracks uncertain submissions only in memory: nothing survives a restart.
 - Any unresolved `submitting` state on restart resolves to `UNCERTAIN` to prevent blind replay.
