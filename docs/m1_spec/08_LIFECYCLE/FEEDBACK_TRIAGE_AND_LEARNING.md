@@ -1,6 +1,6 @@
 # Feedback Triage / Learning Guide
 
-## 입력 신호
+## Input signals
 
 - runtime defect / regression
 - provider/model/CLI drift
@@ -13,16 +13,16 @@
 - upstream standard change
 - feature request
 
-## 분류 순서
+## Classification order
 
 ```text
-1. Evidence가 있는가?
-2. 재현 가능한가?
-3. M1 Core invariant인가, Extension인가, 운영/문서인가?
-4. 현재 계약 위반인가, 새로운 요구인가?
-5. 즉시 rollback/containment가 필요한가?
-6. test/eval로 고정 가능한가?
-7. 어떤 terminal disposition으로 닫을 것인가?
+1. Is there evidence?
+2. Is it reproducible?
+3. Does it concern an M1 Core invariant, an Extension, or operations/docs?
+4. Is it a current contract violation or a new requirement?
+5. Is immediate rollback/containment needed?
+6. Can it be captured in a test/eval?
+7. Which terminal disposition will close it?
 ```
 
 ## terminal disposition
@@ -36,20 +36,20 @@
 - `DUPLICATE_LINKED`
 - `NO_CHANGE_REQUIRED`
 
-`NOT_REPRODUCED`는 evidence 삭제가 아닙니다. 향후 재발 시 비교할 수 있도록 관찰 사실을 보존합니다.
+`NOT_REPRODUCED` does not mean deleting evidence. Preserve observed facts for comparison if the issue recurs.
 
-`ROLLED_BACK`은 **해당 Change/Release item의 terminal disposition**일 수 있지만, 원인이 미해결인 Incident/Problem까지 자동으로 닫는 의미가 아닙니다. root cause가 남아 있으면 별도 Problem/next lifecycle item을 연결하고 그 링크 또는 N/A 사유가 있어야 `Closed`가 됩니다.
+`ROLLED_BACK` can be **a terminal disposition for that Change/Release item**, but does not automatically close an Incident/Problem with an unresolved cause. If the root cause remains, link a separate Problem/next lifecycle item; that link or an N/A rationale is required for `Closed`.
 
-## 학습의 승격
+## Promoting lessons learned
 
 ```text
-일회성 메모
-→ 반복 evidence
+one-time note
+→ repeated evidence
 → Problem candidate
 → requirement/test/eval
 → implementation/process/catalog change
 → verified release
-→ reusable Skill/Guide (절차라면)
+→ reusable Skill/Guide (if procedural)
 ```
 
-절차적 학습은 Core 코드에 넣기 전에 Agent Skill/Guide로 흡수 가능한지 먼저 봅니다.
+Before putting procedural lessons into Core code, first consider whether an Agent Skill/Guide can capture them.

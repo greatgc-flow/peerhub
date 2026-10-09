@@ -1,7 +1,7 @@
-# 개발·테스트 이후 Closed Feedback Loop
+# Closed Feedback Loop After Development and Testing
 
-이 디렉터리는 **개발 완료를 종료점으로 보지 않습니다.**
-M1은 아래 순환이 증적으로 닫힐 때 하나의 변경이 종료됩니다.
+This directory **does not treat development completion as the endpoint.**
+In M1, a change is closed when evidence closes the loop below.
 
 ```text
 Requirement / Evidence
@@ -23,18 +23,18 @@ Requirement / Evidence
 
 ## SSOT
 
-- 기계 판독형 lifecycle: `closed-loop.json`
-- invariant catalog: `INVARIANT_CATALOG.md` (View; SSOT는 `closed-loop.json`)
+- Machine-readable lifecycle: `closed-loop.json`
+- invariant catalog: `INVARIANT_CATALOG.md` (View; SSOT is `closed-loop.json`)
 - lifecycle shape: `closed-loop.schema.json`
 - release gate: `release-gates.json`
 - test→gate traceability: `../06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json`
 - release gate shape: `release-gates.schema.json`
-- 운영 신호 분류: `signal-routing.json`
-- 운영 신호 shape: `signal-routing.schema.json`
+- Operational signal classification: `signal-routing.json`
+- Operational signal shape: `signal-routing.schema.json`
 
-문서들은 위 SSOT를 설명하는 사람용 Guide입니다.
+These documents are human-readable guides to the SSOTs above.
 
-## 읽는 순서
+## Reading order
 
 1. `CLOSED_LOOP_OPERATING_MODEL.md`
 2. `RELEASE_PROMOTION_ROLLBACK.md`
@@ -44,20 +44,20 @@ Requirement / Evidence
 6. `EVIDENCE_RETENTION_AND_AUDIT.md`
 7. `DEPRECATION_EXTENSION_LIFECYCLE.md`
 8. `POST_RELEASE_REVIEW.md`
-9. 상황별 `RUNBOOKS/`
-10. 실제 기록 시 `TEMPLATES/`
+9. `RUNBOOKS/` for specific situations
+10. `TEMPLATES/` for creating actual records
 
-## 네 개의 완료 상태
+## Four completion states
 
-| 상태 | 의미 |
+| State | Meaning |
 |---|---|
-| **Done** | 요구사항과 구현이 테스트를 통과 |
-| **Released** | 패키지/실환경 gate를 통과하여 배포 |
-| **Operated** | 안정화 관찰 기간 동안 핵심 불변식 위반 없이 실제 사용 증거 확보 |
-| **Closed** | 피드백·위험·회귀·문서가 모두 분류되고 recurrence watch까지 종료 |
+| **Done** | Requirements and implementation pass tests |
+| **Released** | Released after passing package/real-environment gates |
+| **Operated** | Evidence of actual use collected during the stabilization observation window without key invariant breaches |
+| **Closed** | Feedback, risks, regressions, and docs are all classified, and recurrence watch is complete |
 
-`Done != Closed` 입니다.
+`Done != Closed`.
 
 ## Gate evidence policy
 
-`gate-evidence-policy.json`은 release gate result의 정규 상태, candidate identity binding, freshness trigger, stale/timeout HOLD 규칙을 정의합니다.
+`gate-evidence-policy.json` defines canonical release gate result states, candidate identity binding, freshness triggers, and stale/timeout HOLD rules.

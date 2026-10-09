@@ -1,14 +1,14 @@
 # Incident / Problem / Change Guide
 
-## 세 개를 분리합니다
+## Keep the three separate
 
-- **Incident**: 지금 사용자/운영에 영향을 주는 사건 — 복구 우선
-- **Problem**: 반복 가능하거나 구조적인 원인 — root cause/재발 방지 우선
-- **Change**: 수정·설정·schema·catalog·procedure 변경 — 검증/승격 우선
+- **Incident**: An event currently affecting users/operations — prioritize recovery
+- **Problem**: A recurring or structural cause — prioritize root cause analysis/recurrence prevention
+- **Change**: A fix or config/schema/catalog/procedure change — prioritize verification/promotion
 
-하나의 Incident가 여러 Change를 만들 수 있고, 여러 Incident가 하나의 Problem으로 합쳐질 수 있습니다.
+One Incident can lead to multiple Changes, and multiple Incidents can be grouped into one Problem.
 
-## Incident 흐름
+## Incident flow
 
 ```text
 Detect
@@ -21,7 +21,7 @@ Detect
 → post-incident learning
 ```
 
-## Problem 흐름
+## Problem flow
 
 ```text
 Evidence cluster
@@ -35,11 +35,11 @@ Evidence cluster
 → recurrence watch
 ```
 
-`5 Whys`는 반드시 하나의 단일 원인을 만들기 위한 도구가 아닙니다. 동시성·설정·provider drift처럼 복수 원인이 있으면 causal graph로 남깁니다.
+`5 Whys` does not require a single cause. When multiple causes are involved, such as concurrency, configuration, and provider drift, record them in a causal graph.
 
-## Change 흐름
+## Change flow
 
-모든 Change는 최소한 다음을 가집니다.
+Every Change includes at least the following.
 
 - reason/evidence
 - blast radius
@@ -48,4 +48,4 @@ Evidence cluster
 - release gate
 - post-change observation
 
-Emergency change도 사후에 동일한 traceability를 복구합니다.
+Restore the same traceability after an emergency change.

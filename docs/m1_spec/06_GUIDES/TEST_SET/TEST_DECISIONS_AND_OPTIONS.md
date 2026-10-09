@@ -1,6 +1,6 @@
 # Test Decisions / Options
 
-모호한 계약을 테스트가 임의로 발명하지 않도록, RED 작성 전에 사용할 기본 결정을 명시합니다. 각 항목은 향후 명시적 설계 결정으로 교체 가능하지만 M1 구현 중 묵시적으로 바꾸지 않습니다.
+To prevent tests from arbitrarily inventing ambiguous contracts, specify the default decisions to be used before writing RED tests. Each item can be replaced with an explicit design decision in the future, but should not be implicitly changed during M1 implementation.
 
 ## TD-01 — Record position scope
 - **M1 default:** Per Stream; unique and strictly increasing among committed Records; gaps allowed.
@@ -118,4 +118,3 @@
 - **M1 default:** `MAY_HAVE_STARTED` is never cleared by time/restart. A durable `control.reconcile` Record may explicitly authorize `RETRY`; this creates a **new attempt identity/generation** and leaves the original evidence immutable.
 - **Why:** This keeps blind replay forbidden without turning uncertainty into a permanent dead end.
 - **Deferred:** Additional decisions such as ACCEPT/ABANDON can be added only with explicit Offset/effect semantics.
-

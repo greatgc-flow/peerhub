@@ -1,6 +1,6 @@
-# PeerHub 선순환 Feedback Loop
+# PeerHub Continuous Improvement Feedback Loop
 
-개발/테스트 이후의 완전한 운영 loop SSOT는 `08_LIFECYCLE/`입니다.
+`08_LIFECYCLE/` is the SSOT for the complete operational loop after development/testing.
 
 ```text
 Evidence / Requirement
@@ -67,10 +67,10 @@ failure/inefficiency
 upstream standard release
 → official source
 → actual boundary impact?
-  NO -> evidence 기록 + no architecture change
+  NO -> record evidence + no architecture change
   YES -> contract/conformance RED -> adopt -> release -> observe
 ```
 
-## 종료 규칙
+## Closure Rules
 
-`Done`이나 `Released`만으로 닫지 않습니다. `08_LIFECYCLE/README.md`의 **Done → Released → Operated → Closed** 네 단계를 사용합니다.
+Do not close at `Done` or `Released` alone. Use the four stages in `08_LIFECYCLE/README.md`: **Done → Released → Operated → Closed**.

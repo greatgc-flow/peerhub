@@ -5,7 +5,7 @@
     {
       "id": "L0",
       "name": "Intake",
-      "purpose": "Evidence와 변경 이유를 분류한다.",
+      "purpose": "Classify evidence and reasons for change.",
       "outputs": [
         "evidence",
         "requirement_or_decision"
@@ -21,7 +21,7 @@
     {
       "id": "L1",
       "name": "RED",
-      "purpose": "실패/계약을 재현 가능한 test 또는 eval로 고정한다.",
+      "purpose": "Capture the failure/contract in a reproducible test or eval.",
       "outputs": [
         "red_evidence"
       ],
@@ -36,7 +36,7 @@
     {
       "id": "L2",
       "name": "Build",
-      "purpose": "최소 구현/변경을 수행한다.",
+      "purpose": "Make the minimum implementation/change.",
       "outputs": [
         "change_set"
       ],
@@ -50,7 +50,7 @@
     {
       "id": "L3",
       "name": "Verify",
-      "purpose": "deterministic gate와 recursive-MECE 검증을 통과한다.",
+      "purpose": "Pass deterministic gates and recursive-MECE verification.",
       "outputs": [
         "test_evidence"
       ],
@@ -64,7 +64,7 @@
     {
       "id": "L4",
       "name": "Package",
-      "purpose": "artifact/hash/fresh install을 검증한다.",
+      "purpose": "Verify artifact/hash/fresh install.",
       "outputs": [
         "artifact",
         "hash",
@@ -81,7 +81,7 @@
     {
       "id": "L5",
       "name": "Canary",
-      "purpose": "해당 시 실제 provider/runtime에서 사실을 검증한다.",
+      "purpose": "Verify facts on the actual provider/runtime where applicable.",
       "outputs": [
         "canary_evidence"
       ],
@@ -96,7 +96,7 @@
     {
       "id": "L6",
       "name": "Release",
-      "purpose": "검증된 artifact를 승격하고 release evidence를 고정한다.",
+      "purpose": "Promote the verified artifact and freeze release evidence.",
       "outputs": [
         "release_evidence_index"
       ],
@@ -110,7 +110,7 @@
     {
       "id": "L7",
       "name": "Observe",
-      "purpose": "stabilization 동안 invariants와 signals를 관찰한다.",
+      "purpose": "Observe invariants and signals during stabilization.",
       "outputs": [
         "observation_summary"
       ],
@@ -124,7 +124,7 @@
     {
       "id": "L8",
       "name": "Learn",
-      "purpose": "incident/feedback/drift를 재현하고 원인/결정을 분류한다.",
+      "purpose": "Reproduce incident/feedback/drift and classify causes/decisions.",
       "outputs": [
         "problem_or_feedback_record"
       ],
@@ -139,7 +139,7 @@
     {
       "id": "L9",
       "name": "Improve",
-      "purpose": "requirement/test/docs/catalog를 함께 갱신한다.",
+      "purpose": "Update requirement/test/docs/catalog together.",
       "outputs": [
         "linked_improvement"
       ],
@@ -153,7 +153,7 @@
     {
       "id": "L10",
       "name": "Close",
-      "purpose": "terminal disposition과 recurrence watch로 변경을 닫는다.",
+      "purpose": "Close the change with a terminal disposition and recurrence watch.",
       "outputs": [
         "closure_evidence"
       ],
@@ -169,7 +169,7 @@
   "invariants": [
     {
       "id": "INV-001",
-      "statement": "Stream canonical position은 충돌/중복되지 않는다.",
+      "statement": "Stream canonical positions do not collide or duplicate.",
       "on_breach": "HOLD_OR_ROLLBACK",
       "requirements": [
         "REQ-ORDER-001",
@@ -178,7 +178,7 @@
     },
     {
       "id": "INV-002",
-      "statement": "Offset은 후퇴하거나 Stream head를 초과하지 않는다.",
+      "statement": "Offset does not move backward or exceed the Stream head.",
       "on_breach": "HOLD_OR_ROLLBACK",
       "requirements": [
         "REQ-OFFSET-002",
@@ -187,7 +187,7 @@
     },
     {
       "id": "INV-003",
-      "statement": "stale/fenced Bridge는 authoritative write를 하지 못한다.",
+      "statement": "A stale/fenced Bridge cannot perform authoritative writes.",
       "on_breach": "HOLD_OR_ROLLBACK",
       "requirements": [
         "REQ-FAULT-005",
@@ -197,7 +197,7 @@
     },
     {
       "id": "INV-004",
-      "statement": "MAY_HAVE_STARTED는 blind automatic replay되지 않는다.",
+      "statement": "MAY_HAVE_STARTED is not blindly replayed automatically.",
       "on_breach": "HOLD_OR_ROLLBACK",
       "requirements": [
         "REQ-FAULT-003",
@@ -207,7 +207,7 @@
     },
     {
       "id": "INV-005",
-      "statement": "Diag read-only 경로는 상태를 변경하지 않는다.",
+      "statement": "Diag read-only paths do not change state.",
       "on_breach": "HOLD_OR_ROLLBACK",
       "requirements": [
         "REQ-DIAG-001"
@@ -215,7 +215,7 @@
     },
     {
       "id": "INV-006",
-      "statement": "corrupt authoritative store는 silent repair/continue하지 않는다.",
+      "statement": "A corrupt authoritative store is not silently repaired or used for continued operation.",
       "on_breach": "INCIDENT",
       "requirements": [
         "REQ-PERSIST-004"
@@ -223,7 +223,7 @@
     },
     {
       "id": "INV-007",
-      "statement": "동일 idempotency key의 상이 payload를 성공 처리하지 않는다.",
+      "statement": "Different payloads with the same idempotency key are not treated as successful.",
       "on_breach": "HOLD_OR_ROLLBACK",
       "requirements": [
         "REQ-IDEM-002",
@@ -232,7 +232,7 @@
     },
     {
       "id": "INV-008",
-      "statement": "Migration/cutover는 committed Core identity, provenance, ordering, idempotency 및 Offset 불변식을 손실하거나 재해석하지 않는다.",
+      "statement": "Migration/cutover does not lose or reinterpret committed Core identity, provenance, ordering, idempotency, or Offset invariants.",
       "on_breach": "HOLD_OR_ROLLBACK",
       "requirements": [
         "REQ-MIG-001",

@@ -1,4 +1,4 @@
-# TDD / 배포 / 운영 연결 가이드
+# TDD / Release / Operations Integration Guide
 
 ## Test tiers
 
@@ -6,24 +6,24 @@ architecture → unit/property → schema → SQLite integration → concurrency
 
 ## Release gate
 
-문서가 “live gate”라고 써 있는 것만으로 부족합니다.
-CI DAG에서 실제 publish job이 해당 gate 성공에 의존해야 합니다.
+Merely writing "live gate" in the documentation is insufficient.
+The actual publish job in the CI DAG must depend on the success of that gate.
 
 ## Clean install
 
-wheel/sdist 또는 최종 배포 artifact를 fresh environment에 설치한 뒤 smoke합니다.
+Install the wheel/sdist or final distribution artifact in a fresh environment, then smoke test it.
 
 ## Evidence
 
-AI self-report가 아니라 terminal/CI/live output을 증적으로 남깁니다.
+Retain terminal/CI/live output as evidence, not AI self-reports.
 
 ## Full M1 test set
 
-구체적인 RED-ready 테스트 설계는 `06_GUIDES/TEST_SET/README.md`를 SSOT entrypoint로 사용합니다. Requirement→Test coverage, concurrency/fault injection, fake runtime E2E, real-provider gate와 package gate까지 포함합니다.
+Use `06_GUIDES/TEST_SET/README.md` as the SSOT entrypoint for specific RED-ready test designs. This includes Requirement→Test coverage, concurrency/fault injection, fake runtime E2E, real-provider gates, and package gates.
 
-## 테스트 이후
+## Post-test
 
-G5 publish가 끝나도 lifecycle은 종료되지 않습니다.
+The lifecycle does not end when G5 publish is complete.
 
 ```text
 G5 Publish
@@ -34,4 +34,4 @@ G5 Publish
 → next RED
 ```
 
-운영·rollback·incident·evidence·post-release review는 `08_LIFECYCLE/README.md`를 SSOT entrypoint로 사용합니다.
+Use `08_LIFECYCLE/README.md` as the SSOT entrypoint for operations, rollback, incidents, evidence, and post-release reviews.

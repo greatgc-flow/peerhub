@@ -1,9 +1,9 @@
 # Persistence / Concurrency
 
 ## Core store
-SQLite를 authoritative local store로 유지합니다.
+Keep SQLite as the authoritative local store.
 
-권장:
+Recommended:
 - WAL;
 - foreign_keys;
 - busy timeout;
@@ -12,7 +12,7 @@ SQLite를 authoritative local store로 유지합니다.
 - read-only UoW;
 - workspace identity/generation.
 
-## Core tables (개념)
+## Core tables (conceptual)
 
 ```text
 peers
@@ -22,7 +22,7 @@ records
 offsets
 ```
 
-Extension은 자기 table을 소유하고 Core startup이 Extension table을 요구하지 않습니다.
+Extensions own their tables, and Core startup does not require Extension tables.
 
 ## Crash tests
 - before commit;
@@ -32,6 +32,6 @@ Extension은 자기 table을 소유하고 Core startup이 Extension table을 요
 - stale Bridge owner;
 - restore generation change.
 
-## 기존 자산
-현재 PeerHub의 SQLite UoW/event offset/CAS/online backup/process cancellation 경험은
-재사용하되 현재 orchestration schema 자체는 그대로 가져오지 않습니다.
+## Existing Assets
+Reuse the existing PeerHub experience with SQLite UoW/event offset/CAS/online backup/process cancellation,
+but do not carry over the current orchestration schema itself.

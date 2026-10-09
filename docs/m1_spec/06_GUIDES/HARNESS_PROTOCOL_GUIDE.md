@@ -1,16 +1,16 @@
-# Harness / MCP / A2A 연계 가이드
+# Harness / MCP / A2A Integration Guide
 
 ## Harness
-managed/local agent runtime은 Session Bridge target.
+managed/local agent runtime is the Session Bridge target.
 
 ## MCP
-AI ↔ Tool/Data/Context 경계가 생길 때 Extension.
-Core API를 우회해 DB를 직접 수정시키지 않습니다.
+When a boundary between AI ↔ Tool/Data/Context arises, it's an Extension.
+Do not bypass the Core API to directly modify the DB.
 
 ## A2A
-remote independent agent가 생기면 `A2A Adapter -> Peer`.
-A2A Task state machine을 Core로 복사하지 않습니다.
+When a remote independent agent arises, `A2A Adapter -> Peer`.
+Do not copy the A2A Task state machine into Core.
 
 ## OTel
-Observation을 외부 telemetry backend로 내보내는 exporter.
-OTel semantic convention이 Core DB schema가 되지 않습니다.
+An exporter that sends Observation to an external telemetry backend.
+The OTel semantic convention does not become the Core DB schema.

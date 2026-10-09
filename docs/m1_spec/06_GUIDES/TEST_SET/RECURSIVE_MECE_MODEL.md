@@ -1,8 +1,8 @@
 # Recursive MECE Test Model
 
-테스트 수를 늘리는 방식이 아니라 **테스트 공간을 먼저 분할하고 빈 셀을 자동 검출**합니다.
+Rather than just increasing the number of tests, **partition the test space first and auto-detect empty cells**.
 
-## 1. 1차 기능 분할
+## 1. Primary Functional Partitioning
 
 - Architecture / Boundary
 - Core Domain
@@ -14,22 +14,22 @@
 - Release / Packaging
 - Meta-Quality (test-of-tests)
 
-## 2. 각 기능 안에서 재귀 분할
+## 2. Recursive Partitioning within Each Function
 
-각 영역마다 적용 가능한 경우를 다시 다음 축으로 나눕니다.
+For each area, partition applicable cases again by the following axes:
 
 `positive / negative / boundary / fault / concurrency / restart / recovery / time / compatibility / security / capacity / live`
 
-모든 요구사항은 `required_dimensions`를 선언하며, 연결된 테스트들의 `dimensions` 합집합이 이를 100% 덮어야 합니다.
+Every requirement declares `required_dimensions`, and the union of `dimensions` from its linked tests must cover it 100%.
 
-## 3. 독립 완전성 표
+## 3. Independent Completeness Matrices
 
 - State machines: `STATE_MACHINE_COVERAGE.json`
 - Exception space: `EXCEPTION_CATALOG.json`
 - Cross-feature interactions: `INTERACTION_MATRIX.json`
-- Requirement↔Test: `python -m tools.traceability` 출력
+- Requirement↔Test: output of `python -m tools.traceability`
 
-## 4. 종료 조건
+## 4. Exit Criteria
 
 1. uncovered requirement = 0
 2. uncovered required dimension = 0
@@ -39,4 +39,4 @@
 6. orphan/dangling test = 0
 7. package validator PASS
 
-현재 baseline: **85 requirements / 207 tests**.
+Current baseline: **85 requirements / 207 tests**.

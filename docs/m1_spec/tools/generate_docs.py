@@ -8,11 +8,11 @@ items = data["standards"]
 key = "general_decision" if (root/"02_STANDARDS").exists() else "peerhub_decision"
 
 lines = [
-    "# 표준·OSS 적용 결정표",
+    "# Standards/OSS Adoption Decision Table",
     "",
-    "> 이 문서는 `standards_registry.json`에서 생성되는 사람용 View입니다. JSON이 SSOT입니다.",
+    "> This document is a human-readable View generated from `standards_registry.json`. JSON is the SSOT.",
     "",
-    "| 표준/기술 | 검증 버전/상태 | 결정 | 적용 경계 | 가지치기 원칙 | 원본 링크 |",
+    "| Standard/Technology | Verified Version/Status | Decision | Application Boundary | Pruning Principle | Source Links |",
     "|---|---|---|---|---|---|",
 ]
 for x in items:
@@ -21,10 +21,10 @@ for x in items:
 out_dir = registry_path.parent
 (out_dir/"STANDARDS_DECISION_TABLE.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
 
-links = ["# 공식 원본 링크 목록 — 2026-10-01 검증","",
-         "아래 링크는 설계 결정에 참고한 **공식/원본 문서**입니다.",""]
+links = ["# Official Original Link List — 2026-10-01 Verified","",
+         "The links below are the **official/original documents** referenced for design decisions.",""]
 for i,x in enumerate(items,1):
-    links += [f"## {i}. {x['name']} — {x['version']}","",f"- 상태: {x['status']}",f"- 확인 내용: {x['fact']}","- 원본:"]
+    links += [f"## {i}. {x['name']} — {x['version']}","",f"- Status: {x['status']}",f"- Verified content: {x['fact']}","- Original:"]
     links += [f"  - {u}" for u in x["official_urls"]]
     links.append("")
 (out_dir/"ORIGINAL_LINKS.md").write_text("\n".join(links)+"\n", encoding="utf-8")

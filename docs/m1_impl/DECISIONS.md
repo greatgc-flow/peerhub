@@ -88,7 +88,7 @@
 - ag.pro review: importer later-offsets (real, fixed per component; conflicts reported, never auto-advanced: OWNER Q-W7-11), forced UTF-8 (real, fixed: tolerant streams), 3 survivor claims refuted/strengthened. Branch ref was behind a detached HEAD; moved to the HEAD (no history lost). cx final review covers waves 0-7 once.
 - Next: Wave 8 (LIVE canary) = real adapters (T1) + opt-in live tests, run ONCE with minimum quota (lowest-tier profiles, tiny prompts, no retries; cx at most once).
 
-## Owner-item consultation (ag.pro + cx.effort, 2026-10-04) - delegated by the user ("협의통해 진행")
+## Owner-item consultation (ag.pro + cx.effort, 2026-10-04) - delegated by the user ("Proceeded through consultation")
 Consensus (both): A1 confirm TD-20 (record PROP-002 erratum via lifecycle FEEDBACK_RECORD, frozen catalog untouched); A3 confirm (document departure from CTX-001 suffix wording; dedupe/canonical order/omission+pin metadata within one total budget); B6 accept partial importer with explicit unmapped report + documentation; B7 accept no real resume/interrupt/steer for M1 (ACCEPTANCE_DOD + LIVE-004: report adapter capabilities separately from vendor capabilities; unsupported cancel never claims process termination); B8 confirm cancel semantics; C accept defaults (Python/OS matrix provisional: mark unexecuted cells UNVERIFIED per TD-18).
 Split (cx.effort wins, strict TD-11): 
 - D-OWN-A2: pre-spawn failure stays NOT_STARTED -> NOT_STARTED (retryable, Offset unchanged); NOT_STARTED->TERMINAL is NOT allowed (BRG-011). Late evidence fenced (TD-25).

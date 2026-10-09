@@ -1,10 +1,10 @@
 # Operations / Observability / SLO Guide
 
-## 관찰 계층
+## Observation layers
 
 ### A. Correctness invariants — zero tolerance
 
-`closed-loop.json`의 `invariants[]` / `INVARIANT_CATALOG.md`를 그대로 관찰합니다. 운영 문서에 별도 복제 목록을 두지 않아 drift를 방지합니다.
+Monitor `invariants[]` in `closed-loop.json` / `INVARIANT_CATALOG.md` directly. Avoid drift by keeping no separate duplicate list in operational documentation.
 
 ### B. Reliability signals
 - append commit success/failure category
@@ -29,23 +29,23 @@
 - provider/model drift
 - documentation/process mismatch
 
-## SLO 정하는 순서
+## Steps for setting SLOs
 
-1. 먼저 baseline을 수집합니다.
-2. 사용자 영향과 업무 중요도를 분리합니다.
-3. 측정 가능한 SLI를 선택합니다.
-4. target/window를 환경 설정으로 제안합니다.
-5. canary/운영 데이터로 검증합니다.
-6. 유효하지 않으면 threshold를 재조정합니다.
+1. Collect a baseline first.
+2. Distinguish user impact from business criticality.
+3. Choose measurable SLIs.
+4. Propose targets/windows as environment configuration.
+5. Validate with canary/operational data.
+6. Readjust thresholds if they are not valid.
 
-## Alert fatigue 방지
+## Preventing alert fatigue
 
-- invariant breach: 즉시 actionable alert
-- transient provider/quota: Observation으로 기록하되 Core failure로 승격하지 않음
-- 동일 원인의 반복 이벤트: 하나의 Problem record로 집계
-- stale/unknown은 실패로 꾸미지 않고 `UNKNOWN/STALE` 그대로 표시
+- invariant breach: Immediate actionable alert
+- transient provider/quota: Record as Observation without escalating to Core failure
+- Repeated events with the same cause: aggregate into one Problem record
+- Display stale/unknown as `UNKNOWN/STALE` without misrepresenting them as failures
 
-## 개인정보/비밀정보
+## Personal/confidential information
 
-운영 evidence는 기본적으로 prompt/transcript/credential을 포함하지 않는 방향으로 설계합니다.
-필요한 경우 최소 범위만 별도 보관하고 redaction policy가 확정된 뒤 자동화합니다.
+Design operational evidence to exclude prompts/transcripts/credentials by default.
+When needed, retain only the minimum scope separately and automate after the redaction policy is finalized.

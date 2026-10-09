@@ -1,4 +1,4 @@
-> `COMPLY/ADAPT/...`는 target architecture 정합성입니다. 현재 구현 성숙도는 `product-maturity.json`을 봅니다.
+> `COMPLY/ADAPT/...` is target architecture conformance. For current implementation maturity, see `product-maturity.json`.
 
 # Unified Standard Conformance
 

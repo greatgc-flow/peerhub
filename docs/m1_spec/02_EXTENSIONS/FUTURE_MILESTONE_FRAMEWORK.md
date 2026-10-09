@@ -1,4 +1,4 @@
-# Milestone / Optional Track 승격 기준
+# Milestone / Optional Track Promotion Criteria
 
 ## Required Roadmap
 
@@ -9,13 +9,13 @@ M1 Durable Communication
 -> required roadmap complete
 ```
 
-M2/M3 설계는 병렬 가능하지만 production promotion은 이전 milestone Exit Gate PASS 이후입니다.
+M2/M3 design may proceed in parallel, but production promotion requires the previous milestone Exit Gate to PASS.
 
 ## After M3
 
-더 이상 순차적 `N차 milestone`을 만들지 않습니다. M4-A~L은 **Optional Capability Tracks**입니다.
+Do not create further sequential `Nth milestone` entries. M4-A~L are **Optional Capability Tracks**.
 
-각 후보는 다음을 다시 결정합니다.
+Reevaluate each candidate using the following decisions.
 
 ```text
 KEEP
@@ -26,15 +26,15 @@ SUPERSEDE
 RETIRE
 ```
 
-Activation 평가:
-- 실제 사용자 가치/빈도와 운영 evidence;
-- 5 Whys 근본원인;
-- M1~M3 기존 capability 조합으로 해결 가능한지;
-- Core 변경 없이 Extension으로 격리 가능한지;
-- 표준/OSS로 custom code를 줄일 수 있는지;
-- 실패 격리/rollback/disable 가능성;
-- provider specificity와 quota/cost;
+Activation assessment:
+- actual user value/frequency and operational evidence;
+- root cause from 5 Whys;
+- whether a combination of existing M1~M3 capabilities can solve the problem;
+- whether it can be isolated in an Extension without changing Core;
+- whether standards/OSS can reduce custom code;
+- feasibility of failure isolation/rollback/disable;
+- provider specificity and quota/cost;
 - authority/security;
-- 유지보수 부담.
+- maintenance burden.
 
-**현재 구현이 많다는 이유, 과거 command가 존재했다는 이유, 기술적으로 가능하다는 이유만으로 우선순위를 올리지 않습니다.**
+**Do not raise priority merely because substantial implementation already exists, a command existed before, or the feature is technically feasible.**

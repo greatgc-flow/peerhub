@@ -1,17 +1,17 @@
 # PeerHub M1 Test Strategy — Recursive MECE / TDD Ready
 
-## 목표
-테스트는 구현 세부가 아니라 **불변식 + 예외 공간 + 상호작용 위험**을 잠급니다.
+## Goal
+Tests lock down **invariants + exception spaces + interaction risks**, not implementation details.
 
-1. 작은 Core: Peer / Stream / Record / Offset.
-2. durable truth: SQLite/canonical position/revision을 재시작 뒤에도 신뢰.
-3. uncertainty honesty: runtime side effect를 exactly-once라고 가장하지 않음.
-4. concurrency/crash/storage fault를 happy path와 동급 P0로 취급.
-5. Diag/Observation의 Core 경계와 read-only 성질 증명.
-6. deterministic CI와 real-provider empirical gate 분리.
-7. **test-of-tests**로 재귀적 MECE를 자동 검증.
+1. Small Core: Peer / Stream / Record / Offset.
+2. durable truth: SQLite/canonical position/revision are trusted even after restart.
+3. uncertainty honesty: runtime side effects are not masqueraded as exactly-once.
+4. concurrency/crash/storage faults are treated as P0, on par with happy paths.
+5. Prove the Core boundary and read-only nature of Diag/Observation.
+6. Separate deterministic CI from real-provider empirical gates.
+7. Auto-verify recursive MECE through **test-of-tests**.
 
-## 현재 baseline
+## Current baseline
 - Requirements: **85**
 - Tests: **207**
 - Exceptions classified: **85**, OPEN 0
@@ -42,23 +42,23 @@
 - negative: 56
 - positive: 87
 
-## 재귀 규칙
-`기능영역 → case type → applicable risk dimension → lifecycle/failure phase → cross-feature interaction` 순으로 반복 분할합니다. 적용성은 requirement의 `required_dimensions`가 선언하고 validator가 실제 test union으로 검증합니다.
+## Recursive Rules
+Partition iteratively in this order: `Functional area → case type → applicable risk dimension → lifecycle/failure phase → cross-feature interaction`. Applicability is declared by the requirement's `required_dimensions` and verified by the validator against the actual test union.
 
-## 실행 정책
-- PR/push: live/soak 제외 deterministic + META.
+## Execution Policy
+- PR/push: deterministic + META, excluding live/soak.
 - Fast: architecture/schema/unit/property/meta.
-- Core merge: SQLite/concurrency/multiprocess/storage fault/migration 포함.
-- M1: Bridge/Control/Observation/Diag/fake-runtime E2E/security 포함.
+- Core merge: Includes SQLite/concurrency/multiprocess/storage fault/migration.
+- M1: Includes Bridge/Control/Observation/Diag/fake-runtime E2E/security.
 - Release: package matrix + required real-provider canary.
-- Scheduled: soak/capacity; 명시 SLO 전에는 evidence-only.
+- Scheduled: soak/capacity; evidence-only prior to explicit SLO.
 
-## Flaky 방지
-- race/TTL에 `sleep()` 금지. Barrier/Latch/ManualClock 사용.
-- writer별 독립 SQLite connection; multi-process는 실제 OS process.
-- fault는 VFS/adapter/fake-runtime named injection point 사용.
-- property failing seed/example 저장.
-- live provider는 deterministic suite 대체가 아니라 별도 empirical evidence.
+## Flaky Prevention
+- `sleep()` is prohibited for race/TTL. Use Barrier/Latch/ManualClock.
+- Independent SQLite connections per writer; multi-process uses actual OS processes.
+- Faults use VFS/adapter/fake-runtime named injection points.
+- Save property failing seed/examples.
+- Live providers are separate empirical evidence, not replacements for deterministic suites.
 
-## 종료 조건
-`Requirement → Dimension → Test → Evidence → Gate`와 `State / Exception / Interaction` 그래프가 모두 닫히고 package validator가 PASS여야 합니다.
+## Exit Criteria
+The `Requirement → Dimension → Test → Evidence → Gate` and `State / Exception / Interaction` graphs must all be closed, and the package validator must PASS.

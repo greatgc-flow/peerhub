@@ -1,4 +1,4 @@
-# 경계면 지도
+# Boundary Map
 
 ```text
 Human
@@ -17,16 +17,16 @@ PeerHub Core
   └─ OTel Exporter ─── external telemetry     [future]
 ```
 
-## 내부
-Core 내부 same-process 경계는 Python typed call을 기본으로 합니다.
+## Internal
+Use typed Python calls by default for same-process boundaries within Core.
 
 ## MCP
-Tool/Data/Context가 실제 외부 경계가 될 때만.
+Only when Tool/Data/Context forms an actual external boundary.
 
 ## A2A
-Remote independent agent가 생길 때만.
+Only when a remote independent agent exists.
 
 ## OpenAPI/AsyncAPI/CloudEvents
-M1에는 불필요. HTTP/event public boundary가 생기면 조건부 검토.
+Unnecessary for M1. Consider conditionally when a public HTTP/event boundary exists.
 
-최신 기술 지원을 이유로 내부 구조를 외부 protocol에 맞추지 않습니다.
+Do not reshape the internal architecture around external protocols just to support the latest technology.

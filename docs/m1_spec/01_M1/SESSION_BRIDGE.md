@@ -1,6 +1,6 @@
 # Session Bridge
 
-## 책임
+## Responsibilities
 - deliver Records to runtime;
 - create/resume provider session;
 - stream output;
@@ -24,7 +24,7 @@ last_seen
 ```
 
 ## Single-active delivery claim
-두 Bridge가 같은 unread Record를 중복 실행하지 않도록:
+To prevent two Bridges from executing the same unread Record twice:
 
 ```text
 (workspace, stream, peer)
@@ -33,10 +33,10 @@ generation
 heartbeat/expires
 ```
 
-만 둡니다. 기존 generic lease platform은 가져오지 않습니다.
+use only these fields. Do not carry over the existing generic lease platform.
 
 ## Execution certainty
-기존 시행착오에서 유용했던 의미론을 축소 재사용:
+Reuse a reduced set of semantics that proved useful through earlier trial and error:
 
 ```text
 NOT_STARTED
@@ -45,11 +45,11 @@ STARTED
 TERMINAL
 ```
 
-`MAY_HAVE_STARTED`는 blind replay 금지.
+No blind replay of `MAY_HAVE_STARTED`.
 
-## 미래 Harness
-OpenAI Agents API/SDK, Claude Managed Agents, Microsoft Harness, ADK 등은
-Session Bridge의 `RuntimeTarget` adapter가 됩니다.
+## Future Harnesses
+OpenAI Agents API/SDK, Claude Managed Agents, Microsoft Harness, ADK, and others
+become `RuntimeTarget` adapters for Session Bridge.
 
 ## M1 Spec Alignment (2026-10-09)
 CLI adapters support native terminate for active local deliveries: control.cancel kills the process tree and waits for observed exit. Resume, interrupt, and steer remain unsupported (peerhub/extensions/adapters/base.py). Bridge control intents are capability-gated (peerhub/extensions/bridge.py). Cancelled deliveries remain uncertain and cannot auto-replay; a missing local process raises RuntimeTargetError("nothing running"), recorded as failed when durable delivery evidence still identifies a target. Bridge targets already known to be absent or stale retain nothing_running/stale_target outcomes. Durable fresh-session catch-up provides continuity but does not itself stop a provider invocation.
