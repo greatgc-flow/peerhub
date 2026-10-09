@@ -93,6 +93,47 @@ gh auth refresh -h github.com -s workflow
 
 ## Release evidence
 
+### Local live gate
+
+Real provider tests are excluded from default runs and CI. They require
+`PEERHUB_LIVE=1` plus an explicit marker selection. Even with that opt-in,
+the live fixtures skip when `CI` is set. Missing peer binaries skip the new
+per-peer ask measurements; authentication failures and missing usage fail.
+
+```powershell
+# All stages, complete release evidence (requires all three peer CLIs).
+python -m tools.live_gate --yes
+
+# Optional measurements for one peer; outside the release catalog.
+python -m tools.live_gate --yes --only canary --peer cx
+
+# Direct opt-in: -m live selects exactly the six M1 live-tier tests.
+# Select slow/e2e separately, or canary for optional ask measurements.
+$env:PEERHUB_LIVE = "1"
+python -m pytest -q -m live tests/communication/live
+python -m pytest -q -m "canary and cx" tests/communication/live
+```
+
+The four optional `canary` scenarios measure each of cc, cx and ag through public `ask`
+with `--profile <peer>.standard`: text and positive input/output token usage,
+native `--resume` recall on a second turn, `--writable` sentinel creation,
+and cancellation after committed STARTED evidence. The cancellation test
+invokes the CLI in-process and delivers durable `control.cancel` through the
+Bridge to the real adapter, since there is no public cancel CLI command.
+It requires confirmed process-tree termination and no successful response.
+
+These four scenarios make at most five asks per peer (15 across all peers),
+with tiny prompts, bounded output and 240-second provider timeouts. They use
+temporary workspaces and databases, make no quota probes or test-level retries,
+and leave no persistent measurement files. Existing canaries add their own
+calls and sanitized evidence. Standard profiles resolve workspace/global
+overrides, so review local profile policy before spending quota. A single-peer
+gate run selects peer-marked tests and omits aggregate cases. `--only canary`
+writes separate `canary.xml` without a G3 stamp; these scenarios have no
+release-catalog IDs and are excluded from default tests, CI and the release
+gate. `--only live --peer <peer>` remains available for partial release
+evidence; skipped or missing catalog cases cannot satisfy the full G3 gate.
+
 `tools/release_evidence.py` requires every blocking M1 catalog test and every
 M2/M3 catalog test (`docs/m2/test-catalog.m2.json` and
 `docs/m3/test-catalog.m3.json`, gate G2) to pass. Live `LIVE-*` tests must also

@@ -67,3 +67,46 @@ def test_stage_selections_are_disjoint_and_preserve_union():
         selected = [eval(expr, {"__builtins__": {}}, names)
                     for expr in live_gate.STAGE_SELECTIONS.values()]
         assert sum(selected) == int(live or slow or e2e)
+
+
+def test_single_peer_live_stage_allows_missing_binaries_and_filters(tmp_path, monkeypatch):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(live_gate.shutil, "which", lambda name: None)
+    monkeypatch.setattr(live_gate.subprocess, "check_output", lambda cmd, **k: "abc123" if "rev-parse" in cmd else "")
+    calls = []
+    monkeypatch.setattr(live_gate.subprocess, "call", lambda cmd, **k: calls.append(cmd) or 0)
+    assert live_gate.main(["--yes", "--only", "live", "--peer", "cx", "--out", str(tmp_path)]) == 0
+    assert len(calls) == 1
+    assert calls[0][len(calls[0]) - 1 - calls[0][::-1].index("-m") + 1] == "(live and not slow and not e2e) and cx"
+
+
+def test_single_peer_canary_has_separate_output_without_release_stamp(tmp_path, monkeypatch):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(live_gate.shutil, "which", lambda name: None)
+    monkeypatch.setattr(live_gate.subprocess, "check_output", lambda cmd, **k: "abc123" if "rev-parse" in cmd else "")
+    import tools.release_evidence as re_mod
+    stamps = []
+    monkeypatch.setattr(re_mod, "stamp_junit", lambda *a, **k: stamps.append((a, k)))
+    calls = []
+
+    def fake_call(cmd, **kwargs):
+        calls.append(cmd)
+        junit = next(arg.split("=", 1)[1] for arg in cmd if arg.startswith("--junitxml="))
+        Path(junit).write_text("<testsuite/>\n", encoding="utf-8")
+        assert kwargs["env"]["PEERHUB_LIVE"] == "1"
+        return 0
+
+    monkeypatch.setattr(live_gate.subprocess, "call", fake_call)
+    assert live_gate.main(["--yes", "--only", "canary", "--peer", "cc", "--out", str(tmp_path)]) == 0
+    assert len(calls) == 1
+    assert calls[0][len(calls[0]) - 1 - calls[0][::-1].index("-m") + 1] == "(canary) and cc"
+    assert (tmp_path / "canary.xml").is_file()
+    assert not (tmp_path / "g3.xml").exists()
+    assert stamps == []
+
+
+def test_peer_filter_requires_live_or_canary_stage():
+    import pytest
+    with pytest.raises(SystemExit) as exc:
+        live_gate.main(["--yes", "--peer", "cc"])
+    assert exc.value.code == 2

@@ -62,13 +62,14 @@ include = ["peerhub*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]
-addopts = "-ra -m 'not slow and not e2e and not live and not soak'"
+addopts = "-ra -m 'not slow and not e2e and not live and not canary and not soak'"
 # Per-test hang guard. On Windows pytest-timeout ends the WHOLE session when it fires, and a loaded CI runner can stall a single
 # SQLite commit for tens of seconds, so 60 s turned one disk stall into a lost job. 180 s still catches a real deadlock.
 timeout = 180
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "e2e: marks tests as End-to-End tier (deselect with '-m \"not e2e\"')",
+    "canary: local opt-in provider measurements outside the release catalog",
     "catalog_id(id): Frozen requirement catalog ID (traceability, see tools/traceability.py)",
     "architecture", "schema", "property", "meta", "traceability", "unit", "sqlite", "concurrency",
     "multiprocess", "fault", "migration", "bridge", "observation", "diag", "security", "package",
