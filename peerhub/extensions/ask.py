@@ -27,7 +27,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         model: str | None = None, effort: str | None = None, timeout_s: float = 60,
         profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False,
         max_bytes: int = 1_000_000, runtime: RuntimeTarget | None = None,
-        on_output: Callable[[str], None] | None = None) -> dict[str, Any]:
+        on_output: Callable[[str], None] | None = None, resume: bool = False) -> dict[str, Any]:
     if not prompt.strip():
         raise ValueError("prompt must not be empty")
     if not math.isfinite(timeout_s) or timeout_s <= 0 or max_bytes <= 0:
@@ -58,7 +58,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             raise ValueError("register this peer with --adapter cx, cc or ag before asking it")
         runtime = CliRuntimeTarget(kind, workspace or Path.cwd(), model=model, effort=effort,
                                    profile=profile, silence_timeout_s=silence_timeout_s, writable=writable,
-                                   timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output)
+                                   timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output, resume=resume)
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     store = CoreStore(db_path)
     peer = store.get_peer(peer_id)
@@ -100,6 +100,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                                        terminal["response_record_id"], terminal["session_generation"]))
         else:
             result = asdict(bridge.run_cycle(token, runtime))
+        result.update(bridge.delivery_details(result.get("delivery_id")))
         response_id = result.get("response_record_id")
         with closing(sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
             row = conn.execute("SELECT body_json, metadata_json FROM records WHERE record_id=?", (response_id,)).fetchone()
