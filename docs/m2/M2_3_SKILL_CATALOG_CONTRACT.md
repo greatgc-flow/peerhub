@@ -117,3 +117,5 @@ Section 4: add:
 ```
 
 **Wrong/obsolete:** `rebuild_index(..., skill_roots)` and disk-driven reconstruction; `ext_skill_tags`; declaring updates through `declare_capability`; the unused `curated` argument; and the status/tag filters on `list_skills`.
+
+- **Materialization:** Skill FILES are the procedure source, Records are the lifecycle/provenance authority, and the SQLite catalog is a rebuildable projection (peerhub/extensions/skills.py). Per-CLI materialization/sync (claude/codex/agy) is DEFERRED until a concrete consumer needs it (design-only, not a defect).

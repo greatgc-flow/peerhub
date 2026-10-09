@@ -27,8 +27,8 @@
     },
     {
       "path": "01_M1/LONG_HORIZON_CONTINUITY.md",
-      "bytes": 912,
-      "sha256": "6fd31bab7bd5636648b6c40ffd90be645674ac536ec09d64b4293fe20cccf7b6"
+      "bytes": 1319,
+      "sha256": "146ca8fbe6efa6178863981a21ed3a67aeeb4780dd2cdb41177b4fd9de74cc61"
     },
     {
       "path": "01_M1/M1_CHARTER_SCOPE.md",
@@ -57,18 +57,18 @@
     },
     {
       "path": "01_M1/SESSION_BRIDGE.md",
-      "bytes": 979,
-      "sha256": "813adc650a530f2d25699f5536c4091155be3dc1d39067d521f92d965c3f003f"
+      "bytes": 1386,
+      "sha256": "a91bc5ae5ce4c02ec80d0cccbc8d9e3c2e751e2a9cb4138992a056da74dea994"
     },
     {
       "path": "01_M1/SKILLS_CATALOG_SECOND_BRAIN.md",
-      "bytes": 1210,
-      "sha256": "36f3b8cfd5323cfac355cd08c35158cbbbdc2430c98c6b6fd004429e5193967f"
+      "bytes": 1394,
+      "sha256": "5f8393bbbafee6def9f4ced771a3aad05e97e34c4e80c6338aa5145646c9390b"
     },
     {
       "path": "01_M1/STREAM_RECORD_OFFSET.md",
-      "bytes": 848,
-      "sha256": "5ec8b4a4a6b553b5b4f5dc35bc560fa6cc118448658803fb519644bfce7f890b"
+      "bytes": 1255,
+      "sha256": "23fc8582d8c8da09141381253b19fa60bec7f6ae0b6316bbd0938636d07ab01f"
     },
     {
       "path": "02_EXTENSIONS/EXTENSION_CATALOG.md",
@@ -101,6 +101,16 @@
       "sha256": "817452783e468e49243c33ba9f856a46a5e7184edf80f51c945270587e548a0e"
     },
     {
+      "path": "04_SCHEMAS/README.md",
+      "bytes": 962,
+      "sha256": "9d6c66305e8cb43d081a762f80ada2816d4084f0f576a4792ed346feb21d7833"
+    },
+    {
+      "path": "04_SCHEMAS/examples/extension-manifest.example.json",
+      "bytes": 226,
+      "sha256": "1bebb38c7c7669cd29d029d3f43ea4c4fcb8a3b81e1b05e3bc512d20f4329213"
+    },
+    {
       "path": "04_SCHEMAS/examples/peer-observation.example.json",
       "bytes": 343,
       "sha256": "3dfbdc6a9b7967c0a2e69ab2484c8d670e79eaa9de05e16531d4c64711e5f8c0"
@@ -112,8 +122,8 @@
     },
     {
       "path": "04_SCHEMAS/extension-manifest.schema.json",
-      "bytes": 1117,
-      "sha256": "21a6a72e58f3fe912a9ea9f2739a334b106836ca5a4add0238e011b722f74260"
+      "bytes": 754,
+      "sha256": "b826dfb02aae908d8a14e972c7ac85c8fc19e1d08c1560778edacaa912a621dc"
     },
     {
       "path": "04_SCHEMAS/future/harness-target.schema.json",
@@ -197,8 +207,8 @@
     },
     {
       "path": "06_GUIDES/SKILL_CATALOG_GUIDE.md",
-      "bytes": 616,
-      "sha256": "bd57275b65ea6f032851ce1cb5adccab1fd0d391dd526480857cc52f62cfbd30"
+      "bytes": 684,
+      "sha256": "8d17cd250d7bd62a9f9e9beccaadca1ee06e0fafba0d80458785207839d7ba35"
     },
     {
       "path": "06_GUIDES/TEST_RELEASE_GUIDE.md",
@@ -567,8 +577,8 @@
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/CONFORMANCE_MATRIX.md",
-      "bytes": 2737,
-      "sha256": "eaf0e84faed30b53d831c72ce6e32502bb8852dba1e31d95995317062de613aa"
+      "bytes": 3172,
+      "sha256": "8a3115370f5a5fadcb3f43e91be2df1cb774c0db40bfdd0aa2191c74f232a49e"
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/STANDARDIZATION_EXCEPTIONS.md",
@@ -592,8 +602,8 @@
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/product-conformance.json",
-      "bytes": 5861,
-      "sha256": "fe5ab89f9063937460df54f93db3c468b8271997b30c41263eb8d59a7535c17b"
+      "bytes": 5712,
+      "sha256": "23ee8c0187bad3860ea5d542cff50f9214e6e31b0aa4483dc4772f8ae32e7565"
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/product-conformance.schema.json",
@@ -612,8 +622,8 @@
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/product-maturity.json",
-      "bytes": 2463,
-      "sha256": "d0ea5abeb99e7d3d153dc48e18dc3e0145a6d7db3e9b0a953180da0c1430b3eb"
+      "bytes": 2532,
+      "sha256": "eab75ff1e3c594ac6f4eb3f42bd952367657357be36866f7e2b7ada956385582"
     },
     {
       "path": "10_STANDARDS_CONFORMANCE/product-maturity.schema.json",

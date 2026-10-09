@@ -8,7 +8,7 @@
     {
       "id": "UPS-CLI",
       "status": "ADAPT",
-      "implementation": "TARGET: M1 noun/verb CLI with readonly diag/status views. CURRENT: legacy `peerhub` default plus side-by-side 11-leaf `peerhub-m1`; default cutover is a separate IMPLEMENTING gate.",
+      "implementation": "TARGET: M1 noun/verb CLI with readonly diag/status views. CURRENT: peerhub is the only CLI.",
       "rationale": "Do not force Engram-like verb hierarchy. Do not confuse target conformance with current public-entrypoint maturity."
     },
     {
@@ -57,7 +57,7 @@
     {
       "id": "UPS-OBS",
       "status": "COMPLY",
-      "implementation": "TARGET: Observation owns quota/rate/runtime facts; Diag is readonly display. CURRENT M1 module can render observations/resource pools, while side-by-side `peerhub-m1 diag health` is stream-only; quota display parity is a public-cutover gate.",
+      "implementation": "TARGET: Observation owns quota/rate/runtime facts; Diag is readonly display. CURRENT M1 module can render observations/resource pools; quota display parity is a public-cutover gate.",
       "rationale": "Exact common pattern."
     },
     {

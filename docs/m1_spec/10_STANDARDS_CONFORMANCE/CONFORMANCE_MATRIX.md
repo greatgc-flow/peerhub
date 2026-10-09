@@ -19,3 +19,9 @@
 | UPS-TEST | **COMPLY** | 85 requirements/205 tests plus state/exception/interaction/fault/meta closure. | Stronger than common baseline. |
 | UPS-REL | **COMPLY** | Candidate-bound gates, live/package gates and evidence freshness policy. | Matches common release assurance. |
 | UPS-DOC | **COMPLY** | Machine SSOT plus generated/views and validator drift checks. | Matches common SSOT rule. |
+
+# Maturity & Implementation Status
+
+- **CLI**: The only CLI is peerhub (side-by-side peerhub-m1 and legacy-import/109 table are gone).
+- **M1**: Implementation status keeps its old claim but labelled historical (bound to SHA 4a6994e).
+- **M2 and M3**: IMPLEMENTED, awaiting candidate-bound release verification. Verification claims should reference release evidence (	ools/release_evidence.py output) instead of asserting PASS.

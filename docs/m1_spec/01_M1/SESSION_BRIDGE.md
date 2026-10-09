@@ -50,3 +50,6 @@ TERMINAL
 ## 미래 Harness
 OpenAI Agents API/SDK, Claude Managed Agents, Microsoft Harness, ADK 등은
 Session Bridge의 `RuntimeTarget` adapter가 됩니다.
+
+## M1 Spec Alignment (2026-10-09)
+Current adapters report native resume/interrupt/terminate/steer as unsupported (peerhub/extensions/adapters/base.py). Bridge control intents are capability-gated (peerhub/extensions/bridge.py). Durable fresh-session catch-up is the continuity mechanism; it does NOT stop an already-running provider invocation, and native control stays an optional capability per adapter.

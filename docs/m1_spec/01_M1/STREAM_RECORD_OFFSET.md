@@ -33,3 +33,6 @@ context.boundary
 ```
 
 Control은 durable user intent이고 실제 interrupt/steer는 Session Bridge 책임입니다.
+
+## M1 Spec Alignment (2026-10-09)
+Current adapters report native resume/interrupt/terminate/steer as unsupported (peerhub/extensions/adapters/base.py). Bridge control intents are capability-gated (peerhub/extensions/bridge.py). Durable fresh-session catch-up is the continuity mechanism; it does NOT stop an already-running provider invocation, and native control stays an optional capability per adapter.
