@@ -11,8 +11,9 @@ from tests.communication.live.live_support import ROOT, lowest_profile
 pytestmark = pytest.mark.e2e
 
 
+@pytest.mark.catalog_id("LIVE-008")
 @pytest.mark.parametrize("provider", ["cx", "cc", "ag"])
-def test_public_ask_live_returns_a_durable_response(tmp_path, provider):
+def test_live_008_public_ask_live_returns_a_durable_response(tmp_path, provider):
     profile = lowest_profile(provider)
     db = tmp_path / "core.db"
     args = [sys.executable, "-m", "peerhub", "--db", str(db), "ask", provider, "Reply with OK",

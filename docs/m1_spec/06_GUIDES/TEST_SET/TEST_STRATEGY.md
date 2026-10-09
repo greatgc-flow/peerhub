@@ -13,7 +13,7 @@
 
 ## 현재 baseline
 - Requirements: **85**
-- Tests: **205**
+- Tests: **207**
 - Exceptions classified: **85**, OPEN 0
 - High-risk interactions: **34**, uncovered REQUIRED 0
 - State machines: **6**, OPEN transition 0

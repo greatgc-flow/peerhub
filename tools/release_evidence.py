@@ -3,8 +3,6 @@ requirement coverage summary, with SHA-256 checksums over every bundle file.
 
 Fail closed: `release_ready` is true only if EVERY catalog test on a blocking gate (any priority; everything but G6) has a PASSED
 result (failed/error/missing/skipped all block; a skip alone is never a pass).
-Foreign matrix-cell skips require a real pass for the exact testcase identity
-in other supplied candidate-bound evidence; archived VERIFIED claims never count.
 EVERY requirement is covered, all live canaries passed, at least one package exists, and every package version equals the source version.
 Soak (G6) is non-blocking and does not affect readiness.
 
@@ -34,7 +32,7 @@ PROP = "candidate."  # JUnit <property> namespace written by stamp_junit
 # scope and requires equality, so a stripped or edited property, a forged id or swapped wheels all fail. Tests of the package gate (G4)
 # only count from package-scoped files.
 PACKAGE_GATE = "G4"
-REQUIRED_BINDING = ("source_revision", "policy_sha256", "gate_definition_sha256", "stamped_at", "id", "gate")
+REQUIRED_BINDING = ("source_revision", "stamped_at", "id", "gate")
 
 
 def _sha(p: Path) -> str:
@@ -56,44 +54,23 @@ def _test_ids(name: str, ids: list[str]) -> list[str]:
 
 # accepted machine-readable skip reasons (live opt-in / provider availability / soak opt-in / CI-only); anything else is a plain skip
 ALLOWED_SKIP = re.compile(r"^(LIVE-OPT-IN|LIVE-PROVIDER-UNAVAILABLE|SOAK-OPT-IN|CI-ONLY)\[[^\]]*\]")
-# Archived matrix claims are historical metadata, never current-candidate passes.
-ARCHIVE_SKIP = re.compile(r"^CI-ONLY\[[^\]]*\]: VERIFIED-(CI|LOCAL)")
-MATRIX_SKIP = re.compile(r"^CI-ONLY\[python=[^;\]]+;os=[^\]]+\]")
 
 
 def junit_outcomes(paths: list[Path], ids: list[str]) -> dict[str, str]:
-    """Aggregate exact (classname, name) identities before catalog IDs.
-
-    The candidate-mode caller passes only accepted candidate-bound files. A foreign
-    CI cell skip may be satisfied by a real pass of that exact parametrized case
-    in another accepted file. Archive claims, ordinary/live skips and any failure
-    cannot be converted into passes by unrelated cases sharing a catalog ID.
-    """
-    cases: dict[tuple[str, str], list[str]] = {}
+    """Every observed case for a catalog ID must pass; skips never reconcile to passes."""
+    seen: dict[str, list[str]] = {}
     for p in paths:
         for case in ET.parse(p).getroot().iter("testcase"):
             outcome = "passed"
-            # A malformed case with both skip and failure must still fail closed.
             if case.find("failure") is not None:
                 outcome = "failed"
             elif case.find("error") is not None:
                 outcome = "error"
             elif (skip := case.find("skipped")) is not None:
                 reason = (skip.get("message") or skip.text or "").strip()
-                outcome = ("not_verified" if ARCHIVE_SKIP.match(reason) else
-                           "matrix_skip" if MATRIX_SKIP.match(reason) else
-                           "not_verified" if ALLOWED_SKIP.match(reason) else "skipped")
-            identity = (case.get("classname", ""), case.get("name", ""))
-            cases.setdefault(identity, []).append(outcome)
-    seen: dict[str, list[str]] = {}
-    for (_, name), results in cases.items():
-        if "passed" in results and all(result in {"passed", "matrix_skip"} for result in results):
-            outcome = "passed"
-        else:
-            outcome = next((result for result in ("failed", "error", "skipped", "not_verified") if result in results),
-                           "not_verified")
-        for tid in _test_ids(name, ids):
-            seen.setdefault(tid, []).append(outcome)
+                outcome = "not_verified" if ALLOWED_SKIP.match(reason) else "skipped"
+            for tid in _test_ids(case.get("name", ""), ids):
+                seen.setdefault(tid, []).append(outcome)
     out = {}
     for tid in ids:
         res = seen.get(tid)
@@ -109,12 +86,9 @@ def _package_shas(dist_dir: Path) -> list[str]:
     return sorted(_sha(p) for p in Path(dist_dir).glob("*") if p.suffix == ".whl" or p.name.endswith(".tar.gz"))
 
 
-def candidate_fields(*, commit: str, package_sha256: list[str], policy_path: Path, gates_path: Path) -> dict:
-    """Cutover candidate identity: everything that makes evidence for one candidate invalid for another."""
-    policy = json.loads(Path(policy_path).read_text(encoding="utf-8"))
-    return {"source_revision": commit, "package_sha256": sorted(package_sha256),
-            "policy_schema_version": policy.get("schema_version"), "policy_sha256": _sha(Path(policy_path)),
-            "gate_definition_sha256": _sha(Path(gates_path))}
+def candidate_fields(*, commit: str, package_sha256: list[str]) -> dict:
+    """Candidate identity is the source revision and sorted package digests."""
+    return {"source_revision": commit, "package_sha256": sorted(package_sha256)}
 
 
 def load_release_policy(release_policy: Path | None) -> tuple[int, int]:
@@ -154,17 +128,14 @@ def _now() -> datetime:
 def stamp_junit(path: Path, *, commit: str, gate: str, repo_root: Path = ROOT, dist_dir: Path | None = None, policy_path: Path | None = None,
                 at: datetime | None = None) -> None:
     """Bind a JUnit file to the candidate inputs known where it was produced (<property name="candidate.*">) and record when."""
-    policy_path = Path(policy_path) if policy_path else Path(repo_root) / POLICY_REL
     if not re.fullmatch(r"G[0-9]", gate):
         raise ValueError(f"gate must look like G0..G9, not {gate!r}")
-    props = {"gate": gate, "source_revision": commit, "policy_sha256": _sha(policy_path),
-             "gate_definition_sha256": _sha(Path(repo_root) / GATES_REL),
+    props = {"gate": gate, "source_revision": commit,
              "stamped_at": (at or _now()).astimezone(timezone.utc).isoformat()}
     pkgs = _package_shas(dist_dir) if dist_dir is not None else []
     if dist_dir is not None:
         props["package_sha256"] = ",".join(pkgs)
-    fields = candidate_fields(commit=commit, package_sha256=pkgs, policy_path=policy_path,
-                              gates_path=Path(repo_root) / GATES_REL)
+    fields = candidate_fields(commit=commit, package_sha256=pkgs)
     props["id"] = candidate_id(scoped_fields(fields, dist_dir is not None))
     tree = ET.parse(path)
     root = tree.getroot()
@@ -214,7 +185,7 @@ def assess_evidence(junit_paths: list[Path], cand: dict, ttl: int, skew: int, no
             continue
         pkg = "package_sha256" in props
         scope = "package" if pkg else "source"
-        diff = [k for k in ("source_revision", "policy_sha256", "gate_definition_sha256") if props[k] != cand[k]]
+        diff = [k for k in ("source_revision",) if props[k] != cand[k]]
         if pkg and props["package_sha256"] != ",".join(cand["package_sha256"]):
             diff.append("package_sha256")
         if props["id"] != candidate_id(scoped_fields(cand, pkg)):
@@ -258,8 +229,7 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
     if candidate:
         pol_path = Path(policy_path) if policy_path else Path(repo_root) / POLICY_REL
         pol = json.loads(pol_path.read_text(encoding="utf-8"))
-        fields = candidate_fields(commit=commit, package_sha256=_package_shas(dist_dir),
-                                  policy_path=pol_path, gates_path=Path(repo_root) / GATES_REL)
+        fields = candidate_fields(commit=commit, package_sha256=_package_shas(dist_dir))
         cid = candidate_id(fields)
         cand_block = {**fields, "candidate_id": cid}
         bindings = assess_evidence(used_junit, fields, *load_release_policy(release_policy), now or _now())

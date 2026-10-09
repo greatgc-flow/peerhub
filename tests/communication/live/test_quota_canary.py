@@ -8,8 +8,9 @@ from peerhub.extensions.diag_quota import quota_report
 pytestmark = pytest.mark.slow
 
 
+@pytest.mark.catalog_id("LIVE-007")
 @pytest.mark.parametrize("provider", ["cx", "cc", "ag"])
-def test_provider_quota_live_persists_measured_evidence(tmp_path, provider):
+def test_live_007_provider_quota_live_persists_measured_evidence(tmp_path, provider):
     db = tmp_path / "core.db"
     CoreStore(db)
     result = refresh_quota(db, [provider], deadline_sec=30)

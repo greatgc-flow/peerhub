@@ -1,5 +1,5 @@
 """Cutover gate item 6: candidate-matched verification. Evidence must be a current PASS bound to the exact candidate
-(source revision, package digests, policy, gate definitions); freshness comes ONLY from the policy file.
+(source revision, package digests); freshness comes ONLY from the policy file.
 Synthetic JUnit + a fake dist directory keep this fast; oracles are literal expectations, not the tool's own functions."""
 import json
 import re
@@ -107,11 +107,11 @@ def test_rel_007_candidate_matrix_skip_never_borrows_another_case_pass(env, reas
     assert manifest["unverified_blocking_tests"]["REL-010"] == "not_verified"
 
 
-def test_rel_007_candidate_matrix_exact_identity_pass_satisfies_foreign_cell_skip(env):
+def test_rel_007_candidate_matrix_exact_identity_pass_cannot_hide_skip(env):
     name = "test_rel_010_matrix[py3.12-ubuntu-latest]"
     skipped = _matrix_case_file(env, name, "skipped", "CI-ONLY[python=3.12;os=ubuntu-latest]: UNVERIFIED current candidate")
     executed = _matrix_case_file(env, name, "passed")
-    assert env.manifest([skipped, executed])["release_ready"]
+    assert not env.manifest([skipped, executed])["release_ready"]
 
 
 @pytest.mark.parametrize("change", ["classname", "param", "archive", "ordinary_skip", "live_skip", "failure", "error"])
@@ -167,8 +167,7 @@ def test_cut_011_stale_evidence_holds_with_an_explicit_reason(env):
     assert env.manifest([env.evidence(age=ttl - 5)])["release_ready"] is True  # just inside the window
 
 
-@pytest.mark.parametrize("what,field", [("sha", "source_revision"), ("wheel", "package_sha256"),
-                                         ("policy", "policy_sha256")])
+@pytest.mark.parametrize("what,field", [("sha", "source_revision"), ("wheel", "package_sha256")])
 def test_cut_012_evidence_for_another_candidate_is_rejected(env, tmp_path, what, field):
     if what == "sha":
         j = env.evidence(commit="b" * 40)
@@ -224,15 +223,22 @@ def test_cut_016_missing_or_invalid_release_policy_threshold_is_refused(env, tmp
 
 
 def test_cut_017_candidate_id_is_deterministic_and_sensitive_to_every_field(env):
-    base = dict(commit=SHA, package_sha256=["1" * 64, "2" * 64], policy_path=POLICY, gates_path=REPO / ev.GATES_REL)
+    base = dict(commit=SHA, package_sha256=["1" * 64, "2" * 64])
     f = ev.candidate_fields(**base)
     cid = ev.candidate_id(f)
     assert cid == ev.candidate_id(ev.candidate_fields(**{**base, "package_sha256": ["2" * 64, "1" * 64]}))  # order-independent, deterministic
     for k, v in (("commit", "c" * 40), ("package_sha256", ["1" * 64, "3" * 64])):
         assert ev.candidate_id(ev.candidate_fields(**{**base, k: v})) != cid, k
-    assert ev.candidate_id({**f, "policy_sha256": "0" * 64}) != cid
-    assert ev.candidate_id({**f, "gate_definition_sha256": "0" * 64}) != cid
-    assert ev.candidate_id({**f, "policy_schema_version": 2}) != cid
+    assert f == {"source_revision": SHA, "package_sha256": ["1" * 64, "2" * 64]}
+
+
+def test_cut_candidate_policy_changes_preserve_binding(env, tmp_path):
+    j = env.evidence(age=1)
+    original = env.manifest([j])
+    changed = env.manifest([j], policy=policy_with(tmp_path, "changed.json", on_timeout="ESCALATE", schema_version=2))
+    assert changed["candidate"] == original["candidate"]
+    assert changed["evidence_bindings"][0]["status"] == "accepted"
+    assert changed["release_ready"]
 
 
 def test_cut_018_manifest_without_candidate_mode_is_unchanged(env):
@@ -591,3 +597,58 @@ def test_cut_032_requirement_without_linked_tests_is_uncovered_not_a_crash(tmp_p
     data["requirements"][0]["tests"] = []
     rp.write_text(json.dumps(data), encoding="utf-8")
     assert victim in ev.build_manifest(repo_root=root, junit_paths=[j], dist_dir=dist, commit=SHA)["requirement_coverage"]["uncovered"]
+
+
+@pytest.mark.parametrize("tid,filename", [("LIVE-007", "test_quota_canary.py"), ("LIVE-008", "test_cli_canary.py")])
+@pytest.mark.parametrize("provider", ["cx", "cc", "ag"])
+@pytest.mark.parametrize("bad", ["failure", "error", "skipped"])
+def test_cut_live_stage_provider_case_must_pass(env, tid, filename, provider, bad):
+    import ast
+
+    module = ast.parse((REPO / "tests/communication/live" / filename).read_text(encoding="utf-8"))
+    name = next(node.name for node in module.body if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"))
+    base = env.evidence({i: "passed" for i in all_ids(live=True) if i != tid})
+    stage = env.evidence({tid: "passed"}, gate="G3", dist=None)
+    tree = ET.parse(stage)
+    suite = next(tree.getroot().iter("testsuite"))
+    for case in list(suite.findall("testcase")):
+        suite.remove(case)
+    for kind in ("cx", "cc", "ag"):
+        case = ET.SubElement(suite, "testcase", classname=filename, name=f"{name}[{kind}]")
+        if kind == provider:
+            ET.SubElement(case, bad, message="provider probe did not pass")
+    tree.write(stage, encoding="utf-8", xml_declaration=True)
+    manifest = env.manifest([base, stage])
+    assert not manifest["release_ready"]
+    assert manifest["live_canaries"][tid] == {"failure": "failed", "error": "error", "skipped": "skipped"}[bad]
+
+
+def test_cut_matrix_union_of_eight_executed_cell_files_passes(env):
+    paths = []
+    for py in ("3.11", "3.12", "3.13", "3.14"):
+        for os_name in ("ubuntu-latest", "windows-latest"):
+            path = env.evidence({i: "passed" for i in all_ids(live=True) if i not in {"REL-010", "REL-011"}})
+            tree = ET.parse(path)
+            suite = next(tree.getroot().iter("testsuite"))
+            for name in ("test_rel_010_python_matrix_cell", "test_rel_011_os_matrix_cell_path_and_newline_smoke"):
+                ET.SubElement(suite, "testcase", classname="tests.communication.package.test_rel_matrix",
+                              name=f"{name}[py{py}-{os_name}]")
+            tree.write(path, encoding="utf-8", xml_declaration=True)
+            paths.append(path)
+    assert len(paths) == 8
+    assert env.manifest(paths)["release_ready"]
+    tree = ET.parse(paths[-1])
+    ET.SubElement(next(tree.getroot().iter("testcase")), "failure", message="cell failed")
+    tree.write(paths[-1], encoding="utf-8", xml_declaration=True)
+    assert not env.manifest(paths)["release_ready"]
+
+
+def test_cut_stamp_needs_only_source_and_package_identity(env, tmp_path):
+    root = tmp_path / "different-gates"
+    gates = root / ev.GATES_REL
+    gates.parent.mkdir(parents=True)
+    gates.write_text('{"gates": []}', encoding="utf-8")
+    j = env.evidence(repo=root, policy=policy_with(tmp_path, "different-policy.json", schema_version=2))
+    props = {e.get("name") for e in ET.parse(j).getroot().iter("property")}
+    assert props == {"candidate.gate", "candidate.source_revision", "candidate.stamped_at", "candidate.package_sha256", "candidate.id"}
+    assert env.manifest([j])["release_ready"]

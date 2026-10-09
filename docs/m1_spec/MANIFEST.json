@@ -228,7 +228,7 @@
     {
       "path": "06_GUIDES/TEST_SET/README.md",
       "bytes": 1632,
-      "sha256": "7ee42c6f2b636192a351f3e932ff2fa190b7666177ac0942b68264212aa3dc07"
+      "sha256": "7b7029d9467a5ccfea8efc6ede07a8d81fa2682434afaf8e11684e415345b36d"
     },
     {
       "path": "06_GUIDES/TEST_SET/RECURSIVE_MECE_MODEL.json",
@@ -238,7 +238,7 @@
     {
       "path": "06_GUIDES/TEST_SET/RECURSIVE_MECE_MODEL.md",
       "bytes": 1316,
-      "sha256": "8788ae66afe644b60cafa64f1f8547fb224434dbf1843b2d17ad529761142cd6"
+      "sha256": "40c981d788788f7916d63cb3f27643d61fb378a44aa7b89c9d179e483b0f851c"
     },
     {
       "path": "06_GUIDES/TEST_SET/RED_SEQUENCE.md",
@@ -267,13 +267,13 @@
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json",
-      "bytes": 24135,
-      "sha256": "96a95defacb000097ccfa5df74fd0b7983aadbab083f223e7330f885101a7177"
+      "bytes": 24365,
+      "sha256": "31e9b632ac1b6352a98b434ec79c96284631e2058e85c040091a0977511e8893"
     },
     {
       "path": "06_GUIDES/TEST_SET/TEST_STRATEGY.md",
       "bytes": 2387,
-      "sha256": "0b4e7ba886c6377cc54532f26f8c08faebedddcbcfe303de4cedfcfc76adb63e"
+      "sha256": "df183aafbc366164a08241f9a19aa65cfa49cbb7d6ff072230d2384a01e856fc"
     },
     {
       "path": "06_GUIDES/TEST_SET/exception-catalog.schema.json",
@@ -292,8 +292,8 @@
     },
     {
       "path": "06_GUIDES/TEST_SET/requirements.json",
-      "bytes": 49066,
-      "sha256": "1ec28c2fd5880684236cfbecb90dc5aed8548a7f77583d5d6abfc93b9ae7315e"
+      "bytes": 49106,
+      "sha256": "3f12cd2bf6c48025afe380a247630ab9c56bcf00224e0b5f49a442274aa5b163"
     },
     {
       "path": "06_GUIDES/TEST_SET/requirements.schema.json",
@@ -307,8 +307,8 @@
     },
     {
       "path": "06_GUIDES/TEST_SET/test-catalog.json",
-      "bytes": 171469,
-      "sha256": "8be73eaa053af273b97bcb0ebcc5513ee752e3194bcb0541de9144db70cce0ba"
+      "bytes": 173102,
+      "sha256": "8a5a6f4be99be91a90ea440224b8f6c229a5156c241eacf24371a4e94ad8081e"
     },
     {
       "path": "06_GUIDES/TEST_SET/test-catalog.schema.json",

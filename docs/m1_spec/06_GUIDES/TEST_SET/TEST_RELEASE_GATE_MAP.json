@@ -1231,6 +1231,18 @@
       "primary_gate": "G2",
       "priority": "P1",
       "tier": "e2e"
+    },
+    {
+      "test_id": "LIVE-007",
+      "primary_gate": "G3",
+      "priority": "P0",
+      "tier": "live"
+    },
+    {
+      "test_id": "LIVE-008",
+      "primary_gate": "G3",
+      "priority": "P0",
+      "tier": "live"
     }
   ]
 }

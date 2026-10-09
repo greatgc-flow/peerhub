@@ -17,7 +17,7 @@ pytestmark = [pytest.mark.package, pytest.mark.release, pytest.mark.evidence, py
 TS = REPO / "docs/m1_spec/06_GUIDES/TEST_SET"
 CATALOG = json.loads((TS / "test-catalog.json").read_text(encoding="utf-8"))["tests"]
 REQS = {r["id"]: r for r in json.loads((TS / "requirements.json").read_text(encoding="utf-8"))["requirements"]}
-LIVE_IDS = ["LIVE-CC-001", "LIVE-CX-001", "LIVE-AG-001", "LIVE-004", "LIVE-005", "LIVE-006"]  # literal
+LIVE_IDS = ["LIVE-CC-001", "LIVE-CX-001", "LIVE-AG-001", "LIVE-004", "LIVE-005", "LIVE-006", "LIVE-007", "LIVE-008"]  # literal
 SOAK_IDS = ["SOAK-001", "SOAK-002"]
 # literal oracle (derived by hand from requirements.json): requirements that link a live-provider test
 REQS_WITH_LIVE = {"REQ-BRIDGE-001", "REQ-BRIDGE-003", "REQ-OBS-001", "REQ-REL-002", "REQ-REL-003"}
