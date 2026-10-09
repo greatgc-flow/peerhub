@@ -74,6 +74,16 @@
           "takes_value": true
         },
         {
+          "default": false,
+          "dest": "resume",
+          "flags": [
+            "--resume"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": null,
           "dest": "silence_timeout_seconds",
           "flags": [

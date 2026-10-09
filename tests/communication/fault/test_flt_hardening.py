@@ -141,7 +141,7 @@ def test_flt_008_wave5_era_store_upgrades_and_runs_a_full_delivery_cycle(tmp_pat
     assert [r[1] for r in raw(h.db_path, "PRAGMA table_info(bridge_sessions)")][-1] == "last_seen"
     h2 = BridgeHarness(ws)  # opening upgrades in place
     cols = [r[1] for r in raw(h2.db_path, "PRAGMA table_info(bridge_sessions)")]
-    assert cols[-1] == "workspace_generation" and len(cols) == 11
+    assert cols[10:] == ["workspace_generation", "vendor_session_id", "context_watermark", "bootstrap_truncated", "usage_json"]
     assert raw(h2.db_path, "SELECT external_session_id, workspace_generation FROM bridge_sessions") == [("ext-1", "")]
     rt = FakeRuntimeTarget()
     rt.sessions.add("ext-1")  # the provider still has the old session, but its lineage is unknown

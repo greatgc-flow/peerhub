@@ -27,15 +27,15 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         model: str | None = None, effort: str | None = None, timeout_s: float = 60,
         profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False,
         max_bytes: int = 1_000_000, runtime: RuntimeTarget | None = None,
-        on_output: Callable[[str], None] | None = None) -> dict[str, Any]:
+        on_output: Callable[[str], None] | None = None, resume: bool = False) -> dict[str, Any]:
     if not prompt.strip():
         raise ValueError("prompt must not be empty")
     if not math.isfinite(timeout_s) or timeout_s <= 0 or max_bytes <= 0:
         raise ValueError("timeout and output limit must be positive")
     if silence_timeout_s is not None and (not math.isfinite(silence_timeout_s) or silence_timeout_s <= 0):
         raise ValueError("silence timeout must be finite and positive")
-    if runtime is not None and (profile is not None or silence_timeout_s is not None or writable):
-        raise ValueError("profile/silence timeout/writable must be configured on an explicitly supplied runtime")
+    if runtime is not None and (profile is not None or silence_timeout_s is not None or writable or resume):
+        raise ValueError("profile/silence timeout/writable/resume must be configured on an explicitly supplied runtime")
     if author == peer_id:
         raise ValueError("ask author and target peer must differ")
     # Resolve adapter configuration before any bootstrap/migration or prompt append.
@@ -53,12 +53,14 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             elif tables:
                 raise StorageCorruptError("database does not contain the communication Core schema; v0 support is archived on branch legacy/v0-main-final")
     kind = ALIASES.get(adapter_ref or peer_id)
+    if resume and kind is None:
+        raise ValueError("resume is only supported for CLI peers with adapter cx, cc or ag")
     if runtime is None:
         if kind is None:
             raise ValueError("register this peer with --adapter cx, cc or ag before asking it")
         runtime = CliRuntimeTarget(kind, workspace or Path.cwd(), model=model, effort=effort,
                                    profile=profile, silence_timeout_s=silence_timeout_s, writable=writable,
-                                   timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output)
+                                   timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output, resume=resume)
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     store = CoreStore(db_path)
     peer = store.get_peer(peer_id)
@@ -100,6 +102,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                                        terminal["response_record_id"], terminal["session_generation"]))
         else:
             result = asdict(bridge.run_cycle(token, runtime))
+        result.update(bridge.delivery_details(result.get("delivery_id")))
         response_id = result.get("response_record_id")
         with closing(sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
             row = conn.execute("SELECT body_json, metadata_json FROM records WHERE record_id=?", (response_id,)).fetchone()

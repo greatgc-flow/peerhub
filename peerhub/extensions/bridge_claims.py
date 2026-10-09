@@ -107,6 +107,9 @@ class ClaimStore:
         finally:
             conn.close()
 
+    def workspace_generation(self) -> str:
+        return self._generation()
+
     def acquire(self, peer_id: str, stream_id: str, owner_id: str, lease_sec: float) -> ClaimToken:
         gen = self._generation()
         with self._tx() as conn:
