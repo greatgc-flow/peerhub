@@ -45,7 +45,7 @@
 ## Recursive MECE Test Traceability
 
 `06_GUIDES/TEST_SET/` is the machine-readable SSOT.
-There are currently **85 requirements / 205 tests**, and the validator enforces the following.
+There are currently **85 requirements / 207 tests**, and the validator enforces the following.
 
 - requirement coverage 100%
 - required dimension coverage 100%

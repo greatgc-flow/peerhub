@@ -8,11 +8,6 @@
       "statement": "Core boots normally with zero awareness of Extension modules when all extensions are OFF; Core package import graph statically forbids extension dependencies.",
       "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
       "priority": "P0",
-      "tests": [
-        "EXT-001",
-        "EXT-002",
-        "EXT-023"
-      ],
       "required_dimensions": [
         "architecture",
         "negative",
@@ -29,12 +24,6 @@
       "statement": "Extension DB tables are strictly prefixed and isolated; failure during migration leaves the DB in a valid previous state, maintaining durability and backwards compatibility.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "EXT-003",
-        "EXT-008",
-        "EXT-020",
-        "EXT-021"
-      ],
       "required_dimensions": [
         "schema",
         "fault",
@@ -51,13 +40,6 @@
       "statement": "Host schema and config validation strictly rejects unknown, null, missing, or malformed manifests before any runtime execution begins.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "EXT-006",
-        "EXT-007",
-        "EXT-018",
-        "EXT-019",
-        "EXT-024"
-      ],
       "required_dimensions": [
         "schema",
         "negative"
@@ -73,11 +55,6 @@
       "statement": "Extension lifecycle state machine transitions (DISCOVERED/VALIDATED/ENABLED/DISABLED/FAILED) are strictly enforced; forbidden transitions instantly raise exception.",
       "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
       "priority": "P0",
-      "tests": [
-        "EXT-010",
-        "EXT-011",
-        "EXT-022"
-      ],
       "required_dimensions": [
         "state-transition",
         "negative",
@@ -93,11 +70,6 @@
       "statement": "Disabling or rebuilding an extension removes it from the runtime registry and clears caches, but securely preserves all authoritative extension DB tables and data.",
       "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
       "priority": "P0",
-      "tests": [
-        "EXT-004",
-        "EXT-012",
-        "EXT-016"
-      ],
       "required_dimensions": [
         "state-transition",
         "boundary",
@@ -113,10 +85,6 @@
       "statement": "Concurrent interactions with the extension registry (enable, disable, read during migration) are strictly fenced to prevent torn state.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "EXT-005",
-        "EXT-017"
-      ],
       "required_dimensions": [
         "concurrency",
         "positive"
@@ -131,10 +99,6 @@
       "statement": "Extension hook exceptions and missing dependencies yield defined terminal dispositions without unhandled aborts in the Core host.",
       "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
       "priority": "P0",
-      "tests": [
-        "EXT-013",
-        "EXT-014"
-      ],
       "required_dimensions": [
         "negative",
         "fault"
@@ -149,10 +113,6 @@
       "statement": "Extension enablement and registration are strictly idempotent; repeating identical operations returns the existing state securely.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "EXT-009",
-        "EXT-015"
-      ],
       "required_dimensions": [
         "idempotency",
         "retry"
@@ -167,11 +127,6 @@
       "statement": "Artifact blob is fully durable on disk at its verified path before any durable Record reference is committed to the Core stream.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ART-001",
-        "ART-002",
-        "ART-030"
-      ],
       "required_dimensions": [
         "ordering",
         "persistence",
@@ -188,11 +143,6 @@
       "statement": "Artifact commits are atomic; failures such as ENOSPC (disk-full), partial copies, or read errors leave no corrupted blob under a valid digest.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ART-003",
-        "ART-004",
-        "ART-034"
-      ],
       "required_dimensions": [
         "fault",
         "atomic",
@@ -209,12 +159,6 @@
       "statement": "Artifact storage enforces a strict security trust boundary rejecting path traversals, symlinks, Windows junctions, and reparse points.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ART-005",
-        "ART-006",
-        "ART-007",
-        "ART-027"
-      ],
       "required_dimensions": [
         "security",
         "negative",
@@ -231,13 +175,6 @@
       "statement": "Artifact reference names reject malformed and hostile inputs: unicode normalizations, NUL bytes, case-insensitive collisions, >260 char long paths, and Windows reserved device names (CON, NUL, etc.).",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ART-008",
-        "ART-012",
-        "ART-013",
-        "ART-014",
-        "ART-015"
-      ],
       "required_dimensions": [
         "security",
         "negative",
@@ -254,13 +191,6 @@
       "statement": "Read verification fails explicitly if disk content is tampered with (bit flips, zero-byte overwrite) after atomic commit.",
       "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
       "priority": "P0",
-      "tests": [
-        "ART-009",
-        "ART-010",
-        "ART-018",
-        "ART-019",
-        "ART-026"
-      ],
       "required_dimensions": [
         "immutability",
         "negative",
@@ -276,11 +206,6 @@
       "statement": "Identical artifact commits return the existing digest after full streamed verification and renew its GC grace; deduplication does not eliminate verification IO.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ART-017",
-        "ART-024",
-        "ART-025"
-      ],
       "required_dimensions": [
         "idempotency",
         "duplicate",
@@ -296,10 +221,6 @@
       "statement": "Concurrent staging, committing, and deletion of identical artifacts across multiple processes are heavily fenced and result in a single valid artifact state.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ART-016",
-        "ART-033"
-      ],
       "required_dimensions": [
         "concurrency",
         "fencing"
@@ -314,12 +235,6 @@
       "statement": "Artifact stage, digest, verification, and commit are operational phases; commit_staged verifies its StagedArtifact internally before publication.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ART-020",
-        "ART-021",
-        "ART-022",
-        "ART-023"
-      ],
       "required_dimensions": [
         "state-transition",
         "positive",
@@ -335,12 +250,6 @@
       "statement": "Orphaned artifacts without Core references are securely garbage-collected, and references pointing to missing artifacts resolve into defined errors without unhandled crash.",
       "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
       "priority": "P0",
-      "tests": [
-        "ART-028",
-        "ART-029",
-        "ART-035",
-        "ART-036"
-      ],
       "required_dimensions": [
         "integration",
         "boundary",
@@ -357,11 +266,6 @@
       "statement": "Large artifacts (e.g. >2GB), 0-byte artifacts, and payload data with internal NUL bytes are staged via chunking safely against MemoryError (OOM) and format corruption.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "ART-011",
-        "ART-031",
-        "ART-032"
-      ],
       "required_dimensions": [
         "capacity",
         "positive",
@@ -378,10 +282,6 @@
       "statement": "Core Event Stream Record is the sole authority for all Work mutations; Work Projection is derived and fully rebuildable.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "WRK-001",
-        "WRK-002"
-      ],
       "required_dimensions": [
         "architecture",
         "integration",
@@ -397,11 +297,6 @@
       "statement": "Work state machine enforces OPEN -> ACTIVE <-> BLOCKED/PAUSED -> DONE/FAILED/CANCELLED lifecycle transitions.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "WRK-003",
-        "WRK-004",
-        "WRK-006"
-      ],
       "required_dimensions": [
         "state_machine",
         "lifecycle"
@@ -416,9 +311,6 @@
       "statement": "Work mutations require expected_revision matching the authoritative Record-derived revision; success requires reducer acceptance of the caller's mutation Record.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "WRK-005"
-      ],
       "required_dimensions": [
         "concurrency",
         "idempotency"
@@ -433,10 +325,6 @@
       "statement": "Checkpoints and CAS artifact links can be attached to active work items and tracked across revisions.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P1",
-      "tests": [
-        "WRK-010",
-        "WRK-011"
-      ],
       "required_dimensions": [
         "integration",
         "positive"
@@ -451,10 +339,6 @@
       "statement": "Dropping projection tables and replaying stream records reconstructs an exact identical projection state.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "WRK-002",
-        "WRK-012"
-      ],
       "required_dimensions": [
         "durability",
         "recovery"
@@ -469,9 +353,6 @@
       "statement": "Skill directory indexing computes a canonical deterministic SHA-256 tree digest over all relative paths and contents.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SKL-001"
-      ],
       "required_dimensions": [
         "schema",
         "durability"
@@ -486,13 +367,6 @@
       "statement": "Skill lifecycle enforces DISCOVERED -> VALIDATED -> ACTIVE <-> SUSPENDED -> RETIRED transitions; terminal RETIRED cannot transition further.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SKL-002",
-        "SKL-003",
-        "SKL-004",
-        "SKL-005",
-        "SKL-006"
-      ],
       "required_dimensions": [
         "state-machine",
         "negative"
@@ -507,9 +381,6 @@
       "statement": "Post-index file modification inside a skill directory is detected upon verification or execution and rejected as tampered.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SKL-009"
-      ],
       "required_dimensions": [
         "security",
         "fault"
@@ -524,9 +395,6 @@
       "statement": "Discovery does not grant execution authorization; unvalidated or suspended skills cannot be invoked.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SKL-010"
-      ],
       "required_dimensions": [
         "security",
         "policy"
@@ -541,11 +409,6 @@
       "statement": "Capability catalog maintains curated declared facts; volatile runtime measurements (quota, rate-limit) are strictly rejected.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SKL-011",
-        "SKL-012",
-        "SKL-013"
-      ],
       "required_dimensions": [
         "architecture",
         "schema"
@@ -560,11 +423,6 @@
       "statement": "Replaying authoritative Records alone reconstructs the logical skill and capability projections without rescanning directories or replacing recorded digests.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "SKL-007",
-        "SKL-008",
-        "SKL-014"
-      ],
       "required_dimensions": [
         "durability",
         "recovery"
@@ -579,9 +437,6 @@
       "statement": "Trace capture produces structured frozen dataclass fields and tuple spans with a deterministic content digest; nested dictionaries remain mutable and require source verification.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "EVL-001"
-      ],
       "required_dimensions": [
         "trace",
         "immutability"
@@ -596,9 +451,6 @@
       "statement": "Evaluation datasets are stored as Artifacts with cryptographic digests, verifiable via ArtifactStore.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "EVL-002"
-      ],
       "required_dimensions": [
         "storage",
         "artifact"
@@ -613,11 +465,6 @@
       "statement": "Deterministic evaluators execute against traces and datasets, outputting versioned evaluation reports with evidence and metrics.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "EVL-003",
-        "EVL-004",
-        "EVL-006"
-      ],
       "required_dimensions": [
         "determinism",
         "evaluation"
@@ -632,9 +479,6 @@
       "statement": "Invariant 12: Eval/Telemetry results never become collaboration truth or bypass CoreStore authorization.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "EVL-005"
-      ],
       "required_dimensions": [
         "isolation",
         "security"
@@ -649,10 +493,6 @@
       "statement": "Feedback signal from failed evaluation closes the loop into actionable regression test cases without corrupting authoritative state.",
       "source": "09_ROADMAP/PEERHUB_MASTER_ROADMAP.md",
       "priority": "P0",
-      "tests": [
-        "EVL-007",
-        "EVL-010"
-      ],
       "required_dimensions": [
         "feedback",
         "regression"
@@ -667,12 +507,6 @@
       "statement": "Telemetry exporter functions as an export-only sink whose failures are strictly isolated and never crash core storage or work transitions.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "EVL-008",
-        "EVL-009",
-        "EVL-011",
-        "EVL-012"
-      ],
       "required_dimensions": [
         "export_only",
         "fault_isolation"
@@ -687,9 +521,6 @@
       "statement": "Authoritative backup creation bundles core store and physical artifact blobs sealed with cryptographic manifest and reopen proof.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "BCK-001"
-      ],
       "required_dimensions": [
         "backup",
         "integrity"
@@ -704,10 +535,6 @@
       "statement": "Invariant 11: Restoration strictly starts from authoritative state and rebuilds derived projections.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "BCK-002",
-        "BCK-005"
-      ],
       "required_dimensions": [
         "invariant",
         "recovery"
@@ -722,10 +549,6 @@
       "statement": "Offline restore writes a fresh workspace identity that fences old CoreStore instances; the numeric restore epoch follows the implemented current-generation rule, and older backup generations are rejected only when allow_rollback=False.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "BCK-004",
-        "BCK-008"
-      ],
       "required_dimensions": [
         "fencing",
         "concurrency"
@@ -740,9 +563,6 @@
       "statement": "Replaying restored authoritative stream records completely reconstructs 100% logically equivalent work projections and offsets.",
       "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
       "priority": "P0",
-      "tests": [
-        "BCK-003"
-      ],
       "required_dimensions": [
         "projection",
         "rebuild"
@@ -757,11 +577,6 @@
       "statement": "Corrupted backups and missing manifests are rejected pre-emptively without leaving partial mutations on disk.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "BCK-006",
-        "BCK-007",
-        "BCK-010"
-      ],
       "required_dimensions": [
         "fault",
         "tamper"
@@ -776,11 +591,6 @@
       "statement": "Secrets and credentials are excluded by default from backup bundles, and backup operations run without blocking core store.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "BCK-009",
-        "BCK-011",
-        "BCK-012"
-      ],
       "required_dimensions": [
         "security",
         "isolation"
@@ -795,9 +605,6 @@
       "statement": "Invariant 10: MCP never writes storage directly; all operations route through public core and extension ports.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MCP-001"
-      ],
       "required_dimensions": [
         "invariant",
         "architecture"
@@ -812,10 +619,6 @@
       "statement": "Standard JSON-RPC 2.0 stdio message framing and server lifecycle capability negotiation.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MCP-002",
-        "MCP-008"
-      ],
       "required_dimensions": [
         "protocol",
         "stdio"
@@ -830,10 +633,6 @@
       "statement": "MCP tool discovery and execution strictly validate parameters and map to public ports.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MCP-003",
-        "MCP-004"
-      ],
       "required_dimensions": [
         "tools",
         "execution"
@@ -848,10 +647,6 @@
       "statement": "MCP resource provider and prompt templates expose peerhub:// URIs and formatted context safely.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MCP-005",
-        "MCP-006"
-      ],
       "required_dimensions": [
         "resources",
         "prompts"
@@ -866,10 +661,6 @@
       "statement": "Session handles are isolated from transport connection state and verified per sensitive operation.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MCP-007",
-        "MCP-009"
-      ],
       "required_dimensions": [
         "session",
         "isolation"
@@ -884,11 +675,6 @@
       "statement": "Secret masking, clean extension disablement, and zero dev-dependency standard library implementation.",
       "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
       "priority": "P0",
-      "tests": [
-        "MCP-010",
-        "MCP-011",
-        "MCP-012"
-      ],
       "required_dimensions": [
         "security",
         "packaging"
@@ -903,13 +689,6 @@
       "statement": "Boot isolates manifest discovery failures and repeatedly fails closed over ENABLED dependency chains; dependencies accept unpinned IDs or identical registered-version pins, missing entrypoints reject enablement, and changed registered versions are not silently adopted.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "EXT-025",
-        "EXT-026",
-        "EXT-027",
-        "EXT-028",
-        "EXT-029"
-      ],
       "required_dimensions": [
         "lifecycle",
         "validation",
@@ -925,13 +704,6 @@
       "statement": "Artifact staging supports an optional byte bound; duplicate verification streams existing blobs; GC grace uses commit time and renews on deduplication; verified export publishes only after digest verification; new shard publication attempts POSIX shard and root directory fsync.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "ART-037",
-        "ART-038",
-        "ART-039",
-        "ART-040",
-        "ART-041"
-      ],
       "required_dimensions": [
         "bounds",
         "integrity",
@@ -947,11 +719,6 @@
       "statement": "Work CAS uses ordered authoritative Records and confirms acceptance of the caller's mutation Record; stale or missing projections recover after append/save crashes, creation retries obey the implemented identity/revision conditions, and rebuild replacement is atomic.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "WRK-013",
-        "WRK-014",
-        "WRK-015"
-      ],
       "required_dimensions": [
         "concurrency",
         "recovery",
@@ -967,11 +734,6 @@
       "statement": "Skill and capability CAS uses ordered authoritative Records and confirms the caller's mutation acceptance; missing registration projections recover from Records, and rebuild atomically replaces both projections without skill_roots or disk digest adoption.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "SKL-015",
-        "SKL-016",
-        "SKL-017"
-      ],
       "required_dimensions": [
         "concurrency",
         "recovery",
@@ -987,10 +749,6 @@
       "statement": "Skill tree digests frame sorted path bytes and streamed file content with 8-byte big-endian lengths and reject streamed-size changes; the standard-library frontmatter fallback parses the tested inline-list forms consistently with PyYAML.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "SKL-018",
-        "SKL-019"
-      ],
       "required_dimensions": [
         "integrity",
         "validation"
@@ -1005,10 +763,6 @@
       "statement": "Offline restore replaces the whole managed workspace after checking every top-level database, discards prior derived databases from the restored workspace, retains the previous directory, recovers it when a crash leaves the target absent, and never reverts a present restored target solely because an intent marker remains.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "BCK-013",
-        "BCK-014"
-      ],
       "required_dimensions": [
         "recovery",
         "concurrency"
@@ -1023,9 +777,6 @@
       "statement": "Derived rebuild delegates to a caller-supplied rebuild_projection port and streams all authoritative record pages; Backup does not construct WorkProjection from a database path.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "BCK-015"
-      ],
       "required_dimensions": [
         "rebuild"
       ],
@@ -1039,10 +790,6 @@
       "statement": "Evaluation recomputes trace/dataset digests and dataset count, optionally verifies the dataset artifact, binds reports to target_digest, and exposes verification of report integrity and supplied source identity.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "EVL-013",
-        "EVL-014"
-      ],
       "required_dimensions": [
         "integrity",
         "provenance"
@@ -1057,9 +804,6 @@
       "statement": "Evaluators receive deep private source snapshots; post-execution source verification rejects the tested content mutations without changing the caller's nested trace or dataset objects.",
       "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
-      "tests": [
-        "EVL-015"
-      ],
       "required_dimensions": [
         "integrity",
         "isolation"

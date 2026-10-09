@@ -44,7 +44,7 @@ Goal: The facts of collaboration and delivery states are not lost even if the AI
 `Diag` only reads and displays Observation; it does not refresh/repair/restart/route.
 
 ### M1 Exit
-- 85 requirements / 205 tests baseline GREEN
+- 85 requirements / 207 tests baseline GREEN
 - SQLite concurrency/crash/idempotency GREEN
 - Bridge fencing/execution certainty GREEN
 - Observation honesty/freshness GREEN

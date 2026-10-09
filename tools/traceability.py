@@ -68,18 +68,43 @@ def m23_covered_ids(tests_dir: Path = TESTS) -> dict[str, list[str]]:
     return cov
 
 
+def requirement_tests(tests: list[dict]) -> dict[str, list[dict]]:
+    """Derive requirement links from the authoritative test-to-requirement edges."""
+    by_req: dict[str, list[dict]] = {}
+    for test in tests:
+        for rid in test["requirements"]:
+            by_req.setdefault(rid, []).append(test)
+    return by_req
+
+
+def required_dimension_gaps(reqs: list[dict], by_req: dict[str, list[dict]]) -> list[tuple[str, list[str]]]:
+    """M1's required-dimension check, shared with the M2/M3 catalogs."""
+    gaps = []
+    for req in reqs:
+        dimensions = {dim for test in by_req.get(req["id"], []) for dim in test["dimensions"]}
+        missing = set(req["required_dimensions"]) - dimensions
+        if missing:
+            gaps.append((req["id"], sorted(missing)))
+    return gaps
+
+
 def check_m2_m3(root: Path = ROOT) -> dict[str, list[str]]:
     cov = m23_covered_ids(root / "tests")
-    problems: dict[str, list[str]] = {"uncovered_tests": [], "unknown_tests_in_requirements": [], "unknown_requirements_in_tests": [],
-                                      "p0_requirement_without_tests": []}
+    problems: dict[str, list[str]] = {"uncovered_tests": [], "duplicated_requirement_tests": [], "unknown_requirements_in_tests": [],
+                                      "p0_requirement_without_tests": [], "required_dimension_uncovered": []}
     for cat_rel, req_rel in M23_CATALOGS:
         tests = {t["id"]: t for t in json.loads((root / cat_rel).read_text(encoding="utf-8"))["tests"]}
         reqs = {r["id"]: r for r in json.loads((root / req_rel).read_text(encoding="utf-8"))["requirements"]}
+        by_req = requirement_tests(list(tests.values()))
         problems["uncovered_tests"] += sorted(i for i in tests if i not in cov)
         for rid, r in reqs.items():
-            problems["unknown_tests_in_requirements"] += [f"{rid}:{t}" for t in r.get("tests", []) if t not in tests]
-            if r.get("priority") == "P0" and not r.get("tests"):
+            if "tests" in r:
+                problems["duplicated_requirement_tests"].append(rid)
+            if r.get("priority") == "P0" and not by_req.get(rid):
                 problems["p0_requirement_without_tests"].append(rid)
+        problems["required_dimension_uncovered"] += [
+            f"{rid}:{','.join(missing)}" for rid, missing in required_dimension_gaps(list(reqs.values()), by_req)
+        ]
         for tid, t in tests.items():
             problems["unknown_requirements_in_tests"] += [f"{tid}:{q}" for q in t.get("requirements", []) if q not in reqs]
     return {k: v for k, v in problems.items() if v}

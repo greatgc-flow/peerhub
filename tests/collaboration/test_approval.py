@@ -307,6 +307,7 @@ def test_app_012_rel_009_standard_library_compliance() -> None:
             assert mod is not None
 
 
+@pytest.mark.catalog_id("APP-013")
 def test_single_use_across_concurrent_engines(temp_db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Independent consumers must not both accept the same exact-effect token."""
     import peerhub.extensions.approval as approval_module

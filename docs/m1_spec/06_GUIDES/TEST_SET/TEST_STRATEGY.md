@@ -23,12 +23,12 @@ Tests lock down **invariants + exception spaces + interaction risks**, not imple
 - architecture: 5
 - concurrency: 22
 - e2e: 20
-- fault: 21
+- fault: 20
 - integration: 42
-- live: 6
+- live: 8
 - meta: 4
-- migration: 6
-- package: 14
+- migration: 3
+- package: 13
 - property: 14
 - schema: 16
 - security: 1
@@ -37,10 +37,10 @@ Tests lock down **invariants + exception spaces + interaction risks**, not imple
 
 ## Case types
 - boundary: 26
-- fault: 37
+- fault: 36
 - meta: 4
-- negative: 56
-- positive: 87
+- negative: 55
+- positive: 86
 
 ## Recursive Rules
 Partition iteratively in this order: `Functional area → case type → applicable risk dimension → lifecycle/failure phase → cross-feature interaction`. Applicability is declared by the requirement's `required_dimensions` and verified by the validator against the actual test union.

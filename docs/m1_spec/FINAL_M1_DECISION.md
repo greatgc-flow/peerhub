@@ -69,12 +69,12 @@ As of 2026-10-04, the M1 implementation has been merged into main `4a6994e7...`.
 
 ## TDD-ready Test Baseline
 
-The M1 contract is tracked by **85 requirements / 205 test cases** in `06_GUIDES/TEST_SET/`. We have completed the design down to Core invariants, SQLite race/crash, Bridge fencing/certainty, Observation honesty, strict read-only Diag, fake-runtime E2E, real-provider canary, and clean install/publish gate.
+The M1 contract is tracked by **85 requirements / 207 test cases** in `06_GUIDES/TEST_SET/`. We have completed the design down to Core invariants, SQLite race/crash, Bridge fencing/certainty, Observation honesty, strict read-only Diag, fake-runtime E2E, real-provider canary, and clean install/publish gate.
 
 ## TDD / Recursive MECE Baseline
 
 - Requirements: **85**
-- Tests: **205**
+- Tests: **207**
 - Requirement required-dimension coverage: validator enforced
 - State/Exception/Interaction inventories: terminal closure required
 - Provider live and soak are isolated from deterministic CI
@@ -86,7 +86,7 @@ After development/testing completion, the **Done → Released → Operated → C
 ## Vertical/Horizontal Final Cross-check R3
 
 - invariant SSOT 8/8 requirement reverse tracing
-- test→release gate 205/205 machine mapping
+- test→release gate 207/207 machine mapping
 - release gate DAG explicit/fail-closed
 - signal route→lifecycle/runbook resolvability
 - unresolved Problem follow-up closure rules after rollback
