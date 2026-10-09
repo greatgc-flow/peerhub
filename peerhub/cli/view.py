@@ -31,6 +31,11 @@ CREDIT_WARN_HOURS = 72.0  # same threshold as `diag quota`
 Obj = Mapping[str, object]
 
 
+def _safe_text(value: object) -> str:
+    """Remove terminal controls from data before adding presentation escapes."""
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", "", str(value))
+
+
 def visible_len(text: str) -> int:
     return len(_ANSI.sub("", text))
 
@@ -99,7 +104,7 @@ def _severity(headroom: float | None, diff: float | None) -> str:
 
 
 def _pool_label(ref: object) -> str:
-    return str(ref).rsplit(":", 1)[-1] if ref else "(probe)"
+    return _safe_text(ref).rsplit(":", 1)[-1] if ref else "(probe)"
 
 
 class _Row:
@@ -107,13 +112,13 @@ class _Row:
 
     def __init__(self, item: Obj, read_at: float) -> None:
         payload = _obj(item.get("payload"))
-        self.peer = str(item.get("subject_ref") or "-")
+        self.peer = _safe_text(item.get("subject_ref") or "-")
         self.pool = _pool_label(item.get("resource_pool_ref"))
-        self.kind = str(item.get("kind") or "quota")
-        self.state = str(item.get("state") or "UNKNOWN")
+        self.kind = _safe_text(item.get("kind") or "quota")
+        self.state = _safe_text(item.get("state") or "UNKNOWN")
         self.age = _num(item.get("age_seconds"))
         why = payload.get("reason")
-        self.reason = str(why) if isinstance(why, str) else ""
+        self.reason = _safe_text(why) if isinstance(why, str) else ""
         rf = _num(payload.get("remaining_fraction"))
         measured = self.state in ("MEASURED", "STALE") and rf is not None
         self.headroom = min(1.0, max(0.0, rf)) if measured and rf is not None else None
@@ -148,7 +153,7 @@ def _quota_rows(items: list[Obj], pools: list[Obj], read_at: float) -> list[_Row
     for p in pools:  # a registered quota pool without evidence is shown explicitly as UNKNOWN, never omitted
         pid = p.get("resource_pool_id")
         if p.get("kind") in ("QUOTA", "RATE_LIMIT") and pid not in seen:
-            rows.append(_Row({"subject_ref": p.get("provider"), "resource_pool_ref": pid, "kind": str(p.get("kind")).lower(),
+            rows.append(_Row({"subject_ref": p.get("provider"), "resource_pool_ref": pid, "kind": _safe_text(p.get("kind")).lower(),
                               "state": "UNKNOWN"}, read_at))
     return sorted(rows, key=lambda r: (r.peer, r.pool))
 
@@ -207,8 +212,8 @@ def _credit_lines(items: list[Obj], read_at: float, color: bool, unicode: bool, 
         return []
     out = [_paint("RESET CREDITS", BOLD, color)]
     for it in credits:
-        payload, state = _obj(it.get("payload")), str(it.get("state") or "UNKNOWN")
-        peer = str(it.get("subject_ref") or "-")
+        payload, state = _obj(it.get("payload")), _safe_text(it.get("state") or "UNKNOWN")
+        peer = _safe_text(it.get("subject_ref") or "-")
         if state not in ("MEASURED", "STALE"):
             out.append(f"  {peer:<5} {_paint(state, DIM if state == 'UNKNOWN' else RED, color)}  (no count: evidence is {state.lower()})")
             continue
@@ -235,9 +240,9 @@ def _activity_lines(items: list[Obj], limit: int, color: bool) -> list[str]:
     for it in acts:
         p = _obj(it.get("payload"))
         took = _num(p.get("operation_elapsed_seconds"))
-        ok = str(p.get("status") or "?")
+        ok = _safe_text(p.get("status") or "?")
         code = {"delivered": GREEN, "recovered_terminal": GREEN}.get(ok, YELLOW)
-        out.append(f"  {str(it.get('subject_ref') or '-'):<5} {_paint(ok, code, color)} {p.get('certainty') or ''}  "
+        out.append(f"  {_safe_text(it.get('subject_ref') or '-'):<5} {_paint(ok, code, color)} {_safe_text(p.get('certainty') or '')}  "
                    f"{human_duration(_num(it.get('age_seconds')))} ago" + (f"  took {human_duration(took)}" if took is not None else ""))
     return out
 
@@ -257,9 +262,9 @@ def _ask_lines(report: DiagnosticReport, items: list[Obj], limit: int, color: bo
         rate_txt = "    -" if rate is None else f"{rate * 100:4.0f}%"
         rate_col = DIM if rate is None else GREEN if rate >= 0.9 else YELLOW if rate >= 0.7 else RED
         med = _num(p.get("median_seconds"))
-        last = str(p.get("last_status") or "?")
+        last = _safe_text(p.get("last_status") or "?")
         last_ok = last in ("delivered", "recovered_terminal")
-        peer = str(p.get("peer") or "-")
+        peer = _safe_text(p.get("peer") or "-")
         if not last_ok:
             alerts.append(f"{peer} last ask {last}")
         out.append(f"  {peer:<5} {asks:>4} {ok:>4} {_paint(f'{unc:>4}', YELLOW if unc else DIM, color)} "
@@ -297,11 +302,11 @@ def advance_report(report: DiagnosticReport, now: float) -> DiagnosticReport:
 
 def _system_line(rep: DiagnosticReport, top: int, color: bool) -> str:
     peers, streams = _items(_section(rep, "peers").get("peers")), _items(_section(rep, "streams").get("streams"))
-    chip = _paint(rep.status, GREEN if rep.status == "OK" else RED if rep.status == "FAILED" else YELLOW, color)
+    chip = _paint(_safe_text(rep.status), GREEN if rep.status == "OK" else RED if rep.status == "FAILED" else YELLOW, color)
     records = _num(rep.snapshot.get("records_total"))
     busiest = sorted(streams, key=lambda s: (str(s.get("stream_id") or "").startswith("legacy:"),
                                              -(_num(s.get("head_position")) or 0.0)))[:max(0, top)]
-    names = ", ".join(_ellipsis(str(s.get("stream_id")), 22) for s in busiest)
+    names = ", ".join(_ellipsis(_safe_text(s.get("stream_id")), 22) for s in busiest)
     tail = f"  |  busiest: {names}" if names else ""
     return (f"SYSTEM  {len(peers)} peers | {len(streams)} streams | {'?' if records is None else int(records)} records | {chip}{tail}")
 
@@ -309,14 +314,14 @@ def _system_line(rep: DiagnosticReport, top: int, color: bool) -> str:
 def _header(rep: DiagnosticReport, db_name: str, cycle: int | None, refresh: Obj | None, next_in: float | None,
             tz: tzinfo | None, color: bool) -> str:
     when = datetime.fromtimestamp(rep.read_at, tz) if tz is not None else datetime.fromtimestamp(rep.read_at).astimezone()
-    parts = [_paint("PeerHub", BOLD + CYAN, color), when.strftime("%H:%M:%S %z"), db_name]
+    parts = [_paint("PeerHub", BOLD + CYAN, color), when.strftime("%H:%M:%S %z"), _safe_text(db_name)]
     if cycle is not None:
         parts.append(f"cycle {cycle}")
     if refresh is not None:
         if refresh.get("skipped"):
             parts.append(_paint("redraw only", DIM, color))
         else:
-            st = str(refresh.get("status") or "?")
+            st = _safe_text(refresh.get("status") or "?")
             parts.append("refresh " + _paint(st, GREEN if st == "OK" else YELLOW if st == "PARTIAL" else RED, color))
     if next_in is not None:
         parts.append(f"next in {human_duration(next_in)}")
@@ -345,7 +350,7 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
     system = _system_line(report, top_streams, color)
     lines += ["", system if visible_len(system) <= width or color else _ellipsis(system, width)]
     if report.error:
-        alerts.append(f"diag error: {report.error[:50]}")
+        alerts.append(f"diag error: {_safe_text(report.error)[:50]}")
     shown = alerts[:4] + ([f"+{len(alerts) - 4} more"] if len(alerts) > 4 else [])
     alert_text = _ellipsis("; ".join(shown), max(10, width - 8))
     lines.append(_paint("ALERTS  ", BOLD, color) + (_paint(alert_text, YELLOW + BOLD, color) if alerts else _paint("all clear", GREEN, color)))

@@ -202,6 +202,7 @@ class AgSpec(ProviderSpec):
 
     def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
              vendor_session_id: str | None = None) -> list[str]:
+        prompt = "\n" + prompt if prompt.startswith("-") else prompt
         a = ["-p", prompt, "--output-format", "json"]
         if model:
             a += ["--model", model]

@@ -31,6 +31,24 @@ def test_helpers():
     assert use_color(False, {}) is False
 
 
+@pytest.mark.parametrize("color", [False, True])
+def test_untrusted_peer_pool_and_reason_cannot_emit_terminal_controls(color):
+    from peerhub.cli.view import _Row, _quota_lines, _credit_lines, _activity_lines, _safe_text
+    payload = "peer\x1b[2J\x00\x07\x85pool"
+    assert _safe_text(payload) == "peer[2Jpool"
+    item = {"subject_ref": payload, "resource_pool_ref": "quota:" + payload,
+            "kind": "quota", "state": "ERROR", "payload": {"reason": payload}}
+    alerts = []
+    lines = _quota_lines([_Row(item, 0)], 100, color, False, alerts)
+    lines += _credit_lines([{**item, "kind": "reset_credit"}], 0, color, False, alerts)
+    lines += _activity_lines([{**item, "kind": "activity", "payload": {
+        "status": payload, "certainty": payload}}], 3, color)
+    text = "\n".join(lines + alerts)
+    assert "\x1b[2J" not in text
+    assert all(c not in text for c in ("\x00", "\x07", "\x85"))
+    assert "peer[2Jpool" in text
+
+
 # ---------------------------------------------------------------- per-peer ask history (activity section) and live ticks
 def _asks(db, peer, statuses, took=10.0):
     import uuid

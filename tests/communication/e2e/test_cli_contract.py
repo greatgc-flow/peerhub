@@ -260,7 +260,17 @@ def dq_json(e):
     assert e.run(q, "diag", "quota")[1].lstrip().startswith("quota/rate-limit evidence")  # not JSON without the flag
 
 
+def version_effect(e, flag):
+    from peerhub._version import __version__
+    code, out, err = e.run(e.tmp / "unused.db", flag)
+    assert code == 0 and out.strip() == f"peerhub {__version__}" and not err
+    assert not (e.tmp / "unused.db").exists()
+
+
 EFFECT = {
+    "* --version": lambda e: version_effect(e, "--version"),
+    "* -v": lambda e: version_effect(e, "-v"),
+    "* -V": lambda e: version_effect(e, "-V"),
     "* --db": x_db,
     "peer register --peer": reg_id, "peer register --name": reg_name, "peer register --adapter": reg_adapter, "peer get --peer": get_id,
     "stream create --stream": sc_id, "stream create --title": sc_title, "stream create --members": sc_members, "stream show --stream": ss_id,
@@ -352,3 +362,11 @@ def test_documented_exit_codes_are_the_ones_returned(env):
     assert env.run(db, *_swap(APPEND, "--body", '"different"'))[0] == 2  # idempotency conflict
     assert env.run(db, "offset", "advance", "--peer", "a", "--stream", "s", "--position", "1", "--revision", "9")[0] == 3
     assert Path(db).exists()
+
+
+def test_store_selection_failure_uses_normal_cli_error(monkeypatch, capsys):
+    def fail(*a, **k):
+        raise ValueError("invalid store selection")
+    monkeypatch.setattr("peerhub.cli.app._select_db", fail)
+    assert main(["peer", "get", "--peer", "a"]) == 1
+    assert capsys.readouterr().err == "ERROR: invalid store selection\n"

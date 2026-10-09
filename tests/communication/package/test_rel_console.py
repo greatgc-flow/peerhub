@@ -54,3 +54,24 @@ def test_cli_json_output_is_lossless_under_any_console_encoding(tmp_path):
                          cwd=REPO, env={**pkg_env.clean_env({"PYTHONIOENCODING": enc}), "PYTHONPATH": str(REPO)})
         assert cp.returncode == 0, cp.stderr
         assert json.loads(cp.stdout)["display_name"] == TEXT  # ASCII-escaped JSON: exact round trip, no replacement
+
+
+def test_ascii_stream_warns_once_across_both_streams(monkeypatch):
+    import io
+    from peerhub import _console
+    out, err = io.BytesIO(), io.BytesIO()
+    stdout = io.TextIOWrapper(out, encoding="ascii", write_through=True, newline="\n")
+    stderr = io.TextIOWrapper(err, encoding="ascii", write_through=True, newline="\n")
+    monkeypatch.setattr(sys, "stdout", stdout)
+    monkeypatch.setattr(sys, "stderr", stderr)
+    monkeypatch.setattr(_console, "_warned_encoding", False)
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+    _console.tolerant_streams()
+    _console.tolerant_streams()
+    print("plain ASCII")
+    assert not err.getvalue()
+    print(TEXT)
+    print(TEXT, file=sys.stderr)
+    warning = b"WARNING: output encoding ascii cannot show some characters; they are replaced; use UTF-8 or --json\n"
+    assert out.getvalue() == b"plain ASCII\n" + TEXT.encode("ascii", "replace") + b"\n"
+    assert err.getvalue() == warning + TEXT.encode("ascii", "replace") + b"\n"

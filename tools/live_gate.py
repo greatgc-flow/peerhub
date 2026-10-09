@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 STAGES = (("live", "runtime canaries", "g3.xml"), ("slow", "real adapter and quota probes", "g3-slow.xml"),
           ("e2e", "public ask scenarios", "g3-e2e.xml"))
+STAGE_SELECTIONS = {"live": "live and not slow and not e2e", "slow": "slow and not e2e", "e2e": "e2e"}
 EVIDENCE_PATHS = ("docs/implementation/live_evidence",)  # written by the canaries themselves
 PROVIDER_CLIS = ("agy", "claude", "codex")
 
@@ -52,9 +53,9 @@ def main(argv: list[str] | None = None) -> int:
     for marker, label, name in STAGES:
         if args.only and args.only != marker:
             continue
-        print(f"== {label} (-m {marker})", flush=True)
+        print(f"== {label} (-m {STAGE_SELECTIONS[marker]})", flush=True)
         junit = args.out / name
-        code = subprocess.call([sys.executable, "-u", "-m", "pytest", "-q", "-m", marker, f"--junitxml={junit}",
+        code = subprocess.call([sys.executable, "-u", "-m", "pytest", "-q", "-m", STAGE_SELECTIONS[marker], f"--junitxml={junit}",
                                 "tests/communication/live"], cwd=ROOT, env=env)
         worst = worst or code
         if junit.is_file():

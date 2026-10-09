@@ -44,7 +44,7 @@ def test_runs_each_stage_with_live_env_and_junit(tmp_path, monkeypatch):
 
     monkeypatch.setattr(live_gate.subprocess, "call", fake_call)
     assert live_gate.main(["--yes", "--out", str(tmp_path)]) == 0
-    assert [c[0][len(c[0]) - c[0][::-1].index("-m")] for c in calls] == ["live", "slow", "e2e"]
+    assert [c[0][len(c[0]) - c[0][::-1].index("-m")] for c in calls] == [live_gate.STAGE_SELECTIONS[stage] for stage in ("live", "slow", "e2e")]
     assert all(env == "1" for _, env in calls) and any("g3-slow.xml" in a for a in calls[1][0])
     assert stamps == [(n, {"commit": "abc1234567890", "gate": "G3"}) for n in ("g3.xml", "g3-slow.xml", "g3-e2e.xml")]
     calls.clear()
@@ -58,3 +58,12 @@ def test_refuses_to_stamp_a_dirty_tree(capsys, monkeypatch, tmp_path):
     monkeypatch.setattr(live_gate.subprocess, "call", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not run")))
     assert live_gate.main(["--yes", "--out", str(tmp_path)]) == 2
     assert "uncommitted" in capsys.readouterr().err
+
+
+def test_stage_selections_are_disjoint_and_preserve_union():
+    from itertools import product
+    for live, slow, e2e in product((False, True), repeat=3):
+        names = {"live": live, "slow": slow, "e2e": e2e}
+        selected = [eval(expr, {"__builtins__": {}}, names)
+                    for expr in live_gate.STAGE_SELECTIONS.values()]
+        assert sum(selected) == int(live or slow or e2e)

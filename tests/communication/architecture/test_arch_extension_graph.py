@@ -11,13 +11,13 @@ ROOT = Path(__file__).resolve().parents[3] / "peerhub" / "extensions"
 ALLOWED: dict[str, set[str]] = {
     # M1 Session Bridge entry
     "ask": {"bridge", "bridge_claims", "observation", "observation_model", "peer_kinds", "adapters"},
-    "adapters": {"bridge"},  # runtime adapters implement the Session Bridge RuntimeTarget protocol
+    "adapters": {"bridge", "binary_resolution", "process_tree"},  # runtime adapters implement the Session Bridge RuntimeTarget protocol
     "bridge": {"bridge_claims", "catchup", "schema_guard"},
     "bridge_claims": {"schema_guard"},
     # M1 Observation
     "observation": {"schema_guard", "observation_model"},
     "quota_capture": {"observation", "observation_model", "peer_kinds", "quota_probes", "quota_types"},
-    "quota_probes": {"quota_types", "adapters"},
+    "quota_probes": {"quota_types", "binary_resolution", "process_tree"},
     "quota_types": {"observation_model"},
     # M1 Diag
     "diag": {"observation_model"},
@@ -90,7 +90,7 @@ def test_extension_import_graph_matches_the_documented_allowlist():
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
     m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
           "quota_types", "diag", "diag_quota", "diag_watch", "peer_kinds", "schema_guard", "adapters"}
-    helpers = {"sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules
+    helpers = {"binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:
             continue

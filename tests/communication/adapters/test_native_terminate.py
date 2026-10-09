@@ -110,7 +110,7 @@ def test_terminate_unconfirmed_death_raises_runtime_error(tmp_path, monkeypatch,
 
     runner._proc = SimpleNamespace(pid=123, poll=lambda: None, wait=wait)
     adapter._active["session"] = runner
-    monkeypatch.setattr(process, "_kill_tree", lambda proc: failure != "kill")
+    monkeypatch.setattr(process, "kill_process_tree", lambda proc: failure != "kill")
     with pytest.raises(RuntimeTargetError, match="could not be confirmed"):
         adapter.terminate("session")
     assert runner._aborted.is_set()
