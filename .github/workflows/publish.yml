@@ -76,7 +76,7 @@ jobs:
   # fetches those three exact files into an isolated directory; missing files fail it (publish stays blocked), and the
   # release-evidence job below still verifies candidate binding, freshness and PASS of every live catalog test.
   live-validation:
-    # G3 (release-gates.json): LIVE-CC-001, LIVE-CX-001, LIVE-AG-001, LIVE-004, LIVE-005, LIVE-006 come from the local evidence.
+    # G3 (release-gates.json): LIVE-CC-001, LIVE-CX-001, LIVE-AG-001, LIVE-004, LIVE-005, LIVE-006, LIVE-007, LIVE-008 come from the local evidence.
     needs: [verify]
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "generated_on": "2026-10-03",
-  "count": 205,
+  "count": 207,
   "tests": [
     {
       "id": "ARCH-001",
@@ -2942,6 +2942,58 @@
         "negative"
       ],
       "case_type": "negative",
+      "deterministic": false
+    },
+    {
+      "id": "LIVE-007",
+      "tier": "live",
+      "title": "Live provider quota persists measured evidence",
+      "requirements": [
+        "REQ-REL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "live",
+        "slow",
+        "provider"
+      ],
+      "setup": "Authenticated cx, cc and ag CLIs; clean temporary database and workspace.",
+      "action": "Refresh quota for cx, cc and ag and read the persisted quota report.",
+      "oracle": "Each provider produces a MEASURED observation and an OK persisted report.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": true,
+      "dimensions": [
+        "live",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": false
+    },
+    {
+      "id": "LIVE-008",
+      "tier": "live",
+      "title": "Public ask persists a durable live response",
+      "requirements": [
+        "REQ-REL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "live",
+        "e2e",
+        "provider"
+      ],
+      "setup": "Authenticated cx, cc and ag CLIs; clean temporary database and workspace.",
+      "action": "Ask cx, cc and ag through the public CLI, then repeat the request id.",
+      "oracle": "Each provider returns TERMINAL with a durable response record; retry recovers that terminal result.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": true,
+      "dimensions": [
+        "live",
+        "positive"
+      ],
+      "case_type": "positive",
       "deterministic": false
     },
     {

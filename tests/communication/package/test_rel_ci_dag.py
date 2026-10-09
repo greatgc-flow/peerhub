@@ -290,10 +290,15 @@ def test_rel_006_live_job_selects_the_six_m1_live_tests_with_opt_in():
     import json
     ids = sorted(t["id"] for t in json.loads((REPO / "docs/m1_spec/06_GUIDES/TEST_SET/test-catalog.json").read_text(encoding="utf-8"))["tests"]
                  if t.get("live_provider"))
-    assert ids == ["LIVE-004", "LIVE-005", "LIVE-006", "LIVE-AG-001", "LIVE-CC-001", "LIVE-CX-001"]
+    assert ids == ["LIVE-004", "LIVE-005", "LIVE-006", "LIVE-007", "LIVE-008", "LIVE-AG-001", "LIVE-CC-001", "LIVE-CX-001"]
     col = pkg_env.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "-m", "live", "tests/communication/live"], cwd=REPO)
     assert len(re.findall(r"::test_live_", col.stdout)) == 6, col.stdout  # `-m live` (not slow/e2e) really selects all six
     assert cmd.startswith("-m live")  # the first local stage selects the six; slow/e2e would deselect all six
+    for marker, catalog_key in (("slow", "test_live_007_"), ("e2e", "test_live_008_")):
+        stage = pkg_env.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
+                            "-m", marker, "tests/communication/live"], cwd=REPO)
+        assert stage.returncode == 0 and len(re.findall("::" + catalog_key, stage.stdout)) == 3, stage.stdout
+
 
 
 def test_rel_006_publish_evidence_job_runs_the_release_evidence_tool_over_every_gate_junit():

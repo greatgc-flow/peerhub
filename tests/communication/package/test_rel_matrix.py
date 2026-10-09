@@ -1,8 +1,7 @@
 """Wave 7: REL-010 (declared Python matrix) and REL-011 (declared OS matrix + Windows path/newline smoke).
 
 Truthfulness rule (TD-18): everything the package metadata declares must be exercised by a CI job in the workflow matrix.
-Locally only the cell this machine can run is EXECUTED; every other declared cell is skipped with a machine-readable reason
-`CI-ONLY[python=<v>;os=<name>]: ...` and the marker `ci_only(python=, os=)` (so a CI report can assert they ran there)."""
+Each environment collects and executes only its own declared cell."""
 import json
 import platform
 import re
@@ -89,26 +88,14 @@ def _verified_ci():
 def _cell_params():
     local_py = f"{sys.version_info.major}.{sys.version_info.minor}"
     local_os = pkg_env.local_os_name()
-    params = []
-    if not _ci_matrix():  # no declared matrix: a visible FAILING cell (never an empty parameter set, which pytest would skip)
-        return [pytest.param("none", "none", id="no-ci-matrix")]
-    for py, os_ in sorted(_ci_matrix()):
-        runnable = py == local_py and os_ == local_os  # a cell is executed only if BOTH axes match this machine
-        marks = [pytest.mark.ci_only(python=py, os=os_)] if not runnable else []
-        if not runnable:
-            marks.append(pytest.mark.skip(reason=f"CI-ONLY[python={py};os={os_}]: UNVERIFIED current candidate (TD-18); "
-                                                 f"not runnable on local python {local_py} / {local_os}; "
-                                                 "requires the exact testcase pass in candidate-bound matrix evidence"))
-        params.append(pytest.param(py, os_, id=f"py{py}-{os_}", marks=marks))
-    return params
+    return [pytest.param(local_py, local_os, id=f"py{local_py}-{local_os}")]
 
 
-def test_rel_010_foreign_cell_skip_never_claims_historical_verification():
-    reasons = [mark.kwargs["reason"] for param in _cell_params()
-               for mark in param.marks if mark.name == "skip"]
-    assert reasons, "multi-cell matrix must contain foreign-cell skips on one interpreter"
-    assert all("UNVERIFIED current candidate" in reason for reason in reasons)
-    assert all("VERIFIED-CI" not in reason and "VERIFIED-LOCAL" not in reason for reason in reasons)
+def test_rel_010_only_running_cell_is_collected():
+    params = _cell_params()
+    assert len(params) == 1
+    assert params[0].values == (f"{sys.version_info.major}.{sys.version_info.minor}", pkg_env.local_os_name())
+    assert not params[0].marks
 
 
 def _smoke(installed, workdir):
@@ -149,7 +136,7 @@ def test_rel_010_local_interpreter_is_inside_the_declared_matrix(record_property
 
 @pytest.mark.parametrize(("py", "os_"), _cell_params())
 def test_rel_010_python_matrix_cell(py, os_, installed, tmp_path, record_property):
-    assert py != "none", "ci.yml declares no matrix job"
+    assert (py, os_) in _ci_matrix(), "running environment is outside the declared matrix"
     record_property("matrix_cell_executed", f"python={py};os={os_}")
     out = installed.run(["-I", "-c", "import sys; print('%d.%d' % sys.version_info[:2])"], cwd=tmp_path)
     assert out.stdout.strip() == py  # the venv under test really is the declared interpreter
@@ -230,7 +217,7 @@ BODIES = ["line1\r\nline2\nline3\rline4", "\n", "\r\n\r\n", "tab\tand trailing s
 
 @pytest.mark.parametrize(("py", "os_"), _cell_params())
 def test_rel_011_os_matrix_cell_path_and_newline_smoke(py, os_, installed, tmp_path, record_property):
-    assert py != "none", "ci.yml declares no matrix job"
+    assert (py, os_) in _ci_matrix(), "running environment is outside the declared matrix"
     record_property("matrix_cell_executed", f"python={py};os={os_}")
     work = tmp_path / "dir with spaces 한글 üñî"  # spaces + non-ASCII, as on a real Windows profile path
     work.mkdir()

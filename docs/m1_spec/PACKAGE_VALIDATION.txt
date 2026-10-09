@@ -1,14 +1,14 @@
 PACKAGE=m1_spec
 standards=15
 m1_requirements=85
-m1_tests=205
+m1_tests=207
 required_dimension_uncovered=0
 open_state_transitions=0
 exceptions=85
 open_exceptions=0
 interactions=34
 uncovered_required_interactions=0
-gate_mapped_tests=205
+gate_mapped_tests=207
 lifecycle_gate_evidence_policy=PASS
 lifecycle_stages=11
 lifecycle_invariants=8
