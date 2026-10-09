@@ -55,7 +55,7 @@ jobs:
           path: junit/g1.xml
 
       - name: Run G2 M1 (Bridge/Observation/Diag/fake-runtime E2E) tests
-        run: python -u -m pytest -q --junitxml=junit/g2.xml tests/communication/bridge tests/communication/observation tests/communication/diag tests/communication/control tests/communication/adapters tests/communication/e2e
+        run: python -u -m pytest -q --junitxml=junit/g2.xml tests/communication/bridge tests/communication/observation tests/communication/diag tests/communication/control tests/communication/adapters tests/communication/e2e tests/continuity tests/collaboration
       - name: Bind G2 JUnit to the cutover candidate (source, policy, gate definitions)
         if: always()
         run: python -m tools.release_evidence --stamp-junit junit/g2.xml --gate G2 --commit "$(git rev-parse HEAD)"
