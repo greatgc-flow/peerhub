@@ -364,7 +364,7 @@ if life_dir.exists():
 road_dir=root/"09_ROADMAP"
 if road_dir.exists():
     required_roadmap_files=[
-        "README.md","PEERHUB_MASTER_ROADMAP_KO.md","M2_DURABLE_WORK_CONTINUITY.md",
+        "README.md","PEERHUB_MASTER_ROADMAP.md","M2_DURABLE_WORK_CONTINUITY.md",
         "M3_FEDERATED_INTELLIGENT_COLLABORATION.md","OPTIONAL_CAPABILITY_TRACKS.md",
         "MILESTONE_GATES.md","CAPABILITY_MILESTONE_MATRIX.md","M2_M3_PRE_IMPLEMENTATION_CONTRACT.md","M1_PUBLIC_CLI_CUTOVER_GATE.md","roadmap.json","roadmap.schema.json",
     ]
@@ -511,10 +511,10 @@ for p in root.rglob("*.md"):
             errors.append(f"{bad} found in {p.relative_to(root)}")
 
 # semantic terminology/current-view lint must run BEFORE final PASS.
-for _p in [root/'10_STANDARDS_CONFORMANCE'/'COMPONENT_STRUCTURE_MAPPING.md', root/'09_ROADMAP'/'PEERHUB_MASTER_ROADMAP_KO.md']:
+for _p in [root/'10_STANDARDS_CONFORMANCE'/'COMPONENT_STRUCTURE_MAPPING.md', root/'09_ROADMAP'/'PEERHUB_MASTER_ROADMAP.md']:
     if _p.exists() and 'ADAPTER_PROVIDER' in _p.read_text(encoding='utf-8'): errors.append('stale flat ADAPTER_PROVIDER classification: '+str(_p.relative_to(root)))
-_start=(root/'START_HERE_KO.md').read_text(encoding='utf-8')
-_final=(root/'FINAL_ROADMAP_DECISION_KO.md').read_text(encoding='utf-8')
+_start=(root/'START_HERE.md').read_text(encoding='utf-8')
+_final=(root/'FINAL_ROADMAP_DECISION.md').read_text(encoding='utf-8')
 if '실제 구현 maturity는 IMPLEMENTED' in _start or '구현 maturity는 IMPLEMENTED' in _final: errors.append('human maturity view stale: M1 current-head is VERIFIED')
 _byid={x['id']:x for x in _cr.get('components',[])}
 if _byid.get('diag',{}).get('state_ownership') not in ([],None): errors.append('readonly diag must not own persisted state')

@@ -49,7 +49,7 @@ The Backup & Recovery engine (`peerhub.m2.backup`) provides typed public interfa
 
 ## Closure update (2026-10-08)
 
-Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. The state-machine and exception JSON catalogs carry the same update.
+Written after the M2/M3 closure work (`docs/implementation/M2_M3_CLOSURE_2026-10-08.md`) and checked against the code and tests. Where it conflicts with the text above, **this section wins**. The state-machine and exception JSON catalogs carry the same update.
 
 Section 1: replace the derived-state and generation-fencing bullets:
 

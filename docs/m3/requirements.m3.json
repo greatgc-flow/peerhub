@@ -763,7 +763,7 @@
       "id": "REQ-SRC-007",
       "area": "Search",
       "statement": "Search supports exact metadata predicates (metadata={key: scalar}, equal by type and value; True is not 1); they filter hits before limit is applied; non-scalar values or non-string keys raise ValueError.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "tests": [
         "SRC-013"
@@ -779,7 +779,7 @@
       "id": "REQ-MEM-007",
       "area": "Memory",
       "statement": "Memory rebuild is strict (an invalid event aborts and keeps the old projection) unless the store/rebuild opts into quarantine, which skips an invalid event atomically and lists it with its reason; the policy applies to every automatic refresh.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "tests": [
         "MEM-013"
@@ -795,7 +795,7 @@
       "id": "REQ-A2A-007",
       "area": "A2A",
       "statement": "With a journal configured, A2A writes a durable submitting Record (claim token, endpoint, attempt) before any remote call (an adapter without a journal tracks uncertain submissions only in memory: nothing survives a restart); an unresolved submission restores as uncertain and is never replayed; an 'unknown to the remote' answer releases the id only on a transport that proves absence, otherwise the task stays uncertain until abandon_task burns the id; reconciliation uses the original endpoint; reconcile_task(task_id, remote_task_id=None) requires an operator-supplied candidate remote id for HTTP and adopts only when remote history carries our local task id as messageId; no candidate or missing/mismatched history raises A2AExecutionUncertainError and leaves the task uncertain; the HTTP binding verifies the JSON-RPC envelope, identity and integer error codes and enforces a total call deadline.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "tests": [
         "A2A-013"
@@ -811,7 +811,7 @@
       "id": "REQ-ORC-007",
       "area": "Orchestration",
       "statement": "A plan may carry a cost_budget (each attempt must then report a finite cost; unreported is unknown, never zero; spend is summed from the durable journal across attempts and restarts), deterministic when/stop_if predicates (a skipped step skips its dependents; stop_if ends the plan as STOPPED), an opt-in parallel mode bounded by max_fanout with serialized journal appends, and a max_depth checked against the real dependency chain.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "tests": [
         "ORC-013"
@@ -827,7 +827,7 @@
       "id": "REQ-RUN-007",
       "area": "RuntimePort",
       "statement": "ProcessRuntimeAdapter runs a capability as a fixed argv (shell=False, declared parameters only); cancel kills the whole process tree and confirms it, otherwise it raises RuntimeCancellationError and the job stays RUNNING; HardDeadlineStepRunner kills work at the plan deadline (a confirmed kill is a certain failure, an unconfirmed one MAY_HAVE_STARTED, a job that finished on its own is used, not discarded), and require_hard_deadline accepts only runners that declare this.",
-      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08_KO.md",
+      "source": "docs/implementation/M2_M3_CLOSURE_2026-10-08.md",
       "priority": "P0",
       "tests": [
         "RUN-013"

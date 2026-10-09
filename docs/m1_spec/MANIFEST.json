@@ -546,9 +546,9 @@
       "sha256": "e2ad25684f016fd3401fe3c7840657bc48df4d96b4aa66a54941a93686745daa"
     },
     {
-      "path": "09_ROADMAP/PEERHUB_MASTER_ROADMAP_KO.md",
-      "bytes": 7278,
-      "sha256": "ccd0f526966ab69b8ad2aa85f28177707e2d31ea6b09713bc81201de38d5b193"
+      "path": "09_ROADMAP/PEERHUB_MASTER_ROADMAP.md",
+      "bytes": 7170,
+      "sha256": "a8ffcadcc0e983498f5388e824a596f3c6e618c8cdf9705e3f4c522eaa038bb3"
     },
     {
       "path": "09_ROADMAP/README.md",
@@ -631,24 +631,24 @@
       "sha256": "4f93ddd7f93ffabc6cec0f107b5ad1437761820b66eaea00e7bed4df74ca4068"
     },
     {
-      "path": "FINAL_M1_DECISION_KO.md",
-      "bytes": 3925,
-      "sha256": "70548af0b562a4bab61009c5aa4b73f8e9d2dec628c6e0340e48f125139c40ed"
+      "path": "FINAL_M1_DECISION.md",
+      "bytes": 3983,
+      "sha256": "bccc6cb5d7b2e329cf3948658ba8097200236e3cda017f8e4aa1a49879a0e24b"
     },
     {
-      "path": "FINAL_ROADMAP_DECISION_KO.md",
-      "bytes": 3981,
-      "sha256": "1a4bdcd2c9fe99dd98f940864443ce9359203ab49b59fae2d00055f5082f45fa"
+      "path": "FINAL_ROADMAP_DECISION.md",
+      "bytes": 3951,
+      "sha256": "c45527e7cb3d29351a655286d2ee0a786217408bbb087238b9f26499b188c356"
     },
     {
-      "path": "START_HERE_KO.md",
-      "bytes": 2759,
-      "sha256": "478af802040c0989cbf2444f896306a22afc15df727e92d05fdcf2a7634b917e"
+      "path": "START_HERE.md",
+      "bytes": 2736,
+      "sha256": "db2fbb399c2248e8552679870f5f1325effcf9f5db1630d0de046c7ede9f2c2a"
     },
     {
-      "path": "USAGE_GUIDE_KO.md",
-      "bytes": 2331,
-      "sha256": "209e773bf3af3d8759caa23a5d94cee960ca500b7ae0cba938511d029844402a"
+      "path": "USAGE_GUIDE.md",
+      "bytes": 2257,
+      "sha256": "89ff5d88dafe9f0bd28e234fc5fa648c0b8ed40567b1598d229c1040b9484bae"
     },
     {
       "path": "tools/generate_docs.py",
@@ -667,8 +667,8 @@
     },
     {
       "path": "tools/validate_package.py",
-      "bytes": 36151,
-      "sha256": "33833d96280fdd80f0eba198291d6772f9fe997f1a30a1241bee4856ee66685f"
+      "bytes": 36139,
+      "sha256": "0cdbcb9ced44e028875902b89bbfb85ba06cadeef8d13ca0c3f2d4fdf4692b7c"
     },
     {
       "path": "tools/validate_unified_conformance.py",
