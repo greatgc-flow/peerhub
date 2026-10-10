@@ -80,6 +80,7 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer ide
 `--writable` is off by default. It maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` (default `-s read-only`), and ag `--mode accept-edits`. cx resume inherits the sandbox of the initial session and does not accept `-s`; writable mode is therefore part of the session binding, and changing it starts a fresh generation.
 
 Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
+`--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db`, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`.
 
 `diag --live` repeatedly reads committed snapshots only. `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
