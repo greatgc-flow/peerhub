@@ -12,6 +12,11 @@ def _no_real_peer_binaries_by_default(request: pytest.FixtureRequest, monkeypatc
 
 
 @pytest.fixture(autouse=True)
+def _isolate_env_db(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _record_catalog_ids(request: pytest.FixtureRequest, record_property: Callable[[str, object], None]) -> None:
     for marker in request.node.iter_markers("catalog_id"):
         record_property("catalog_id", marker.args[0])

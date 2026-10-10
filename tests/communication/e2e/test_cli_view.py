@@ -189,3 +189,57 @@ def test_diag_health_reports_how_the_store_was_chosen(tmp_path, capsys):
     capsys.readouterr()
     assert cli(["--db", str(db), "diag", "health"]) == 0
     assert _json.loads(capsys.readouterr().out)["store_selection"] == {"path": str(db), "source": "explicit"}
+
+
+def test_render_view_shows_eta_projection_and_header_threat(tmp_path):
+    import time
+    import uuid
+
+    from peerhub.cli.app import main as cli
+    from peerhub.extensions.diag import ReadonlyDiag
+    from peerhub.extensions.observation import ObservationStore
+    from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool
+
+    db = str(tmp_path / "v_proj.db")
+    assert cli(["--db", db, "peer", "register", "--peer", "cx"]) == 0
+    assert cli(["--db", db, "peer", "register", "--peer", "cc"]) == 0
+
+    obs_store = ObservationStore(db)
+    obs_store.register_resource_pool(ResourcePool(resource_pool_id="pool-threat", provider="cx", kind="QUOTA"))
+    obs_store.register_resource_pool(ResourcePool(resource_pool_id="pool-safe", provider="cc", kind="QUOTA"))
+
+    t0 = 1000000.0
+    meas_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t0 + 7200.0))
+    # pool-threat: 80% used in 2h of 5h window (exhausts in 2.5h)
+    obs_store.persist(Observation(
+        observation_id=uuid.uuid4().hex,
+        subject_ref="cx",
+        resource_pool_ref="pool-threat",
+        kind="quota",
+        source="cx-cli",
+        observed_at=meas_iso,
+        captured_at=meas_iso,
+        state=EvidenceState.MEASURED,
+        payload={"remaining_fraction": 0.20, "window_started_at": t0, "resets_at": t0 + 18000.0},
+    ))
+    # pool-safe: 10% used in 2h of 5h window
+    obs_store.persist(Observation(
+        observation_id=uuid.uuid4().hex,
+        subject_ref="cc",
+        resource_pool_ref="pool-safe",
+        kind="quota",
+        source="cc-cli",
+        observed_at=meas_iso,
+        captured_at=meas_iso,
+        state=EvidenceState.MEASURED,
+        payload={"remaining_fraction": 0.90, "window_started_at": t0, "resets_at": t0 + 18000.0},
+    ))
+
+    rep = ReadonlyDiag(db).render(["peers", "streams", "resource_pools", "observations"], read_at=t0 + 7200.0)
+    out = render_view(rep, width=100, unicode=False, store_path=db, store_source="explicit")
+    assert f"{db} (explicit)" in out
+    assert "THREAT: cx/pool-threat exhausts ~" in out
+    assert "before reset" in out
+    assert "ETA: exhausts ~" in out
+    assert "ETA: safe until reset" in out
+

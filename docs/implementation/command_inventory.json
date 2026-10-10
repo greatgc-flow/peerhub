@@ -301,6 +301,16 @@
           "takes_value": true
         },
         {
+          "default": null,
+          "dest": "sys_dir",
+          "flags": [
+            "--system-dir"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
           "default": 15.0,
           "dest": "timeout",
           "flags": [

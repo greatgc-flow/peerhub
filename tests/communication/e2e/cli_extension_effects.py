@@ -148,6 +148,8 @@ def monitor_effect(e, option):
         argv = ["monitor", "--cycles", "2"]
     elif option == "--peers":
         argv += [option, "cx"]
+    elif option == "--system-dir":
+        argv += [option, str(e.tmp)]
     elif option == "--timeout-seconds":
         argv += [option, "2"]
     elif option == "--collect-every":
@@ -169,6 +171,9 @@ def monitor_effect(e, option):
     elif option == "--interval-seconds": assert sleeps == [3.14]
     elif option == "--cycles": assert len(sleeps) == 1
     elif option == "--peers": assert captured[0]["instance_id"] == "cx"
+    elif option == "--system-dir":
+        assert code == 0 and captured
+        assert all(call["sys_dir"] == e.tmp for call in captured)
     elif option == "--timeout-seconds": assert captured[0]["deadline_sec"] == 2
     elif option == "--collect-every": assert len(captured) == 3
     elif option == "--allow-agy-token-use": assert code == 1 and err.count("tokens used") == 2
@@ -184,4 +189,4 @@ EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
                for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
-               for option in ("--interval-seconds", "--cycles", "--peers", "--timeout-seconds", "--json", "--allow-agy-token-use", "--collect-every", "--view")})
+               for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--allow-agy-token-use", "--collect-every", "--view")})

@@ -11,10 +11,11 @@ import hashlib
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
 from peerhub.extensions.observation_model import MEASUREMENT_KEYS
+from peerhub.extensions.quota_projection import project_exhaustion
 
 SCHEMA_VERSION = "1.0"
 QUOTA_KINDS = ("quota", "rate_limit")
@@ -23,6 +24,16 @@ RESET_CREDIT_WARN_SECONDS = 72 * 3600  # an available credit expiring in strictl
 POOL_KINDS = ("QUOTA", "RATE_LIMIT")  # registered pools of these kinds without evidence are listed as UNKNOWN
 # status -> public CLI exit code: 4 storage fault, 5 diag unavailable, 6 schema version
 EXIT_BY_STATUS = {"OK": 0, "UNAVAILABLE": 5, "FAILED": 4, "SCHEMA_VERSION": 6}
+
+
+class _QuotaObservation(TypedDict):
+    kind: str
+    state: str
+    subject_ref: str
+    resource_pool_ref: str | None
+    payload: dict[str, object]
+    observed_at: str
+    age_seconds: float | None
 
 
 def _classify(rep: DiagnosticReport, db: str) -> tuple[str, str | None]:
@@ -116,16 +127,30 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
         if (peer is not None and it["subject_ref"] != peer) or (pool is not None and it["resource_pool_ref"] != pool):
             continue
         meas = _measurements(it["payload"])
+        der = _derived(meas)
+        start = it["payload"].get("window_started_at")
+        reset = it["payload"].get("resets_at")
+        meas_at = None
+        if it.get("observed_at"):
+            try:
+                meas_at = datetime.fromisoformat(str(it["observed_at"]).replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                pass
+        if meas_at is None and it.get("age_seconds") is not None:
+            meas_at = now - it["age_seconds"]
+        proj = project_exhaustion(der.get("used_fraction"), start, meas_at, reset, now)
         groups.setdefault(it["resource_pool_ref"], []).append({
             "subject_ref": it["subject_ref"], "resource_pool_ref": it["resource_pool_ref"], "kind": it["kind"], "state": it["state"],
-            "age_seconds": it["age_seconds"], "source": it["source"], "measurements": meas, "derived": _derived(meas),
-            "window": {k: it["payload"][k] for k in ("window_started_at", "resets_at") if k in it["payload"]}})
+            "age_seconds": it["age_seconds"], "source": it["source"], "measurements": meas, "derived": der,
+            "window": {k: it["payload"][k] for k in ("window_started_at", "resets_at") if k in it["payload"]},
+            "projection": proj})
     if peer is None:  # a registered pool with no quota/rate_limit evidence is explicit UNKNOWN (never unlimited)
         for p in rep.sections["resource_pools"].data.get("pools", []):
             pid = p["resource_pool_id"]
             if p["kind"] in POOL_KINDS and pid not in groups and (pool is None or pool == pid):
                 groups[pid] = [{"subject_ref": None, "resource_pool_ref": pid, "kind": p["kind"].lower(), "state": "UNKNOWN", "age_seconds": None,
-                                "source": None, "measurements": {}, "derived": {}}]
+                                "source": None, "measurements": {}, "derived": {},
+                                "projection": project_exhaustion(None, None, None, None, now)}]
     pools: list[dict[str, Any]] = [{"resource_pool_ref": k, "items": groups[k]} for k in sorted(groups, key=lambda x: (x is None, x or ""))]
     out["pools"] = pools
     out["reset_credits"] = resets
@@ -194,11 +219,61 @@ def _reset_credit_lines(items: list[dict[str, Any]], header: str, indent: str) -
     return lines
 
 
-def format_dashboard(rep: DiagnosticReport) -> str:
+def _human_duration(seconds: float | None) -> str:
+    if seconds is None or seconds < 0:
+        return "-"
+    s = int(seconds)
+    d, rem = divmod(s, 86400)
+    h, rem = divmod(rem, 3600)
+    m, sec = divmod(rem, 60)
+    if d:
+        return f"{d}d{h}h"
+    if h:
+        return f"{h}h{m:02d}m"
+    return f"{m}m{sec:02d}s" if m else f"{sec}s"
+
+
+def format_dashboard(rep: DiagnosticReport, *, store_path: str | None = None, store_source: str | None = None) -> str:
     """Presentation of a single read-only snapshot; no probes or policy engines."""
-    lines = [f"PeerHub diagnostics  {rep.status}"]
+    header = f"PeerHub diagnostics  {rep.status}"
+    if store_path:
+        header += f"  store={store_path}" + (f" ({store_source})" if store_source else "")
+    lines = [header]
     if rep.error:
         return "\n".join([*lines, rep.error])
+    # Earliest threatened pool header alert
+    sec_obs = rep.sections.get("observations")
+    obs_items = cast(list[_QuotaObservation], sec_obs.data.get("items", [])) if sec_obs else []
+    all_quota = [i for i in obs_items if i["kind"] in QUOTA_KINDS]
+    threatened: list[tuple[float, str, str, str]] = []
+    for it in all_quota:
+        pl = it["payload"]
+        rf = pl.get("remaining_fraction")
+        if it["state"] in ("MEASURED", "STALE") and isinstance(rf, (float, int)) and not isinstance(rf, bool):
+            st, res = pl.get("window_started_at"), pl.get("resets_at")
+            m_at = None
+            if it.get("observed_at"):
+                try:
+                    m_at = datetime.fromisoformat(str(it["observed_at"]).replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    pass
+            age = it["age_seconds"]
+            if m_at is None and age is not None:
+                m_at = rep.read_at - age
+            pr = project_exhaustion(1.0 - rf, st, m_at, res, rep.read_at)
+            p_name = it.get("resource_pool_ref") or it.get("kind") or "quota"
+            s_name = it.get("subject_ref") or "-"
+            eat = pr["exhaustion_at"]
+            if pr["exhausts_before_reset"] and eat is not None:
+                c_str = datetime.fromtimestamp(eat).astimezone().strftime("%H:%M")
+                r_str = _human_duration(max(0.0, eat - rep.read_at))
+                threatened.append((eat, s_name, p_name, f"exhausts ~{c_str} (in {r_str}), before reset"))
+            elif pr.get("status") == "exhausted":
+                threatened.append((rep.read_at, s_name, p_name, "exhausted"))
+    if threatened:
+        earliest = min(threatened, key=lambda x: x[0])
+        lines.append(f"  ALERT: {earliest[1]}/{earliest[2]} {earliest[3]}")
+
     for name in ("peers", "streams"):
         sec = rep.sections[name]
         items = sec.data.get(name, [])
@@ -224,6 +299,26 @@ def format_dashboard(rep: DiagnosticReport) -> str:
             elapsed = min(1.0, max(0.0, (rep.read_at - start) / (reset - start)))
             # Descriptive comparison only; no admission/routing decision or invented quota.
             lines.append(f"    window={(reset-start)/3600:g}h elapsed={elapsed:.1%} used-vs-elapsed={(1-rf)-elapsed:+.1%} reset_at={reset}")
+            m_at = None
+            if item.get("observed_at"):
+                try:
+                    m_at = datetime.fromisoformat(str(item["observed_at"]).replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    pass
+            if m_at is None and item.get("age_seconds") is not None:
+                m_at = rep.read_at - item["age_seconds"]
+            pr = project_exhaustion(1.0 - rf, start, m_at, reset, rep.read_at)
+            eat = pr["exhaustion_at"]
+            if pr["status"] == "ok" and eat is not None:
+                c_str = datetime.fromtimestamp(eat).astimezone().strftime("%H:%M")
+                r_str = _human_duration(max(0.0, eat - rep.read_at))
+                lines.append(f"    ETA: exhausts ~{c_str} (in {r_str}), before reset  [WARN]")
+            elif pr["status"] == "safe_until_reset":
+                lines.append("    ETA: safe until reset")
+            elif pr["status"] == "exhausted":
+                lines.append("    ETA: exhausted  [WARN]")
+            elif pr["status"] == "idle":
+                lines.append("    ETA: idle")
     lines.extend(f"  ERROR: {e['error']}" for e in sec.errors)
     pools = rep.sections["resource_pools"]
     observed = {i["resource_pool_ref"] for i in items}
@@ -233,4 +328,22 @@ def format_dashboard(rep: DiagnosticReport) -> str:
     lines.extend(f"  ERROR: {e['error']}" for e in pools.errors)
     resets = [_reset_credit_view(i, rep.read_at) for i in sec.data.get("items", []) if i["kind"] == RESET_CREDIT_KIND]
     lines.extend(_reset_credit_lines(resets, "reset credits", "  "))
+
+    act = rep.sections.get("activity")
+    if act and act.data.get("peers"):
+        act_peers = act.data["peers"]
+        if len(act_peers) <= 10:
+            lines.append(f"activity: asks (newest {act.data.get('window', 50)} per peer)")
+            lines.append(f"  {'PEER':<5} {'ASKS':>4} {'OK':>4} {'UNC':>4} {'FAIL':>4} {'RATE':>5} {'MEDIAN':>7}  LAST")
+            for ap in act_peers:
+                asks, ok = ap.get("asks", 0), ap.get("ok", 0)
+                unc, bad = ap.get("uncertain", 0), ap.get("failed", 0)
+                rate_txt = "-" if not asks else f"{ok / asks * 100:.0f}%"
+                med = ap.get("median_seconds")
+                med_txt = "-" if med is None else _human_duration(med)
+                last_age = ap.get("last_age_seconds")
+                last_age_txt = "-" if last_age is None else f"{_human_duration(last_age)} ago"
+                lines.append(f"  {ap.get('peer', '-'):<5} {asks:>4} {ok:>4} {unc:>4} {bad:>4} {rate_txt:>5} {med_txt:>7}  {last_age_txt} {ap.get('last_status', '-')}")
+        else:
+            lines.append(f"activity: asks ({len(act_peers)} peers, table skipped)")
     return "\n".join(lines)
