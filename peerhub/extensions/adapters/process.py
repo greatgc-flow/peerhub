@@ -138,6 +138,9 @@ class BoundedProcess:
             except subprocess.TimeoutExpired as e:
                 raise OSError("process exit could not be confirmed") from e
             if not killed:
+                if sys.platform == "win32":
+                    raise OSError("process-tree termination could not be confirmed "
+                                  "(taskkill reported an unkillable child; the main process exited)")
                 raise OSError("process-tree termination could not be confirmed")
 
     def abort(self) -> None:
