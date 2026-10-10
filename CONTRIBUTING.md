@@ -53,6 +53,25 @@ Include lessons/feedback from using the docs or CLI: what was confusing, what
 you tried, and the wording or behavior that would have helped. See the
 [development/operation closed loop](docs/m1_spec/USAGE_GUIDE.md#developmentoperation-closed-loop).
 
+## Decisions and lessons
+
+- Stay on 0.x until the public API boundary is defined.
+- Do not add a `peerhub feedback` command; the issue templates and `diag --json`
+  provide enough feedback and diagnostic context.
+- Do not provide a winget package; pipx, uv and pip installation are documented.
+- `--workspace` is ask-only. Use global `--db` to select the store for `monitor`
+  and `observation refresh`.
+- PEP 740 attestations are published by the pinned pypa publishing action;
+  publication was verified on PyPI for 0.13.0.
+- Defer xdist parallelism until tests sharing temporary directories or databases
+  are verified to work in parallel.
+- Windows limits: cx `--writable` cannot write into owner-only-ACL directories,
+  and taskkill may report unkillable children. Use normally created directories
+  for writable canary tests.
+- The legacy v0 109-command disposition and Korean togo roadmap were superseded
+  by `docs/m1_spec` and `tools/command_inventory.py`. They were deleted because
+  they contained no unique content.
+
 ## Releasing
 
 1. Open a version-bump PR updating `peerhub/_version.py` and the current
