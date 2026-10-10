@@ -123,6 +123,7 @@ Milestones describe development progress, not runtime ownership. Frozen specific
 
 ## Limitations
 
+- On Windows, cx `--writable` cannot write into directories with owner-only ACLs (e.g. pytest tmp dirs, `tempfile.mkdtemp`); use a normally created directory.
 - Paths containing spaces or special characters can expose quoting problems in
   external Windows launchers. See the [recorded path hazards](docs/reviews/mece-audit-2026-09-20-cross-repo.md).
 - Node.js based CLIs depend on their runtime and launcher installation; portable
