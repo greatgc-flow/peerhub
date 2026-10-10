@@ -3,6 +3,8 @@
 This index categorizes the documents currently in this directory into two tiers based on their authority and relevance. Tier C's 62 older drafts/debates, and the separate closed `phase0/` corpus (133 files, own index), were physically relocated to `../history/design/2026-07/`, `../history/design/2026-08/`, and `../history/design/phase0/` on 2026-09-14 (section 5.3 of `peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md`) and are kept below only as a dated index into their new location -- every real repo-wide reference to their old `docs/design/` path was updated in the same change.
 Never delete history; if a document is superseded, mark it in its own header and point to the successor.
 
+- [Remote ask guide](../remote-ask.md): Run a peer on another server today through SSH.
+- [Inbound A2A server](a2a-inbound-server.md): PROPOSED, NOT IMPLEMENTED; deferred on 2026-10-10.
 ## Tier A: Current implementation/status source of truth
 
 - `PEERHUB-BACKLOG-2026-08-27.md` — The consolidated active backlog and true current status.
