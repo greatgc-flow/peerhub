@@ -217,3 +217,4 @@ and watch the 7-day pace; distribute work so cc is not the heaviest user.
   that interpreter and check interoperability.
 - `python -m tools.model_ping` spends a little quota per profile. Pass profile
   IDs, for example `python -m tools.model_ping cc.pro`, to limit the checks.
+Maintainer handoff notes: [docs/HANDOFF.md](docs/HANDOFF.md)
