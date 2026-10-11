@@ -20,8 +20,10 @@ pytest -q
 pyright
 ```
 
-The full suite takes about 14 minutes. For everyday work, skip the one test that re-runs
-the whole suite (CI and releases still run it); this takes about 10 minutes:
+The full suite takes about 25 minutes serially on a 12-core Windows PC. For everyday
+work, use `--deselect` to skip `test_rel_005`, which re-runs only the architecture
+tests, fake-peer E2E tests and `tests/communication/fault/test_flt_bridge.py`
+(about 40 tests); CI and releases still run it:
 
 ```bash
 pytest -q --deselect tests/communication/package/test_rel_ci_dag.py::test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or_network
