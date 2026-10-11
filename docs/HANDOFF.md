@@ -26,3 +26,5 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 - Commit the generated `docs/implementation/live_evidence/<date>.json` through a docs PR.
 - Never type a SHA by hand; derive it from Git.
 - Delete a blocked/aborted release and its tag before retrying.
+
+Full verbatim history (checkpoints 2026-10-04 to 2026-10-11 and the owner's standing rules): [history/session-log-2026-10.md](history/session-log-2026-10.md).
