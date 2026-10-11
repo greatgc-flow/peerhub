@@ -4,6 +4,7 @@ This index categorizes the documents currently in this directory into two tiers 
 Never delete history; if a document is superseded, mark it in its own header and point to the successor.
 
 - [Remote ask guide](../remote-ask.md): Run a peer on another server today through SSH.
+- [Quota forecast plan](plan-quota-forecast-2026-10-12.md): Reference plan for PeerHub PR-A, honest forecasts, Phase 2 audits and release 0.15.0; implementation pending.
 - [Inbound A2A server](a2a-inbound-server.md): PROPOSED, NOT IMPLEMENTED; deferred on 2026-10-10.
 ## Tier A: Current implementation/status source of truth
 
