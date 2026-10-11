@@ -27,6 +27,16 @@ the whole suite (CI and releases still run it); this takes about 10 minutes:
 pytest -q --deselect tests/communication/package/test_rel_ci_dag.py::test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or_network
 ```
 
+For an opt-in faster local loop, run the full suite in parallel with pytest-xdist:
+
+```bash
+pytest -q -n 8
+```
+
+This takes about 4–5 minutes on a 12-core machine. Keep `pytest -q` as the
+serial reference command; CI and release gates stay serial. If a test is flaky
+under parallelism, rerun it serially before treating it as a bug.
+
 ## Code and tests
 
 Read [CONVENTION.md](CONVENTION.md) before making code changes. It records the
