@@ -199,3 +199,70 @@ def test_observations_summary_honours_read_at(ws):
     assert now["by_state"] == {"MEASURED": 2, "STALE": 1, "UNAVAILABLE": 1}
     later = observations_summary(ws.db_path, read_at=time.time() + 100000)  # same evidence, read much later: freshness is evaluated at read_at
     assert later["by_state"] == {"STALE": 3, "UNAVAILABLE": 1} and later["latest_total"] == 4
+
+
+def test_quota_json_carries_projection_with_window_timing(tmp_path, capsys):
+    h = ObservationHarness(tmp_path / "wsProj")
+    t_meas = time.time() - 10.0
+    start_t = t_meas - 7200.0
+    reset_t = t_meas + 10800.0
+    seed(h.db_path, pools=[("P1", "QUOTA"), ("P2", "QUOTA")], rows=[
+        # Pool P1: 80% used in 2 hours of a 5-hour window -> exhausts in 2.5 hours (< 5h reset)
+        ("cx", "quota", "P1", "MEASURED", 10, {
+            "remaining_fraction": 0.20,
+            "window_started_at": start_t,
+            "resets_at": reset_t,
+        }, "src-cx"),
+        # Pool P2: 10% used in 2 hours of a 5-hour window -> safe until reset (exhausts at 20h > 5h)
+        ("cc", "quota", "P2", "MEASURED", 10, {
+            "remaining_fraction": 0.90,
+            "window_started_at": start_t,
+            "resets_at": reset_t,
+        }, "src-cc"),
+    ])
+    code, out, _ = run(capsys, h.db_path, "diag", "quota", "--json")
+    rep = json.loads(out)
+    assert code == 0
+    by_pool = {i["resource_pool_ref"]: i["projection"] for g in rep["pools"] for i in g["items"]}
+    p1 = by_pool["P1"]
+    assert p1["status"] == "ok"
+    assert p1["basis"] == "window_average"
+    assert p1["exhausts_before_reset"] is True
+    assert p1["exhaustion_at"] is not None and p1["exhaustion_at"] < reset_t
+
+    p2 = by_pool["P2"]
+    assert p2["status"] == "safe_until_reset"
+    assert p2["basis"] == "window_average"
+    assert p2["exhausts_before_reset"] is False
+    assert p2["exhaustion_at"] >= reset_t
+
+
+def test_format_dashboard_eta_and_threatened_header_alert(tmp_path):
+    from peerhub.extensions.diag import ReadonlyDiag
+    from peerhub.extensions.diag_quota import format_dashboard
+    h = ObservationHarness(tmp_path / "wsDash")
+    t_meas = time.time() - 10.0
+    start_t = t_meas - 7200.0
+    reset_t = t_meas + 10800.0
+    seed(h.db_path, pools=[("P1", "QUOTA"), ("P2", "QUOTA")], rows=[
+        # P1 exhausts before reset (threatened)
+        ("cx", "quota", "P1", "MEASURED", 10, {
+            "remaining_fraction": 0.20,
+            "window_started_at": start_t,
+            "resets_at": reset_t,
+        }, "src-cx"),
+        # P2 safe
+        ("cc", "quota", "P2", "MEASURED", 10, {
+            "remaining_fraction": 0.90,
+            "window_started_at": start_t,
+            "resets_at": reset_t,
+        }, "src-cc"),
+    ])
+    rep = ReadonlyDiag(h.db_path).render(["peers", "streams", "resource_pools", "observations"])
+    text = format_dashboard(rep, store_path=str(h.db_path), store_source="explicit")
+    assert f"store={h.db_path} (explicit)" in text
+    assert "ALERT: cx/P1 exhausts ~" in text
+    assert "before reset" in text
+    assert "ETA: exhausts ~" in text
+    assert "ETA: safe until reset" in text
+

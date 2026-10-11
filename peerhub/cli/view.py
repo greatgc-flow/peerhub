@@ -20,6 +20,7 @@ from datetime import datetime, tzinfo
 from typing import cast
 
 from peerhub.extensions.diag import DiagnosticReport
+from peerhub.extensions.quota_projection import project_exhaustion
 
 RESET, BOLD, DIM = "\033[0m", "\033[1m", "\033[2m"
 RED, GREEN, YELLOW, CYAN = "\033[31m", "\033[32m", "\033[33m", "\033[36m"
@@ -108,9 +109,10 @@ def _pool_label(ref: object) -> str:
 
 
 class _Row:
-    __slots__ = ("peer", "pool", "kind", "state", "age", "used", "headroom", "diff", "window", "left", "reason")
+    __slots__ = ("peer", "pool", "kind", "state", "age", "used", "headroom", "diff", "window", "left", "reason",
+                 "projection", "eta_text", "flagged", "threatened")
 
-    def __init__(self, item: Obj, read_at: float) -> None:
+    def __init__(self, item: Obj, read_at: float, tz: tzinfo | None = None) -> None:
         payload = _obj(item.get("payload"))
         self.peer = _safe_text(item.get("subject_ref") or "-")
         self.pool = _pool_label(item.get("resource_pool_ref"))
@@ -132,6 +134,38 @@ class _Row:
             if self.used is not None:
                 self.diff = self.used - min(1.0, max(0.0, (read_at - start) / span))
 
+        self.projection = None
+        self.eta_text = ""
+        self.flagged = False
+        self.threatened = False
+        if self.used is not None and start is not None and reset is not None:
+            meas_at = None
+            if item.get("observed_at"):
+                try:
+                    meas_at = datetime.fromisoformat(str(item["observed_at"]).replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    pass
+            if meas_at is None and self.age is not None:
+                meas_at = read_at - self.age
+            self.projection = project_exhaustion(self.used, start, meas_at, reset, read_at)
+            st = self.projection.get("status")
+            exh_at = self.projection["exhaustion_at"]
+            if st == "ok" and exh_at is not None:
+                dt = datetime.fromtimestamp(exh_at, tz) if tz is not None else datetime.fromtimestamp(exh_at).astimezone()
+                clock_str = dt.strftime("%H:%M")
+                rel_str = human_duration(max(0.0, exh_at - read_at))
+                self.eta_text = f"exhausts ~{clock_str} (in {rel_str}), before reset"
+                self.flagged = True
+                self.threatened = True
+            elif st == "safe_until_reset":
+                self.eta_text = "safe until reset"
+            elif st == "exhausted":
+                self.eta_text = "exhausted"
+                self.flagged = True
+                self.threatened = True
+            elif st == "idle":
+                self.eta_text = "idle"
+
 
 def _badge(row: _Row, color: bool, unicode: bool) -> str:
     dot, warn, cross, ask = ("●", "▲", "✖", "?") if unicode else ("*", "!", "x", "?")
@@ -147,14 +181,14 @@ def _badge(row: _Row, color: bool, unicode: bool) -> str:
     return _paint(f"{ask} UNKNOWN", DIM, color)
 
 
-def _quota_rows(items: list[Obj], pools: list[Obj], read_at: float) -> list[_Row]:
-    rows = [_Row(i, read_at) for i in items if i.get("kind") in ("quota", "rate_limit")]
+def _quota_rows(items: list[Obj], pools: list[Obj], read_at: float, tz: tzinfo | None = None) -> list[_Row]:
+    rows = [_Row(i, read_at, tz) for i in items if i.get("kind") in ("quota", "rate_limit")]
     seen = {i.get("resource_pool_ref") for i in items if i.get("kind") in ("quota", "rate_limit")}
     for p in pools:  # a registered quota pool without evidence is shown explicitly as UNKNOWN, never omitted
         pid = p.get("resource_pool_id")
         if p.get("kind") in ("QUOTA", "RATE_LIMIT") and pid not in seen:
             rows.append(_Row({"subject_ref": p.get("provider"), "resource_pool_ref": pid, "kind": _safe_text(p.get("kind")).lower(),
-                              "state": "UNKNOWN"}, read_at))
+                              "state": "UNKNOWN"}, read_at, tz))
     return sorted(rows, key=lambda r: (r.peer, r.pool))
 
 
@@ -164,6 +198,11 @@ def _quota_lines(rows: list[_Row], width: int, color: bool, unicode: bool, alert
     for state, peers in bad.items():  # one alert per evidence state, not one per row
         who = ", ".join(f"{peer} {len(pools)}" for peer, pools in sorted(peers.items()))
         alerts.append(f"{state} evidence ({who})" + (": run `peerhub observation refresh`" if state == "STALE" else ""))
+    threatened_rows = [(r.projection["exhaustion_at"], r) for r in rows
+                       if r.threatened and r.projection and r.projection["exhaustion_at"] is not None]
+    earliest_threat = min(threatened_rows, key=lambda pair: pair[0])[1] if threatened_rows else None
+    if earliest_threat:
+        alerts.insert(0, f"{earliest_threat.peer}/{earliest_threat.pool} {earliest_threat.eta_text}")
     return lines
 
 
@@ -203,6 +242,9 @@ def _quota_table(rows: list[_Row], width: int, color: bool, unicode: bool, alert
         else:
             out.append(f"  {peer_cell:<5} {r.pool:<7} {r.window:<4} {body} {used_txt}{left_txt:>5} {pace_txt:>{6 + (len(pace_txt) - visible_len(pace_txt))}} "
                        f"{reset_txt:>7}  {_badge(r, color, unicode)}")
+        if r.eta_text:
+            eta_col = RED + BOLD if r.flagged else DIM
+            out.append(_paint(f"    ETA: {r.eta_text}", eta_col, color))
     return out
 
 
@@ -312,9 +354,16 @@ def _system_line(rep: DiagnosticReport, top: int, color: bool) -> str:
 
 
 def _header(rep: DiagnosticReport, db_name: str, cycle: int | None, refresh: Obj | None, next_in: float | None,
-            tz: tzinfo | None, color: bool) -> str:
+            tz: tzinfo | None, color: bool, store_path: str = "", store_source: str = "",
+            earliest_threat: _Row | None = None) -> str:
     when = datetime.fromtimestamp(rep.read_at, tz) if tz is not None else datetime.fromtimestamp(rep.read_at).astimezone()
-    parts = [_paint("PeerHub", BOLD + CYAN, color), when.strftime("%H:%M:%S %z"), _safe_text(db_name)]
+    if store_path:
+        store_desc = f"{store_path} ({store_source})" if store_source else store_path
+    else:
+        store_desc = db_name
+    parts = [_paint("PeerHub", BOLD + CYAN, color), when.strftime("%H:%M:%S %z"), _safe_text(store_desc)]
+    if earliest_threat:
+        parts.append(_paint(f"THREAT: {earliest_threat.peer}/{earliest_threat.pool} {earliest_threat.eta_text}", RED + BOLD, color))
     if cycle is not None:
         parts.append(f"cycle {cycle}")
     if refresh is not None:
@@ -331,16 +380,22 @@ def _header(rep: DiagnosticReport, db_name: str, cycle: int | None, refresh: Obj
 def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = False, unicode: bool = True,
                 db_name: str = "", cycle: int | None = None, refresh: Obj | None = None, next_refresh_in: float | None = None,
                 interval: float | None = None, refresh_every: int | None = None, top_streams: int = 3, recent_asks: int = 3,
-                tz: tzinfo | None = None) -> str:
+                tz: tzinfo | None = None, store_path: str = "", store_source: str = "") -> str:
     """One screen. `report.read_at` is the clock: the same report always renders to the same text."""
     width = max(40, width)
     items = _items(_section(report, "observations").get("items"))
     pools = _items(_section(report, "resource_pools").get("pools"))
     alerts: list[str] = []
     rule = ("─" if unicode else "-") * min(width, 100)
-    lines = [_header(report, db_name or "workspace", cycle, refresh, next_refresh_in, tz, color), _paint(rule, DIM, color),
+    rows = _quota_rows(items, pools, report.read_at, tz)
+    threatened_rows = [(r.projection["exhaustion_at"], r) for r in rows
+                       if r.threatened and r.projection and r.projection["exhaustion_at"] is not None]
+    earliest_threat = min(threatened_rows, key=lambda pair: pair[0])[1] if threatened_rows else None
+    lines = [_header(report, db_name or "workspace", cycle, refresh, next_refresh_in, tz, color,
+                     store_path=store_path, store_source=store_source, earliest_threat=earliest_threat),
+             _paint(rule, DIM, color),
              _paint("QUOTA", BOLD, color)]
-    lines += _quota_lines(_quota_rows(items, pools, report.read_at), width, color, unicode, alerts)
+    lines += _quota_lines(rows, width, color, unicode, alerts)
     for block in (_credit_lines(items, report.read_at, color, unicode, alerts), _ask_lines(report, items, recent_asks, color, unicode, alerts)):
         if block:
             lines += ["", *block]
@@ -366,13 +421,15 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
 
 def format_frame(report: DiagnosticReport, view: str, *, color: bool = False, unicode: bool = True, width: int = 100,
                  db_name: str = "", cycle: int | None = None, refresh: Obj | None = None, next_refresh_in: float | None = None,
-                 interval: float | None = None, refresh_every: int | None = None) -> str:
+                 interval: float | None = None, refresh_every: int | None = None,
+                 store_path: str = "", store_source: str = "") -> str:
     """`plain` = the existing text dashboard, `rich` = this view. Shared by `diag --view` and `monitor --view`."""
     if view == "rich":
         return render_view(report, width=width, color=color, unicode=unicode, db_name=db_name, cycle=cycle, refresh=refresh,
-                           next_refresh_in=next_refresh_in, interval=interval, refresh_every=refresh_every)
+                           next_refresh_in=next_refresh_in, interval=interval, refresh_every=refresh_every,
+                           store_path=store_path, store_source=store_source)
     from peerhub.extensions import diag_quota
-    return diag_quota.format_dashboard(report)
+    return diag_quota.format_dashboard(report, store_path=store_path or None, store_source=store_source or None)
 
 
 def use_color(stream_is_tty: bool, env: Mapping[str, str]) -> bool:

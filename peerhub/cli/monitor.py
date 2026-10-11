@@ -12,6 +12,7 @@ import shutil
 import sys
 import time
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 from peerhub.cli.support import agy_token_use, print_warnings
@@ -35,6 +36,8 @@ def register_monitor_parser(subparsers: Any) -> None:
                    help="Dashboard style: rich (bars, colour, pace), plain (text table); auto = rich on a terminal")
     p.add_argument("--collect-every", type=int, default=1,
                    help="Collect only every Kth cycle (K>=1)")
+    p.add_argument("--system-dir", dest="sys_dir", type=Path,
+                   help="Explicit portable provider installation directory")
 
 
 def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
@@ -49,15 +52,16 @@ def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namesp
 
 
 def _frame_drawer(format_frame: Any, view: str, *, color: bool, db_name: str, cycle: int, refresh: dict[str, Any], interval: float,
-                  collect_every: int, live: bool) -> Any:
+                  collect_every: int, live: bool, store_path: str = "", store_source: str = "") -> Any:
     unicode_ok = (sys.stdout.encoding or "").lower().startswith("utf")
 
     def draw(rep: Any, next_in: float | None) -> None:
         if live:
-            print("[H[2J", end="")
+            print(" [H [2J", end="")
         width = shutil.get_terminal_size((100, 24)).columns
         print(format_frame(rep, view, color=color, unicode=unicode_ok, width=width, db_name=db_name, cycle=cycle,
-                           refresh=refresh, next_refresh_in=next_in, interval=interval, refresh_every=collect_every), flush=True)
+                           refresh=refresh, next_refresh_in=next_in, interval=interval, refresh_every=collect_every,
+                           store_path=store_path, store_source=store_source), flush=True)
 
     return draw
 
@@ -78,14 +82,19 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
     validate_monitor_args(parser, args)
     # Lazy imports: registering the parser must work when first-party extensions are blocked (Core-only path); the
     # extension-backed pieces are only needed once the command actually runs.
+    from datetime import datetime
+
     from peerhub.cli.view import advance_report, format_frame, use_color
     from peerhub.extensions.diag import ReadonlyDiag
     from peerhub.extensions.quota_capture import refresh_quota
+    from peerhub.extensions.quota_projection import project_exhaustion
 
     tty = sys.stdout.isatty()
     view = ("rich" if tty else "plain") if args.view == "auto" else args.view
     color = view == "rich" and use_color(tty, os.environ)
     db_name = os.path.basename(str(args.db))
+    store_path = str(args.db)
+    store_source = getattr(args, "db_source", "unknown")
     live, draw = False, None
     total: int = args.cycles
     done: int = 0
@@ -99,7 +108,7 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
                 result = refresh_quota(
                     args.db,
                     args.peers,
-                    sys_dir=None,
+                    sys_dir=getattr(args, "sys_dir", None),
                     deadline_sec=args.timeout
                 )
                 last_refresh_status_code = 1 if result["status"] != "OK" else 0
@@ -123,16 +132,34 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
             rep = diag.render(["peers", "streams", "resource_pools", "observations", "activity"])
 
             if args.json:
+                snapshot_dict = asdict(rep)
+                obs_items = snapshot_dict.get("sections", {}).get("observations", {}).get("data", {}).get("items", [])
+                for item in obs_items:
+                    payload: dict[str, object] = item.get("payload") or {}
+                    rf = payload.get("remaining_fraction")
+                    start = payload.get("window_started_at")
+                    reset = payload.get("resets_at")
+                    meas_at = None
+                    if item.get("observed_at"):
+                        try:
+                            meas_at = datetime.fromisoformat(str(item["observed_at"]).replace("Z", "+00:00")).timestamp()
+                        except ValueError:
+                            pass
+                    if meas_at is None and item.get("age_seconds") is not None:
+                        meas_at = rep.read_at - item["age_seconds"]
+                    used_frac = (1.0 - rf) if isinstance(rf, (int, float)) and not isinstance(rf, bool) else None
+                    item["projection"] = project_exhaustion(used_frac, start, meas_at, reset, rep.read_at)
                 frame = {
                     "cycle": done,
                     "refresh": refresh_info,
-                    "snapshot": asdict(rep)
+                    "snapshot": snapshot_dict,
                 }
                 print(json.dumps(frame, ensure_ascii=True, separators=(",", ":")), flush=True)
             else:
                 live = view == "rich" and tty
                 draw = _frame_drawer(format_frame, view, color=color, db_name=db_name, cycle=done, refresh=refresh_info,
-                                     interval=args.interval, collect_every=args.collect_every, live=live)
+                                     interval=args.interval, collect_every=args.collect_every, live=live,
+                                     store_path=store_path, store_source=store_source)
                 draw(rep, None)
 
             done += 1

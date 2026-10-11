@@ -177,3 +177,61 @@ def test_snapshot_step_performs_no_writes(tmp_path, capsys):
     # cycle 0 = refresh+snapshot, cycle 1 = snapshot only, cycle 2 = refresh+snapshot: the two sleeps bracket the snapshot-only cycle
     assert len(hashes) == 2
     assert hashes[0] == hashes[1]
+
+
+def test_monitor_forwards_system_dir(tmp_path):
+    from pathlib import Path
+    calls = []
+
+    def fake_refresh(db, peers, sys_dir=None, deadline_sec=15.0):
+        calls.append(sys_dir)
+        return {"status": "OK", "observations": [], "warnings": []}
+
+    sys_path = tmp_path / "custom_sys"
+    with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh):
+        assert _run(_db(tmp_path), "--cycles", "1", "--system-dir", str(sys_path)) == 0
+
+    assert calls == [Path(sys_path)]
+
+
+def test_monitor_json_carries_projection_per_item(tmp_path, capsys):
+    import time
+    import uuid
+    from peerhub.extensions.observation import ObservationStore
+    from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool
+
+    db = _db(tmp_path)
+    obs_store = ObservationStore(db)
+    obs_store.register_resource_pool(ResourcePool(resource_pool_id="pool-1", provider="cx", kind="QUOTA"))
+    t_meas = time.time() - 10.0
+    meas_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t_meas))
+    start_t = t_meas - 7200.0
+    reset_t = t_meas + 10800.0
+    obs_store.persist(Observation(
+        observation_id=uuid.uuid4().hex,
+        subject_ref="cx",
+        resource_pool_ref="pool-1",
+        kind="quota",
+        source="cx-cli",
+        observed_at=meas_iso,
+        captured_at=meas_iso,
+        state=EvidenceState.MEASURED,
+        payload={"remaining_fraction": 0.20, "window_started_at": start_t, "resets_at": reset_t},
+    ))
+
+    def fake_refresh(db, *a, **kw):
+        return {"status": "OK", "observations": [], "warnings": []}
+
+    with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh):
+        assert _run(db, "--cycles", "1", "--json") == 0
+
+    out = capsys.readouterr().out
+    line = next(l for l in out.splitlines() if l.strip())
+    frame = json.loads(line)
+    items = frame["snapshot"]["sections"]["observations"]["data"]["items"]
+    assert len(items) >= 1
+    item = next(i for i in items if i.get("resource_pool_ref") == "pool-1")
+    assert "projection" in item
+    assert item["projection"]["status"] == "ok"
+    assert item["projection"]["basis"] == "window_average"
+    assert item["projection"]["exhausts_before_reset"] is True

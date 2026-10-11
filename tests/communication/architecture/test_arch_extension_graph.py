@@ -21,7 +21,7 @@ ALLOWED: dict[str, set[str]] = {
     "quota_types": {"observation_model"},
     # M1 Diag
     "diag": {"observation_model"},
-    "diag_quota": {"diag", "observation_model"},
+    "diag_quota": {"diag", "observation_model", "quota_projection"},
     "diag_watch": {"diag"},
     # M2
     "host": {"manifest", "sqlite_tx"},
@@ -89,7 +89,7 @@ def test_extension_import_graph_matches_the_documented_allowlist():
 
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
     m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
-          "quota_types", "diag", "diag_quota", "diag_watch", "peer_kinds", "schema_guard", "adapters"}
+          "quota_types", "diag", "diag_quota", "diag_watch", "peer_kinds", "schema_guard", "adapters", "quota_projection"}
     helpers = {"binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:
