@@ -65,6 +65,9 @@ you tried, and the wording or behavior that would have helped. See the
   publication was verified on PyPI for 0.13.0.
 - Defer xdist parallelism until tests sharing temporary directories or databases
   are verified to work in parallel.
+- Windows limits: cx `--writable` cannot write into owner-only-ACL directories,
+  and taskkill may report unkillable children. Use normally created directories
+  for writable canary tests.
 - The legacy v0 109-command disposition and Korean togo roadmap were superseded
   by `docs/m1_spec` and `tools/command_inventory.py`. They were deleted because
   they contained no unique content.
@@ -81,17 +84,13 @@ you tried, and the wording or behavior that would have helped. See the
    `g3.xml`, `g3-slow.xml` and `g3-e2e.xml` under `.peerhub/work/live-gate/`,
    stamped to HEAD. Require a successful run of all three stages.
 3. Write release notes to a file, then create a draft with all three assets.
-   Resolve the target directly with `git rev-parse HEAD`; never type a SHA by
-   hand. Replace `<notes-file>` with the notes path and use the bumped version
-   for `vX.Y.Z` (the target expression works in Bash and PowerShell):
+   Replace `<HEAD-SHA>` with the full output of `git rev-parse HEAD` and
+   `<notes-file>` with the notes path; use the bumped version for `vX.Y.Z`:
 
    ```bash
-   gh release create vX.Y.Z --draft --target $(git rev-parse HEAD) --title vX.Y.Z --notes-file <notes-file> .peerhub/work/live-gate/g3.xml .peerhub/work/live-gate/g3-slow.xml .peerhub/work/live-gate/g3-e2e.xml
+   gh release create vX.Y.Z --draft --target <HEAD-SHA> --title vX.Y.Z --notes-file <notes-file> .peerhub/work/live-gate/g3.xml .peerhub/work/live-gate/g3-slow.xml .peerhub/work/live-gate/g3-e2e.xml
    gh release edit vX.Y.Z --draft=false
    ```
-
-- After publishing, commit the generated `docs/implementation/live_evidence/<date>.json` through a separate docs PR.
-- Delete a blocked or aborted release and its tag before retrying; follow the explicit approval rule in [AGENTS.md](AGENTS.md#owners-standing-collaboration-rules).
 
 Publishing the draft triggers `.github/workflows/publish.yml`: `verify` runs
 G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. `build` and
@@ -186,31 +185,26 @@ A product-maturity item may be `VERIFIED` only with a `git_sha`
 
 ## Working with AI peers
 
-Follow the [owner's standing collaboration rules](AGENTS.md#owners-standing-collaboration-rules).
-Each `peerhub ask <ag|cx|cc> ...` call selects one peer.
+Ask peers with `peerhub ask <ag|cx|cc> ...` (choose one peer).
 `--writable` permits file edits and is off by default. It maps to cc
 `--permission-mode acceptEdits`, cx `-s workspace-write` (default
 `-s read-only`), and ag `--mode accept-edits`.
 
-- Split large tasks into small requests; refresh observations with `peerhub observation refresh` before checking quota when current evidence is needed.
-- In the owner's Windows environment, cx and ag sandboxes cannot run pytest/Pyright because of temp-directory ACLs, including owner-only `pytest-of-<user>` directories; use normally created directories for writable canaries and apply restricted `.github/` edits yourself.
-
-Sandbox limits are environment-dependent; `--writable` does not guarantee those operations.
-
-## Tooling pitfalls
-
-- Store discovery checks `.peerhub/core.db` in the cwd, `<cwd>/peerhub`, then parents; if the repo's store is missing, a parent store with another schema can cause "database does not contain the communication Core schema": set `PEERHUB_DB` or use global `--db`.
-- A request stuck as STARTED/uncertain blocks its stream (`blocked_uncertain`); use a new `--stream` instead of replaying it, since reusing `--request-id` never replays uncertain execution.
-- Deleting `.peerhub` irrecoverably resets history, stuck records and workspace model overrides; back up `core.db` first and preserve `.peerhub/config/` if overrides are needed.
-- On Windows, `taskkill /T` may return 128 for unkillable children; `wsl.exe`/argv quoting workarounds do not apply to this native Windows setup.
+Keep prompts in English, split large tasks into small requests, and treat peer
+output as drafts. Verify every change yourself. For cx reviews, run pytest and
+Pyright yourself and apply `.github/` edits yourself: restricted cx sandboxes
+can prevent those operations even when file edits are enabled. Sandbox limits
+are environment-dependent, rather than a guarantee made by `--writable`.
+Before peer calls, run `peerhub observation refresh` followed by `peerhub diag`
+and watch the 7-day pace; distribute work so cc is not the heaviest user.
 
 ## Development notes
 
 - The frozen M1 catalog tests define Bridge behaviour. Fix code to satisfy the
   contract; do not weaken tests to accommodate a bug. Catalog edits under
   `docs/m1_spec` require `seal_package.py` as described above.
-- After adding CLI options, run `python -m tools.command_inventory --write` and add an effect proof in `tests/communication/e2e/cli_extension_effects.py`.
-- Use LF for new and edited text; preserve the frozen CSV exceptions in `.gitattributes`.
+- Ordinary text uses LF in the Git index. Preserve each file's existing working
+  tree line endings; frozen package files have explicit `.gitattributes` rules.
 - If the Windows Git credential helper blocks a push, use:
 
   ```powershell
@@ -223,3 +217,4 @@ Sandbox limits are environment-dependent; `--writable` does not guarantee those 
   that interpreter and check interoperability.
 - `python -m tools.model_ping` spends a little quota per profile. Pass profile
   IDs, for example `python -m tools.model_ping cc.pro`, to limit the checks.
+Maintainer handoff notes: [docs/HANDOFF.md](docs/HANDOFF.md)
