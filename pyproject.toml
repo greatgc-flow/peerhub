@@ -44,7 +44,7 @@ CI = "https://github.com/greatgc-flow/peerhub/actions"
 peerhub = "peerhub.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-timeout>=2.3.0", "pyright>=1.1.370", "hypothesis>=6.0",
+dev = ["pytest>=8.0", "pytest-xdist>=3.0", "pytest-timeout>=2.3.0", "pyright>=1.1.370", "hypothesis>=6.0",
     "build>=1.0", "setuptools>=77.0.3", "virtualenv>=20", "pyyaml>=6", "packaging>=23"]
 
 [tool.setuptools.dynamic]
