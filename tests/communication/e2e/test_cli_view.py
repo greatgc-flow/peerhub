@@ -12,9 +12,9 @@ def _report(items, tmp_path):
     return ReadonlyDiag(db).render(["peers", "streams", "resource_pools", "observations"])
 
 
-def test_empty_report_is_all_clear_and_ascii_safe(tmp_path):
+def test_empty_report_is_unknown_and_ascii_safe(tmp_path):
     out = render_view(_report([], tmp_path), width=64, unicode=False, tz=None)
-    assert "QUOTA" in out and "all clear" in out
+    assert "FORECAST" in out and "Threats: unknown" in out
     assert all(ord(c) < 128 for c in out) and max(map(len, out.split("\n"))) <= 80
 
 
@@ -24,22 +24,23 @@ def test_same_report_renders_identically(tmp_path):
 
 
 def test_helpers():
-    assert human_duration(3700) == "1h01m"
+    assert human_duration(3700) == "1h02m"
     assert len(bar(0.5, 10, True)) == 10
     assert use_color(True, {"NO_COLOR": "1", "FORCE_COLOR": "1"}) is False
-    assert use_color(False, {"FORCE_COLOR": "1"}) is True
+    assert use_color(False, {"FORCE_COLOR": "1"}) is False
+    assert use_color(True, {"NO_COLOR": ""}) is False
     assert use_color(False, {}) is False
 
 
 @pytest.mark.parametrize("color", [False, True])
 def test_untrusted_peer_pool_and_reason_cannot_emit_terminal_controls(color):
-    from peerhub.cli.view import _Row, _quota_lines, _credit_lines, _activity_lines, _safe_text
+    from peerhub.cli.view import _Row, _quota_table, _credit_lines, _activity_lines, _safe_text
     payload = "peer\x1b[2J\x00\x07\x85pool"
     assert _safe_text(payload) == "peer[2Jpool"
     item = {"subject_ref": payload, "resource_pool_ref": "quota:" + payload,
             "kind": "quota", "state": "ERROR", "payload": {"reason": payload}}
     alerts = []
-    lines = _quota_lines([_Row(item, 0)], 100, color, False, alerts)
+    lines = _quota_table([_Row(item, 0)], 100, color, False)
     lines += _credit_lines([{**item, "kind": "reset_credit"}], 0, color, False, alerts)
     lines += _activity_lines([{**item, "kind": "activity", "payload": {
         "status": payload, "certainty": payload}}], 3, color)
@@ -84,6 +85,7 @@ def test_activity_section_counts_are_mutually_exclusive_and_exact(tmp_path):
     assert ag["ok"] + ag["uncertain"] + ag["failed"] == ag["asks"]
     assert ag["median_seconds"] == 12.0 and ag["last_status"] == "boom" and 0 <= ag["last_age_seconds"] < 60
     assert peers["cx"]["median_seconds"] == 3.0
+    assert ag["last_seconds"] == 14.0 and peers["cx"]["last_seconds"] == 3.0
 
 
 def test_activity_window_keeps_only_the_newest_asks(tmp_path):
@@ -113,10 +115,11 @@ def test_view_shows_a_per_peer_asks_table_and_alerts_on_a_bad_last_ask(tmp_path)
     cli(["--db", db, "peer", "register", "--peer", "ag"])
     _asks(db, "ag", ["delivered"] * 9 + ["uncertain"], took=40.0)
     out = render_view(_render(db), width=100, unicode=False)
-    assert "ASKS (newest 50 per peer)" in out
-    row = next(line for line in out.splitlines() if line.strip().startswith("ag "))
-    assert row.split()[:6] == ["ag", "10", "9", "1", "0", "90%"]
-    assert "ag last ask uncertain" in out and "PACE = used% - window elapsed%" in out
+    assert "Asks ag uncertain" in out
+    assert "ago, took 49s" in out
+    assert "counts unavailable" not in out
+    assert "conditional window-average" in out
+
 
 
 def test_advance_report_moves_clock_and_ages_without_rereading(tmp_path):
@@ -149,17 +152,50 @@ def test_tick_redraws_each_second_with_a_counting_down_next_refresh():
         monitor._tick(Rep(), lambda rep, nxt: frames.append((rep, nxt)), 3.0, 10.0, lambda rep, now: now)
     finally:
         monitor.time.monotonic, monitor.time.sleep = real_mono, real_sleep
-    assert sleeps == [1.0, 1.0, 1.0] and [f[0] for f in frames] == [101.0, 102.0, 103.0]
-    assert [f[1] for f in frames] == [9.0, 8.0, 7.0]
+    assert sleeps == [1.0, 1.0, 1.0] and [f[0] for f in frames] == [101.0, 102.0]
+    assert [f[1] for f in frames] == [9.0, 8.0]
 
 
-def test_error_rows_show_the_recorded_reason():
-    from peerhub.cli.view import _Row, _badge
+def test_resize_relayouts_and_erases_shrunken_frame(monkeypatch):
+    import io
+    import os
+    from peerhub.cli.monitor import _frame_drawer
+    from peerhub.cli.view import FrameOutput
 
-    row = _Row({"subject_ref": "cc", "kind": "quota", "state": "ERROR", "payload": {"reason": "claude_usage_timeout"}}, 0.0)
-    assert _badge(row, False, False) == "x ERROR claude_usage_timeout"
-    bare = _Row({"subject_ref": "cc", "kind": "quota", "state": "ERROR", "payload": {}}, 0.0)
-    assert _badge(bare, False, False) == "x ERROR"
+    class Output(io.StringIO):
+        def isatty(self):
+            return True
+
+    output = Output()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    sizes = iter([os.terminal_size((120, 24)), os.terminal_size((80, 20))])
+    monkeypatch.setattr("peerhub.cli.view.shutil.get_terminal_size", lambda fallback: next(sizes))
+    widths = []
+
+    def format_frame(rep, view, **kwargs):
+        widths.append(kwargs["width"])
+        return "wide line\nleftover line" if kwargs["width"] == 120 else "short"
+
+    sink = FrameOutput()
+    draw = _frame_drawer(format_frame, "plain", color=False, db_name="db", cycle=0,
+                         refresh={}, interval=60, collect_every=1, output=sink)
+    try:
+        draw(None, 60)
+        draw(None, 59)
+    finally:
+        sink.close()
+    assert widths == [120, 80]
+    assert "\x1b[Hshort\x1b[K\x1b[J" in output.getvalue()
+    assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
+
+
+def test_probe_errors_have_their_own_line_without_a_pool():
+    from peerhub.cli.view import _probe_line, _quota_rows
+
+    item = {"subject_ref": "cc", "kind": "quota", "state": "ERROR", "payload": {"reason": "claude_usage_timeout"}}
+    assert _quota_rows([item], [], 0) == []
+    assert _probe_line([item], None) == "Probes cc:ERR(claude_usage_timeout)"
 
 
 def test_dashboard_flags_are_honoured_or_rejected_never_silently_ignored(tmp_path, capsys):
@@ -237,9 +273,10 @@ def test_render_view_shows_eta_projection_and_header_threat(tmp_path):
 
     rep = ReadonlyDiag(db).render(["peers", "streams", "resource_pools", "observations"], read_at=t0 + 7200.0)
     out = render_view(rep, width=100, unicode=False, store_path=db, store_source="explicit")
-    assert f"{db} (explicit)" in out
-    assert "THREAT: cx/pool-threat exhausts ~" in out
-    assert "before reset" in out
-    assert "ETA: exhausts ~" in out
-    assert "ETA: safe until reset" in out
-
+    assert "(explicit)" in out
+    assert "Threats: 1 threat - earliest cx/pool-threat" in out
+    assert "(in 30m)" in out
+    assert "! exhausts" in out and "conditional window-average" in out
+    assert "= on pace" in out
+    assert "ETA:" not in out
+    assert max(map(len, out.splitlines())) <= 100

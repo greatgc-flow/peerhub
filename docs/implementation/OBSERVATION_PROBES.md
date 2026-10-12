@@ -46,14 +46,15 @@ peerhub monitor [--interval-seconds SECONDS=60] [--cycles N=0] [--peers cx cc ag
 
 ### `peerhub monitor --view {auto,rich,plain}`
 
-`rich` (default on a terminal) draws one screen: header (time, db, cycle, refresh status, next refresh), a QUOTA table
-(used bar, left, PACE arrow = used faster than the window clock, reset countdown, freshness), reset credits, latest
-asks, system counts with the busiest streams, and a collapsed ALERTS line. `plain` is the original text dashboard.
-`NO_COLOR` disables colour, `FORCE_COLOR` enables it off a terminal; non-UTF-8 terminals get an ASCII layout.
+`rich` (default on a terminal) draws one screen: header (status, time, db, cycle, next refresh), a `Threats:` summary,
+a quota table (`PEER POOL USAGE-bar USED PACE(pt) RESET FORECAST FRESH`), optional `Credits` and `Asks` lines,
+`Probes` outcomes, and a pace/forecast legend. `plain` shares the same layout and decisions using ASCII without colour.
+`NO_COLOR` disables colour; colour otherwise requires a terminal. Non-UTF-8 terminals get an ASCII layout.
 The view is a pure renderer over the read-only diag snapshot (`peerhub/cli/view.py`); it never writes evidence.
 
 #### Reading the rich view
-- **PACE** = `used% - window elapsed%`, in percentage points. A 5-hour window that is 40% elapsed with 60% used reads `▲ 20pt`: usage is 20 points ahead of an even burn. `▼` means behind the clock, `■` on pace. It is yellow above 10pt and red above 25pt.
-- **ASKS (newest 50 per peer)** comes from the `ask` activity evidence: ASKS total, OK (`delivered`/`recovered_terminal`), UNC (`uncertain`), FAIL (everything else; the three always add up to ASKS), RATE = OK/ASKS, MEDIAN = median operation time, LAST = age and status of the newest ask. A last ask that is not OK adds an alert. Per profile and token figures are not shown because the ask evidence does not record them.
+- **PACE** = `used% - window elapsed%`, in percentage points at measurement time. A 5-hour window that is 40% elapsed with 60% used reads `+20.0`: usage is 20 points ahead of an even burn. Pace has no independent risk colour; forecasts are conditional window-average estimates shown inline in `FORECAST`.
+- **Threats** reports evaluated forecasts. Missing or stale evidence yields `Threats: unknown`; an expired window can show `expired` in its row while the summary says the evidence is stale. `No threats` requires at least one fresh evaluated pool.
+- **Asks** comes from recorded `ask` activity evidence, with one line per peer showing the latest outcome, age and actual duration, e.g. `Asks cx delivered 54s ago, took 4m`. It is omitted without ask evidence.
 - On a terminal the screen redraws every second between cycles (clock, evidence ages, reset countdowns and "next in" move; nothing is re-read until the next cycle). Piped output stays one frame per cycle.
 - A claude `/usage` probe that fails now stores a reason in the ERROR evidence (`claude_usage_timeout`, `claude_usage_spawn_failed:<ExceptionType>`, `claude_usage_unparseable`), and the dashboard shows it next to `ERROR`. Timeouts usually mean the machine was busy (raise `--timeout-seconds`), unparseable output means the CLI output format changed.

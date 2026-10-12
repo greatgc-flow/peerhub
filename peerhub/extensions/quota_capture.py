@@ -25,6 +25,8 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                   deadline_sec: float = 15, pollers: dict[str, Callable[..., Any]] | None = None) -> dict[str, Any]:
     if not peers or not math.isfinite(deadline_sec) or deadline_sec <= 0:
         raise ValueError("provide peers and a positive probe timeout")
+    if not Path(db_path).is_file():
+        raise FileNotFoundError(f"database not found: {db_path}")
     kinds: list[str] = []
     for peer in peers:
         kind = ALIASES.get(peer)
@@ -34,8 +36,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     if pollers is None:
         from peerhub.extensions.quota_probes import poll_agy_usage, poll_claude_usage, poll_codex_usage
         pollers = {"cx": poll_codex_usage, "cc": poll_claude_usage, "ag": poll_agy_usage}
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    store = ObservationStore(db_path)
+    store = ObservationStore(db_path, require_existing=True)
     written: list[dict[str, Any]] = []
     warnings: list[str] = []
     for peer, kind in zip(peers, kinds):

@@ -1,29 +1,35 @@
-"""PeerHub first-party extension: Quota exhaustion projection (pure calculation).
-
-Pure, deterministic reader: no I/O, no database access, no clock read side-effects.
-Calculates ETA to quota exhaustion from measurement timestamp, window start, reset time and usage fraction.
-"""
+"""Pure quota policy and conditional window-average projection; no I/O or clock reads."""
 
 from __future__ import annotations
 
 import math
-from typing import Literal, Mapping, Sequence, TypeGuard, TypedDict
+from typing import Literal, TypeGuard, TypedDict
 
-MIN_ELAPSED_SECONDS = 60.0
-RECENT_WINDOW_SECONDS = 30 * 60.0  # 30 minutes
+ProjectionState = Literal["unknown", "stale", "expired", "exhausted", "insufficient", "on_pace", "threat"]
+LONG_WINDOW_SECONDS = 86400.0
+MIN_ELAPSED_SHORT = 0.10
+MIN_ELAPSED_LONG = 0.20
+MIN_USED_FRACTION = 0.05
+THREAT_PROJECTED_PERCENT = 105.0
 
 
 class ExhaustionProjection(TypedDict):
-    status: Literal["ok", "exhausted", "idle", "safe_until_reset", "unavailable"]
-    basis: Literal["recent_rate", "window_average"]
-    measured_at: float | None
+    pace_pt: float | None
+    projected_at_reset: float | None
+    state: ProjectionState
     exhaustion_at: float | None
-    exhausts_before_reset: bool | None
+    measured_at: float | None
+    anchor_basis: str | None
     reason: str | None
 
 
 def _is_finite_num(val: object) -> TypeGuard[int | float]:
-    return isinstance(val, (int, float)) and not isinstance(val, bool) and math.isfinite(val)
+    if not isinstance(val, (int, float)) or isinstance(val, bool):
+        return False
+    try:
+        return math.isfinite(val)
+    except OverflowError:
+        return False
 
 
 def project_exhaustion(
@@ -32,164 +38,85 @@ def project_exhaustion(
     measured_at: object,
     resets_at: object,
     now: float | int | None,
-    recent_samples: Sequence[tuple[float, float] | Mapping[str, object]] | None = None,
+    *,
+    evidence_state: object = "MEASURED",
+    anchor_basis: object = None,
 ) -> ExhaustionProjection:
-    """Pure calculation projecting when quota will exhaust.
+    """Derive one projection at a frame timestamp from evaluated evidence.
 
-    Returns dict with keys:
-      status: 'ok' | 'exhausted' | 'idle' | 'safe_until_reset' | 'unavailable'
-      basis: 'recent_rate' | 'window_average'
-      measured_at: UTC epoch float | int | None
-      exhaustion_at: UTC epoch float | None
-      exhausts_before_reset: bool | None
-      reason: str | None (when unavailable)
+    Callers supply read-time freshness (MEASURED/STALE/etc.), never stored state.
+    Anchor consistency is derived here; inferred anchors remain conditional,
+    without asserting validated provider window semantics. Fresh measured
+    exhaustion precedes support/anchor gates because it is observed, not forecast.
+    Supported ETAs are conditional window averages, not demonstrated accuracy.
     """
-    meas_ret = float(measured_at) if _is_finite_num(measured_at) else None
-
-    # Validate finite numeric values
-    if not _is_finite_num(used_fraction):
-        return {
-            "status": "unavailable",
-            "basis": "window_average",
-            "measured_at": meas_ret,
-            "exhaustion_at": None,
-            "exhausts_before_reset": None,
-            "reason": "used_fraction must be a finite number",
-        }
-
-    u = float(used_fraction)
-    if u < 0.0 or u > 1.0:
-        return {
-            "status": "unavailable",
-            "basis": "window_average",
-            "measured_at": meas_ret,
-            "exhaustion_at": None,
-            "exhausts_before_reset": None,
-            "reason": f"used_fraction out of bounds [0, 1]: {u}",
-        }
-
-    if not (_is_finite_num(window_start) and _is_finite_num(measured_at) and _is_finite_num(resets_at)):
-        return {
-            "status": "unavailable",
-            "basis": "window_average",
-            "measured_at": meas_ret,
-            "exhaustion_at": None,
-            "exhausts_before_reset": None,
-            "reason": "window_start, measured_at, and resets_at must be finite numbers",
-        }
-
-    start = float(window_start)
-    meas = float(measured_at)
-    reset = float(resets_at)
-
-    if not (start <= meas):
-        return {
-            "status": "unavailable",
-            "basis": "window_average",
-            "measured_at": meas_ret,
-            "exhaustion_at": None,
-            "exhausts_before_reset": None,
-            "reason": f"window_start ({start}) must be <= measured_at ({meas})",
-        }
-
-    if not (meas < reset):
-        return {
-            "status": "unavailable",
-            "basis": "window_average",
-            "measured_at": meas_ret,
-            "exhaustion_at": None,
-            "exhausts_before_reset": None,
-            "reason": f"measured_at ({meas}) must be < resets_at ({reset})",
-        }
-
-    elapsed = meas - start
-    if elapsed < MIN_ELAPSED_SECONDS:
-        return {
-            "status": "unavailable",
-            "basis": "window_average",
-            "measured_at": meas_ret,
-            "exhaustion_at": None,
-            "exhausts_before_reset": None,
-            "reason": f"elapsed window time {elapsed:.1f}s is less than {MIN_ELAPSED_SECONDS:.0f}s minimum",
-        }
-
-    # Idle (zero usage in window)
-    if u == 0.0:
-        return {
-            "status": "idle",
-            "basis": "window_average",
-            "measured_at": meas_ret,
-            "exhaustion_at": None,
-            "exhausts_before_reset": False,
-            "reason": None,
-        }
-
-    # Exhausted (100% or more used)
-    if u >= 1.0:
-        return {
-            "status": "exhausted",
-            "basis": "window_average",
-            "measured_at": meas_ret,
-            "exhaustion_at": meas,
-            "exhausts_before_reset": True,
-            "reason": None,
-        }
-
-    basis: Literal["recent_rate", "window_average"] = "window_average"
-    exhaustion_at: float | None = None
-
-    # Hybrid basis: check if >=2 recent samples exist within the current window and last 30 minutes
-    if recent_samples:
-        valid_samples: dict[float, float] = {}
-        for s in recent_samples:
-            t_val: object = None
-            u_val: object = None
-            if isinstance(s, Mapping):
-                t_val = s.get("measured_at", s.get("timestamp"))
-                u_val = s.get("used_fraction", s.get("used"))
-            elif len(s) >= 2:
-                t_val, u_val = s[0], s[1]
-
-            if _is_finite_num(t_val) and _is_finite_num(u_val):
-                t_flt, u_flt = float(t_val), float(u_val)
-                if start <= t_flt <= meas and t_flt >= (meas - RECENT_WINDOW_SECONDS) and 0.0 <= u_flt <= 1.0:
-                    valid_samples[t_flt] = u_flt
-
-        # Ensure current measurement point is represented
-        if meas not in valid_samples:
-            valid_samples[meas] = u
-
-        if len(valid_samples) >= 2:
-            sorted_pts = sorted(valid_samples.items(), key=lambda pt: pt[0])
-            t1, u1 = sorted_pts[0]
-            t2, u2 = sorted_pts[-1]
-            dt = t2 - t1
-            du = u2 - u1
-            if dt > 0 and du > 0:
-                recent_rate = du / dt
-                remaining = max(0.0, 1.0 - u)
-                exhaustion_at = meas + (remaining / recent_rate)
-                basis = "recent_rate"
-
-    if basis == "window_average":
-        exhaustion_at = start + (elapsed / u)
-
-    assert exhaustion_at is not None
-    if exhaustion_at >= reset:
-        return {
-            "status": "safe_until_reset",
-            "basis": basis,
-            "measured_at": meas_ret,
-            "exhaustion_at": exhaustion_at,
-            "exhausts_before_reset": False,
-            "reason": None,
-        }
-
-    return {
-        "status": "ok",
-        "basis": basis,
-        "measured_at": meas_ret,
-        "exhaustion_at": exhaustion_at,
-        "exhausts_before_reset": True,
+    result: ExhaustionProjection = {
+        "pace_pt": None, "projected_at_reset": None, "state": "unknown",
+        "exhaustion_at": None,
+        "measured_at": float(measured_at) if _is_finite_num(measured_at) else None,
+        "anchor_basis": anchor_basis if isinstance(anchor_basis, str) and anchor_basis.strip() else None,
         "reason": None,
     }
+
+    def suppress(state: ProjectionState, reason: str) -> ExhaustionProjection:
+        result["state"], result["reason"] = state, reason
+        return result
+
+    if not _is_finite_num(now) or not _is_finite_num(measured_at):
+        return suppress("unknown", "frame and measurement timestamps must be finite numbers")
+    frame, meas = float(now), float(measured_at)
+    if meas > frame:
+        return suppress("unknown", "measurement timestamp is after the frame timestamp")
+    no_usage = evidence_state == "MEASURED" and _is_finite_num(used_fraction) and used_fraction == 0
+    if not no_usage and _is_finite_num(window_start) and window_start > meas:
+        return suppress("unknown", "window start is after the measurement timestamp")
+    if _is_finite_num(resets_at) and meas >= resets_at:
+        return suppress("unknown", "measurement must precede reset")
+    expired = _is_finite_num(resets_at) and frame >= resets_at
+    if evidence_state not in ("MEASURED", "STALE"):
+        if expired:
+            return suppress("expired", "quota window has reset")
+        return suppress("unknown", "fresh measured evidence is required")
+    if not _is_finite_num(used_fraction) or not 0.0 <= used_fraction <= 1.0:
+        if expired:
+            return suppress("expired", "quota window has reset")
+        return suppress("unknown", "used_fraction must be a finite number in [0, 1]")
+    u = float(used_fraction)
+    if any(v is not None and not _is_finite_num(v) for v in (window_start, resets_at)):
+        return suppress("unknown", "provided window anchors must be finite numbers")
+    consistent = False
+    if _is_finite_num(window_start) and _is_finite_num(resets_at):
+        start, reset = float(window_start), float(resets_at)
+        duration, elapsed = reset - start, meas - start
+        consistent = math.isfinite(duration) and math.isfinite(elapsed) and duration > 0 and start <= meas < reset
+        if consistent:
+            result["anchor_basis"] = result["anchor_basis"] or "reset_minus_duration_inferred"
+            result["pace_pt"] = 100.0 * u - 100.0 * (elapsed / duration)
+    if expired:
+        return suppress("expired", "quota window has reset")
+    if evidence_state == "STALE":
+        return suppress("stale", "measurement is stale at the frame timestamp")
+    if evidence_state != "MEASURED":
+        return suppress("unknown", "fresh measured evidence is required")
+    if u == 0.0:
+        return suppress("insufficient", "no usage yet")
+    if u == 1.0:
+        result.update(state="exhausted", exhaustion_at=meas)
+        return result
+    if not _is_finite_num(window_start) or not _is_finite_num(resets_at):
+        return suppress("unknown", "window anchors must be finite numbers")
+    start, reset = float(window_start), float(resets_at)
+    duration, elapsed = reset - start, meas - start
+    if not consistent:
+        return suppress("unknown", "window ordering must satisfy start <= measurement < reset")
+    e = elapsed / duration
+    minimum_elapsed = MIN_ELAPSED_LONG if duration >= LONG_WINDOW_SECONDS else MIN_ELAPSED_SHORT
+    # Compare in seconds: division can put an exact 10% boundary one ULP below it.
+    if elapsed < minimum_elapsed * duration or u < MIN_USED_FRACTION:
+        return suppress("insufficient", f"not enough data: requires >={minimum_elapsed:.0%} elapsed and >=5 percentage points used")
+    pace, projected, exhaustion = 100.0 * u - 100.0 * e, 100.0 * u / e, start + elapsed / u
+    if not all(math.isfinite(v) for v in (pace, projected, exhaustion)):
+        return suppress("unknown", "projection is not finite")
+    result.update(pace_pt=pace, projected_at_reset=projected,
+                  state="threat" if projected >= THREAT_PROJECTED_PERCENT else "on_pace", exhaustion_at=exhaustion)
+    return result

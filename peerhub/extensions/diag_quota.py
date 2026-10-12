@@ -11,11 +11,11 @@ import hashlib
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, Mapping, TypedDict, cast
 
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
 from peerhub.extensions.observation_model import MEASUREMENT_KEYS
-from peerhub.extensions.quota_projection import project_exhaustion
+from peerhub.extensions.quota_projection import ExhaustionProjection, project_exhaustion
 
 SCHEMA_VERSION = "1.0"
 QUOTA_KINDS = ("quota", "rate_limit")
@@ -59,6 +59,25 @@ def _derived(meas: dict[str, Any]) -> dict[str, Any]:
     if isinstance(rf, (int, float)) and not isinstance(rf, bool):
         return {"used_fraction": 1 - rf}  # derived: 1 - remaining_fraction
     return {}
+
+
+def projection(item: Mapping[str, Any], now: float) -> ExhaustionProjection:
+    """Pass evaluated freshness and measurement time to the shared engine."""
+    payload = item["payload"]
+    measured_at = None
+    if item.get("observed_at"):
+        try:
+            measured_at = datetime.fromisoformat(str(item["observed_at"]).replace("Z", "+00:00")).timestamp()
+        except (ValueError, OverflowError):
+            pass
+    return project_exhaustion(
+        _derived(_measurements(payload)).get("used_fraction"),
+        payload.get("window_started_at"), measured_at, payload.get("resets_at"), now,
+        evidence_state=item["state"], anchor_basis=payload.get("anchor_basis"),
+    )
+
+
+
 
 
 def _iso(ts: int) -> str:
@@ -128,17 +147,7 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
             continue
         meas = _measurements(it["payload"])
         der = _derived(meas)
-        start = it["payload"].get("window_started_at")
-        reset = it["payload"].get("resets_at")
-        meas_at = None
-        if it.get("observed_at"):
-            try:
-                meas_at = datetime.fromisoformat(str(it["observed_at"]).replace("Z", "+00:00")).timestamp()
-            except ValueError:
-                pass
-        if meas_at is None and it.get("age_seconds") is not None:
-            meas_at = now - it["age_seconds"]
-        proj = project_exhaustion(der.get("used_fraction"), start, meas_at, reset, now)
+        proj = projection(it, now)
         groups.setdefault(it["resource_pool_ref"], []).append({
             "subject_ref": it["subject_ref"], "resource_pool_ref": it["resource_pool_ref"], "kind": it["kind"], "state": it["state"],
             "age_seconds": it["age_seconds"], "source": it["source"], "measurements": meas, "derived": der,
@@ -150,7 +159,7 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
             if p["kind"] in POOL_KINDS and pid not in groups and (pool is None or pool == pid):
                 groups[pid] = [{"subject_ref": None, "resource_pool_ref": pid, "kind": p["kind"].lower(), "state": "UNKNOWN", "age_seconds": None,
                                 "source": None, "measurements": {}, "derived": {},
-                                "projection": project_exhaustion(None, None, None, None, now)}]
+                                "projection": project_exhaustion(None, None, None, None, now, evidence_state="UNKNOWN")}]
     pools: list[dict[str, Any]] = [{"resource_pool_ref": k, "items": groups[k]} for k in sorted(groups, key=lambda x: (x is None, x or ""))]
     out["pools"] = pools
     out["reset_credits"] = resets
@@ -250,25 +259,15 @@ def format_dashboard(rep: DiagnosticReport, *, store_path: str | None = None, st
         pl = it["payload"]
         rf = pl.get("remaining_fraction")
         if it["state"] in ("MEASURED", "STALE") and isinstance(rf, (float, int)) and not isinstance(rf, bool):
-            st, res = pl.get("window_started_at"), pl.get("resets_at")
-            m_at = None
-            if it.get("observed_at"):
-                try:
-                    m_at = datetime.fromisoformat(str(it["observed_at"]).replace("Z", "+00:00")).timestamp()
-                except ValueError:
-                    pass
-            age = it["age_seconds"]
-            if m_at is None and age is not None:
-                m_at = rep.read_at - age
-            pr = project_exhaustion(1.0 - rf, st, m_at, res, rep.read_at)
+            pr = projection(it, rep.read_at)
             p_name = it.get("resource_pool_ref") or it.get("kind") or "quota"
             s_name = it.get("subject_ref") or "-"
             eat = pr["exhaustion_at"]
-            if pr["exhausts_before_reset"] and eat is not None:
+            if pr["state"] == "threat" and eat is not None:
                 c_str = datetime.fromtimestamp(eat).astimezone().strftime("%H:%M")
                 r_str = _human_duration(max(0.0, eat - rep.read_at))
                 threatened.append((eat, s_name, p_name, f"exhausts ~{c_str} (in {r_str}), before reset"))
-            elif pr.get("status") == "exhausted":
+            elif pr["state"] == "exhausted":
                 threatened.append((rep.read_at, s_name, p_name, "exhausted"))
     if threatened:
         earliest = min(threatened, key=lambda x: x[0])
@@ -296,29 +295,21 @@ def format_dashboard(rep: DiagnosticReport, *, store_path: str | None = None, st
         lines.append(f"  {item['subject_ref']} {window} {item['state']} {usage} source={item['source']}")
         start, reset = payload.get("window_started_at"), payload.get("resets_at")
         if numbers and isinstance(start, (int, float)) and isinstance(reset, (int, float)) and reset > start:
-            elapsed = min(1.0, max(0.0, (rep.read_at - start) / (reset - start)))
-            # Descriptive comparison only; no admission/routing decision or invented quota.
-            lines.append(f"    window={(reset-start)/3600:g}h elapsed={elapsed:.1%} used-vs-elapsed={(1-rf)-elapsed:+.1%} reset_at={reset}")
-            m_at = None
-            if item.get("observed_at"):
-                try:
-                    m_at = datetime.fromisoformat(str(item["observed_at"]).replace("Z", "+00:00")).timestamp()
-                except ValueError:
-                    pass
-            if m_at is None and item.get("age_seconds") is not None:
-                m_at = rep.read_at - item["age_seconds"]
-            pr = project_exhaustion(1.0 - rf, start, m_at, reset, rep.read_at)
+            pr = projection(item, rep.read_at)
+            pace = pr["pace_pt"]
+            if pace is not None:
+                lines.append(f"    PACE {pace:+.1f}pt  {pr['state'].replace('_', ' ')} reset_at={reset}")
             eat = pr["exhaustion_at"]
-            if pr["status"] == "ok" and eat is not None:
+            if pr["state"] == "threat" and eat is not None:
                 c_str = datetime.fromtimestamp(eat).astimezone().strftime("%H:%M")
                 r_str = _human_duration(max(0.0, eat - rep.read_at))
                 lines.append(f"    ETA: exhausts ~{c_str} (in {r_str}), before reset  [WARN]")
-            elif pr["status"] == "safe_until_reset":
-                lines.append("    ETA: safe until reset")
-            elif pr["status"] == "exhausted":
+            elif pr["state"] == "on_pace":
+                lines.append("    on pace")
+            elif pr["state"] == "exhausted":
                 lines.append("    ETA: exhausted  [WARN]")
-            elif pr["status"] == "idle":
-                lines.append("    ETA: idle")
+            else:
+                lines.append("    " + ("not enough data" if pr["state"] == "insufficient" else pr["state"]))
     lines.extend(f"  ERROR: {e['error']}" for e in sec.errors)
     pools = rep.sections["resource_pools"]
     observed = {i["resource_pool_ref"] for i in items}

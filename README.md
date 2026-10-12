@@ -84,11 +84,34 @@ Quota is collected separately from diagnostics. `diag --fresh` has been replaced
 
 `diag --live` repeatedly reads committed snapshots only. `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
+The monitor/diag screen shows a threat summary, a stable pool table with usage,
+PACE in percentage points, reset countdown, conditional forecast and freshness,
+then credits, latest asks, probe health and one legend/controls line. PACE is
+measured usage minus elapsed window percentage; positive means faster than even.
+Forecasts require 5 percentage points used and 10% elapsed (20% for windows of
+at least one day); projected reset use of at least 105% is a threat. Below the
+support gates the screen says “not enough data”. Inferred anchors remain
+conditional and predictive accuracy is not established.
+
+Monitor runs collection cycles every N seconds (`--interval-seconds`), collecting
+initially and then every Kth cycle (`--collect-every`). On a TTY with VT support,
+both dashboard styles redraw in place, with countdown updates at most 1 Hz;
+PACE and forecast ETA remain anchored to the measurement. Live diagnostics
+overwrite each snapshot every N seconds. Non-TTY or unavailable VT output
+appends one frame per cycle without escapes; JSON emits one object per cycle.
+`NO_COLOR` suppresses colour while retaining supported cursor controls.
+
 ## Store selection and existing data
 
 The store is `.peerhub/core.db`. Discovery picks the nearest one (current directory, `<cwd>/peerhub`, then parents); `--db PATH` or `PEERHUB_DB` choose explicitly. `peerhub diag health` reports `store_selection` (the path and how it was chosen: `env`, `explicit`, `discovered`, `workspace-default`, `default`). Developer scratch (live-gate JUnit etc.) goes under `.peerhub/work/`; the top of `.peerhub/` holds the database and its `restore.epoch` metadata.
 
 Use global `--db PATH` before the command, or `PEERHUB_DB`, to select a store explicitly. An explicit missing path is never redirected to another store. `ask --workspace DIR` uses that directory's store unless a database was explicitly selected. Read-only commands do not create a missing store.
+
+Monitor and diagnostics refuse a missing selected database with exit 5 before
+any probes. Create it explicitly with `peerhub --db <path> peer register --peer
+<id> --name <name>`. Observation refresh also refuses a missing automatically
+selected store, including in a non-repository directory; an explicit `--db` or
+`PEERHUB_DB` retains its existing collection bootstrap behaviour.
 
 The v0 runtime, its importer, the `PEERHUB_CLI` selector and the 109-command table were removed (2026-10-08); the v0 source is kept only on the Git branch `legacy/v0-main-final`.
 

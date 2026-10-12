@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -139,7 +138,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     diag_parser.add_argument("--json", action="store_true", help="Emit the read-only dashboard as JSON")
     diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence")
     diag_parser.add_argument("--interval-seconds", type=float, default=2, help="Live snapshot interval (positive seconds)")
-    diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain", help="Dashboard style (rich = bars, pace and alerts)")
+    diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain", help="Dashboard style: plain (ASCII), rich (bars, pace and alerts). With --live, snapshots every N s: TTY with VT overwrites in place; non-TTY or no VT appends without escapes. Monitor countdown redraw is at most 1 Hz")
     diag_parser.add_argument("--cycles", dest="count", type=int, default=0, help="Live snapshot count; 0 watches until interrupted")
     diag_parser.epilog = "examples: peerhub diag | peerhub diag --json | peerhub diag --live | peerhub observation refresh | peerhub monitor (collects quota evidence every cycle and draws the dashboard)"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
@@ -205,9 +204,12 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
 
 
 def _run_observation_cli(args: argparse.Namespace) -> int:
+    from peerhub.cli.store_select import report_missing_store
+    if getattr(args, "db_source", "default") not in ("explicit", "env") and report_missing_store(args.db, json_output=True):
+        return 5
     from peerhub.extensions.quota_capture import refresh_quota
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
-    CoreStore(args.db)  # infrastructure bootstrap; the collector itself owns only Observation tables
+    CoreStore(args.db)  # explicit --db/PEERHUB_DB retains collection bootstrap semantics
     result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
     print(json.dumps(result, indent=2, ensure_ascii=True))
     _print_warnings(result)
@@ -232,6 +234,167 @@ def _run_light_command(args: argparse.Namespace, parser: argparse.ArgumentParser
     return _run_observation_cli(args)
 
 
+def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    _reject_dashboard_flags_on_subcommand(parser, args)
+    if args.action is not None and (args.live or args.count or args.interval_seconds != 2):
+        parser.error("--live/--cycles/--interval-seconds apply to the dashboard, not diag subcommands")
+    if not args.live and (args.count or args.interval_seconds != 2):
+        parser.error("--cycles/--interval-seconds require --live")
+    from peerhub.cli.store_select import report_missing_store
+    if args.action is None and report_missing_store(args.db, json_output=args.json):
+        return 5
+    try:
+        from peerhub.extensions.diag import ReadonlyDiag
+        from peerhub.extensions import diag_quota
+    except ImportError as e:
+        print(f"ERROR: the diagnostics extension is unavailable ({e})", file=sys.stderr)
+        return 5
+    if args.action is None:
+        from peerhub.extensions.diag_watch import dashboard_snapshots
+        from peerhub.cli.view import FrameOutput, dashboard_data, format_frame, use_color
+        code = 0
+        output = FrameOutput(interactive=not args.json, overwrite=args.live)
+        try:
+            for rep in dashboard_snapshots(args.db, interval_s=args.interval_seconds,
+                                            count=args.count if args.live else 1):
+                if args.json:
+                    print(json.dumps(dashboard_data(rep), indent=None if args.live else 2, ensure_ascii=True), flush=True)
+                else:
+                    output.write(format_frame(rep, args.view, color=use_color(output.vt, os.environ),
+                                              width=output.width(), store_path=str(args.db),
+                                              store_source=getattr(args, "db_source", "unknown")))
+                code = (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
+                        else 0 if rep.status == "OK" else 4)
+                if code:
+                    break
+        except KeyboardInterrupt:
+            return code
+        finally:
+            output.close()
+        return code
+    if args.action == "quota":  # pure reader: no CoreStore (it would create/migrate the database)
+        report_missing_store(args.obs_db or args.db)
+        rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool)
+        code = {**diag_quota.EXIT_BY_STATUS, "PARTIAL": 4}[rep["status"]]
+        print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else diag_quota.format_quota_table(rep))
+        if code and not args.json:
+            print(f"DIAG QUOTA {rep['status']}: {rep['error']}", file=sys.stderr)
+        return code
+    if args.action == "health":  # pure reader as well: never CoreStore (no create, no migration of a missing/old --db)
+        if not Path(args.db).is_file():
+            report_missing_store(args.db)
+            result: dict[str, object] = {"status": "UNAVAILABLE", "stream_id": args.stream_id, "error": f"database not found: {args.db}"}
+            print(json.dumps(result, indent=2, ensure_ascii=True))
+            print(f"DIAG HEALTH UNAVAILABLE: {result['error']}", file=sys.stderr)
+            return 5
+        diag = ReadonlyDiag(args.db)
+        if args.stream_id:
+            result = diag.inspect_stream_health(args.stream_id)
+        else:
+            rep = diag.render(["peers", "streams", "resource_pools", "observations"])
+            if rep.status == "FAILED":
+                result = {"status": "ERROR", "error": rep.error}
+            else:
+                streams_sec = rep.sections.get("streams")
+                streams_data: list[dict[str, Any]] = streams_sec.data.get("streams", []) if streams_sec and streams_sec.status == "OK" else []
+                peers_sec = rep.sections.get("peers")
+                peers_data: list[dict[str, Any]] = peers_sec.data.get("peers", []) if peers_sec and peers_sec.status == "OK" else []
+                result = {
+                    "status": rep.status,
+                    "store": args.db,
+                    "store_selection": {"path": args.db, "source": getattr(args, "db_source", "unknown")},
+                    "snapshot": rep.snapshot,
+                    "total_peers": len(peers_data),
+                    "total_streams": len(streams_data),
+                    "active_streams": [s["stream_id"] for s in streams_data[:5]],
+                }
+        result["observations"] = diag_quota.observations_summary(args.obs_db or args.db)
+        print(json.dumps(result, indent=2, ensure_ascii=True))
+        if str(result.get("error", "")).startswith("SchemaVersionError"):
+            print(f"SCHEMA VERSION ERROR: {result['error']}", file=sys.stderr)
+            return 6
+        return 0
+    return 0
+
+
+def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
+    if args.subcommand == "peer":
+        if args.action == "register":
+            p = store.register_peer(
+                Peer(
+                    peer_id=args.peer_id,
+                    display_name=args.display_name,
+                    adapter_ref=args.adapter_ref,
+                )
+            )
+            print(_dump(p))
+        elif args.action == "get":
+            p = store.get_peer(args.peer_id)
+            if not p:
+                print(f"Peer not found: {args.peer_id}", file=sys.stderr)
+                return 1
+            print(_dump(p))
+
+    elif args.subcommand == "stream":
+        if args.action == "create":
+            s = store.create_stream(
+                Stream(
+                    stream_id=args.stream_id,
+                    title=args.title,
+                    members=args.members,
+                )
+            )
+            print(_dump(s))
+        elif args.action == "show":
+            s = store.get_stream(args.stream_id)
+            if not s:
+                print(f"Stream not found: {args.stream_id}", file=sys.stderr)
+                return 1
+            print(_dump(s))
+
+    elif args.subcommand == "record":
+        if args.action == "append":
+            try:
+                body_data: Any = json.loads(args.body)
+            except Exception:
+                body_data = args.body
+
+            rec = store.append_record(
+                stream_id=args.stream_id,
+                author_peer_id=args.author_peer_id,
+                kind=args.kind,
+                body=body_data,
+                idempotency_key=args.idemp_key,
+                targets=args.targets,
+                created_at=args.created_at or utc_now_iso(),
+            )
+            print(_dump(rec))
+
+        elif args.action == "read":
+            records = store.read_records(
+                stream_id=args.stream_id,
+                after_position=args.after,
+                limit=args.limit,
+            )
+            out = [r.model_dump() for r in records]
+            print(json.dumps(out, indent=2, ensure_ascii=True))
+
+    elif args.subcommand == "offset":
+        if args.action == "get":
+            off = store.get_offset(args.peer_id, args.stream_id)
+            print(_dump(off))
+        elif args.action == "advance":
+            off = store.advance_offset_cas(
+                peer_id=args.peer_id,
+                stream_id=args.stream_id,
+                new_position=args.new_position,
+                expected_revision=args.expected_revision,
+            )
+            print(_dump(off))
+
+    return 0
+
+
 def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     tolerant_streams()
     parser = build_parser(prog=prog)
@@ -249,151 +412,9 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         if args.subcommand in ("monitor", "observation"):
             return _run_light_command(args, parser)
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
-            _reject_dashboard_flags_on_subcommand(parser, args)
-            if args.action is not None and (args.live or args.count or args.interval_seconds != 2):
-                parser.error("--live/--cycles/--interval-seconds apply to the dashboard, not diag subcommands")
-            if not args.live and (args.count or args.interval_seconds != 2):
-                parser.error("--cycles/--interval-seconds require --live")
-            try:
-                from peerhub.extensions.diag import ReadonlyDiag
-                from peerhub.extensions import diag_quota
-            except ImportError as e:
-                print(f"ERROR: the diagnostics extension is unavailable ({e})", file=sys.stderr)
-                return 5
-            if args.action is None:
-                from dataclasses import asdict
-                from peerhub.extensions.diag_watch import dashboard_snapshots
-                from peerhub.cli.view import format_frame, use_color
-                code = 0
-                try:
-                    for rep in dashboard_snapshots(args.db, interval_s=args.interval_seconds,
-                                                    count=args.count if args.live else 1):
-                        print(json.dumps(asdict(rep), indent=None if args.live else 2, ensure_ascii=True)
-                              if args.json else format_frame(rep, args.view, color=use_color(sys.stdout.isatty(), os.environ),
-                                                             width=shutil.get_terminal_size((100, 24)).columns), flush=True)
-                        code = (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
-                                else 0 if rep.status == "OK" else 4)
-                        if code:
-                            break
-                except KeyboardInterrupt:
-                    return code
-                return code
-            if args.action == "quota":  # pure reader: no CoreStore (it would create/migrate the database)
-                rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool)
-                code = {**diag_quota.EXIT_BY_STATUS, "PARTIAL": 4}[rep["status"]]
-                print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else diag_quota.format_quota_table(rep))
-                if code and not args.json:
-                    print(f"DIAG QUOTA {rep['status']}: {rep['error']}", file=sys.stderr)
-                return code
-            if args.action == "health":  # pure reader as well: never CoreStore (no create, no migration of a missing/old --db)
-                if not Path(args.db).is_file():
-                    result: dict[str, object] = {"status": "UNAVAILABLE", "stream_id": args.stream_id, "error": f"database not found: {args.db}"}
-                    print(json.dumps(result, indent=2, ensure_ascii=True))
-                    print(f"DIAG HEALTH UNAVAILABLE: {result['error']}", file=sys.stderr)
-                    return 5
-                diag = ReadonlyDiag(args.db)
-                if args.stream_id:
-                    result = diag.inspect_stream_health(args.stream_id)
-                else:
-                    rep = diag.render(["peers", "streams", "resource_pools", "observations"])
-                    if rep.status == "FAILED":
-                        result = {"status": "ERROR", "error": rep.error}
-                    else:
-                        streams_sec = rep.sections.get("streams")
-                        streams_data: list[dict[str, Any]] = streams_sec.data.get("streams", []) if streams_sec and streams_sec.status == "OK" else []
-                        peers_sec = rep.sections.get("peers")
-                        peers_data: list[dict[str, Any]] = peers_sec.data.get("peers", []) if peers_sec and peers_sec.status == "OK" else []
-                        result = {
-                            "status": rep.status,
-                            "store": args.db,
-                            "store_selection": {"path": args.db, "source": getattr(args, "db_source", "unknown")},
-                            "snapshot": rep.snapshot,
-                            "total_peers": len(peers_data),
-                            "total_streams": len(streams_data),
-                            "active_streams": [s["stream_id"] for s in streams_data[:5]],
-                        }
-                result["observations"] = diag_quota.observations_summary(args.obs_db or args.db)
-                print(json.dumps(result, indent=2, ensure_ascii=True))
-                if str(result.get("error", "")).startswith("SchemaVersionError"):
-                    print(f"SCHEMA VERSION ERROR: {result['error']}", file=sys.stderr)
-                    return 6
-                return 0
+            return _run_diag_cli(args, parser)
         store = CoreStore(args.db)
-        if args.subcommand == "peer":
-            if args.action == "register":
-                p = store.register_peer(
-                    Peer(
-                        peer_id=args.peer_id,
-                        display_name=args.display_name,
-                        adapter_ref=args.adapter_ref,
-                    )
-                )
-                print(_dump(p))
-            elif args.action == "get":
-                p = store.get_peer(args.peer_id)
-                if not p:
-                    print(f"Peer not found: {args.peer_id}", file=sys.stderr)
-                    return 1
-                print(_dump(p))
-
-        elif args.subcommand == "stream":
-            if args.action == "create":
-                s = store.create_stream(
-                    Stream(
-                        stream_id=args.stream_id,
-                        title=args.title,
-                        members=args.members,
-                    )
-                )
-                print(_dump(s))
-            elif args.action == "show":
-                s = store.get_stream(args.stream_id)
-                if not s:
-                    print(f"Stream not found: {args.stream_id}", file=sys.stderr)
-                    return 1
-                print(_dump(s))
-
-        elif args.subcommand == "record":
-            if args.action == "append":
-                try:
-                    body_data = json.loads(args.body)
-                except Exception:
-                    body_data = args.body
-
-                rec = store.append_record(
-                    stream_id=args.stream_id,
-                    author_peer_id=args.author_peer_id,
-                    kind=args.kind,
-                    body=body_data,
-                    idempotency_key=args.idemp_key,
-                    targets=args.targets,
-                    created_at=args.created_at or utc_now_iso(),
-                )
-                print(_dump(rec))
-
-            elif args.action == "read":
-                records = store.read_records(
-                    stream_id=args.stream_id,
-                    after_position=args.after,
-                    limit=args.limit,
-                )
-                out = [r.model_dump() for r in records]
-                print(json.dumps(out, indent=2, ensure_ascii=True))
-
-        elif args.subcommand == "offset":
-            if args.action == "get":
-                off = store.get_offset(args.peer_id, args.stream_id)
-                print(_dump(off))
-            elif args.action == "advance":
-                off = store.advance_offset_cas(
-                    peer_id=args.peer_id,
-                    stream_id=args.stream_id,
-                    new_position=args.new_position,
-                    expected_revision=args.expected_revision,
-                )
-                print(_dump(off))
-
-        return 0
+        return _run_core_cli(args, store)
 
     except (StorageReadOnlyError, StorageFullError, StorageCorruptError) as e:
         print(f"STORAGE ERROR ({type(e).__name__}): {e}", file=sys.stderr)

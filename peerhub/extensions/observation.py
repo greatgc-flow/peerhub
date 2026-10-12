@@ -99,9 +99,11 @@ def _canon(d: dict[str, Any]) -> str:
 
 class ObservationStore:
     def __init__(self, db_path: str | Path, *, clock: Callable[[], float] | None = None, policy: FreshnessPolicy | None = None,
-                 id_source: Callable[[], str] | None = None, fault_hook: Callable[[str], None] | None = None) -> None:
+                 id_source: Callable[[], str] | None = None, fault_hook: Callable[[str], None] | None = None,
+                 require_existing: bool = False) -> None:
         """`clock()` = epoch seconds (ManualClock in tests); `fault_hook(point)` fires `<op>.before_commit` (CrashInjector seam)."""
         self.db_path = str(db_path)
+        self.require_existing = require_existing
         self.clock = clock or time.time
         self.policy = policy or FreshnessPolicy()
         self._new_id = id_source or (lambda: f"obs-{uuid.uuid4().hex}")
@@ -111,7 +113,8 @@ class ObservationStore:
 
     # ------------------------------------------------------------------ plumbing
     def _connect(self, *, read_only: bool = False) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        target = Path(self.db_path).resolve().as_uri() + "?mode=rw" if self.require_existing else self.db_path
+        conn = sqlite3.connect(target, timeout=30.0, uri=self.require_existing)
         conn.row_factory = sqlite3.Row
         conn.isolation_level = None
         conn.execute("PRAGMA journal_mode = WAL;")

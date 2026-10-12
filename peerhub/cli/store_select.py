@@ -7,11 +7,25 @@ Discovery looks for `.peerhub/core.db` in the current directory, `<cwd>/peerhub`
 from __future__ import annotations
 
 import os
+import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
 DEFAULT_DB_PATH = ".peerhub/core.db"
+
+
+def report_missing_store(path: str | Path, *, json_output: bool = False) -> bool:
+    """Refuse absent stores before opening storage or invoking any provider."""
+    if Path(path).is_file():
+        return False
+    message = f"database not found: {path}"
+    print(message, file=sys.stderr)
+    print(f"Create one explicitly: peerhub --db {path} peer register --peer <id> --name <name>", file=sys.stderr)
+    if json_output:
+        print(json.dumps({"status": "UNAVAILABLE", "error": message}, ensure_ascii=True))
+    return True
 
 
 @dataclass(frozen=True)
@@ -26,7 +40,7 @@ def select_store(configured_path: str, *, use_env: bool = True, discover: bool =
     if use_env and "PEERHUB_DB" in env:
         return StoreSelection(env["PEERHUB_DB"], "env")
     if configured_path != DEFAULT_DB_PATH or not discover:
-        return StoreSelection(configured_path, "explicit" if configured_path != DEFAULT_DB_PATH else "default")
+        return StoreSelection(configured_path, "explicit")
     if workspace_root is not None:
         roots = [workspace_root.resolve()]
     else:

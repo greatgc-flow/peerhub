@@ -48,7 +48,7 @@ def test_live_json_is_ndjson_and_preserves_db_bytes(tmp_path, capsys):
 def test_missing_live_store_fails_once_without_bootstrap(tmp_path, capsys):
     db = tmp_path / "missing.db"
     assert main(["--db", str(db), "diag", "--live", "--json"]) == 5
-    assert json.loads(capsys.readouterr().out)["status"] == "FAILED"
+    assert json.loads(capsys.readouterr().out)["status"] == "UNAVAILABLE"
     assert not db.exists()
 
 

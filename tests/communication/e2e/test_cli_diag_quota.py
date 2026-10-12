@@ -211,12 +211,14 @@ def test_quota_json_carries_projection_with_window_timing(tmp_path, capsys):
         ("cx", "quota", "P1", "MEASURED", 10, {
             "remaining_fraction": 0.20,
             "window_started_at": start_t,
+            "anchor_basis": "provider_fixed_window",
             "resets_at": reset_t,
         }, "src-cx"),
         # Pool P2: 10% used in 2 hours of a 5-hour window -> safe until reset (exhausts at 20h > 5h)
         ("cc", "quota", "P2", "MEASURED", 10, {
             "remaining_fraction": 0.90,
             "window_started_at": start_t,
+            "anchor_basis": "provider_fixed_window",
             "resets_at": reset_t,
         }, "src-cc"),
     ])
@@ -225,21 +227,22 @@ def test_quota_json_carries_projection_with_window_timing(tmp_path, capsys):
     assert code == 0
     by_pool = {i["resource_pool_ref"]: i["projection"] for g in rep["pools"] for i in g["items"]}
     p1 = by_pool["P1"]
-    assert p1["status"] == "ok"
-    assert p1["basis"] == "window_average"
-    assert p1["exhausts_before_reset"] is True
+    assert set(p1) == {"pace_pt", "projected_at_reset", "state", "exhaustion_at", "measured_at", "anchor_basis", "reason"}
+    assert p1["state"] == "threat"
+    assert p1["anchor_basis"] == "provider_fixed_window"
+    assert p1["projected_at_reset"] == pytest.approx(200.0, abs=0.1)
     assert p1["exhaustion_at"] is not None and p1["exhaustion_at"] < reset_t
 
     p2 = by_pool["P2"]
-    assert p2["status"] == "safe_until_reset"
-    assert p2["basis"] == "window_average"
-    assert p2["exhausts_before_reset"] is False
+    assert set(p2) == set(p1)
+    assert p2["state"] == "on_pace"
+    assert p2["projected_at_reset"] == pytest.approx(25.0, abs=0.1)
     assert p2["exhaustion_at"] >= reset_t
 
 
-def test_format_dashboard_eta_and_threatened_header_alert(tmp_path):
+def test_format_dashboard_inline_forecast_and_threat_summary(tmp_path):
     from peerhub.extensions.diag import ReadonlyDiag
-    from peerhub.extensions.diag_quota import format_dashboard
+    from peerhub.cli.view import format_frame
     h = ObservationHarness(tmp_path / "wsDash")
     t_meas = time.time() - 10.0
     start_t = t_meas - 7200.0
@@ -249,20 +252,24 @@ def test_format_dashboard_eta_and_threatened_header_alert(tmp_path):
         ("cx", "quota", "P1", "MEASURED", 10, {
             "remaining_fraction": 0.20,
             "window_started_at": start_t,
+            "anchor_basis": "provider_fixed_window",
             "resets_at": reset_t,
         }, "src-cx"),
         # P2 safe
         ("cc", "quota", "P2", "MEASURED", 10, {
             "remaining_fraction": 0.90,
             "window_started_at": start_t,
+            "anchor_basis": "provider_fixed_window",
             "resets_at": reset_t,
         }, "src-cc"),
     ])
     rep = ReadonlyDiag(h.db_path).render(["peers", "streams", "resource_pools", "observations"])
-    text = format_dashboard(rep, store_path=str(h.db_path), store_source="explicit")
-    assert f"store={h.db_path} (explicit)" in text
-    assert "ALERT: cx/P1 exhausts ~" in text
-    assert "before reset" in text
-    assert "ETA: exhausts ~" in text
-    assert "ETA: safe until reset" in text
+    text = format_frame(rep, "plain", width=140, store_path=str(h.db_path), store_source="explicit")
+    assert "(explicit)" in text
+    assert "Threats: 1 threat - earliest cx/P1" in text
+    threat_row = next(line for line in text.splitlines() if line.split()[:2] == ["cx", "P1"])
+    safe_row = next(line for line in text.splitlines() if line.split()[:2] == ["cc", "P2"])
+    assert "exhausts" in threat_row
+    assert "on pace" in safe_row
+    assert "FORECAST" in text and "ETA:" not in text
 

@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from types import SimpleNamespace
 
@@ -24,12 +25,37 @@ def test_quota_refresh_and_readonly_dashboard(tmp_path, monkeypatch, capsys):
     assert not hasattr(cli, "legacy_main")
     assert cli.main(["--db", str(db), "diag"]) == 0
     out = capsys.readouterr().out
-    assert "headroom=75.0%" in out and "STALE" in out and "window=5h" in out
+    row = next(line for line in out.splitlines() if line.split()[:2] == ["cx", "5h"])
+    assert "25%" in row and ("expired" in row or "stale" in row)
+    assert "FORECAST" in out and "Probes" in out
+    assert "Threats: unknown" in out and "No threats" not in out
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == before
 
 
+def test_fresh_quota_dashboard_row_is_not_stale(tmp_path, capsys):
+    import time
+
+    from peerhub import cli
+
+    db = tmp_path / "core.db"
+    CoreStore(db)
+    now = time.time()
+    value = SimpleNamespace(quota_pool_scope="account:5h", remaining_fraction=0.75,
+                            window_started_at=now - 4500, resets_at=now + 13500)
+    evidence = SimpleNamespace(state=EvidenceState.MEASURED, value=value, evidence_ref="probe:test",
+                               source_tag="fake_usage", observed_at=now, captured_at=now)
+    refresh_quota(db, ["cx"], pollers={"cx": lambda **kw: [SimpleNamespace(evidence=evidence)]})
+    # Other peers can lack evidence: OK (0) and PARTIAL (4) both allow
+    # checking the freshness of this measured row.
+    assert cli.main(["--db", str(db), "diag"]) in (0, 4)
+    out = capsys.readouterr().out
+    row = next(line for line in out.splitlines() if line.split()[:2] == ["cx", "5h"])
+    assert "25%" in row and "stale" not in row
+
+
 def test_probe_failure_persists_error_without_measurements(tmp_path):
+    CoreStore(tmp_path / "core.db")
     def fail(**kw):
         raise TimeoutError("secret provider error")
     result = refresh_quota(tmp_path / "core.db", ["cx"], pollers={"cx": fail})
@@ -42,6 +68,43 @@ def test_diag_missing_db_does_not_create_it(tmp_path, capsys):
     from peerhub.cli import main
     db = tmp_path / "missing.db"
     assert main(["--db", str(db), "diag", "--json"]) == 5
+    assert not db.exists()
+
+
+def test_default_refresh_in_non_repository_refuses_missing_store(tmp_path, monkeypatch, capsys):
+    from peerhub.cli.app import main
+    from peerhub.cli.store_select import StoreSelection
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+    monkeypatch.setattr("peerhub.cli.app._select_db", lambda *a, **kw: StoreSelection(".peerhub/core.db", "default"))
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: pytest.fail("missing-store refresh must not probe"))
+    assert main(["observation", "refresh", "--peers", "cx"]) == 5
+    cap = capsys.readouterr()
+    assert json.loads(cap.out)["status"] == "UNAVAILABLE"
+    assert "database not found: .peerhub/core.db" in cap.err
+    assert not (tmp_path / ".peerhub").exists()
+
+
+def test_collector_missing_store_never_calls_poller(tmp_path):
+    db = tmp_path / "missing" / "core.db"
+    with pytest.raises(FileNotFoundError, match="database not found"):
+        refresh_quota(db, ["cx"], pollers={"cx": lambda **kw: pytest.fail("probe")})
+    assert not db.parent.exists()
+
+
+def test_collector_does_not_recreate_store_removed_during_open(tmp_path, monkeypatch):
+    from peerhub.extensions.observation import ObservationStore
+    db = tmp_path / "core.db"
+    CoreStore(db)
+
+    def remove_before_open(path, **kwargs):
+        db.unlink()
+        return ObservationStore(path, **kwargs)
+
+    monkeypatch.setattr("peerhub.extensions.quota_capture.ObservationStore", remove_before_open)
+    with pytest.raises(sqlite3.OperationalError):
+        refresh_quota(db, ["cx"], pollers={"cx": lambda **kw: pytest.fail("probe")})
     assert not db.exists()
 
 

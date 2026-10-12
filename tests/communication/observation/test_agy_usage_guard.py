@@ -121,6 +121,9 @@ def test_cwd_guard_system_temp_dir_spawns_nothing(fake):
 
 
 def test_refresh_quota_reports_warning_and_payload(fake, tmp_path):
+    from peerhub.core.store import CoreStore
+    (tmp_path / "w").mkdir()
+    CoreStore(tmp_path / "w" / "core.db")
     fake.emit(CONSUMED)
     res = refresh_quota(tmp_path / "w" / "core.db", ["ag"], sys_dir=fake.sys_dir)
     o = res["observations"][0]
@@ -131,6 +134,9 @@ def test_refresh_quota_reports_warning_and_payload(fake, tmp_path):
 
 
 def test_refresh_quota_without_warnings_has_empty_list(fake, tmp_path):
+    from peerhub.core.store import CoreStore
+    (tmp_path / "w").mkdir()
+    CoreStore(tmp_path / "w" / "core.db")
     fake.emit(GOOD)
     res = refresh_quota(tmp_path / "w" / "core.db", ["ag"], sys_dir=fake.sys_dir)
     assert res["warnings"] == [] and res["status"] == "OK"
