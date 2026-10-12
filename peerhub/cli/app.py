@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -139,7 +138,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     diag_parser.add_argument("--json", action="store_true", help="Emit the read-only dashboard as JSON")
     diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence")
     diag_parser.add_argument("--interval-seconds", type=float, default=2, help="Live snapshot interval (positive seconds)")
-    diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain", help="Dashboard style (rich = bars, pace and alerts)")
+    diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain", help="Dashboard style: plain (ASCII), rich (bars, pace and alerts). With --live, snapshots every N s: TTY with VT overwrites in place; non-TTY or no VT appends without escapes. Monitor countdown redraw is at most 1 Hz")
     diag_parser.add_argument("--cycles", dest="count", type=int, default=0, help="Live snapshot count; 0 watches until interrupted")
     diag_parser.epilog = "examples: peerhub diag | peerhub diag --json | peerhub diag --live | peerhub observation refresh | peerhub monitor (collects quota evidence every cycle and draws the dashboard)"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
@@ -205,9 +204,12 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
 
 
 def _run_observation_cli(args: argparse.Namespace) -> int:
+    from peerhub.cli.store_select import report_missing_store
+    if getattr(args, "db_source", "default") not in ("explicit", "env") and report_missing_store(args.db, json_output=True):
+        return 5
     from peerhub.extensions.quota_capture import refresh_quota
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
-    CoreStore(args.db)  # infrastructure bootstrap; the collector itself owns only Observation tables
+    CoreStore(args.db)  # explicit --db/PEERHUB_DB retains collection bootstrap semantics
     result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
     print(json.dumps(result, indent=2, ensure_ascii=True))
     _print_warnings(result)
@@ -254,6 +256,9 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 parser.error("--live/--cycles/--interval-seconds apply to the dashboard, not diag subcommands")
             if not args.live and (args.count or args.interval_seconds != 2):
                 parser.error("--cycles/--interval-seconds require --live")
+            from peerhub.cli.store_select import report_missing_store
+            if args.action is None and report_missing_store(args.db, json_output=args.json):
+                return 5
             try:
                 from peerhub.extensions.diag import ReadonlyDiag
                 from peerhub.extensions import diag_quota
@@ -262,23 +267,29 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 return 5
             if args.action is None:
                 from peerhub.extensions.diag_watch import dashboard_snapshots
-                from peerhub.cli.view import dashboard_data, format_frame, use_color
+                from peerhub.cli.view import FrameOutput, dashboard_data, format_frame, use_color
                 code = 0
+                output = FrameOutput(interactive=not args.json, overwrite=args.live)
                 try:
                     for rep in dashboard_snapshots(args.db, interval_s=args.interval_seconds,
                                                     count=args.count if args.live else 1):
-                        print(json.dumps(dashboard_data(rep), indent=None if args.live else 2, ensure_ascii=True)
-                              if args.json else format_frame(rep, args.view, color=use_color(sys.stdout.isatty(), os.environ),
-                                                             width=shutil.get_terminal_size((100, 24)).columns,
-                                                             store_path=str(args.db), store_source=getattr(args, "db_source", "unknown")), flush=True)
+                        if args.json:
+                            print(json.dumps(dashboard_data(rep), indent=None if args.live else 2, ensure_ascii=True), flush=True)
+                        else:
+                            output.write(format_frame(rep, args.view, color=use_color(output.vt, os.environ),
+                                                      width=output.width(), store_path=str(args.db),
+                                                      store_source=getattr(args, "db_source", "unknown")))
                         code = (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
                                 else 0 if rep.status == "OK" else 4)
                         if code:
                             break
                 except KeyboardInterrupt:
                     return code
+                finally:
+                    output.close()
                 return code
             if args.action == "quota":  # pure reader: no CoreStore (it would create/migrate the database)
+                report_missing_store(args.obs_db or args.db)
                 rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool)
                 code = {**diag_quota.EXIT_BY_STATUS, "PARTIAL": 4}[rep["status"]]
                 print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else diag_quota.format_quota_table(rep))
@@ -287,6 +298,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 return code
             if args.action == "health":  # pure reader as well: never CoreStore (no create, no migration of a missing/old --db)
                 if not Path(args.db).is_file():
+                    report_missing_store(args.db)
                     result: dict[str, object] = {"status": "UNAVAILABLE", "stream_id": args.stream_id, "error": f"database not found: {args.db}"}
                     print(json.dumps(result, indent=2, ensure_ascii=True))
                     print(f"DIAG HEALTH UNAVAILABLE: {result['error']}", file=sys.stderr)

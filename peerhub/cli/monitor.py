@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -20,7 +20,7 @@ from peerhub.cli.support import agy_token_use, print_warnings
 def register_monitor_parser(subparsers: Any) -> None:
     p = subparsers.add_parser("monitor", help="Watch quota evidence and diagnostic dashboard")
     p.add_argument("--interval-seconds", dest="interval", type=float, default=60.0,
-                   help="Sleep interval between cycles (positive float)")
+                   help="Collection cycles every N s (positive float); supported TTY countdown redraw at most 1 Hz")
     p.add_argument("--cycles", type=int, default=0,
                    help="Number of cycles to run (0 = until interrupted)")
     p.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"],
@@ -32,7 +32,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--allow-agy-token-use", action="store_true",
                    help="Keep collecting after agy /usage consumed model tokens")
     p.add_argument("--view", choices=["auto", "rich", "plain"], default="auto",
-                   help="Dashboard style: rich (bars, colour, pace), plain (text table); auto = rich on a terminal")
+                   help="Dashboard style: rich (bars, colour, pace), plain (ASCII); auto = rich on a TTY. TTY with VT redraws in place at most 1 Hz; non-TTY or no VT appends once every N s without escapes")
     p.add_argument("--collect-every", type=int, default=1,
                    help="Collect only every Kth cycle (K>=1)")
     p.add_argument("--system-dir", dest="sys_dir", type=Path,
@@ -51,16 +51,13 @@ def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namesp
 
 
 def _frame_drawer(format_frame: Any, view: str, *, color: bool, db_name: str, cycle: int, refresh: dict[str, Any], interval: float,
-                  collect_every: int, live: bool, store_path: str = "", store_source: str = "") -> Any:
+                  collect_every: int, output: Any, store_path: str = "", store_source: str = "") -> Any:
     unicode_ok = (sys.stdout.encoding or "").lower().startswith("utf")
 
     def draw(rep: Any, next_in: float | None) -> None:
-        if live:
-            print(" [H [2J", end="")
-        width = shutil.get_terminal_size((100, 24)).columns
-        print(format_frame(rep, view, color=color, unicode=unicode_ok, width=width, db_name=db_name, cycle=cycle,
+        output.write(format_frame(rep, view, color=color, unicode=unicode_ok, width=output.width(), db_name=db_name, cycle=cycle,
                            refresh=refresh, next_refresh_in=next_in, interval=interval, refresh_every=collect_every,
-                           store_path=store_path, store_source=store_source), flush=True)
+                           store_path=store_path, store_source=store_source))
 
     return draw
 
@@ -74,20 +71,27 @@ def _tick(rep: Any, draw: Any, interval: float, collect_in: float, advance: Any)
             return
         time.sleep(min(1.0, left))
         elapsed = time.monotonic() - start
-        draw(advance(rep, rep.read_at + elapsed), max(0.0, collect_in - elapsed))
+        if elapsed >= interval:
+            return
+        if elapsed >= 1.0:
+            draw(advance(rep, rep.read_at + elapsed), max(0.0, collect_in - elapsed))
 
 
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     validate_monitor_args(parser, args)
+    from peerhub.cli.store_select import report_missing_store
+    if report_missing_store(args.db, json_output=args.json):
+        return 5
     # Lazy imports: registering the parser must work when first-party extensions are blocked (Core-only path); the
     # extension-backed pieces are only needed once the command actually runs.
-    from peerhub.cli.view import advance_report, dashboard_data, format_frame, use_color
+    from peerhub.cli.view import FrameOutput, advance_report, dashboard_data, format_frame, use_color
     from peerhub.extensions.diag import ReadonlyDiag
     from peerhub.extensions.quota_capture import refresh_quota
 
     tty = sys.stdout.isatty()
     view = ("rich" if tty else "plain") if args.view == "auto" else args.view
-    color = view == "rich" and use_color(tty, os.environ)
+    output = FrameOutput(interactive=not args.json)
+    color = view == "rich" and use_color(output.live, os.environ)
     db_name = os.path.basename(str(args.db))
     store_path = str(args.db)
     store_source = getattr(args, "db_source", "unknown")
@@ -98,6 +102,8 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 
     try:
         while True:
+            if report_missing_store(args.db, json_output=args.json):
+                return 5
             is_refresh_cycle = (done % args.collect_every) == 0
             refresh_info: dict[str, Any] = {}
             if is_refresh_cycle:
@@ -137,11 +143,12 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
                 }
                 print(json.dumps(frame, ensure_ascii=True, separators=(",", ":")), flush=True)
             else:
-                live = view == "rich" and tty
+                live = output.live
                 draw = _frame_drawer(format_frame, view, color=color, db_name=db_name, cycle=done, refresh=refresh_info,
-                                     interval=args.interval, collect_every=args.collect_every, live=live,
+                                     interval=args.interval, collect_every=args.collect_every, output=output,
                                      store_path=store_path, store_source=store_source)
-                draw(rep, None)
+                until_collect = args.collect_every - done % args.collect_every
+                draw(rep, until_collect * args.interval)
 
             done += 1
             if total > 0 and done >= total:
@@ -155,3 +162,9 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 
     except KeyboardInterrupt:
         return 0
+    except (FileNotFoundError, sqlite3.OperationalError):
+        if report_missing_store(args.db, json_output=args.json):
+            return 5
+        raise
+    finally:
+        output.close()

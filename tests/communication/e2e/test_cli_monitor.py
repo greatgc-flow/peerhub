@@ -8,11 +8,132 @@ import pytest
 from peerhub.cli.app import main
 
 
+@pytest.mark.parametrize("command", [
+    ["monitor", "--view", "rich"], ["monitor", "--view", "plain"], ["monitor", "--json"],
+    ["diag", "--view", "rich"], ["diag", "--view", "plain"], ["diag", "--json"],
+    ["diag", "quota"], ["diag", "quota", "--json"], ["diag", "health"],
+])
+def test_missing_store_refused_before_probes(tmp_path, capsys, command):
+    db = tmp_path / "absent" / "core.db"
+    with patch("peerhub.extensions.quota_capture.refresh_quota", side_effect=AssertionError("probe")):
+        assert main(["--db", str(db), *command]) == 5
+    cap = capsys.readouterr()
+    message = f"database not found: {db}"
+    assert message in cap.err
+    assert f"Create one explicitly: peerhub --db {db} peer register --peer <id> --name <name>" in cap.err
+    if "--json" in command or "health" in command:
+        envelope = json.loads(cap.out)
+        assert envelope["status"] == "UNAVAILABLE" and envelope["error"] == message
+    assert not db.parent.exists()
+
+
+@pytest.mark.parametrize("view", ["rich", "plain"])
+@pytest.mark.parametrize("tty,vt", [(False, True), (True, False), (True, True)])
+@pytest.mark.parametrize("ending", ["normal", "interrupt", "error"])
+def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, ending):
+    import io
+    from peerhub.cli import monitor
+
+    class Output(io.StringIO):
+        @property
+        def encoding(self):
+            return "utf-8"
+
+        def isatty(self):
+            return tty
+
+    output = Output()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: vt)
+    monkeypatch.setenv("NO_COLOR", "")
+    clock = [0.0]
+    monkeypatch.setattr(monitor.time, "monotonic", lambda: clock[0])
+
+    def sleep(seconds):
+        if ending == "interrupt":
+            raise KeyboardInterrupt
+        if ending == "error":
+            raise RuntimeError("render loop failed")
+        clock[0] += seconds
+
+    monkeypatch.setattr(monitor.time, "sleep", sleep)
+    calls = []
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: calls.append("refresh") or {"status": "OK"})
+    code = _run(_db(tmp_path), "--view", view, "--cycles", "2", "--interval-seconds", "2.5")
+    assert code == (1 if ending == "error" else 0)
+    out = output.getvalue()
+    assert " [H" not in out
+    if tty and vt:
+        assert "\x1b[H\x1b[2J" in out and "\x1b[K" in out and "\x1b[J" in out
+        assert out.endswith("\x1b[0m\x1b[?25h") and "\x1b[?25l" in out
+        assert "\x1b[31m" not in out
+    else:
+        assert "\x1b" not in out
+    assert len(calls) == (2 if ending == "normal" else 1)
+    assert out.count("PeerHub") == (4 if ending == "normal" and tty and vt else 2 if ending == "normal" else 1)
+
+
+def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch):
+    import io
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return True
+
+    output = Output()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: pytest.fail("JSON must not enable VT"))
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    refreshes = []
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: refreshes.append(1) or {"status": "OK"})
+    assert _run(_db(tmp_path), "--json", "--cycles", "3", "--collect-every", "2") == 0
+    lines = output.getvalue().splitlines()
+    assert len(lines) == 3 and len(refreshes) == 2
+    assert [json.loads(line)["cycle"] for line in lines] == [0, 1, 2]
+    assert "\x1b" not in output.getvalue() and " [H" not in output.getvalue()
+
+
+def test_render_exception_restores_cursor(tmp_path, monkeypatch):
+    import io
+    from peerhub.cli import view
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return True
+
+    output = Output()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", lambda *a, **kw: {"status": "OK"})
+    original = view.format_frame
+    calls = []
+
+    def render(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("render failed")
+        return original(*args, **kwargs)
+
+    # Use the snapshot loop to reach the second render without a real clock.
+    monkeypatch.setattr(view, "format_frame", render)
+    from peerhub.extensions.diag_watch import dashboard_snapshots
+    monkeypatch.setattr("peerhub.extensions.diag_watch.dashboard_snapshots",
+                        lambda path, **kw: dashboard_snapshots(path, **kw, sleep=lambda seconds: None))
+    assert main(["--db", str(_db(tmp_path)), "diag", "--live", "--cycles", "2"]) == 1
+    assert len(calls) == 2
+    assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
+
+
 def _db(tmp_path):
     """A real M1 database so the read-only dashboard renders for real (only refresh_quota is faked)."""
     from peerhub.core.store import CoreStore
+    from peerhub.extensions.observation import ObservationStore
     path = tmp_path / "m.db"
     CoreStore(path)
+    ObservationStore(path)
     return path
 
 
@@ -159,7 +280,9 @@ def test_json_frames_parse_and_carry_stable_keys(tmp_path, capsys):
 
 def test_snapshot_step_performs_no_writes(tmp_path, capsys):
     import hashlib
+    from peerhub.core.store import CoreStore
     db_path = tmp_path / "db.sqlite"
+    CoreStore(db_path)
     
     def fake_refresh(db, *a, **kw):
         from peerhub.core.store import CoreStore

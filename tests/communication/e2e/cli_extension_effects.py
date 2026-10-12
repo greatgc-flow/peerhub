@@ -1,5 +1,6 @@
 """Behavioural option proofs for the new public first-party extension commands."""
 import json
+import io
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -90,6 +91,7 @@ def diag_live(e, option):
         plain_code, plain, _ = e.run(db, "diag", "--view", "plain")
         assert rich_code == plain_code == 0
         assert_view_glyph_effect(rich, plain)
+        assert_vt_view_effect(e, db, "diag")
         return
     pauses = []
     from peerhub.extensions.diag_watch import dashboard_snapshots
@@ -126,6 +128,31 @@ def assert_view_glyph_effect(rich, plain):
         assert "\x1b" not in out  # redirected output never emits colour/cursors
 
 
+def assert_vt_view_effect(e, db, command):
+    """The --view help promise applies to both ASCII and rich VT frames."""
+    class Output(io.StringIO):
+        @property
+        def encoding(self):
+            return "utf-8"
+
+        def isatty(self):
+            return True
+
+    for style in ("plain", "rich"):
+        for vt in (True, False):
+            output = Output()
+            args = (["--cycles", "1"] if command == "monitor" else ["--live", "--cycles", "1"])
+            with patch("sys.stdout", output), patch("peerhub.cli.view.enable_vt", lambda: vt):
+                assert e.run(db, command, "--view", style, *args)[0] == 0
+            text = output.getvalue()
+            if vt:
+                assert "\x1b[?25l\x1b[H\x1b[2J" in text
+                assert text.endswith("\x1b[0m\x1b[?25h")
+            else:
+                assert "\x1b" not in text
+            assert " [H" not in text
+
+
 def refresh_effect(e, option):
     db = e.fresh()
     captured = []
@@ -154,7 +181,7 @@ def refresh_effect(e, option):
 
 
 def monitor_effect(e, option):
-    db = e.fresh(option == "--view")
+    db = e.fresh()
     if option == "--view":
         seed_view_pool(db)
     captured = []
@@ -197,6 +224,7 @@ def monitor_effect(e, option):
         code, out, err = e.run(db, *argv)
         if option == "--view":
             plain_code, plain, plain_err = e.run(db, "monitor", "--cycles", "1", "--view", "plain")
+            assert_vt_view_effect(e, db, "monitor")
     if option == "--view":
         assert code == plain_code == 0 and "refresh:" in err and "refresh:" in plain_err
         assert_view_glyph_effect(out, plain)

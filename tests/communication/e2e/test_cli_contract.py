@@ -341,6 +341,19 @@ def test_root_help_and_bad_invocations(capsys):
     assert r.returncode == 2 and "Traceback" not in r.stderr  # real process, not only in-process
 
 
+@pytest.mark.parametrize("command", ["monitor", "diag"])
+def test_dashboard_help_documents_output_capabilities_and_cadence(capsys, command):
+    code, out, err = run(capsys, "unused.db", command, "--help")
+    help_text = " ".join(out.split())
+    assert code == 0 and not err
+    assert all(text in help_text for text in ("TTY", "VT", "non-TTY", "every N s", "1 Hz", "without escapes"))
+
+
+def test_explicit_default_path_is_classified_as_explicit():
+    from peerhub.cli.store_select import DEFAULT_DB_PATH, select_store
+    assert select_store(DEFAULT_DB_PATH, discover=False, env={}).source == "explicit"
+
+
 def test_json_outputs_parse_with_stable_keys(env):
     db = env.fresh()
     assert set(env.j(db, "peer", "get", "--peer", "a")) == {"schema_version", "peer_id", "display_name", "adapter_ref", "metadata", "created_at"}

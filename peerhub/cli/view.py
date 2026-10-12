@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 import os
 import re
+import shutil
+import sys
 import textwrap
 import unicodedata
 from collections.abc import Mapping, Sequence
@@ -17,6 +19,56 @@ from peerhub.extensions.diag_quota import _projection
 RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
 _ANSI = re.compile(r"\033\[[0-9;]*m")
 Obj = Mapping[str, object]
+
+
+def enable_vt() -> bool:
+    """Enable Windows VT processing; a failed console call means append mode."""
+    if os.name != "nt":
+        return True
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.GetStdHandle.argtypes = [wintypes.DWORD]
+        kernel.GetStdHandle.restype = wintypes.HANDLE
+        kernel.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        handle = kernel.GetStdHandle(-11)
+        mode = wintypes.DWORD()
+        return bool(kernel.GetConsoleMode(handle, ctypes.byref(mode))
+                    and kernel.SetConsoleMode(handle, mode.value | 0x0004))
+    except (AttributeError, OSError):
+        return False
+
+
+class FrameOutput:
+    """Overwrite VT terminals and append elsewhere, with exception-safe cleanup."""
+
+    def __init__(self, interactive: bool = True, *, overwrite: bool = True) -> None:
+        self.vt = interactive and sys.stdout.isatty() and enable_vt()
+        self.live = self.vt and overwrite
+        self.started = False
+
+    def write(self, frame: str) -> None:
+        if self.live:
+            if not self.started:
+                self.started = True
+                print("\x1b[?25l\x1b[H\x1b[2J", end="")
+            else:
+                print("\x1b[H", end="")
+            # Erase each old line's tail, then all remaining lines on shrink.
+            print("\x1b[K\r\n".join(frame.splitlines()) + "\x1b[K\x1b[J", end="", flush=True)
+        else:
+            print(frame, flush=True)
+
+    def close(self) -> None:
+        if self.started:
+            print("\x1b[0m\x1b[?25h", end="", flush=True)
+
+    @staticmethod
+    def width() -> int:
+        return shutil.get_terminal_size((100, 24)).columns
 
 
 def _safe_text(value: object) -> str:

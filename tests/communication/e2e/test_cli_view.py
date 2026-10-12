@@ -152,8 +152,42 @@ def test_tick_redraws_each_second_with_a_counting_down_next_refresh():
         monitor._tick(Rep(), lambda rep, nxt: frames.append((rep, nxt)), 3.0, 10.0, lambda rep, now: now)
     finally:
         monitor.time.monotonic, monitor.time.sleep = real_mono, real_sleep
-    assert sleeps == [1.0, 1.0, 1.0] and [f[0] for f in frames] == [101.0, 102.0, 103.0]
-    assert [f[1] for f in frames] == [9.0, 8.0, 7.0]
+    assert sleeps == [1.0, 1.0, 1.0] and [f[0] for f in frames] == [101.0, 102.0]
+    assert [f[1] for f in frames] == [9.0, 8.0]
+
+
+def test_resize_relayouts_and_erases_shrunken_frame(monkeypatch):
+    import io
+    import os
+    from peerhub.cli.monitor import _frame_drawer
+    from peerhub.cli.view import FrameOutput
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return True
+
+    output = Output()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    sizes = iter([os.terminal_size((120, 24)), os.terminal_size((80, 20))])
+    monkeypatch.setattr("peerhub.cli.view.shutil.get_terminal_size", lambda fallback: next(sizes))
+    widths = []
+
+    def format_frame(rep, view, **kwargs):
+        widths.append(kwargs["width"])
+        return "wide line\nleftover line" if kwargs["width"] == 120 else "short"
+
+    sink = FrameOutput()
+    draw = _frame_drawer(format_frame, "plain", color=False, db_name="db", cycle=0,
+                         refresh={}, interval=60, collect_every=1, output=sink)
+    try:
+        draw(None, 60)
+        draw(None, 59)
+    finally:
+        sink.close()
+    assert widths == [120, 80]
+    assert "\x1b[Hshort\x1b[K\x1b[J" in output.getvalue()
+    assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
 
 
 def test_probe_errors_have_their_own_line_without_a_pool():
