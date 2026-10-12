@@ -1,0 +1,27 @@
+# docs/history/reviews/ — Index
+
+This directory holds audit reports, architecture and structure reviews, and retirement phase retrospectives.
+
+## 1. System Audits & Structure Reviews (Active)
+
+| Document | Date | Scope | Status |
+|---|---|---|---|
+| [recursive-mece-release-audit-2026-09-28.md](recursive-mece-release-audit-2026-09-28.md) | 2026-09-28 | v0.8.0 history, feature/test/doc traceability, live profiles, packaging, and 5-whys release audit | Release candidate complete |
+| [p-drive-folder-structure-mece-review-2026-09-09.md](p-drive-folder-structure-mece-review-2026-09-09.md) | 2026-09-09 | P:\, peerhub, and Engram repository & runtime directory structure review (Rounds 1-3) | In Progress / Active Reference |
+| [p-drive-mece-migration-audit-2026-09-09.md](p-drive-mece-migration-audit-2026-09-09.md) | 2026-09-09 | Comprehensive P:\ -> Engram + peerhub file & capability migration verification | In Progress (Env closed, AI-collaboration side pending cx quota reset) |
+| [engram-peerhub-cross-repo-structure-audit-2026-09-23.md](engram-peerhub-cross-repo-structure-audit-2026-09-23.md) | 2026-09-23 | Engram v3.3.2-v3.3.7 applicable-fix parity check + cross-repo MECE file/directory placement audit (cx.effort + ag.opus, cross-verified by terminal) | Closed — materializer.py retry fix + 2 test file moves + CONVENTION.md shipped |
+
+## 2. LegacyTranslator Retirement Series (Archived / Closed)
+
+Location: [`../history/reviews/legacy-translator-retirement/`](legacy-translator-retirement) — moved out of this directory 2026-09-14 (docs/history/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md section 5.3's `docs/history/reviews/` target for completed review evidence); this section is kept only as a stable index pointer.
+
+The 9-batch effort retiring `LegacyTranslator`/`LEGACY_CATALOG` from `peerhub/application/legacy.py`, concluded at v0.1.16 (`8ae5791`):
+
+- **Batches 1-7** (individual integration test files rewritten off `LegacyTranslator`):
+  - `batch-01.md` through `batch-07.md`
+- **Batch 8** (`tests/integration/test_stage2_boundary.py`, split into 8 sub-batches):
+  - `batch-08-inventory.md` — subsystem-to-test-node inventory and sub-batch split plan
+  - `batch-08a.md` through `batch-08h.md` — one sub-batch each
+- **Batch 9** (final closure):
+  - `batch-09-final.md` — created `test_command_wire_contracts.py`, deleted `LegacyTranslator`/`LEGACY_CATALOG`, concluding the retirement
+- **Canary Waivers**: `gate-canary-waivers.json`, `gate-canary-waivers-batch*.json` — per-batch waiver files for `tools/legacy_retirement/gate.py`'s mechanized preservation gate.

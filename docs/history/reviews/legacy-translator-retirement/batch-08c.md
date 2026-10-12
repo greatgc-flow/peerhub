@@ -79,7 +79,7 @@ because that check was not a pure translator-shape assertion).
 
 ## Retired Assertions (Translator-Only Waivers)
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08c.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08c.json`
 for the full waiver list (11 entries total). Every retired assertion is a
 translator-shape check: `isinstance(translated, TranslatedCommand)`,
 `isinstance(translated.command, Type)`, or the translator's own
@@ -116,6 +116,6 @@ document, and ran full suite/pyright/commit itself.
 python tools/legacy_retirement/gate.py \
     --baseline main \
     --output tools/legacy_retirement/runs/batch-08c \
-    --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08c.json \
+    --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08c.json \
     tests/integration/test_stage2_boundary.py
 ```

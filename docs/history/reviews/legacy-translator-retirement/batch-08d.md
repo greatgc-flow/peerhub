@@ -58,7 +58,7 @@ All 22 gate selftests passed prior to dispatching this sub-batch.
 
 ## Retired Assertions (Translator-Only Waivers)
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08d.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08d.json`
 for the full waiver list (14 entries total). Every retired assertion is a
 translator-shape check: `isinstance(translated, TranslatedCommand)`,
 `isinstance(translated.command, Type)`, command field comparison (`translated.command.action == 'REMOVE'`),
@@ -85,6 +85,6 @@ coverage regression, and it reported PASS).
 python tools/legacy_retirement/gate.py \
     --baseline main \
     --output tools/legacy_retirement/runs/batch-08d \
-    --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08d.json \
+    --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08d.json \
     tests/integration/test_stage2_boundary.py
 ```

@@ -61,12 +61,12 @@ build even that for now, so it stays fully documented and parked, not
 implemented. Full detail:
 `_sys/data/sessions/2026-09-03_gate2-lane2-deferred-security-note.md`
 (Engram side) and peerhub's
-`docs/design/PHASE1-MANIFEST-SCHEMA-V2-FINAL-SECURITY-REVIEW-2026-09-05.md`.
+`docs/history/design/PHASE1-MANIFEST-SCHEMA-V2-FINAL-SECURITY-REVIEW-2026-09-05.md`.
 Everything else remaining is either (a) waiting on something outside this
 session's control entirely (winget human review), or (b) deliberately out
 of scope (peerhub's own general roadmap, confirmed empty of other
 ready-to-pick-up items as of this session's own direct check of
-`docs/design/PEERHUB-BACKLOG-2026-08-27.md`). **Nothing else is "still
+`docs/history/design/PEERHUB-BACKLOG-2026-08-27.md`). **Nothing else is "still
 being worked on."**
 
 ## Status: separation is real, verified in both directions
@@ -491,7 +491,7 @@ being worked on."**
 
 peerhub maintains its own much larger, independently-scoped backlog —
 **don't duplicate it here**, see
-[`docs/design/PEERHUB-BACKLOG-2026-08-27.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PEERHUB-BACKLOG-2026-08-27.md)
+[`docs/history/design/PEERHUB-BACKLOG-2026-08-27.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PEERHUB-BACKLOG-2026-08-27.md)
 in the peerhub repo (1241 lines as of 2026-09-04 — a large, mostly-complete
 research/implementation log for the separate "replace hub.py's action
 catalog natively" project, unrelated to the Engram/peerhub separation

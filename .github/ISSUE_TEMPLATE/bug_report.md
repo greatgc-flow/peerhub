@@ -24,6 +24,8 @@ assignees: ''
 
 ## Actual behavior
 
-## Relevant diagnostics
+## Relevant diagnostics (REDACTED)
 
-<!-- Paste `peerhub diag --json` and `peerhub --version` output when relevant. -->
+<!-- Paste `peerhub diag --json` and `peerhub --version` output when relevant.
+     IMPORTANT: Sanitize and REDACT all private data before sharing.
+     Do NOT include prompt or message payloads, peer names, conversation titles, or local file paths. -->

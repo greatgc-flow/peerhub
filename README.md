@@ -113,7 +113,70 @@ any probes. Create it explicitly with `peerhub --db <path> peer register --peer
 selected store, including in a non-repository directory; an explicit `--db` or
 `PEERHUB_DB` retains its existing collection bootstrap behaviour.
 
-The v0 runtime, its importer, the `PEERHUB_CLI` selector and the 109-command table were removed (2026-10-08); the v0 source is kept only on the Git branch `legacy/v0-main-final`.
+## Common tasks
+
+### Resume across two turns (`--resume`)
+
+To continue an active multi-turn conversation with the same vendor session:
+
+```powershell
+# Turn 1: Initial prompt on a dedicated stream
+peerhub ask cx "Explain the store schema" --stream convo-01 --request-id turn-001
+
+# Turn 2: Continue using the native session
+peerhub ask cx "Now show an append example" --stream convo-01 --request-id turn-002 --resume
+```
+
+### Recover from a blocked stream
+
+When a turn encounters a timeout, silence abort, or disconnect, the stream may enter `blocked_uncertain`. Retrying the same `--request-id` cannot replay an uncertain execution because it may have partially executed remotely. To recover safely, start subsequent turns on a **new** stream:
+
+```powershell
+# Inspect the current health and failure state
+peerhub diag health --stream convo-01
+
+# Recover: include a short summary of the committed context in the new prompt
+peerhub ask cx "Context: We reviewed the Core schema; Peer, Stream, Record and Offset are the four primitives. Next, show an append example." --stream convo-02 --request-id rec-001
+```
+
+A fresh stream cannot see the old stream's records. Replace the example context
+with a short summary of your committed work and the next safe action. Inspect
+the old records with `peerhub record read --stream convo-01 --after 0 --limit 10`
+if needed; an uncertain remote action may already have occurred, so do not
+assume it failed or replay its request ID.
+
+### Offline read-only checks
+
+`diag` inspects local database state and committed snapshots without contacting provider networks or consuming quota:
+
+```powershell
+# Read-only store and stream diagnostics
+peerhub diag
+peerhub diag health
+peerhub diag quota --json
+```
+
+### Upgrade
+
+```powershell
+pipx upgrade peerhub
+# or
+uv tool upgrade peerhub
+# or
+pip install --upgrade peerhub
+```
+
+### Uninstall
+
+```powershell
+pipx uninstall peerhub
+# or
+uv tool uninstall peerhub
+# or
+pip uninstall peerhub
+```
+
+> **Note**: Uninstalling the package removes executable entrypoints but retains the local database and artifacts in `.peerhub/`. To delete store data, remove the `.peerhub/` directory manually.
 
 ## Package structure
 
@@ -137,6 +200,7 @@ Milestones describe development progress, not runtime ownership. Frozen specific
 
 ## Doc map
 
+- [Documentation map](docs/index.md): Single documentation map and navigation index.
 - [CONTRIBUTING.md](CONTRIBUTING.md): maintainer setup, tests, feedback, and release gates.
 - [Adapter guide](docs/adapters/README.md) and [CLI reference](docs/adapters/peer-cli-reference.md): provider invocation and troubleshooting.
 - [Configuration](docs/config-hierarchy.md) and [model profiles](docs/model-profiles/model-profiles.json): store selection and profile defaults.
@@ -148,7 +212,7 @@ Milestones describe development progress, not runtime ownership. Frozen specific
 
 - On Windows, cx `--writable` cannot write into directories with owner-only ACLs (e.g. pytest tmp dirs, `tempfile.mkdtemp`); use a normally created directory.
 - Paths containing spaces or special characters can expose quoting problems in
-  external Windows launchers. See the [recorded path hazards](docs/reviews/mece-audit-2026-09-20-cross-repo.md).
+  external Windows launchers. See the [recorded path hazards](docs/history/reviews/mece-audit-2026-09-20-cross-repo.md).
 - Node.js based CLIs depend on their runtime and launcher installation; portable
   layouts may resolve differently. See the [CLI observations](docs/compatibility/peer-cli-observations.md)
   and [adapter reference](docs/adapters/peer-cli-reference.md).

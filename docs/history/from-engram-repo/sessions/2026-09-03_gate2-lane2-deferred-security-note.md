@@ -53,7 +53,7 @@ substitute for the required cx round above).** With otherwise-idle
 3P-pool quota, dispatched `ag.opus` for a from-scratch adversarial paper
 review of the design doc. 10 concrete findings, all grounded in specific
 design-doc sections (spot-checked, citations accurate) — see peerhub's
-`docs/design/PHASE1-MANIFEST-SCHEMA-V2-PRELIM-SECURITY-REVIEW-2026-09-04.md`
+`docs/history/design/PHASE1-MANIFEST-SCHEMA-V2-PRELIM-SECURITY-REVIEW-2026-09-04.md`
 for the full writeup. Headline: findings 1-3 (unbounded Phase-1 TOCTOU
 between admission-time hashing and spawn, junction/symlink swap after
 admission, and an unspecified path-vs-PATH-re-resolution question at

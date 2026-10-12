@@ -45,7 +45,7 @@ needed for the gate invocation.
 
 ## Retired Assertions (Translator-Only Waivers)
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch06.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch06.json`
 for the full waiver list with individual justifications (4 entries total).
 
 - `test_capability_matching.py::test_legacy_discover_and_elect_execute_through_command_api`:
@@ -66,6 +66,6 @@ Exact coverage coordinates across all production files are 100% preserved. 0 los
 python tools/legacy_retirement/gate.py \
     --baseline main \
     --output tools/legacy_retirement/runs/batch-06 \
-    --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch06.json \
+    --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch06.json \
     tests/integration/application/test_capability_matching.py
 ```

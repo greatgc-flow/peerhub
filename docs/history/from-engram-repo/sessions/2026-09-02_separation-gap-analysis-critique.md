@@ -4,7 +4,7 @@
 unavailable for the whole of this research (G-pool 97% CRIT, ~2d22h to
 reset) so the terminal performed the critique directly, matching the
 precedent set for the Gap 6 capability-matching design earlier this session
-(`docs/design/PEERHUB-BACKLOG-2026-08-27.md`, "Gap 6 capability matching
+(`docs/history/design/PEERHUB-BACKLOG-2026-08-27.md`, "Gap 6 capability matching
 research resolution"). This note does not replace a real second independent
 peer critique — if `ag` recovers before implementation starts, its critique
 should still be sought before treating this as fully ratified.
@@ -55,7 +55,7 @@ word. The deferred item is specifically Primitive B — formal voting
 machinery for *external* decisions routed into peerhub — while the
 implemented `ConsensusService` covers propose/vote/resolve for peerhub's
 *own* governance rounds (already disambiguated in
-`docs/design/PEERHUB-BACKLOG-2026-08-27.md`'s Tier 5 section, which this
+`docs/history/design/PEERHUB-BACKLOG-2026-08-27.md`'s Tier 5 section, which this
 report's author did not have reason to have read). Not a logical
 contradiction, but the wording genuinely invites the misreading cx made —
 worth tightening when PeerHub's own README gets its next pass, independent

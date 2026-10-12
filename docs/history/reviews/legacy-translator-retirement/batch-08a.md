@@ -129,7 +129,7 @@ All 60 untouched test functions (76 parameterized invocations) in `tests/integra
 
 ## Retired Assertions (Translator-Only Waivers)
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08a.json` for the full waiver list (8 entries total).
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08a.json` for the full waiver list (8 entries total).
 
 - `test_legacy_consensus_propose_translates_and_executes`:
   1. `isinstance(translated, TranslatedCommand)`: Retire LegacyTranslator wrapper check on consensus-propose.
@@ -157,6 +157,6 @@ Exact coverage coordinates across all production files are 100% preserved:
 python tools/legacy_retirement/gate.py \
     --baseline main \
     --output tools/legacy_retirement/runs/batch-08a \
-    --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08a.json \
+    --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08a.json \
     tests/integration/test_stage2_boundary.py
 ```

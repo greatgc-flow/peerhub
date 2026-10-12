@@ -75,7 +75,7 @@ command, (3) verify the out-of-range case via the real, empirically-confirmed
 
 ## Retired Assertions
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch07.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch07.json`
 (9 entries) for the full waiver list. Every retired assertion is a translator-
 shape check (`isinstance(x, TranslatedCommand)`, `isinstance(x.command, Type)`,
 a field-mapping check duplicated by an equivalent new assertion, or the
@@ -91,7 +91,7 @@ Zero lost lines, zero lost branches, across all production modules touched.
 ```bash
 python tools/legacy_retirement/gate.py --baseline main \
   --output tools/legacy_retirement/runs/batch-07 \
-  --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch07.json \
+  --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch07.json \
   tests/integration/application/test_broker_status.py \
   tests/integration/application/test_proposals.py
 ```
