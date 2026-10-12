@@ -211,12 +211,16 @@ def test_quota_json_carries_projection_with_window_timing(tmp_path, capsys):
         ("cx", "quota", "P1", "MEASURED", 10, {
             "remaining_fraction": 0.20,
             "window_started_at": start_t,
+            "anchor_basis": "provider_fixed_window",
+            "anchor_validated": True,
             "resets_at": reset_t,
         }, "src-cx"),
         # Pool P2: 10% used in 2 hours of a 5-hour window -> safe until reset (exhausts at 20h > 5h)
         ("cc", "quota", "P2", "MEASURED", 10, {
             "remaining_fraction": 0.90,
             "window_started_at": start_t,
+            "anchor_basis": "provider_fixed_window",
+            "anchor_validated": True,
             "resets_at": reset_t,
         }, "src-cc"),
     ])
@@ -225,15 +229,16 @@ def test_quota_json_carries_projection_with_window_timing(tmp_path, capsys):
     assert code == 0
     by_pool = {i["resource_pool_ref"]: i["projection"] for g in rep["pools"] for i in g["items"]}
     p1 = by_pool["P1"]
-    assert p1["status"] == "ok"
-    assert p1["basis"] == "window_average"
-    assert p1["exhausts_before_reset"] is True
+    assert set(p1) == {"pace_pt", "projected_at_reset", "state", "exhaustion_at", "measured_at", "anchor_basis", "reason"}
+    assert p1["state"] == "threat"
+    assert p1["anchor_basis"] == "provider_fixed_window"
+    assert p1["projected_at_reset"] == pytest.approx(200.0, abs=0.1)
     assert p1["exhaustion_at"] is not None and p1["exhaustion_at"] < reset_t
 
     p2 = by_pool["P2"]
-    assert p2["status"] == "safe_until_reset"
-    assert p2["basis"] == "window_average"
-    assert p2["exhausts_before_reset"] is False
+    assert set(p2) == set(p1)
+    assert p2["state"] == "on_pace"
+    assert p2["projected_at_reset"] == pytest.approx(25.0, abs=0.1)
     assert p2["exhaustion_at"] >= reset_t
 
 
@@ -249,12 +254,16 @@ def test_format_dashboard_eta_and_threatened_header_alert(tmp_path):
         ("cx", "quota", "P1", "MEASURED", 10, {
             "remaining_fraction": 0.20,
             "window_started_at": start_t,
+            "anchor_basis": "provider_fixed_window",
+            "anchor_validated": True,
             "resets_at": reset_t,
         }, "src-cx"),
         # P2 safe
         ("cc", "quota", "P2", "MEASURED", 10, {
             "remaining_fraction": 0.90,
             "window_started_at": start_t,
+            "anchor_basis": "provider_fixed_window",
+            "anchor_validated": True,
             "resets_at": reset_t,
         }, "src-cc"),
     ])
@@ -264,5 +273,5 @@ def test_format_dashboard_eta_and_threatened_header_alert(tmp_path):
     assert "ALERT: cx/P1 exhausts ~" in text
     assert "before reset" in text
     assert "ETA: exhausts ~" in text
-    assert "ETA: safe until reset" in text
+    assert "on pace" in text
 
