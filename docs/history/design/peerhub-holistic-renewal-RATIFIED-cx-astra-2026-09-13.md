@@ -60,7 +60,7 @@ The measured top-level help is 48 lines and still begins with the complete 30-co
 
 ### 2.2 P8 introduced a release-path regression
 
-P8 correctly moved the version to peerhub/_version.py and made package metadata dynamic. [.github/workflows/publish.yml](../../.github/workflows/publish.yml), however, still performs:
+P8 correctly moved the version to peerhub/_version.py and made package metadata dynamic. [.github/workflows/publish.yml](../../../.github/workflows/publish.yml), however, still performs:
 
 ~~~python
 tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
@@ -84,7 +84,7 @@ The one-process/two-voter quorum is supported by two earlier empirical reports: 
 
 ### 2.4 Backup membership contradicts the named-allowlist promise
 
-[application/backup.py](../../peerhub/application/backup.py), _copy_config_files, copies every immediate entry for which is_file() is true. It does not limit membership to ask.toml, arbiter.json, and proposals.json. [config-hierarchy.md](../config-hierarchy.md) promises an explicit named allowlist.
+[application/backup.py](../../peerhub/application/backup.py), _copy_config_files, copies every immediate entry for which is_file() is true. It does not limit membership to ask.toml, arbiter.json, and proposals.json. [config-hierarchy.md](../../config-hierarchy.md) promises an explicit named allowlist.
 
 Calling the actual helper with mocked filesystem entries copied a synthetic unrecognized.private.txt [empirical_probe: mocked I/O]. No real credential was inspected or copied. The use of is_file() also does not establish a no-follow boundary [declared, unverified for a live link].
 

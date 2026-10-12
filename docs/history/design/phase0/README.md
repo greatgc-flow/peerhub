@@ -6,8 +6,8 @@ controlled-fake-runner contracts, and their ratification rounds) was formally
 closed 2026-07-30 (see `TDD-READINESS-GATE-CLOSURE-R1.md`). Everything in this
 directory predates and led into the Phase 1 design round
 (`docs/design/*.md`, see `../../../design/README.md`) and the later TDD implementation
-phase (`docs/design/PEERHUB-BACKLOG-2026-08-27.md`,
-`docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`), both of which
+phase (`docs/history/design/PEERHUB-BACKLOG-2026-08-27.md`,
+`docs/history/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`), both of which
 supersede these documents for "what's implemented / what's left" questions.
 
 These 53 files are kept in full per this project's "never delete history"

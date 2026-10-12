@@ -60,9 +60,10 @@ The MCP surface (`peerhub.extensions.mcp`) provides typed public interfaces:
   from peerhub.core.store import CoreStore
   from peerhub.extensions.mcp import MCPServer
 
-  store = CoreStore.open(".peerhub/core.db")
+  store = CoreStore(".peerhub/core.db")
   server = MCPServer(core_store=store)
   response = server.handle_message('{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
+  assert response is not None
   ```
 
 ### A2A Integration (Library-Only)
@@ -70,11 +71,19 @@ The MCP surface (`peerhub.extensions.mcp`) provides typed public interfaces:
 - **CLI Launcher**: **No launcher yet** (no `peerhub a2a` CLI subcommand).
 - **Runnable Example**:
   ```python
+  from peerhub.extensions.a2a import A2AAdapter, AgentCard
   from peerhub.extensions.a2a_http import HttpA2ATransport
 
-  transport = HttpA2ATransport(base_url="http://127.0.0.1:8000")
-  card = transport.get_agent_card()
+  adapter = A2AAdapter(transport=HttpA2ATransport())
+  adapter.register_agent_card(AgentCard(
+      agent_id="echo", name="Echo", description="Echo service",
+      declared_capabilities=["echo"], endpoint_url="http://127.0.0.1:8000",
+  ))
+  card = adapter.get_agent_card("echo")
+  assert card is not None and card.agent_id == "echo"
   ```
+  This registers and retrieves a declared card locally; it does not contact
+  the endpoint or measure its capabilities.
 
 ### Remote Runtime Integration (Library-Only)
 - **Boundary**: `peerhub.extensions.runtime_port.ProcessRuntimeAdapter` provides capability execution and process-tree supervision.
@@ -82,8 +91,9 @@ The MCP surface (`peerhub.extensions.mcp`) provides typed public interfaces:
 - **Runnable Example**:
   ```python
   from peerhub.extensions.runtime_port import ProcessRuntimeAdapter, RuntimeCapability
+  import sys
 
   adapter = ProcessRuntimeAdapter()
-  cap = RuntimeCapability(name="echo", version="1.0.0")
-  adapter.register_command(cap, ["python", "-c", "import json; print(json.dumps({'status': 'ok'}))"])
+  cap = RuntimeCapability(capability_id="echo", name="echo", description="Echo")
+  adapter.register_command(cap, [sys.executable, "-c", "import json; print(json.dumps({'status': 'ok'}))"])
   ```

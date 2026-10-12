@@ -8,7 +8,7 @@
 
 1. `docs/design/dotdir-consolidation-engram-proposal-2026-09-09.md`
    (Engram repo, commit `2bcd33b`, author: Antigravity)
-2. `docs/design/dotdir-consolidation-peerhub-proposal-2026-09-09.md`
+2. `docs/history/design/dotdir-consolidation-peerhub-proposal-2026-09-09.md`
    (PeerHub repo, commit `5386318`)
 
 **Verification basis.** Every load-bearing citation in both proposals was

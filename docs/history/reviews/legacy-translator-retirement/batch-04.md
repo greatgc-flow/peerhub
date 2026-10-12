@@ -50,7 +50,7 @@ the gate invocation.
 
 ## Retired Assertions (Translator-Only Waivers)
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch04.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch04.json`
 for the full waiver list with individual justifications (6 entries total).
 
 - `test_process_lease_sweep.py::test_legacy_translation_and_api_execution`:
@@ -78,7 +78,7 @@ Exact coverage coordinates across all production files are 100% preserved. 0 los
 python tools/legacy_retirement/gate.py \
     --baseline main \
     --output tools/legacy_retirement/runs/batch-04 \
-    --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch04.json \
+    --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch04.json \
     tests/integration/application/test_process_lease_sweep.py \
     tests/integration/application/test_lease_status.py
 ```

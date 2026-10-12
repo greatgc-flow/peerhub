@@ -9,7 +9,7 @@ Shared change: `tests/conftest.py` hermetic `shutil.which` patch now also exempt
 spawn failure as non-prespawn, nonzero exit as PrespawnError, response/stderr unsanitized, output bound off, no kill on timeout, resume "ok", hardcoded version, no abort on generator close, truncate-before-redact, interrupt claimed, garbage accepted, vendor is_error accepted, env secrets ignored.
 
 ## Live canary (run once, 2026-10-04 local / evidence dated UTC 2026-10-03; `peerhub diag --fresh` first: cc/ag/cx OPEN)
-Evidence: `docs/m1_impl/live_evidence/2026-10-03.json` (sanitized: no prompt, no response text, no secrets). Prompt `Reply with OK`, lowest tier = packaged `<kind>.standard`, one call per provider, no retries.
+Evidence: `docs/implementation/live_evidence/2026-10-03.json` (sanitized: no prompt, no response text, no secrets). Prompt `Reply with OK`, lowest tier = packaged `<kind>.standard`, one call per provider, no retries.
 | provider | observed version | model/effort | result | duration |
 |---|---|---|---|---|
 | cc | 2.1.288 | claude-haiku-4-5-20251001 | delivered, TERMINAL, durable response Record | 4.7 s |

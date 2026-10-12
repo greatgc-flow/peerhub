@@ -58,7 +58,7 @@ secondary test file was needed for the gate invocation.
 
 ## Retired Assertions (Translator-Only Waivers)
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch05.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch05.json`
 for the full waiver list with individual justifications (6 entries total).
 
 - `test_peer_quarantine.py::test_legacy_translation_and_api_command_execution`:
@@ -82,7 +82,7 @@ Exact coverage coordinates across all production files are 100% preserved. 0 los
 python tools/legacy_retirement/gate.py \
     --baseline main \
     --output tools/legacy_retirement/runs/batch-05 \
-    --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch05.json \
+    --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch05.json \
     tests/integration/application/test_peer_quarantine.py \
     tests/integration/application/test_health_quickwins.py
 ```

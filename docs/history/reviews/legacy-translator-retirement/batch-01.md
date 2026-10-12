@@ -108,7 +108,7 @@ All 26 assertions across untouched test nodes 1–10 are 100% byte-and-AST ident
 
 ## Rewritten Test (#11): Justification of Retired Translator Assertions
 
-The 4 removed baseline assertions are **explicitly retired translator-only assertions**, formally registered in `docs/reviews/legacy-translator-retirement/gate-canary-waivers.json`.
+The 4 removed baseline assertions are **explicitly retired translator-only assertions**, formally registered in `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers.json`.
 
 **Crucial Correction**: Prior review notes erroneously attempted to present the new execution substring checks as semantically equivalent to the baseline translator assertions. That equivalence claim was incorrect: substring matching on the handler's output does not establish translator argument mapping. Instead, the 4 assertions are justified for retirement because `LegacyTranslator` is being deprecated, and the new assertions verify the replacement end-to-end `Client(ApplicationAPI)` submission path.
 
@@ -226,7 +226,7 @@ The raw coverage databases and comparison script artifacts are precisely located
 - **Gate Tool Ownership**: `tools/legacy_retirement/gate.py` and its evidence runs under `tools/legacy_retirement/runs/` are exclusively owned and operated by a separate worker.
 - **Current Gate Status**:
   - Run `tools/legacy_retirement/runs/canary-unwaived` currently reports `Result: FAIL` because it was intentionally executed without waivers to detect raw AST assertion diffs.
-  - The formal waiver file [`docs/reviews/legacy-translator-retirement/gate-canary-waivers.json`](file:///P:/workspace/peerhub/docs/reviews/legacy-translator-retirement/gate-canary-waivers.json) has been authored with the 4 translator-only justifications.
-  - Passing status will be obtained by the dedicated gate worker running `gate.py --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers.json`. This review record does not preempt or claim that run has passed before it completes.
+  - The formal waiver file [`docs/history/reviews/legacy-translator-retirement/gate-canary-waivers.json`](file:///P:/workspace/peerhub/docs/reviews/legacy-translator-retirement/gate-canary-waivers.json) has been authored with the 4 translator-only justifications.
+  - Passing status will be obtained by the dedicated gate worker running `gate.py --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers.json`. This review record does not preempt or claim that run has passed before it completes.
 - **Type Checking**: Full pyright passed cleanly (`0 errors, 0 warnings, 0 informations`).
 - **Main Test Suite Note**: Full suite execution stopped at `test_sqlite_dispatch_cas.py::test_cas_state_machine` due to a 60-second timeout under I/O load. Diagnosis of this timeout is owned by main; this batch does not duplicate or interfere with that diagnostic.

@@ -90,7 +90,7 @@ or behavioral verification was lost in the process.
 
 ## Retired Assertions (Translator-Only Waivers)
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08h.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08h.json`
 for the full waiver list (24 entries total). 14 are translator-shape
 wrapper checks (`isinstance(translated, TranslatedCommand)` or
 `isinstance(translated.command, CommandType)`); 10 more (5 each in
@@ -133,6 +133,6 @@ With Sub-batch 8h complete:
 python tools/legacy_retirement/gate.py \
     --baseline main \
     --output tools/legacy_retirement/runs/batch-08h \
-    --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08h.json \
+    --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08h.json \
     tests/integration/test_stage2_boundary.py
 ```

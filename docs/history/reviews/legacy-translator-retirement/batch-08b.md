@@ -41,7 +41,7 @@ All other 59 test functions (76 parameterized invocations) in
 
 ## Retired Assertions (Translator-Only Waivers)
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08b.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08b.json`
 for the full waiver list (13 entries total). Every retired assertion is a
 translator-shape check: `isinstance(translated, TranslatedCommand)`,
 `isinstance(translated.command, Type)`, or `translated.command.FIELD ==
@@ -97,6 +97,6 @@ suite/pyright/commit itself.
 python tools/legacy_retirement/gate.py \
     --baseline main \
     --output tools/legacy_retirement/runs/batch-08b \
-    --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08b.json \
+    --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08b.json \
     tests/integration/test_stage2_boundary.py
 ```

@@ -64,9 +64,9 @@ should be retained and expanded in public documentation to mention
 The packaged file is distribution data, not a user customization point. Its
 own header calls it release-maintained and identifies global and workspace
 overrides
-([`model-defaults.toml`](../../peerhub/config_data/model-defaults.toml#L1-L15)),
+([`model-defaults.toml`](../../../peerhub/config_data/model-defaults.toml#L1-L15)),
 and `pyproject.toml` includes all `peerhub.config_data/*.toml` files as package
-data ([`pyproject.toml`](../../pyproject.toml#L43-L49)).
+data ([`pyproject.toml`](../../../pyproject.toml#L43-L49)).
 
 ### 2.2 A second real global preference file exists
 
@@ -94,7 +94,7 @@ the workspace home as `<workspace>/.peerhub` and the database as
 current directory
 ([`cli.py`](../../peerhub/cli.py#L2577-L2588)); the README also presents the
 database at this exact location
-([`README.md`](../../README.md#L138-L145)). Thus an accidental current
+([`README.md`](../../../README.md#L138-L145)). Thus an accidental current
 working directory is currently enough to create a new workspace database.
 
 The database is not disposable cache. `create_runtime()` initializes it and

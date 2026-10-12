@@ -2,7 +2,7 @@
 
 **Role:** `ag.effort`, standing in for `cx` as a one-time, user-authorized substitute vote (DIR-006 exception, not a policy change).
 
-**Target document:** `docs/design/engram-sys-folder-rename-feasibility-2026-09-17.md` (main body + Addenda 1-3)
+**Target document:** `docs/history/design/engram-sys-folder-rename-feasibility-2026-09-17.md` (main body + Addenda 1-3)
 
 **Verdict: RATIFY WITH AMENDMENT.** Full amendment text (Addendum 4) applied to the target document.
 

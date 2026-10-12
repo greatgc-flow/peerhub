@@ -378,5 +378,5 @@ The design direction is right. Implementation should proceed with D1–D14 integ
 - PeerHub codebase at `P:\workspace\peerhub` (working tree as of 2026-09-13)
 - 31 SQLite migrations (0001 through 0031)
 - 3 production adapters: agy, claude, codex
-- Proposal 1: `docs/design/peerhub-dctx-proposal-1-2026-09-13.md`
-- Holistic renewal: `docs/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md`
+- Proposal 1: `docs/history/design/peerhub-dctx-proposal-1-2026-09-13.md`
+- Holistic renewal: `docs/history/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md`

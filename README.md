@@ -135,9 +135,15 @@ When a turn encounters a timeout, silence abort, or disconnect, the stream may e
 # Inspect the current health and failure state
 peerhub diag health --stream convo-01
 
-# Recover: deliver subsequent work on a new stream; do not replay uncertain request-ids
-peerhub ask cx "Resume from the last committed record" --stream convo-02 --request-id rec-001
+# Recover: include a short summary of the committed context in the new prompt
+peerhub ask cx "Context: We reviewed the Core schema; Peer, Stream, Record and Offset are the four primitives. Next, show an append example." --stream convo-02 --request-id rec-001
 ```
+
+A fresh stream cannot see the old stream's records. Replace the example context
+with a short summary of your committed work and the next safe action. Inspect
+the old records with `peerhub record read --stream convo-01 --after 0 --limit 10`
+if needed; an uncertain remote action may already have occurred, so do not
+assume it failed or replay its request ID.
 
 ### Offline read-only checks
 
@@ -206,7 +212,7 @@ Milestones describe development progress, not runtime ownership. Frozen specific
 
 - On Windows, cx `--writable` cannot write into directories with owner-only ACLs (e.g. pytest tmp dirs, `tempfile.mkdtemp`); use a normally created directory.
 - Paths containing spaces or special characters can expose quoting problems in
-  external Windows launchers. See the [recorded path hazards](docs/reviews/mece-audit-2026-09-20-cross-repo.md).
+  external Windows launchers. See the [recorded path hazards](docs/history/reviews/mece-audit-2026-09-20-cross-repo.md).
 - Node.js based CLIs depend on their runtime and launcher installation; portable
   layouts may resolve differently. See the [CLI observations](docs/compatibility/peer-cli-observations.md)
   and [adapter reference](docs/adapters/peer-cli-reference.md).

@@ -276,7 +276,7 @@ before this session even started, not something new -- codex's own CLI
 auto-appends rules to it during live use, a known, harmless, standing
 condition). None of these are urgent; P: stays frozen, no action taken.
 
-**Real fix applied**: the round's own newly-created `docs/reviews/
+**Real fix applied**: the round's own newly-created `docs/history/reviews/
 README.md`, `docs/adapters/README.md`, `docs/compatibility/README.md`
 (commit `8dce12a`) had systematically corrupted filenames throughout --
 `batch-*.md` rendered as `atch-*.md` (dropped leading `b`), `ag`/`agy`

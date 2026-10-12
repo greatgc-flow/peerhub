@@ -537,7 +537,7 @@ remained after one round). Ratified:
 
 These 6 are now unblocked for implementation under the same
 architecture-before-implementation discipline this session has followed
-throughout — see `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`
+throughout — see `docs/history/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`
 for the resulting implementation work.
 
 ## RATIFIED (2026-08-27): gap-7 `peerhub diag` unification (separate from gap-3, decided in the same round)
@@ -559,7 +559,7 @@ existing peer-CLI-quota telemetry the rest of `diag` already provides.
 ## RATIFIED (2026-08-27): room-participation sessions (`init-session`/`end-session`) get a NEW dedicated coordinator, not a reuse of `SessionLeaseCoordinator` or `DutyLeaseCoordinator`
 
 Closes the architecture gap recorded in
-`docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md` item 7. One
+`docs/history/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md` item 7. One
 critique round: cc drafted a position after directly confirming how
 deeply `command_id`/`attempt_id` are baked into `SessionLeaseCoordinator`'s
 real fence-validation logic (`peerhub/dispatch/model.py`, 10+ sites); cx

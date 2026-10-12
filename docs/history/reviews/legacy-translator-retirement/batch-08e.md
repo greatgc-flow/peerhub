@@ -68,7 +68,7 @@ all retired assertion shapes matched existing verified `translator_only()` patte
 
 ## Retired Assertions (Translator-Only Waivers)
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08e.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08e.json`
 for the full waiver list (14 entries total):
 - 7 wrapper checks: `isinstance(translated, TranslatedCommand)` / `isinstance(outcome, TranslatedCommand)`
 - 6 command-type checks: `isinstance(translated.command, SessionOpenCommand)` / `SessionCloseCommand` / `StatusReadCommand`
@@ -93,6 +93,6 @@ Zero lost lines, zero lost branches, across all production modules touched
 python tools/legacy_retirement/gate.py \
     --baseline main \
     --output tools/legacy_retirement/runs/batch-08e \
-    --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch08e.json \
+    --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch08e.json \
     tests/integration/test_stage2_boundary.py
 ```

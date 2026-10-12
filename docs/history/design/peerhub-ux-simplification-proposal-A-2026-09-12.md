@@ -63,7 +63,7 @@
 
 ### 0.4 Config/dotdir layout
 
-The config/dotdir consolidation (ratified 2026-09-09, `docs/design/dotdir-consolidation-RATIFIED-2026-09-09.md`) established:
+The config/dotdir consolidation (ratified 2026-09-09, `docs/history/design/dotdir-consolidation-RATIFIED-2026-09-09.md`) established:
 
 - Two-tier hierarchy: global (`~/.peerhub/config/`) and workspace (`<workspace>/.peerhub/config/`)
 - Clear precedence: workspace > global > built-in
@@ -79,7 +79,7 @@ The config/dotdir consolidation (ratified 2026-09-09, `docs/design/dotdir-consol
 | Document | Date | Key finding relevant to this review |
 |---|---|---|
 | `docs/history/design/2026-08/INTERFACE-MECE-AESTHETIC-AUDIT-2026-08-24.md` | 2026-08-24 | Focused on P:\\'s non-peerhub entry points (`claude_entry.py`, `codex_entry.py`, `agy_entry.py`), not peerhub's own CLI surface. Found DRY violations in those files. Did not audit peerhub's CLI command/flag ergonomics. |
-| `docs/reviews/p-drive-folder-structure-mece-review-2026-09-09.md` | 2026-09-09 | Focused on P:\\ workspace folder organization, not peerhub repo structure. |
+| `docs/history/reviews/p-drive-folder-structure-mece-review-2026-09-09.md` | 2026-09-09 | Focused on P:\\ workspace folder organization, not peerhub repo structure. |
 | Project memory (referenced in task): "core `ask` sound but buried in enterprise-CQRS ceremony; proposals/consensus redundant" | 2026-09-07 | This finding is referenced in the project's own memory system. The characterization captures a real observation about the CLI surface. See §1 for whether this proposal should extend, supersede, or leave it. |
 
 **Relationship to the 2026-09-07 finding:** This proposal **extends** that finding with concrete evidence and actionable remedies. The 2026-09-07 memory note observed the symptom ("`ask` sound but buried in enterprise-CQRS ceremony") but didn't prescribe specific changes. Tonight's review provides the measurements and the specific simplification plan.
@@ -331,7 +331,7 @@ The config hierarchy (`docs/config-hierarchy.md`) is well-documented, the preced
 ```gitignore
 # Ad-hoc review/probe scratch work (e.g. adversarial design-round probes
 # like the one accidentally committed and removed 2026-09-09, see
-# docs/reviews/p-drive-folder-structure-mece-review-2026-09-09.md) --
+# docs/history/reviews/p-drive-folder-structure-mece-review-2026-09-09.md) --
 # never meant to be permanent repo content.
 scratch/
 ```

@@ -6,7 +6,7 @@ title: Session Lessons Index — where each hard-won pattern actually lives
 
 # Session Lessons Index
 
-**Purpose.** `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md` is the
+**Purpose.** `docs/history/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md` is the
 chronological implementation log for the 2026-08-27 → 2026-09-02 TDD
 marathon, and it already contains nearly every real lesson from that work —
 each dated round entry records not just what shipped, but what went wrong
@@ -51,7 +51,7 @@ pointer here.
 |---|---|
 | "No architecture, no implementation" — a design correctly refused to ship when real prerequisites were missing (no capability catalog, no non-synthetic-zero evidence source for 5 scoring factors), rather than shipping something plausible-but-wrong. Gap 6 sat blocked for three days until those prerequisites were actually resolved. | "Capability Matching and Leader Election: A blocked design proving the value of the 'No architecture, no implementation' rule" |
 | "Verify, don't assume completeness" — a single exhaustive grep across all of `hub.py` for every write of `leadership.status = "ACTIVE"` found exactly one site (belonging to a *different* action), proving an entire assumed lifecycle transition didn't exist and preventing it from being invented and shipped. | "Fixing `leader-claim`/`leader-yield` for real, overnight" (critique paragraph) |
-| A rejection of a design/implementation match should be corrected in place when it turns out wrong, with what was actually wrong (the specific service) vs. right (a new domain) stated explicitly — not left standing next to a superseding note. | `docs/design/PEERHUB-BACKLOG-2026-08-27.md`, the `artifact-claim`/`file-lock` correction |
+| A rejection of a design/implementation match should be corrected in place when it turns out wrong, with what was actually wrong (the specific service) vs. right (a new domain) stated explicitly — not left standing next to a superseding note. | `docs/history/design/PEERHUB-BACKLOG-2026-08-27.md`, the `artifact-claim`/`file-lock` correction |
 | The `LEGACY_CATALOG` count has a known, self-consistent counting-formula nuance: `ask`/`ask-all`/`ask-coordinator` have real `LegacyTranslator` branches but their target `dispatch.submit*` methods are never registered as real `CommandDescriptor`s, so they don't execute end-to-end despite a raw branch-count grep including them. This is bookkeeping, not an open action item. | "Bookkeeping note, unrelated to tonight's work, found while recounting" (`PEERHUB-BACKLOG-2026-08-27.md`) |
 
 ## Environment / tooling (outside peerhub's own code)
@@ -63,6 +63,6 @@ pointer here.
 
 ## What this index deliberately does not cover
 
-- **Design rationale** for any shipped domain (schema, invariants, why one architecture beat another) — that's `docs/design/PEERHUB-BACKLOG-2026-08-27.md`'s job, organized by domain, not chronology or lesson-type.
+- **Design rationale** for any shipped domain (schema, invariants, why one architecture beat another) — that's `docs/history/design/PEERHUB-BACKLOG-2026-08-27.md`'s job, organized by domain, not chronology or lesson-type.
 - **Current implementation status** (what's backed, what's waived, what's still open) — that's the top of `PEERHUB-BACKLOG-2026-08-27.md`'s "Where things stand right now" section, and the summary in `README.md`.
 - **This assistant's own cross-session operating memory** (peer quota-routing behavior, IPC dispatch mechanics, this specific portable-environment's own quirks) — that lives outside this repo, in the assistant's own memory store, and is not reproduced here since it isn't repo-portable knowledge a human or another peer reading this repo would need.

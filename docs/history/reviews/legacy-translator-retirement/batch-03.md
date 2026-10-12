@@ -111,7 +111,7 @@ All other 65 nodes across the 3 files (including all of `test_stage2_boundary.py
 
 ## Retired Assertions
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch03.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch03.json`
 (19 entries) for the full waiver list with individual justifications. Every
 retired assertion is a translator-shape check (`isinstance(x, TranslatedCommand)`,
 `isinstance(x.command, <Type>)`, a field-mapping check duplicated by a new
@@ -127,7 +127,7 @@ Zero lost lines, zero lost branches, across all production modules touched.
 ```bash
 python tools/legacy_retirement/gate.py --baseline main \
   --output tools/legacy_retirement/runs/batch-03 \
-  --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch03.json \
+  --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch03.json \
   tests/integration/application/test_thread_new.py \
   tests/integration/application/test_update_status.py \
   tests/integration/test_stage2_boundary.py

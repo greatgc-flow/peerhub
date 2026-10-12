@@ -1,8 +1,8 @@
 # ag.effort DIR-006 ratification: single-folder backup/restore/reset simplification (2026-09-19)
 
-**Role:** `ag.effort`, standing in for `cx` as a one-time, user-authorized substitute vote (DIR-006 exception, not a policy change). See `docs/design/peerhub-r4-p4b-converged-design-2026-09-17.md` for the precedent case earlier the same day.
+**Role:** `ag.effort`, standing in for `cx` as a one-time, user-authorized substitute vote (DIR-006 exception, not a policy change). See `docs/history/design/peerhub-r4-p4b-converged-design-2026-09-17.md` for the precedent case earlier the same day.
 
-**Target document:** `docs/design/engram-peerhub-single-folder-backup-simplification-2026-09-17.md`
+**Target document:** `docs/history/design/engram-peerhub-single-folder-backup-simplification-2026-09-17.md`
 
 **Verdict: RATIFY WITH AMENDMENT.** Full amendment text applied to the target document at ratification time; see that document's current state for the merged result.
 
@@ -13,7 +13,7 @@
 ## (a) Per-question answers
 
 ### 1. Central claim: physical separation is a genuine dead end
-**Confirmed accurate.** `_sys/env.json`'s `tool_env_vars` table (engram-repo, `D:\Engram&Peerhub\engram-main-worktree\_sys\env.json:15-19`) maps exactly one env var per AI vendor tool to its whole config root (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_DIR`, `GH_CONFIG_DIR`, `PEERHUB_CONFIG_HOME`) -- unlike `npm`/`python` entries in the same file, which do define separate prefix-vs-cache variables. `docs/engram-dotdir.md:41-42` (engram-repo) explicitly bars reintroducing directory junctions. `docs/design/dotdir-consolidation-RATIFIED-2026-09-09.md` §2.3 (line ~218) and §4.1 (line ~333) already ruled `.engram/` a live redirect root with backup defined by explicit allowlist, never directory membership.
+**Confirmed accurate.** `_sys/env.json`'s `tool_env_vars` table (engram-repo, `D:\Engram&Peerhub\engram-main-worktree\_sys\env.json:15-19`) maps exactly one env var per AI vendor tool to its whole config root (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_DIR`, `GH_CONFIG_DIR`, `PEERHUB_CONFIG_HOME`) -- unlike `npm`/`python` entries in the same file, which do define separate prefix-vs-cache variables. `docs/engram-dotdir.md:41-42` (engram-repo) explicitly bars reintroducing directory junctions. `docs/history/design/dotdir-consolidation-RATIFIED-2026-09-09.md` §2.3 (line ~218) and §4.1 (line ~333) already ruled `.engram/` a live redirect root with backup defined by explicit allowlist, never directory membership.
 
 ### 2. Soundness of reframing "one folder" as the backup artifact (zip)
 **Confirmed sound.** Matches the already-ratified allowlist rule (dotdir-consolidation §4.1/§4.2) and avoids leaking credentials (`codex/auth.json`, `gh/hosts.yml`, `claude/.credentials.json`) or shipping large caches, which a raw directory copy would do.

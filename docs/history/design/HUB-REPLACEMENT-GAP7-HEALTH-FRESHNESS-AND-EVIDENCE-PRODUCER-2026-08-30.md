@@ -3,7 +3,7 @@
 Status: Mixed. Gap A (Centralized Read-Time Freshness) is READY FOR IMPLEMENTATION. Gap B (Health-Evidence Producer outside bootstrap) is RESEARCH-STAGE / BLOCKED.
 Research by `cx.deepthink` (fresh session), independent critique by `cc.deepthink`, 2026-08-30.
 
-This doc formalizes the two critical underlying gaps surfaced during the Gap 5 Health Cluster investigation (`docs/design/HUB-REPLACEMENT-GAP5-HEALTH-CLUSTER-2026-08-30.md`).
+This doc formalizes the two critical underlying gaps surfaced during the Gap 5 Health Cluster investigation (`docs/history/design/HUB-REPLACEMENT-GAP5-HEALTH-CLUSTER-2026-08-30.md`).
 
 ## Gap A -- Centralized read-time freshness (IMPLEMENTED (commit 75ff364))
 

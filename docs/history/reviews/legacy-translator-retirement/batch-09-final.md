@@ -128,7 +128,7 @@ full suite still 1475 passed after the rename.
 - `tools/legacy_retirement/gate.py` was intentionally NOT run for this
   batch -- it has no baseline meaning once the class it gates is
   deleted. `tools/legacy_retirement/` (gate.py, selftest.py, and the
-  `docs/reviews/legacy-translator-retirement/` batch records) remain in
+  `docs/history/reviews/legacy-translator-retirement/` batch records) remain in
   the repo untouched, as historical/reusable tooling and documentation.
 
 ## Ledger & Docstring Updates

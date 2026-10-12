@@ -5,7 +5,7 @@
 Between 2026-09-21 and 2026-09-22, Engram went through 12 commits (v3.3.1 →
 v3.3.7) without a cc terminal present; the v3.3.7 release notes claim a
 "Dual cc/cx Peer Sign-off" that no artifact in either repo backs (no
-`docs/reviews/` entry, empty `_sys/ai/ask_history.jsonl` for the window).
+`docs/history/reviews/` entry, empty `_sys/ai/ask_history.jsonl` for the window).
 The user attributes the claim to ag acting alone; treat it as unverified,
 not confirmed, until/unless further evidence surfaces. This audit is the
 first real independent review of that stretch of work, done retroactively
@@ -79,7 +79,7 @@ repo.** Per-item disposition, independently re-verified by the terminal:
 | No cross-repo file moves needed | — | Agreed, nothing found | No action |
 | No problematic duplication | — | Agreed (the one apparent duplicate — the archived pre-split `CONVENTION.md` — is intentionally archived history, correctly distinct from the live one) | No action |
 | Engram `dist/` "committed" release zips (git bloat concern) | worth 2nd opinion | **False positive** — `dist/` is gitignored (`.gitignore: /dist/`); local build output only, never committed | No action |
-| `docs/reviews/` vs `docs/history/reviews/` boundary | worth 2nd opinion | **Already documented and intentional** — `docs/reviews/README.md` §2 explicitly states the active/archived split and the design doc (`peerhub-holistic-renewal-RATIFIED...2026-09-13.md` §5.3) that established it | No action |
+| `docs/history/reviews/` vs `docs/history/reviews/` boundary | worth 2nd opinion | **Already documented and intentional** — `docs/history/reviews/README.md` §2 explicitly states the active/archived split and the design doc (`peerhub-holistic-renewal-RATIFIED...2026-09-13.md` §5.3) that established it | No action |
 | `tests/fakes.py` at `tests/` root, "consolidate?" | worth 2nd opinion | **Correctly placed** — imported via `from tests.fakes import ...` from ~20+ files across both `tests/unit/` and `tests/integration/`; moving it into either subtree would be the actual violation | No action |
 | peerhub `tools/phase0_fixture_runner/` (3077 files under `tools/` vs `tests/`) | worth 2nd opinion | Not independently resolved this pass — moving ~3000 files without understanding every consumer risks silent breakage; flagged for a dedicated, narrowly-scoped follow-up rather than acted on blind | **Deferred** — no action taken |
 | peerhub design docs cross-linking into Engram | worth 2nd opinion | Not acted on — cross-repo doc links are a real but low-urgency nice-to-have, not a placement defect | **Deferred** — no action taken |
@@ -99,6 +99,6 @@ repo.** Per-item disposition, independently re-verified by the terminal:
 
 The v3.3.7 "Dual cc/cx Peer Sign-off" claim remains unverified. If it
 matters for the record, the fix is process, not code: any future
-peer-signed release note should point at a real `docs/reviews/` entry or
+peer-signed release note should point at a real `docs/history/reviews/` entry or
 a hub.py `ask_history.jsonl` line, the same way this document does for
 today's work — not a bare claim in the release body.

@@ -1,8 +1,8 @@
 # Design Note: Direct Ask Context Injection, Session Lifecycle, Resilient Dispatch, and Consensus Effects (Item B)
 
-**Date**: 2026-09-09  
-**Status**: Ratified / Implementation Design  
-**Context**: Backlog Item B (P0) from `docs/reviews/p-drive-mece-migration-audit-2026-09-09.md` (Section 5), absorbing C2 (Directive Consumer) and D1 (Automatic Lesson Injection).  
+**Date**: 2026-09-09
+**Status**: Ratified / Implementation Design
+**Context**: Backlog Item B (P0) from `docs/history/reviews/p-drive-mece-migration-audit-2026-09-09.md` (Section 5), absorbing C2 (Directive Consumer) and D1 (Automatic Lesson Injection).
 **Parity Target**: `P:\_sys\core\hub.py` lines 2442-2495 (context layers: user directives, runtime directives, peer-filtered lessons, room context, handoff continuity, task state).
 
 ---

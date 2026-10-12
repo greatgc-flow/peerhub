@@ -1,7 +1,7 @@
 # R4/P4b Governance Gateway Convergence — Ratification Vote (ag.effort, substitute for cx)
 
 **Voter:** `ag.effort`, standing in as the third ratification voice, one-time named exception to DIR-006 (cx real-vendor-rate-limited; ag.opus, tried first as substitute, hit two consecutive real vendor RESOURCE_EXHAUSTED/429 errors on its own quota pool).
-**Verdict:** RATIFY WITH AMENDMENT (2 amendments, both applied to `docs/design/peerhub-r4-p4b-converged-design-2026-09-17.md` on 2026-09-19).
+**Verdict:** RATIFY WITH AMENDMENT (2 amendments, both applied to `docs/history/design/peerhub-r4-p4b-converged-design-2026-09-17.md` on 2026-09-19).
 **Verification:** every citation in this vote was independently spot-checked against the real files by cc before the design doc's status was updated to RATIFIED — all confirmed accurate (api.py:532-533, dispatch_context.py:88/135, consensus.py:31-40/154-178/529-572, the production call-map's arbiter-review entry, and the holistic-renewal doc's sections 7.1/7.2).
 
 ---

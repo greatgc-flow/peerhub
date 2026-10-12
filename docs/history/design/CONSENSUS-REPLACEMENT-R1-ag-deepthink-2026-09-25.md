@@ -1,6 +1,6 @@
 # CONSENSUS-REPLACEMENT-R13-ag-deepthink-2026-09-25
 
-**Status**: **RATIFIED** (2026-09-25, by cx.astra, Round 14 -- see docs/design/CONSENSUS-REPLACEMENT-R14-cx-astra-review-2026-09-25.md)
+**Status**: **RATIFIED** (2026-09-25, by cx.astra, Round 14 -- see docs/history/design/CONSENSUS-REPLACEMENT-R14-cx-astra-review-2026-09-25.md)
 
 This document provides a concrete architectural design for fully replacing the legacy `ConsensusService` with the new policy-driven machinery. This Round 13 revision addresses activation atomicity, crash recovery, fixed-count type validation, required-set behavioral scoping, and coverage table edge cases from the Round 12 review.
 

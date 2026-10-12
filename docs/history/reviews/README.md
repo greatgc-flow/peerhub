@@ -1,4 +1,4 @@
-# docs/reviews/ — Index
+# docs/history/reviews/ — Index
 
 This directory holds audit reports, architecture and structure reviews, and retirement phase retrospectives.
 
@@ -13,7 +13,7 @@ This directory holds audit reports, architecture and structure reviews, and reti
 
 ## 2. LegacyTranslator Retirement Series (Archived / Closed)
 
-Location: [`../history/reviews/legacy-translator-retirement/`](../history/reviews/legacy-translator-retirement/) — moved out of this directory 2026-09-14 (docs/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md section 5.3's `docs/history/reviews/` target for completed review evidence); this section is kept only as a stable index pointer.
+Location: [`../history/reviews/legacy-translator-retirement/`](legacy-translator-retirement) — moved out of this directory 2026-09-14 (docs/history/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md section 5.3's `docs/history/reviews/` target for completed review evidence); this section is kept only as a stable index pointer.
 
 The 9-batch effort retiring `LegacyTranslator`/`LEGACY_CATALOG` from `peerhub/application/legacy.py`, concluded at v0.1.16 (`8ae5791`):
 

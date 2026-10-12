@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "title": "PeerHub R1 production-call map baseline",
-  "authority": "docs/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md sections 7.1, 7.2, and 10.2",
+  "authority": "docs/history/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md sections 7.1, 7.2, and 10.2",
   "characterized_commit": "8941e4f",
   "scope_boundary": "Characterization only. This artifact records existing production paths, including bypasses and asserted actors; it does not implement D-CTX, P4b authorization convergence, or the typed call transport.",
   "measurement": {

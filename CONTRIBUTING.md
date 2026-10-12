@@ -102,6 +102,19 @@ you tried, and the wording or behavior that would have helped. See the
   by `docs/m1_spec` and `tools/command_inventory.py`. They were deleted because
   they contained no unique content.
 
+## Rules from incidents
+
+- **Test emitted bytes.** Check actual CLI output, wire messages and built
+  distributions; internal values alone do not prove what users receive.
+- **Claims need measured validation.** Bind capability, accuracy and release
+  claims to observed results and their source revision; mark unknowns explicitly.
+- **Expose the safe next action.** Error messages and recovery recipes must tell
+  users how to proceed safely when execution may already have occurred.
+- **Explicit store ownership.** Select the intended database explicitly for
+  operational work and keep creation, collection and read-only inspection distinct.
+- **Disposable declared environments.** Reproduce checks in disposable environments
+  with declared dependencies and interpreter versions, and record what was tested.
+
 ## Releasing
 
 1. Open a version-bump PR updating `peerhub/_version.py` and the current

@@ -86,7 +86,7 @@ That was reverted; no padding calls remain in the final test.
 
 ## Retired Assertions (Translator-Only Waivers)
 
-See `docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch02.json`
+See `docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch02.json`
 for the full waiver list with individual justifications (11 entries: 3 for
 `test_legacy_translation_locks`, 8 for `test_all_three_legacy_actions_translate_and_execute`).
 Every retired assertion is an `isinstance(x, TranslatedCommand)` or
@@ -108,7 +108,7 @@ exclusion fix above worked as intended).
 ```bash
 python tools/legacy_retirement/gate.py --baseline main \
   --output tools/legacy_retirement/runs/batch-02-final2 \
-  --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers-batch02.json \
+  --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers-batch02.json \
   tests/integration/test_file_locks.py tests/integration/test_artifact_records.py
 ```
 

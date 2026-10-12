@@ -20,7 +20,7 @@ All three root peers explicitly confirmed. Per DIR-006 ("unanimous consensus req
 
 ## What this does and does not authorize
 
-**Authorizes:** implementing the D7 environment-composition fix immediately (bounded, independent of D-CTX, unanimously agreed real bug). See `docs/design/peerhub-dctx-d0-closure-2026-09-14.md` disposition point 3.
+**Authorizes:** implementing the D7 environment-composition fix immediately (bounded, independent of D-CTX, unanimously agreed real bug). See `docs/history/design/peerhub-dctx-d0-closure-2026-09-14.md` disposition point 3.
 
 **Does not authorize:** any D1 (credential/carrier/issuer/ledger) implementation. That remains held until a workspace-trust-anchor proposal answers Q2/D2 and that proposal itself passes independent review — a new, separate design round, not a continuation of today's work.
 

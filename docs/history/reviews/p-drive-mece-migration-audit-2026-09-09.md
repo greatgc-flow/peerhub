@@ -261,7 +261,7 @@ delivered, below.
 ## 6. Implementation Progress (started 2026-09-09 ~16:05, per explicit user go-ahead)
 
 **Item B (P0) -- DONE.** 5 commits: `2aa5c57` (design note,
-`docs/design/ask-context-injection-design-2026-09-09.md`), `1cb788c`
+`docs/history/design/ask-context-injection-design-2026-09-09.md`), `1cb788c`
 (directive/lesson/room-context injection), `eff4411` (session resume +
 model-fingerprint validation + durable binding lifecycle), `0c0a9ce`
 (retry loop + health circuit breaker), `d32c6dc` (consensus/final-call

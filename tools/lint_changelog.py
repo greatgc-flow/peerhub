@@ -1,4 +1,4 @@
-"""Lint CHANGELOG.md release headings to verify they match git tags."""
+"""Require release tags except for the pending current source version."""
 
 from __future__ import annotations
 
@@ -32,9 +32,16 @@ def lint_changelog_tags(repo_root: Path | None = None) -> list[str]:
     changelog = root / "CHANGELOG.md"
     versions = get_changelog_versions(changelog)
     tags = get_git_tags(root)
+    source = (root / "peerhub" / "_version.py").read_text(encoding="utf-8")
+    match = re.search(r'^__version__\s*=\s*[\"\']([^\"\']+)[\"\']', source, re.MULTILINE)
+    if match is None:
+        raise ValueError("Cannot read current source version from peerhub/_version.py")
+    current_version = match.group(1)
 
     missing: list[str] = []
     for ver in versions:
+        if ver == "Unreleased" or ver == current_version:
+            continue
         if f"v{ver}" not in tags and ver not in tags:
             missing.append(ver)
     return missing
@@ -46,7 +53,7 @@ def main() -> int:
         if missing:
             print(f"ERROR: CHANGELOG.md versions missing git tags: {', '.join(missing)}", file=sys.stderr)
             return 1
-        print("OK: All CHANGELOG.md release headings match git tags.")
+        print("OK: CHANGELOG.md historical releases match git tags; current source version may be pending.")
         return 0
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

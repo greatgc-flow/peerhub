@@ -15,7 +15,7 @@
 
 ### 1. "Exact grant" must not mean unconditional rejection of every uncredentialed `actor_id` — this contradicts the ratified design's own asserted/verified duality
 
-Ag's step 5 states the gateway should reject any `envelope.actor_id` that doesn't match a verified credential, for every mutating command. This resolves ag's own flagged uncertainty #1 (human CLI usage) in a way the *original* D-CTX design already answered differently. Direct citation, `docs/design/peerhub-dctx-proposal-1-2026-09-13.md`:
+Ag's step 5 states the gateway should reject any `envelope.actor_id` that doesn't match a verified credential, for every mutating command. This resolves ag's own flagged uncertainty #1 (human CLI usage) in a way the *original* D-CTX design already answered differently. Direct citation, `docs/history/design/peerhub-dctx-proposal-1-2026-09-13.md`:
 
 > **Increment 2**: "Asserted calls may remain available for normal-risk compatibility but are visibly lower trust and cannot satisfy high-risk quorum."
 > **Increment 3** (= R4/P4b): "Extend the gateway/context requirement to task, room, lesson... Migrate CLI governance handlers into Client/ApplicationAPI; delete redundant param-level actor fields. **Decide separately, with migration telemetry, whether asserted mutations remain supported, require `--allow-asserted-actor`, or are removed in the next major version.**"
