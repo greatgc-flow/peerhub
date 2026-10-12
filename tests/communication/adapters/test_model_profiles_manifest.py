@@ -40,3 +40,27 @@ def test_adapter_docs_link_to_the_manifest_without_profile_tables():
 def test_manifest_update_targets_exist():
     for rel in MANIFEST["update_targets"]:
         assert (REPO / rel).is_file(), rel
+
+
+def test_packaged_defaults_revision_and_expected_models():
+    assert TOML["defaults_revision"] == "2026-10-13.1"
+    profiles = TOML["profiles"]
+    assert profiles["ag.standard"]["model"] == "gemini-3.8-flash-low"
+    assert profiles["ag.effort"]["model"] == "gemini-3.8-flash-high"
+    assert profiles["ag.deepthink"]["model"] == "claude-sonnet-5-5-high"
+    assert profiles["ag.pro"]["model"] == "claude-opus-5-5-high"
+    assert profiles["cc.standard"]["model"] == "claude-haiku-5-5"
+    assert profiles["cc.effort"]["model"] == "claude-sonnet-5-5"
+    assert profiles["cc.deepthink"]["model"] == "claude-opus-5-5"
+    assert profiles["cc.pro"]["model"] == "claude-fable-5-1"
+    assert profiles["cx.standard"]["model"] == "gpt-6-luna"
+    assert profiles["cx.effort"]["model"] == "gpt-6.1-sol"
+    assert profiles["cx.deepthink"]["model"] == "gpt-6.1-sol"
+    assert profiles["cx.pro"]["model"] == "gpt-6-astra"
+
+
+def test_no_gemini_3_1_pro_or_haiku_4_5_in_packaged_profiles():
+    for name, p in TOML["profiles"].items():
+        assert "gemini-3.1-pro" not in p["model"], f"{name} contains gemini-3.1-pro"
+        assert "haiku-4-5" not in p["model"], f"{name} contains haiku-4-5"
+

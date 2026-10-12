@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- **Profiles — Packaged model defaults refreshed (2026-10-13.1):** updated `cc.standard` to `claude-haiku-5-5` (replacing obsolete `claude-haiku-4-5-20251001`), `ag.deepthink` to `claude-sonnet-5-5-high`, and `ag.pro` to `claude-opus-5-5-high` following retirement of `gemini-3.1-pro-*` in the Agy catalog. Kept `ag.standard` (`gemini-3.8-flash-low`), `ag.effort` (`gemini-3.8-flash-high`), `cc.effort`/`deepthink`/`pro`, and all `cx` profiles. Updated observed CLI versions (`agy` 1.3.3, `claude` 2.1.296, `codex` 0.162.1).
+
 ### Added
 
 - **Bridge / Runtime — Process-tree termination confirmation (PR 1):** `ProcessResult`

@@ -7,11 +7,11 @@ and `peerhub/config_data/model-defaults.toml`; historical snapshots under
 
 ## Supported surface
 
-| Peer | Binary / observed version (2026-10-08) | Input / output | Invocation |
+| Peer | Binary / observed version (2026-10-13) | Input / output | Invocation |
 |---|---|---|---|
-| `ag` | `agy.exe` 1.3.1 | `-p` argument / flat JSON | new |
-| `cc` | `claude.cmd` 2.1.293 | stdin / stream JSON | new |
-| `cx` | `codex.cmd` 0.161.0 | stdin / JSONL events | `exec`, `exec resume` |
+| `ag` | `agy.exe` 1.3.3 | `-p` argument / flat JSON | new |
+| `cc` | `claude.cmd` 2.1.296 | stdin / stream JSON | new |
+| `cx` | `codex.cmd` 0.162.1 | stdin / JSONL events | `exec`, `exec resume` |
 
 Models and efforts for all providers are defined in the
 [model profile manifest](../model-profiles/model-profiles.json).

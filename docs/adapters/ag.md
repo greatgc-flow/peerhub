@@ -5,7 +5,7 @@ This page documents the current production contract. Historical migration notes 
 
 ## Current contract
 
-- Executable: `agy.exe` (observed version `1.2.12` on 2026-09-28)
+- Executable: `agy.exe` (observed version `1.3.3` on 2026-10-13)
 - Transport: process pipe; the prompt is passed with `-p`
 - Output: flat JSON; `response` is canonical text.
 - Inline prompt limit: 30,000 UTF-8 bytes on Windows; 120,000 elsewhere
