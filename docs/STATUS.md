@@ -1,6 +1,14 @@
 # PeerHub Development Status
 
-## Current source: v0.15.0
+## Current source: v0.15.2
+
+**v0.15.2 (source candidate, 2026-10-12).** Contains the 0.15.1 work: dashboard
+JSON privacy allowlisting, quota reset timezone parsing and Korean header path
+truncation. The 0.15.1 candidate was never tagged or published because its live
+gate caught an IANA timezone regression. 0.15.2 supersedes it with Claude quota
+IANA timezone resolution, declares `tzdata` for hosts without timezone data,
+and distinguishes missing timezone databases from unsupported names. This
+candidate is not released; no passing test or live gate evidence is claimed here.
 
 **v0.15.0 (source candidate, 2026-10-12).** One conditional window-average
 projection engine supplies seven JSON fields and evidence states. Forecasts

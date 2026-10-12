@@ -20,4 +20,8 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert "### Fixed" in body and "Privacy" in body
+    assert __version__ == "0.15.2"
+    assert "### Fixed" in body and "IANA" in body
+    assert "Privacy" in body
+    assert "quota reset parsing" in body
+    assert "header wide-character path truncation" in body

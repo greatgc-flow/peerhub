@@ -104,6 +104,11 @@ you tried, and the wording or behavior that would have helped. See the
 
 ## Rules from incidents
 
+- **LIVE gate fixtures must match provider output.** The unreleased 0.15.1 candidate's LIVE-007 cc
+  failure exposed mocked quota fixtures that omitted Claude's real IANA zone
+  names, such as `Asia/Seoul`. Include real provider output shapes in mocked
+  fixtures and cover missing timezone databases on Windows before release.
+  0.15.2 contains the 0.15.1 work; 0.15.1 was never tagged or published.
 - **Test emitted bytes.** Check actual CLI output, wire messages and built
   distributions; internal values alone do not prove what users receive.
 - **Claims need measured validation.** Bind capability, accuracy and release

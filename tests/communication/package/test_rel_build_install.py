@@ -48,7 +48,7 @@ def test_rel_001_build_wheel_and_sdist_from_clean_checkout_with_consistent_metad
         assert _meta(meta, "Name") == ["peerhub"] and _meta(meta, "Version") == [ver]
         assert [SpecifierSet(x) for x in _meta(meta, "Requires-Python")] == [SpecifierSet(pkg_env.pyproject()["project"]["requires-python"])]
         assert {re.split(r"[<>=!~ ;]", d)[0] for d in _meta(meta, "Requires-Dist") if "extra ==" not in d} == {
-            "jsonschema", "psutil", "pydantic", "typing_extensions"}
+            re.split(r"[<>=!~ ;]", d)[0] for d in pkg_env.pyproject()["project"]["dependencies"]}
     ep = pkg_env.wheel_text(dist.wheel, ".dist-info/entry_points.txt")
     assert "peerhub = peerhub.cli:main" in ep and "peerhub-m1" not in ep
     # the built wheel and the source tree agree on the version actually importable from the wheel
