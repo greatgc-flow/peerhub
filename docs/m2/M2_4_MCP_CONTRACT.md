@@ -17,7 +17,7 @@
   - Pure Python standard library implementation. No unpinned or third-party MCP SDK dependencies.
 
 ## 2. Public Interfaces & Protocols
-The MCP surface (`peerhub.m2.mcp`) provides typed public interfaces:
+The MCP surface (`peerhub.extensions.mcp`) provides typed public interfaces:
 - `MCPServer(core_store, work_projection=None, artifact_store=None, skill_catalog=None)`:
   - `handle_message(message: str | bytes) -> str | None`: Process a single JSON-RPC 2.0 request or notification string.
   - `run_stdio(reader, writer) -> None`: Stream processor reading from stdio and writing responses.
@@ -49,3 +49,41 @@ The MCP surface (`peerhub.m2.mcp`) provides typed public interfaces:
 - `shutdown`: transitions `ACTIVE` -> `CLOSED`.
 - Invalid session handles on sensitive tools raise `MCPSessionInvalidError`.
 - Direct storage manipulation attempts raise `MCPDirectStorageAccessError`.
+
+## 4. Integration Boundaries & Launchers
+
+### MCP Integration (Library-Only)
+- **Boundary**: `peerhub.extensions.mcp.MCPServer` implements standard JSON-RPC 2.0 dispatch over stdio or message strings.
+- **CLI Launcher**: **No launcher yet** (no `peerhub mcp` CLI subcommand).
+- **Runnable Example**:
+  ```python
+  from peerhub.core.store import CoreStore
+  from peerhub.extensions.mcp import MCPServer
+
+  store = CoreStore.open(".peerhub/core.db")
+  server = MCPServer(core_store=store)
+  response = server.handle_message('{"jsonrpc":"2.0","id":1,"method":"tools/list"}')
+  ```
+
+### A2A Integration (Library-Only)
+- **Boundary**: `peerhub.extensions.a2a_http.HttpA2ATransport` and `peerhub.extensions.a2a` implement the AAIF A2A v1.0.0 protocol.
+- **CLI Launcher**: **No launcher yet** (no `peerhub a2a` CLI subcommand).
+- **Runnable Example**:
+  ```python
+  from peerhub.extensions.a2a_http import HttpA2ATransport
+
+  transport = HttpA2ATransport(base_url="http://127.0.0.1:8000")
+  card = transport.get_agent_card()
+  ```
+
+### Remote Runtime Integration (Library-Only)
+- **Boundary**: `peerhub.extensions.runtime_port.ProcessRuntimeAdapter` provides capability execution and process-tree supervision.
+- **CLI Launcher**: **No launcher yet** (no remote worker daemon or launcher).
+- **Runnable Example**:
+  ```python
+  from peerhub.extensions.runtime_port import ProcessRuntimeAdapter, RuntimeCapability
+
+  adapter = ProcessRuntimeAdapter()
+  cap = RuntimeCapability(name="echo", version="1.0.0")
+  adapter.register_command(cap, ["python", "-c", "import json; print(json.dumps({'status': 'ok'}))"])
+  ```
