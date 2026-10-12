@@ -14,7 +14,7 @@ from datetime import datetime, tzinfo
 from typing import cast
 
 from peerhub.extensions.diag import DiagnosticReport
-from peerhub.extensions.diag_quota import _projection
+from peerhub.extensions.diag_quota import projection
 
 RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
 _ANSI = re.compile(r"\033\[[0-9;]*m")
@@ -189,7 +189,7 @@ class _Row:
         if self.span == float("inf") and suffix and int(suffix[1]) > 0:
             self.span = float(int(suffix[1]) * (3600 if suffix[2] == "H" else 86400))
         self.left = None if reset is None else reset - read_at
-        self.projection = _projection({**item, "state": self.state, "payload": dict(payload)}, read_at)
+        self.projection = projection({**item, "state": self.state, "payload": dict(payload)}, read_at)
         self.diff = self.projection["pace_pt"]
         self.now, self.tz = read_at, tz
 
@@ -284,7 +284,7 @@ def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
     items = data.get("sections", {}).get("observations", {}).get("data", {}).get("items", [])
     for item in items:
         if item.get("kind") in ("quota", "rate_limit"):
-            item["projection"] = _projection(item, report.read_at)
+            item["projection"] = projection(item, report.read_at)
     rows = _quota_rows(_items(items), _items(_section(report, "resource_pools").get("pools")), report.read_at)
     data["threats"] = _threat_summary(rows)
     data["forecast_basis"] = "conditional window-average (cond)"
@@ -460,7 +460,7 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
     else:
         alert = "Threats: No threats"
     if first is not None and earliest_at is not None:
-        alert = (f"Threats: {len(threats)} threats - earliest {first.peer}/{first.pool} {_eta(earliest_at, report.read_at, tz)} "
+        alert = (f"Threats: {len(threats)} threat{'s' if len(threats) != 1 else ''} - earliest {first.peer}/{first.pool} {_eta(earliest_at, report.read_at, tz)} "
                  f"(in {_forecast_duration(max(0, earliest_at - report.read_at))})")
         others = ", ".join(f"{r.peer}/{r.pool}" for r in threats if r is not first)
         if others:
@@ -487,8 +487,10 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
         probe += f"; diagnostic ERR({_safe_text(report.error)})"
     lines.extend(_paint(line, RED if "ERR(" in probe or "TIMEOUT" in probe else "", color)
                  for line in _wrap(probe, width))
-    legend = "PACE + = burning faster than an even pace; forecasts are conditional window-average estimates; Ctrl-C quit"
-    lines.extend(_wrap(legend, width))
+    legend = "PACE + = faster than even | forecasts are conditional window-average | Ctrl-C quit"
+    if len(legend) > width:
+        legend = "PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit"
+    lines.append(_ellipsis(legend, width, unicode))
     return "\n".join(lines)
 
 

@@ -13,6 +13,10 @@ development dependencies with the editable install documented in the
 pip install -e .[dev]
 ```
 
+The shared Engram venv may lack development tools. Create a disposable venv
+with `python -m virtualenv <dir>`, activate it, then run
+`python -m pip install -e ".[dev]"` from this checkout.
+
 Before opening a pull request, run:
 
 ```bash
@@ -38,6 +42,20 @@ pytest -q -n 8
 This takes about 4–5 minutes on a 12-core machine. Keep `pytest -q` as the
 serial reference command; CI and release gates stay serial. If a test is flaky
 under parallelism, rerun it serially before treating it as a bug.
+
+## Quota forecast backtesting
+
+Collect an opt-in trace with `peerhub monitor --json >> quota-trace.ndjson`
+(Ctrl-C stops it); this may contact providers and spend quota. Quota observations
+also accumulate in the selected store. Replay them read-only with
+`python -m tools.quota_backtest --db <store> [--json]`. The report groups by pool
+and stable reset, skipping fewer than five distinct samples or less than 5%
+maximum use (idle windows move their reset until first use). Completed windows
+are classified as threat/exhausted, false alarm, missed or quiet/ok; only threats
+before measured exhaustion count as predictions. Open windows have unknown
+outcomes and are not scored. Outcomes reflect sampled evidence only, and zero
+completed exhausted windows means accuracy is **not demonstrated**. Window-average
+forecasts and inferred anchors have no established predictive accuracy.
 
 ## Code and tests
 
@@ -75,8 +93,8 @@ you tried, and the wording or behavior that would have helped. See the
   and `observation refresh`.
 - PEP 740 attestations are published by the pinned pypa publishing action;
   publication was verified on PyPI for 0.13.0.
-- Defer xdist parallelism until tests sharing temporary directories or databases
-  are verified to work in parallel.
+- pytest-xdist is an opt-in local loop (`-n 8`); serial tests remain the CI
+  and release reference. See [development setup](#development-setup).
 - Windows limits: cx `--writable` cannot write into owner-only-ACL directories,
   and taskkill may report unkillable children. Use normally created directories
   for writable canary tests.
@@ -87,7 +105,8 @@ you tried, and the wording or behavior that would have helped. See the
 ## Releasing
 
 1. Open a version-bump PR updating `peerhub/_version.py` and the current
-   `v0.x.y` line in `docs/STATUS.md`. Wait for CI to be green: `gh pr checks`
+   `v0.x.y` line in `docs/STATUS.md`, and add the matching `CHANGELOG.md`
+   section. Wait for CI to be green: `gh pr checks`
    must show zero pending or failed checks before merging. Never merge before
    checks finish.
 2. From a **clean checkout of the merged main commit**, run
@@ -95,7 +114,9 @@ you tried, and the wording or behavior that would have helped. See the
    and requires `agy`, `claude` and `codex` on PATH and logged in. It writes
    `g3.xml`, `g3-slow.xml` and `g3-e2e.xml` under `.peerhub/work/live-gate/`,
    stamped to HEAD. Require a successful run of all three stages.
-3. Write release notes to a file, then create a draft with all three assets.
+3. Extract the selected CHANGELOG section, then create a draft with all three assets.
+   Run `python -m tools.release_notes --version X.Y.Z > <notes-file>` from
+   the merged checkout. The release body must match that section exactly.
    Replace `<HEAD-SHA>` with the full output of `git rev-parse HEAD` and
    `<notes-file>` with the notes path; use the bumped version for `vX.Y.Z`:
 
@@ -103,6 +124,10 @@ you tried, and the wording or behavior that would have helped. See the
    gh release create vX.Y.Z --draft --target <HEAD-SHA> --title vX.Y.Z --notes-file <notes-file> .peerhub/work/live-gate/g3.xml .peerhub/work/live-gate/g3-slow.xml .peerhub/work/live-gate/g3-e2e.xml
    gh release edit vX.Y.Z --draft=false
    ```
+
+`publish.yml` consumes an already published GitHub Release and does not
+generate or edit its body. Supplying the extracted notes via `--notes-file`
+is the manual release step; do not substitute auto-generated PR notes.
 
 Publishing the draft triggers `.github/workflows/publish.yml`: `verify` runs
 G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. `build` and

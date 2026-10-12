@@ -84,6 +84,15 @@ Quota is collected separately from diagnostics. `diag --fresh` has been replaced
 
 `diag --live` repeatedly reads committed snapshots only. `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
+The monitor/diag screen shows a threat summary, a stable pool table with usage,
+PACE in percentage points, reset countdown, conditional forecast and freshness,
+then credits, latest asks, probe health and one legend/controls line. PACE is
+measured usage minus elapsed window percentage; positive means faster than even.
+Forecasts require 5 percentage points used and 10% elapsed (20% for windows of
+at least one day); projected reset use of at least 105% is a threat. Below the
+support gates the screen says “not enough data”. Inferred anchors remain
+conditional and predictive accuracy is not established.
+
 Monitor runs collection cycles every N seconds (`--interval-seconds`), collecting
 initially and then every Kth cycle (`--collect-every`). On a TTY with VT support,
 both dashboard styles redraw in place, with countdown updates at most 1 Hz;

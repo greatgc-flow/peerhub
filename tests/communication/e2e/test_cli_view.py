@@ -118,7 +118,7 @@ def test_view_shows_a_per_peer_asks_table_and_alerts_on_a_bad_last_ask(tmp_path)
     assert "Asks ag uncertain" in out
     assert "ago, took 49s" in out
     assert "counts unavailable" not in out
-    assert "conditional window-average estimates" in out
+    assert "conditional window-average" in out
 
 
 
@@ -274,9 +274,9 @@ def test_render_view_shows_eta_projection_and_header_threat(tmp_path):
     rep = ReadonlyDiag(db).render(["peers", "streams", "resource_pools", "observations"], read_at=t0 + 7200.0)
     out = render_view(rep, width=100, unicode=False, store_path=db, store_source="explicit")
     assert "(explicit)" in out
-    assert "Threats: 1 threats - earliest cx/pool-threat" in out
+    assert "Threats: 1 threat - earliest cx/pool-threat" in out
     assert "(in 30m)" in out
-    assert "! exhausts" in out and "conditional window-average estimates" in out
+    assert "! exhausts" in out and "conditional window-average" in out
     assert "= on pace" in out
     assert "ETA:" not in out
     assert max(map(len, out.splitlines())) <= 100

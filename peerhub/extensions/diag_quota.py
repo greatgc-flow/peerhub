@@ -61,7 +61,7 @@ def _derived(meas: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _projection(item: Mapping[str, Any], now: float) -> ExhaustionProjection:
+def projection(item: Mapping[str, Any], now: float) -> ExhaustionProjection:
     """Pass evaluated freshness and measurement time to the shared engine."""
     payload = item["payload"]
     measured_at = None
@@ -75,6 +75,9 @@ def _projection(item: Mapping[str, Any], now: float) -> ExhaustionProjection:
         payload.get("window_started_at"), measured_at, payload.get("resets_at"), now,
         evidence_state=item["state"], anchor_basis=payload.get("anchor_basis"),
     )
+
+
+
 
 
 def _iso(ts: int) -> str:
@@ -144,7 +147,7 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
             continue
         meas = _measurements(it["payload"])
         der = _derived(meas)
-        proj = _projection(it, now)
+        proj = projection(it, now)
         groups.setdefault(it["resource_pool_ref"], []).append({
             "subject_ref": it["subject_ref"], "resource_pool_ref": it["resource_pool_ref"], "kind": it["kind"], "state": it["state"],
             "age_seconds": it["age_seconds"], "source": it["source"], "measurements": meas, "derived": der,
@@ -256,7 +259,7 @@ def format_dashboard(rep: DiagnosticReport, *, store_path: str | None = None, st
         pl = it["payload"]
         rf = pl.get("remaining_fraction")
         if it["state"] in ("MEASURED", "STALE") and isinstance(rf, (float, int)) and not isinstance(rf, bool):
-            pr = _projection(it, rep.read_at)
+            pr = projection(it, rep.read_at)
             p_name = it.get("resource_pool_ref") or it.get("kind") or "quota"
             s_name = it.get("subject_ref") or "-"
             eat = pr["exhaustion_at"]
@@ -292,7 +295,7 @@ def format_dashboard(rep: DiagnosticReport, *, store_path: str | None = None, st
         lines.append(f"  {item['subject_ref']} {window} {item['state']} {usage} source={item['source']}")
         start, reset = payload.get("window_started_at"), payload.get("resets_at")
         if numbers and isinstance(start, (int, float)) and isinstance(reset, (int, float)) and reset > start:
-            pr = _projection(item, rep.read_at)
+            pr = projection(item, rep.read_at)
             pace = pr["pace_pt"]
             if pace is not None:
                 lines.append(f"    PACE {pace:+.1f}pt  {pr['state'].replace('_', ' ')} reset_at={reset}")

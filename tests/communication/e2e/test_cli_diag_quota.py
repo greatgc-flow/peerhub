@@ -266,7 +266,7 @@ def test_format_dashboard_inline_forecast_and_threat_summary(tmp_path):
     rep = ReadonlyDiag(h.db_path).render(["peers", "streams", "resource_pools", "observations"])
     text = format_frame(rep, "plain", width=140, store_path=str(h.db_path), store_source="explicit")
     assert "(explicit)" in text
-    assert "Threats: 1 threats - earliest cx/P1" in text
+    assert "Threats: 1 threat - earliest cx/P1" in text
     threat_row = next(line for line in text.splitlines() if line.split()[:2] == ["cx", "P1"])
     safe_row = next(line for line in text.splitlines() if line.split()[:2] == ["cc", "P2"])
     assert "exhausts" in threat_row

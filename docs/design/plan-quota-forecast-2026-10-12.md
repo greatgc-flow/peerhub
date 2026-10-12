@@ -237,8 +237,9 @@ PACE has no independent risk colour. Rich uses glyph plus word: `▲ exhausts`, 
 glyphs above. Freshness is dot plus age (`●2s` / ASCII `*2s` for fresh,
 `○45m` / ASCII `~45m` for stale, `?` for unavailable age). Never use `:`
 for freshness: it is the insufficient forecast glyph. The table header is
-`PACE(pt)`; the legend says `PACE + = burning faster than an even pace` and
-`forecasts are conditional window-average estimates`.
+`PACE(pt)`; the one-line legend says `PACE + = faster than even | forecasts
+are conditional window-average | Ctrl-C quit`. At 80 columns shorten it to
+`PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit`.
 Respect presence of `NO_COLOR`, including an empty value; suppress colours
 while retaining glyphs/words and supported TTY cursor controls.
 
@@ -293,8 +294,7 @@ Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
-PACE + = burning faster than an even pace; forecasts are conditional
-window-average estimates; Ctrl-C quit
+PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit
 ```
 
 100 columns (plain, diag; monitor adds cycle and next collection):
@@ -315,8 +315,7 @@ Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
-PACE + = burning faster than an even pace; forecasts are conditional window-average estimates;
-Ctrl-C quit
+PACE + = faster than even | forecasts are conditional window-average | Ctrl-C quit
 ```
 
 120 columns (plain, diag; monitor adds cycle and next collection):
@@ -337,7 +336,7 @@ Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
 Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
-PACE + = burning faster than an even pace; forecasts are conditional window-average estimates; Ctrl-C quit
+PACE + = faster than even | forecasts are conditional window-average | Ctrl-C quit
 ```
 
 ### Refresh and output parity

@@ -67,8 +67,8 @@ def test_observed_time_is_not_reconstructed_from_capture_age():
     item = {"state": "MEASURED", "observed_at": "1970-01-01T00:03:20Z", "age_seconds": 0,
             "payload": {"remaining_fraction": 0.6, "window_started_at": 0, "resets_at": 1000,
                         "anchor_basis": "provider_fixed_window"}}
-    result = diag_quota._projection(item, 250)
+    result = diag_quota.projection(item, 250)
     assert result["measured_at"] == 200
     assert result["pace_pt"] == 20
     item["observed_at"] = "invalid"
-    assert diag_quota._projection(item, 250)["state"] == "unknown"
+    assert diag_quota.projection(item, 250)["state"] == "unknown"

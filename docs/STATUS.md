@@ -47,7 +47,23 @@
   - Detailed per-vendor error-taxonomy mapping, and PTY transport are deliberately out of scope for the current adapter slice.
   - No shadow-mode validation yet (routing a subset of real traffic through peerhub in parallel with `hub.py` for comparison before any real cutover) — `hub.py` remains the authoritative system for real multi-peer coordination work today; `peerhub ask` is a real, working command, not yet a production replacement.
 
-**v0.14.0.** Adds quota exhaustion projection (recent-rate or window-average), `monitor --system-dir`, and store path display; clarifies the Windows cancel error as taskkill reporting an unkillable child, uses a normally created directory for the writable canary, and documents the everyday test command that takes about 10 minutes in [CONTRIBUTING.md](../CONTRIBUTING.md#development-setup).
+**v0.15.0 (source candidate, 2026-10-12).** One conditional window-average
+projection engine supplies seven JSON fields and evidence states. Forecasts
+require at least 5 percentage points used and 10% elapsed for short windows
+or 20% for windows of at least one day; supported projected reset use at or
+above 105% is a threat. These are policy thresholds, not demonstrated accuracy.
+The screen shows threats, a stable pool table with PACE(pt), credits, asks,
+probe health and one legend/controls line. Monitor and diagnostics refuse a
+missing store with exit 5 before probing and never implicitly create it.
+Read-only backtesting reports observed completed-window outcomes and excludes
+open windows. See [CHANGELOG](../CHANGELOG.md) for breaking changes and
+[CONTRIBUTING](../CONTRIBUTING.md#development-setup) for serial/opt-in parallel
+test guidance. No new candidate-bound test or release evidence is claimed here.
+
+**v0.14.0.** Added quota exhaustion projections, `monitor --system-dir` and
+store path display. The projection policy and screen are superseded by 0.15.0.
+Windows cancel diagnostics clarify taskkill reporting an unkillable child;
+writable canaries use normally created directories.
 
 **v0.12.6 (v0.12.0 was the extension-first CLI cutover; 0.12.1 fixed Windows process-tree cancel confirmation; 0.12.2 added `ask --writable`, A2A 1.0 wire, retired v0 surface removed; 0.12.3 simplifies the release pipeline: one verify job, tested bytes = published bytes, slow/e2e live tests enforced; 0.12.4 puts the M2/M3 catalog tests into the candidate-bound release evidence and aligns the spec with the implementation; 0.12.5 adds per-ask usage telemetry, a byte-bounded catch-up with truncation notes, native process-tree cancel for CLI peers, and English docs; 0.12.6 adds explicit `ask --resume` native resume for cc/cx/ag).** One `peerhub` entrypoint with a parser-derived command inventory; `ask`, `observation refresh`, `diag` (dashboard, `--live`, `--view rich`, `quota`, `health`) and `monitor` (collect quota evidence and watch a rich per-peer dashboard in one loop, with per-peer ask history). **Breaking CLI renames** (no aliases): `--peer`/`--stream` (was `--id`), `--author-peer` (was `--author`), `--idempotency-key` (was `--idemp-key`), `--cycles` (was `--count`), `--observation-db` (was `--obs-db`), `--system-dir` (was `--sys-dir`); the store is `.peerhub/core.db`. G3 live-provider evidence is produced locally only (`python -m tools.live_gate --yes`, bound to the release commit and attached to the GitHub Release); no remote runner holds provider logins. Claude `/usage` probe failures now record why (`claude_usage_timeout`, ...). Artifact dedup is streamed, `stage_stream(max_size)`, GC grace period; projection rebuilds are atomic; exact metadata search. Release steps: clean checkout of the release commit, `tools.live_gate`, one CI run, merge, tag, publish.
 
