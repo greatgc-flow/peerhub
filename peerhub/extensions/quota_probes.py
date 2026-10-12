@@ -9,7 +9,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone, timedelta, tzinfo
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Sequence, Optional, TypedDict, Callable, cast, Any, TypeGuard
 
 from peerhub.extensions.binary_resolution import CLAUDE_CMD, CODEX_CMD
@@ -69,6 +69,10 @@ class UnsupportedTimezoneError(ValueError):
         self.tz_name = tz_name
 
 
+class TimezoneDatabaseMissingError(RuntimeError):
+    """IANA timezone data is unavailable; install the declared tzdata dependency."""
+
+
 _KNOWN_TZ_ABBREVIATIONS: dict[str, timezone] = {
     "EDT": timezone(timedelta(hours=-4)),
     "EST": timezone(timedelta(hours=-5)),
@@ -115,8 +119,16 @@ def _resolve_explicit_tz(tz_name: Optional[str], default_tz: Optional[tzinfo]) -
         return _KNOWN_TZ_ABBREVIATIONS[upper]
     try:
         return ZoneInfo(raw)
-    except Exception:
-        raise UnsupportedTimezoneError(raw)
+    except ZoneInfoNotFoundError as exc:
+        # A missing database and an unknown key both raise the same exception.
+        # Probe a standard IANA key to distinguish the environment from the input.
+        try:
+            ZoneInfo("Etc/UTC")
+        except ZoneInfoNotFoundError:
+            raise TimezoneDatabaseMissingError("timezone_database_missing") from exc
+        raise UnsupportedTimezoneError(raw) from exc
+    except ValueError as exc:
+        raise UnsupportedTimezoneError(raw) from exc
 
 
 def _parse_claude_usage_reset(text: str, now: Optional[datetime] = None) -> Optional[datetime]:
@@ -591,6 +603,9 @@ def poll_claude_usage(
     dt_now = datetime.fromtimestamp(observed_at, tz=timezone.utc).astimezone()
     try:
         quotas = _parse_claude_usage(text, now=dt_now)
+    except TimezoneDatabaseMissingError:
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.UNAVAILABLE, observed_at, freshness_ttl,
+                             extra={"reason": "timezone_database_missing"}),)
     except UnsupportedTimezoneError as exc:
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.UNAVAILABLE, observed_at, freshness_ttl,
                              extra={"reason": f"unsupported_timezone:{exc.tz_name}"}),)

@@ -6,9 +6,20 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
-## [0.15.1] - 2026-10-12
+## [0.15.2] - 2026-10-12
+
+Contains the work planned for 0.15.1, which was never tagged or published:
+the live gate caught an IANA timezone regression, so 0.15.2 supersedes it.
 
 ### Fixed
+
+- **Timezone — IANA zones rejected in the 0.15.1 candidate:** resolve Claude `/usage` IANA
+  names such as `Asia/Seoul`, `America/New_York` and `America/Los_Angeles` with
+  standard-library `ZoneInfo`, preserving DST-aware reset dates derived from
+  `now` in the resolved zone and fixed offsets for known abbreviations. Declare
+  `tzdata` for hosts without an IANA database, including Windows. Missing
+  timezone data yields `UNAVAILABLE` with reason `timezone_database_missing`;
+  unknown names retain `unsupported_timezone:<name>`.
 
 - **Privacy — dashboard JSON serialization:** replaced blanket `asdict()` in
   `dashboard_data()` with explicit serialization. Raw reset-credit tokens

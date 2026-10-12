@@ -788,3 +788,112 @@ def test_claude_usage_rejects_unsupported_explicit_timezone(monkeypatch):
     obs = res[0]
     assert obs.evidence.state == EvidenceState.UNAVAILABLE
     assert obs.extra["reason"] == "unsupported_timezone:UNSUPPORTED_TZ"
+
+
+@pytest.mark.parametrize(
+    ("zone", "now_text", "reset_text", "expected_utc", "offset_hours"),
+    [
+        ("Asia/Seoul", "2026-10-12T10:00:00+00:00", "8pm", "2026-10-12T11:00:00+00:00", 9),
+        ("Asia/Seoul", "2026-10-12T15:05:00+00:00", "12:15am", "2026-10-12T15:15:00+00:00", 9),
+        ("Asia/Seoul", "2026-10-12T14:50:00+00:00", "12:15am", "2026-10-12T15:15:00+00:00", 9),
+        ("Asia/Seoul", "2026-12-31T15:05:00+00:00", "Jan 1, 12:15am", "2026-12-31T15:15:00+00:00", 9),
+        ("America/New_York", "2026-03-07T17:00:00+00:00", "5pm", "2026-03-07T22:00:00+00:00", -5),
+        ("America/New_York", "2026-03-08T16:00:00+00:00", "5pm", "2026-03-08T21:00:00+00:00", -4),
+        ("America/New_York", "2026-03-08T04:50:00+00:00", "3:15am", "2026-03-08T07:15:00+00:00", -4),
+        ("America/New_York", "2026-10-31T16:00:00+00:00", "5pm", "2026-10-31T21:00:00+00:00", -4),
+        ("America/New_York", "2026-11-01T17:00:00+00:00", "5pm", "2026-11-01T22:00:00+00:00", -5),
+        ("America/New_York", "2026-11-01T03:50:00+00:00", "2:15am", "2026-11-01T07:15:00+00:00", -5),
+        ("America/New_York", "2026-10-12T00:00:00+00:00", "9pm", "2026-10-12T01:00:00+00:00", -4),
+        ("America/Los_Angeles", "2026-01-12T18:00:00+00:00", "5pm", "2026-01-13T01:00:00+00:00", -8),
+        ("America/Los_Angeles", "2026-07-12T17:00:00+00:00", "5pm", "2026-07-13T00:00:00+00:00", -7),
+        ("America/Los_Angeles", "2026-10-12T06:50:00+00:00", "12:15am", "2026-10-12T07:15:00+00:00", -7),
+    ],
+)
+def test_claude_iana_reset_dates_and_dst(zone, now_text, reset_text, expected_utc, offset_hours):
+    from datetime import datetime, timedelta, timezone
+    from peerhub.extensions.quota_probes import _parse_claude_usage_reset
+
+    reset = _parse_claude_usage_reset(
+        f"{reset_text} ({zone})", now=datetime.fromisoformat(now_text)
+    )
+
+    assert reset is not None
+    assert reset.astimezone(timezone.utc) == datetime.fromisoformat(expected_utc)
+    assert reset.utcoffset() == timedelta(hours=offset_hours)
+
+
+@pytest.mark.parametrize(
+    ("abbreviation", "offset_hours"),
+    [("EDT", -4), ("EST", -5), ("PDT", -7), ("PST", -8),
+     ("CDT", -5), ("CST", -6), ("MDT", -6), ("MST", -7),
+     ("UTC", 0), ("GMT", 0), ("KST", 9), ("JST", 9)],
+)
+def test_claude_abbreviations_work_without_timezone_database(monkeypatch, abbreviation, offset_hours):
+    from datetime import datetime, timedelta, timezone
+    from peerhub.extensions import quota_probes as probes
+
+    def missing_zone(name):
+        pytest.fail(f"fixed offsets must not require a timezone database: {name}")
+
+    monkeypatch.setattr(probes, "ZoneInfo", missing_zone)
+    reset = probes._parse_claude_usage_reset(
+        f"5pm ({abbreviation})", now=datetime(2026, 10, 12, tzinfo=timezone.utc)
+    )
+    assert reset is not None
+    assert reset.utcoffset() == timedelta(hours=offset_hours)
+
+
+@pytest.mark.parametrize("output", [
+    "Current session: 50% used resets 8pm (Asia/Seoul)\n",
+    "Current session\n50% used\nResets 8pm (Asia/Seoul)\n"
+    "Current week (all models)\n25% used\nResets Oct 16, 12pm (Asia/Seoul)\n",
+])
+def test_claude_provider_output_with_iana_zone_is_measured(monkeypatch, output):
+    from datetime import datetime, timezone
+    from peerhub.extensions import quota_probes as probes
+
+    class FakeProc:
+        pid = 9999
+
+        def communicate(self, timeout=None):
+            return output, ""
+
+    monkeypatch.setattr(probes, "_real_command", lambda *a: ["claude"])
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
+    now = datetime(2026, 10, 12, 10, tzinfo=timezone.utc)
+    observations = poll_claude_usage(
+        DummyIdSource(), "inst-1", "prof-1", clock=lambda: now.timestamp()
+    )
+
+    assert len(observations) == (2 if "Current week" in output else 1)
+    assert all(obs.evidence.state == EvidenceState.MEASURED for obs in observations)
+    measurement = observations[0].evidence.value
+    assert measurement is not None
+    assert measurement.quota_pool_scope == "C-5H"
+    assert measurement.used_fraction == 0.5
+    assert measurement.resets_at == int(datetime(2026, 10, 12, 11, tzinfo=timezone.utc).timestamp())
+
+
+def test_claude_missing_timezone_database_is_unavailable(monkeypatch):
+    from zoneinfo import ZoneInfoNotFoundError
+    from peerhub.extensions import quota_probes as probes
+
+    def missing_zone(name):
+        raise ZoneInfoNotFoundError(name)
+
+    class FakeProc:
+        pid = 9999
+
+        def communicate(self, timeout=None):
+            return "Current session: 50% used resets 8pm (Asia/Seoul)\n", ""
+
+    monkeypatch.setattr(probes, "ZoneInfo", missing_zone)
+    monkeypatch.setattr(probes, "_real_command", lambda *a: ["claude"])
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
+
+    observations = poll_claude_usage(DummyIdSource(), "inst-1", "prof-1")
+
+    assert len(observations) == 1
+    assert observations[0].evidence.state == EvidenceState.UNAVAILABLE
+    assert observations[0].evidence.value is None
+    assert observations[0].extra["reason"] == "timezone_database_missing"
