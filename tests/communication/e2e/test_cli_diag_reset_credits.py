@@ -145,3 +145,80 @@ def test_table_and_cli_json_and_no_full_ids(h, tmp_path, capsys):
     assert dashboard_json["threats"]["fresh_pools"] == 0  # fresh credits are not quota coverage
     assert Path(h.db_path).read_bytes() == before  # Diag never writes
 
+
+def test_diag_json_privacy_scrubs_sentinel_ids_and_payloads(tmp_path, capsys):
+    import time
+    from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool
+
+    sentinel_credit_id = "RateLimitResetCredit_SECRET_TOKEN_SENTINEL_XYZ_999"
+    sentinel_id_hash = hashlib.sha256(sentinel_credit_id.encode()).hexdigest()[:12]
+    sentinel_credit_secret = "SENTINEL_CREDIT_SECRET_PAYLOAD_LEAK"
+    sentinel_activity_secret = "SENTINEL_ACTIVITY_SECRET_PROMPT_BODY"
+    sentinel_quota_secret = "SENTINEL_QUOTA_SECRET_DIAGNOSTIC_DATA"
+
+    h = ObservationHarness(tmp_path / "ws_diag_privacy")
+    now = time.time()
+    rc_payload = {
+        "evidence_ref": "probe:cx:reset-credits",
+        "available_count": 1,
+        "nearest_expires_at": now + 7200,
+        "arbitrary_credit_leak": sentinel_credit_secret,
+        "credits": [{
+            "id_ref": sentinel_credit_id,
+            "reset_type": "codexRateLimits",
+            "status": "available",
+            "granted_at": now - 3600,
+            "expires_at": now + 7200,
+            "title": "Weekly reset",
+            "arbitrary_nested_leak": "SENTINEL_NESTED_CREDIT_LEAK",
+        }],
+    }
+    act_payload = {
+        "status": "delivered",
+        "operation_elapsed_seconds": 1.25,
+        "prompt_body": sentinel_activity_secret,
+        "arbitrary_diag": "SENTINEL_ARBITRARY_DIAGNOSTIC_LEAK",
+        "reason": {"private_detail": "SENTINEL_NESTED_ACTIVITY_LEAK"},
+    }
+    quota_payload = {
+        "remaining_fraction": 0.75,
+        "window_started_at": now - 3600,
+        "resets_at": now + 14400,
+        "secret_quota_data": sentinel_quota_secret,
+    }
+    seed(h.db_path, [("cx", "MEASURED", rc_payload)], captured=now - 5)
+    h.obs.register_resource_pool(ResourcePool(
+        resource_pool_id="pool-1", provider="cx", kind="QUOTA",
+        metadata={"private_detail": "SENTINEL_POOL_METADATA_LEAK"},
+    ))
+    # The reset-credit SQL helper always uses kind=reset_credit. Persist the
+    # other kinds separately so latest-per-kind selection keeps all three.
+    for kind, pool_ref, pl in (("activity", None, act_payload), ("quota", "pool-1", quota_payload)):
+        h.obs.persist(Observation(
+            observation_id=f"privacy-{kind}", subject_ref="cx", kind=kind,
+            resource_pool_ref=pool_ref, source="privacy-fixture",
+            observed_at=iso(now - 5), captured_at=iso(now - 5),
+            state=EvidenceState.MEASURED, payload=pl,
+        ))
+
+    assert main(["--db", str(h.db_path), "diag", "--json"]) == 0
+    raw_out = capsys.readouterr().out
+    assert sentinel_credit_id not in raw_out
+    assert sentinel_credit_secret not in raw_out
+    assert "SENTINEL_NESTED_CREDIT_LEAK" not in raw_out
+    assert sentinel_activity_secret not in raw_out
+    assert "SENTINEL_ARBITRARY_DIAGNOSTIC_LEAK" not in raw_out
+    assert sentinel_quota_secret not in raw_out
+    assert "SENTINEL" not in raw_out
+    assert sentinel_id_hash in raw_out
+
+    data = json.loads(raw_out)
+    assert data["status"] in ("OK", "PARTIAL")
+    obs_items = data["sections"]["observations"]["data"]["items"]
+    kinds = {item["kind"] for item in obs_items}
+    assert kinds == {"reset_credit", "activity", "quota"}
+    by_kind = {item["kind"]: item for item in obs_items}
+    assert by_kind["reset_credit"]["payload"]["credits"][0]["id_hash"] == sentinel_id_hash
+    assert by_kind["activity"]["payload"] == {"status": "delivered", "operation_elapsed_seconds": 1.25}
+    assert by_kind["quota"]["payload"]["remaining_fraction"] == 0.75
+

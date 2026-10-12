@@ -693,3 +693,98 @@ def test_ag_does_not_read_implicit_legacy_log(monkeypatch, tmp_path):
     monkeypatch.delenv("PEERHUB_SYS_DIR", raising=False)
     obs = poll_agy_usage(DummyIdSource(), "ag", "standard")[0]
     assert obs.evidence.state == EvidenceState.UNKNOWN and obs.evidence.value is None
+
+
+def test_claude_usage_reset_resolves_known_timezone_abbreviations():
+    from datetime import datetime, timezone, timedelta
+    from peerhub.extensions.quota_probes import _parse_claude_usage_reset
+
+    # Now in KST (+09:00): 2026-10-12 19:00 KST = 2026-10-12 10:00 UTC = 2026-10-12 06:00 EDT
+    kst = timezone(timedelta(hours=9))
+    now_kst = datetime(2026, 10, 12, 19, 0, 0, tzinfo=kst)
+
+    # 1. EDT (UTC-4)
+    dt_edt = _parse_claude_usage_reset("5:00pm (EDT)", now=now_kst)
+    assert dt_edt is not None
+    assert dt_edt.utcoffset() == timedelta(hours=-4)
+    # 5:00pm EDT is Oct 12 17:00 EDT = Oct 12 21:00 UTC
+    assert dt_edt.astimezone(timezone.utc) == datetime(2026, 10, 12, 21, 0, 0, tzinfo=timezone.utc)
+
+    # 2. EST (UTC-5)
+    dt_est = _parse_claude_usage_reset("5:00pm (EST)", now=now_kst)
+    assert dt_est is not None
+    assert dt_est.utcoffset() == timedelta(hours=-5)
+    assert dt_est.astimezone(timezone.utc) == datetime(2026, 10, 12, 22, 0, 0, tzinfo=timezone.utc)
+
+    # 3. PDT (UTC-7)
+    dt_pdt = _parse_claude_usage_reset("5:00pm (PDT)", now=now_kst)
+    assert dt_pdt is not None
+    assert dt_pdt.utcoffset() == timedelta(hours=-7)
+    assert dt_pdt.astimezone(timezone.utc) == datetime(2026, 10, 13, 0, 0, 0, tzinfo=timezone.utc)
+
+    # 4. PST (UTC-8)
+    dt_pst = _parse_claude_usage_reset("5:00pm (PST)", now=now_kst)
+    assert dt_pst is not None
+    assert dt_pst.utcoffset() == timedelta(hours=-8)
+    assert dt_pst.astimezone(timezone.utc) == datetime(2026, 10, 13, 1, 0, 0, tzinfo=timezone.utc)
+
+    # 5. UTC
+    dt_utc = _parse_claude_usage_reset("5:00pm (UTC)", now=now_kst)
+    assert dt_utc is not None
+    assert dt_utc.utcoffset() == timedelta(0)
+
+
+def test_claude_usage_reset_midnight_boundaries():
+    from datetime import datetime, timezone, timedelta
+    from peerhub.extensions.quota_probes import _parse_claude_usage_reset
+
+    # Case A: Local system is in KST, already past midnight (Oct 12 05:00 KST),
+    # but in EDT (UTC-4) it is still previous day: Oct 11 16:00 EDT!
+    kst = timezone(timedelta(hours=9))
+    now = datetime(2026, 10, 12, 5, 0, 0, tzinfo=kst)
+    # Reset is 5:00pm EDT. In EDT, 5:00pm today (Oct 11) is 1 hour in the future!
+    res = _parse_claude_usage_reset("5:00pm (EDT)", now=now)
+    assert res is not None
+    assert res.year == 2026 and res.month == 10 and res.day == 11
+    assert res.hour == 17 and res.minute == 0
+    assert res.utcoffset() == timedelta(hours=-4)
+    # In UTC, Oct 11 17:00 EDT = Oct 11 21:00 UTC
+    assert res.astimezone(timezone.utc) == datetime(2026, 10, 11, 21, 0, 0, tzinfo=timezone.utc)
+
+    # Case B: Reset time was earlier than now in EDT -> rolls over midnight to next calendar day
+    edt = timezone(timedelta(hours=-4))
+    now_late = datetime(2026, 10, 11, 23, 50, 0, tzinfo=edt)
+    res_next = _parse_claude_usage_reset("12:15am (EDT)", now=now_late)
+    assert res_next is not None
+    assert res_next.year == 2026 and res_next.month == 10 and res_next.day == 12
+    assert res_next.hour == 0 and res_next.minute == 15
+    assert res_next - now_late == timedelta(minutes=25)
+
+
+def test_claude_usage_rejects_unsupported_explicit_timezone(monkeypatch):
+    import subprocess
+    from peerhub.extensions.quota_probes import (
+        _parse_claude_usage_reset,
+        poll_claude_usage,
+        UnsupportedTimezoneError,
+    )
+    from peerhub.extensions.observation_model import EvidenceState
+
+    # Direct parse raises UnsupportedTimezoneError
+    with pytest.raises(UnsupportedTimezoneError, match="unsupported timezone: UNSUPPORTED_TZ"):
+        _parse_claude_usage_reset("5:00pm (UNSUPPORTED_TZ)")
+
+    # Probe poll fails closed with UNAVAILABLE evidence
+    class FakeProc:
+        pid = 9999
+        def communicate(self, timeout=None):
+            return ("Current session: 50% used resets 5:00pm (UNSUPPORTED_TZ)\n", "")
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr("peerhub.extensions.quota_probes._real_binary", lambda *a, **k: "dummy.exe")
+
+    res = poll_claude_usage(DummyIdSource(), "inst-1", "prof-1")
+    assert len(res) == 1
+    obs = res[0]
+    assert obs.evidence.state == EvidenceState.UNAVAILABLE
+    assert obs.extra["reason"] == "unsupported_timezone:UNSUPPORTED_TZ"

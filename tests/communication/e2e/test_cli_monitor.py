@@ -131,6 +131,7 @@ def _db(tmp_path):
     """A real M1 database so the read-only dashboard renders for real (only refresh_quota is faked)."""
     from peerhub.core.store import CoreStore
     from peerhub.extensions.observation import ObservationStore
+    tmp_path.mkdir(parents=True, exist_ok=True)
     path = tmp_path / "m.db"
     CoreStore(path)
     ObservationStore(path)
@@ -364,3 +365,101 @@ def test_monitor_json_carries_projection_per_item(tmp_path, capsys):
     assert projection["anchor_basis"] == "reset_minus_duration_inferred"
     assert projection["exhaustion_at"] < reset_t
     assert projection["pace_pt"] == pytest.approx(40, abs=0.01)
+
+
+def test_monitor_json_privacy_scrubs_sentinel_ids_and_payloads(tmp_path, capsys):
+    import hashlib
+    import time
+    import uuid
+    from peerhub.extensions.observation import ObservationStore
+    from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool
+
+    sentinel_credit_id = "RateLimitResetCredit_SECRET_TOKEN_SENTINEL_MONITOR_888"
+    sentinel_id_hash = hashlib.sha256(sentinel_credit_id.encode()).hexdigest()[:12]
+    sentinel_credit_secret = "SENTINEL_MONITOR_CREDIT_SECRET"
+    sentinel_activity_secret = "SENTINEL_MONITOR_ACTIVITY_SECRET"
+    sentinel_quota_secret = "SENTINEL_MONITOR_QUOTA_SECRET"
+
+    db = _db(tmp_path / "mon_privacy")
+    obs_store = ObservationStore(db)
+    obs_store.register_resource_pool(ResourcePool(resource_pool_id="credit:cx:reset", provider="cx", kind="ACCOUNT"))
+    obs_store.register_resource_pool(ResourcePool(
+        resource_pool_id="pool-1", provider="cx", kind="QUOTA",
+        metadata={"private_detail": "SENTINEL_MONITOR_POOL_METADATA_LEAK"},
+    ))
+    now = time.time()
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+
+    obs_store.persist(Observation(
+        observation_id=uuid.uuid4().hex,
+        subject_ref="cx",
+        resource_pool_ref="credit:cx:reset",
+        kind="reset_credit",
+        source="codex_app_server",
+        observed_at=now_iso,
+        captured_at=now_iso,
+        state=EvidenceState.MEASURED,
+        payload={
+            "evidence_ref": "probe:cx:reset-credits",
+            "available_count": 1,
+            "nearest_expires_at": now + 7200,
+            "leak": sentinel_credit_secret,
+            "credits": [{
+                "id_ref": sentinel_credit_id,
+                "reset_type": "codexRateLimits",
+                "status": "available",
+                "granted_at": now - 3600,
+                "expires_at": now + 7200,
+                "title": "Weekly reset",
+            }],
+        },
+    ))
+    obs_store.persist(Observation(
+        observation_id=uuid.uuid4().hex,
+        subject_ref="cx",
+        resource_pool_ref=None,
+        kind="activity",
+        source="session_bridge.ask",
+        observed_at=now_iso,
+        captured_at=now_iso,
+        state=EvidenceState.MEASURED,
+        payload={
+            "status": "delivered",
+            "operation_elapsed_seconds": 2.5,
+            "prompt_text": sentinel_activity_secret,
+            "reason": {"private_detail": "SENTINEL_MONITOR_NESTED_ACTIVITY_LEAK"},
+        },
+    ))
+    obs_store.persist(Observation(
+        observation_id=uuid.uuid4().hex,
+        subject_ref="cx",
+        resource_pool_ref="pool-1",
+        kind="quota",
+        source="cx-cli",
+        observed_at=now_iso,
+        captured_at=now_iso,
+        state=EvidenceState.MEASURED,
+        payload={
+            "remaining_fraction": 0.5,
+            "window_started_at": now - 3600,
+            "resets_at": now + 14400,
+            "internal_probe_details": sentinel_quota_secret,
+        },
+    ))
+
+    with patch("peerhub.extensions.quota_capture.refresh_quota", lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []}):
+        assert _run(db, "--cycles", "1", "--json") == 0
+
+    raw_out = capsys.readouterr().out
+    assert sentinel_credit_id not in raw_out
+    assert sentinel_credit_secret not in raw_out
+    assert sentinel_activity_secret not in raw_out
+    assert sentinel_quota_secret not in raw_out
+    assert "SENTINEL" not in raw_out
+    assert sentinel_id_hash in raw_out
+    items = json.loads(raw_out)["snapshot"]["sections"]["observations"]["data"]["items"]
+    by_kind = {item["kind"]: item for item in items}
+    assert set(by_kind) == {"reset_credit", "activity", "quota"}
+    assert by_kind["reset_credit"]["payload"]["credits"][0]["id_hash"] == sentinel_id_hash
+    assert by_kind["activity"]["payload"] == {"status": "delivered", "operation_elapsed_seconds": 2.5}
+    assert by_kind["quota"]["payload"]["remaining_fraction"] == 0.5

@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Sequence, Optional, TypedDict, Callable, cast, Any, TypeGuard
@@ -63,6 +63,62 @@ class ClaudeQuotaDict(TypedDict):
     reset_at: datetime
     window_hours: float
 
+class UnsupportedTimezoneError(ValueError):
+    def __init__(self, tz_name: str) -> None:
+        super().__init__(f"unsupported timezone: {tz_name}")
+        self.tz_name = tz_name
+
+
+_KNOWN_TZ_ABBREVIATIONS: dict[str, timezone] = {
+    "EDT": timezone(timedelta(hours=-4)),
+    "EST": timezone(timedelta(hours=-5)),
+    "CDT": timezone(timedelta(hours=-5)),
+    "CST": timezone(timedelta(hours=-6)),
+    "MDT": timezone(timedelta(hours=-6)),
+    "MST": timezone(timedelta(hours=-7)),
+    "PDT": timezone(timedelta(hours=-7)),
+    "PST": timezone(timedelta(hours=-8)),
+    "AKDT": timezone(timedelta(hours=-8)),
+    "AKST": timezone(timedelta(hours=-9)),
+    "HDT": timezone(timedelta(hours=-9)),
+    "HST": timezone(timedelta(hours=-10)),
+    "UTC": timezone.utc,
+    "GMT": timezone.utc,
+    "BST": timezone(timedelta(hours=1)),
+    "CET": timezone(timedelta(hours=1)),
+    "CEST": timezone(timedelta(hours=2)),
+    "EET": timezone(timedelta(hours=2)),
+    "EEST": timezone(timedelta(hours=3)),
+    "WET": timezone.utc,
+    "WEST": timezone(timedelta(hours=1)),
+    "IST": timezone(timedelta(hours=5, minutes=30)),
+    "KST": timezone(timedelta(hours=9)),
+    "JST": timezone(timedelta(hours=9)),
+    "HKT": timezone(timedelta(hours=8)),
+    "SGT": timezone(timedelta(hours=8)),
+    "AEST": timezone(timedelta(hours=10)),
+    "AEDT": timezone(timedelta(hours=11)),
+    "ACST": timezone(timedelta(hours=9, minutes=30)),
+    "ACDT": timezone(timedelta(hours=10, minutes=30)),
+    "AWST": timezone(timedelta(hours=8)),
+    "NZST": timezone(timedelta(hours=12)),
+    "NZDT": timezone(timedelta(hours=13)),
+}
+
+
+def _resolve_explicit_tz(tz_name: Optional[str], default_tz: Optional[tzinfo]) -> Optional[tzinfo]:
+    if not tz_name:
+        return default_tz
+    raw = tz_name.strip()
+    upper = raw.upper()
+    if upper in _KNOWN_TZ_ABBREVIATIONS:
+        return _KNOWN_TZ_ABBREVIATIONS[upper]
+    try:
+        return ZoneInfo(raw)
+    except Exception:
+        raise UnsupportedTimezoneError(raw)
+
+
 def _parse_claude_usage_reset(text: str, now: Optional[datetime] = None) -> Optional[datetime]:
     if not text.strip():
         return None
@@ -73,10 +129,7 @@ def _parse_claude_usage_reset(text: str, now: Optional[datetime] = None) -> Opti
     if m_tz:
         tz_name = m_tz.group(1).strip()
         value = value[:m_tz.start()].strip()
-    try:
-        tz = ZoneInfo(tz_name) if tz_name else now.tzinfo
-    except Exception:
-        tz = now.tzinfo
+    tz = _resolve_explicit_tz(tz_name, now.tzinfo)
 
     m_date = re.match(
         r"^(?:(?P<mon>[A-Za-z]+)\s+(?P<day>\d{1,2}),\s*)?"
@@ -87,12 +140,15 @@ def _parse_claude_usage_reset(text: str, now: Optional[datetime] = None) -> Opti
     if not m_date:
         return None
     mon_text = m_date.group("mon")
+    now_in_tz = now.astimezone(tz)
     if mon_text:
         month = _MONTHS.get(mon_text.lower())
         day = int(m_date.group("day"))
+        year = now_in_tz.year
     else:
-        month = now.month
-        day = now.day
+        year = now_in_tz.year
+        month = now_in_tz.month
+        day = now_in_tz.day
     if not month:
         return None
     hour = int(m_date.group("hour"))
@@ -103,13 +159,12 @@ def _parse_claude_usage_reset(text: str, now: Optional[datetime] = None) -> Opti
     if ampm == "pm":
         hour += 12
     try:
-        dt = datetime(now.year, month, day, hour, minute, tzinfo=tz)
+        dt = datetime(year, month, day, hour, minute, tzinfo=tz)
     except ValueError:
         return None
-    now_in_tz = now.astimezone(tz)
     if mon_text and dt < now_in_tz - timedelta(days=30):
         try:
-            dt = datetime(now.year + 1, month, day, hour, minute, tzinfo=tz)
+            dt = datetime(year + 1, month, day, hour, minute, tzinfo=tz)
         except ValueError:
             pass
     elif not mon_text and dt < now_in_tz:
@@ -534,7 +589,11 @@ def poll_claude_usage(
 
     text = "\n".join(str(part) for part in (stdout, stderr) if part)
     dt_now = datetime.fromtimestamp(observed_at, tz=timezone.utc).astimezone()
-    quotas = _parse_claude_usage(text, now=dt_now)
+    try:
+        quotas = _parse_claude_usage(text, now=dt_now)
+    except UnsupportedTimezoneError as exc:
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.UNAVAILABLE, observed_at, freshness_ttl,
+                             extra={"reason": f"unsupported_timezone:{exc.tz_name}"}),)
     
     if not quotas:
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl,

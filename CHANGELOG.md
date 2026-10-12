@@ -6,6 +6,28 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
+## [0.15.1] - 2026-10-12
+
+### Fixed
+
+- **Privacy — dashboard JSON serialization:** replaced blanket `asdict()` in
+  `dashboard_data()` with explicit serialization. Raw reset-credit tokens
+  (`id_ref`) are removed and replaced with 12-character SHA-256 hashes
+  (`id_hash`) matching `diag quota`. Unallowlisted activity, quota, and
+  diagnostic payload fields are scrubbed from dashboard JSON output
+  in `peerhub diag --json` and `peerhub monitor --json`.
+- **Timezone — quota reset parsing:** resolved known timezone abbreviations
+  (`EDT`, `EST`, `CDT`, `CST`, `MDT`, `MST`, `PDT`, `PST`, and similar) to fixed
+  UTC offsets in Claude usage probe parsing. Derived the calendar date from `now`
+  converted to the resolved target timezone instead of local system time, fixing
+  up to 13-hour reset offsets across day/midnight boundaries. Explicit unsupported
+  timezones now fail closed as `UNAVAILABLE` evidence with reason
+  `unsupported_timezone:<name>` instead of silently falling back to local time.
+- **Display — header wide-character path truncation:** truncated header store
+  path segments by cumulative display width using `visible_len` instead of code-point
+  slicing, preventing header splitting across lines when file paths contain wide
+  (e.g. Korean) characters.
+
 ## [0.15.0] - 2026-10-12
 
 ### Changed

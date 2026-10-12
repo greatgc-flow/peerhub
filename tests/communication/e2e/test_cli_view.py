@@ -280,3 +280,17 @@ def test_render_view_shows_eta_projection_and_header_threat(tmp_path):
     assert "= on pace" in out
     assert "ETA:" not in out
     assert max(map(len, out.splitlines())) <= 100
+
+
+def test_header_korean_filename_does_not_split():
+    from peerhub.cli.view import format_frame, visible_len
+    from peerhub.extensions.diag import DiagnosticReport
+
+    rep = DiagnosticReport("OK", 1000000.0, {}, {})
+    # Width 45 with a Korean filename: visible_len exceeds character count
+    frame = format_frame(rep, "plain", width=45, store_path="D:/workspace/한국어.db", store_source="explicit")
+    lines = frame.splitlines()
+    header = lines[0]
+    assert header.startswith("PeerHub OK")
+    assert header.endswith("(explicit)")
+    assert visible_len(header) <= 45
