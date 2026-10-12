@@ -261,16 +261,16 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 print(f"ERROR: the diagnostics extension is unavailable ({e})", file=sys.stderr)
                 return 5
             if args.action is None:
-                from dataclasses import asdict
                 from peerhub.extensions.diag_watch import dashboard_snapshots
-                from peerhub.cli.view import format_frame, use_color
+                from peerhub.cli.view import dashboard_data, format_frame, use_color
                 code = 0
                 try:
                     for rep in dashboard_snapshots(args.db, interval_s=args.interval_seconds,
                                                     count=args.count if args.live else 1):
-                        print(json.dumps(asdict(rep), indent=None if args.live else 2, ensure_ascii=True)
+                        print(json.dumps(dashboard_data(rep), indent=None if args.live else 2, ensure_ascii=True)
                               if args.json else format_frame(rep, args.view, color=use_color(sys.stdout.isatty(), os.environ),
-                                                             width=shutil.get_terminal_size((100, 24)).columns), flush=True)
+                                                             width=shutil.get_terminal_size((100, 24)).columns,
+                                                             store_path=str(args.db), store_source=getattr(args, "db_source", "unknown")), flush=True)
                         code = (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
                                 else 0 if rep.status == "OK" else 4)
                         if code:

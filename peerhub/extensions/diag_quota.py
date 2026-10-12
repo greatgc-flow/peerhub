@@ -62,7 +62,7 @@ def _derived(meas: dict[str, Any]) -> dict[str, Any]:
 
 
 def _projection(item: Mapping[str, Any], now: float) -> ExhaustionProjection:
-    """Pass the snapshot's evaluated freshness and explicit anchor evidence."""
+    """Pass evaluated freshness and measurement time to the shared engine."""
     payload = item["payload"]
     measured_at = None
     if item.get("observed_at"):
@@ -74,7 +74,6 @@ def _projection(item: Mapping[str, Any], now: float) -> ExhaustionProjection:
         _derived(_measurements(payload)).get("used_fraction"),
         payload.get("window_started_at"), measured_at, payload.get("resets_at"), now,
         evidence_state=item["state"], anchor_basis=payload.get("anchor_basis"),
-        anchor_validated=payload.get("anchor_validated"),
     )
 
 

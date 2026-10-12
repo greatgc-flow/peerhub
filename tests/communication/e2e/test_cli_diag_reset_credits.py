@@ -134,6 +134,14 @@ def test_table_and_cli_json_and_no_full_ids(h, tmp_path, capsys):
     assert main(["--db", str(h.db_path), "diag", "quota"]) == 0
     assert "reset credits" in capsys.readouterr().out
     assert main(["--db", str(h.db_path), "diag"]) == 0
-    assert "reset credits" in capsys.readouterr().out  # dashboard summary
+    dashboard = capsys.readouterr().out
+    assert "Credits cx:1 available; expiry " in dashboard
+    assert "credit expiry<72h cx" in " ".join(dashboard.split())
+    assert RID not in dashboard  # dashboard summary keeps the credit identity private
+    assert "Threats: unknown" in dashboard and "No threats" not in dashboard
+    assert main(["--db", str(h.db_path), "diag", "--json"]) == 0
+    dashboard_json = json.loads(capsys.readouterr().out)
+    assert dashboard_json["threats"]["state"] == "unknown"
+    assert dashboard_json["threats"]["fresh_pools"] == 0  # fresh credits are not quota coverage
     assert Path(h.db_path).read_bytes() == before  # Diag never writes
 

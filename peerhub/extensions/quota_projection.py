@@ -6,6 +6,11 @@ import math
 from typing import Literal, TypeGuard, TypedDict
 
 ProjectionState = Literal["unknown", "stale", "expired", "exhausted", "insufficient", "on_pace", "threat"]
+LONG_WINDOW_SECONDS = 86400.0
+MIN_ELAPSED_SHORT = 0.10
+MIN_ELAPSED_LONG = 0.20
+MIN_USED_FRACTION = 0.05
+THREAT_PROJECTED_PERCENT = 105.0
 
 
 class ExhaustionProjection(TypedDict):
@@ -36,13 +41,12 @@ def project_exhaustion(
     *,
     evidence_state: object = "MEASURED",
     anchor_basis: object = None,
-    anchor_validated: object = False,
 ) -> ExhaustionProjection:
     """Derive one projection at a frame timestamp from evaluated evidence.
 
     Callers supply read-time freshness (MEASURED/STALE/etc.), never stored state.
-    Anchors require explicit validation and a nonempty provenance basis;
-    timestamps alone do not establish provider window semantics. Fresh measured
+    Anchor consistency is derived here; inferred anchors remain conditional,
+    without asserting validated provider window semantics. Fresh measured
     exhaustion precedes support/anchor gates because it is observed, not forecast.
     Supported ETAs are conditional window averages, not demonstrated accuracy.
     """
@@ -63,38 +67,56 @@ def project_exhaustion(
     frame, meas = float(now), float(measured_at)
     if meas > frame:
         return suppress("unknown", "measurement timestamp is after the frame timestamp")
-    if _is_finite_num(window_start) and window_start > meas:
+    no_usage = evidence_state == "MEASURED" and _is_finite_num(used_fraction) and used_fraction == 0
+    if not no_usage and _is_finite_num(window_start) and window_start > meas:
         return suppress("unknown", "window start is after the measurement timestamp")
     if _is_finite_num(resets_at) and meas >= resets_at:
         return suppress("unknown", "measurement must precede reset")
-    if _is_finite_num(resets_at) and frame >= resets_at:
+    expired = _is_finite_num(resets_at) and frame >= resets_at
+    if evidence_state not in ("MEASURED", "STALE"):
+        if expired:
+            return suppress("expired", "quota window has reset")
+        return suppress("unknown", "fresh measured evidence is required")
+    if not _is_finite_num(used_fraction) or not 0.0 <= used_fraction <= 1.0:
+        if expired:
+            return suppress("expired", "quota window has reset")
+        return suppress("unknown", "used_fraction must be a finite number in [0, 1]")
+    u = float(used_fraction)
+    if any(v is not None and not _is_finite_num(v) for v in (window_start, resets_at)):
+        return suppress("unknown", "provided window anchors must be finite numbers")
+    consistent = False
+    if _is_finite_num(window_start) and _is_finite_num(resets_at):
+        start, reset = float(window_start), float(resets_at)
+        duration, elapsed = reset - start, meas - start
+        consistent = math.isfinite(duration) and math.isfinite(elapsed) and duration > 0 and start <= meas < reset
+        if consistent:
+            result["anchor_basis"] = result["anchor_basis"] or "reset_minus_duration_inferred"
+            result["pace_pt"] = 100.0 * u - 100.0 * (elapsed / duration)
+    if expired:
         return suppress("expired", "quota window has reset")
     if evidence_state == "STALE":
         return suppress("stale", "measurement is stale at the frame timestamp")
     if evidence_state != "MEASURED":
         return suppress("unknown", "fresh measured evidence is required")
-    if not _is_finite_num(used_fraction) or not 0.0 <= used_fraction <= 1.0:
-        return suppress("unknown", "used_fraction must be a finite number in [0, 1]")
-    u = float(used_fraction)
-    if any(v is not None and not _is_finite_num(v) for v in (window_start, resets_at)):
-        return suppress("unknown", "provided window anchors must be finite numbers")
+    if u == 0.0:
+        return suppress("insufficient", "no usage yet")
     if u == 1.0:
         result.update(state="exhausted", exhaustion_at=meas)
         return result
-    if anchor_validated is not True or result["anchor_basis"] is None:
-        return suppress("unknown", "window anchor is unknown or unvalidated")
     if not _is_finite_num(window_start) or not _is_finite_num(resets_at):
         return suppress("unknown", "window anchors must be finite numbers")
     start, reset = float(window_start), float(resets_at)
     duration, elapsed = reset - start, meas - start
-    if not math.isfinite(duration) or not math.isfinite(elapsed) or not start <= meas < reset:
+    if not consistent:
         return suppress("unknown", "window ordering must satisfy start <= measurement < reset")
     e = elapsed / duration
-    if e < 0.10 or u < 0.05:
-        return suppress("insufficient", "not enough data: requires >=10% elapsed and >=5 percentage points used")
+    minimum_elapsed = MIN_ELAPSED_LONG if duration >= LONG_WINDOW_SECONDS else MIN_ELAPSED_SHORT
+    # Compare in seconds: division can put an exact 10% boundary one ULP below it.
+    if elapsed < minimum_elapsed * duration or u < MIN_USED_FRACTION:
+        return suppress("insufficient", f"not enough data: requires >={minimum_elapsed:.0%} elapsed and >=5 percentage points used")
     pace, projected, exhaustion = 100.0 * u - 100.0 * e, 100.0 * u / e, start + elapsed / u
     if not all(math.isfinite(v) for v in (pace, projected, exhaustion)):
         return suppress("unknown", "projection is not finite")
     result.update(pace_pt=pace, projected_at_reset=projected,
-                  state="threat" if projected >= 105.0 else "on_pace", exhaustion_at=exhaustion)
+                  state="threat" if projected >= THREAT_PROJECTED_PERCENT else "on_pace", exhaustion_at=exhaustion)
     return result

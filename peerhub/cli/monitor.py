@@ -11,7 +11,6 @@ import os
 import shutil
 import sys
 import time
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -82,12 +81,9 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
     validate_monitor_args(parser, args)
     # Lazy imports: registering the parser must work when first-party extensions are blocked (Core-only path); the
     # extension-backed pieces are only needed once the command actually runs.
-    from datetime import datetime
-
-    from peerhub.cli.view import advance_report, format_frame, use_color
+    from peerhub.cli.view import advance_report, dashboard_data, format_frame, use_color
     from peerhub.extensions.diag import ReadonlyDiag
     from peerhub.extensions.quota_capture import refresh_quota
-    from peerhub.extensions.quota_projection import project_exhaustion
 
     tty = sys.stdout.isatty()
     view = ("rich" if tty else "plain") if args.view == "auto" else args.view
@@ -132,26 +128,11 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
             rep = diag.render(["peers", "streams", "resource_pools", "observations", "activity"])
 
             if args.json:
-                snapshot_dict = asdict(rep)
-                obs_items = snapshot_dict.get("sections", {}).get("observations", {}).get("data", {}).get("items", [])
-                for item in obs_items:
-                    payload: dict[str, object] = item.get("payload") or {}
-                    rf = payload.get("remaining_fraction")
-                    start = payload.get("window_started_at")
-                    reset = payload.get("resets_at")
-                    meas_at = None
-                    if item.get("observed_at"):
-                        try:
-                            meas_at = datetime.fromisoformat(str(item["observed_at"]).replace("Z", "+00:00")).timestamp()
-                        except ValueError:
-                            pass
-                    if meas_at is None and item.get("age_seconds") is not None:
-                        meas_at = rep.read_at - item["age_seconds"]
-                    used_frac = (1.0 - rf) if isinstance(rf, (int, float)) and not isinstance(rf, bool) else None
-                    item["projection"] = project_exhaustion(used_frac, start, meas_at, reset, rep.read_at)
+                snapshot_dict = dashboard_data(rep)
                 frame = {
                     "cycle": done,
                     "refresh": refresh_info,
+                    "store_selection": {"path": store_path, "source": store_source},
                     "snapshot": snapshot_dict,
                 }
                 print(json.dumps(frame, ensure_ascii=True, separators=(",", ":")), flush=True)

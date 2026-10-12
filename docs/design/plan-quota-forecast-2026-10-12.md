@@ -1,5 +1,19 @@
 Plan document, 2026-10-12. Reference, not an instruction file.
 
+A2d polish, 2026-10-12: remove WIN and visible zone labels; align FORECAST/FRESH at 80/100/120 columns; round countdowns, simplify ETA wording, and report missing coverage honestly in text and JSON. Fresh zero usage is insufficient (no usage yet). The A2c policy gates below remain unchanged.
+
+A2c update, 2026-10-12: decisions changed after the real `screen_live.txt`
+render. Sort peer, pool family, then window; retain one aligned table at every
+width; use short inline forecasts below 100 columns. Long windows (>=1 day)
+require >=20% elapsed (short windows retain >=10%) and >=5pt used; >=105%
+projected usage is the additional threat gate. Below support show not enough
+data; supported projections below 105% remain on pace. E now shows each peer's
+latest ask outcome, age and actual duration, without fabricated counts.
+A includes system health and only monitor collection scheduling; B omits empty
+alert items; timestamps use local time; rich states use Unicode glyphs.
+The updated snapshots derive from committed evidence at the supplied live
+frame time. No predictive-accuracy claim, pytest execution or commit is implied.
+
 Update, 2026-10-12: added the merged monitor A2 screen specification from
 `screen_cx.out` and `screen_ag.out`, using the owner's final cc decisions.
 Consistency edits below retain numeric PACE below forecast gates, permit
@@ -57,7 +71,7 @@ the literal redraw string in `peerhub/cli/monitor.py`.
 | D1 | Link-count guard changes belong to SecondBrain; no PeerHub change. |
 | D2 | Preserve evidence honesty: a waiver or simulation never counts as PASS. No PeerHub waiver mechanism is added. |
 | D3 | The ignore-rule change belongs to SecondBrain. PeerHub has no `history/` rule to replace; audit tracked root archives without inventing a change. |
-| D4 | One engine and timestamp policy; fresh evidence and consistent anchors, including labelled inferred anchors; forecast support requires elapsed >=10% AND used >=5 percentage points; threat only at projected reset usage >=105%. Below support gates: `not enough data`, never `on pace`. PACE is independent of these gates. |
+| D4 | One engine and timestamp policy; fresh evidence and consistent anchors, including labelled inferred anchors; forecast support requires elapsed >=20% for windows >=1 day (>=10% for shorter windows) AND used >=5 percentage points; threat only at projected reset usage >=105%. Below support gates: `not enough data`, never `on pace`. PACE is independent of these gates. |
 | D5 | Missing selected store: exit 5, `database not found: <path>`, no creation and no monitor probes. |
 | D9 | Create root `CHANGELOG.md` in implementation PR-A; its selected version section is the SSOT for the GitHub Release body. PeerHub has no winget package. |
 | D10 | Release 0.15.0, reflecting breaking projection JSON and exit behaviour; no legacy aliases or duplicate compatibility fields. |
@@ -102,10 +116,12 @@ Old projection fields are removed rather than retained alongside replacements.
 For used fraction u and measurement-time elapsed fraction e:
 `pace_pt = 100*u - 100*e`; `projected_at_reset = 100*u/e`.
 When supported, window-average exhaustion is start plus elapsed seconds / u.
-Reject invalid/nonfinite measurements and impossible window ordering.
+Reject invalid/nonfinite measurements and impossible forecast window ordering;
+fresh zero usage is insufficient with reason `no usage yet` even without a
+usable inferred start, because it does not need an ETA.
 Freshness and reset expiry use one frame timestamp; PACE/rate use measurement
 time, so idle redraws move countdowns without inventing new usage measurements.
-Fresh measured exhaustion is shown even below the 10%/5pt support gates;
+Fresh measured exhaustion is shown even below the elapsed/5pt support gates;
 expired/stale data cannot be presented as current exhaustion or a current ETA.
 
 Exact text examples (values depend on the shared projection):
@@ -113,13 +129,13 @@ Exact text examples (values depend on the shared projection):
 ```text
 PACE +2.3pt  on pace
 PACE +0.3pt  : not enough data
-PACE +12.0pt  ! exhausts Tue 10-13 03:11 in 1d18h (cond)
+PACE +12.0pt  ! exhausts Tue 03:11 (in 1d18h)
 exhausted
 unknown
 stale
 expired
-Threats: 2; earliest: cc/weekly Tue 10-13 03:11 +0900; pools: cc/weekly, cx/weekly
-Probe health:
+Threats: 2 threats - earliest cc/weekly Tue 03:11 (in 1d18h); cx/weekly
+Probes
 database not found: <path>
 ```
 
@@ -127,10 +143,11 @@ PACE uses signed one-decimal percentage points and the projection's state for
 colour; insufficient/unknown/stale/expired states show no numeric forecast.
 PACE is shown whenever `resets_at > measured_at` and
 `resets_at - duration <= measured_at`, independently of forecast support gates.
-Threat times include date when over 24 hours away or crossing local midnight,
-and a timezone offset. Probe failures appear under `Probe health:` with reasons,
+All displayed timestamps use local time. Full threat times include weekday
+when not today; the 80-column forecast keeps weekday/time and countdown. A supplies
+the timezone offset. Probe failures appear under `Probes` with reasons,
 never as fabricated quota-pool rows. The threat header lists every threatened
-pool, its count and the earliest ETA; the inline label applies to every ETA.
+pool, its count and the earliest ETA; the legend declares that every forecast ETA is conditional.
 Missing-store plain output is one stderr line with the selected path substituted,
 exit 5; JSON mode preserves an unavailable/error envelope carrying that message.
 
@@ -161,25 +178,26 @@ scheduling; F owns probe outcomes. Do not repeat those data in G.
 
 | Zone | Contents |
 | --- | --- |
-| A Header | One line: screen name, date/time and offset, selected store path and selection source, cycle number, next collection countdown. |
+| A Header | One line: screen name, system health (OK/PARTIAL), local date/time and offset, selected store path and selection source; monitor adds cycle number and rounded countdown to next collection. Diag omits loop fields. |
 | B Alerts | All threatened pool identifiers, count and earliest exhaustion; exhausted pool identifiers; credits expiring in less than 72 hours. No probe errors. |
-| C Quota | One row per real pool; columns `PEER POOL WIN USAGE-bar USED PACE RESET FORECAST FRESH`. Forecast stays inline; no detached ETA rows. |
-| D Credits | Available credit count and nearest expiry, absolute timestamp and countdown, with evidence freshness. Credits never become quota percentages. |
-| E Asks | One line per peer with running and recent OK/uncertain/failed counts; omit when there is no activity. State the recent interval and count distinct asks from committed evidence. |
+| C Quota | One row per real pool; columns `PEER POOL USAGE-bar USED PACE(pt) RESET FORECAST FRESH`. Forecast stays inline; no detached ETA rows. |
+| D Credits | Available credit count and nearest expiry, local weekday/date/time and countdown; unmeasured counts stay unknown, and stale evidence is labelled with glyph/word and age. Credits never become quota percentages. |
+| E Asks | One line per peer with latest ask outcome, age and actual duration (`Asks cx delivered 54s ago, took 4m`); omit without ask evidence. Never print counts unavailable. |
 | F Collector/probe health | One line, per-peer `OK`, `ERR(reason)` or `TIMEOUT`. Probe failures never create pseudo-pool rows or erase retained pool observations. |
 | G Legend/controls | One line: forecasts are conditional window-average estimates; state/freshness key as space permits; Ctrl-C quits. |
 
-C order is stable: peer alphabetical, then window short to long (5H before 7D),
-then pool identifier as tie-breaker. Risk appears in glyph/colour and B, never
-by reordering rows. Thus ag's two 5H pools precede its two 7D pools.
+C order is stable: peer alphabetical, pool family (prefix before window)
+alphabetical, then window short to long. Risk appears in glyph/colour and B,
+never by reordering rows. ag order is 3P-5H, 3P-7D, G-5H, G-7D.
 
 ### Decisions and visual grammar
 
 PACE is signed, one-decimal `used% - elapsed%`, calculated at `measured_at`.
 Show it whenever the anchor is consistent: reset is in the future relative to
 measurement, and reset minus duration is no later than measurement. An invalid
-anchor yields `--`; forecast gates do not hide otherwise computable PACE.
-Elapsed support is at least 10% of the window and used support is at least 5
+anchor yields `?`; forecast gates do not hide otherwise computable PACE.
+Elapsed support is at least 20% for windows >=1 day, 10% for shorter
+windows; used support is at least 5
 percentage points. Only forecast text uses those gates and the 105% projected
 reset threshold. Compare unrounded values; rounding is presentation only.
 
@@ -187,9 +205,20 @@ Fresh measured exhaustion overrides support gates. Otherwise stale, expired,
 unknown or invalid evidence is shown as such. Below either support gate show
 `: not enough data`, never `on pace`. With support and projected reset usage
 below 105%, show `= on pace`; at or above 105%, show a conditional exhaustion
-ETA, for example `! exhausts Tue 10-13 03:11 in 1d18h (cond)`.
-Show the date whenever ETA is more than 24 hours away or falls on another local
-calendar day; A supplies the timezone offset used by all displayed times.
+ETA, for example `! exhausts Tue 13:51 (in 1d03h)`. At 80 columns use
+`! exh Tue 13:51 (1d03h)`. Include the weekday only when the ETA is not today;
+clock times have minute precision. Never append per-row `(cond)`; JSON retains
+`forecast_basis: conditional window-average (cond)` and anchor provenance.
+A supplies the timezone offset used by all displayed times.
+
+Countdowns at or above two minutes round to the nearest minute (half up):
+`50m52s` becomes `51m`; hours use `2h13m`, days use `1d03h`. Below two
+minutes, ordinary countdowns/ages may show seconds; forecast countdowns always
+use minutes, including `0m` when imminent. Missing values use `?`, never
+placeholder hyphens. Fresh measured zero usage is `insufficient`, with reason
+`no usage yet`, even without a usable inferred window start. It is known usage,
+not missing telemetry; invalid usage or missing/invalid measurement time remains
+unknown. A stale or expired measurement retains that evidence state.
 
 Inferred reset-minus-duration anchors remain eligible when consistent, with
 `anchor_basis` identifying inference in JSON. They are not validated provider
@@ -203,96 +232,113 @@ numeric USED remains authoritative. At most four colours: default,
 cyan for on-pace/chrome, yellow for stale/warnings, red for
 threat/exhaustion/error. Never rely on colour alone: `? unknown`, `~ stale`,
 `/ expired`, `x exhausted`, `: not enough data`, `= on pace`, `! exhausts`.
-PACE has no independent risk colour. Freshness is dot plus age (`●2s` or ASCII
-`*2s` for fresh, `○45m`/`o45m` for stale, `?--` for unavailable age).
+PACE has no independent risk colour. Rich uses glyph plus word: `▲ exhausts`, `● on pace`, `○ not enough data`,
+`✖ exhausted`, `◌ unknown`, `△ stale`, `⊘ expired`. Plain uses the ASCII
+glyphs above. Freshness is dot plus age (`●2s` / ASCII `*2s` for fresh,
+`○45m` / ASCII `~45m` for stale, `?` for unavailable age). Never use `:`
+for freshness: it is the insufficient forecast glyph. The table header is
+`PACE(pt)`; the legend says `PACE + = burning faster than an even pace` and
+`forecasts are conditional window-average estimates`.
 Respect presence of `NO_COLOR`, including an empty value; suppress colours
 while retaining glyphs/words and supported TTY cursor controls.
 
-### Arithmetic and ASCII mock-ups
+### Real-data acceptance frames
 
-Use the reset countdowns literally from the ag paste: `1d18m` means 1 day
-18 minutes, not 1 day 18 hours. These inputs contradict the designs' illustrated
-threats and PACE values; the table below recalculates them. G-5H usage and cx's
-credit values follow the owner's final real-data correction. Measurement ages,
-ask counts and historical collection counters were not supplied: do not invent
-them. The mock-ups use unknown ages, omit E, and use illustrative cycle 1,
-next collection 60s and explicit store selection. ag/cx OK are fixture probe
-outcomes; the supplied cc result is `ERR(claude_usage_timeout)`. Retained cc
-measurements can coexist with this latest probe error.
+Use the sanitized committed observations behind `screen_live.txt`, at local
+`2026-10-12 10:42:24+0900`. Ages are measured, not invented. ag/3P-5H has zero usage and an
+inconsistent inferred anchor (measurement before inferred start), so shows
+`: not enough data`, with reason `no usage yet`; PACE remains unavailable.
+cx/X-7D has 16% used and only 12.7% elapsed: the new long-window gate suppresses
+its ETA, retaining +3.3pt PACE. B therefore contains two threats.
+The stored credit expiry is `2026-10-29T18:52:46Z`, which converts across local
+midnight to **Fri 10-30 03:52 +0900**, not Thu 10-29.
 
-For arithmetic, treat each reset countdown as remaining at measurement time:
-`elapsed% = 100 * (duration - remaining) / duration`,
-`PACE = used% - elapsed%`, `projected% = used% / (elapsed% / 100)`.
-Use the common fixture measurement/frame time `2026-10-12T08:52:46+0900`
-(`2026-10-11T23:52:46Z`), obtained by subtracting the supplied credit countdown
-17d19h from `2026-10-29T18:52:46Z`. This aligns that countdown and expiry;
-it is an arithmetic fixture, not a recovered provider measurement timestamp.
-Assume fresh quota evidence and consistent inferred anchors for this fixture;
-unknown ages here mean age metadata was not provided, not unknown usage.
+Use one table layout at every width; remove WIN at all widths because POOL
+already carries the window. Use eight bar cells below 100 columns, ten above.
+Reserve a fixed FORECAST width for the entire table at each layout so FRESH
+never shifts with forecast text. Only free-text FORECAST may be ellipsized
+(`…` rich, `...` plain); never compact or wrap individual rows.
+Zone letters A..G exist only in this specification. Header has no label;
+other lines begin `Threats`, `Credits`, `Asks`, `Probes`, or the legend words.
+Shorten store paths to retain the tail, e.g. `.../.peerhub/core.db (env)`;
+omit unavailable scheduling fields rather than displaying placeholders.
 
-| Pool | Used | Reset remaining | Elapsed % | PACE pt | Projected reset % | Forecast |
-| --- | ---: | --- | ---: | ---: | ---: | --- |
-| ag/3P-5H | 0% | 4h59m | 0.3333 | -0.3 | 0.00 | not enough data |
-| ag/G-5H | 0% | 4h59m | 0.3333 | -0.3 | 0.00 | not enough data |
-| ag/3P-7D | 74% | 1d18m | 85.5357 | -11.5 | 86.51 | on pace |
-| ag/G-7D | 46% | 3d20h | 45.2381 | +0.8 | 101.68 | on pace |
-| cc/C-5H | 5% | 3h55m | 21.6667 | -16.7 | 23.08 | on pace |
-| cc/C-7D | 80% | 1d08h | 80.9524 | -1.0 | 98.82 | on pace |
-| cx/X-5H | 1% | 4h58m | 0.6667 | +0.3 | 150.00 | not enough data |
-| cx/X-7D | 4% | 6d16h | 4.7619 | -0.8 | 84.00 | not enough data |
+B says `Threats: No threats` only when at least one fresh pool was evaluated
+and none threatens or is exhausted. If some pools are stale, append `N pools
+stale`; also disclose unknown pools. Without any fresh pool, show
+`Threats: unknown - evidence is stale (oldest 10m); refresh` for stale evidence,
+or `Threats: unknown - evidence is missing or invalid; refresh` when there is
+no stale evidence. JSON's `threats` object carries state, reason, fresh/stale/
+unknown counts, oldest stale age, threatened and exhausted pool identifiers.
+Diag and monitor derive the same summary from the same evaluated evidence.
+When threats exist, show count, earliest identifier and local ETA/countdown,
+then other identifiers. Append exhausted/credit-expiry items only when present.
+Wrap B to retain all alerts. Exhaustion cannot produce a No threats summary.
 
-No supported row reaches 105%; cx/X-5H's mathematical extrapolation fails both
-support gates, so no ETA or threat is displayed. ag/G-7D's +0.8pt PACE does
-not itself establish a threat. Credit expiry exceeds 72h and creates no alert.
-
-100 columns (ASCII fallback; PACE values are percentage points):
+80 columns (plain, diag; monitor adds cycle and next collection):
 
 ```text
-PeerHub 2026-10-12 08:52:46+0900 ...\peerhub\.peerhub\core.db(explicit) c1 next60s
-B Threats:0; earliest:--; exhausted:none; credit expiry<72h:none
-PEER POOL  WIN USAGE-bar    USED   PACE RESET  FORECAST             FRESH
-ag   3P-5H 5H  [..........]   0%   -0.3 4h59m  : not enough data    ?--
-ag   G-5H  5H  [..........]   0%   -0.3 4h59m  : not enough data    ?--
-ag   3P-7D 7D  [#######...]  74%  -11.5 1d18m  = on pace            ?--
-ag   G-7D  7D  [#####.....]  46%   +0.8 3d20h  = on pace            ?--
-cc   C-5H  5H  [#.........]   5%  -16.7 3h55m  = on pace            ?--
-cc   C-7D  7D  [########..]  80%   -1.0 1d08h  = on pace            ?--
-cx   X-5H  5H  [..........]   1%   +0.3 4h58m  : not enough data    ?--
-cx   X-7D  7D  [..........]   4%   -0.8 6d16h  : not enough data    ?--
-D Credits cx:2 available; expiry 2026-10-29T18:52:46Z in 17d19h; fresh ?--
-F Probes ag:OK cc:ERR(claude_usage_timeout) cx:OK
-G Forecasts: conditional window-average estimates; ?-- age unknown; Ctrl-C quit
+PeerHub OK 2026-10-12 10:42+0900 .../.peerhub/core.db (explicit)
+Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
+PEER POOL  USAGE-bar  USED PACE(pt) RESET FORECAST                        FRESH
+ag   3P-5H [........]   0%        ? 4h59m : not enough data               *59s
+ag   3P-7D [######..]  74%     +1.2 1d22h = on pace                       *59s
+ag   G-5H  [#.......]  16%    -28.7 2h44m = on pace                       *59s
+ag   G-7D  [####....]  49%    -22.2 2d00h = on pace                       *59s
+cc   C-5H  [##......]  24%    -26.4 2h28m = on pace                       *1m13s
+cc   C-7D  [#######.]  83%     +4.0 1d11h ! exh Tue 13:51 (1d03h)         *1m13s
+cx   X-5H  [######..]  73%    +26.0 2h38m ! exh 11:33 (51m)               *1m17s
+cx   X-7D  [#.......]  16%     +3.3 6d02h : not enough data               *1m17s
+Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
+Asks ag delivered 1h03m ago, took 14m
+Asks cx delivered 1m47s ago, took 4m
+Probes ag:OK cc:OK cx:OK
+PACE + = burning faster than an even pace; forecasts are conditional
+window-average estimates; Ctrl-C quit
 ```
 
-80 columns (drop WIN, retain the window suffix in POOL, use eight bar cells;
-shorten forecasts, e.g. `! exh Tue 10-13 03:11 +1d18h(c)`):
+100 columns (plain, diag; monitor adds cycle and next collection):
 
 ```text
-PeerHub 2026-10-12 08:52+0900 ...\core.db(explicit) c1 next60s
-B Threats:0; earliest:--; exhausted:none; credit expiry<72h:none
-PEER POOL  USAGE-bar  USED   PACE RESET  FORECAST             FRESH
-ag   3P-5H [........]   0%   -0.3 4h59m  : not enough data    ?--
-ag   G-5H  [........]   0%   -0.3 4h59m  : not enough data    ?--
-ag   3P-7D [######..]  74%  -11.5 1d18m  = on pace            ?--
-ag   G-7D  [####....]  46%   +0.8 3d20h  = on pace            ?--
-cc   C-5H  [........]   5%  -16.7 3h55m  = on pace            ?--
-cc   C-7D  [######..]  80%   -1.0 1d08h  = on pace            ?--
-cx   X-5H  [........]   1%   +0.3 4h58m  : not enough data    ?--
-cx   X-7D  [........]   4%   -0.8 6d16h  : not enough data    ?--
-D Credits cx:2 available; expiry 2026-10-29T18:52:46Z in 17d19h; fresh ?--
-F Probes ag:OK cc:ERR(claude_usage_timeout) cx:OK
-G Forecasts: conditional window-average estimates; ?-- age unknown; Ctrl-C quit
+PeerHub OK 2026-10-12 10:42:24+0900 .../.peerhub/core.db (explicit)
+Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
+PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                          FRESH
+ag   3P-5H [..........]   0%        ? 4h59m : not enough data                                 *59s
+ag   3P-7D [#######...]  74%     +1.2 1d22h = on pace                                         *59s
+ag   G-5H  [##........]  16%    -28.7 2h44m = on pace                                         *59s
+ag   G-7D  [#####.....]  49%    -22.2 2d00h = on pace                                         *59s
+cc   C-5H  [##........]  24%    -26.4 2h28m = on pace                                         *1m13s
+cc   C-7D  [########..]  83%     +4.0 1d11h ! exhausts Tue 13:51 (in 1d03h)                   *1m13s
+cx   X-5H  [#######...]  73%    +26.0 2h38m ! exhausts 11:33 (in 51m)                         *1m17s
+cx   X-7D  [##........]  16%     +3.3 6d02h : not enough data                                 *1m17s
+Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
+Asks ag delivered 1h03m ago, took 14m
+Asks cx delivered 1m47s ago, took 4m
+Probes ag:OK cc:OK cx:OK
+PACE + = burning faster than an even pace; forecasts are conditional window-average estimates;
+Ctrl-C quit
 ```
 
-Both examples have 14 lines. At 120 columns this eight-pool fixture, including
-up to three active-peer E lines, must fit within 20 lines. No rendered line
-may exceed terminal visible width. A abbreviates a long path with `...`;
-the full selected path is `D:\PkgDev\workspace\peerhub\.peerhub\core.db`
-and remains available in JSON. Re-layout on resize, shorten optional wording
-before essential decisions, and wrap B when needed so every threat is retained.
-The 20-line fixture target must not silently drop real pools, alerts or asks
-from larger inventories. At 80 columns preserve dated ETAs when required;
-`(c)` abbreviates conditional, as defined by G.
+120 columns (plain, diag; monitor adds cycle and next collection):
+
+```text
+PeerHub OK 2026-10-12 10:42:24+0900 .../.peerhub/core.db (explicit)
+Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
+PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                                              FRESH
+ag   3P-5H [..........]   0%        ? 4h59m : not enough data                                                     *59s
+ag   3P-7D [#######...]  74%     +1.2 1d22h = on pace                                                             *59s
+ag   G-5H  [##........]  16%    -28.7 2h44m = on pace                                                             *59s
+ag   G-7D  [#####.....]  49%    -22.2 2d00h = on pace                                                             *59s
+cc   C-5H  [##........]  24%    -26.4 2h28m = on pace                                                             *1m13s
+cc   C-7D  [########..]  83%     +4.0 1d11h ! exhausts Tue 13:51 (in 1d03h)                                       *1m13s
+cx   X-5H  [#######...]  73%    +26.0 2h38m ! exhausts 11:33 (in 51m)                                             *1m17s
+cx   X-7D  [##........]  16%     +3.3 6d02h : not enough data                                                     *1m17s
+Credits cx:2 available; expiry Fri 10-30 03:52 (in 17d17h)
+Asks ag delivered 1h03m ago, took 14m
+Asks cx delivered 1m47s ago, took 4m
+Probes ag:OK cc:OK cx:OK
+PACE + = burning faster than an even pace; forecasts are conditional window-average estimates; Ctrl-C quit
+```
 
 ### Refresh and output parity
 
@@ -321,7 +367,7 @@ countdown redraws never collect or emit extra NDJSON objects.
 - Assert zero ESC bytes, cursor controls and literal ` [H [2J` artifacts off-TTY
   and with VT unavailable; exactly one appended frame/NDJSON object per cycle.
 - Test `NO_COLOR` both nonempty and empty, preserving state glyphs and words.
-- Test just below, exactly at and just above 10% elapsed, 5pt used and 105%
+- Test just below, exactly at and just above 20% long-window elapsed (10% short-window elapsed), 5pt used and 105%
   projected usage. Numeric PACE persists below gates; 105% becomes threat only
   with support. The owner's 1% used / 79s case yields `not enough data`.
 - Verify consistent inferred anchors remain eligible and labelled; invalid
@@ -334,7 +380,7 @@ countdown redraws never collect or emit extra NDJSON objects.
 
 ## Tests and acceptance criteria
 
-- Boundary fixtures cover just below/at 10% elapsed, 5pt used and 105% projected;
+- Boundary fixtures cover just below/at 20% long-window elapsed (10% short-window elapsed), 5pt used and 105% projected;
   quantised 1%, burst, idle, zero usage, reset crossing, invalid and consistent inferred anchors,
   stale data, and fresh exhaustion with very small elapsed time.
 - Deterministic fixture traces establish policy and output consistency, not

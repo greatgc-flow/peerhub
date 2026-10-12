@@ -20,12 +20,12 @@ FIELDS = {"pace_pt", "projected_at_reset", "state", "exhaustion_at", "measured_a
     (0.4, 200, 1000, "STALE", True, "expired"),
     (1.0, 1, 1, "MEASURED", True, "exhausted"),
     (1.0, 1, 301, "STALE", True, "stale"),
-    (0.4, 200, 200, "MEASURED", False, "unknown"),
+    (0.4, 200, 200, "MEASURED", False, "threat"),
     (None, 200, 200, "UNAVAILABLE", False, "unknown"),
 ])
 def test_quota_json_projection_parity(monkeypatch, used, measured, frame, evidence, anchors, state):
     payload = {"window_started_at": 0, "resets_at": 1000,
-               "anchor_basis": "provider_fixed_window", "anchor_validated": anchors}
+               "anchor_basis": "provider_fixed_window"}
     if used is not None:
         payload["remaining_fraction"] = 1 - used
     item = {"kind": "quota", "state": evidence, "stored_state": "MEASURED",
@@ -54,8 +54,7 @@ def test_quota_json_projection_parity(monkeypatch, used, measured, frame, eviden
     assert projection["state"] == state
     expected_used = None if used is None else 1 - payload["remaining_fraction"]
     assert projection == project_exhaustion(expected_used, 0, measured, 1000, frame,
-                                            evidence_state=evidence, anchor_basis="provider_fixed_window",
-                                            anchor_validated=anchors)
+                                            evidence_state=evidence, anchor_basis="provider_fixed_window")
     assert not FIELDS.intersection(row.keys() - {"state", "projection"})
     missing = result["pools"][1]["items"][0]["projection"]
     assert set(missing) == FIELDS
@@ -67,7 +66,7 @@ def test_observed_time_is_not_reconstructed_from_capture_age():
     # Freshness may use captured_at; window-average math must use observed_at.
     item = {"state": "MEASURED", "observed_at": "1970-01-01T00:03:20Z", "age_seconds": 0,
             "payload": {"remaining_fraction": 0.6, "window_started_at": 0, "resets_at": 1000,
-                        "anchor_basis": "provider_fixed_window", "anchor_validated": True}}
+                        "anchor_basis": "provider_fixed_window"}}
     result = diag_quota._projection(item, 250)
     assert result["measured_at"] == 200
     assert result["pace_pt"] == 20

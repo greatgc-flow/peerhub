@@ -212,7 +212,6 @@ def test_quota_json_carries_projection_with_window_timing(tmp_path, capsys):
             "remaining_fraction": 0.20,
             "window_started_at": start_t,
             "anchor_basis": "provider_fixed_window",
-            "anchor_validated": True,
             "resets_at": reset_t,
         }, "src-cx"),
         # Pool P2: 10% used in 2 hours of a 5-hour window -> safe until reset (exhausts at 20h > 5h)
@@ -220,7 +219,6 @@ def test_quota_json_carries_projection_with_window_timing(tmp_path, capsys):
             "remaining_fraction": 0.90,
             "window_started_at": start_t,
             "anchor_basis": "provider_fixed_window",
-            "anchor_validated": True,
             "resets_at": reset_t,
         }, "src-cc"),
     ])
@@ -242,9 +240,9 @@ def test_quota_json_carries_projection_with_window_timing(tmp_path, capsys):
     assert p2["exhaustion_at"] >= reset_t
 
 
-def test_format_dashboard_eta_and_threatened_header_alert(tmp_path):
+def test_format_dashboard_inline_forecast_and_threat_summary(tmp_path):
     from peerhub.extensions.diag import ReadonlyDiag
-    from peerhub.extensions.diag_quota import format_dashboard
+    from peerhub.cli.view import format_frame
     h = ObservationHarness(tmp_path / "wsDash")
     t_meas = time.time() - 10.0
     start_t = t_meas - 7200.0
@@ -255,7 +253,6 @@ def test_format_dashboard_eta_and_threatened_header_alert(tmp_path):
             "remaining_fraction": 0.20,
             "window_started_at": start_t,
             "anchor_basis": "provider_fixed_window",
-            "anchor_validated": True,
             "resets_at": reset_t,
         }, "src-cx"),
         # P2 safe
@@ -263,15 +260,16 @@ def test_format_dashboard_eta_and_threatened_header_alert(tmp_path):
             "remaining_fraction": 0.90,
             "window_started_at": start_t,
             "anchor_basis": "provider_fixed_window",
-            "anchor_validated": True,
             "resets_at": reset_t,
         }, "src-cc"),
     ])
     rep = ReadonlyDiag(h.db_path).render(["peers", "streams", "resource_pools", "observations"])
-    text = format_dashboard(rep, store_path=str(h.db_path), store_source="explicit")
-    assert f"store={h.db_path} (explicit)" in text
-    assert "ALERT: cx/P1 exhausts ~" in text
-    assert "before reset" in text
-    assert "ETA: exhausts ~" in text
-    assert "on pace" in text
+    text = format_frame(rep, "plain", width=140, store_path=str(h.db_path), store_source="explicit")
+    assert "(explicit)" in text
+    assert "Threats: 1 threats - earliest cx/P1" in text
+    threat_row = next(line for line in text.splitlines() if line.split()[:2] == ["cx", "P1"])
+    safe_row = next(line for line in text.splitlines() if line.split()[:2] == ["cc", "P2"])
+    assert "exhausts" in threat_row
+    assert "on pace" in safe_row
+    assert "FORECAST" in text and "ETA:" not in text
 

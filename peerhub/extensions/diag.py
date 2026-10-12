@@ -201,9 +201,10 @@ class ReadonlyDiag:
             ok = sum(1 for st, _, _ in asks if st in ASK_OK_STATUSES)
             unc = sum(1 for st, _, _ in asks if st == "uncertain")
             durations = [d for _, d, _ in asks if d is not None]
-            last_status, _, last_at = asks[0]
+            last_status, last_seconds, last_at = asks[0]
             peers.append({"peer": peer, "asks": len(asks), "ok": ok, "uncertain": unc, "failed": len(asks) - ok - unc,
                           "median_seconds": statistics.median(durations) if durations else None, "last_status": last_status,
+                          "last_seconds": last_seconds,
                           "last_age_seconds": None if last_at is None else max(0.0, read_us / 1_000_000 - last_at)})
         return Section("activity", "OK", {"window": ACTIVITY_WINDOW, "peers": peers})
 

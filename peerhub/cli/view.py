@@ -1,34 +1,21 @@
-"""Dashboard view: turns one read-only DiagnosticReport into a single, scannable screen.
-
-Pure presentation: no I/O, no sleeping, no database access. The caller supplies the already built report, the
-clock reading and the colour/unicode decisions, so the output is deterministic and testable. Information design:
-
-  header   what / when / where / refresh state, one line
-  QUOTA    the focus: one row per pool, grouped by peer; usage bar, headroom, pace against the window, reset countdown,
-           freshness badge. Evidence that is not a measurement (UNKNOWN/UNAVAILABLE/ERROR) is never drawn as a bar
-           that could be read as "empty" or "unlimited".
-  CREDITS  Codex reset coupons (count, nearest expiry)
-  ACTIVITY the latest asks (peer, outcome, certainty, how long ago)
-  SYSTEM   counts and the few most recently active streams instead of the full stream list
-  ALERTS   one line with everything that needs attention, or "all clear"
-"""
+"""Pure, width-aware A-G dashboard presentation of committed diagnostic evidence."""
 from __future__ import annotations
 
+import math
+import os
 import re
+import textwrap
+import unicodedata
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict
 from datetime import datetime, tzinfo
 from typing import cast
 
 from peerhub.extensions.diag import DiagnosticReport
-from peerhub.extensions.quota_projection import project_exhaustion
+from peerhub.extensions.diag_quota import _projection
 
-RESET, BOLD, DIM = "\033[0m", "\033[1m", "\033[2m"
-RED, GREEN, YELLOW, CYAN = "\033[31m", "\033[32m", "\033[33m", "\033[36m"
+RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
 _ANSI = re.compile(r"\033\[[0-9;]*m")
-HEADROOM_ALERT = 0.10    # alert when less than 10% of a window is left
-PACE_YELLOW = 0.10       # used share ahead of the elapsed share of the window by more than 10 points
-PACE_RED = 0.25          # ... by more than 25 points
-CREDIT_WARN_HOURS = 72.0  # same threshold as `diag quota`
 Obj = Mapping[str, object]
 
 
@@ -38,7 +25,8 @@ def _safe_text(value: object) -> str:
 
 
 def visible_len(text: str) -> int:
-    return len(_ANSI.sub("", text))
+    return sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
+               for c in _ANSI.sub("", text))
 
 
 def _paint(text: str, code: str, on: bool) -> str:
@@ -57,7 +45,13 @@ def _items(value: object) -> list[Obj]:
 
 
 def _num(value: object) -> float | None:
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value else None
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except OverflowError:
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _section(rep: DiagnosticReport, name: str) -> Obj:
@@ -65,28 +59,46 @@ def _section(rep: DiagnosticReport, name: str) -> Obj:
     return _obj(sec.data) if sec is not None else {}
 
 
-def _ellipsis(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[:max(1, limit - 1)] + "…"
+def _ellipsis(text: str, limit: int, unicode: bool = True) -> str:
+    if visible_len(text) <= limit:
+        return text
+    mark = "…" if unicode else "..."
+    mark = mark[:max(0, limit)]
+    kept = ""
+    for char in text:
+        if visible_len(kept + char + mark) > limit:
+            break
+        kept += char
+    return kept + mark
+
+
+def _pad(text: str, width: int) -> str:
+    return text + " " * max(0, width - visible_len(text))
 
 
 def human_duration(seconds: float | None) -> str:
-    """2h13m / 3d4h / 45s; negative or missing -> '-'."""
+    """Round to minutes from two minutes onward; missing values stay explicit."""
     if seconds is None or seconds < 0:
-        return "-"
-    s = int(seconds)
+        return "?"
+    s = int(seconds) if seconds < 120 else int(seconds / 60 + 0.5) * 60
     d, rem = divmod(s, 86400)
     h, rem = divmod(rem, 3600)
     m, sec = divmod(rem, 60)
     if d:
-        return f"{d}d{h}h"
+        return f"{d}d{h:02d}h"
     if h:
         return f"{h}h{m:02d}m"
-    return f"{m}m{sec:02d}s" if m else f"{sec}s"
+    return (f"{m}m{sec:02d}s" if sec else f"{m}m") if m else f"{sec}s"
+
+
+def _forecast_duration(seconds: float) -> str:
+    # Forecasts never claim seconds, even when exhaustion is imminent.
+    return human_duration(seconds) if seconds >= 120 else f"{int(seconds / 60 + 0.5)}m"
 
 
 def bar(used: float, cells: int, unicode: bool) -> str:
     used = min(1.0, max(0.0, used))
-    filled = int(round(used * cells))
+    filled = int(used * cells + 0.5)
     if unicode:
         return "█" * filled + "░" * (cells - filled)
     return "#" * filled + "." * (cells - filled)
@@ -96,224 +108,231 @@ def _unknown_bar(cells: int) -> str:
     return "?" * cells
 
 
-def _severity(headroom: float | None, diff: float | None) -> str:
-    if headroom is not None and headroom < HEADROOM_ALERT:
-        return RED
-    if diff is None:
-        return GREEN
-    return RED if diff > PACE_RED else YELLOW if diff > PACE_YELLOW else GREEN
+def _local(at: float, tz: tzinfo | None) -> datetime:
+    return datetime.fromtimestamp(at, tz) if tz is not None else datetime.fromtimestamp(at).astimezone()
 
 
-def _pool_label(ref: object) -> str:
-    return _safe_text(ref).rsplit(":", 1)[-1] if ref else "(probe)"
+def _eta(at: float, now: float, tz: tzinfo | None) -> str:
+    dt = _local(at, tz)
+    dated = dt.date() != _local(now, tz).date()
+    return dt.strftime("%a %H:%M" if dated else "%H:%M")
 
 
 class _Row:
-    __slots__ = ("peer", "pool", "kind", "state", "age", "used", "headroom", "diff", "window", "left", "reason",
-                 "projection", "eta_text", "flagged", "threatened")
-
     def __init__(self, item: Obj, read_at: float, tz: tzinfo | None = None) -> None:
         payload = _obj(item.get("payload"))
-        self.peer = _safe_text(item.get("subject_ref") or "-")
-        self.pool = _pool_label(item.get("resource_pool_ref"))
-        self.kind = _safe_text(item.get("kind") or "quota")
+        self.peer = _safe_text(item.get("subject_ref") or "?")
+        self.ref = _safe_text(item.get("resource_pool_ref") or "?")
+        self.pool = self.ref.rsplit(":", 1)[-1]
         self.state = _safe_text(item.get("state") or "UNKNOWN")
         self.age = _num(item.get("age_seconds"))
-        why = payload.get("reason")
-        self.reason = _safe_text(why) if isinstance(why, str) else ""
+        self.reason = _safe_text(payload.get("reason") or "")
         rf = _num(payload.get("remaining_fraction"))
-        measured = self.state in ("MEASURED", "STALE") and rf is not None
-        self.headroom = min(1.0, max(0.0, rf)) if measured and rf is not None else None
-        self.used = None if self.headroom is None else 1.0 - self.headroom
+        self.used = 1 - rf if rf is not None and 0 <= rf <= 1 and self.state in ("MEASURED", "STALE") else None
         start, reset = _num(payload.get("window_started_at")), _num(payload.get("resets_at"))
-        self.window, self.left, self.diff = "-", None, None
-        if start is not None and reset is not None and reset > start:
-            span = reset - start
-            self.window = f"{int(span // 86400)}d" if span >= 86400 else f"{int(span // 3600)}h"
-            self.left = reset - read_at
-            if self.used is not None:
-                self.diff = self.used - min(1.0, max(0.0, (read_at - start) / span))
+        self.span = reset - start if reset is not None and start is not None and reset > start else float("inf")
+        # A declared suffix supplies a display/sort window for a registered
+        # unmeasured pool, never an anchor for projection arithmetic.
+        suffix = re.search(r"(\d+)([HD])$", self.pool.upper())
+        if self.span == float("inf") and suffix and int(suffix[1]) > 0:
+            self.span = float(int(suffix[1]) * (3600 if suffix[2] == "H" else 86400))
+        self.left = None if reset is None else reset - read_at
+        self.projection = _projection({**item, "state": self.state, "payload": dict(payload)}, read_at)
+        self.diff = self.projection["pace_pt"]
+        self.now, self.tz = read_at, tz
 
-        self.projection = None
-        self.eta_text = ""
-        self.flagged = False
-        self.threatened = False
-        if self.used is not None and start is not None and reset is not None:
-            meas_at = None
-            if item.get("observed_at"):
-                try:
-                    meas_at = datetime.fromisoformat(str(item["observed_at"]).replace("Z", "+00:00")).timestamp()
-                except ValueError:
-                    pass
-            if meas_at is None and self.age is not None:
-                meas_at = read_at - self.age
-            self.projection = project_exhaustion(self.used, start, meas_at, reset, read_at)
-            st = self.projection.get("status")
-            exh_at = self.projection["exhaustion_at"]
-            if st == "ok" and exh_at is not None:
-                dt = datetime.fromtimestamp(exh_at, tz) if tz is not None else datetime.fromtimestamp(exh_at).astimezone()
-                clock_str = dt.strftime("%H:%M")
-                rel_str = human_duration(max(0.0, exh_at - read_at))
-                self.eta_text = f"exhausts ~{clock_str} (in {rel_str}), before reset"
-                self.flagged = True
-                self.threatened = True
-            elif st == "safe_until_reset":
-                self.eta_text = "safe until reset"
-            elif st == "exhausted":
-                self.eta_text = "exhausted"
-                self.flagged = True
-                self.threatened = True
-            elif st == "idle":
-                self.eta_text = "idle"
+    def forecast(self, unicode: bool = False, short: bool = False) -> str:
+        state = self.projection["state"]
+        glyph = ({"threat": "▲", "on_pace": "●", "insufficient": "○", "exhausted": "✖",
+                  "unknown": "◌", "stale": "△", "expired": "⊘"} if unicode else
+                 {"threat": "!", "on_pace": "=", "insufficient": ":", "exhausted": "x",
+                  "unknown": "?", "stale": "~", "expired": "/"})[state]
+        if state == "threat":
+            at = self.projection["exhaustion_at"]
+            assert at is not None
+            clock, left = _eta(at, self.now, self.tz), _forecast_duration(max(0, at - self.now))
+            if short:
+                clock = _local(at, self.tz).strftime("%a %H:%M" if _local(at, self.tz).date() != _local(self.now, self.tz).date() else "%H:%M")
+                return f"{glyph} exh {clock} ({left})"
+            return f"{glyph} exhausts {clock} (in {left})"
+        return glyph + " " + {"unknown": "unknown", "stale": "stale", "expired": "expired", "exhausted": "exhausted",
+                              "insufficient": "not enough data", "on_pace": "on pace"}[state]
+
+    @property
+    def ink(self) -> str:
+        return RED if self.projection["state"] in ("threat", "exhausted") else YELLOW if self.projection["state"] in ("stale", "expired", "insufficient") else CYAN if self.projection["state"] == "on_pace" else ""
 
 
 def _badge(row: _Row, color: bool, unicode: bool) -> str:
-    dot, warn, cross, ask = ("●", "▲", "✖", "?") if unicode else ("*", "!", "x", "?")
-    age = human_duration(row.age) if row.age is not None else ""
-    if row.state == "MEASURED":
-        return _paint(f"{dot} {age}", GREEN, color)
-    if row.state == "STALE":
-        return _paint(f"{warn} STALE {age}".rstrip(), RED + BOLD, color)
-    if row.state == "ERROR":
-        return _paint(f"{cross} ERROR" + (f" {_ellipsis(row.reason, 28)}" if row.reason else ""), RED + BOLD, color)
-    if row.state == "UNAVAILABLE":
-        return _paint(f"{cross} UNAVAILABLE" + (f" {_ellipsis(row.reason, 28)}" if row.reason else ""), YELLOW, color)
-    return _paint(f"{ask} UNKNOWN", DIM, color)
+    if row.age is None:
+        return "?"
+    stale = row.state == "STALE"
+    dot = ("○" if stale else "●") if unicode else ("~" if stale else "*")
+    return dot + human_duration(row.age)
 
 
 def _quota_rows(items: list[Obj], pools: list[Obj], read_at: float, tz: tzinfo | None = None) -> list[_Row]:
-    rows = [_Row(i, read_at, tz) for i in items if i.get("kind") in ("quota", "rate_limit")]
-    seen = {i.get("resource_pool_ref") for i in items if i.get("kind") in ("quota", "rate_limit")}
-    for p in pools:  # a registered quota pool without evidence is shown explicitly as UNKNOWN, never omitted
-        pid = p.get("resource_pool_id")
-        if p.get("kind") in ("QUOTA", "RATE_LIMIT") and pid not in seen:
-            rows.append(_Row({"subject_ref": p.get("provider"), "resource_pool_ref": pid, "kind": _safe_text(p.get("kind")).lower(),
-                              "state": "UNKNOWN"}, read_at, tz))
-    return sorted(rows, key=lambda r: (r.peer, r.pool))
+    # A probe without a pool belongs to F. Collapse shared pool evidence to one row.
+    selected: dict[str, Obj] = {}
+    for item in items:
+        ref = item.get("resource_pool_ref")
+        if item.get("kind") in ("quota", "rate_limit") and ref:
+            key = str(ref)
+            old = selected.get(key)
+            if old is None or str(item.get("observed_at") or "") > str(old.get("observed_at") or ""):
+                selected[key] = item
+    for pool in pools:
+        ref = pool.get("resource_pool_id")
+        if ref and pool.get("kind") in ("QUOTA", "RATE_LIMIT"):
+            selected.setdefault(str(ref), {"subject_ref": pool.get("provider"), "resource_pool_ref": ref, "state": "UNKNOWN", "payload": {}})
+    return sorted((_Row(i, read_at, tz) for i in selected.values()),
+                  key=lambda r: (r.peer, re.sub(r"-?\d+[HD]$", "", r.pool.upper()), r.span, r.ref))
 
 
-def _quota_lines(rows: list[_Row], width: int, color: bool, unicode: bool, alerts: list[str]) -> list[str]:
-    bad: dict[str, dict[str, list[str]]] = {}
-    lines = _quota_table(rows, width, color, unicode, alerts, bad)
-    for state, peers in bad.items():  # one alert per evidence state, not one per row
-        who = ", ".join(f"{peer} {len(pools)}" for peer, pools in sorted(peers.items()))
-        alerts.append(f"{state} evidence ({who})" + (": run `peerhub observation refresh`" if state == "STALE" else ""))
-    threatened_rows = [(r.projection["exhaustion_at"], r) for r in rows
-                       if r.threatened and r.projection and r.projection["exhaustion_at"] is not None]
-    earliest_threat = min(threatened_rows, key=lambda pair: pair[0])[1] if threatened_rows else None
-    if earliest_threat:
-        alerts.insert(0, f"{earliest_threat.peer}/{earliest_threat.pool} {earliest_threat.eta_text}")
-    return lines
-
-
-def _quota_table(rows: list[_Row], width: int, color: bool, unicode: bool, alerts: list[str],
-                 bad: dict[str, dict[str, list[str]]]) -> list[str]:
-    if not rows:
-        return ["  (no quota evidence yet: run `peerhub observation refresh`)"]
-    cells = 16 if width >= 100 else 10 if width >= 72 else 8
-    out: list[str] = []
-    stacked = width < 60
-    if not stacked:
-        head = f"  {'PEER':<5} {'POOL':<7} {'WIN':<4} {'USED':<{cells + 6}} {'LEFT':>5} {'PACE':>6} {'RESET':>7}  FRESH"
-        out.append(_paint(head, DIM, color))
-    last_peer = ""
-    for r in rows:
-        peer_cell = r.peer if r.peer != last_peer else ""
-        last_peer = r.peer
-        if r.used is None or r.headroom is None:
-            body = _unknown_bar(cells)
-            used_txt, left_txt, pace_txt, sev = "  ?  ", "  ?", "     ?", DIM
-        else:
-            sev = _severity(r.headroom, r.diff)
-            body = _paint(bar(r.used, cells, unicode), sev, color)
-            used_txt, left_txt = f"{r.used * 100:3.0f}% ", f"{r.headroom * 100:3.0f}%"
-            if r.diff is None:
-                pace_txt = "     -"
-            else:
-                sign = ("▲" if unicode else "+") if r.diff > 0.005 else ("▼" if unicode else "-") if r.diff < -0.005 else ("■" if unicode else "=")
-                pace_txt = _paint(f"{sign}{abs(r.diff) * 100:3.0f}pt", sev, color)
-            if r.headroom < HEADROOM_ALERT:
-                alerts.append(f"{r.peer}/{r.pool} {r.headroom * 100:.0f}% left")
-        if r.state in ("STALE", "ERROR", "UNAVAILABLE"):
-            bad.setdefault(r.state, {}).setdefault(r.peer, []).append(r.pool)
-        reset_txt = human_duration(r.left)
-        if stacked:
-            out.append(f"  {r.peer}/{r.pool} [{body}] {left_txt} left  reset {reset_txt}  {_badge(r, color, unicode)}")
-        else:
-            out.append(f"  {peer_cell:<5} {r.pool:<7} {r.window:<4} {body} {used_txt}{left_txt:>5} {pace_txt:>{6 + (len(pace_txt) - visible_len(pace_txt))}} "
-                       f"{reset_txt:>7}  {_badge(r, color, unicode)}")
-        if r.eta_text:
-            eta_col = RED + BOLD if r.flagged else DIM
-            out.append(_paint(f"    ETA: {r.eta_text}", eta_col, color))
+def _quota_table(rows: list[_Row], width: int, color: bool, unicode: bool) -> list[str]:
+    cells = 10 if width >= 100 else 8
+    peer_w = max(4, max((visible_len(r.peer) for r in rows), default=4))
+    pool_w = max(5, max((visible_len(r.pool) for r in rows), default=5))
+    reset_w = max(5, max((visible_len(human_duration(r.left)) for r in rows), default=5))
+    fresh_w = max(5, max((visible_len(_badge(r, False, unicode)) for r in rows), default=5))
+    def prefix(peer: str, pool: str, usage: str, used: str, pace: str, reset: str) -> str:
+        return (_pad(peer, peer_w) + " " + _pad(pool, pool_w) + " " +
+                f"{usage:<{cells + 2}} {used:>4} {pace:>8} " + _pad(reset, reset_w) + " ")
+    head_lead = prefix("PEER", "POOL", "USAGE-bar", "USED", "PACE(pt)", "RESET")
+    forecast_w = max(0, width - visible_len(head_lead) - fresh_w - 1)
+    head = head_lead + _pad(_ellipsis("FORECAST", forecast_w, unicode), forecast_w) + " FRESH"
+    out = [head]
+    for row in rows:
+        body = bar(row.used, cells, unicode) if row.used is not None else _unknown_bar(cells)
+        used = "?" if row.used is None else f"{row.used * 100:.0f}%"
+        pace = "?" if row.diff is None else f"{row.diff:+.1f}"
+        lead = prefix(row.peer, row.pool, f"[{body}]", used, pace, human_duration(row.left))
+        forecast = _ellipsis(row.forecast(unicode, width < 100), forecast_w, unicode)
+        fresh = _badge(row, False, unicode)
+        out.append(_paint(lead + _pad(forecast, forecast_w) + " " + fresh, row.ink, color))
     return out
 
 
-def _credit_lines(items: list[Obj], read_at: float, color: bool, unicode: bool, alerts: list[str]) -> list[str]:
-    credits = [i for i in items if i.get("kind") == "reset_credit"]
-    if not credits:
-        return []
-    out = [_paint("RESET CREDITS", BOLD, color)]
-    for it in credits:
-        payload, state = _obj(it.get("payload")), _safe_text(it.get("state") or "UNKNOWN")
-        peer = _safe_text(it.get("subject_ref") or "-")
-        if state not in ("MEASURED", "STALE"):
-            out.append(f"  {peer:<5} {_paint(state, DIM if state == 'UNKNOWN' else RED, color)}  (no count: evidence is {state.lower()})")
+def _threat_summary(rows: list[_Row]) -> dict[str, object]:
+    fresh = sum(r.projection["state"] in ("threat", "on_pace", "insufficient", "exhausted") for r in rows)
+    stale = [r for r in rows if r.state == "STALE"]
+    threats = [r for r in rows if r.projection["state"] == "threat"]
+    exhausted = [r for r in rows if r.projection["state"] == "exhausted"]
+    oldest = max((r.age for r in stale if r.age is not None), default=None)
+    state = "threat" if threats or exhausted else "clear" if fresh else "unknown"
+    reason = None if fresh else "evidence is stale" if stale else "evidence is missing or invalid"
+    return {"state": state, "reason": reason, "fresh_pools": fresh, "stale_pools": len(stale),
+            "unknown_pools": len(rows) - fresh - len(stale), "oldest_stale_seconds": oldest,
+            "threatened_pools": [r.ref for r in threats], "exhausted_pools": [r.ref for r in exhausted]}
+
+
+def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
+    """Dashboard JSON uses the same evidence coverage and projections as text."""
+    data = asdict(report)
+    items = data.get("sections", {}).get("observations", {}).get("data", {}).get("items", [])
+    for item in items:
+        if item.get("kind") in ("quota", "rate_limit"):
+            item["projection"] = _projection(item, report.read_at)
+    rows = _quota_rows(_items(items), _items(_section(report, "resource_pools").get("pools")), report.read_at)
+    data["threats"] = _threat_summary(rows)
+    data["forecast_basis"] = "conditional window-average (cond)"
+    return data
+
+
+def _wrap(line: str, width: int) -> list[str]:
+    """Wrap evidence instead of dropping pools, asks or alerts; count display cells."""
+    if visible_len(line) <= width:
+        return [line]
+    # Wrapping happens before adding colour, so no escape is split.
+    out: list[str] = []
+    current = ""
+    for word in textwrap.wrap(line, width=width, break_long_words=True, break_on_hyphens=False):
+        for char in word:
+            if visible_len(current + char) > width:
+                out.append(current)
+                current = ""
+            current += char
+        out.append(current)
+        current = ""
+    return out
+
+
+def _credit_lines(items: list[Obj], read_at: float, color: bool, unicode: bool, alerts: list[str], tz: tzinfo | None = None) -> list[str]:
+    out: list[str] = []
+    for item in items:
+        if item.get("kind") != "reset_credit":
             continue
-        count = payload.get("available_count")
-        count_txt = str(count) if isinstance(count, int) and not isinstance(count, bool) else "?"
-        near = _num(payload.get("nearest_expires_at"))
-        exp = ""
-        if near is not None:
-            hours = (near - read_at) / 3600.0
-            exp = f"  nearest expires in {human_duration(near - read_at)}"
-            if 0 <= hours < CREDIT_WARN_HOURS:
-                exp += _paint(" (WARN <72h)", YELLOW, color)
-                alerts.append(f"{peer} reset credit expires in {human_duration(near - read_at)}")
-        stale = _paint(" STALE", RED + BOLD, color) if state == "STALE" else ""
-        out.append(f"  {peer:<5} {count_txt} available{exp}{stale}")
+        p, state = _obj(item.get("payload")), str(item.get("state") or "UNKNOWN")
+        peer = _safe_text(item.get("subject_ref") or "?")
+        count = p.get("available_count") if state in ("MEASURED", "STALE") else None
+        exp = _num(p.get("nearest_expires_at")) if count is not None else None
+        expiry = (_local(exp, tz).strftime("%a %m-%d %H:%M" if _local(exp, tz).date() != _local(read_at, tz).date() else "%H:%M")
+                  if exp is not None else "unknown")
+        line = f"Credits {peer}:{count if count is not None else '?'} available"
+        if exp is not None:
+            line += f"; expiry {expiry} (in {human_duration(max(0, exp - read_at))})"
+        if state != "MEASURED":
+            word = "stale" if state == "STALE" else "unknown"
+            glyph = ("△" if word == "stale" else "◌") if unicode else ("~" if word == "stale" else "?")
+            line += f"; {glyph} {word} {_badge(_Row(item, read_at), False, unicode)}"
+        out.append(line)
+        if exp is not None and 0 <= exp - read_at < 72 * 3600 and isinstance(count, int) and count > 0:
+            alerts.append(f"{peer} {expiry} in {human_duration(exp - read_at)}")
     return out
 
 
 def _activity_lines(items: list[Obj], limit: int, color: bool) -> list[str]:
-    acts = sorted((i for i in items if i.get("kind") == "activity"), key=lambda i: _num(i.get("age_seconds")) or 0.0)[:limit]
-    if not acts:
-        return []
-    out = [_paint("LATEST ASKS", BOLD, color)]
-    for it in acts:
-        p = _obj(it.get("payload"))
-        took = _num(p.get("operation_elapsed_seconds"))
-        ok = _safe_text(p.get("status") or "?")
-        code = {"delivered": GREEN, "recovered_terminal": GREEN}.get(ok, YELLOW)
-        out.append(f"  {_safe_text(it.get('subject_ref') or '-'):<5} {_paint(ok, code, color)} {_safe_text(p.get('certainty') or '')}  "
-                   f"{human_duration(_num(it.get('age_seconds')))} ago" + (f"  took {human_duration(took)}" if took is not None else ""))
-    return out
+    latest: dict[str, Obj] = {}
+    for item in items:
+        if item.get("kind") != "activity":
+            continue
+        peer = _safe_text(item.get("subject_ref") or "?")
+        old = latest.get(peer)
+        if old is None or (_num(item.get("capture_seq")) or 0, str(item.get("observed_at") or "")) >= (_num(old.get("capture_seq")) or 0, str(old.get("observed_at") or "")):
+            latest[peer] = item
+    return [f"Asks {peer} {_safe_text(_obj(item.get('payload')).get('status') or 'unknown')} "
+            f"{human_duration(_num(item.get('age_seconds')))} ago, took "
+            f"{human_duration(_num(_obj(item.get('payload')).get('operation_elapsed_seconds')))}"
+            for peer, item in sorted(latest.items())]
 
 
-def _ask_lines(report: DiagnosticReport, items: list[Obj], limit: int, color: bool, unicode: bool, alerts: list[str]) -> list[str]:
-    """Per-peer ask history from the optional `activity` section (newest N asks per peer); falls back to the latest-ask lines."""
+def _ask_lines(report: DiagnosticReport, items: list[Obj]) -> list[str]:
     sec = _section(report, "activity")
-    peers = _items(sec.get("peers"))
-    if not peers:
-        return _activity_lines(items, limit, color)
-    out = [_paint(f"ASKS (newest {int(_num(sec.get('window')) or 0)} per peer)", BOLD, color),
-           f"  {'PEER':<5} {'ASKS':>4} {'OK':>4} {'UNC':>4} {'FAIL':>4} {'RATE':>5} {'MEDIAN':>7}  LAST"]
-    for p in peers:
-        asks, ok = int(_num(p.get("asks")) or 0), int(_num(p.get("ok")) or 0)
-        unc, bad = int(_num(p.get("uncertain")) or 0), int(_num(p.get("failed")) or 0)
-        rate = ok / asks if asks else None
-        rate_txt = "    -" if rate is None else f"{rate * 100:4.0f}%"
-        rate_col = DIM if rate is None else GREEN if rate >= 0.9 else YELLOW if rate >= 0.7 else RED
-        med = _num(p.get("median_seconds"))
-        last = _safe_text(p.get("last_status") or "?")
-        last_ok = last in ("delivered", "recovered_terminal")
-        peer = _safe_text(p.get("peer") or "-")
-        if not last_ok:
-            alerts.append(f"{peer} last ask {last}")
-        out.append(f"  {peer:<5} {asks:>4} {ok:>4} {_paint(f'{unc:>4}', YELLOW if unc else DIM, color)} "
-                   f"{_paint(f'{bad:>4}', RED if bad else DIM, color)} {_paint(rate_txt, rate_col, color)} "
-                   f"{human_duration(med) if med is not None else '-':>7}  "
-                   f"{human_duration(_num(p.get('last_age_seconds')))} ago {_paint(last, GREEN if last_ok else YELLOW, color)}")
-    return out
+    out: list[str] = []
+    for p in _items(sec.get("peers")):
+        if not (_num(p.get("asks")) or _num(p.get("running")) or p.get("last_status")):
+            continue
+        out.append(f"Asks {_safe_text(p.get('peer'))} {_safe_text(p.get('last_status') or 'unknown')} "
+                   f"{human_duration(_num(p.get('last_age_seconds')))} ago, took {human_duration(_num(p.get('last_seconds')))}")
+    return out if out else _activity_lines(items, 0, False)
+
+
+def _probe_line(items: list[Obj], refresh: Obj | None) -> str:
+    peers: dict[str, str] = {}
+    latest: dict[str, tuple[float, str, int]] = {}
+    for item in items:
+        if item.get("kind") not in ("quota", "rate_limit", "probe", "collector"):
+            continue
+        peer = _safe_text(item.get("subject_ref") or "?")
+        state, p = item.get("state"), _obj(item.get("payload"))
+        key = (_num(item.get("capture_seq")) or 0,
+               str(item.get("captured_at") or item.get("observed_at") or ""),
+               0 if item.get("resource_pool_ref") else 1)
+        # Last committed successful measurement is an OK probe outcome, even
+        # after its quota freshness expires. A newer failure takes precedence.
+        outcome = "OK" if state in ("MEASURED", "STALE") else "?"
+        if not item.get("resource_pool_ref"):
+            reason = _safe_text(p.get("reason") or state or "unknown")
+            outcome = "TIMEOUT" if state == "TIMEOUT" else f"ERR({reason})" if state in ("ERROR", "UNAVAILABLE") else outcome
+            if not item.get("captured_at") and not item.get("observed_at"):
+                key = (float("inf"), "", 1)
+        if peer not in latest or key >= latest[peer]:
+            latest[peer], peers[peer] = key, outcome
+    for probe in _items((refresh or {}).get("probes")):
+        peer = _safe_text(probe.get("peer") or probe.get("subject_ref") or "?")
+        status = _safe_text(probe.get("status") or "?")
+        peers[peer] = f"ERR({_safe_text(probe.get('reason') or 'unknown')})" if status == "ERR" else status
+    return "Probes " + (" ".join(f"{peer}:{status}" for peer, status in sorted(peers.items())) or "outcomes unavailable")
 
 
 def advance_report(report: DiagnosticReport, now: float) -> DiagnosticReport:
@@ -330,6 +349,9 @@ def advance_report(report: DiagnosticReport, now: float) -> DiagnosticReport:
             age = it.get("age_seconds")
             if isinstance(age, (int, float)) and not isinstance(age, bool):
                 it["age_seconds"] = age + dt
+                ttl = _num(it.get("ttl_seconds"))
+                if it.get("state") == "MEASURED" and ttl is not None and age + dt >= ttl:
+                    it["state"] = "STALE"
         sections["observations"] = replace(obs, data=data)
     act = sections.get("activity")
     if act is not None:
@@ -342,98 +364,93 @@ def advance_report(report: DiagnosticReport, now: float) -> DiagnosticReport:
     return replace(report, read_at=report.read_at + dt, sections=sections)
 
 
-def _system_line(rep: DiagnosticReport, top: int, color: bool) -> str:
-    peers, streams = _items(_section(rep, "peers").get("peers")), _items(_section(rep, "streams").get("streams"))
-    chip = _paint(_safe_text(rep.status), GREEN if rep.status == "OK" else RED if rep.status == "FAILED" else YELLOW, color)
-    records = _num(rep.snapshot.get("records_total"))
-    busiest = sorted(streams, key=lambda s: (str(s.get("stream_id") or "").startswith("legacy:"),
-                                             -(_num(s.get("head_position")) or 0.0)))[:max(0, top)]
-    names = ", ".join(_ellipsis(_safe_text(s.get("stream_id")), 22) for s in busiest)
-    tail = f"  |  busiest: {names}" if names else ""
-    return (f"SYSTEM  {len(peers)} peers | {len(streams)} streams | {'?' if records is None else int(records)} records | {chip}{tail}")
-
-
-def _header(rep: DiagnosticReport, db_name: str, cycle: int | None, refresh: Obj | None, next_in: float | None,
-            tz: tzinfo | None, color: bool, store_path: str = "", store_source: str = "",
-            earliest_threat: _Row | None = None) -> str:
-    when = datetime.fromtimestamp(rep.read_at, tz) if tz is not None else datetime.fromtimestamp(rep.read_at).astimezone()
-    if store_path:
-        store_desc = f"{store_path} ({store_source})" if store_source else store_path
-    else:
-        store_desc = db_name
-    parts = [_paint("PeerHub", BOLD + CYAN, color), when.strftime("%H:%M:%S %z"), _safe_text(store_desc)]
-    if earliest_threat:
-        parts.append(_paint(f"THREAT: {earliest_threat.peer}/{earliest_threat.pool} {earliest_threat.eta_text}", RED + BOLD, color))
-    if cycle is not None:
-        parts.append(f"cycle {cycle}")
-    if refresh is not None:
-        if refresh.get("skipped"):
-            parts.append(_paint("redraw only", DIM, color))
-        else:
-            st = _safe_text(refresh.get("status") or "?")
-            parts.append("refresh " + _paint(st, GREEN if st == "OK" else YELLOW if st == "PARTIAL" else RED, color))
-    if next_in is not None:
-        parts.append(f"next in {human_duration(next_in)}")
-    return "  ·  ".join(parts)
-
-
 def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = False, unicode: bool = True,
                 db_name: str = "", cycle: int | None = None, refresh: Obj | None = None, next_refresh_in: float | None = None,
                 interval: float | None = None, refresh_every: int | None = None, top_streams: int = 3, recent_asks: int = 3,
                 tz: tzinfo | None = None, store_path: str = "", store_source: str = "") -> str:
-    """One screen. `report.read_at` is the clock: the same report always renders to the same text."""
-    width = max(40, width)
+    """A-G frame; caller supplies terminal capabilities. No collection or cursor controls.
+
+    Plain and rich share decisions. Width/clock changes only affect layout,
+    countdowns and evaluated freshness, never the measurement-time PACE/ETA.
+    """
+    width = max(1, width)
+    color = color and "NO_COLOR" not in os.environ
     items = _items(_section(report, "observations").get("items"))
-    pools = _items(_section(report, "resource_pools").get("pools"))
-    alerts: list[str] = []
-    rule = ("─" if unicode else "-") * min(width, 100)
-    rows = _quota_rows(items, pools, report.read_at, tz)
-    threatened_rows = [(r.projection["exhaustion_at"], r) for r in rows
-                       if r.threatened and r.projection and r.projection["exhaustion_at"] is not None]
-    earliest_threat = min(threatened_rows, key=lambda pair: pair[0])[1] if threatened_rows else None
-    lines = [_header(report, db_name or "workspace", cycle, refresh, next_refresh_in, tz, color,
-                     store_path=store_path, store_source=store_source, earliest_threat=earliest_threat),
-             _paint(rule, DIM, color),
-             _paint("QUOTA", BOLD, color)]
-    lines += _quota_lines(rows, width, color, unicode, alerts)
-    for block in (_credit_lines(items, report.read_at, color, unicode, alerts), _ask_lines(report, items, recent_asks, color, unicode, alerts)):
-        if block:
-            lines += ["", *block]
-    if refresh is not None:
-        for w in cast("Sequence[object]", refresh.get("warnings") or []):
-            alerts.append(str(w)[:60])
-    system = _system_line(report, top_streams, color)
-    lines += ["", system if visible_len(system) <= width or color else _ellipsis(system, width)]
+    rows = _quota_rows(items, _items(_section(report, "resource_pools").get("pools")), report.read_at, tz)
+    when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M:%S%z" if width >= 100 else "%Y-%m-%d %H:%M%z")
+    tail = f" ({_safe_text(store_source)})" if store_source else ""
+    if cycle is not None:
+        tail += f" c{cycle}"
+        if next_refresh_in is not None and next_refresh_in >= 0:
+            tail += f" next: {human_duration(next_refresh_in)}"
+    path = _safe_text(store_path or db_name or "workspace").replace("\\", "/")
+    if "/" in path:
+        parts = path.split("/")
+        path = ".../" + "/".join(parts[-2:] if parts[-2] == ".peerhub" else parts[-1:])
+    lead = f"PeerHub {_safe_text(report.status)} {when} "
+    budget = max(0, width - visible_len(lead + tail))
+    if visible_len(path) > budget:
+        path = "..." + path[-max(0, budget - 3):] if budget >= 4 else ""
+    header = lead + path + tail
+    threats = [r for r in rows if r.projection["state"] == "threat"]
+    first = min(threats, key=lambda r: r.projection["exhaustion_at"] or float("inf")) if threats else None
+    earliest_at = cast(float, first.projection["exhaustion_at"]) if first is not None else None
+    exhausted = ", ".join(f"{r.peer}/{r.pool}" for r in rows if r.projection["state"] == "exhausted")
+    credit_alerts: list[str] = []
+    credits = _credit_lines(items, report.read_at, False, unicode, credit_alerts, tz)
+    summary = _threat_summary(rows)
+    if summary["state"] == "unknown":
+        oldest = summary["oldest_stale_seconds"]
+        age = f" (oldest {human_duration(cast(float, oldest))})" if oldest is not None else ""
+        alert = f"Threats: unknown - {summary['reason']}{age}; refresh"
+    elif exhausted:
+        alert = "Threats: observed exhaustion"
+    else:
+        alert = "Threats: No threats"
+    if first is not None and earliest_at is not None:
+        alert = (f"Threats: {len(threats)} threats - earliest {first.peer}/{first.pool} {_eta(earliest_at, report.read_at, tz)} "
+                 f"(in {_forecast_duration(max(0, earliest_at - report.read_at))})")
+        others = ", ".join(f"{r.peer}/{r.pool}" for r in threats if r is not first)
+        if others:
+            alert += "; " + others
+    if summary["fresh_pools"] and summary["stale_pools"]:
+        alert += f"; {summary['stale_pools']} pools stale"
+    if summary["fresh_pools"] and summary["unknown_pools"]:
+        alert += f"; {summary['unknown_pools']} pools unknown"
+    if exhausted:
+        alert += f"; exhausted {exhausted}"
+    if credit_alerts:
+        alert += "; credit expiry<72h " + ", ".join(credit_alerts)
+    lines = [_paint(line, CYAN, color) for line in _wrap(header, width)]
+    lines += [_paint(line, RED if threats or exhausted else YELLOW if credit_alerts else '', color) for line in _wrap(alert, width)]
+    # Wrap before adding colour so no escape sequence can be split.
+    table = _quota_table(rows, width, False, unicode)
+    lines.append(table[0])
+    for row, line in zip(rows, table[1:]):
+        lines.append(_paint(line, row.ink, color))
+    for line in [*credits, *_ask_lines(report, items)]:
+        lines.extend(_wrap(line, width))
+    probe = _probe_line(items, refresh)
     if report.error:
-        alerts.append(f"diag error: {_safe_text(report.error)[:50]}")
-    shown = alerts[:4] + ([f"+{len(alerts) - 4} more"] if len(alerts) > 4 else [])
-    alert_text = _ellipsis("; ".join(shown), max(10, width - 8))
-    lines.append(_paint("ALERTS  ", BOLD, color) + (_paint(alert_text, YELLOW + BOLD, color) if alerts else _paint("all clear", GREEN, color)))
-    hints = ["Ctrl-C quit", "PACE = used% - window elapsed%  (▲ burning faster than an even pace)" if unicode else "PACE = used% - window elapsed%  (+ faster than an even pace)"]
-    if interval is not None:
-        hints.append(f"every {human_duration(interval)}")
-    if refresh_every is not None and refresh_every > 1:
-        hints.append(f"collect every {refresh_every} cycles")
-    lines += [_paint(rule, DIM, color), _paint("  " + "  ·  ".join(hints), DIM, color)]
-    text = "\n".join(lines)
-    return text if unicode else text.replace("·", "|").replace("…", "~")
+        probe += f"; diagnostic ERR({_safe_text(report.error)})"
+    lines.extend(_paint(line, RED if "ERR(" in probe or "TIMEOUT" in probe else "", color)
+                 for line in _wrap(probe, width))
+    legend = "PACE + = burning faster than an even pace; forecasts are conditional window-average estimates; Ctrl-C quit"
+    lines.extend(_wrap(legend, width))
+    return "\n".join(lines)
 
 
 def format_frame(report: DiagnosticReport, view: str, *, color: bool = False, unicode: bool = True, width: int = 100,
                  db_name: str = "", cycle: int | None = None, refresh: Obj | None = None, next_refresh_in: float | None = None,
                  interval: float | None = None, refresh_every: int | None = None,
                  store_path: str = "", store_source: str = "") -> str:
-    """`plain` = the existing text dashboard, `rich` = this view. Shared by `diag --view` and `monitor --view`."""
-    if view == "rich":
-        return render_view(report, width=width, color=color, unicode=unicode, db_name=db_name, cycle=cycle, refresh=refresh,
-                           next_refresh_in=next_refresh_in, interval=interval, refresh_every=refresh_every,
-                           store_path=store_path, store_source=store_source)
-    from peerhub.extensions import diag_quota
-    return diag_quota.format_dashboard(report, store_path=store_path or None, store_source=store_source or None)
+    """Both styles use A-G; plain always emits ASCII with zero escapes."""
+    return render_view(report, width=width, color=color if view == "rich" else False,
+                       unicode=unicode if view == "rich" else False, db_name=db_name, cycle=cycle, refresh=refresh,
+                       next_refresh_in=next_refresh_in, interval=interval, refresh_every=refresh_every,
+                       store_path=store_path, store_source=store_source)
 
 
 def use_color(stream_is_tty: bool, env: Mapping[str, str]) -> bool:
-    """NO_COLOR wins, FORCE_COLOR next, otherwise colour only on a terminal."""
-    if env.get("NO_COLOR"):
-        return False
-    return bool(env.get("FORCE_COLOR")) or stream_is_tty
+    """Colour requires a terminal; presence of NO_COLOR always wins."""
+    return stream_is_tty and "NO_COLOR" not in env

@@ -14,13 +14,15 @@ FIELDS = {"pace_pt", "projected_at_reset", "state", "exhaustion_at", "measured_a
 def project(u, measured, *, now=None, state="MEASURED", start=0.0, reset=1000.0, **anchors):
     return project_exhaustion(u, start, measured, reset, measured if now is None else now,
                               evidence_state=state, **{"anchor_basis": "provider_fixed_window",
-                                                       "anchor_validated": True, **anchors})
+                                                       **anchors})
 
 
 def assert_suppressed(result, state):
     assert set(result) == FIELDS
     assert result["state"] == state
-    assert all(result[k] is None for k in ("pace_pt", "projected_at_reset", "exhaustion_at"))
+    assert all(result[k] is None for k in ("projected_at_reset", "exhaustion_at"))
+    if state == "unknown":
+        assert result["pace_pt"] is None
     assert result["reason"]
 
 
@@ -43,6 +45,35 @@ def test_support_and_threat_boundaries(used, measured, state):
         assert result["reason"] is None
 
 
+@pytest.mark.parametrize("elapsed,used,state", [
+    (0.199999, 0.21, "insufficient"),
+    (0.20, 0.05, "on_pace"),
+    (0.200001, 0.05, "on_pace"),
+    (0.20, 0.049999, "insufficient"),
+    (0.20, 0.050001, "on_pace"),
+    (0.20, 0.209999, "on_pace"),
+    (0.20, 0.21, "threat"),
+    (0.20, 0.210001, "threat"),
+])
+@pytest.mark.parametrize("duration", [86400.0, 7 * 86400.0])
+def test_long_window_twenty_percent_five_pt_and_105_percent_boundaries(duration, elapsed, used, state):
+    result = project(used, elapsed * duration, reset=duration)
+    assert result["state"] == state
+    assert result["pace_pt"] == pytest.approx(100 * (used - elapsed))
+    if state == "insufficient":
+        assert_suppressed(result, state)
+        assert ">=20% elapsed" in result["reason"]
+    elif used == 0.21:
+        assert result["projected_at_reset"] == 105.0
+
+
+def test_long_window_definition_starts_at_one_day():
+    # Exact 10% support must survive floating-point division rounding.
+    assert project(0.21, 0.10 * 86399, reset=86399)["state"] == "threat"
+    assert_suppressed(project(0.21, 0.10 * 86399 - 0.001, reset=86399), "insufficient")
+    assert_suppressed(project(0.21, 0.10 * 86400, reset=86400), "insufficient")
+
+
 def test_supported_values_and_public_contract():
     assert project(0.4, 200.0) == {
         "pace_pt": 20.0, "projected_at_reset": 200.0, "state": "threat",
@@ -62,11 +93,19 @@ def test_owner_one_percent_at_79_seconds():
     result = project(0.01, 79.0, now=120.0, reset=18000.0)
     assert_suppressed(result, "insufficient")
     assert result["measured_at"] == 79.0
+    assert result["pace_pt"] == pytest.approx(1 - 100 * 79 / 18000)
 
 
 @pytest.mark.parametrize("used,measured", [(0.0, 500.0), (0.0, 0.0), (0.5, 0.0)])
 def test_zero_usage_and_zero_elapsed_are_insufficient(used, measured):
     assert_suppressed(project(used, measured), "insufficient")
+
+
+@pytest.mark.parametrize("start,reset", [(None, None), (501, 1000), (0, 1000)])
+def test_fresh_zero_usage_is_known_even_without_usable_window_anchor(start, reset):
+    result = project(0, 500, start=start, reset=reset)
+    assert_suppressed(result, "insufficient")
+    assert result["reason"] == "no usage yet"
 
 
 def test_quantised_one_percent_trace():
@@ -94,7 +133,8 @@ def test_fresh_exhaustion_precedes_support_gates(elapsed):
     result = project(1.0, elapsed)
     assert result["state"] == "exhausted"
     assert result["exhaustion_at"] == elapsed
-    assert result["pace_pt"] is None and result["projected_at_reset"] is None
+    assert result["pace_pt"] == pytest.approx(100 - elapsed / 10)
+    assert result["projected_at_reset"] is None
     assert result["reason"] is None
 
 
@@ -108,6 +148,8 @@ def test_fresh_exhaustion_is_observed_even_without_an_anchor():
 def test_stale_and_expired_suppress_even_exhaustion(used):
     assert_suppressed(project(used, 200.0, now=500.0, state="STALE"), "stale")
     assert_suppressed(project(used, 200.0, now=1000.0, state="STALE"), "expired")
+    # Freshness suppresses forecasts, not a computable measurement-time PACE.
+    assert project(used, 200.0, now=1000.0)["pace_pt"] == pytest.approx(100 * used - 20)
 
 
 @pytest.mark.parametrize("state", ["UNKNOWN", "ERROR", "ABSENT", "UNAVAILABLE", None])
@@ -115,12 +157,12 @@ def test_nonmeasured_evidence_never_forecasts(state):
     assert_suppressed(project(1.0, 200.0, state=state), "unknown")
 
 
-@pytest.mark.parametrize("anchors", [
-    {"anchor_basis": None}, {"anchor_basis": ""}, {"anchor_basis": " "},
-    {"anchor_validated": False}, {"anchor_validated": None}, {"anchor_validated": 1},
-])
-def test_unknown_or_unvalidated_anchors(anchors):
-    assert_suppressed(project(0.4, 200.0, **anchors), "unknown")
+@pytest.mark.parametrize("basis", [None, "", " ", "reset_minus_duration_inferred", "provider_fixed_window"])
+def test_consistent_anchors_are_eligible_without_external_validation(basis):
+    result = project(0.4, 200.0, anchor_basis=basis)
+    assert result["state"] == "threat"
+    assert result["anchor_basis"] == (basis if basis and basis.strip() else "reset_minus_duration_inferred")
+    assert "anchor_validated" not in inspect.signature(project_exhaustion).parameters
 
 
 @pytest.mark.parametrize("used,start,measured,reset,now", [
@@ -140,5 +182,5 @@ def test_unknown_or_unvalidated_anchors(anchors):
 ])
 def test_invalid_measurements_clocks_and_window_ordering(used, start, measured, reset, now):
     result = project_exhaustion(used, start, measured, reset, now,
-                                anchor_basis="provider_fixed_window", anchor_validated=True)
+                                anchor_basis="provider_fixed_window")
     assert_suppressed(result, "unknown")

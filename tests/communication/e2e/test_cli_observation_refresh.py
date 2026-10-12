@@ -24,9 +24,32 @@ def test_quota_refresh_and_readonly_dashboard(tmp_path, monkeypatch, capsys):
     assert not hasattr(cli, "legacy_main")
     assert cli.main(["--db", str(db), "diag"]) == 0
     out = capsys.readouterr().out
-    assert "headroom=75.0%" in out and "STALE" in out and "window=5h" in out
+    row = next(line for line in out.splitlines() if line.split()[:2] == ["cx", "5h"])
+    assert "25%" in row and ("expired" in row or "stale" in row)
+    assert "FORECAST" in out and "Probes" in out
+    assert "Threats: unknown" in out and "No threats" not in out
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0] == before
+
+
+def test_fresh_quota_dashboard_row_is_not_stale(tmp_path, capsys):
+    import time
+
+    from peerhub import cli
+
+    db = tmp_path / "core.db"
+    now = time.time()
+    value = SimpleNamespace(quota_pool_scope="account:5h", remaining_fraction=0.75,
+                            window_started_at=now - 4500, resets_at=now + 13500)
+    evidence = SimpleNamespace(state=EvidenceState.MEASURED, value=value, evidence_ref="probe:test",
+                               source_tag="fake_usage", observed_at=now, captured_at=now)
+    refresh_quota(db, ["cx"], pollers={"cx": lambda **kw: [SimpleNamespace(evidence=evidence)]})
+    # Other peers can lack evidence: OK (0) and PARTIAL (4) both allow
+    # checking the freshness of this measured row.
+    assert cli.main(["--db", str(db), "diag"]) in (0, 4)
+    out = capsys.readouterr().out
+    row = next(line for line in out.splitlines() if line.split()[:2] == ["cx", "5h"])
+    assert "25%" in row and "stale" not in row
 
 
 def test_probe_failure_persists_error_without_measurements(tmp_path):

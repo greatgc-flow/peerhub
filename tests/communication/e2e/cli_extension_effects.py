@@ -84,19 +84,46 @@ def diag_live(e, option):
     from peerhub.extensions.observation import ObservationStore
     db = e.fresh()
     ObservationStore(db)
+    if option == "--view":
+        seed_view_pool(db)
+        rich_code, rich, _ = e.run(db, "diag", "--view", "rich")
+        plain_code, plain, _ = e.run(db, "diag", "--view", "plain")
+        assert rich_code == plain_code == 0
+        assert_view_glyph_effect(rich, plain)
+        return
     pauses = []
     from peerhub.extensions.diag_watch import dashboard_snapshots
     def frames(path, **kw):
         return dashboard_snapshots(path, **kw, sleep=pauses.append)
     with patch("peerhub.extensions.diag_watch.dashboard_snapshots", frames):
         code, out, _ = e.run(db, "diag", "--live", "--json", "--cycles", "2", "--interval-seconds", ".125")
-    if option == "--view":
-        code, out, _ = e.run(db, "diag", "--view", "rich")
-        assert code == 0 and "QUOTA" in out and "ALERTS" in out
-        return
     assert code == 0 and len(out.splitlines()) == 2
     assert pauses == [.125]
     assert all(json.loads(line)["status"] == "OK" for line in out.splitlines())
+
+
+def seed_view_pool(db):
+    from peerhub.extensions.observation import ObservationStore
+    from tests.communication.e2e.test_cli_diag_quota import seed
+
+    ObservationStore(db)
+    seed(db, pools=[("view-5H", "QUOTA")], rows=[
+        ("view-peer", "quota", "view-5H", "MEASURED", 5,
+         {"remaining_fraction": 0.5}, "view-fixture"),
+    ])
+
+
+def assert_view_glyph_effect(rich, plain):
+    # Same A-G decisions, visibly different bars even with redirected output
+    # and NO_COLOR. Fail if --view becomes inert or both styles use ASCII.
+    assert rich != plain
+    assert "█" in rich and "░" in rich
+    assert "█" not in plain and "░" not in plain
+    assert "#" in plain and "[" in plain
+    for out in (rich, plain):
+        assert "PEER" in out and "FORECAST" in out and "Threats: unknown" in out
+        assert "view-5H" in out and "50%" in out
+        assert "\x1b" not in out  # redirected output never emits colour/cursors
 
 
 def refresh_effect(e, option):
@@ -127,7 +154,9 @@ def refresh_effect(e, option):
 
 
 def monitor_effect(e, option):
-    db = e.fresh(False)
+    db = e.fresh(option == "--view")
+    if option == "--view":
+        seed_view_pool(db)
     captured = []
     def probe(**kw):
         captured.append(kw)
@@ -166,8 +195,11 @@ def monitor_effect(e, option):
          patch("peerhub.extensions.quota_probes.poll_agy_usage", probe_agy if option == "--allow-agy-token-use" else probe), \
          patch("time.sleep", lambda s: sleeps.append(s)):
         code, out, err = e.run(db, *argv)
+        if option == "--view":
+            plain_code, plain, plain_err = e.run(db, "monitor", "--cycles", "1", "--view", "plain")
     if option == "--view":
-        assert "QUOTA" in out and "refresh:" in err and "[" not in out  # rich layout, no colour off a pipe
+        assert code == plain_code == 0 and "refresh:" in err and "refresh:" in plain_err
+        assert_view_glyph_effect(out, plain)
     elif option == "--interval-seconds": assert sleeps == [3.14]
     elif option == "--cycles": assert len(sleeps) == 1
     elif option == "--peers": assert captured[0]["instance_id"] == "cx"

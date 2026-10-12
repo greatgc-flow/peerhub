@@ -71,7 +71,7 @@ M1_SCRIPT = PRELUDE + textwrap.dedent("""
         codes.append(main(["--db", db, "diag", "health"]))
     print("RESULT" + json.dumps({"control": control("peerhub.extensions.work"), "codes": codes, "loaded": loaded(),
                                  "ask": [first["status"], first["response"], replay["status"], replay["response"]],
-                                 "dashboard_has_asks": "ASKS" in out.getvalue() and "cx" in out.getvalue()}))
+                                 "dashboard_has_asks": "Asks cx delivered " in out.getvalue()}))
 """)
 
 M2_SCRIPT = PRELUDE + textwrap.dedent("""

@@ -148,6 +148,8 @@ def test_json_frames_parse_and_carry_stable_keys(tmp_path, capsys):
     assert set(f0["refresh"].keys()) == {"status", "warnings", "observations"}
     assert f0["refresh"]["observations"] == 2
     assert "snapshot" in f0
+    assert f0["snapshot"]["threats"]["state"] == "unknown"
+    assert f0["snapshot"]["threats"]["fresh_pools"] == 0
     
     f1 = json.loads(lines[1])
     assert f1["cycle"] == 1
@@ -228,10 +230,14 @@ def test_monitor_json_carries_projection_per_item(tmp_path, capsys):
     out = capsys.readouterr().out
     line = next(l for l in out.splitlines() if l.strip())
     frame = json.loads(line)
+    assert frame["store_selection"] == {"path": str(db), "source": "explicit"}
     items = frame["snapshot"]["sections"]["observations"]["data"]["items"]
     assert len(items) >= 1
     item = next(i for i in items if i.get("resource_pool_ref") == "pool-1")
     assert "projection" in item
-    assert item["projection"]["status"] == "ok"
-    assert item["projection"]["basis"] == "window_average"
-    assert item["projection"]["exhausts_before_reset"] is True
+    projection = item["projection"]
+    assert set(projection) == {"pace_pt", "projected_at_reset", "state", "exhaustion_at", "measured_at", "anchor_basis", "reason"}
+    assert projection["state"] == "threat"
+    assert projection["anchor_basis"] == "reset_minus_duration_inferred"
+    assert projection["exhaustion_at"] < reset_t
+    assert projection["pace_pt"] == pytest.approx(40, abs=0.01)
