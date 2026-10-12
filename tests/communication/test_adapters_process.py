@@ -257,7 +257,8 @@ def test_runtime_port_dead_parent_taskkill_128_not_swallowed(monkeypatch):
     from peerhub.extensions import runtime_port
 
     # 1. Direct _kill_tree test: dead parent (proc.poll() is not None) + taskkill 128
-    monkeypatch.setattr(runtime_port.os, "name", "nt")
+    # Replace this module's OS binding without changing the host OS for launchers or pytest.
+    monkeypatch.setattr(runtime_port, "os", SimpleNamespace(name="nt"))
     monkeypatch.setattr(
         runtime_port.subprocess,
         "run",
@@ -267,16 +268,60 @@ def test_runtime_port_dead_parent_taskkill_128_not_swallowed(monkeypatch):
     with pytest.raises(OSError):
         runtime_port.ProcessRuntimeAdapter._kill_tree(dead_proc)
 
-    # 2. cancel() invocation test: if taskkill exits 128 during cancel, raises RuntimeCancellationError
+
+
+def test_runtime_port_failed_kill_not_confirmed(monkeypatch):
+    """A failed injected tree kill cannot produce confirmed cancellation on any OS."""
     adapter = ProcessRuntimeAdapter(cancel_wait_seconds=0.3)
     cap = RuntimeCapability("c1", "c1", "test")
     adapter.register_command(cap, [PY, "-c", "import time; time.sleep(60)"])
+    proc = SimpleNamespace(poll=lambda: None, wait=lambda timeout=None: 0)
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: proc)
     job = adapter.submit("c1", {})
-    # Mock _kill_tree to raise OSError("taskkill exited 128")
-    monkeypatch.setattr(
-        ProcessRuntimeAdapter,
-        "_kill_tree",
-        staticmethod(lambda proc: (_ for _ in ()).throw(OSError("taskkill exited 128"))),
-    )
-    with pytest.raises(RuntimeCancellationError):
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                ProcessRuntimeAdapter,
+                "_kill_tree",
+                staticmethod(lambda proc: (_ for _ in ()).throw(OSError("taskkill exited 128"))),
+            )
+            with pytest.raises(RuntimeCancellationError):
+                adapter.cancel(job.job_id)
+            assert adapter.get(job.job_id).status == "RUNNING"
+    finally:
+        # Settle the fake process and remove its output file even if an assertion fails.
+        monkeypatch.setattr(ProcessRuntimeAdapter, "_kill_tree", staticmethod(lambda proc: None))
         adapter.cancel(job.job_id)
+
+
+@pytest.mark.parametrize("platform, os_name", [("linux", "posix"), ("win32", "nt")])
+def test_runtime_port_launch_without_windows_process_group_constant(monkeypatch, platform, os_name):
+    """Linux needs a private session; a missing Windows constant must not raise AttributeError."""
+    from peerhub.extensions import runtime_port
+
+    adapter = ProcessRuntimeAdapter()
+    adapter.register_command(RuntimeCapability("c1", "c1", "test"), [PY, "-c", "pass"])
+    launched = {}
+    proc = SimpleNamespace(poll=lambda: None, wait=lambda timeout=None: 0)
+
+    def launch(argv, **kwargs):
+        launched.update(kwargs)
+        return proc
+
+    with monkeypatch.context() as patch:
+        patch.setattr(sys, "platform", platform)
+        patch.delattr(subprocess, "CREATE_NEW_PROCESS_GROUP", raising=False)
+        patch.setattr(runtime_port, "os", SimpleNamespace(name=os_name, close=os.close, unlink=os.unlink))
+        patch.setattr(subprocess, "Popen", launch)
+        patch.setattr(ProcessRuntimeAdapter, "_kill_tree", staticmethod(lambda proc: None))
+        job = adapter.submit("c1", {})
+        try:
+            assert job.status == "RUNNING"
+            if os_name == "posix":
+                assert launched["start_new_session"] is True
+                assert "creationflags" not in launched
+            else:
+                assert launched["creationflags"] == getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                assert "start_new_session" not in launched
+        finally:
+            adapter.cancel(job.job_id)

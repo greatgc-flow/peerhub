@@ -412,7 +412,7 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
         os.close(handle)
         kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "shell": False}
         if os.name == "nt":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
         else:
             kwargs["start_new_session"] = True
         try:
