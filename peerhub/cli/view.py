@@ -1,6 +1,7 @@
 """Pure, width-aware A-G dashboard presentation of committed diagnostic evidence."""
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import re
@@ -9,11 +10,10 @@ import sys
 import textwrap
 import unicodedata
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict
 from datetime import datetime, tzinfo
 from typing import cast
 
-from peerhub.extensions.diag import DiagnosticReport
+from peerhub.extensions.diag import DiagnosticReport, Section
 from peerhub.extensions.diag_quota import projection
 
 RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
@@ -278,13 +278,128 @@ def _threat_summary(rows: list[_Row]) -> dict[str, object]:
             "threatened_pools": [r.ref for r in threats], "exhausted_pools": [r.ref for r in exhausted]}
 
 
+def _payload_fields(payload: Obj, keys: tuple[str, ...]) -> dict[str, object]:
+    """Allow only scalar values; permitted keys cannot carry nested secrets."""
+    return {k: payload[k] for k in keys if k in payload
+            and (payload[k] is None or isinstance(payload[k], (str, int, float, bool)))}
+
+
+def _scrub_payload(kind: object, payload: object) -> dict[str, object]:
+    if not isinstance(payload, Mapping):
+        return {}
+    p = cast(Mapping[str, object], payload)
+    if kind == "reset_credit":
+        out = _payload_fields(p, ("available_count", "nearest_expires_at", "condition", "reason", "evidence_ref"))
+        raw_credits = p.get("credits")
+        if isinstance(raw_credits, Sequence) and not isinstance(raw_credits, (str, bytes)):
+            creds: list[dict[str, object]] = []
+            for c in _items(cast(Sequence[object], raw_credits)):
+                cred: dict[str, object] = {}
+                id_val = c.get("id_ref")
+                if id_val is not None:
+                    cred["id_hash"] = hashlib.sha256(str(id_val).encode()).hexdigest()[:12]
+                else:
+                    id_hash = c.get("id_hash")
+                    if isinstance(id_hash, str) and re.fullmatch(r"[0-9a-f]{12}", id_hash):
+                        cred["id_hash"] = id_hash
+                cred.update(_payload_fields(c, ("reset_type", "status", "granted_at", "expires_at", "title")))
+                creds.append(cred)
+            out["credits"] = creds
+        return out
+    if kind == "activity":
+        return _payload_fields(p, ("operation_elapsed_seconds", "status", "certainty", "record_id", "reason", "condition"))
+    if kind in ("quota", "rate_limit"):
+        return _payload_fields(p, ("remaining_fraction", "window_started_at", "resets_at", "evidence_ref", "condition", "reason", "consumed_tokens", "num_turns", "error_type", "requests_per_minute", "tokens_per_minute", "window_seconds"))
+    if kind in ("reachability", "cli_version", "runtime_capability", "session", "execution_failure"):
+        return _payload_fields(p, ("condition", "reason", "evidence_ref", "ok", "version", "status", "error_type"))
+    return {}
+
+
+def _serialize_obs_item(item: object, read_at: float) -> dict[str, object]:
+    if not isinstance(item, Mapping):
+        return {}
+    it = cast(Mapping[str, object], item)
+    kind = it.get("kind")
+    obs: dict[str, object] = {
+        k: it[k]
+        for k in (
+            "observation_id",
+            "subject_ref",
+            "kind",
+            "resource_pool_ref",
+            "source",
+            "stored_state",
+            "state",
+            "age_seconds",
+            "ttl_seconds",
+            "basis",
+            "skew_seconds",
+            "capture_seq",
+            "observed_at",
+            "captured_at",
+        )
+        if k in it
+    }
+    obs["payload"] = _scrub_payload(kind, it.get("payload"))
+    if kind in ("quota", "rate_limit"):
+        obs["projection"] = projection(obs, read_at)
+    return obs
+
+
+def _serialize_section(name: str, sec: Section, read_at: float) -> dict[str, object]:
+    errors: list[dict[str, object]] = [
+        _payload_fields(e, ("error_type", "observation_id", "capture_seq", "status", "condition"))
+        for e in sec.errors
+    ]
+    # Raw exception messages and log lines can contain provider payloads.
+    for error in errors:
+        error["error"] = "diagnostic section unavailable" if sec.status == "UNAVAILABLE" else "diagnostic section error"
+    raw_data: Obj = sec.data
+    data: dict[str, object] = {}
+    if name == "peers":
+        data["peers"] = [
+            {k: p[k] for k in ("peer_id", "display_name", "adapter_ref", "created_at") if k in p}
+            for p in _items(raw_data.get("peers"))
+        ]
+    elif name == "streams":
+        data["streams"] = [
+            {k: s[k] for k in ("stream_id", "title", "state", "revision", "head_position", "record_count", "members", "offsets") if k in s}
+            for s in _items(raw_data.get("streams"))
+        ]
+    elif name == "resource_pools":
+        data["pools"] = [
+            {k: p[k] for k in ("resource_pool_id", "provider", "kind", "observation_count") if k in p}
+            for p in _items(raw_data.get("pools"))
+        ]
+    elif name == "activity":
+        if "window" in raw_data:
+            data["window"] = raw_data["window"]
+        data["peers"] = [
+            _payload_fields(p, ("peer", "asks", "ok", "uncertain", "failed", "median_seconds", "last_status", "last_seconds", "last_age_seconds"))
+            for p in _items(raw_data.get("peers"))
+        ]
+    elif name == "log":
+        data = {k: raw_data[k] for k in ("size_bytes",) if k in raw_data}
+    elif name == "observations":
+        data["items"] = [_serialize_obs_item(it, read_at) for it in _items(raw_data.get("items"))]
+    return {"name": sec.name, "status": sec.status, "data": data, "errors": errors}
+
+
 def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
     """Dashboard JSON uses the same evidence coverage and projections as text."""
-    data = asdict(report)
-    items = data.get("sections", {}).get("observations", {}).get("data", {}).get("items", [])
-    for item in items:
-        if item.get("kind") in ("quota", "rate_limit"):
-            item["projection"] = projection(item, report.read_at)
+    sections_dict = {
+        name: _serialize_section(name, sec, report.read_at)
+        for name, sec in report.sections.items()
+    }
+    data: dict[str, object] = {
+        "status": report.status,
+        "read_at": report.read_at,
+        "snapshot": _payload_fields(report.snapshot, ("records_total", "observations_total")),
+        "sections": sections_dict,
+        "error": "diagnostic snapshot failed" if report.error is not None else None,
+    }
+    observations = _obj(sections_dict.get("observations"))
+    items = _obj(observations.get("data")).get("items")
     rows = _quota_rows(_items(items), _items(_section(report, "resource_pools").get("pools")), report.read_at)
     data["threats"] = _threat_summary(rows)
     data["forecast_basis"] = "conditional window-average (cond)"
@@ -442,7 +557,7 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
     lead = f"PeerHub {_safe_text(report.status)} {when} "
     budget = max(0, width - visible_len(lead + tail))
     if visible_len(path) > budget:
-        path = "..." + path[-max(0, budget - 3):] if budget >= 4 else ""
+        path = "..." + next(path[i:] for i in range(len(path) + 1) if visible_len(path[i:]) <= budget - 3) if budget >= 4 else ""
     header = lead + path + tail
     threats = [r for r in rows if r.projection["state"] == "threat"]
     first = min(threats, key=lambda r: r.projection["exhaustion_at"] or float("inf")) if threats else None
