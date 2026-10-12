@@ -412,7 +412,7 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
         os.close(handle)
         kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "shell": False}
         if os.name == "nt":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
         else:
             kwargs["start_new_session"] = True
         try:
@@ -479,7 +479,7 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
     def _kill_tree(proc: subprocess.Popen[bytes]) -> None:
         if os.name == "nt":
             done = subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True, timeout=15)
-            if done.returncode != 0 and not (done.returncode == 128 and proc.poll() is not None):  # 128: parent already gone; orphans of a dead parent cannot be enumerated (known limit)
+            if done.returncode != 0:
                 raise OSError(f"taskkill exited {done.returncode}")
         else:
             import signal
