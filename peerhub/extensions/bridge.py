@@ -96,6 +96,10 @@ class _PersistedReconcile:
 class RuntimeTargetError(RuntimeError):
     """Ambiguous runtime failure (process/session may have started)."""
 
+    def __init__(self, message: str = "", *, termination_confirmed: bool | None = None) -> None:
+        super().__init__(message)
+        self.termination_confirmed = termination_confirmed
+
 
 class PrespawnError(RuntimeTargetError):
     """Failure proven to be before any process/session start (resolves the invocation marker; certainty stays NOT_STARTED)."""
@@ -109,7 +113,7 @@ class SessionError(RuntimeError):
     """Session create/resume failure."""
 
 
-RuntimeEvent = tuple[str, Any]  # ("started", exec_id) | ("timeout", seconds) | ("terminal", {"response": ...}) | ...
+RuntimeEvent = tuple[str, Any] | tuple[str, Any, Any]  # ("started", exec_id) | ("timeout", seconds) | ("terminal", {"response": ...}) | ...
 
 
 class RuntimeTarget(Protocol):
@@ -878,6 +882,7 @@ class Bridge:
         started = False
         terminal: Any = None
         have_terminal = False
+        last_termination_confirmed: bool | None = None
         # D-OWN-A4/TD-11: durable invocation marker BEFORE the runtime can possibly act; certainty stays NOT_STARTED while pending,
         # an unresolved marker after a crash is promoted to MAY_HAVE_STARTED by recovery (never re-invoked)
         self._mark_invocation(token, did, external_session_id=ext, session_generation=gen)
@@ -915,27 +920,41 @@ class Bridge:
                         have_terminal, terminal = True, ev[1]
                     break
                 else:  # timeout / disconnect / error: evidence only, certainty by durable start evidence
-                    self._note(token, did, f"runtime_{kind}", STARTED if started else None, payload=list(ev[1:]))
+                    term_conf = ev[2] if len(ev) > 2 and (isinstance(ev[2], bool) or ev[2] is None) else None
+                    if term_conf is not None:
+                        last_termination_confirmed = term_conf
+                        self._note(token, did, f"runtime_{kind}", STARTED if started else None, payload=list(ev[1:]),
+                                   termination_confirmed=term_conf)
+                    else:
+                        self._note(token, did, f"runtime_{kind}", STARTED if started else None, payload=list(ev[1:]))
                     break
         except PrespawnError as e:
+            term_conf = getattr(e, "termination_confirmed", None)
+            detail = {"error": str(e)}
+            if term_conf is not None:
+                detail["termination_confirmed"] = term_conf
             if started:
-                self._note(token, did, "runtime_error", STARTED, error=str(e))
+                self._note(token, did, "runtime_error", STARTED, **detail)
                 if isinstance(e, ContextLostError):
                     self._mark_lost(token, "context_lost")
                 else:
                     self._mark_lost(token, "tainted")
-                return CycleResult("uncertain", rec.record_id, did, STARTED, session_generation=gen)
+                return CycleResult("uncertain", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
             self._resolve_invocation(token, did, "prespawn_failure", str(e), "prespawn_failure")
             if isinstance(e, ContextLostError):  # explicit pre-run loss: safe retry on a fresh generation (catch-up, not blind replay)
                 self._mark_lost(token, "context_lost")
-            return CycleResult("failed_not_started", rec.record_id, did, NOT_STARTED, session_generation=gen, detail={"error": str(e)})
+            return CycleResult("failed_not_started", rec.record_id, did, NOT_STARTED, session_generation=gen, detail=detail)
         except RuntimeTargetError as e:
+            term_conf = getattr(e, "termination_confirmed", None)
+            detail = {"error": str(e)}
+            if term_conf is not None:
+                detail["termination_confirmed"] = term_conf
             if not started:
-                self.transition(token, did, MAY_HAVE_STARTED, "start_uncertain", error=str(e))
-                return CycleResult("uncertain", rec.record_id, did, MAY_HAVE_STARTED, session_generation=gen)
-            self._note(token, did, "runtime_error", STARTED, error=str(e))
+                self.transition(token, did, MAY_HAVE_STARTED, "start_uncertain", **detail)
+                return CycleResult("uncertain", rec.record_id, did, MAY_HAVE_STARTED, session_generation=gen, detail=detail)
+            self._note(token, did, "runtime_error", STARTED, **detail)
             self._mark_lost(token, "tainted")
-            return CycleResult("uncertain", rec.record_id, did, STARTED, session_generation=gen)
+            return CycleResult("uncertain", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
         if have_terminal:
             mode = getattr(catch_up, "boundary", {}).get("mode")
             provenance = dict(effective_mode="resumed" if mode == "resumed" else "fresh",
@@ -947,9 +966,12 @@ class Bridge:
         if not started:  # delivery was attempted but no start evidence either way
             self.transition(token, did, MAY_HAVE_STARTED, "start_uncertain")
             return CycleResult("uncertain", rec.record_id, did, MAY_HAVE_STARTED, session_generation=gen)
-        self._note(token, did, "no_terminal", STARTED)
+        no_term_detail: dict[str, Any] = {}
+        if last_termination_confirmed is not None:
+            no_term_detail["termination_confirmed"] = last_termination_confirmed
+        self._note(token, did, "no_terminal", STARTED, **no_term_detail)
         self._mark_lost(token, "tainted")
-        return CycleResult("uncertain", rec.record_id, did, STARTED, session_generation=gen)
+        return CycleResult("uncertain", rec.record_id, did, STARTED, session_generation=gen, detail=no_term_detail)
 
     def _late(self, token: ClaimToken, did: str | None, kind: str, **detail: Any) -> None:
         """Unfenced evidence-only write for stale/late callbacks (TD-25): never touches delivery state."""
@@ -1232,6 +1254,7 @@ class Bridge:
         if status is not None:
             return self._control_result(status, row, None)
         did = None if row["target_delivery_id"] == "-" else row["target_delivery_id"]
+        term_conf: bool | None = None
         if outcome is None:
             try:
                 if effect == "steer":
@@ -1239,8 +1262,12 @@ class Bridge:
                 else:
                     getattr(runtime, effect)(row["target_session_id"])
                 outcome = "done"
+                if effect == "terminate":
+                    term_conf = True
             except RuntimeTargetError as e:
                 outcome, error = "failed", str(e)
+                if effect == "terminate":
+                    term_conf = getattr(e, "termination_confirmed", False)
         self._fire("control.after_effect_before_outcome")
         # 3. fence COMPLETION: outcome is write-once; only the CURRENT, UNEXPIRED lease holder (and current token) may write it
         with self.claims.transaction() as conn:
@@ -1250,12 +1277,18 @@ class Bridge:
                                    "AND outcome IS NULL AND lease_id=? AND attempts=? AND lease_expires > ?",
                                    (outcome, error, did, rid, peer, lease_id, attempts, self.claims.now())).rowcount
             if won:
-                self._evidence(conn, stream, peer, "control_applied", did, None, control_record_id=rid, control_kind=kind, effect=effect,
-                               runtime_outcome=outcome, error=error)
+                ev_detail: dict[str, Any] = dict(control_record_id=rid, control_kind=kind, effect=effect,
+                                                 runtime_outcome=outcome, error=error)
+                if term_conf is not None:
+                    ev_detail["termination_confirmed"] = term_conf
+                self._evidence(conn, stream, peer, "control_applied", did, None, **ev_detail)
             row = conn.execute(sel, (rid, peer)).fetchone()
         if not won:
             return self._control_result("superseded", row, None)
-        return self._control_result("applied", row, outcome, error=error)
+        ctrl_detail: dict[str, Any] = {"error": error} if error else {}
+        if term_conf is not None:
+            ctrl_detail["termination_confirmed"] = term_conf
+        return self._control_result("applied", row, outcome, **ctrl_detail)
 
     def _token_current(self, conn: sqlite3.Connection, token: ClaimToken) -> bool:
         try:

@@ -6,6 +6,21 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
+## [Unreleased]
+
+### Added
+
+- **Bridge / Runtime — Process-tree termination confirmation (PR 1):** `ProcessResult`
+  carries `termination_confirmed: bool | None` (`None` = not attempted; `True` = OS-level
+  whole-tree termination confirmed; `False` = unconfirmed). Captured through `BoundedProcess`
+  (`wait()`, `abort()`, `terminate()`), `CliRuntimeTarget`, and `ProcessRuntimeAdapter`.
+  Durable bridge evidence records `termination_confirmed` in detail JSON for timeout,
+  abort, and error paths (`runtime_timeout`, `no_terminal`, `runtime_error`, `control_applied`).
+  Surviving child processes when a parent exits prematurely are explicitly tracked as
+  unconfirmed (`False`). `ProcessRuntimeAdapter._kill_tree` no longer swallows taskkill exit code 128
+  on dead parents as confirmed cancellation. Monotonic certainty states and existing schemas
+  remain unchanged.
+
 ## [0.15.2] - 2026-10-12
 
 Contains the work planned for 0.15.1, which was never tagged or published:

@@ -413,8 +413,9 @@ class CliRuntimeTarget:
         try:
             proc.terminate()
         except OSError as e:
-            raise RuntimeTargetError(str(e)) from e
-        self._note("terminated", pid=proc.pid)
+            self._note("terminate_failed", pid=proc.pid, error=str(e), termination_confirmed=False)
+            raise RuntimeTargetError(str(e), termination_confirmed=False) from e
+        self._note("terminated", pid=proc.pid, termination_confirmed=True)
 
     @staticmethod
     def _prompt(record: Any, catch_up: list[Any]) -> str:
@@ -517,24 +518,30 @@ class CliRuntimeTarget:
         finally:
             if not finished:  # consumer stopped iterating (fenced/closed): never leave an orphan process
                 proc.abort()
-                self._note("aborted", pid=proc.pid)
+                self._note("aborted", pid=proc.pid, termination_confirmed=proc.termination_confirmed)
             with self._active_lock:
                 if self._active.get(external_session_id) is proc:
                     del self._active[external_session_id]
         self._note("exited", pid=res.pid, returncode=res.returncode, timed_out=res.timed_out,
                    silence_timed_out=res.silence_timed_out,
-                   output_exceeded=res.output_exceeded, aborted=res.aborted, duration_s=round(res.duration_s, 3))
+                   output_exceeded=res.output_exceeded, aborted=res.aborted,
+                   termination_confirmed=res.termination_confirmed,
+                   duration_s=round(res.duration_s, 3))
         if res.aborted:
-            raise RuntimeTargetError(f"{self.runtime_kind} delivery aborted by termination request")
+            raise RuntimeTargetError(f"{self.runtime_kind} delivery aborted by termination request",
+                                     termination_confirmed=res.termination_confirmed)
         if res.silence_timed_out:
-            raise RuntimeTargetError(f"{self.runtime_kind} produced no stdout/stderr for {self._silence_timeout_s} seconds; process killed")
+            raise RuntimeTargetError(f"{self.runtime_kind} produced no stdout/stderr for {self._silence_timeout_s} seconds; process killed",
+                                     termination_confirmed=res.termination_confirmed)
         if res.timed_out:
-            yield ("timeout", self._timeout_s)
+            yield ("timeout", self._timeout_s, res.termination_confirmed)
             return
         if res.output_exceeded:
-            raise RuntimeTargetError(f"{self.runtime_kind} output exceeded {self._max_bytes} bytes; process killed")
+            raise RuntimeTargetError(f"{self.runtime_kind} output exceeded {self._max_bytes} bytes; process killed",
+                                     termination_confirmed=res.termination_confirmed)
         if res.returncode != 0:
-            raise RuntimeTargetError(f"{self.runtime_kind} exited {res.returncode}: " + self._text(res.stderr or res.stdout, san))
+            raise RuntimeTargetError(f"{self.runtime_kind} exited {res.returncode}: " + self._text(res.stderr or res.stdout, san),
+                                     termination_confirmed=res.termination_confirmed)
         try:
             text = self._spec.parse(res.stdout.decode("utf-8", "replace"))
         except ValueError as e:

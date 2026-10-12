@@ -34,6 +34,7 @@ class ProcessResult:
     duration_s: float
     silence_timed_out: bool = False
     aborted: bool = False
+    termination_confirmed: bool | None = None
 
 
 def check_argv(argv: Sequence[Any]) -> None:
@@ -67,12 +68,17 @@ class BoundedProcess:
         self._exceeded = threading.Event()
         self._aborted = threading.Event()
         self._kill_lock = threading.Lock()
+        self._termination_confirmed: bool | None = None
         self._threads: list[threading.Thread] = []
 
     @property
     def pid(self) -> int:
         assert self._proc is not None
         return self._proc.pid
+
+    @property
+    def termination_confirmed(self) -> bool | None:
+        return self._termination_confirmed
 
     def start(self) -> "BoundedProcess":
         check_argv(self._argv)
@@ -129,6 +135,7 @@ class BoundedProcess:
         with self._kill_lock:
             p = self._proc
             if p is None or p.poll() is not None:
+                self._termination_confirmed = False
                 raise OSError("nothing running")
             # Even a racing zero exit must not become a successful delivery after cancellation.
             self._aborted.set()
@@ -136,19 +143,32 @@ class BoundedProcess:
             try:
                 p.wait(timeout=10)
             except subprocess.TimeoutExpired as e:
+                self._termination_confirmed = False
                 raise OSError("process exit could not be confirmed") from e
             if not killed:
+                self._termination_confirmed = False
                 if sys.platform == "win32":
                     raise OSError("process-tree termination could not be confirmed "
                                   "(taskkill reported an unkillable child; the main process exited)")
                 raise OSError("process-tree termination could not be confirmed")
+            self._termination_confirmed = True
 
     def abort(self) -> None:
         """Kill and reap (used when the consumer stops iterating a delivery)."""
         with self._kill_lock:
             self._aborted.set()
-            if self._proc is not None and self._proc.poll() is None:
-                kill_process_tree(self._proc)
+            p = self._proc
+            if p is not None and self._termination_confirmed is None:
+                if p.poll() is not None:
+                    # A parent that exited while a child survived cannot be confirmed.
+                    self._termination_confirmed = False
+                else:
+                    killed = kill_process_tree(p)
+                    try:
+                        p.wait(timeout=10)
+                        self._termination_confirmed = killed
+                    except subprocess.TimeoutExpired:
+                        self._termination_confirmed = False
         self.wait()
 
     def wait(self) -> ProcessResult:
@@ -157,7 +177,7 @@ class BoundedProcess:
         timed_out = False
         silence_timed_out = False
         deadline = self._t0 + self._timeout_s
-        while p.poll() is None and not self._exceeded.is_set():
+        while p.poll() is None and not self._exceeded.is_set() and not self._aborted.is_set():
             self._drain_stdout()
             if time.monotonic() >= deadline:
                 timed_out = True
@@ -169,12 +189,23 @@ class BoundedProcess:
                 break
             time.sleep(0.02)
         with self._kill_lock:
-            if p.poll() is None:
-                kill_process_tree(p)
+            needed = timed_out or silence_timed_out or self._exceeded.is_set() or self._aborted.is_set()
+            if needed and self._termination_confirmed is None:
+                if p.poll() is not None:
+                    # A parent that exited while a child survived cannot be confirmed.
+                    self._termination_confirmed = False
+                else:
+                    killed = kill_process_tree(p)
+                    try:
+                        p.wait(timeout=10)
+                        self._termination_confirmed = killed
+                    except subprocess.TimeoutExpired:
+                        self._termination_confirmed = False
         try:
             p.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            pass
+            if self._termination_confirmed is True:
+                self._termination_confirmed = False
         for t in self._threads:
             t.join(timeout=5)
         self._drain_stdout()
@@ -186,7 +217,8 @@ class BoundedProcess:
                 pass
         return ProcessResult(pid=p.pid, returncode=p.returncode, stdout=bytes(self._bufs["out"]), stderr=bytes(self._bufs["err"]),
                              timed_out=timed_out, output_exceeded=self._exceeded.is_set(), duration_s=time.monotonic() - self._t0,
-                             silence_timed_out=silence_timed_out, aborted=self._aborted.is_set())
+                             silence_timed_out=silence_timed_out, aborted=self._aborted.is_set(),
+                             termination_confirmed=self._termination_confirmed)
 
     def _drain_stdout(self) -> None:
         while not self._chunks.empty():
