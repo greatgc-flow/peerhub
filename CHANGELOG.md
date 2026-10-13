@@ -6,56 +6,37 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
-## [Unreleased]
+## [0.16.0] - 2026-10-13
 
 ### Changed
 
-- **Profiles — Packaged model defaults refreshed (2026-10-13.1):** updated `cc.standard` to `claude-haiku-5-5` (replacing obsolete `claude-haiku-4-5-20251001`), `ag.deepthink` to `claude-sonnet-5-5-high`, and `ag.pro` to `claude-opus-5-5-high` following retirement of `gemini-3.1-pro-*` in the Agy catalog. Kept `ag.standard` (`gemini-3.8-flash-low`), `ag.effort` (`gemini-3.8-flash-high`), `cc.effort`/`deepthink`/`pro`, and all `cx` profiles. Updated observed CLI versions (`agy` 1.3.3, `claude` 2.1.296, `codex` 0.162.1).
+- **Profiles — model defaults refreshed (#96):** `cc.standard` now selects
+  `claude-haiku-5-5`; `ag.deepthink` selects `claude-sonnet-5-5-high` and `ag.pro`
+  selects `claude-opus-5-5-high`, replacing retired `gemini-3.1-pro-*` models.
+  Availability still depends on the provider catalog and quota.
+- **CI — triggers narrowed:** branch pushes no longer start the full matrix;
+  pushes to `main`, pull requests targeting `main`, and manual dispatch still do.
 
-### Added
+### Fixed
 
-- **Adapters / Bridge — Structured Provider Refusal Classification & NOT_EXECUTED (PR 3):**
-  Classify provider refusals (quota exhaustion, invalid model selection,
-  authentication failures, and usage limits) with pre-tool evidence for `cx` and `cc`,
-  or recognized stderr diagnostics for read-only `ag` invocations, as a distinct
-  `NOT_EXECUTED` outcome instead of generic `RuntimeTargetError`. `IncrementalEventParser`
-  tracks preceding tool calls; refusals occurring after tool execution strictly remain
-  uncertain (`blocked_uncertain`) to prevent masking side effects. Bridge preserves frozen M1
-  certainty monotonicity (`STARTED` certainty is preserved and never downgraded), acknowledges
-  the prompt (`acked=1`), advances the offset to prevent replay, and marks the session generation
-  as `LOST` (`refused`) so the stream immediately remains reusable on a clean generation.
-  Refusal reason and reset time are surfaced in ask results, CLI formatting (`Task outcome: NOT_EXECUTED`),
-  and `ReadonlyDiag` stream health and activity observations. Classification reads explicit error fields;
-  successful answer text cannot trigger settlement. Incomplete event evidence and execution items
-  (including started commands, file changes, and MCP calls) keep failures uncertain. Agy emits JSON
-  only on completion: empty stdout with quota stderr cannot exclude prior work. Writable `ag`
-  refusals remain uncertain unless explicit pre-execution evidence exists (none is available today),
-  preventing acknowledgement and replay after possible side effects. Recovery completes
-  offset acknowledgement after persisted refusal evidence without reinvoking the provider, and repeated
-  request IDs retain their refusal outcome. Regression fixtures cover observed provider output shapes.
-
-- **Adapters / Process — Output Cap Drain-and-Truncate & Bounded Event Parser (PR 2):**
-  `BoundedProcess._pump()` and `wait()` no longer kill the process tree when output exceeds
-  the configured `max_bytes` cap, eliminating presentation-bound execution uncertainty.
-  Both stdout and stderr pipes are continuously drained to process exit (EOF) while preserving
-  at most `max_bytes` in memory via a documented head + tail retention policy (first `max_bytes // 2`
-  bytes and last `max_bytes - max_bytes // 2` bytes preserved; middle discarded). `ProcessResult`
-  carries `output_truncated: bool`. Incremental line-by-line parsing (`IncrementalEventParser`)
-  captures completion, refusal, and usage JSONL events beyond the retained window. Individual event
-  lines exceeding 256KB are bounded, marked oversized, and safely rejected as completion evidence.
-  `output_truncated: True` flows into durable bridge evidence (`terminal`, `exited`) and response record
-  metadata. Total `timeout_s` and `silence_timeout_s` deadlines remain the sole wall-clock bounds.
-
-- **Bridge / Runtime — Process-tree termination confirmation (PR 1):** `ProcessResult`
-  carries `termination_confirmed: bool | None` (`None` = not attempted; `True` = OS-level
-  whole-tree termination confirmed; `False` = unconfirmed). Captured through `BoundedProcess`
-  (`wait()`, `abort()`, `terminate()`), `CliRuntimeTarget`, and `ProcessRuntimeAdapter`.
-  Durable bridge evidence records `termination_confirmed` in detail JSON for timeout,
-  abort, and error paths (`runtime_timeout`, `no_terminal`, `runtime_error`, `control_applied`).
-  Surviving child processes when a parent exits prematurely are explicitly tracked as
-  unconfirmed (`False`). `ProcessRuntimeAdapter._kill_tree` no longer swallows taskkill exit code 128
-  on dead parents as confirmed cancellation. Monotonic certainty states and existing schemas
-  remain unchanged.
+- **Termination confirmation — stuck-streams PR 1 (#95):** timeout, abort, and
+  error evidence now records whether the whole process tree was confirmed
+  terminated. A dead parent with surviving children remains unconfirmed;
+  termination evidence alone does not automatically unblock a timeout.
+- **Output drain-and-truncate — stuck-streams PR 2 (#97):** exceeding the output
+  cap no longer kills the provider. Pipes keep draining while retained output
+  preserves a bounded head and tail and reports `output_truncated`. Bounded
+  event parsing can still capture completion and usage beyond the retained text;
+  oversized or malformed events cannot establish successful completion. Total
+  and silence deadlines still apply.
+- **Provider refusal classification — stuck-streams PR 3 (#98):** quota,
+  usage-limit, invalid-model, and authentication refusals with sufficient
+  pre-work evidence return `NOT_EXECUTED`, consume the prompt without replay,
+  and leave the stream reusable on a clean session generation. Ask and diag
+  expose the refusal reason and available reset time. Process certainty stays
+  `STARTED`; failures after tool execution, incomplete evidence, and writable
+  Agy refusals remain uncertain. Successful answer text cannot trigger refusal
+  settlement; repeating a request ID returns its stored refusal.
 
 ## [0.15.2] - 2026-10-12
 

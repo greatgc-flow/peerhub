@@ -5,8 +5,9 @@ Never delete history; if a document is superseded, mark it in its own header and
 
 - [Remote ask guide](../remote-ask.md): Run a peer on another server today through SSH.
 - [Quota forecast plan](plan-quota-forecast-2026-10-12.md): Reference plan for PeerHub PR-A, honest forecasts, Phase 2 audits and release 0.15.0; implementation pending.
-- [Monitoring v2 plan](plan-monitoring-v2-2026-10-12.md): Reference plan for monitoring v2, pace balance, interface cleanup and release 0.16.0; implementation pending.
-- [Blocked streams plan](plan-stuck-streams-2026-10-12.md): Reference plan for blocked-stream root-cause elimination, adapter enforcement, and audited recovery; implementation pending.
+- [Monitoring v2 plan](plan-monitoring-v2-2026-10-12.md): Monitoring v2, pace balance, and interface cleanup; PRs 1-7 pending, release version unassigned.
+- [Blocked streams plan](plan-stuck-streams-2026-10-12.md): PRs 1-3 complete in the 0.16.0 candidate; PRs 4-6 pending.
+- [Session reuse plan](plan-session-reuse-2026-10-13.md): Design approved 2026-10-13; implementation not started.
 - [Inbound A2A server](a2a-inbound-server.md): PROPOSED, NOT IMPLEMENTED; deferred on 2026-10-10.
 ## Tier A: Current implementation/status source of truth
 
