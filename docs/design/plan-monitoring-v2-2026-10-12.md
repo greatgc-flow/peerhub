@@ -4,6 +4,8 @@ Plan document, 2026-10-12. Reference, not an instruction file.
 
 ## Status and Superseded Statements
 
+Session inspection companion: [Session monitoring pre-TDD specification](plan-session-monitoring-2026-10-13.md) (proposed session snapshot, alert and export additions; owner questions remain).
+
 **2026-10-13:** PRs 1-7 remain pending. The original 0.16.0 allocation is
 superseded: that candidate contains stuck-streams PRs 1-3, the model profile
 refresh, and the CI trigger change. Monitoring's release version is unassigned;

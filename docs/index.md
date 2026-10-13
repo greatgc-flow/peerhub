@@ -23,6 +23,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 ## Active Design & Plans
 - [Monitoring Plan v2](design/plan-monitoring-v2-2026-10-12.md): Live quota dashboard, PACE balancing, and alerting specification.
 - [Session Reuse Plan](design/plan-session-reuse-2026-10-13.md): Retained session registry, explicit handle reuse, capability bug fix, and catch-up correctness.
+- [Session Monitoring Spec](design/plan-session-monitoring-2026-10-13.md): Pre-TDD metrics, bounded read-only queries, session views/JSON, alert rules and numbered test catalog.
 - [Blocked Streams Plan](design/plan-stuck-streams-2026-10-12.md): PRs 1-3 complete; quota pre-flight, policy settlement, and audited recovery remain.
 - [Audit & Triage Record](design/audit-2026-10-12.md): Consolidated October 2026 audit findings, owner decisions, and work packages.
 
