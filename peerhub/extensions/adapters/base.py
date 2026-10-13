@@ -105,6 +105,82 @@ def _json_lines(text: str) -> list[dict[str, Any]]:
 
 MAX_EVENT_BYTES = 262_144  # 256 KB
 
+_RESET_IN_RE = re.compile(r"(?:resets?\s+in|try\s+again\s+in)\s+([0-9]+[hdwms][0-9hdwms]*)", re.IGNORECASE)
+_RESET_AT_TIME_RE = re.compile(r"(?:try\s+again\s+at|resets?\s+at)\s+([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\s*(?:AM|PM|am|pm)?)", re.IGNORECASE)
+_RESET_AT_ISO_RE = re.compile(r"(?:resets?\s+at|try\s+again\s+at)\s+([0-9]{4}-[0-9]{2}-[0-9]{2}T[^\s,.]+)", re.IGNORECASE)
+
+
+def _extract_reset_time(text: str) -> str | None:
+    m = _RESET_IN_RE.search(text) or _RESET_AT_TIME_RE.search(text) or _RESET_AT_ISO_RE.search(text)
+    return m.group(1).strip() if m else None
+
+
+def classify_refusal_text(text: str) -> dict[str, Any] | None:
+    """Classify an explicit provider error field, never response or arbitrary log text."""
+    text = re.sub(r"^error:\s*", "", text.strip(), flags=re.IGNORECASE)
+    # 1. Quota / resource exhausted
+    if re.match(r"(?:Individual\s+quota\s+reached|RESOURCE_EXHAUSTED)\b", text, re.IGNORECASE):
+        reset = _extract_reset_time(text)
+        return {
+            "reason": "quota_exhausted",
+            "reset_time": reset,
+            "message": "Individual quota reached / resource exhausted",
+        }
+    # 2. Usage limit / rate limit (handles both ASCII and curly apostrophes)
+    if re.match(r"(?:You['\u2019]ve\s+hit\s+your\s+usage\s+limit|usage\s+limit\s+reached|rate_limit_error|rate\s+limit\s+exceeded|exceeded\s+your\s+current\s+quota)\b", text, re.IGNORECASE):
+        reset = _extract_reset_time(text)
+        return {
+            "reason": "usage_limit",
+            "reset_time": reset,
+            "message": "usage limit reached",
+        }
+    # 3. Invalid model selection
+    if re.match(r"(?:invalid\s+model\s+selection|model\s+.*?\s+is\s+not\s+recognized|model_not_found|model\s+.*?\s+does\s+not\s+exist)\b", text, re.IGNORECASE):
+        return {
+            "reason": "invalid_model",
+            "reset_time": None,
+            "message": "invalid model selection",
+        }
+    # 4. Auth failure
+    if re.match(r"authentication_error\b|UNAUTHENTICATED\b|auth\s+failure\b|authentication\s+required\b|Please\s+run\s+`agy\s+login`|login\s+required\b|invalid\s+api\s+key\b|API\s+key\s+not\s+found\b", text, re.IGNORECASE):
+        return {
+            "reason": "auth_failure",
+            "reset_time": None,
+            "message": "authentication failure",
+        }
+    return None
+
+
+def _ag_read_only_refusal(res: ProcessResult, saw_stdout: bool, writable: bool) -> dict[str, Any] | None:
+    """Settle recognized read-only refusals; Agy emits JSON only on completion.
+
+    Empty stdout cannot exclude prior tool work. Writable invocations need
+    explicit pre-execution evidence, which Agy does not currently provide.
+    """
+    if writable or saw_stdout or res.output_truncated or res.returncode not in (1, 3):
+        return None
+    lines = [line.strip() for line in res.stderr.decode("utf-8", "replace").splitlines() if line.strip()]
+    if not lines or not re.match(r"error:\s*", lines[0], re.IGNORECASE):
+        return None
+    if any(not line.startswith("AGY_ERROR: ") for line in lines[1:]):
+        return None
+    refusal = classify_refusal_text(lines[0])
+    if refusal is None:
+        return None
+    for line in lines[1:]:
+        try:
+            detail: object = json.loads(line.removeprefix("AGY_ERROR: "))
+        except ValueError:
+            return None
+        if not isinstance(detail, dict):
+            return None
+        short_error = cast("dict[str, Any]", detail).get("short_error")
+        companion = classify_refusal_text(short_error) if isinstance(short_error, str) else None
+        if companion is None or companion["reason"] != refusal["reason"]:
+            return None
+    expected_exit = {"quota_exhausted": 3, "invalid_model": 1, "auth_failure": 1}
+    return refusal if expected_exit.get(refusal["reason"]) == res.returncode else None
+
 
 class IncrementalEventParser:
     """Bounded incremental JSONL event parser for adapter stdout draining.
@@ -152,6 +228,11 @@ class IncrementalEventParser:
         self._ag_invalid_top_level = False
         self._ag_raw_buf = bytearray()
         self._ag_parsed = False
+        self.has_tool_calls = False
+        self.refusal_event: dict[str, Any] | None = None
+        self.refusal_evidence_incomplete = False
+        self.has_success = False
+        self.saw_stdout = False
 
     @property
     def cx_agent_messages(self) -> list[str]:
@@ -233,6 +314,8 @@ class IncrementalEventParser:
             raise
 
     def _feed_chunk(self, chunk: bytes) -> None:
+        if chunk.strip():
+            self.saw_stdout = True
         if self.kind == "ag":
             if self._ag_invalid_top_level:
                 return
@@ -310,23 +393,76 @@ class IncrementalEventParser:
 
     def _handle_line(self, line_bytes: bytes) -> None:
         line = line_bytes.decode("utf-8", "replace").strip()
+        if not line:
+            return
         if not line.startswith("{"):
+            self.refusal_evidence_incomplete = True
             return
         try:
             v: object = json.loads(line)
         except ValueError:
+            self.refusal_evidence_incomplete = True
             return
         if not isinstance(v, dict):
+            self.refusal_evidence_incomplete = True
             return
         event = cast("dict[str, Any]", v)
         self._handle_event(event)
 
     def _handle_event(self, event: dict[str, Any]) -> None:
         if self.kind == "cc":
+            if event.get("type") not in ("system", "assistant", "user", "result", "error", "stream_event"):
+                self.refusal_evidence_incomplete = True
+            if event.get("type") in ("tool_use", "tool_result"):
+                self.has_tool_calls = True
+            if event.get("parent_tool_use_id") or event.get("tool_use_result"):
+                self.has_tool_calls = True
+            message = event.get("message")
+            if event.get("type") in ("assistant", "user") and not isinstance(message, dict):
+                self.refusal_evidence_incomplete = True
+            if isinstance(message, dict):
+                content = cast("dict[str, Any]", message).get("content")
+                if isinstance(content, list):
+                    for blk in cast("list[Any]", content):
+                        if not isinstance(blk, dict) or cast("dict[str, Any]", blk).get("type") not in ("text", "thinking", "redacted_thinking"):
+                            self.has_tool_calls = True
+                elif not (event.get("type") == "user" and isinstance(content, str)):
+                    self.refusal_evidence_incomplete = True
+            if event.get("type") == "stream_event":
+                partial = event.get("event")
+                if not isinstance(partial, dict):
+                    self.refusal_evidence_incomplete = True
+                else:
+                    partial = cast("dict[str, Any]", partial)
+                    if partial.get("type") == "content_block_start":
+                        block = partial.get("content_block")
+                        if not isinstance(block, dict) or cast("dict[str, Any]", block).get("type") not in ("text", "thinking", "redacted_thinking"):
+                            self.has_tool_calls = True
+                    elif partial.get("type") == "content_block_delta":
+                        delta = partial.get("delta")
+                        if not isinstance(delta, dict) or cast("dict[str, Any]", delta).get("type") not in ("text_delta", "thinking_delta", "signature_delta"):
+                            self.has_tool_calls = True
+                    elif partial.get("type") not in ("message_start", "message_delta", "message_stop", "content_block_stop"):
+                        self.refusal_evidence_incomplete = True
             if event.get("type") == "result":
                 self.cc_results.append(event)
                 if event.get("is_error") is False and event.get("subtype", "success") == "success":
+                    self.has_success = True
                     self.cc_candidate_session_id = _session_id(event.get("session_id"))
+            if event.get("type") in ("error", "result") and (event.get("is_error") is True or event.get("type") == "error"):
+                err_obj = cast("dict[str, Any]", event.get("error")) if isinstance(event.get("error"), dict) else {}
+                candidates: list[Any] = [f"{err_obj.get('type', '')} {err_obj.get('message', '')}",
+                                         err_obj.get("message"), event.get("result")]
+                if event.get("type") == "error":
+                    candidates.append(event.get("message"))
+                errors = event.get("errors")
+                if isinstance(errors, list):
+                    candidates.extend(cast("list[Any]", errors))
+                for candidate in candidates:
+                    if isinstance(candidate, str):
+                        r = classify_refusal_text(candidate)
+                        if r is not None and self.refusal_event is None:
+                            self.refusal_event = r
             if "session_id" in event:
                 sid = _session_id(event.get("session_id"))
                 if sid is not None:
@@ -338,6 +474,16 @@ class IncrementalEventParser:
                     self._cc_session_id_conflict = True
         elif self.kind == "cx":
             ev_type = event.get("type")
+            if ev_type not in ("thread.started", "turn.started", "turn.completed", "turn.failed", "error",
+                               "item.started", "item.updated", "item.completed"):
+                self.refusal_evidence_incomplete = True
+            if ev_type in ("item.started", "item.updated", "item.completed"):
+                item = event.get("item")
+                if not isinstance(item, dict):
+                    self.refusal_evidence_incomplete = True
+                elif cast("dict[str, Any]", item).get("type") not in ("agent_message", "reasoning", "error"):
+                    # Unknown future items cannot establish absence of execution.
+                    self.has_tool_calls = True
             if "thread_id" in event:
                 tid = _session_id(event.get("thread_id"))
                 if tid is not None:
@@ -351,6 +497,13 @@ class IncrementalEventParser:
                 self.cx_candidate_thread_id = _session_id(event.get("thread_id"))
             elif ev_type in ("turn.failed", "error"):
                 self.cx_errors.append(str(ev_type))
+                msg = event.get("message")
+                if not msg and isinstance(event.get("error"), dict):
+                    msg = cast("dict[str, Any]", event["error"]).get("message")
+                if isinstance(msg, str):
+                    r = classify_refusal_text(msg)
+                    if r is not None and not self.has_tool_calls and not self.refusal_event:
+                        self.refusal_event = r
             elif ev_type == "item.completed":
                 item = event.get("item")
                 if isinstance(item, dict):
@@ -359,9 +512,12 @@ class IncrementalEventParser:
                         self._add_cx_agent_message(cast(str, item_dict["text"]))
                         self.cx_last_message_has_turn_completed = False
             elif ev_type == "turn.completed":
+                self.has_success = True
                 self.cx_turn_completed = event
                 self.cx_last_message_has_turn_completed = True
         elif self.kind == "ag":
+            if event.get("tool_calls") or event.get("tool_use"):
+                self.has_tool_calls = True
             if self._ag_invalid_top_level:
                 return
             if len(self.ag_results) >= 1:
@@ -980,6 +1136,27 @@ class CliRuntimeTarget:
         if res.parser_failed or parser.parser_failed:
             raise RuntimeTargetError(f"{self.runtime_kind} parser failed during output drain; outcome indeterminate",
                                      termination_confirmed=res.termination_confirmed)
+        refusal: dict[str, Any] | None = None
+        if (not parser.has_tool_calls and not parser.has_success
+                and not parser.refusal_evidence_incomplete and parser.oversized_count == 0):
+            refusal = parser.refusal_event
+            if self.runtime_kind == "ag":
+                refusal = _ag_read_only_refusal(res, parser.saw_stdout, self._writable)
+
+        if refusal is not None:
+            refusal_payload: dict[str, Any] = {
+                "outcome": "NOT_EXECUTED",
+                "reason": refusal["reason"],
+                "message": refusal.get("message", ""),
+                "reset_time": refusal.get("reset_time"),
+                "termination_confirmed": res.termination_confirmed,
+            }
+            self._note("refusal_detected", pid=res.pid, returncode=res.returncode,
+                       reason=refusal["reason"], reset_time=refusal.get("reset_time"),
+                       termination_confirmed=res.termination_confirmed)
+            yield ("refusal", refusal_payload)
+            return
+
         if res.returncode != 0:
             raise RuntimeTargetError(f"{self.runtime_kind} exited {res.returncode}: " + self._text(res.stderr or res.stdout, san),
                                      termination_confirmed=res.termination_confirmed)

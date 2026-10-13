@@ -97,12 +97,22 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                                   created_at=previous[0] if previous else utc_now_iso(), guard=prompt_guard)
         ev = bridge.execution_evidence(rec.record_id, peer_id)
         terminal = next((d for d in reversed(ev["deliveries"]) if d["certainty"] == "TERMINAL" and d["acked"]), None)
+        refused = next((d for d in reversed(ev["deliveries"]) if d["certainty"] == "STARTED" and d["acked"]
+                        and bridge.delivery_details(d["delivery_id"]).get("task_outcome") == "NOT_EXECUTED"), None)
         if terminal:
             result = asdict(CycleResult("recovered_terminal", rec.record_id, terminal["delivery_id"], "TERMINAL",
                                        terminal["response_record_id"], terminal["session_generation"]))
+        elif refused:
+            result = asdict(CycleResult("not_executed", rec.record_id, refused["delivery_id"], "STARTED",
+                                       session_generation=refused["session_generation"],
+                                       detail=bridge.delivery_details(refused["delivery_id"])))
         else:
             result = asdict(bridge.run_cycle(token, runtime))
         result.update(bridge.delivery_details(result.get("delivery_id")))
+        if isinstance(result.get("detail"), dict):
+            for k in ("task_outcome", "reason", "refusal_reason", "reset_time", "resets_at", "message"):
+                if k in result["detail"] and k not in result:
+                    result[k] = result["detail"][k]
         response_id = result.get("response_record_id")
         with closing(sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
             row = conn.execute("SELECT body_json, metadata_json FROM records WHERE record_id=?", (response_id,)).fetchone()
@@ -118,17 +128,24 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         if result.get("record_id") != rec.record_id:
             result["processed_status"] = result["status"]
             result["status"] = "pending_earlier_record"
-        if not terminal:
+        if not terminal and not refused:
             # Operation timing is activity evidence, never manufactured provider usage/quota.
             from peerhub.extensions.observation import ObservationStore
             from peerhub.extensions.observation_model import EvidenceState, Observation
             now = utc_now_iso()
             try:
+                obs_payload: dict[str, Any] = {
+                    "operation_elapsed_seconds": time.monotonic() - started_at,
+                    "status": result["status"], "certainty": result.get("certainty"), "record_id": rec.record_id
+                }
+                if "reason" in result:
+                    obs_payload["reason"] = result["reason"]
+                if "reset_time" in result:
+                    obs_payload["reset_time"] = result["reset_time"]
                 ObservationStore(db_path).persist(Observation(
                     observation_id=uuid.uuid4().hex, subject_ref=peer_id, kind="activity", source="session_bridge.ask",
                     observed_at=now, captured_at=now, state=EvidenceState.MEASURED,
-                    payload={"operation_elapsed_seconds": time.monotonic() - started_at,
-                             "status": result["status"], "certainty": result.get("certainty"), "record_id": rec.record_id}))
+                    payload=obs_payload))
             except Exception as exc:
                 result["observation_error"] = type(exc).__name__  # committed response truth remains authoritative
         return result

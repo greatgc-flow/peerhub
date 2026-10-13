@@ -14,6 +14,26 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- **Adapters / Bridge — Structured Provider Refusal Classification & NOT_EXECUTED (PR 3):**
+  Classify provider refusals (quota exhaustion, invalid model selection,
+  authentication failures, and usage limits) with pre-tool evidence for `cx` and `cc`,
+  or recognized stderr diagnostics for read-only `ag` invocations, as a distinct
+  `NOT_EXECUTED` outcome instead of generic `RuntimeTargetError`. `IncrementalEventParser`
+  tracks preceding tool calls; refusals occurring after tool execution strictly remain
+  uncertain (`blocked_uncertain`) to prevent masking side effects. Bridge preserves frozen M1
+  certainty monotonicity (`STARTED` certainty is preserved and never downgraded), acknowledges
+  the prompt (`acked=1`), advances the offset to prevent replay, and marks the session generation
+  as `LOST` (`refused`) so the stream immediately remains reusable on a clean generation.
+  Refusal reason and reset time are surfaced in ask results, CLI formatting (`Task outcome: NOT_EXECUTED`),
+  and `ReadonlyDiag` stream health and activity observations. Classification reads explicit error fields;
+  successful answer text cannot trigger settlement. Incomplete event evidence and execution items
+  (including started commands, file changes, and MCP calls) keep failures uncertain. Agy emits JSON
+  only on completion: empty stdout with quota stderr cannot exclude prior work. Writable `ag`
+  refusals remain uncertain unless explicit pre-execution evidence exists (none is available today),
+  preventing acknowledgement and replay after possible side effects. Recovery completes
+  offset acknowledgement after persisted refusal evidence without reinvoking the provider, and repeated
+  request IDs retain their refusal outcome. Regression fixtures cover observed provider output shapes.
+
 - **Adapters / Process — Output Cap Drain-and-Truncate & Bounded Event Parser (PR 2):**
   `BoundedProcess._pump()` and `wait()` no longer kill the process tree when output exceeds
   the configured `max_bytes` cap, eliminating presentation-bound execution uncertainty.
