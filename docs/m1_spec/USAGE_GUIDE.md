@@ -81,6 +81,6 @@ have been retired. `peerhub`, `python -m peerhub`, and `python -m peerhub.cli`
 use the same public CLI. The v0 source is retained only on the Git branch
 `legacy/v0-main-final`; see the [structure cleanup](../implementation/STRUCTURE_CLEANUP.md).
 
-By default `ask` starts a fresh session with bounded Stream catch-up.
-`ask --resume` requests compatible native cc/cx/ag session reuse, with fresh
-session fallback when incompatible. Repeat the flag on each continuing ask.
+By default `ask` reuses the compatible current session of this peer/Stream,
+including native cc/cx/ag continuity, with bounded Stream catch-up when a fresh
+session is needed. Use a dedicated Stream for a separate task.

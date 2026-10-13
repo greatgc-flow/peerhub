@@ -10,13 +10,11 @@ ASK_TIMEOUT = 240
 
 
 def ask_args(peer: str, workspace: Path, prompt: str, request_id: str, *,
-             resume: bool = False, writable: bool = False) -> list[str]:
+             writable: bool = False) -> list[str]:
     args = ["--db", str(workspace / "core.db"), "ask", peer, prompt,
             "--workspace", str(workspace), "--stream", "live-measurement",
             "--request-id", request_id, "--profile", f"{peer}.standard",
             "--timeout-seconds", str(ASK_TIMEOUT), "--max-output-bytes", "65536", "--json"]
-    if resume:
-        args.append("--resume")
     if writable:
         args.append("--writable")
     return args

@@ -6,6 +6,23 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking — session reuse PR1:** removed PeerHub `ask --resume`, the Python
+  `ask(resume=...)` keyword and runtime caller preference, without an alias.
+  Ordinary asks reuse the compatible current peer/Stream session; use a dedicated
+  Stream for a separate task. Vendor resume arguments remain adapter details.
+
+### Fixed
+
+- Resume capability is independent of each call. Native context watermarks stay
+  at the consumed prompt, so concurrent records and later same-peer responses
+  enter the next delta. The idempotent writer upgrade corrects known CLI capability
+  values and invalidates old native continuity lacking complete context proof,
+  preserving custom local sessions, immutable replay and uncertain blocking.
+
 ## [0.16.0] - 2026-10-13
 
 ### Changed

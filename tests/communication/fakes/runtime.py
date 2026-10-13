@@ -137,18 +137,14 @@ class FakeRuntimeTarget:
 
 
 class NativeRuntimeTarget(FakeRuntimeTarget):
-    """Native IDs survive local runtime instances; opt-in belongs to this runtime."""
-
-    def __init__(self, *args, resume: bool = True, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.resume = resume
+    """Native IDs survive local runtime instances; capability is independent of calls."""
 
     def resume_session(self, external_session_id: str, *, vendor_session_id: str | None = None) -> str:
         self.vendor_ids = getattr(self, "vendor_ids", []) + [vendor_session_id]
         self.calls.append(("resume", external_session_id))
         if self._resume:
             return self._resume.popleft()
-        return "ok" if self.resume and self.resumable and vendor_session_id else "unsupported"
+        return "ok" if self.resumable and vendor_session_id else "unsupported"
 
     def deliver(self, external_session_id: str, record: Any, catch_up: list) -> Iterable[tuple]:
         if not self._deliver:

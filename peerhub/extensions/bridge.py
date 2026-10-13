@@ -118,7 +118,9 @@ RuntimeEvent = tuple[str, Any] | tuple[str, Any, Any]  # ("started", exec_id) | 
 
 class RuntimeTarget(Protocol):
     runtime_kind: str
-    resumable: bool
+
+    @property
+    def resumable(self) -> bool: ...  # read capability; custom attributes also satisfy this boundary
 
     def fingerprint(self) -> str: ...
     def binding(self) -> str: ...  # model/profile binding; a mapping is only resumable under the same binding
@@ -347,6 +349,92 @@ class Bridge:
                                ("bootstrap_truncated", "INTEGER"), ("usage_json", "TEXT")):
                 if name not in columns:
                     conn.execute(f"ALTER TABLE bridge_sessions ADD COLUMN {name} {kind}")
+            if "context_watermark_version" not in columns:
+                conn.execute("ALTER TABLE bridge_sessions ADD COLUMN context_watermark_version INTEGER NOT NULL DEFAULT 0")
+            self._upgrade_session_context(conn)
+
+    @staticmethod
+    def _reconstruct_consumed_prompt(conn: sqlite3.Connection, m: sqlite3.Row) -> int | None:
+        """Require exact terminal identity and complete ordered context for every turn.
+
+        Historical same-peer exclusions and response watermarks are not proof.
+        A missing receipt, skipped record or uncertain attempt invalidates the chain.
+        """
+        if m["state"] not in ("ACTIVE", "FRESH") or m["vendor_session_id"] is None or m["bootstrap_truncated"] != 0:
+            return None
+        deliveries = conn.execute(
+            "SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? ORDER BY seq",
+            (m["stream_id"], m["peer_id"], m["session_generation"])).fetchall()
+        watermark = 0
+        for index, d in enumerate(deliveries):
+            if d["certainty"] != TERMINAL or d["external_session_id"] != m["external_session_id"] or d["record_position"] <= watermark:
+                return None
+            receipts = conn.execute("SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='terminal'", (d["delivery_id"],)).fetchall()
+            if len(receipts) != 1:
+                return None
+            try:
+                detail = json.loads(receipts[0][0])
+                result = json.loads(d["result_json"])
+                if not isinstance(detail, dict) or not isinstance(result, dict):
+                    return None
+                detail = cast("dict[str, Any]", detail)
+                if detail.get("digest") != d["result_digest"] or _digest(result) != d["result_digest"]:
+                    return None
+                bound = detail.get("session_bound")
+                if not isinstance(bound, dict):
+                    return None
+                bound = cast("dict[str, Any]", bound)
+                if any(bound.get(key) != value for key, value in {
+                    "vendor_session_digest": _digest(m["vendor_session_id"]), "watermark": d["record_position"],
+                    "binding": m["binding"], "adapter_fingerprint": m["adapter_fingerprint"],
+                    "session_generation": m["session_generation"], "claim_generation": d["claim_generation"],
+                    "execution_id": d["execution_id"],
+                }.items()):
+                    return None
+                if detail.get("effective_mode") != ("fresh" if index == 0 else "resumed") or detail.get("bootstrap_truncated") is not False:
+                    return None
+                record = conn.execute("SELECT record_id FROM records WHERE stream_id=? AND position=?",
+                                      (m["stream_id"], d["record_position"])).fetchone()
+                if record is None or record[0] != d["record_id"]:
+                    return None
+                prior = conn.execute("SELECT record_id, kind, targets_json FROM records WHERE stream_id=? AND position>? AND position<? ORDER BY position",
+                                     (m["stream_id"], watermark, d["record_position"])).fetchall()
+                expected = [r["record_id"] for r in prior if index == 0 or r["kind"] != "control.redirect"
+                            or not json.loads(r["targets_json"]) or m["peer_id"] in json.loads(r["targets_json"])]
+                if detail.get("injected_record_ids") != expected:
+                    return None
+            except (ValueError, TypeError):
+                return None
+            watermark = d["record_position"]
+        return watermark or None
+
+    @staticmethod
+    def _upgrade_session_context(conn: sqlite3.Connection) -> None:
+        """Writer-owned, atomic upgrade; capability alone never proves consumed context.
+
+        Old terminal receipts must prove complete context, not just delivery;
+        deltas may have skipped same-peer responses or concurrent records below
+        a response-position watermark. Unprovable chains are invalidated.
+        Local custom sessions keep their delivery-evidence continuity contract.
+        """
+        for m in conn.execute("SELECT * FROM bridge_sessions WHERE context_watermark_version=0").fetchall():
+            cli = m["runtime_kind"] in ("cc", "cx", "ag")
+            native = cli or m["vendor_session_id"] is not None
+            reconstructed = Bridge._reconstruct_consumed_prompt(conn, m) if native else None
+            lost = native and reconstructed is None
+            conn.execute(
+                "UPDATE bridge_sessions SET resumable=CASE WHEN runtime_kind IN ('cc','cx','ag') THEN 1 ELSE resumable END, "
+                "state=?, vendor_session_id=?, context_watermark=?, bootstrap_truncated=?, usage_json=?, context_watermark_version=1 "
+                "WHERE stream_id=? AND peer_id=? AND context_watermark_version=0",
+                ("LOST" if lost else m["state"], None if lost else m["vendor_session_id"],
+                 None if lost else reconstructed if native else m["context_watermark"], None if lost else m["bootstrap_truncated"],
+                 None if lost else m["usage_json"], m["stream_id"], m["peer_id"]))
+            if lost:
+                conn.execute(
+                    "INSERT INTO bridge_session_events (stream_id, peer_id, event, from_state, to_state, generation, detail) "
+                    "VALUES (?,?,'session_lost',?,'LOST',?,?)",
+                    (m["stream_id"], m["peer_id"], m["state"], m["session_generation"],
+                     json.dumps({"reason": "continuity_unproven"}, sort_keys=True)))
 
     def _fire(self, point: str) -> None:
         if self._hook is not None:
@@ -535,7 +623,8 @@ class Bridge:
         now = self.claims.now()
         reason = None
         native = m is not None and m["vendor_session_id"] is not None
-        overflow: bool = native and m is not None and (m["context_watermark"] is None or m["bootstrap_truncated"] or self._native_delta(m, record).truncated)
+        overflow: bool = native and m is not None and (m["context_watermark_version"] != 1 or m["context_watermark"] is None
+                                                     or m["bootstrap_truncated"] or self._native_delta(m, record).truncated)
         if overflow:
             assert m is not None
             reason = "delta_too_large"
@@ -606,7 +695,7 @@ class Bridge:
             gen = 1 if m is None else m["session_generation"] + 1
             with self.claims.fenced(token) as conn:
                 conn.execute("INSERT OR REPLACE INTO bridge_sessions (stream_id, peer_id, runtime_kind, external_session_id, session_generation, "
-                             "adapter_fingerprint, binding, resumable, state, last_seen, workspace_generation) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                             "adapter_fingerprint, binding, resumable, state, last_seen, workspace_generation, context_watermark_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)",
                              (token.stream_id, token.peer_id, runtime.runtime_kind, ext, gen, fp, bnd,
                               1 if runtime.resumable else 0, "ACTIVE" if m is None else "FRESH", now, token.workspace_generation))
                 self._session_event(conn, token, "created" if m is None else "fresh_generation",
@@ -665,7 +754,6 @@ class Bridge:
         peer, stream = mapping["peer_id"], mapping["stream_id"]
         records = self.store.read_records(stream, mapping["context_watermark"], 2**31 - 1)
         candidates = (r for r in records if r.position < rec.position
-                      and not (r.author_peer_id == peer and r.kind == "response")
                       and (r.kind != "control.redirect" or (not r.targets or peer in r.targets)))
         # Native continuity is all-or-nothing; count limits belong to fresh bootstrap only.
         return project_catch_up(candidates, CatchUpBudget(max_bytes=self.catch_up_budget.max_bytes,
@@ -1171,15 +1259,6 @@ class Bridge:
             if conn.execute("UPDATE bridge_deliveries SET response_record_id=? WHERE delivery_id=? AND response_record_id IS NULL",
                             (resp.record_id, did)).rowcount:
                 self._evidence(conn, d["stream_id"], d["peer_id"], "response_appended", did, TERMINAL, record_id=resp.record_id)
-            m = conn.execute("SELECT * FROM bridge_sessions WHERE stream_id=? AND peer_id=?",
-                             (token.stream_id, token.peer_id)).fetchone()
-            if (m is not None and m["state"] != "LOST" and m["session_generation"] == d["session_generation"]
-                    and m["external_session_id"] == d["external_session_id"] and m["vendor_session_id"] is not None and m["context_watermark"] is not None):
-                watermark = max(m["context_watermark"], resp.position)
-                if watermark != m["context_watermark"]:
-                    conn.execute("UPDATE bridge_sessions SET context_watermark=? WHERE stream_id=? AND peer_id=? "
-                                 "AND session_generation=? AND vendor_session_id IS ? AND context_watermark IS ?",
-                                 (watermark, token.stream_id, token.peer_id, m["session_generation"], m["vendor_session_id"], m["context_watermark"]))
         self._fire("bridge.after_terminal_evidence_before_offset_ack")
         for _ in range(self.ack_retries):
             off = self.store.get_offset(d["peer_id"], d["stream_id"])

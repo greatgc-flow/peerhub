@@ -75,7 +75,7 @@ authenticated, and spend provider quota. See the [adapter guide](docs/adapters/R
 
 Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer identities can be registered with `peer register --peer worker --adapter cx`.
 
-`ask` supports explicit `--profile`, `--model`, `--effort`, `--writable`, `--resume`, `--timeout-seconds`, optional `--silence-timeout-seconds`, `--max-output-bytes`, `--author-peer` and `--json`. Profile policy resolves workspace → global → packaged defaults; it does not assert measured model availability. Retrying the same `--request-id` reuses a completed response. A different prompt or binding conflicts, and an uncertain execution requires explicit reconciliation before another execution. By default, each ask starts a fresh session with bounded Stream catch-up. For CLI peers (cc, cx, ag), `--resume` reuses the native vendor session of this peer/stream when compatible; otherwise it starts a fresh session with bounded catch-up. Repeat the flag on each continuing ask. `--json` includes `effective_mode`, `fallback_reason`, and `injected_record_ids` when the Bridge exposes delivery details.
+`ask` supports explicit `--profile`, `--model`, `--effort`, `--writable`, `--timeout-seconds`, optional `--silence-timeout-seconds`, `--max-output-bytes`, `--author-peer` and `--json`. Profile policy resolves workspace → global → packaged defaults; it does not assert measured model availability. Retrying the same `--request-id` reuses a completed response. A different prompt or binding conflicts, and an uncertain execution requires explicit reconciliation before another execution. By default, each ask reuses the compatible current session of this peer/stream; otherwise it starts a fresh session with bounded Stream catch-up. CLI peers (cc, cx, ag) retain native vendor continuity. Use a dedicated stream for a separate task. Older native mappings with unproven context are invalidated on upgrade; existing request replay and uncertain-execution blocking remain intact. `--json` includes `effective_mode`, `fallback_reason`, and `injected_record_ids` when the Bridge exposes delivery details.
 
 `--writable` is off by default. It maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` (default `-s read-only`), and ag `--mode accept-edits`. cx resume inherits the sandbox of the initial session and does not accept `-s`; writable mode is therefore part of the session binding, and changing it starts a fresh generation.
 
@@ -115,7 +115,7 @@ selected store, including in a non-repository directory; an explicit `--db` or
 
 ## Common tasks
 
-### Resume across two turns (`--resume`)
+### Continue across two turns
 
 To continue an active multi-turn conversation with the same vendor session:
 
@@ -124,7 +124,7 @@ To continue an active multi-turn conversation with the same vendor session:
 peerhub ask cx "Explain the store schema" --stream convo-01 --request-id turn-001
 
 # Turn 2: Continue using the native session
-peerhub ask cx "Now show an append example" --stream convo-01 --request-id turn-002 --resume
+peerhub ask cx "Now show an append example" --stream convo-01 --request-id turn-002
 ```
 
 ### Recover from a blocked stream

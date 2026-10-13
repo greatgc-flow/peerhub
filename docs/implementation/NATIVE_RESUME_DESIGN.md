@@ -1,10 +1,10 @@
-# Explicit Per-Thread Native Resume (cc, cx, ag) - Design
+# Current-slot Native Resume (cc, cx, ag)
 
 Status: implemented (all three stages, 2026-10-10; design approved by ag/cx cross-critique, 2026-10-09). Motivation and measurements: `CONTEXT_EFFICIENCY.md`.
-Principles: Records stay the authority; a fresh session with bounded catch-up stays the default and the fallback; resume is an explicit per-ask opt-in; ag is supported but measured no token saving (`CONTEXT_EFFICIENCY.md`); it is an explicit opt-in for continuity only
+PR1 update, 2026-10-14 (uncommitted, deterministic validation pending): caller preference has been removed; ordinary asks reuse the compatible current slot. Records stay authoritative, and fresh sessions receive bounded catch-up. Historical measurements in `CONTEXT_EFFICIENCY.md` found no ag token saving; this change makes no new savings claim.
 
 ## Surface
-- `peerhub ask <cc|cx|ag> ... --resume` (default off). Omitting it always starts a fresh generation. Repeat the flag on each continuing ask; there is no sticky setting.
+- `peerhub ask <cc|cx|ag> ...` reuses the compatible current peer/Stream session. Use a dedicated Stream for a separate task. Retained-session selection and inspection remain future work.
 - `ask --json` reports the effective mode (`resumed` or `fresh`), the fallback reason if any, and the injected Record ids.
 
 ## Vendor session identity
@@ -15,13 +15,13 @@ Principles: Records stay the authority; a fresh session with bounded catch-up st
 - The mapping is scoped to (stream, peer) and bound to: canonical provider cwd, resolved model/effort/profile, writable mode, adapter fingerprint (versioned), and the workspace generation. Any change means a new generation.
 
 ## Catch-up for a resumed session
-- A per-generation watermark records the highest Record position that the native session has been given (or generated itself); it is committed with the terminal result of each delivery.
-- A resumed session receives every Record after the watermark and before the current one, in order, each with the same `[position id author kind]` provenance wrapper, plus control redirects. The current Record is not repeated. The session's own materialized responses count as already represented.
+- A per-generation watermark records the last consumed prompt position, committed with the terminal result. Appending a response never advances it: prompt 5 / concurrent record 6 / response 7 leaves watermark 5, so the next delta includes record 6.
+- A resumed session receives every Record after the watermark and before the current one, in order, each with the same `[position id author kind]` provenance wrapper, plus control redirects. The current Record is not repeated. Later same-peer responses are included conservatively; the previous response may be injected again. Redirects addressed only to other peers are excluded.
 - Resume is only eligible if the generation's bootstrap was not truncated. If the unseen delta exceeds the inline limit, fall back to a fresh generation; a native delta is never silently truncated.
-- "Exactly once" means once per Record within a committed native continuity; vendor acceptance across a crash cannot be proven, so uncertainty blocks instead of replaying.
+- Vendor acceptance across a crash cannot be proven, so uncertainty blocks instead of replaying. Old terminal receipts may lack complete context proof because their deltas excluded same-peer responses and could skip concurrent records. The writer upgrade reconstructs the consumed prompt only from an exact, complete terminal/context chain; otherwise it marks the native mapping LOST and clears vendor identity, watermark and usage baseline; it fixes known CLI capability values and preserves custom local-session capability/resolution. The versioned consumed-prompt rule applies permanently; reopen is idempotent and immutable Records/delivery truth are retained.
 
 ## Fallback and uncertainty
-- Missing id, binding or workspace change, pre-run rejection of the resume, oversized delta, or explicit omission of `--resume` -> new generation with bounded catch-up and the existing deterministic `context.boundary` Record carrying the reason.
+- Missing id, binding or workspace change, pre-run rejection of the resume, oversized delta -> new generation with bounded catch-up and the existing deterministic `context.boundary` Record carrying the reason.
 - A spawned CLI failing after start is not proof that no turn ran: the delivery stays uncertain (MAY_HAVE_STARTED is never auto-replayed) and the generation is marked LOST so the next authorized attempt starts fresh.
 - `control.cancel` that may have affected execution marks the generation LOST regardless of the kill outcome. Recovery marks sessions LOST for unresolved invocation markers and started deliveries without terminal truth. A stale owner may append evidence but never mutates the mapping.
 
@@ -30,6 +30,6 @@ Principles: Records stay the authority; a fresh session with bounded catch-up st
 - Risks accepted and documented: hidden vendor state not in Records, stale remembered file facts (resumed peers are told to re-read files), session drift, secrets retained in vendor transcripts (PeerHub never copies raw transcripts into Records).
 
 ## Stages
-1. Adapters (`adapters/base.py`): `ProviderSpec.argv` with an optional vendor id, id parsing for cc/cx/ag, terminal payload `vendor_session`, binding additions, explicit resume opt-in for all three peers.
+1. Adapters (`adapters/base.py`): `ProviderSpec.argv` with an optional vendor id, id parsing for cc/cx/ag, terminal payload `vendor_session`, binding additions, static resume capability for all three peers.
 2. Bridge (`bridge.py`): column migration, `_resolve_session`, watermark commit, `_needs_catch_up`/`_catch_up_for`, `_finalize`, LOST rules, cancel/recovery tainting.
-3. Surface: `ask.py`, `cli/app.py` (`--resume`), command inventory, docs, tests (`test_native_resume.py` plus restart, takeover, crash-window, opt-out, binding-change, overflow and no-replay cases).
+3. Surface: `ask.py`, `cli/app.py` (default current-slot reuse), command inventory, docs, tests (`test_native_resume.py` plus restart, takeover, crash-window, upgrade, concurrent-watermark, binding-change, overflow and no-replay cases).

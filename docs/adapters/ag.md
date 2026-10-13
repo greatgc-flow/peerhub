@@ -27,7 +27,7 @@ Profile models and efforts are defined in the
 object for this provider. The manifest is checked against packaged defaults.
 
 `--mode accept-edits` is added only for `ask --writable`. Compatible native
-resume uses `--conversation SESSION_ID` when `ask --resume` is requested.
+resume uses `--conversation SESSION_ID` for compatible continuing asks by default.
 
 ## Verify and troubleshoot
 

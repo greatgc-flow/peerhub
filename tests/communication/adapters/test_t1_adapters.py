@@ -223,14 +223,14 @@ def test_t1_discovery_unavailable_is_reported_not_synthesized(mk, tmp_path):
 @pytest.mark.parametrize("help_resume,cli", [("1", "supported"), ("0", "unsupported")])
 def test_t1_capabilities_adapter_never_claims_more_than_it_implements(mk, help_resume, cli):
     caps = mk("cx", env_extra={"FAKE_HELP_RESUME": help_resume}).discover()["capabilities"]
-    assert caps["resume"]["cli_status"] == cli and caps["resume"]["status"] == "unsupported" and caps["resume"]["fallback"]
+    assert caps["resume"]["cli_status"] == cli and caps["resume"]["status"] == "supported" and caps["resume"]["fallback"]
     assert caps["terminate"]["status"] == "supported"
     assert all(caps[c]["status"] == "unsupported" for c in ("interrupt", "steer"))
 
 
-def test_t1_resume_is_unsupported_and_spawns_nothing(mk):
+def test_t1_resume_requires_vendor_binding_and_spawns_nothing(mk):
     a = mk("cc")
-    assert a.resumable is False and a.resume_session("anything") == "unsupported"
+    assert a.resumable is True and a.resume_session("anything") == "missing"
     assert calls(mk.log) == []
     assert drain(a.deliver(a.create_session(), rec(), []))[-1][0] == "terminal"  # positive control: the adapter works
 

@@ -1,13 +1,20 @@
 # Context Continuity and Token Efficiency (2026-10-09)
 
-Question: Do we need native session control (resume, interrupt, steer), or is the current design of injecting bounded context into a fresh session each time appropriate?
+Historical question: Do we need native session control (resume, interrupt, steer), or is injecting bounded context into a fresh session each time appropriate?
 Method: independent opinions from ag·cx → mutual rebuttals → direct measurements and official documentation research by cc. The conclusions follow.
 
+Policy update (PR1 worktree, 2026-10-14): ordinary asks reuse the compatible
+current peer/Stream session for **cc, cx and ag**. Otherwise they start fresh
+with bounded catch-up. Use a dedicated Stream for a separate task. The
+[canonical sequence](../design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence)
+supersedes the fresh-by-default and caller opt-in decisions below; the historical
+measurements remain evidence only for the recorded workloads and versions.
+
 ## Conclusions
-- Keep **Records + bounded catch-up + a fresh session** as the default (preserves provenance, avoids hidden state, prevents context decay).
+- **Superseded decision:** keep Records + bounded catch-up + a fresh session as the default. Current behavior reuses the compatible current slot, retaining Records and bounded fresh-session fallback.
 - Resuming does not reduce model input tokens. The API is stateless, so the CLI resends the previous conversation each time. The only difference is **price** (prompt caching).
 - Interrupting (cancelling) addresses latency, stops work that is no longer useful, and prevents side effects; it is not about tokens. Implemented (process tree termination, termination observation).
-- Do not implement steering. Support explicit per-thread native resume for cc·cx·ag. ag is supported for continuity, but measured no token or cache saving (see the ag row below), so it stays fresh unless the caller opts in.
+- Do not implement steering. **Superseded decision:** require caller opt-in for native resume, including ag. Current-slot reuse is the default for cc, cx and ag; the historical ag measurement showed no token or cache saving and does not determine reuse policy.
 
 ## Measurements (haiku, approximately 30,000 tokens of context, same question)
 - Both resumed and fresh sessions receive approximately 30,000 input tokens per turn.
@@ -47,12 +54,25 @@ Notes: cx resume usage is cumulative per thread (the tool reports per-turn delta
 ag (gemini-3.8-flash-low, 6 turns, about 100-line document): the CLI reports `cache_read_tokens` = 0 for both strategies. Fresh input is about 14.2k tokens per turn; resumed turns are 14.4k-15.3k (usage counters are cumulative per conversation; the tool reports deltas). Total uncached input is resume/fresh = 1.03 and answers were 6/6 correct in both. Result: **no measurable saving for ag**; native resume there buys continuity only. Gemini implicit caching may still apply server-side, but the CLI does not report it.
 
 ## Consequence
-The first draft of this note kept fresh sessions as the only default. The measurements show that for continuing threads resume is 3-7x cheaper (cc) and far more cache-stable (cx), so an **explicit per-thread resume** for cc and cx is justified. ag is also supported by owner decision, subject to its measurement. All three require that: the vendor session id is persisted with the Bridge session, all Records the resumed session has not seen are injected exactly once, a missing/expired/incompatible session falls back to a fresh generation with catch-up, and the workspace is revalidated. ag uses the flat JSON `conversation_id` and `agy --conversation <id>`; its backend caching contract and possibly cumulative usage counters remain to be measured. Fresh sessions remain the default for new or cold threads and for correctness-sensitive restarts.
+The historical measurements motivated explicit per-thread resume for cc and cx,
+with ag supported for continuity by owner decision. That caller opt-in policy,
+including fresh sessions for cold threads, is **superseded by PR1**. Ordinary
+asks now reuse the compatible current slot for all three providers, with fresh
+bounded catch-up when continuity is unavailable or unsafe. A cache-cold thread
+alone does not force a new generation, and this policy change establishes no
+new token, cost or quota saving.
+
+The Bridge persists vendor identity, checks workspace lineage and binding, and
+commits a consumed-prompt watermark. Later records enter the next delta,
+including same-peer responses conservatively; appending a response does not
+advance the watermark. Unprovable historical native continuity is invalidated.
+ag uses the flat JSON `conversation_id` and `agy --conversation <id>`; its
+backend caching contract remains unmeasured here.
 
 ## Prefix-Stable Layout / Checkpoint: Not Pursued
 ag and cx cross-checked the hypotheses against official documentation and CLI source. cx: Codex defaults `prompt_cache_key` to the session id, so a fresh session lands on different cache affinity than a resume (this, not prefix shape, explains the erratic 0-13k hits; the benchmark prompt was already append-only). cc: `claude -p` sends the stdin prompt as one text block, so only the CLI base prefix (16-20k tokens) is cached and the injected document is rewritten every turn. ag: the CLI does report `cache_read_tokens`, it simply stayed 0.
 The cheapest experiment was run (cc, haiku, 6 fresh turns, the 259-line document moved out of stdin into `--append-system-prompt-file`, history and question in stdin): cached stayed at 16,450 and about 13.6k tokens were still written every turn, cost $0.030 per turn (worse than the $0.022 baseline and 7x the resume cost). A static document in the appended system prompt is not cached by the CLI.
-Verdict: **drop** the layout/checkpoint follow-up; explicit native resume is the mechanism that earns cache hits. Revisit only if a CLI exposes a stable cache key or cache breakpoints.
+Verdict: **drop** the layout/checkpoint follow-up; native resume produced the measured cache hits. Current-slot reuse now invokes native resume automatically when compatible. Revisit only if a CLI exposes a stable cache key or cache breakpoints.
 
 ## Follow-up Candidates (After Measurement)
 - **Superseded by [Prefix-Stable Layout / Checkpoint: Not Pursued](#prefix-stable-layout--checkpoint-not-pursued).** Stable prefix layout: fixed instructions + a versioned checkpoint (summary Record) → changing recent records → current question. A sliding window changes the prefix and invalidates the cache.

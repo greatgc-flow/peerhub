@@ -8,13 +8,13 @@ from tests.communication.live.live_support import opt_in_reason
 
 
 def test_args_keep_standard_profile_and_explicit_session_binding(tmp_path):
-    args = ask_args("cc", tmp_path, "tiny prompt", "turn-2", resume=True, writable=True)
+    args = ask_args("cc", tmp_path, "tiny prompt", "turn-2", writable=True)
     assert args[args.index("--profile") + 1] == "cc.standard"
     assert args[args.index("--workspace") + 1] == str(tmp_path)
     assert args[args.index("--db") + 1] == str(tmp_path / "core.db")
     assert args[args.index("--stream") + 1] == "live-measurement"
     assert args[args.index("--request-id") + 1] == "turn-2"
-    assert "--resume" in args and "--writable" in args
+    assert "--resume" not in args and "--writable" in args
     plain = ask_args("ag", tmp_path, "OK", "basic")
     assert "--resume" not in plain and "--writable" not in plain
 

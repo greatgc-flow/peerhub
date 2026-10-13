@@ -44,6 +44,7 @@ class ProviderSpec:
     binary: str
     resume_flag: str  # token looked up in `--help` output to report CLI-level resume support
     stdin_prompt: bool
+    can_resume: bool = False
     max_prompt_bytes: int = MAX_PROMPT_BYTES  # provider-specific inline limit (argv-borne prompts are far smaller)
 
     def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
@@ -629,6 +630,7 @@ class IncrementalEventParser:
 
 class CcSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "cc", "claude", "--resume", True
+    can_resume = True
 
     def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
              vendor_session_id: str | None = None) -> list[str]:
@@ -678,6 +680,7 @@ class CcSpec(ProviderSpec):
 
 class CxSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "cx", "codex", "resume", True
+    can_resume = True
 
     def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
              vendor_session_id: str | None = None) -> list[str]:
@@ -721,6 +724,7 @@ class CxSpec(ProviderSpec):
 
 
 class AgSpec(ProviderSpec):
+    can_resume = True
     kind, binary, resume_flag, stdin_prompt = "ag", "agy", "--conversation", False
     max_prompt_bytes = 30_000 if sys.platform == "win32" else 120_000  # prompt travels in argv: CreateProcess ~32k chars / MAX_ARG_STRLEN
 
@@ -794,13 +798,12 @@ def resolve_binary(spec: ProviderSpec) -> list[str] | None:
 class CliRuntimeTarget:
     """RuntimeTarget over one vendor CLI. `command` overrides binary resolution (tests use python fake CLIs)."""
 
-    resumable = False
     supports_interrupt = False
     supports_terminate = True
     supports_steer = False
 
     def __init__(self, kind: str, workspace: str | Path, *, model: str | None = None, effort: str | None = None,
-                 profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False, resume: bool = False,
+                 profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False,
                  command: Sequence[str] | None = None, timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
                  env_extra: Mapping[str, str] | None = None, extra_secrets: Iterable[str] = (),
                  on_output: Callable[[str], None] | None = None) -> None:
@@ -825,8 +828,7 @@ class CliRuntimeTarget:
             suffix = model.rsplit("-", 1)[-1] if model else None
             if suffix in ("low", "medium", "high") and suffix != effort:
                 raise ValueError("ag effort conflicts with the effort-qualified model")
-        self.resumable = resume
-        self._resume_sessions: dict[str, str] = {}  # explicit caller-provided bindings only, never inferred from output
+        self._resume_sessions: dict[str, str] = {}  # Bridge-provided bindings only, never inferred from output
         self.runtime_kind = kind
         self._spec = SPECS[kind]
         self._workspace = str(workspace)
@@ -841,6 +843,15 @@ class CliRuntimeTarget:
         self._env = {**os.environ, **(env_extra or {})}
         self._san = Sanitizer(secrets=[*env_secrets(self._env), *extra_secrets])
         self.evidence: deque[dict[str, Any]] = deque(maxlen=100)  # sanitized and bounded
+
+    @property
+    def can_resume(self) -> bool:
+        return self._spec.can_resume
+
+    @property
+    def resumable(self) -> bool:
+        """Existing RuntimeTarget capability boundary, independent of caller intent."""
+        return self.can_resume
 
     # ---- helpers
     def _note(self, event: str, **kw: Any) -> None:

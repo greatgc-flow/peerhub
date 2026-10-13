@@ -103,7 +103,8 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     o_adv.add_argument("--position", required=True, type=int, dest="new_position")
     o_adv.add_argument("--revision", required=True, type=int, dest="expected_revision")
 
-    ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge")
+    ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge",
+                                     description="Reuse the compatible current session of this peer/stream; otherwise start fresh with bounded catch-up.")
     ask_parser.add_argument("peer", help="Peer ID (built-ins: cx/codex, cc/claude, ag/agy)")
     ask_parser.add_argument("prompt", nargs="?")
     ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
@@ -115,8 +116,6 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser.add_argument("--effort")
     ask_parser.add_argument("-p", "--profile", help="Explicit Runtime Target profile; model/effort override its defaults")
     ask_parser.add_argument("--writable", action="store_true", help="Let the peer write files in the workspace (default: read-only)")
-    ask_parser.add_argument("--resume", action="store_true", default=False,
-                            help="reuse the native vendor session of this peer/stream when compatible; otherwise a fresh session with bounded catch-up")
     ask_parser.add_argument("--timeout-seconds", type=float, default=60)
     ask_parser.add_argument("--silence-timeout-seconds", type=float, default=None,
                             help="Abort after this many seconds without stdout/stderr; execution remains uncertain")
@@ -189,7 +188,7 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         print(text, end="", flush=True)
     result = ask(args.db, args.peer, prompt, stream_id=args.stream_id, request_id=args.request_id,
                  author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
-                 profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable, resume=args.resume,
+                 profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                  timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
                  on_output=None if args.json else show_output)
     if args.json:

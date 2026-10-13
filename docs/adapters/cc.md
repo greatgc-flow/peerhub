@@ -27,7 +27,7 @@ Profile models and efforts are defined in the
 object for this provider. The manifest is checked against packaged defaults.
 
 `ask --writable` adds `--permission-mode acceptEdits`. Compatible native resume
-uses `--resume SESSION_ID` when `ask --resume` is requested.
+uses `--resume SESSION_ID` for compatible continuing asks by default.
 
 ## Verify and troubleshoot
 

@@ -4,7 +4,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 
 ## Core & Everyday Guides
 - [README.md](../README.md): Quick start, installation (`pipx`/`uv`/`pip`), core usage, and everyday operational commands.
-- [Common Tasks](../README.md#common-tasks): Worked recipes for multi-turn session resume, blocked stream recovery, offline diagnostics, and package lifecycle.
+- [Common Tasks](../README.md#common-tasks): Worked recipes for default current-slot continuation, blocked stream recovery, offline diagnostics, and package lifecycle.
 - [STATUS.md](STATUS.md): Current source (v0.16.0), remaining work, and historical evolution log.
 - [CONTRIBUTING.md](../CONTRIBUTING.md): Developer environment setup, deterministic testing, release gates, and incident lessons.
 
@@ -22,6 +22,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 
 ## Active Design & Plans
 - [Monitoring Plan v2](design/plan-monitoring-v2-2026-10-12.md): Live quota dashboard, PACE balancing, and alerting specification.
+- [Canonical Session Sequence](design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence): PR1 current-slot reuse is implemented in the uncommitted worktree; regression validation is pending. Registry, selectors and inspection remain future work.
 - [Session Reuse Plan](design/plan-session-reuse-2026-10-13.md): Retained session registry, explicit handle reuse, capability bug fix, and catch-up correctness.
 - [Session Monitoring Spec](design/plan-session-monitoring-2026-10-13.md): Pre-TDD metrics, bounded read-only queries, session views/JSON, alert rules and numbered test catalog.
 - [Blocked Streams Plan](design/plan-stuck-streams-2026-10-12.md): PRs 1-3 complete; quota pre-flight, policy settlement, and audited recovery remain.

@@ -10,10 +10,12 @@ live gates, publication, and clean-venv smoke remain for cc under the
 
 The [current status and remaining queue](STATUS.md#remaining-work) tracks
 stuck PRs 4-6, monitoring v2 PRs 1-7, audit WP-B/C/D/E, and session reuse.
-Session reuse is design-approved by owner+cc+cx (2026-10-13), with implementation
-not started; the shipped CLI still uses explicit `--resume`. The
-[session plan](design/plan-session-reuse-2026-10-13.md) owns the future decision:
-default reuse, `--fresh`, and exact `--session`, removing public `--resume`.
+Session PR1 is implemented in the uncommitted worktree (2026-10-14; tests written,
+pytest not run): ordinary asks reuse the compatible current slot, with safe
+prompt watermarks and conservative legacy invalidation. The
+[canonical sequence](design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence)
+owns remaining registry, addressing and monitoring work; selectors and session
+inspection are not available yet.
 
 ## 1. Collaboration practice (owner's preferences)
 

@@ -1,4 +1,4 @@
-"""Explicit native continuity, tested through durable Records and independent SQL oracles."""
+"""Default native continuity, tested through durable Records and independent SQL oracles."""
 import json
 
 import pytest
@@ -39,31 +39,17 @@ def test_restart_persists_mapping_and_watermark(tmp_path):
     first = h.delivery_cycle("b", "s", NativeRuntimeTarget())
     m = h.current_mapping("b", "s")
     assert m["vendor_session_id"] == "native-ext-1"
-    assert m["context_watermark"] == sql(h, "SELECT position FROM records WHERE record_id=?", (first.response_record_id,))[0][0]
+    assert m["context_watermark"] == sql(h, "SELECT position FROM records WHERE record_id=?", (first.record_id,))[0][0]
     h.reopen()
     assert h.current_mapping("b", "s") == m
     add(h, "second")
     rt = NativeRuntimeTarget()
     result = h.delivery_cycle("b", "s", rt)
     assert result.session_generation == 1 and rt.vendor_ids == ["native-ext-1"]
-    assert rt.count("create") == 0 and rt.catch_ups == [[]]
-    assert details(h, result) == {"effective_mode": "resumed", "fallback_reason": None, "injected_record_ids": []}
+    assert rt.count("create") == 0 and rt.catch_ups == [[first.response_record_id]]
+    assert details(h, result) == {"effective_mode": "resumed", "fallback_reason": None, "injected_record_ids": [first.response_record_id]}
     evidence = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='terminal'")
     assert evidence and all("native-ext-1" not in row[0] for row in evidence)
-
-
-def test_opt_out_is_fresh_on_each_invocation(tmp_path):
-    h = BridgeHarness(tmp_path / "ws")
-    bseed(h)
-    rt = NativeRuntimeTarget()
-    h.delivery_cycle("b", "s", rt)
-    rt.resume = False
-    current = add(h, "second")
-    expected = [r.record_id for r in h.store.read_records("s", 0, 100) if r.position < current.position]
-    result = h.delivery_cycle("b", "s", rt)
-    assert result.session_generation == 2 and rt.count("resume") == 1
-    assert details(h, result)["effective_mode"] == "fresh"
-    assert rt.catch_ups[-1] == expected
 
 
 @pytest.mark.parametrize("change,reason", [("binding", "binding_change"), ("fingerprint", "fingerprint_change"),
@@ -95,7 +81,7 @@ def test_delta_contains_all_new_records_once_and_addressed_redirects(tmp_path):
     h = BridgeHarness(tmp_path / "ws")
     bseed(h)
     rt = NativeRuntimeTarget()
-    h.delivery_cycle("b", "s", rt)
+    first = h.delivery_cycle("b", "s", rt)
     redirect = ctl(h, "control.redirect", "redirect", body={"instruction": "re-read files"})
     other = ctl(h, "control.redirect", "other", targets=["a"], body={"instruction": "for a"})
     own = add(h, "own", author="b", kind="response")
@@ -103,11 +89,11 @@ def test_delta_contains_all_new_records_once_and_addressed_redirects(tmp_path):
     current = add(h, "second")
     result = h.delivery_cycle("b", "s", rt)
     assert result.record_id == current.record_id
-    assert rt.catch_ups[-1] == [redirect.record_id, context.record_id]
-    assert other.record_id not in rt.catch_ups[-1] and own.record_id not in rt.catch_ups[-1]
+    assert rt.catch_ups[-1] == [first.response_record_id, redirect.record_id, own.record_id, context.record_id]
+    assert other.record_id not in rt.catch_ups[-1]
     add(h, "third")
     h.delivery_cycle("b", "s", rt)
-    assert rt.catch_ups[-1] == []
+    assert rt.catch_ups[-1] == [result.response_record_id]
 
 
 @pytest.mark.parametrize("truncated_bootstrap", [False, True])
@@ -236,13 +222,13 @@ def test_cumulative_usage_reports_delta_and_omits_decreased_counters(tmp_path, k
         assert json.loads(h.current_mapping("b", "s")["usage_json"]) == raw
 
 
-def test_ask_resume_is_per_invocation_and_exposes_provenance(tmp_path):
+def test_ask_default_reuses_current_slot_and_exposes_provenance(tmp_path):
     db = tmp_path / "ask.db"
     first = ask(db, "cx", "first", runtime=NativeRuntimeTarget())
     assert first["effective_mode"] == "fresh" and first["fallback_reason"] is None
     second = ask(db, "cx", "second", runtime=NativeRuntimeTarget())
-    assert second["effective_mode"] == "resumed" and second["injected_record_ids"] == []
-    third = ask(db, "cx", "third", runtime=NativeRuntimeTarget(resume=False))
+    assert second["effective_mode"] == "resumed" and second["injected_record_ids"] == [first["response_record_id"]]
+    third = ask(db, "cx", "third", runtime=NativeRuntimeTarget(binding="other"))
     assert third["effective_mode"] == "fresh"
 
 
@@ -282,9 +268,9 @@ def test_terminal_recovery_keeps_usage_delta_and_watermark(tmp_path, point):
     calls = list(rt.calls)
     result = h.delivery_cycle("b", "s", rt)
     assert result.status == "recovered_terminal" and rt.calls == calls
-    metadata, position = sql(h, "SELECT metadata_json, position FROM records WHERE record_id=?", (result.response_record_id,))[0]
+    (metadata,) = sql(h, "SELECT metadata_json FROM records WHERE record_id=?", (result.response_record_id,))[0]
     assert json.loads(metadata)["usage"] == {"input_tokens": 20}
-    assert h.current_mapping("b", "s")["context_watermark"] == position
+    assert h.current_mapping("b", "s")["context_watermark"] == sql(h, "SELECT record_position FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,))[0][0]
     add(h, "third")
     terminal(rt, {"input_tokens": 125})
     third = h.delivery_cycle("b", "s", rt)
@@ -322,3 +308,133 @@ def test_native_mapping_supports_legacy_one_argument_resume(tmp_path):
     result = h.delivery_cycle("b", "s", rt)
     assert result.session_generation == 1 and rt.count("resume") == 1
     assert details(h, result)["effective_mode"] == "resumed"
+
+
+def test_concurrent_record_between_prompt_and_response_is_not_skipped(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    prompts = bseed(h, n=5)
+    h.store.advance_offset_cas("b", "s", prompts[3].position, 1)
+    rt = NativeRuntimeTarget()
+    intervening = []
+    rt.script_deliver(("started", "exec"),
+                      ("call", lambda: intervening.append(add(h, "concurrent", author="b", kind="response"))),
+                      ("terminal", {"response": "ok", "vendor_session": {"id": "native-1"}}))
+    first = h.delivery_cycle("b", "s", rt)
+    response_position = sql(h, "SELECT position FROM records WHERE record_id=?", (first.response_record_id,))[0][0]
+    assert prompts[-1].position == 5 and intervening[0].position == 6 and response_position == 7
+    assert h.current_mapping("b", "s")["context_watermark"] == 5
+    h.reopen()
+    add(h, "next")
+    second = h.delivery_cycle("b", "s", rt)
+    assert second.session_generation == first.session_generation
+    assert rt.catch_ups[-1] == [intervening[0].record_id, first.response_record_id]
+
+
+@pytest.mark.parametrize("kind", ["cc", "cx", "ag", "custom-native"])
+@pytest.mark.parametrize("certainty", ["TERMINAL", "STARTED", "MAY_HAVE_STARTED"])
+def test_old_native_mapping_upgrade_invalidates_unproven_context_without_replaying(tmp_path, kind, certainty):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    rt = NativeRuntimeTarget()
+    rt.runtime_kind = kind
+    first = h.delivery_cycle("b", "s", rt)
+    if certainty != "TERMINAL":
+        add(h, "uncertain")
+        events = [("started", "exec")] if certainty == "STARTED" else []
+        rt.script_deliver(*events, ("runtime_error", "disconnect"))
+        assert h.delivery_cycle("b", "s", rt).status == "uncertain"
+    # CLI capability was poisoned; a custom runtime's stored capability must stay false.
+    # Simulate the pre-PR1 schema and response-position watermark.
+    with h.cs.transaction() as conn:
+        conn.execute("ALTER TABLE bridge_sessions DROP COLUMN context_watermark_version")
+        conn.execute("UPDATE bridge_sessions SET resumable=0, vendor_session_id='old-native', context_watermark=99")
+    records = sql(h, "SELECT * FROM records ORDER BY position")
+    deliveries = sql(h, "SELECT * FROM bridge_deliveries ORDER BY seq")
+    evidence = sql(h, "SELECT * FROM bridge_evidence ORDER BY seq")
+    h.reopen()
+    m = h.current_mapping("b", "s")
+    assert m["resumable"] == (0 if kind == "custom-native" else 1)
+    assert m["state"] == "LOST" and m["vendor_session_id"] is None and m["context_watermark"] is None
+    events = sql(h, "SELECT * FROM bridge_session_events ORDER BY seq")
+    assert json.loads(events[-1][-1])["reason"] == "continuity_unproven"
+    h.reopen()
+    assert h.current_mapping("b", "s") == m
+    assert sql(h, "SELECT * FROM bridge_session_events ORDER BY seq") == events
+    assert sql(h, "SELECT * FROM records ORDER BY position") == records
+    assert sql(h, "SELECT * FROM bridge_deliveries ORDER BY seq") == deliveries
+    assert sql(h, "SELECT * FROM bridge_evidence ORDER BY seq") == evidence
+    calls = list(rt.calls)
+    if certainty == "TERMINAL":
+        add(h, "next")
+        second = h.delivery_cycle("b", "s", rt)
+        assert second.session_generation == first.session_generation + 1
+        expected_reason = "not_resumable" if kind == "custom-native" else "continuity_unproven"
+        assert details(h, second)["fallback_reason"] == expected_reason
+        assert rt.count("resume") == 0
+    else:
+        assert h.delivery_cycle("b", "s", rt).status == "blocked_uncertain"
+        assert rt.calls == calls
+
+
+@pytest.mark.parametrize("resumable", [False, True])
+def test_upgrade_preserves_custom_local_capability_and_resolution(tmp_path, resumable):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    rt = FakeRuntimeTarget(resumable=resumable)
+    first = h.delivery_cycle("b", "s", rt)
+    with h.cs.transaction() as conn:
+        conn.execute("ALTER TABLE bridge_sessions DROP COLUMN context_watermark_version")
+    h.reopen()
+    assert h.current_mapping("b", "s")["resumable"] == int(resumable)
+    assert h.current_mapping("b", "s")["state"] == "ACTIVE"
+    add(h, "second")
+    second = h.delivery_cycle("b", "s", rt)
+    assert second.session_generation == (1 if resumable else 2)
+    if resumable:
+        assert rt.catch_ups[-1] == [] and rt.count("resume") == 1
+    assert first.certainty == second.certainty == "TERMINAL"
+
+
+@pytest.mark.parametrize("kind", ["cc", "cx", "ag"])
+def test_upgrade_reconstructs_only_exact_consumed_prompt_evidence(tmp_path, kind):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    rt = NativeRuntimeTarget()
+    rt.runtime_kind = kind
+    first = h.delivery_cycle("b", "s", rt)
+    with h.cs.transaction() as conn:
+        conn.execute("ALTER TABLE bridge_sessions DROP COLUMN context_watermark_version")
+        conn.execute("UPDATE bridge_sessions SET resumable=0, context_watermark=(SELECT position FROM records WHERE record_id=?)",
+                     (first.response_record_id,))
+    h.reopen()
+    m = h.current_mapping("b", "s")
+    assert m["resumable"] == 1 and m["state"] == "ACTIVE"
+    assert m["context_watermark"] == 1 and m["vendor_session_id"] == "native-ext-1"
+    h.reopen()
+    assert h.current_mapping("b", "s") == m
+    add(h, "next")
+    second = h.delivery_cycle("b", "s", rt)
+    assert second.session_generation == 1 and rt.vendor_ids == ["native-ext-1"]
+    assert rt.catch_ups[-1] == [first.response_record_id]
+
+
+def test_upgrade_rejects_a_chain_that_skipped_intervening_context(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    rt = NativeRuntimeTarget()
+    rt.runtime_kind = "cx"
+    rt.script_deliver(("started", "exec"), ("call", lambda: add(h, "intervening", author="b", kind="response")),
+                      ("terminal", {"response": "ok", "vendor_session": {"id": "native-ext-1"}}))
+    first = h.delivery_cycle("b", "s", rt)
+    # Simulate the old response-position watermark skipping the concurrent record.
+    with h.cs.transaction() as conn:
+        conn.execute("UPDATE bridge_sessions SET context_watermark=(SELECT position FROM records WHERE record_id=?)",
+                     (first.response_record_id,))
+    add(h, "next")
+    h.delivery_cycle("b", "s", rt)
+    assert rt.catch_ups[-1] == []
+    with h.cs.transaction() as conn:
+        conn.execute("ALTER TABLE bridge_sessions DROP COLUMN context_watermark_version")
+    h.reopen()
+    assert h.current_mapping("b", "s")["state"] == "LOST"
+    assert h.current_mapping("b", "s")["context_watermark"] is None

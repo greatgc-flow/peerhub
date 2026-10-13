@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -45,11 +46,24 @@ def test_basic_ask_reports_text_and_measured_usage(tmp_path, peer):
 
 def test_resume_recalls_first_turn_token(tmp_path, peer):
     token = "canary_" + uuid.uuid4().hex
-    first = _ask(peer, tmp_path, f"This is a memory check I am running myself. Please remember the word {token}. Reply with OK only.", "remember", resume=True)
-    second = _ask(peer, tmp_path, "What was the word from my earlier message in this session? Reply with only that word.", "recall", resume=True)
+    first = _ask(peer, tmp_path, f"This is a memory check I am running myself. Please remember the word {token}. Reply with OK only.", "remember")
+    assert token not in first["response"], first
+    with sqlite3.connect(tmp_path / "core.db") as conn:
+        first_binding = conn.execute("SELECT resumable, vendor_session_id FROM bridge_sessions WHERE peer_id=?", (peer,)).fetchone()
+    assert first_binding[0] == 1 and first_binding[1]
+    second = _ask(peer, tmp_path, "What was the word from my earlier message in this session? Reply with only that word.", "recall")
     assert second["effective_mode"] == "resumed" and second["fallback_reason"] is None, second
     assert second["session_generation"] == first["session_generation"]
-    assert second["injected_record_ids"] == []  # native memory, not fresh Stream catch-up
+    assert first["requested_record_id"] not in second["injected_record_ids"]
+    # Generation + mode + committed vendor identity prove native continuation.
+    with sqlite3.connect(tmp_path / "core.db") as conn:
+        row = conn.execute("SELECT resumable, vendor_session_id FROM bridge_sessions WHERE peer_id=?", (peer,)).fetchone()
+        for record_id in second["injected_record_ids"]:
+            injected = conn.execute("SELECT body_json FROM records WHERE stream_id=? AND record_id=?",
+                                    (second["stream_id"], record_id)).fetchone()
+            assert injected is not None, record_id
+            assert token not in json.dumps(json.loads(injected[0]), ensure_ascii=False), record_id
+    assert row == first_binding
     assert token in second["response"], second
 
 

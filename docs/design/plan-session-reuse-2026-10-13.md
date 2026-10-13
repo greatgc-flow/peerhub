@@ -6,12 +6,12 @@ Plan document, 2026-10-13. Reference, not an instruction file.
 
 - **AS-IS and canonical PR/live-check sequence**: [Checkout analysis](analysis-session-reuse-as-is-2026-10-13.md). Its PR1-PR5 assignments supersede earlier stage assignments in both session plans; each PR is independently green.
 - **Session inspection companion**: [Session monitoring pre-TDD specification](plan-session-monitoring-2026-10-13.md) (proposed metrics, views, alerts and test catalog; owner questions remain).
-- Status: design approved (owner+cc+cx 2026-10-13), implementation not started; decision: --resume removed, default reuse + --fresh + --session
+- Status: design approved (owner+cc+cx 2026-10-13), PR1 implemented in uncommitted worktree (validation pending); decision: --resume removed, default reuse + --fresh + --session
 - **Target Release**: `0.18.0` (planned; follows the `0.16.0` stuck-streams PRs 1-3 candidate and remaining recovery/monitoring work; monitoring's original `0.16.0` allocation is superseded).
 - **Consensus**: Owner + `cc` + `cx` unanimous agreement; `cx` critique verified against codebase truth.
 - **Reference Document**: `docs/design/plan-session-reuse-2026-10-13.md`.
 - **Owner-agreed decision**: Default reuse of the latest compatible session; `--fresh` opts out; `--session <handle>` selects exactly. The PeerHub `--resume` option is removed entirely, with no alias or compatibility path. Vendor CLI resume arguments remain adapter implementation details.
-- **Precedence**: Supersedes prior ad-hoc reuse design notes; the historical session loss bug remains open until implementation. The current checkout still exposes explicit `--resume`; PR1 removes it from CLI, API, runtime caller paths, metadata writers and public documentation together. Default current-slot reuse is safe before retained-history selection lands in PR2.
+- **Precedence**: Supersedes prior ad-hoc reuse design notes; the historical session loss bug remains open until implementation. PR1 removes caller resume preference from CLI, API, runtime caller paths and public recipes in the uncommitted worktree; regression tests are written and validation is pending. Default current-slot reuse is safe before retained-history selection lands in PR2.
 
 ---
 

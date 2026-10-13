@@ -647,8 +647,8 @@
     },
     {
       "path": "USAGE_GUIDE.md",
-      "bytes": 2911,
-      "sha256": "fabb959ea478166507a16715520727055fafb7b2d718c6d4f8f74ef5c92e8fe7"
+      "bytes": 2907,
+      "sha256": "fd68988aa6282f6adf7ba7505edbfcb834f3a5f6e501bf798ddef3b4da9abf13"
     },
     {
       "path": "tools/generate_docs.py",
