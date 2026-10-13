@@ -14,7 +14,7 @@ configuration surface.
 | **cc** | [cc.md](cc.md) | `claude.cmd` (Claude Code) |
 | **cx** | [cx.md](cx.md) | `codex.cmd` (Codex CLI) |
 
-Ordinary `peerhub ask` calls reuse the compatible current native session for the
+Ordinary `peerhub ask` calls reuse the latest compatible retained native session for the
 peer/Stream. Otherwise the Bridge creates a fresh generation with bounded
 catch-up. Use a dedicated Stream for a separate task.
 

@@ -16,7 +16,7 @@ from tests.communication.fakes.runtime import NativeRuntimeTarget
 def test_emitted_help_and_removed_option_rejection(tmp_path):
     help_run = subprocess.run([sys.executable, "-m", "peerhub", "ask", "--help"], capture_output=True)
     assert help_run.returncode == 0 and b"--resume" not in help_run.stdout
-    assert b"compatible current session" in help_run.stdout
+    assert b"compatible retained session" in help_run.stdout
     db = tmp_path / "absent.db"
     removed = subprocess.run([sys.executable, "-m", "peerhub", "--db", str(db),
                               "ask", "cx", "hello", "--resume"], capture_output=True)
@@ -61,15 +61,9 @@ def test_cli_default_reuse_has_no_preference_in_kwargs_or_records(tmp_path, monk
     replay = turn("second", "two")
     assert replay["status"] == "recovered_terminal" and runtimes[2].calls == []
     assert replay["response_record_id"] == second["response_record_id"]
-    with sqlite3.connect(db) as conn:
-        conn.execute("ALTER TABLE bridge_sessions DROP COLUMN context_watermark_version")
-        # This identity has no matching exact receipt, so upgrade must discard continuity.
-        conn.execute("UPDATE bridge_sessions SET vendor_session_id='unproven', resumable=0")
-    upgraded_replay = turn("second", "two")
-    assert upgraded_replay["status"] == "recovered_terminal" and runtimes[3].calls == []
-    assert upgraded_replay["response_record_id"] == second["response_record_id"]
     assert all("resume" not in kwargs for kwargs in kwargs_seen)
     with sqlite3.connect(db) as conn:
-        assert conn.execute("SELECT resumable FROM bridge_sessions").fetchone() == (1,)
+        assert conn.execute("SELECT resumable FROM bridge_session_history").fetchone() == (1,)
         metadata = [json.loads(row[0]) for row in conn.execute("SELECT metadata_json FROM records")]
-    assert all("resume" not in row and "session_selector" not in row for row in metadata)
+    assert all("resume" not in row for row in metadata)
+    assert all(row["session_selector"] == "latest" for row in metadata if "runtime_kind" in row)

@@ -197,8 +197,9 @@ python -m pytest -q -m "canary and cx" tests/communication/live
 
 The four optional `canary` scenarios measure each of cc, cx and ag through public `ask`
 with `--profile <peer>.standard`: text and positive input/output token usage,
-default native-session recall on a normal second turn, `--writable` sentinel creation,
-and cancellation after committed STARTED evidence. The cancellation test
+default retained-session recall on a normal second turn, `--writable` sentinel creation,
+and cancellation after committed STARTED evidence. The recall canary verifies the first response and all injected bodies omit the
+random token, alongside native identity and mode evidence. The cancellation test
 invokes the CLI in-process and delivers durable `control.cancel` through the
 Bridge to the real adapter, since there is no public cancel CLI command.
 It requires confirmed process-tree termination and no successful response.

@@ -9,10 +9,11 @@ worktree; this is a bounded inspection, not a production-store or legacy audit.
 This analysis covers the current checkout, the [reuse plan](plan-session-reuse-2026-10-13.md)
 and the [session monitoring plan](plan-session-monitoring-2026-10-13.md).
 The AS-IS map below is the pre-PR1 inspection snapshot; its anchors refer to
-that source revision. PR1 is now implemented in the uncommitted worktree
-(2026-10-14; regression tests written before code, pytest not run). Ordinary asks
-reuse the compatible current slot; retained selectors and inspection remain
-proposed. The writer upgrade reconstructs old consumed prompts only from complete exact
+that source revision. PR1 is committed at `eec2cba4`. PR2 is implemented in the uncommitted
+worktree (2026-10-14; 25 focused tests and Pyright pass locally; see the
+[scope review](../implementation/PR2_SESSION_REUSE_VALIDATION.md) for broader checks).
+Ordinary asks select compatible retained history with original-result replay
+and receipt/counter writers; retained selectors and inspection remain proposed. The writer upgrade reconstructs old consumed prompts only from complete exact
 terminal/context evidence; otherwise it invalidates native continuity. No provider calls or commit were made.
 
 ## AS-IS map

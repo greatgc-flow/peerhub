@@ -69,7 +69,7 @@ def ask_effect(e, option):
             assert captured[1][2][key] is False
         elif option == "--json":
             code, out, err = e.run(db, "ask", "cx", "next")
-            assert code == 0 and out.strip() == "hello"
+            assert code == 0 and out.startswith("hello\nsession: sess_")
 
 
 def diag_json(e):

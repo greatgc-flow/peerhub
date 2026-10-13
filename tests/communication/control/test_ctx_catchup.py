@@ -208,7 +208,8 @@ def test_ctx_003_provider_reports_context_loss_during_delivery_retries_safely_on
     rt.script_deliver(("context_lost", "context window exceeded"))
     r1 = bridge_h.delivery_cycle("b", "s", rt)
     assert r1.status == "failed_not_started" and r1.certainty == "NOT_STARTED"  # adapter-reported pre-run loss: explicit, safe to retry
-    assert bridge_h.current_mapping("b", "s")["state"] == "LOST"
+    assert sql(bridge_h, "SELECT state FROM bridge_session_history") == [("LOST",)]
+    assert sql(bridge_h, "SELECT session_handle,session_generation FROM bridge_sessions") == []
     assert responses(bridge_h) == [] and offset_row(bridge_h)[0] == 0
     r2 = bridge_h.delivery_cycle("b", "s", rt)  # recovery: fresh generation, same delivery record, runs once
     assert r2.status == "delivered" and r2.session_generation == 2 and r2.certainty == "TERMINAL"

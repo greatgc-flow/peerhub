@@ -49,7 +49,7 @@ def test_resume_recalls_first_turn_token(tmp_path, peer):
     first = _ask(peer, tmp_path, f"This is a memory check I am running myself. Please remember the word {token}. Reply with OK only.", "remember")
     assert token not in first["response"], first
     with sqlite3.connect(tmp_path / "core.db") as conn:
-        first_binding = conn.execute("SELECT resumable, vendor_session_id FROM bridge_sessions WHERE peer_id=?", (peer,)).fetchone()
+        first_binding = conn.execute("SELECT h.resumable, h.vendor_session_id FROM bridge_sessions p JOIN bridge_session_history h ON h.session_handle=p.session_handle WHERE p.peer_id=?", (peer,)).fetchone()
     assert first_binding[0] == 1 and first_binding[1]
     second = _ask(peer, tmp_path, "What was the word from my earlier message in this session? Reply with only that word.", "recall")
     assert second["effective_mode"] == "resumed" and second["fallback_reason"] is None, second
@@ -57,7 +57,7 @@ def test_resume_recalls_first_turn_token(tmp_path, peer):
     assert first["requested_record_id"] not in second["injected_record_ids"]
     # Generation + mode + committed vendor identity prove native continuation.
     with sqlite3.connect(tmp_path / "core.db") as conn:
-        row = conn.execute("SELECT resumable, vendor_session_id FROM bridge_sessions WHERE peer_id=?", (peer,)).fetchone()
+        row = conn.execute("SELECT h.resumable, h.vendor_session_id FROM bridge_sessions p JOIN bridge_session_history h ON h.session_handle=p.session_handle WHERE p.peer_id=?", (peer,)).fetchone()
         for record_id in second["injected_record_ids"]:
             injected = conn.execute("SELECT body_json FROM records WHERE stream_id=? AND record_id=?",
                                     (second["stream_id"], record_id)).fetchone()

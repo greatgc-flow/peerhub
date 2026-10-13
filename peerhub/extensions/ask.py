@@ -17,9 +17,42 @@ from peerhub.extensions.bridge import Bridge, CycleResult, RuntimeTarget
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, StaleClaimError
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
-from peerhub.core.store import AlreadyExistsError, CoreStore, StorageCorruptError, storage_errors
+from peerhub.core.store import AlreadyExistsError, CoreStore, IdempotencyConflictError, StorageCorruptError, storage_errors
 from peerhub.core.workspace import Workspace
 
+
+
+class LegacySelectorUnsupported(ValueError):
+    """Historical ask identity has no final selector intent; no replay shim."""
+    code = "legacy_selector_unsupported"
+
+
+def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> dict[str, Any]:
+    stored = json.loads(delivery["result_json"])
+    refused = stored.get("task_outcome") == "NOT_EXECUTED"
+    status = "failed_not_started" if delivery["certainty"] == "NOT_STARTED" else "not_executed" if refused else "recovered_terminal"
+    result = asdict(CycleResult(status, delivery["record_id"], delivery["delivery_id"],
+                               delivery["certainty"], delivery["response_record_id"], delivery["session_generation"],
+                               session=stored.get("session")))
+    # The private terminal payload may contain vendor/runner identity. Only the
+    # final public envelope and allowlisted delivery fields cross the API boundary.
+    result.update({key: stored[key] for key in ("response", "session", "error", "task_outcome", "reason", "refusal_reason",
+                  "reset_time", "resets_at", "message", "output_truncated", "display_truncated") if key in stored})
+    for _kind, detail in conn.execute("SELECT kind,detail FROM bridge_evidence WHERE delivery_id=? AND kind IN ('terminal','refusal_detected') ORDER BY seq", (delivery["delivery_id"],)):
+        data = json.loads(detail)
+        for key in ("effective_mode", "fallback_reason", "injected_record_ids", "output_truncated", "display_truncated", "reason", "refusal_reason", "reset_time", "resets_at", "message"):
+            if key in data:
+                result[key] = data[key]
+    row = conn.execute("SELECT body_json,metadata_json FROM records WHERE record_id=?", (delivery["response_record_id"],)).fetchone()
+    if row is not None:
+        result["response"] = json.loads(row[0])
+        metadata = json.loads(row[1])
+        # Billing usage belongs to the durable response, not session occupancy.
+        result.pop("usage", None)
+        for key in ("usage", "display_truncated", "output_truncated"):
+            if key in metadata:
+                result[key] = metadata[key]
+    return result
 
 
 def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None = None,
@@ -62,6 +95,31 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                                   timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output)
     else:
         target = runtime
+    sid = stream_id or f"peer:{peer_id}:chat"
+    rid = request_id or uuid.uuid4().hex
+    key = f"ask:{rid}"
+    prompt_metadata = {"runtime_kind": target.runtime_kind, "binding": target.binding(), "session_selector": "latest"}
+    # Validate immutable scoped request identity before inspecting cached execution,
+    # and return the original durable result without constructing Bridge or a claim.
+    if db.is_file() and db.stat().st_size:
+        with storage_errors(), closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as conn:
+            conn.row_factory = sqlite3.Row
+            previous = conn.execute("SELECT * FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?", (sid, author, key)).fetchone()
+            if previous is not None:
+                previous_metadata = json.loads(previous["metadata_json"])
+                base_metadata = {k: v for k, v in previous_metadata.items() if k != "session_selector"}
+                expected_base = {k: v for k, v in prompt_metadata.items() if k != "session_selector"}
+                if previous["kind"] != "prompt" or json.loads(previous["body_json"]) != prompt or json.loads(previous["targets_json"]) != [peer_id] or base_metadata != expected_base:
+                    raise IdempotencyConflictError(f"request {rid!r} conflicts with its stored identity")
+                if previous_metadata.get("session_selector") != "latest":
+                    raise LegacySelectorUnsupported(f"Request {rid!r} lacks supported session selector metadata.")
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bridge_deliveries'").fetchone():
+                    settled = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND record_id=? AND acked=1 AND result_json IS NOT NULL ORDER BY attempt DESC LIMIT 1",
+                                           (sid, peer_id, previous["record_id"])).fetchone()
+                    if settled is not None:
+                        replay = _read_delivery_result(conn, settled)
+                        replay.update(request_id=rid, stream_id=sid, peer_id=peer_id, requested_record_id=previous["record_id"])
+                        return replay
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     store = CoreStore(db_path)
     peer = store.get_peer(peer_id)
@@ -69,7 +127,6 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         store.register_peer(Peer(peer_id=peer_id, adapter_ref=kind or target.runtime_kind))
     if store.get_peer(author) is None:
         store.register_peer(Peer(peer_id=author))
-    sid = stream_id or f"peer:{peer_id}:chat"
     if store.get_stream(sid) is None:
         try:
             store.create_stream(Stream(stream_id=sid, members=[author, peer_id]))
@@ -83,8 +140,6 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     token = claims.acquire(peer_id, sid, bridge.owner_id, lease_sec)
     started_at = time.monotonic()
     try:
-        rid = request_id or uuid.uuid4().hex
-        key = f"ask:{rid}"
         with closing(sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
             previous = conn.execute("SELECT created_at FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?",
                                     (sid, author, key)).fetchone()
@@ -94,7 +149,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             claims.check(conn, token)
         rec = store.append_record(stream_id=sid, author_peer_id=author, kind="prompt", body=prompt,
                                   targets=[peer_id], idempotency_key=key,
-                                  metadata={"runtime_kind": target.runtime_kind, "binding": target.binding()},
+                                  metadata=prompt_metadata,
                                   created_at=previous[0] if previous else utc_now_iso(), guard=prompt_guard)
         ev = bridge.execution_evidence(rec.record_id, peer_id)
         terminal = next((d for d in reversed(ev["deliveries"]) if d["certainty"] == "TERMINAL" and d["acked"]), None)
@@ -109,6 +164,14 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                                        detail=bridge.delivery_details(refused["delivery_id"])))
         else:
             result = asdict(bridge.run_cycle(token, target))
+        if result.get("delivery_id") is not None:
+            with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as conn:
+                conn.row_factory = sqlite3.Row
+                delivered = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result["delivery_id"],)).fetchone()
+                if delivered is not None and delivered["acked"] and delivered["result_json"] and delivered["certainty"] in ("STARTED", "TERMINAL"):
+                    result.update(_read_delivery_result(conn, delivered))
+                    if not terminal and not refused and delivered["certainty"] == "TERMINAL":
+                        result["status"] = "delivered"
         result.update(bridge.delivery_details(result.get("delivery_id")))
         if isinstance(result.get("detail"), dict):
             for k in ("task_outcome", "reason", "refusal_reason", "reset_time", "resets_at", "message"):
@@ -149,6 +212,10 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                     payload=obs_payload))
             except Exception as exc:
                 result["observation_error"] = type(exc).__name__  # committed response truth remains authoritative
+        if "error" not in result:
+            result["error"] = (result.get("detail", {}).get("error") if isinstance(result.get("detail"), dict) else None)
+            if not isinstance(result["error"], dict):
+                result["error"] = None if result["status"] in ("delivered", "recovered_terminal") else dict(code="delivery_failed", message=f"Execution ended as {result['status']}.")
         return result
     finally:
         try:

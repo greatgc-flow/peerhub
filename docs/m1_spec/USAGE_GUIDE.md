@@ -81,6 +81,16 @@ have been retired. `peerhub`, `python -m peerhub`, and `python -m peerhub.cli`
 use the same public CLI. The v0 source is retained only on the Git branch
 `legacy/v0-main-final`; see the [structure cleanup](../implementation/STRUCTURE_CLEANUP.md).
 
-By default `ask` reuses the compatible current session of this peer/Stream,
+By default `ask` reuses the latest compatible retained session of this peer/Stream,
 including native cc/cx/ag continuity, with bounded Stream catch-up when a fresh
 session is needed. Use a dedicated Stream for a separate task.
+
+Session results carry an opaque handle, generation, mode and reason. Text asks
+end with one `session:` stdout trailer; JSON includes nullable `session` and
+`error`. Replay validates scoped identity and returns the original snapshot.
+Historical selector-less asks cannot be replayed; unstarted legacy queued
+prompts are consumed with `legacy_selector_unsupported`, while uncertain work
+remains blocked. Retention is 20 non-tombstoned rows per scope; expiry occurs
+after more than 30 days of inactivity. Tombstones are audit rows.
+Context occupancy remains unknown, independently of
+billing usage. Fresh/exact selection and inspection remain future work.

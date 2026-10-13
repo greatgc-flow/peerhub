@@ -920,6 +920,10 @@ class CliRuntimeTarget:
         scope = f"{os.path.normcase(str(Path(self._workspace).resolve()))}|{'w' if self._writable else 'r'}"
         return f"{binding}#{hashlib.sha256(scope.encode('utf-8')).hexdigest()[:12]}"
 
+    def session_binding(self) -> dict[str, Any]:
+        """Effective creation metadata; no cwd, credentials or vendor identity."""
+        return dict(profile=self._profile, model=self._model, effort=self._effort, writable=self._writable)
+
     def create_session(self) -> str:
         return f"{self.runtime_kind}-local-{uuid.uuid4().hex}"  # a local handle: one process per delivery, no vendor call
 

@@ -1,18 +1,18 @@
-# Current-slot Native Resume (cc, cx, ag)
+# Retained Native Resume (cc, cx, ag)
 
 Status: implemented (all three stages, 2026-10-10; design approved by ag/cx cross-critique, 2026-10-09). Motivation and measurements: `CONTEXT_EFFICIENCY.md`.
-PR1 update, 2026-10-14 (uncommitted, deterministic validation pending): caller preference has been removed; ordinary asks reuse the compatible current slot. Records stay authoritative, and fresh sessions receive bounded catch-up. Historical measurements in `CONTEXT_EFFICIENCY.md` found no ag token saving; this change makes no new savings claim.
+PR1 is committed at `eec2cba4`; PR2 update, 2026-10-14 (uncommitted, deterministic validation pending): ordinary asks reuse the latest compatible retained session. Records stay authoritative, and fresh sessions receive bounded catch-up. Historical measurements in `CONTEXT_EFFICIENCY.md` found no ag token saving; this change makes no new savings claim.
 
 ## Surface
-- `peerhub ask <cc|cx|ag> ...` reuses the compatible current peer/Stream session. Use a dedicated Stream for a separate task. Retained-session selection and inspection remain future work.
+- `peerhub ask <cc|cx|ag> ...` reuses the latest compatible retained peer/Stream session. Use a dedicated Stream for a separate task. Fresh/exact selectors and inspection remain future work.
 - `ask --json` reports the effective mode (`resumed` or `fresh`), the fallback reason if any, and the injected Record ids.
 
 ## Vendor session identity
 - cc: `session_id` of the final successful `result` event; resumed with `--resume <id>`. cx: `thread_id` of the `thread.started` event; resumed with `codex exec resume <id>` (resume inherits the sandbox, so `-s` is not passed; the writable mode is part of the binding).
 - ag: `conversation_id` of the flat JSON response; resumed with `agy --conversation <id>` (print mode keeps `-p <prompt> --output-format json` and model/effort flags).
 - IDs are bounded opaque strings (1-200 characters, `A-Za-z0-9._:-`); conflicting IDs in one run are rejected. Never use a vendor "latest session" selector.
-- The adapter returns the candidate vendor id inside the successful terminal payload (no extra runtime event). The Bridge persists it in a new nullable `bridge_sessions.vendor_session_id` inside the terminal transaction, under the claim fence (current owner, generation, unexpired lease, expected old value). The local `external_session_id` stays the process/cancel handle.
-- The mapping is scoped to (stream, peer) and bound to: canonical provider cwd, resolved model/effort/profile, writable mode, adapter fingerprint (versioned), and the workspace generation. Any change means a new generation.
+- The adapter returns the candidate vendor id inside the successful terminal payload (no extra runtime event). The Bridge persists it in `bridge_session_history.vendor_session_id` inside the terminal transaction, under the claim fence (current owner, generation, unexpired lease, expected old value). The local `external_session_id` stays the process/cancel handle.
+- The mapping is scoped to (stream, peer) and bound to: canonical provider cwd, resolved model/effort/profile, writable mode, adapter fingerprint (versioned), and the workspace generation. Each call searches compatible retained history; changing back to an earlier compatible binding may reuse that session. Otherwise a new generation starts.
 
 ## Catch-up for a resumed session
 - A per-generation watermark records the last consumed prompt position, committed with the terminal result. Appending a response never advances it: prompt 5 / concurrent record 6 / response 7 leaves watermark 5, so the next delta includes record 6.
@@ -31,5 +31,10 @@ PR1 update, 2026-10-14 (uncommitted, deterministic validation pending): caller p
 
 ## Stages
 1. Adapters (`adapters/base.py`): `ProviderSpec.argv` with an optional vendor id, id parsing for cc/cx/ag, terminal payload `vendor_session`, binding additions, static resume capability for all three peers.
-2. Bridge (`bridge.py`): column migration, `_resolve_session`, watermark commit, `_needs_catch_up`/`_catch_up_for`, `_finalize`, LOST rules, cancel/recovery tainting.
-3. Surface: `ask.py`, `cli/app.py` (default current-slot reuse), command inventory, docs, tests (`test_native_resume.py` plus restart, takeover, crash-window, upgrade, concurrent-watermark, binding-change, overflow and no-replay cases).
+2. Bridge (`bridge.py`, `bridge_registry.py`): atomic registry migration, `_resolve_session`, watermark commit, `_needs_catch_up`/`_catch_up_for`, `_finalize`, LOST rules, cancel/recovery tainting.
+3. Surface: `ask.py`, `cli/app.py` (default retained-history reuse), command inventory, docs, tests (`test_native_resume.py` plus restart, takeover, crash-window, upgrade, concurrent-watermark, binding-change, overflow and no-replay cases).
+
+PR2 persists accepted session snapshots on deliveries and durable terminal
+results, with exactly one STARTED call receipt and one terminal telemetry receipt.
+Monitoring counts use writer projections; incomplete old counts remain null.
+See [the retained registry contract](RETAINED_SESSIONS.md).

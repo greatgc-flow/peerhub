@@ -16,7 +16,7 @@ and `peerhub/config_data/model-defaults.toml`; historical snapshots under
 Models and efforts for all providers are defined in the
 [model profile manifest](../model-profiles/model-profiles.json).
 
-Ordinary `peerhub ask` calls reuse the compatible current peer/Stream session;
+Ordinary `peerhub ask` calls reuse the latest compatible retained peer/Stream session;
 otherwise they start fresh with bounded catch-up. Adapter resume capability is
 independent of each call, and vendor resume arguments are internal. Use a
 dedicated Stream for a separate task.

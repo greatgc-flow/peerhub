@@ -6,7 +6,7 @@ import pytest
 from peerhub.extensions.ask import ask
 from peerhub.extensions.bridge_claims import StaleClaimError
 from peerhub.extensions.catchup import CatchUpBudget
-from tests.communication.bridge_helpers import bseed, sql
+from tests.communication.bridge_helpers import bseed, sql, downgrade_registry
 from tests.communication.control_helpers import ctl
 from tests.communication.fakes import CrashInjected, CrashInjector, FakeRuntimeTarget
 from tests.communication.fakes.runtime import NativeRuntimeTarget
@@ -66,7 +66,8 @@ def test_fallback_boundary(tmp_path, change, reason):
         rt.set_fingerprint("new-adapter")
     elif change == "workspace":
         with h.cs.transaction() as conn:
-            conn.execute("UPDATE bridge_sessions SET workspace_generation='old-lineage'")
+            conn.execute("DROP TRIGGER bridge_history_identity_immutable")
+            conn.execute("UPDATE bridge_session_history SET workspace_generation='old-lineage'")
     elif change == "missing":
         rt.script_resume("missing")
     elif change == "rejected":
@@ -126,8 +127,8 @@ def test_uncertain_native_turn_taints_and_never_replays(tmp_path, started):
     rt.script_deliver(*events, ("runtime_error", "disconnected"))
     result = h.delivery_cycle("b", "s", rt)
     assert result.status == "uncertain"
-    m = h.current_mapping("b", "s")
-    assert m["state"] == "LOST" and m["vendor_session_id"] is None
+    assert sql(h, "SELECT state,vendor_session_id FROM bridge_session_history") == [("LOST", None)]
+    assert sql(h, "SELECT session_handle,session_generation FROM bridge_sessions") == []
     calls = list(rt.calls)
     assert h.delivery_cycle("b", "s", rt).status == "blocked_uncertain" and rt.calls == calls
     # A new authorized attempt resolves to a fresh generation; uncertainty is not replayed.
@@ -147,10 +148,12 @@ def test_cancel_taints_even_when_terminate_is_unsupported(tmp_path):
     def cancel():
         control = ctl(h, "control.cancel", "cancel")
         h.handle_control(control.record_id, rt, "b")
+        assert sql(h, "SELECT state,vendor_session_id FROM bridge_session_history") == [("LOST", None)]
+        assert sql(h, "SELECT session_handle,session_generation FROM bridge_sessions") == []
     rt.script_deliver(("started", "execution"), ("call", cancel), ("terminal", {"response": "late", "vendor_session": {"id": "should-not-bind"}}))
     assert h.delivery_cycle("b", "s", rt).status == "delivered"
-    assert h.current_mapping("b", "s")["state"] == "LOST"
-    assert h.current_mapping("b", "s")["vendor_session_id"] is None
+    assert sql(h, "SELECT state,vendor_session_id FROM bridge_session_history") == [("LOST", None)]
+    assert sql(h, "SELECT session_handle,session_generation FROM bridge_sessions") == []
     add(h, "third")
     result = h.delivery_cycle("b", "s", rt)
     assert details(h, result)["fallback_reason"] == "tainted"
@@ -170,8 +173,9 @@ def test_recovery_without_terminal_truth_taints(tmp_path, point):
     h.reopen()
     calls = list(rt.calls)
     assert h.delivery_cycle("b", "s", rt).status == "blocked_uncertain"
-    assert rt.calls == calls and h.current_mapping("b", "s")["state"] == "LOST"
-    assert h.current_mapping("b", "s")["vendor_session_id"] is None
+    assert rt.calls == calls
+    assert sql(h, "SELECT state,vendor_session_id FROM bridge_session_history") == [("LOST", None)]
+    assert sql(h, "SELECT session_handle,session_generation FROM bridge_sessions") == []
 
 
 def test_stale_terminal_owner_cannot_bind_native_mapping(tmp_path):
@@ -237,6 +241,7 @@ def test_legacy_rows_migrate_with_null_native_columns_idempotently(tmp_path):
     bseed(h)
     h.delivery_cycle("b", "s", FakeRuntimeTarget())
     with h.cs.transaction() as conn:
+        downgrade_registry(conn)
         for column in ("vendor_session_id", "context_watermark", "bootstrap_truncated", "usage_json"):
             conn.execute(f"ALTER TABLE bridge_sessions DROP COLUMN {column}")
     h.reopen()
@@ -285,7 +290,7 @@ def test_generic_contract_keeps_local_resume_and_exact_evidence(tmp_path):
     first = h.delivery_cycle("b", "s", rt)
     assert details(h, first) == {}
     assert sql(h, "SELECT kind FROM bridge_evidence WHERE delivery_id=? ORDER BY seq", (first.delivery_id,)) == [
-        (kind,) for kind in ("attempt_created", "about_to_invoke", "started", "terminal", "response_appended", "offset_acked")]
+        (kind,) for kind in ("attempt_created", "about_to_invoke", "started", "session_call", "terminal", "session_telemetry", "response_appended", "offset_acked")]
     m = h.current_mapping("b", "s")
     assert all(m[key] is None for key in ("vendor_session_id", "context_watermark", "bootstrap_truncated", "usage_json"))
     add(h, "second")
@@ -346,6 +351,10 @@ def test_old_native_mapping_upgrade_invalidates_unproven_context_without_replayi
     # CLI capability was poisoned; a custom runtime's stored capability must stay false.
     # Simulate the pre-PR1 schema and response-position watermark.
     with h.cs.transaction() as conn:
+        # The old single slot retained LOST mappings; reconstruct it after PR2 pointer deletion.
+        conn.execute("INSERT OR IGNORE INTO bridge_sessions SELECT stream_id,peer_id,session_handle,session_generation,last_seen "
+                     "FROM bridge_session_history WHERE session_handle=?", (first.session["handle"],))
+        downgrade_registry(conn)
         conn.execute("ALTER TABLE bridge_sessions DROP COLUMN context_watermark_version")
         conn.execute("UPDATE bridge_sessions SET resumable=0, vendor_session_id='old-native', context_watermark=99")
     records = sql(h, "SELECT * FROM records ORDER BY position")
@@ -383,6 +392,7 @@ def test_upgrade_preserves_custom_local_capability_and_resolution(tmp_path, resu
     rt = FakeRuntimeTarget(resumable=resumable)
     first = h.delivery_cycle("b", "s", rt)
     with h.cs.transaction() as conn:
+        downgrade_registry(conn)
         conn.execute("ALTER TABLE bridge_sessions DROP COLUMN context_watermark_version")
     h.reopen()
     assert h.current_mapping("b", "s")["resumable"] == int(resumable)
@@ -403,6 +413,7 @@ def test_upgrade_reconstructs_only_exact_consumed_prompt_evidence(tmp_path, kind
     rt.runtime_kind = kind
     first = h.delivery_cycle("b", "s", rt)
     with h.cs.transaction() as conn:
+        downgrade_registry(conn)
         conn.execute("ALTER TABLE bridge_sessions DROP COLUMN context_watermark_version")
         conn.execute("UPDATE bridge_sessions SET resumable=0, context_watermark=(SELECT position FROM records WHERE record_id=?)",
                      (first.response_record_id,))
@@ -428,12 +439,13 @@ def test_upgrade_rejects_a_chain_that_skipped_intervening_context(tmp_path):
     first = h.delivery_cycle("b", "s", rt)
     # Simulate the old response-position watermark skipping the concurrent record.
     with h.cs.transaction() as conn:
-        conn.execute("UPDATE bridge_sessions SET context_watermark=(SELECT position FROM records WHERE record_id=?)",
+        conn.execute("UPDATE bridge_session_history SET context_watermark=(SELECT position FROM records WHERE record_id=?)",
                      (first.response_record_id,))
     add(h, "next")
     h.delivery_cycle("b", "s", rt)
     assert rt.catch_ups[-1] == []
     with h.cs.transaction() as conn:
+        downgrade_registry(conn)
         conn.execute("ALTER TABLE bridge_sessions DROP COLUMN context_watermark_version")
     h.reopen()
     assert h.current_mapping("b", "s")["state"] == "LOST"

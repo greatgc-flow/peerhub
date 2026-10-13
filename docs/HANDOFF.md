@@ -10,12 +10,16 @@ live gates, publication, and clean-venv smoke remain for cc under the
 
 The [current status and remaining queue](STATUS.md#remaining-work) tracks
 stuck PRs 4-6, monitoring v2 PRs 1-7, audit WP-B/C/D/E, and session reuse.
-Session PR1 is implemented in the uncommitted worktree (2026-10-14; tests written,
-pytest not run): ordinary asks reuse the compatible current slot, with safe
-prompt watermarks and conservative legacy invalidation. The
+Session PR1 is committed at `eec2cba4`. PR2 is implemented in the uncommitted
+worktree (2026-10-14; 25 focused tests and Pyright pass locally): compatible retained
+history, monotonic handles/generations, original-result replay and atomic
+receipt/counter writers. The
 [canonical sequence](design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence)
-owns remaining registry, addressing and monitoring work; selectors and session
+owns remaining addressing, inspection/telemetry and monitoring work; selectors and session
 inspection are not available yet.
+
+See the [PR2 scope review and validation](implementation/PR2_SESSION_REUSE_VALIDATION.md)
+for coverage, remaining checks and local results.
 
 ## 1. Collaboration practice (owner's preferences)
 

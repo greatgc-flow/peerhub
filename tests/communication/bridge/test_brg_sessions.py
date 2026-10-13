@@ -16,7 +16,7 @@ def _add(h, key, stream="s", author="a"):
 
 def _session_rows(h):
     return sql(h, "SELECT peer_id, stream_id, runtime_kind, external_session_id, session_generation, adapter_fingerprint, binding, "
-                  "resumable, state, last_seen FROM bridge_sessions ORDER BY 1,2")
+                  "resumable, state, last_seen FROM bridge_session_history WHERE session_handle IN (SELECT session_handle FROM bridge_sessions) ORDER BY 1,2")
 
 
 def _events(h, peer="b", stream="s"):

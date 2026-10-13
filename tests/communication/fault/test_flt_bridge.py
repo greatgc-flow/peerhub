@@ -121,7 +121,11 @@ def test_flt_005_crash_after_terminal_evidence_before_offset_ack_resumes_without
     (rec,) = bseed(h)
     assert crash(ws, point) == CRASH_EXIT
     (row,) = delivery_rows(h, rec.record_id)
-    assert row[7] == TERM and row[16] == 0 and json.loads(row[12]) == {"response": "R"}  # terminal evidence durable, not acked
+    assert row[7] == TERM and row[16] == 0  # terminal evidence durable, not acked
+    terminal = json.loads(row[12])
+    assert terminal["response"] == "R" and terminal["error"] is None
+    assert terminal["session"] == json.loads(sql(h, "SELECT session_snapshot_json FROM bridge_deliveries WHERE delivery_id=?", (row[0],))[0][0])
+    assert terminal["session"]["handle"] == sql(h, "SELECT session_handle FROM bridge_session_history WHERE session_generation=1")[0][0]
     assert len(responses(h)) == resp_rows and offset_row(h) == ack
     out = restart_cycles(ws, max_cycles=1)  # restart: recognises the terminal truth
     assert out["statuses"] == ["recovered_terminal"]

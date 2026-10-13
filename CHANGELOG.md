@@ -8,7 +8,26 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- **Session reuse PR2:** retained session history with opaque handles, monotonic
+  generations and an MRU pointer. Default asks choose the latest compatible
+  retained session, including an older binding that becomes compatible again.
+  Retention caps each peer/Stream at 20 non-tombstoned sessions and expires
+  sessions after more than 30 days of inactivity; audit tombstones remain.
+- Fenced, exactly-once STARTED call receipts and terminal telemetry receipts
+  update monitoring counters atomically. Unprovable legacy totals remain null;
+  billing usage does not become context occupancy.
+
 ### Changed
+
+- **Breaking — PR2 ask output:** JSON always carries nullable `session` and
+  `error`; text output ends with one session trailer after allocation. Scoped
+  request-id replay returns the original durable handle/mode/reason/telemetry
+  snapshot without session lookup or provider execution. Selector-less historical
+  asks remain inspectable but have no replay shim; proven unstarted legacy
+  prompts are consumed with `legacy_selector_unsupported`, and uncertain work
+  remains blocked. Registry/receipt migration is atomic and idempotent.
 
 - **Breaking — session reuse PR1:** removed PeerHub `ask --resume`, the Python
   `ask(resume=...)` keyword and runtime caller preference, without an alias.

@@ -77,7 +77,9 @@ def test_t1_bridge_roundtrip_is_terminal_with_durable_response(tmp_path, mk, kin
     assert res.status == "delivered" and res.certainty == "TERMINAL"
     (resp,) = responses(h)
     assert json.loads(resp[4]) == {"response": "OK"} or json.loads(resp[4]) == "OK"
-    assert kinds(h, delivery_rows(h, r.record_id)[-1][0])[-3:] == ["terminal", "response_appended", "offset_acked"]
+    receipts = kinds(h, delivery_rows(h, r.record_id)[-1][0])
+    assert receipts[-4:] == ["terminal", "session_telemetry", "response_appended", "offset_acked"]
+    assert receipts.count("session_call") == receipts.count("session_telemetry") == 1
     assert offset_row(h)[0] == r.position
 
 

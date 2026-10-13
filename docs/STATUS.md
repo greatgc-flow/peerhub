@@ -12,9 +12,10 @@ requests. [CHANGELOG](../CHANGELOG.md) owns the user-facing release notes.
 Eligible pre-work refusals settle as `NOT_EXECUTED` while preserving `STARTED`
 certainty. Timeouts and failures with possible effects remain guarded; neither
 automatic timeout settlement nor `stream resolve` ships in this candidate.
-Uncommitted session PR1 work (2026-10-14; tests written, pytest not run) removes
-caller resume preference and enables compatible current-slot reuse with safe
-prompt watermarks. Retained selectors and inspection are not available yet.
+Session PR1 is committed at `eec2cba4`. Uncommitted PR2 work (2026-10-14;
+25 focused tests and Pyright pass locally) adds retained history, safe
+compatible selection, durable snapshots and receipt/counter writers. Retained
+selectors and inspection are not available yet.
 
 0.15.2 is the previous published release; 0.15.1 was never published. Historical
 live evidence applies only to its recorded revision. Candidate-matched CI,
@@ -28,7 +29,7 @@ smoke remain pending under [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 | Stuck streams | PRs 1-3 complete. PR 4: quota pre-flight; PR 5: enforced-policy metadata + automatic settlement; PR 6: audited `stream resolve` + historical recovery. | [Recovery plan](design/plan-stuck-streams-2026-10-12.md#8-pr-order-files-and-acceptance) |
 | Monitoring v2 | PRs 1-7 pending: color/escape rules; shared snapshot/policy reader + alerts/exit codes; monotonic cadence; pace balance + `diag --line`; `monitor --read-only` + interface removals; JSON export allowlist; docs/release. Original 0.16.0 target superseded; release version unassigned. | [Monitoring plan](design/plan-monitoring-v2-2026-10-12.md#13-implementation-steps-release-version-pending) |
 | Audit | WP-A complete (#91). WP-B: CLI learnability; WP-C: TOML provider IDs/config SSOT + remove `./peerhub` lookup; WP-D: cancellation certainty + warn-only resolver (partially addressed by #95); WP-E: live/test hygiene remain open. Diagnostic Agy model-catalog drift detection also remains open. | [Audit and progress](design/audit-2026-10-12.md) |
-| Session reuse | PR1 implemented in the uncommitted worktree; validation pending. Remaining canonical PRs cover registry/writers, addressing, inspection and views. Retained selectors remain proposed; release version unassigned. | [Canonical session sequence](design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence) |
+| Session reuse | PR1 committed (`eec2cba4`); PR2 implemented in the uncommitted worktree, focused tests and typing pass locally. Broader checks are tracked in the [PR2 review](implementation/PR2_SESSION_REUSE_VALIDATION.md). Remaining canonical PRs cover addressing, inspection/telemetry and views. Retained selectors remain proposed; release version unassigned. | [Canonical session sequence](design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence) |
 
 Operational lessons and coordinator handoff: [HANDOFF](HANDOFF.md).
 

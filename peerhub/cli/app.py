@@ -16,7 +16,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from pydantic import BaseModel
 
 from peerhub._console import tolerant_streams
@@ -104,7 +104,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     o_adv.add_argument("--revision", required=True, type=int, dest="expected_revision")
 
     ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge",
-                                     description="Reuse the compatible current session of this peer/stream; otherwise start fresh with bounded catch-up.")
+                                     description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Results include a session handle and mode.")
     ask_parser.add_argument("peer", help="Peer ID (built-ins: cx/codex, cc/claude, ag/agy)")
     ask_parser.add_argument("prompt", nargs="?")
     ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
@@ -170,6 +170,14 @@ def _dump(model: BaseModel) -> str:
 
 
 
+def _session_trailer(session: dict[str, Any]) -> str:
+    suffix = ""
+    if session["mode"] == "fresh":
+        fallback = " fallback" if session.get("prior_handle") and session["reason"] not in ("no_prior", "explicit_fresh") else ""
+        suffix = f"{fallback} reason={session['reason']}"
+    return f"session: {session['handle']} {session['mode']} gen{session['generation']}{suffix}"
+
+
 def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv: list[str] | None) -> int:
     from peerhub.extensions.ask import ask
     if (args.prompt is None) == (args.query_file is None):
@@ -182,20 +190,28 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
     if args.workspace and not explicit_db:
         args.db = _resolve_db_path(DEFAULT_DB_PATH, workspace_root=Path(args.workspace))
     has_streamed = False
+    output_has_newline = False
     def show_output(text: str) -> None:
-        nonlocal has_streamed
+        nonlocal has_streamed, output_has_newline
         has_streamed = True
+        output_has_newline = text.endswith("\n")
         print(text, end="", flush=True)
-    result = ask(args.db, args.peer, prompt, stream_id=args.stream_id, request_id=args.request_id,
-                 author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
-                 profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
-                 timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
-                 on_output=None if args.json else show_output)
+    try:
+        result = ask(args.db, args.peer, prompt, stream_id=args.stream_id, request_id=args.request_id,
+                     author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
+                     profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
+                     timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
+                     on_output=None if args.json else show_output)
+    except Exception:
+        if has_streamed and not args.json and not output_has_newline:
+            print()
+        raise
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:
         if has_streamed and not result.get("display_truncated"):
-            print()
+            if not output_has_newline:
+                print()
         else:
             if has_streamed:
                 print()
@@ -215,6 +231,15 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         print(f"Task outcome: NOT_EXECUTED (provider refusal: {reason_str}{reset_suffix}; no tool execution observed)", file=sys.stderr)
     else:
         print(json.dumps(result, ensure_ascii=True), file=sys.stderr)
+    session = result.get("session")
+    if not args.json and isinstance(session, dict):
+        session = cast("dict[str, Any]", session)
+        if has_streamed and not output_has_newline and result["status"] not in ("delivered", "recovered_terminal"):
+            print()
+        print(_session_trailer(session))
+    error: dict[str, Any] | None = result.get("error")
+    if error is not None and error.get("code") == "legacy_selector_unsupported":
+        return 2
     return 0 if result["status"] in ("delivered", "recovered_terminal") else 1
 
 
@@ -413,8 +438,22 @@ def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
 def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     tolerant_streams()
     parser = build_parser(prog=prog)
-    args = parser.parse_args(argv)
     actual = sys.argv[1:] if argv is None else argv
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        if exc.code == 2 and "ask" in actual and "--json" in actual:
+            print(json.dumps(dict(status="error", response=None, session=None,
+                                  error=dict(code="invalid_arguments", message="Invalid ask arguments."))))
+            return 2
+        raise
+    def error_output(code: str, message: str, session: dict[str, Any] | None = None) -> None:
+        if args.subcommand == "ask" and args.json:
+            print(json.dumps(dict(status="error", response=None, session=session, error=dict(code=code, message=message)), ensure_ascii=True))
+        else:
+            print(message, file=sys.stderr)
+            if args.subcommand == "ask" and session is not None:
+                print(_session_trailer(session))
     explicit_db = any(a == "--db" or a.startswith("--db=") for a in actual)
     try:
         if hasattr(args, "db") and args.db:
@@ -432,19 +471,27 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         return _run_core_cli(args, store)
 
     except (StorageReadOnlyError, StorageFullError, StorageCorruptError) as e:
-        print(f"STORAGE ERROR ({type(e).__name__}): {e}", file=sys.stderr)
+        error_output("storage_corrupt", f"STORAGE ERROR ({type(e).__name__}): {e}", getattr(e, "session", None))
         return 4
     except SchemaVersionError as e:
-        print(f"SCHEMA VERSION ERROR: {e}", file=sys.stderr)
+        error_output("schema_version_error", f"SCHEMA VERSION ERROR: {e}")
         return 6
     except IdempotencyConflictError as e:
-        print(f"CONFLICT ERROR: {e}", file=sys.stderr)
+        error_output("idempotency_conflict", f"CONFLICT ERROR: {e}")
         return 2
     except CasMismatchError as e:
-        print(f"CAS ERROR: {e}", file=sys.stderr)
+        error_output("cas_conflict", f"CAS ERROR: {e}")
         return 3
+    except ValueError as e:
+        error_output(getattr(e, "code", "invalid_arguments"), f"ERROR: {e}")
+        return 2 if args.subcommand == "ask" else 1
+    except SystemExit as e:
+        if args.subcommand == "ask" and args.json and e.code == 2:
+            error_output("invalid_arguments", "Invalid ask arguments.")
+            return 2
+        raise
     except Exception as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+        error_output("delivery_failed", f"ERROR: {e}", getattr(e, "session", None))
         return 1
 
 

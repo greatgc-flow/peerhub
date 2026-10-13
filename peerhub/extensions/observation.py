@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS observations (
 );
 CREATE INDEX IF NOT EXISTS idx_obs_subject_kind ON observations(subject_ref, kind, effective_at_us, capture_seq);
 CREATE INDEX IF NOT EXISTS idx_obs_pool ON observations(resource_pool_ref, capture_seq);
+CREATE INDEX IF NOT EXISTS idx_obs_session_quota ON observations(subject_ref,kind,resource_pool_ref,effective_at_us DESC,capture_seq DESC);
 """
 _TRIGGERS = (
     "CREATE TRIGGER observations_no_update BEFORE UPDATE ON observations BEGIN SELECT RAISE(ABORT, 'observations are immutable evidence'); END",

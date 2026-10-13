@@ -6,14 +6,14 @@ Two different things are reported separately (ACCEPTANCE_DOD, LIVE-004):
 
 | Capability | cc (claude) | cx (codex) | ag (agy) | M1 adapter status |
 |---|---|---|---|---|
-| deliver (compatible current-slot reuse, otherwise fresh) | yes | yes | yes | supported |
-| resume | CLI `--resume` observed | CLI `resume` observed | CLI `--conversation` observed | **supported** by default when the current native session is compatible |
+| deliver (compatible retained-history reuse, otherwise fresh) | yes | yes | yes | supported |
+| resume | CLI `--resume` observed | CLI `resume` observed | CLI `--conversation` observed | **supported** by default when the a retained native session is compatible |
 | interrupt | vendor-dependent | vendor-dependent | vendor-dependent | **unsupported** |
 | terminate | local process tree | local process tree | local process tree | **supported** (active local delivery only; observed exit required) |
 | steer | vendor-dependent | vendor-dependent | vendor-dependent | **unsupported** |
 
 Rules in M1:
-- Native resume is an adapter capability for cc, cx, and ag; ordinary asks reuse the compatible current slot. A separate task uses a dedicated stream. The Bridge persists vendor session ids per peer/Stream and checks the runtime binding and workspace generation.
+- Native resume is an adapter capability for cc, cx, and ag; ordinary asks reuse the latest compatible retained session. A separate task uses a dedicated stream. The Bridge persists vendor session ids per peer/Stream and checks the runtime binding and workspace generation.
 - Missing native sessions, changed bindings, rejected resume, oversized deltas, or tainted generations fall back to a fresh session generation plus bounded Stream catch-up (TD-12). `ask --json` exposes the effective mode, fallback reason, and injected Record ids when delivery details are available.
 - Control intent is committed before any runtime effect. Pause/redirect retain unsupported interrupt/steer outcomes.
 - Cancel invokes terminate for the persisted target: a thread-safe registry maps external_session_id to the active local BoundedProcess.
@@ -30,4 +30,4 @@ cancel without a local process, running CLI cancel with uncertain delivery and n
 `tests/communication/adapters/test_native_terminate.py` (real child/grandchild tree, cross-thread termination, failed kill/exit observation).
 
 ## M1 Spec Alignment (2026-10-09)
-CLI adapters support native terminate for active local deliveries: control.cancel kills the process tree and waits for observed exit. Native resume is supported for cc, cx, and ag by default for compatible current-slot asks; interrupt and steer remain unsupported (peerhub/extensions/adapters/base.py). Bridge control intents are capability-gated (peerhub/extensions/bridge.py). Cancelled deliveries remain uncertain and cannot auto-replay; a missing local process raises RuntimeTargetError("nothing running"), recorded as failed when durable delivery evidence still identifies a target. Bridge targets already known to be absent or stale retain nothing_running/stale_target outcomes. Durable fresh-session catch-up provides continuity but does not itself stop a provider invocation.
+CLI adapters support native terminate for active local deliveries: control.cancel kills the process tree and waits for observed exit. Native resume is supported for cc, cx, and ag by default for compatible retained-history asks; interrupt and steer remain unsupported (peerhub/extensions/adapters/base.py). Bridge control intents are capability-gated (peerhub/extensions/bridge.py). Cancelled deliveries remain uncertain and cannot auto-replay; a missing local process raises RuntimeTargetError("nothing running"), recorded as failed when durable delivery evidence still identifies a target. Bridge targets already known to be absent or stale retain nothing_running/stale_target outcomes. Durable fresh-session catch-up provides continuity but does not itself stop a provider invocation.

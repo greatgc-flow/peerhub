@@ -35,7 +35,7 @@ def test_brg_006_response_record_commits_before_offset_ack(tmp_path):
     res = h.delivery_cycle("b", "s", rt)
     assert res.status == "delivered" and res.certainty == "TERMINAL"
     did = _delivery_id(h, rec)
-    assert kinds(h, did) == ["attempt_created", "about_to_invoke", "started", "terminal", "response_appended", "offset_acked"]  # event-log order
+    assert kinds(h, did) == ["attempt_created", "about_to_invoke", "started", "session_call", "terminal", "session_telemetry", "response_appended", "offset_acked"]  # event-log order
     assert seen["resp_at_ack"] == [1]  # the response Record was already durable when the ack began
     (resp,) = responses(h)
     assert resp[2:4] == ("b", "response") and json.loads(resp[4]) == "pong" and resp[5] == rec.record_id
@@ -65,8 +65,8 @@ def test_brg_007_execution_evidence_records_certainty_and_runtime_ids(bridge_h):
         ("TERMINAL", "exec-9", "ext-1", 1, 1)
     # independent oracle: the scripted lifecycle NOT_STARTED -> STARTED -> TERMINAL, in order
     assert [(e["kind"], e["certainty"]) for e in ev["events"]] == [
-        ("attempt_created", "NOT_STARTED"), ("about_to_invoke", "NOT_STARTED"), ("started", "STARTED"), ("output", "STARTED"), ("output", "STARTED"),
-        ("terminal", "TERMINAL"), ("response_appended", "TERMINAL"), ("offset_acked", "TERMINAL")]
+        ("attempt_created", "NOT_STARTED"), ("about_to_invoke", "NOT_STARTED"), ("started", "STARTED"), ("session_call", "STARTED"), ("output", "STARTED"), ("output", "STARTED"),
+        ("terminal", "TERMINAL"), ("session_telemetry", "TERMINAL"), ("response_appended", "TERMINAL"), ("offset_acked", "TERMINAL")]
     started = [e for e in ev["events"] if e["kind"] == "started"][0]["detail"]
     assert started == {"execution_id": "exec-9", "external_session_id": "ext-1", "session_generation": 1}
     assert [e["detail"]["chunk"] for e in ev["events"] if e["kind"] == "output"] == ["par", "tial"]
@@ -130,7 +130,7 @@ def test_brg_013_partial_output_then_crash_fabricates_no_terminal(tmp_path):
     with pytest.raises(CrashInjected):
         h.delivery_cycle("b", "s", rt)
     did = _delivery_id(h, rec)
-    assert kinds(h, did) == ["attempt_created", "about_to_invoke", "started", "output"]  # start + first partial persisted, nothing after the crash
+    assert kinds(h, did) == ["attempt_created", "about_to_invoke", "started", "session_call", "output"]  # start + first partial persisted, nothing after the crash
     assert [r[3] for r in records(h)] == ["message"] and offset_row(h) == (0, 1)  # no terminal response Record
     assert delivery_rows(h, rec.record_id)[0][7] == "STARTED"
     h2 = BridgeHarness(tmp_path / "ws", h.clock)  # recovery
@@ -260,7 +260,8 @@ def test_brg_019_concurrent_conflicting_terminals_exactly_one_wins(bridge_h):
         losses = [o for o in out if isinstance(o, Exception)]
         assert len(wins) == 1 and len(losses) == 1 and isinstance(losses[0], TerminalConflictError), out
         win_val = wins[0][0]
-        assert json.loads(delivery_rows(bridge_h, rec[0])[0][12]) == {"response": win_val}  # result_json
+        assert json.loads(delivery_rows(bridge_h, rec[0])[0][12]) == {"response": win_val, "error": None,
+            "session": json.loads(sql(bridge_h, "SELECT session_snapshot_json FROM bridge_deliveries WHERE record_id=?", (rec[0],))[0][0])}  # complete immutable result
         assert [json.loads(r[4]) for r in responses(bridge_h, st)] == [win_val]
         assert offset_row(bridge_h, "b", st) == (rec[1], 2)
 
