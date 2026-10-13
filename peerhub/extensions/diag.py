@@ -114,6 +114,10 @@ class ReadonlyDiag:
 
     @staticmethod
     def _streams(conn: sqlite3.Connection, _us: int) -> Section:
+        import json
+        has_bridge_evidence = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bridge_evidence'"
+        ).fetchone() is not None
         out: list[dict[str, Any]] = []
         for s in conn.execute("SELECT stream_id, title, state, revision FROM streams ORDER BY stream_id").fetchall():
             sid = s[0]
@@ -122,8 +126,30 @@ class ReadonlyDiag:
             members = [r[0] for r in conn.execute("SELECT peer_id FROM stream_members WHERE stream_id = ? ORDER BY peer_id", (sid,)).fetchall()]
             offsets = {r[0]: r[1] for r in conn.execute(
                 "SELECT peer_id, read_through_position FROM offsets WHERE stream_id = ? ORDER BY peer_id", (sid,)).fetchall()}
-            out.append({"stream_id": sid, "title": s[1], "state": s[2], "revision": s[3], "head_position": head,
-                        "record_count": count, "members": members, "offsets": offsets})
+            stream_info: dict[str, Any] = {"stream_id": sid, "title": s[1], "state": s[2], "revision": s[3], "head_position": head,
+                        "record_count": count, "members": members, "offsets": offsets}
+            if has_bridge_evidence:
+                refusal_row = conn.execute(
+                    "SELECT detail FROM bridge_evidence WHERE stream_id = ? AND kind = 'refusal_detected' ORDER BY seq DESC LIMIT 1",
+                    (sid,)
+                ).fetchone()
+                if refusal_row:
+                    try:
+                        ref_detail = json.loads(refusal_row[0])
+                        ref_info: dict[str, Any] = {
+                            "reason": ref_detail.get("reason"),
+                            "task_outcome": ref_detail.get("task_outcome", "NOT_EXECUTED"),
+                        }
+                        if "reset_time" in ref_detail:
+                            ref_info["reset_time"] = ref_detail["reset_time"]
+                        elif "resets_at" in ref_detail:
+                            ref_info["reset_time"] = ref_detail["resets_at"]
+                        if "message" in ref_detail:
+                            ref_info["message"] = ref_detail["message"]
+                        stream_info["last_refusal"] = ref_info
+                    except (ValueError, TypeError):
+                        pass
+            out.append(stream_info)
         return Section("streams", "OK", {"streams": out})
 
     @staticmethod

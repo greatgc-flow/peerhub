@@ -133,7 +133,7 @@ class SteerableTarget(Protocol):
 
 @dataclass
 class CycleResult:
-    status: str  # idle|delivered|recovered_terminal|failed_not_started|uncertain|blocked_uncertain|session_unavailable|fenced|paused|cancelled
+    status: str  # idle|delivered|recovered_terminal|not_executed|failed_not_started|uncertain|blocked_uncertain|session_unavailable|fenced|paused|cancelled
     record_id: str | None = None
     delivery_id: str | None = None
     certainty: str | None = None
@@ -795,7 +795,7 @@ class Bridge:
         except OffsetAckConflictError as e:  # never report delivered/acked; terminal truth stays, next cycle re-acks
             infl = self._inflight(token)
             return CycleResult("ack_failed", infl["record_id"] if infl else None, infl["delivery_id"] if infl else None,
-                               TERMINAL, detail={"error": str(e)})
+                               infl["certainty"] if infl else None, detail={"error": str(e)})
 
     def _run_cycle(self, token: ClaimToken, runtime: RuntimeTarget) -> CycleResult:
         peer, stream = token.peer_id, token.stream_id
@@ -808,6 +808,9 @@ class Bridge:
             if infl["certainty"] == TERMINAL:  # BRG-015: recognize persisted terminal truth; never re-run the runtime
                 rid = self._materialize(token, infl["delivery_id"])
                 return CycleResult("recovered_terminal", rec.record_id, infl["delivery_id"], TERMINAL, rid)
+            refusal_detail = self.delivery_details(infl["delivery_id"])
+            if infl["certainty"] == STARTED and refusal_detail.get("task_outcome") == "NOT_EXECUTED":
+                return self._settle_refusal(token, rec, infl["delivery_id"], infl["session_generation"], refusal_detail)
             if infl["certainty"] in (STARTED, MAY_HAVE_STARTED):
                 self._mark_lost(token, "tainted")
             st = self.control_state(peer, stream)
@@ -882,6 +885,8 @@ class Bridge:
         started = False
         terminal: Any = None
         have_terminal = False
+        have_refusal = False
+        refusal_payload: dict[str, Any] | None = None
         last_termination_confirmed: bool | None = None
         # D-OWN-A4/TD-11: durable invocation marker BEFORE the runtime can possibly act; certainty stays NOT_STARTED while pending,
         # an unresolved marker after a crash is promoted to MAY_HAVE_STARTED by recovery (never re-invoked)
@@ -919,6 +924,13 @@ class Bridge:
                     if started:
                         have_terminal, terminal = True, ev[1]
                     break
+                elif kind == "refusal":
+                    refusal_payload = cast("dict[str, Any]", ev[1]) if len(ev) > 1 and isinstance(ev[1], dict) else {}
+                    if (not started or refusal_payload.get("outcome") != "NOT_EXECUTED"
+                            or refusal_payload.get("reason") not in ("quota_exhausted", "usage_limit", "invalid_model", "auth_failure")):
+                        raise RuntimeTargetError("invalid provider refusal evidence")
+                    have_refusal = True
+                    break
                 else:  # timeout / disconnect / error: evidence only, certainty by durable start evidence
                     term_conf = ev[2] if len(ev) > 2 and (isinstance(ev[2], bool) or ev[2] is None) else None
                     if term_conf is not None:
@@ -955,6 +967,24 @@ class Bridge:
             self._note(token, did, "runtime_error", STARTED, **detail)
             self._mark_lost(token, "tainted")
             return CycleResult("uncertain", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
+        if have_refusal and refusal_payload is not None:
+            reason = refusal_payload["reason"]
+            reset_time = refusal_payload.get("reset_time")
+            term_conf = refusal_payload.get("termination_confirmed")
+            detail = {
+                "task_outcome": "NOT_EXECUTED",
+                "reason": reason,
+                "refusal_reason": reason,
+                "message": refusal_payload.get("message", ""),
+            }
+            if reset_time is not None:
+                detail["reset_time"] = reset_time
+                detail["resets_at"] = reset_time
+            if term_conf is not None:
+                detail["termination_confirmed"] = term_conf
+            self._note(token, did, "refusal_detected", STARTED, **detail)
+            self._fire("bridge.after_refusal_evidence")
+            return self._settle_refusal(token, rec, did, gen, detail)
         if have_terminal:
             mode = getattr(catch_up, "boundary", {}).get("mode")
             provenance = dict(effective_mode="resumed" if mode == "resumed" else "fresh",
@@ -1097,7 +1127,23 @@ class Bridge:
                         out["output_truncated"] = data["output_truncated"]
                     if "display_truncated" in data:
                         out["display_truncated"] = data["display_truncated"]
+                elif kind == "refusal_detected":
+                    for key in ("task_outcome", "reason", "refusal_reason", "reset_time", "resets_at", "message", "termination_confirmed"):
+                        if key in data:
+                            out[key] = data[key]
         return out
+
+    def _settle_refusal(self, token: ClaimToken, rec: Record, did: str, gen: int,
+                        detail: dict[str, Any]) -> CycleResult:
+        # Durable refusal evidence authorizes recovery at each boundary. Keep the
+        # delivery in flight until both session invalidation and offset commit.
+        self._mark_lost(token, "refused")
+        self._advance_to(token, rec.position)
+        self._fire("bridge.after_refusal_offset_before_ack")
+        with self.claims.fenced(token) as conn:
+            if conn.execute("UPDATE bridge_deliveries SET acked=1 WHERE delivery_id=? AND acked=0", (did,)).rowcount:
+                self._evidence(conn, token.stream_id, token.peer_id, "offset_acked", did, STARTED, position=rec.position)
+        return CycleResult("not_executed", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
 
     def _materialize(self, token: ClaimToken, did: str) -> str:
         """Idempotent: append the response Record (fenced, idempotency key), then ack the Offset; each step safe to repeat."""

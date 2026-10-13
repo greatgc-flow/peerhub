@@ -201,6 +201,19 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
             if has_streamed:
                 print()
             print(result["response"])
+    elif result["status"] == "not_executed":
+        reason = result.get("reason", "refusal")
+        if reason in ("quota_exhausted", "usage_limit"):
+            reason_str = "usage limit / quota exhausted"
+        elif reason == "invalid_model":
+            reason_str = "invalid model selection"
+        elif reason == "auth_failure":
+            reason_str = "authentication failure"
+        else:
+            reason_str = reason.replace("_", " ")
+        reset_time = result.get("reset_time") or result.get("resets_at")
+        reset_suffix = f"; reset: {reset_time}" if reset_time else ""
+        print(f"Task outcome: NOT_EXECUTED (provider refusal: {reason_str}{reset_suffix}; no tool execution observed)", file=sys.stderr)
     else:
         print(json.dumps(result, ensure_ascii=True), file=sys.stderr)
     return 0 if result["status"] in ("delivered", "recovered_terminal") else 1
