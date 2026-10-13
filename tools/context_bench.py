@@ -193,7 +193,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not 1 <= args.turns <= 259 or not 0 <= args.gap_seconds < float("inf"):
         parser.error("turns must be 1..259 and gap-seconds must be finite and nonnegative")
-    args.model = args.model or {"cc": "claude-haiku-4-5-20251001", "cx": "gpt-6-luna",
+    args.model = args.model or {"cc": "claude-haiku-5-5", "cx": "gpt-6-luna",
                                "ag": "gemini-3.8-flash-low"}[args.peer]
     # Keep ag's default document near 100 lines; larger turn counts still get unique questions.
     document, questions = workload(args.turns, max(100, args.turns) if args.peer == "ag" else 259)
