@@ -182,9 +182,10 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
     explicit_db = any(a == "--db" or a.startswith("--db=") for a in actual) or "PEERHUB_DB" in os.environ
     if args.workspace and not explicit_db:
         args.db = _resolve_db_path(DEFAULT_DB_PATH, workspace_root=Path(args.workspace))
-    streamed: list[str] = []
+    has_streamed = False
     def show_output(text: str) -> None:
-        streamed.append(text)
+        nonlocal has_streamed
+        has_streamed = True
         print(text, end="", flush=True)
     result = ask(args.db, args.peer, prompt, stream_id=args.stream_id, request_id=args.request_id,
                  author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
@@ -194,9 +195,11 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:
-        if streamed:
+        if has_streamed and not result.get("display_truncated"):
             print()
         else:
+            if has_streamed:
+                print()
             print(result["response"])
     else:
         print(json.dumps(result, ensure_ascii=True), file=sys.stderr)

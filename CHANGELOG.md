@@ -10,6 +10,18 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- **Adapters / Process — Output Cap Drain-and-Truncate & Bounded Event Parser (PR 2):**
+  `BoundedProcess._pump()` and `wait()` no longer kill the process tree when output exceeds
+  the configured `max_bytes` cap, eliminating presentation-bound execution uncertainty.
+  Both stdout and stderr pipes are continuously drained to process exit (EOF) while preserving
+  at most `max_bytes` in memory via a documented head + tail retention policy (first `max_bytes // 2`
+  bytes and last `max_bytes - max_bytes // 2` bytes preserved; middle discarded). `ProcessResult`
+  carries `output_truncated: bool`. Incremental line-by-line parsing (`IncrementalEventParser`)
+  captures completion, refusal, and usage JSONL events beyond the retained window. Individual event
+  lines exceeding 256KB are bounded, marked oversized, and safely rejected as completion evidence.
+  `output_truncated: True` flows into durable bridge evidence (`terminal`, `exited`) and response record
+  metadata. Total `timeout_s` and `silence_timeout_s` deadlines remain the sole wall-clock bounds.
+
 - **Bridge / Runtime — Process-tree termination confirmation (PR 1):** `ProcessResult`
   carries `termination_confirmed: bool | None` (`None` = not attempted; `True` = OS-level
   whole-tree termination confirmed; `False` = unconfirmed). Captured through `BoundedProcess`

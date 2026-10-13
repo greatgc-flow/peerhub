@@ -103,41 +103,54 @@ def test_failed_taskkill_injected_termination_unconfirmed(tmp_path, bridge_h, mo
     # Inject failure into kill_process_tree
     monkeypatch.setattr(proc_module, "kill_process_tree", lambda p: False)
 
-    # 1. BoundedProcess direct assertion
-    proc = BoundedProcess(
-        [PY, "-c", "import time; time.sleep(30)"],
-        stdin=None,
-        cwd=str(tmp_path),
-        env={},
-        timeout_s=0.2,
-    ).start()
-    res = proc.wait()
-    assert res.timed_out is True
-    assert res.termination_confirmed is False
+    proc = None
+    target = None
+    try:
+        # 1. BoundedProcess direct assertion
+        proc = BoundedProcess(
+            [PY, "-c", "import time; time.sleep(30)"],
+            stdin=None,
+            cwd=str(tmp_path),
+            env={},
+            timeout_s=0.2,
+        ).start()
+        res = proc.wait()
+        assert res.timed_out is True
+        assert res.termination_confirmed is False
 
-    # 2. Bridge cycle assertion
-    ws = tmp_path / "ws_fail"
-    ws.mkdir()
-    target = CliRuntimeTarget(
-        "cc",
-        ws,
-        command=[PY, "-c", "import time; time.sleep(30)"],
-        timeout_s=0.2,
-    )
-    (rec,) = bseed(bridge_h, stream="s_fail")
-    result = bridge_h.delivery_cycle("b", "s_fail", target)
-    assert result.status == "uncertain"
-    assert result.certainty == "STARTED"
+        # 2. Bridge cycle assertion
+        ws = tmp_path / "ws_fail"
+        ws.mkdir()
+        target = CliRuntimeTarget(
+            "cc",
+            ws,
+            command=[PY, "-c", "import time; time.sleep(30)"],
+            timeout_s=0.2,
+        )
+        (rec,) = bseed(bridge_h, stream="s_fail")
+        result = bridge_h.delivery_cycle("b", "s_fail", target)
+        assert result.status == "uncertain"
+        assert result.certainty == "STARTED"
 
-    ev = bridge_h.execution_evidence(rec.record_id, "b")
-    events = ev["events"]
-    timeout_evs = [e for e in events if e["kind"] == "runtime_timeout"]
-    assert len(timeout_evs) == 1
-    assert timeout_evs[0]["detail"].get("termination_confirmed") is False
+        ev = bridge_h.execution_evidence(rec.record_id, "b")
+        events = ev["events"]
+        timeout_evs = [e for e in events if e["kind"] == "runtime_timeout"]
+        assert len(timeout_evs) == 1
+        assert timeout_evs[0]["detail"].get("termination_confirmed") is False
 
-    no_term_evs = [e for e in events if e["kind"] == "no_terminal"]
-    assert len(no_term_evs) == 1
-    assert no_term_evs[0]["detail"].get("termination_confirmed") is False
+        no_term_evs = [e for e in events if e["kind"] == "no_terminal"]
+        assert len(no_term_evs) == 1
+        assert no_term_evs[0]["detail"].get("termination_confirmed") is False
+    finally:
+        for p_to_kill in (getattr(proc, "_proc", None),):
+            if p_to_kill is not None and p_to_kill.poll() is None:
+                p_to_kill.kill()
+                p_to_kill.wait(timeout=1)
+        if target is not None:
+            for act in list(target._active.values()):
+                if act._proc is not None and act._proc.poll() is None:
+                    act._proc.kill()
+                    act._proc.wait(timeout=1)
 
 
 def test_dead_parent_with_surviving_child_unconfirmed(tmp_path, bridge_h):

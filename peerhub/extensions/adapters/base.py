@@ -103,6 +103,374 @@ def _json_lines(text: str) -> list[dict[str, Any]]:
     return out
 
 
+MAX_EVENT_BYTES = 262_144  # 256 KB
+
+
+class IncrementalEventParser:
+    """Bounded incremental JSONL event parser for adapter stdout draining.
+
+    Lines exceeding MAX_EVENT_BYTES are bounded, marked oversized, and discarded
+    so that truncated JSON prefixes are never accepted as completion evidence.
+    Tracks terminal completion, refusal, usage, and session candidates while draining.
+    Cumulative parser state is bounded by max_bytes; if exceeded, truncated is set.
+    """
+
+    def __init__(self, kind: str, max_bytes: int = DEFAULT_MAX_BYTES) -> None:
+        self.kind = kind
+        self.max_bytes = max_bytes
+        self.pending = bytearray()
+        self.line_oversized = False
+        self.oversized_count = 0
+        self.truncated = False
+        self.parser_failed = False
+
+        # cc state (bounded)
+        self.cc_results: deque[dict[str, Any]] = deque(maxlen=10)
+        self.cc_candidate_session_id: str | None = None
+        self._cc_observed_session_id: str | None = None
+        self._cc_session_id_conflict = False
+
+        # cx state (bounded)
+        self.cx_candidate_thread_id: str | None = None
+        self._cx_observed_thread_id: str | None = None
+        self._cx_thread_conflict = False
+        self._cx_agent_messages_head: list[str] = []
+        self._cx_agent_messages_tail: deque[str] = deque()
+        self._cx_head_bytes: int = 0
+        self._cx_tail_bytes: int = 0
+        self.cx_turn_completed: dict[str, Any] | None = None
+        self.cx_last_message_has_turn_completed = False
+        self.cx_errors: deque[str] = deque(maxlen=10)
+        self._cx_tail_started = False
+
+        # ag state (bounded)
+        self.ag_results: deque[dict[str, Any]] = deque(maxlen=10)
+        self.ag_errors: deque[str] = deque(maxlen=10)
+        self._ag_observed_conv_id: str | None = None
+        self._ag_conv_conflict = False
+        self._ag_saw_non_whitespace = False
+        self._ag_invalid_top_level = False
+        self._ag_raw_buf = bytearray()
+        self._ag_parsed = False
+
+    @property
+    def cx_agent_messages(self) -> list[str]:
+        return self._cx_agent_messages_head + list(self._cx_agent_messages_tail)
+
+    @property
+    def cc_session_ids(self) -> list[str]:
+        return [self.cc_candidate_session_id] if (self.cc_candidate_session_id and not self._cc_session_id_conflict) else []
+
+    @property
+    def cx_thread_ids(self) -> list[str]:
+        return [self.cx_candidate_thread_id] if (self.cx_candidate_thread_id and not self._cx_thread_conflict) else []
+
+    @property
+    def ag_invalid_top_level(self) -> bool:
+        return self._ag_invalid_top_level
+
+    def _add_cx_agent_message(self, text: str) -> None:
+        text_bytes = max(1, len(text.encode("utf-8", "replace")))
+        head_limit = max(0, self.max_bytes // 2)
+        tail_limit = max(0, self.max_bytes - head_limit)
+        if not self._cx_tail_started and self._cx_head_bytes + text_bytes <= head_limit:
+            self._cx_agent_messages_head.append(text)
+            self._cx_head_bytes += text_bytes
+        elif not self._cx_tail_started and not self._cx_agent_messages_head and head_limit > 0:
+            self._cx_agent_messages_head.append(text)
+            self._cx_head_bytes += text_bytes
+            if self._cx_head_bytes > head_limit:
+                self.truncated = True
+                self._cx_tail_started = True
+        else:
+            self.truncated = True
+            self._cx_tail_started = True
+            if tail_limit > 0:
+                self._cx_agent_messages_tail.append(text)
+                self._cx_tail_bytes += text_bytes
+                while self._cx_tail_bytes > tail_limit and len(self._cx_agent_messages_tail) > 1:
+                    popped = self._cx_agent_messages_tail.popleft()
+                    self._cx_tail_bytes -= max(1, len(popped.encode("utf-8", "replace")))
+
+    def _try_parse_ag(self) -> None:
+        try:
+            text = self._ag_raw_buf.decode("utf-8")
+        except UnicodeDecodeError:
+            return
+        start_idx = 0
+        while start_idx < len(text) and text[start_idx].isspace():
+            start_idx += 1
+        if start_idx >= len(text):
+            return
+        if text[start_idx] != "{":
+            self._ag_invalid_top_level = True
+            return
+        try:
+            obj, end_idx = json.JSONDecoder().raw_decode(text, idx=start_idx)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(obj, dict):
+            self._ag_invalid_top_level = True
+            return
+        event = cast("dict[str, Any]", obj)
+        is_error = event.get("is_error") in (True,) or event.get("error") not in (None, False, "", {})
+        has_response = isinstance(event.get("response"), str)
+        if not has_response and not is_error:
+            self._ag_invalid_top_level = True
+            return
+        trailing = text[end_idx:]
+        if trailing.strip():
+            self._ag_invalid_top_level = True
+            return
+        self._ag_parsed = True
+        self._handle_event(event)
+
+    def feed(self, chunk: bytes) -> None:
+        try:
+            self._feed_chunk(chunk)
+        except Exception:
+            self.parser_failed = True
+            raise
+
+    def _feed_chunk(self, chunk: bytes) -> None:
+        if self.kind == "ag":
+            if self._ag_invalid_top_level:
+                return
+            if not self._ag_saw_non_whitespace:
+                stripped = chunk.lstrip()
+                if stripped:
+                    self._ag_saw_non_whitespace = True
+                    if not stripped.startswith(b"{"):
+                        self._ag_invalid_top_level = True
+                        return
+                    chunk = stripped
+                else:
+                    return
+            if not self._ag_parsed:
+                if len(self._ag_raw_buf) + len(chunk) > MAX_EVENT_BYTES:
+                    self.oversized_count += 1
+                    self._ag_invalid_top_level = True
+                    return
+                self._ag_raw_buf.extend(chunk)
+                self._try_parse_ag()
+            else:
+                if chunk.strip():
+                    self._ag_invalid_top_level = True
+                    self.ag_results.clear()
+            return
+        start = 0
+        n = len(chunk)
+        while start < n:
+            nl_pos = chunk.find(b"\n", start)
+            if nl_pos != -1:
+                part = chunk[start:nl_pos]
+                start = nl_pos + 1
+                if self.line_oversized:
+                    self.line_oversized = False
+                    self.pending.clear()
+                    continue
+                if len(self.pending) + len(part) > MAX_EVENT_BYTES:
+                    self.oversized_count += 1
+                    self.pending.clear()
+                    continue
+                self.pending.extend(part)
+                line = bytes(self.pending)
+                self.pending.clear()
+                self._handle_line(line)
+            else:
+                part = chunk[start:]
+                start = n
+                if self.line_oversized:
+                    continue
+                if len(self.pending) + len(part) > MAX_EVENT_BYTES:
+                    self.line_oversized = True
+                    self.oversized_count += 1
+                    room = MAX_EVENT_BYTES - len(self.pending)
+                    if room > 0:
+                        self.pending.extend(part[:room])
+                else:
+                    self.pending.extend(part)
+
+    def close(self) -> None:
+        if self.parser_failed:
+            return
+        if self.kind == "ag":
+            if not self._ag_parsed:
+                self._try_parse_ag()
+                if not self._ag_parsed:
+                    self._ag_invalid_top_level = True
+            return
+        if self.line_oversized:
+            self.pending.clear()
+            return
+        if self.pending:
+            line = bytes(self.pending)
+            self.pending.clear()
+            self._handle_line(line)
+
+    def _handle_line(self, line_bytes: bytes) -> None:
+        line = line_bytes.decode("utf-8", "replace").strip()
+        if not line.startswith("{"):
+            return
+        try:
+            v: object = json.loads(line)
+        except ValueError:
+            return
+        if not isinstance(v, dict):
+            return
+        event = cast("dict[str, Any]", v)
+        self._handle_event(event)
+
+    def _handle_event(self, event: dict[str, Any]) -> None:
+        if self.kind == "cc":
+            if event.get("type") == "result":
+                self.cc_results.append(event)
+                if event.get("is_error") is False and event.get("subtype", "success") == "success":
+                    self.cc_candidate_session_id = _session_id(event.get("session_id"))
+            if "session_id" in event:
+                sid = _session_id(event.get("session_id"))
+                if sid is not None:
+                    if self._cc_observed_session_id is None:
+                        self._cc_observed_session_id = sid
+                    elif self._cc_observed_session_id != sid:
+                        self._cc_session_id_conflict = True
+                else:
+                    self._cc_session_id_conflict = True
+        elif self.kind == "cx":
+            ev_type = event.get("type")
+            if "thread_id" in event:
+                tid = _session_id(event.get("thread_id"))
+                if tid is not None:
+                    if self._cx_observed_thread_id is None:
+                        self._cx_observed_thread_id = tid
+                    elif self._cx_observed_thread_id != tid:
+                        self._cx_thread_conflict = True
+                else:
+                    self._cx_thread_conflict = True
+            if ev_type == "thread.started":
+                self.cx_candidate_thread_id = _session_id(event.get("thread_id"))
+            elif ev_type in ("turn.failed", "error"):
+                self.cx_errors.append(str(ev_type))
+            elif ev_type == "item.completed":
+                item = event.get("item")
+                if isinstance(item, dict):
+                    item_dict = cast("dict[str, Any]", item)
+                    if item_dict.get("type") == "agent_message" and isinstance(item_dict.get("text"), str):
+                        self._add_cx_agent_message(cast(str, item_dict["text"]))
+                        self.cx_last_message_has_turn_completed = False
+            elif ev_type == "turn.completed":
+                self.cx_turn_completed = event
+                self.cx_last_message_has_turn_completed = True
+        elif self.kind == "ag":
+            if self._ag_invalid_top_level:
+                return
+            if len(self.ag_results) >= 1:
+                self._ag_invalid_top_level = True
+                self.ag_results.clear()
+                self._ag_observed_conv_id = None
+                return
+            if "conversation_id" in event:
+                cid = _session_id(event.get("conversation_id"))
+                if cid is not None:
+                    if self._ag_observed_conv_id is None:
+                        self._ag_observed_conv_id = cid
+                    elif self._ag_observed_conv_id != cid:
+                        self._ag_conv_conflict = True
+                else:
+                    self._ag_conv_conflict = True
+            if isinstance(event.get("response"), str):
+                self.ag_results.append(event)
+            if event.get("is_error") in (True,) or event.get("error") not in (None, False, "", {}):
+                self.ag_errors.append("error")
+
+    def parse(self) -> str:
+        if self.parser_failed:
+            raise ValueError("parser failure encountered; outcome indeterminate")
+        if self.oversized_count > 0:
+            raise ValueError(f"oversized event encountered ({self.oversized_count} record(s)); outcome indeterminate")
+        if self.kind == "cc":
+            if not self.cc_results:
+                raise ValueError("no result record in cc output")
+            r = self.cc_results[-1]
+            if r.get("is_error") is not False:
+                raise ValueError("cc result is not explicitly is_error=false")
+            if r.get("subtype", "success") != "success":
+                raise ValueError(f"cc result subtype {r.get('subtype')!r} is not success")
+            if not isinstance(r.get("result"), str):
+                raise ValueError("cc result is not text")
+            return cast(str, r["result"])
+        elif self.kind == "cx":
+            if self.cx_errors:
+                raise ValueError(f"cx reported {self.cx_errors[-1]}")
+            if not self.cx_agent_messages:
+                raise ValueError("no agent_message in cx output")
+            if not self.cx_last_message_has_turn_completed:
+                raise ValueError("cx output has no turn.completed after the last agent_message (incomplete)")
+            return "\n".join(self.cx_agent_messages)
+        elif self.kind == "ag":
+            if self._ag_invalid_top_level:
+                raise ValueError("ag output is not a well-formed top-level object")
+            if self.ag_errors:
+                raise ValueError("ag reported an error")
+            if not self.ag_results or len(self.ag_results) != 1:
+                raise ValueError("no flat JSON response in ag output")
+            r = self.ag_results[0]
+            if r.get("is_error") not in (None, False) or r.get("error") not in (None, False, "", {}):
+                raise ValueError("ag reported an error")
+            return cast(str, r["response"])
+        raise ValueError(f"unknown provider kind {self.kind}")
+
+    def parse_usage(self) -> dict[str, int] | None:
+        if self.parser_failed or self.oversized_count > 0:
+            return None
+        if self.kind == "cc":
+            usage = self.cc_results[-1].get("usage") if self.cc_results else None
+            counters = _usage_fields(usage, {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_input_tokens",
+                                             "cache_write_tokens": "cache_creation_input_tokens", "output_tokens": "output_tokens"})
+            if counters is not None:
+                if all(key in counters for key in ("input_tokens", "cached_input_tokens", "cache_write_tokens")):
+                    counters["input_tokens"] += counters["cached_input_tokens"] + counters["cache_write_tokens"]
+                else:
+                    counters.pop("input_tokens", None)
+            return counters or None
+        elif self.kind == "cx":
+            usage = self.cx_turn_completed.get("usage") if self.cx_turn_completed else None
+            return _usage_fields(usage,
+                                 {"input_tokens": "input_tokens", "cached_input_tokens": "cached_input_tokens",
+                                  "cache_write_tokens": "cache_write_input_tokens", "output_tokens": "output_tokens"})
+        elif self.kind == "ag":
+            if self._ag_invalid_top_level or not self.ag_results or len(self.ag_results) != 1:
+                return None
+            return _usage_fields(self.ag_results[0].get("usage"),
+                                 {"input_tokens": "input_tokens", "cached_input_tokens": "cache_read_tokens",
+                                  "output_tokens": "output_tokens"})
+        return None
+
+    def parse_session_id(self) -> str | None:
+        if self.parser_failed or self.oversized_count > 0:
+            return None
+        if self.kind == "cc":
+            if self._cc_session_id_conflict or not self.cc_candidate_session_id:
+                return None
+            if self._cc_observed_session_id is not None and self.cc_candidate_session_id != self._cc_observed_session_id:
+                return None
+            return self.cc_candidate_session_id
+        elif self.kind == "cx":
+            if self._cx_thread_conflict or not self.cx_candidate_thread_id:
+                return None
+            if self._cx_observed_thread_id is not None and self.cx_candidate_thread_id != self._cx_observed_thread_id:
+                return None
+            return self.cx_candidate_thread_id
+        elif self.kind == "ag":
+            if self._ag_invalid_top_level or self._ag_conv_conflict or not self.ag_results or len(self.ag_results) != 1:
+                return None
+            cand = _session_id(self.ag_results[0].get("conversation_id"))
+            if cand is None or (self._ag_observed_conv_id is not None and cand != self._ag_observed_conv_id):
+                return None
+            return cand
+        return None
+
+
 class CcSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "cc", "claude", "--resume", True
 
@@ -458,47 +826,109 @@ class CliRuntimeTarget:
             raise PrespawnError(san.clean(str(e), EXCERPT_CHARS)) from e
         pending = bytearray()
         emitted = False
+        stream_oversized = False
+        stream_display_truncated = False
+        parser = IncrementalEventParser(self.runtime_kind, max_bytes=self._max_bytes)
+        proc: BoundedProcess | None = None
 
         def stream_stdout(chunk: bytes) -> None:
-            nonlocal emitted
-            pending.extend(chunk)
-            while b"\n" in pending:
-                line, _, tail = pending.partition(b"\n")
-                pending[:] = tail
-                events = _json_lines(line.decode("utf-8", "replace"))
-                if not events:
-                    continue
-                event = events[0]
-                text = None
-                if self.runtime_kind == "cx" and event.get("type") == "item.completed":
-                    item = event.get("item", {})
-                    if isinstance(item, dict) and cast("dict[str, Any]", item).get("type") == "agent_message":
-                        text = cast("dict[str, Any]", item).get("text")
-                elif self.runtime_kind == "cc":
-                    if event.get("type") == "assistant":
-                        message = event.get("message", {})
-                        content: Any = cast("dict[str, Any]", message).get("content", []) if isinstance(message, dict) else []
-                        if isinstance(content, list):
-                            parts: list[str] = []
-                            for p in cast("list[Any]", content):
-                                if isinstance(p, dict):
-                                    block = cast("dict[str, Any]", p)
-                                    piece = block.get("text")
-                                    if block.get("type") == "text" and isinstance(piece, str):
-                                        parts.append(piece)
-                            text = "".join(parts)
-                    elif not emitted and event.get("type") == "result" and event.get("is_error") is False:
-                        text = event.get("result")
-                elif self.runtime_kind == "ag" and event.get("is_error") not in (True,):
-                    text = event.get("response")
-                if isinstance(text, str) and text and self._on_output is not None:
-                    self._on_output(self._san.clean(text))
-                    emitted = True
+            nonlocal emitted, stream_oversized, stream_display_truncated
+            start = 0
+            n = len(chunk)
+            while start < n:
+                nl_pos = chunk.find(b"\n", start)
+                if nl_pos != -1:
+                    part = chunk[start:nl_pos]
+                    start = nl_pos + 1
+                    if stream_oversized:
+                        stream_oversized = False
+                        stream_display_truncated = True
+                        if proc is not None:
+                            proc.mark_display_truncated()
+                        pending.clear()
+                        continue
+                    if len(pending) + len(part) > self._max_bytes:
+                        stream_display_truncated = True
+                        if proc is not None:
+                            proc.mark_display_truncated()
+                        pending.clear()
+                        continue
+                    pending.extend(part)
+                    line = bytes(pending)
+                    pending.clear()
+                    events = _json_lines(line.decode("utf-8", "replace"))
+                    if not events:
+                        continue
+                    event = events[0]
+                    text = None
+                    if self.runtime_kind == "cx" and event.get("type") == "item.completed":
+                        item = event.get("item", {})
+                        if isinstance(item, dict) and cast("dict[str, Any]", item).get("type") == "agent_message":
+                            text = cast("dict[str, Any]", item).get("text")
+                    elif self.runtime_kind == "cc":
+                        if event.get("type") == "assistant":
+                            message = event.get("message", {})
+                            content: Any = cast("dict[str, Any]", message).get("content", []) if isinstance(message, dict) else []
+                            if isinstance(content, list):
+                                parts: list[str] = []
+                                for p in cast("list[Any]", content):
+                                    if isinstance(p, dict):
+                                        block = cast("dict[str, Any]", p)
+                                        piece = block.get("text")
+                                        if block.get("type") == "text" and isinstance(piece, str):
+                                            parts.append(piece)
+                                    text = "".join(parts)
+                        elif not emitted and event.get("type") == "result" and event.get("is_error") is False:
+                            text = event.get("result")
+                    elif self.runtime_kind == "ag" and event.get("is_error") not in (True,):
+                        text = event.get("response")
+                    if isinstance(text, str) and text and self._on_output is not None:
+                        try:
+                            self._on_output(self._san.clean(text))
+                            emitted = True
+                        except Exception:
+                            self._on_output = None
+                            stream_display_truncated = True
+                            if proc is not None:
+                                proc.mark_display_truncated()
+                else:
+                    part = chunk[start:]
+                    start = n
+                    if stream_oversized:
+                        stream_display_truncated = True
+                        if proc is not None:
+                            proc.mark_display_truncated()
+                        continue
+                    if len(pending) + len(part) > self._max_bytes:
+                        stream_oversized = True
+                        stream_display_truncated = True
+                        if proc is not None:
+                            proc.mark_display_truncated()
+                        pending.clear()
+                    else:
+                        pending.extend(part)
+
+        def display_callback(chunk: bytes) -> None:
+            nonlocal stream_display_truncated
+            if self._on_output is not None:
+                try:
+                    stream_stdout(chunk)
+                except Exception:
+                    self._on_output = None
+                    stream_display_truncated = True
+                    if proc is not None:
+                        proc.mark_display_truncated()
+            else:
+                stream_display_truncated = True
+                if proc is not None:
+                    proc.mark_display_truncated()
+
 
         proc = BoundedProcess(argv, stdin=prompt.encode("utf-8") if self._spec.stdin_prompt else None, cwd=self._workspace,
                               env=self._env, timeout_s=self._timeout_s, max_bytes=self._max_bytes,
                               silence_timeout_s=self._silence_timeout_s,
-                              on_stdout=stream_stdout if self._on_output else None)
+                              on_stdout=parser.feed,
+                              on_display=display_callback if self._on_output is not None else None)
         try:
             # Publish only after spawn; serialize registration with external cancellation.
             with self._active_lock:
@@ -514,6 +944,7 @@ class CliRuntimeTarget:
         try:
             yield ("started", f"{self.runtime_kind}:{proc.pid}:{uuid.uuid4().hex[:8]}")
             res = proc.wait()
+            parser.close()
             finished = True
         finally:
             if not finished:  # consumer stopped iterating (fenced/closed): never leave an orphan process
@@ -522,11 +953,18 @@ class CliRuntimeTarget:
             with self._active_lock:
                 if self._active.get(external_session_id) is proc:
                     del self._active[external_session_id]
+        if pending:
+            stream_display_truncated = True
+        display_truncated = res.display_truncated or stream_display_truncated
         self._note("exited", pid=res.pid, returncode=res.returncode, timed_out=res.timed_out,
                    silence_timed_out=res.silence_timed_out,
-                   output_exceeded=res.output_exceeded, aborted=res.aborted,
+                   output_exceeded=res.output_exceeded, output_truncated=res.output_truncated,
+                   display_truncated=display_truncated,
+                   parser_failed=res.parser_failed or parser.parser_failed,
+                   aborted=res.aborted,
                    termination_confirmed=res.termination_confirmed,
                    duration_s=round(res.duration_s, 3))
+
         if res.aborted:
             raise RuntimeTargetError(f"{self.runtime_kind} delivery aborted by termination request",
                                      termination_confirmed=res.termination_confirmed)
@@ -536,21 +974,42 @@ class CliRuntimeTarget:
         if res.timed_out:
             yield ("timeout", self._timeout_s, res.termination_confirmed)
             return
-        if res.output_exceeded:
-            raise RuntimeTargetError(f"{self.runtime_kind} output exceeded {self._max_bytes} bytes; process killed",
+        if res.drain_timed_out:
+            raise RuntimeTargetError(f"{self.runtime_kind} output drain timed out; outcome indeterminate",
+                                     termination_confirmed=res.termination_confirmed)
+        if res.parser_failed or parser.parser_failed:
+            raise RuntimeTargetError(f"{self.runtime_kind} parser failed during output drain; outcome indeterminate",
                                      termination_confirmed=res.termination_confirmed)
         if res.returncode != 0:
             raise RuntimeTargetError(f"{self.runtime_kind} exited {res.returncode}: " + self._text(res.stderr or res.stdout, san),
                                      termination_confirmed=res.termination_confirmed)
         try:
-            text = self._spec.parse(res.stdout.decode("utf-8", "replace"))
+            if res.stdout_truncated or parser.truncated:
+                if self.runtime_kind == "ag":
+                    raw_head = res.stdout.lstrip()
+                    if (raw_head and not raw_head.startswith(b"{")) or parser.ag_invalid_top_level:
+                        raise ValueError("ag output is not a well-formed top-level object")
+                text = parser.parse()
+            else:
+                text = self._spec.parse(res.stdout.decode("utf-8", "replace"))
         except ValueError as e:
             raise RuntimeTargetError(san.clean(f"unparseable {self.runtime_kind} output: {e}", EXCERPT_CHARS)) from e
         payload: dict[str, Any] = {"response": self._san.clean(text)}  # secrets redacted; the prompt may legitimately be quoted
-        usage = self._spec.parse_usage(res.stdout.decode("utf-8", "replace"))
+        if res.output_truncated or parser.truncated:
+            payload["output_truncated"] = True
+            if res.stdout_truncated or parser.truncated:
+                usage = parser.parse_usage()
+                vendor_session_id = parser.parse_session_id()
+            else:
+                usage = self._spec.parse_usage(res.stdout.decode("utf-8", "replace"))
+                vendor_session_id = self._spec.parse_session_id(res.stdout.decode("utf-8", "replace"))
+        else:
+            usage = self._spec.parse_usage(res.stdout.decode("utf-8", "replace"))
+            vendor_session_id = self._spec.parse_session_id(res.stdout.decode("utf-8", "replace"))
+        if display_truncated:
+            payload["display_truncated"] = True
         if usage is not None:
             payload["usage"] = usage
-        vendor_session_id = self._spec.parse_session_id(res.stdout.decode("utf-8", "replace"))
         if vendor_session_id is not None:
             source = {"cc": "cc.result.session_id", "cx": "cx.thread.started",
                       "ag": "ag.conversation_id"}[self.runtime_kind]

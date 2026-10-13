@@ -35,6 +35,52 @@ class ProcessResult:
     silence_timed_out: bool = False
     aborted: bool = False
     termination_confirmed: bool | None = None
+    output_truncated: bool = False
+    stdout_truncated: bool = False
+    drain_timed_out: bool = False
+    display_truncated: bool = False
+    parser_failed: bool = False
+
+
+class _HeadTailBuffer:
+    """Bounded byte buffer implementing a head + tail retention policy.
+
+    If total bytes received <= max_bytes, all bytes are preserved.
+    If total bytes received > max_bytes, at most max_bytes are retained:
+    the head retains the first (max_bytes // 2) bytes, and the tail retains
+    the most recent (max_bytes - max_bytes // 2) bytes. Middle bytes are discarded.
+    Memory is bounded at all times by (max_bytes + chunk_size).
+    """
+
+    def __init__(self, max_bytes: int) -> None:
+        self.max_bytes = max_bytes
+        self.head_limit = max(0, max_bytes // 2)
+        self.tail_limit = max(0, max_bytes - self.head_limit)
+        self.head = bytearray()
+        self.tail = bytearray()
+        self.total_bytes = 0
+
+    def feed(self, chunk: bytes) -> None:
+        if not chunk:
+            return
+        self.total_bytes += len(chunk)
+        if len(self.head) < self.head_limit:
+            room = self.head_limit - len(self.head)
+            self.head.extend(chunk[:room])
+            tail_chunk = chunk[room:]
+        else:
+            tail_chunk = chunk
+        if tail_chunk and self.tail_limit > 0:
+            self.tail.extend(tail_chunk)
+            if len(self.tail) > self.tail_limit:
+                del self.tail[:-self.tail_limit]
+
+    def get_bytes(self) -> bytes:
+        return bytes(self.head) + bytes(self.tail)
+
+    @property
+    def truncated(self) -> bool:
+        return self.total_bytes > self.max_bytes
 
 
 def check_argv(argv: Sequence[Any]) -> None:
@@ -52,7 +98,8 @@ class BoundedProcess:
     def __init__(self, argv: Sequence[str], *, stdin: bytes | None, cwd: str, env: Mapping[str, str],
                  timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
                  silence_timeout_s: float | None = None,
-                 on_stdout: Callable[[bytes], None] | None = None) -> None:
+                 on_stdout: Callable[[bytes], None] | None = None,
+                 on_display: Callable[[bytes], None] | None = None) -> None:
         if silence_timeout_s is not None and (not math.isfinite(silence_timeout_s) or silence_timeout_s <= 0):
             raise ValueError("silence timeout must be finite and positive")
         self._argv, self._stdin, self._cwd, self._env = list(argv), stdin, cwd, dict(env)
@@ -61,15 +108,22 @@ class BoundedProcess:
         self._activity_lock = threading.Lock()
         self._last_output = 0.0
         self._on_stdout = on_stdout
-        self._chunks: queue.SimpleQueue[bytes] = queue.SimpleQueue()
+        self._on_display = on_display
         self._proc: subprocess.Popen[bytes] | None = None
         self._t0 = 0.0
-        self._bufs: dict[str, bytearray] = {"out": bytearray(), "err": bytearray()}
-        self._exceeded = threading.Event()
+        self._bufs: dict[str, _HeadTailBuffer] = {"out": _HeadTailBuffer(max_bytes), "err": _HeadTailBuffer(max_bytes)}
         self._aborted = threading.Event()
         self._kill_lock = threading.Lock()
         self._termination_confirmed: bool | None = None
         self._threads: list[threading.Thread] = []
+        self._drain_threads: list[threading.Thread] = []
+        self._display_queue: queue.Queue[bytes | None] = queue.Queue()
+        self._display_thread: threading.Thread | None = None
+        self._display_truncated = False
+        self._display_bytes = 0
+        self._display_lock = threading.Lock()
+        self._display_max_bytes = max(0, max_bytes)
+        self._parser_failed = False
 
     @property
     def pid(self) -> int:
@@ -79,6 +133,17 @@ class BoundedProcess:
     @property
     def termination_confirmed(self) -> bool | None:
         return self._termination_confirmed
+
+    @property
+    def display_truncated(self) -> bool:
+        return self._display_truncated
+
+    def mark_display_truncated(self) -> None:
+        self._display_truncated = True
+
+    @property
+    def parser_failed(self) -> bool:
+        return self._parser_failed
 
     def start(self) -> "BoundedProcess":
         check_argv(self._argv)
@@ -93,14 +158,35 @@ class BoundedProcess:
         p = self._proc
         # default bufsize=-1 => the pipes are io.BufferedReader (read1 available)
         out, err = cast(io.BufferedReader, p.stdout), cast(io.BufferedReader, p.stderr)
-        self._threads = [threading.Thread(target=self._pump, args=(out, "out"), daemon=True),
-                         threading.Thread(target=self._pump, args=(err, "err"), daemon=True),
-                         threading.Thread(target=self._feed, args=(p,), daemon=True)]
+        out_thread = threading.Thread(target=self._pump, args=(out, "out"), daemon=True)
+        err_thread = threading.Thread(target=self._pump, args=(err, "err"), daemon=True)
+        feed_thread = threading.Thread(target=self._feed, args=(p,), daemon=True)
+        self._drain_threads = [out_thread, err_thread]
+        self._threads = [out_thread, err_thread, feed_thread]
+        if self._on_display is not None:
+            self._display_thread = threading.Thread(target=self._drain_display, daemon=True)
+            self._display_thread.start()
         for t in self._threads:
             t.start()
         return self
 
+    def _drain_display(self) -> None:
+        while True:
+            chunk = self._display_queue.get()
+            if chunk is None:
+                break
+            with self._display_lock:
+                self._display_bytes = max(0, self._display_bytes - len(chunk))
+            if self._on_display is not None:
+                try:
+                    self._on_display(chunk)
+                except Exception:
+                    self._on_display = None
+                    self._display_truncated = True
+
+
     def _pump(self, stream: io.BufferedReader, key: str) -> None:
+        buf = self._bufs[key]
         try:
             while True:
                 chunk = stream.read1(65536)
@@ -108,16 +194,30 @@ class BoundedProcess:
                     return
                 with self._activity_lock:
                     self._last_output = time.monotonic()
-                room = self._max_bytes - len(self._bufs[key])
-                kept = chunk[:max(room, 0)]
-                self._bufs[key].extend(kept)
-                if key == "out" and self._on_stdout is not None and kept:
-                    self._chunks.put(kept)  # bounded by the same total stdout byte budget
-                if len(chunk) > room:
-                    self._exceeded.set()
-                    return
+                buf.feed(chunk)
+                if key == "out":
+                    if self._on_stdout is not None:
+                        try:
+                            self._on_stdout(chunk)
+                        except Exception:
+                            self._parser_failed = True
+                            self._on_stdout = None
+                    if self._on_display is not None:
+                        with self._display_lock:
+                            room = max(0, self._display_max_bytes - self._display_bytes)
+                            if room > 0:
+                                kept = chunk[:room]
+                                self._display_queue.put_nowait(kept)
+                                self._display_bytes += len(kept)
+                                if len(chunk) > room:
+                                    self._display_truncated = True
+                            else:
+                                self._display_truncated = True
         except (OSError, ValueError):
             return
+        finally:
+            if key == "out":
+                self._display_queue.put_nowait(None)
 
     def _feed(self, p: "subprocess.Popen[bytes]") -> None:
         try:
@@ -177,8 +277,7 @@ class BoundedProcess:
         timed_out = False
         silence_timed_out = False
         deadline = self._t0 + self._timeout_s
-        while p.poll() is None and not self._exceeded.is_set() and not self._aborted.is_set():
-            self._drain_stdout()
+        while p.poll() is None and not self._aborted.is_set():
             if time.monotonic() >= deadline:
                 timed_out = True
                 break
@@ -189,50 +288,69 @@ class BoundedProcess:
                 break
             time.sleep(0.02)
         with self._kill_lock:
-            needed = timed_out or silence_timed_out or self._exceeded.is_set() or self._aborted.is_set()
+            needed = timed_out or silence_timed_out or self._aborted.is_set()
             if needed and self._termination_confirmed is None:
                 if p.poll() is not None:
                     # A parent that exited while a child survived cannot be confirmed.
                     self._termination_confirmed = False
                 else:
                     killed = kill_process_tree(p)
+                    wait_timeout = 10.0 if killed else 0.2
                     try:
-                        p.wait(timeout=10)
+                        p.wait(timeout=wait_timeout)
                         self._termination_confirmed = killed
                     except subprocess.TimeoutExpired:
                         self._termination_confirmed = False
-        try:
-            p.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            if self._termination_confirmed is True:
-                self._termination_confirmed = False
+            elif not needed:
+                try:
+                    p.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    pass
+        drain_timed_out = False
+        if p.poll() is None:
+            drain_timed_out = True
+        else:
+            deadline = time.monotonic() + 5.0
+            for t in self._drain_threads:
+                rem = max(0.0, deadline - time.monotonic())
+                t.join(timeout=rem)
+                if t.is_alive():
+                    drain_timed_out = True
         for t in self._threads:
-            t.join(timeout=5)
-        self._drain_stdout()
+            if t not in self._drain_threads:
+                t.join(timeout=0.2 if p.poll() is None else 5.0)
+        if self._display_thread is not None:
+            self._display_thread.join(timeout=0.1)
+            if self._display_thread.is_alive():
+                self._display_truncated = True
+                self._on_display = None
+
         for s in (p.stdout, p.stderr):
             try:
                 if s is not None:
                     s.close()
             except OSError:
                 pass
-        return ProcessResult(pid=p.pid, returncode=p.returncode, stdout=bytes(self._bufs["out"]), stderr=bytes(self._bufs["err"]),
-                             timed_out=timed_out, output_exceeded=self._exceeded.is_set(), duration_s=time.monotonic() - self._t0,
-                             silence_timed_out=silence_timed_out, aborted=self._aborted.is_set(),
-                             termination_confirmed=self._termination_confirmed)
-
-    def _drain_stdout(self) -> None:
-        while not self._chunks.empty():
-            chunk = self._chunks.get()
-            if self._on_stdout is not None:
-                try:
-                    self._on_stdout(chunk)
-                except Exception:
-                    # Presentation failures cannot turn a running process into a pre-spawn failure.
-                    self._on_stdout = None
+        out_bytes = self._bufs["out"].get_bytes()
+        err_bytes = self._bufs["err"].get_bytes()
+        stdout_truncated = self._bufs["out"].truncated
+        stderr_truncated = self._bufs["err"].truncated
+        truncated = stdout_truncated or stderr_truncated
+        return ProcessResult(pid=p.pid, returncode=p.returncode, stdout=out_bytes, stderr=err_bytes,
+                             timed_out=timed_out, output_exceeded=truncated, output_truncated=truncated,
+                             stdout_truncated=stdout_truncated,
+                             duration_s=time.monotonic() - self._t0, silence_timed_out=silence_timed_out,
+                             aborted=self._aborted.is_set(), termination_confirmed=self._termination_confirmed,
+                             drain_timed_out=drain_timed_out,
+                             display_truncated=self._display_truncated,
+                             parser_failed=self._parser_failed)
 
 
 def run_bounded(argv: Sequence[str], *, stdin: bytes | None, cwd: str, env: Mapping[str, str],
                 timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
-                silence_timeout_s: float | None = None) -> ProcessResult:
+                silence_timeout_s: float | None = None,
+                on_stdout: Callable[[bytes], None] | None = None,
+                on_display: Callable[[bytes], None] | None = None) -> ProcessResult:
     return BoundedProcess(argv, stdin=stdin, cwd=cwd, env=env, timeout_s=timeout_s, max_bytes=max_bytes,
-                          silence_timeout_s=silence_timeout_s).start().wait()
+                          silence_timeout_s=silence_timeout_s,
+                          on_stdout=on_stdout, on_display=on_display).start().wait()

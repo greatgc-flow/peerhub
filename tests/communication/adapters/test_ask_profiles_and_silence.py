@@ -162,7 +162,7 @@ def test_wall_deadline_still_bounds_chatty_process(tmp_path):
 
 def test_silence_timeout_is_uncertain_and_cannot_replay(tmp_path):
     log = tmp_path / "calls.jsonl"
-    runtime = CliRuntimeTarget("cx", tmp_path, command=[sys.executable, FAKE], timeout_s=10, silence_timeout_s=0.4,
+    runtime = CliRuntimeTarget("cx", tmp_path, command=[sys.executable, FAKE], timeout_s=20, silence_timeout_s=1.5,
                                env_extra={"FAKE_KIND": "cx", "FAKE_MODE": "hang", "FAKE_LOG": str(log)})
     db = tmp_path / "core.db"
     first = ask(db, "cx", "question", request_id="one", runtime=runtime)

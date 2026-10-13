@@ -1031,7 +1031,12 @@ class Bridge:
                         if provenance["effective_mode"] == "fresh":
                             conn.execute("UPDATE bridge_sessions SET bootstrap_truncated=? WHERE stream_id=? AND peer_id=? AND session_generation=?",
                                          (int(provenance["bootstrap_truncated"]), token.stream_id, token.peer_id, row["session_generation"]))
-                    self._transition_in(conn, did, TERMINAL, "terminal", token=token, digest=dig, **native)  # illegal source state rolls the tx back
+                    term_detail: dict[str, Any] = dict(digest=dig, **native)
+                    if result.get("output_truncated"):
+                        term_detail["output_truncated"] = True
+                    if result.get("display_truncated"):
+                        term_detail["display_truncated"] = True
+                    self._transition_in(conn, did, TERMINAL, "terminal", token=token, **term_detail)  # illegal source state rolls the tx back
                     outcome = "first"
         except StaleClaimError as e:
             self._late(token, did, "stale_terminal_callback", digest=dig, error=str(e))
@@ -1085,8 +1090,13 @@ class Bridge:
         with self.claims.transaction() as conn:
             for kind, detail in conn.execute("SELECT kind, detail FROM bridge_evidence WHERE delivery_id=? ORDER BY seq", (delivery_id,)):
                 data = json.loads(detail)
-                if kind == "terminal" and "effective_mode" in data:
-                    out.update({key: data[key] for key in ("effective_mode", "fallback_reason", "injected_record_ids")})
+                if kind == "terminal":
+                    if "effective_mode" in data:
+                        out.update({key: data[key] for key in ("effective_mode", "fallback_reason", "injected_record_ids")})
+                    if "output_truncated" in data:
+                        out["output_truncated"] = data["output_truncated"]
+                    if "display_truncated" in data:
+                        out["display_truncated"] = data["display_truncated"]
         return out
 
     def _materialize(self, token: ClaimToken, did: str) -> str:
@@ -1100,11 +1110,17 @@ class Bridge:
         terminal_detail: dict[str, Any] = json.loads(ev[0]) if ev else {}
         usage: Any = terminal_detail.get("usage", result.get("usage"))
         include_usage = usage is not None if "session_bound" in terminal_detail else "usage" in result
+        resp_metadata: dict[str, Any] = {"delivery_id": did, "execution_id": d["execution_id"]}
+        if include_usage:
+            resp_metadata["usage"] = usage
+        if result.get("output_truncated") or terminal_detail.get("output_truncated"):
+            resp_metadata["output_truncated"] = True
+        if result.get("display_truncated") or terminal_detail.get("display_truncated"):
+            resp_metadata["display_truncated"] = True
         resp = self.store.append_record(
             guard=self.claims.guard(token), stream_id=d["stream_id"], author_peer_id=d["peer_id"], kind="response",
             body=result.get("response", result), reply_to=d["record_id"], created_at=d["terminal_at"],
-            idempotency_key=f"bridge-response:{did}", metadata={"delivery_id": did, "execution_id": d["execution_id"],
-                                                             **({"usage": usage} if include_usage else {})})
+            idempotency_key=f"bridge-response:{did}", metadata=resp_metadata)
         with self.claims.fenced(token) as conn:
             if conn.execute("UPDATE bridge_deliveries SET response_record_id=? WHERE delivery_id=? AND response_record_id IS NULL",
                             (resp.record_id, did)).rowcount:
