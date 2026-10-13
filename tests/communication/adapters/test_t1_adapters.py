@@ -305,7 +305,7 @@ def test_t1_invalid_model_rejected_before_anything(mk):
     for bad in ("m&calc", "m x", 'm"q', "", "-x;y"):
         with pytest.raises(ValueError):
             CliRuntimeTarget("cc", mk.ws, model=bad)
-    CliRuntimeTarget("cc", mk.ws, model="claude-haiku-4-5-20251001")  # positive control
+    CliRuntimeTarget("cc", mk.ws, model="claude-haiku-5-5")  # positive control
     with pytest.raises(ValueError):
         CliRuntimeTarget("zz", mk.ws)
 
