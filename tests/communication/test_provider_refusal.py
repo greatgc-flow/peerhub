@@ -304,7 +304,7 @@ def test_quota_refusal_variants_curly_apostrophe(tmp_path, bridge_h):
     ws.mkdir()
     script = textwrap.dedent(f"""
         import sys
-        sys.stdout.write({CX_USAGE_LIMIT_CURLY_JSONL!r})
+        sys.stdout.buffer.write({CX_USAGE_LIMIT_CURLY_JSONL.encode("utf-8")!r})
         sys.exit(1)
     """)
     target = CliRuntimeTarget("cx", ws, command=[PY, "-c", script], timeout_s=15.0)
