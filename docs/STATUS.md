@@ -1,27 +1,34 @@
 # PeerHub Development Status
 
-## Current source: v0.15.2
+## Current source: v0.16.0
 
-**v0.15.2 (source candidate, 2026-10-12).** Contains the 0.15.1 work: dashboard
-JSON privacy allowlisting, quota reset timezone parsing and Korean header path
-truncation. The 0.15.1 candidate was never tagged or published because its live
-gate caught an IANA timezone regression. 0.15.2 supersedes it with Claude quota
-IANA timezone resolution, declares `tzdata` for hosts without timezone data,
-and distinguishes missing timezone databases from unsupported names. This
-candidate is not released; no passing test or live gate evidence is claimed here.
+**Source candidate, 2026-10-13; publication pending.** Prepared locally on
+`release/v0.16.0` from main `22404eeb`. This candidate includes stuck-streams
+PRs 1-3 (#95/#97/#98): process-tree termination confirmation, bounded output
+drain-and-truncate, and provider refusal classification. Model profiles were
+refreshed in #96, and CI now runs on main pushes, PRs to main, and manual
+requests. [CHANGELOG](../CHANGELOG.md) owns the user-facing release notes.
 
-**v0.15.0 (source candidate, 2026-10-12).** One conditional window-average
-projection engine supplies seven JSON fields and evidence states. Forecasts
-require at least 5 percentage points used and 10% elapsed for short windows
-or 20% for windows of at least one day; supported projected reset use at or
-above 105% is a threat. These are policy thresholds, not demonstrated accuracy.
-The screen shows threats, a stable pool table with PACE(pt), credits, asks,
-probe health and one legend/controls line. Monitor and diagnostics refuse a
-missing store with exit 5 before probing and never implicitly create it.
-Read-only backtesting reports observed completed-window outcomes and excludes
-open windows. See [CHANGELOG](../CHANGELOG.md) for breaking changes and
-[CONTRIBUTING](../CONTRIBUTING.md#development-setup) for serial/opt-in parallel
-test guidance. No new candidate-bound test or release evidence is claimed here.
+Eligible pre-work refusals settle as `NOT_EXECUTED` while preserving `STARTED`
+certainty. Timeouts and failures with possible effects remain guarded; neither
+automatic timeout settlement nor `stream resolve` ships in this candidate.
+Session reuse still uses the current explicit `--resume` interface.
+
+0.15.2 is the previous published release; 0.15.1 was never published. Historical
+live evidence applies only to its recorded revision. Candidate-matched CI,
+local live gates, release assets, PyPI publication, and a clean-venv install
+smoke remain pending under [CONTRIBUTING](../CONTRIBUTING.md#releasing).
+
+## Remaining work
+
+| Track | Done / remaining after this candidate | Design SSOT |
+|---|---|---|
+| Stuck streams | PRs 1-3 complete. PR 4: quota pre-flight; PR 5: enforced-policy metadata + automatic settlement; PR 6: audited `stream resolve` + historical recovery. | [Recovery plan](design/plan-stuck-streams-2026-10-12.md#8-pr-order-files-and-acceptance) |
+| Monitoring v2 | PRs 1-7 pending: color/escape rules; shared snapshot/policy reader + alerts/exit codes; monotonic cadence; pace balance + `diag --line`; `monitor --read-only` + interface removals; JSON export allowlist; docs/release. Original 0.16.0 target superseded; release version unassigned. | [Monitoring plan](design/plan-monitoring-v2-2026-10-12.md#13-implementation-steps-release-version-pending) |
+| Audit | WP-A complete (#91). WP-B: CLI learnability; WP-C: TOML provider IDs/config SSOT + remove `./peerhub` lookup; WP-D: cancellation certainty + warn-only resolver (partially addressed by #95); WP-E: live/test hygiene remain open. Diagnostic Agy model-catalog drift detection also remains open. | [Audit and progress](design/audit-2026-10-12.md) |
+| Session reuse | Design approved by owner+cc+cx on 2026-10-13; implementation not started. Decision: remove `--resume`, default reuse + `--fresh` + exact `--session`. PRs 1-4 cover capability/handles, registry/retention, addressing/catch-up, and CLI/output/telemetry; planned 0.18.0. | [Session plan](design/plan-session-reuse-2026-10-13.md#13-staged-implementation-plan-pr-breakdown) |
+
+Operational lessons and coordinator handoff: [HANDOFF](HANDOFF.md).
 
 ## History
 

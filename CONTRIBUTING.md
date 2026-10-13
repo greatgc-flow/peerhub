@@ -260,7 +260,9 @@ and watch the 7-day pace; distribute work so cc is not the heaviest user.
   `docs/m1_spec` require `seal_package.py` as described above.
 - Ordinary text uses LF in the Git index. Preserve each file's existing working
   tree line endings; frozen package files have explicit `.gitattributes` rules.
-- If the Windows Git credential helper blocks a push, use:
+- If the Windows Git credential helper blocks a push, check its configured
+  executable: the recorded `gh.exe` path under `D:\PortableDev...` was missing.
+  With a working `gh` on PATH, clear that helper and use:
 
   ```powershell
   git -c credential.helper= -c "credential.helper=!gh auth git-credential" push -u origin HEAD

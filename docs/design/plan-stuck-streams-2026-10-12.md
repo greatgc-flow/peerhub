@@ -2,9 +2,24 @@ Plan document, 2026-10-12. Reference, not an instruction file.
 
 # Blocked-Stream Root-Cause Elimination & Recovery Plan (2026-10-12)
 
+## Status (2026-10-13)
+
+PRs 1-3 are merged and included in the 0.16.0 source candidate: termination
+confirmation (#95), drain-and-truncate (#97), and provider refusal classification
+(#98). PRs 4-6 remain pending. The evidence table below is the original incident
+snapshot; the seven historical deliveries have not been resolved by this release.
+Automatic timeout settlement and `stream resolve` are planned, not shipped.
+
+PR 3 classifies explicit pre-tool cx/cc errors and recognized read-only ag stderr
+refusals (including invalid model selection). Successful answer text never
+settles a refusal. Post-tool or incomplete evidence stays uncertain; writable
+ag lacks pre-execution proof and remains guarded. Refusal outcomes retain
+`STARTED` certainty, consume the prompt, and invalidate the session generation.
+
 ## 1. Problem and Evidence Table
 Deliveries: 107 total; 100 TERMINAL, 7 stuck at STARTED (`acked=0`, `blocked_uncertain`). 6 writable, 1 read-only.
-Automatic settlement applies to nothing by default except an enforced configuration with confirmed termination.
+Planned timeout settlement requires enforced isolation plus confirmed termination
+(PR 5); the current source does not automatically settle timeouts.
 
 | Delivery Execution ID | Peer | Mode | Cause | Outcome |
 |---|---|---|---|---|
@@ -116,22 +131,22 @@ Pre-fix fault injection & regression tests:
 13. `test_concurrent_resolution_fenced`: concurrent or stale resolution attempts are safely rejected by claim fencing.
 
 ## 8. PR Order, Files, and Acceptance
-1. **PR 1: Termination Evidence Propagation**
+1. **PR 1: Termination Evidence Propagation — COMPLETE (#95; 0.16.0)**
    - Files: `peerhub/extensions/adapters/process.py`, `peerhub/extensions/bridge.py`, `tests/communication/test_adapters_process.py`.
    - Acceptance: `wait()` and `abort()` capture `kill_process_tree` results in `ProcessResult.termination_confirmed`; Bridge persists confirmation in evidence.
-2. **PR 2: Output Drain-and-Truncate & Bounded Event Parser**
+2. **PR 2: Output Drain-and-Truncate & Bounded Event Parser — COMPLETE (#97; 0.16.0)**
    - Files: `peerhub/extensions/adapters/process.py`, `peerhub/extensions/adapters/base.py`, `tests/communication/test_output_cap.py`.
    - Acceptance: Outputs >1MB drain without process kill; buffer truncates at `max_bytes`; terminal/usage events beyond cap parse cleanly; `output_truncated: true` recorded.
-3. **PR 3: Structured Provider Refusal Classification (NOT_EXECUTED)**
+3. **PR 3: Structured Provider Refusal Classification (NOT_EXECUTED) — COMPLETE (#98; 0.16.0)**
    - Files: `peerhub/extensions/adapters/base.py`, `peerhub/extensions/bridge.py`, `tests/communication/test_provider_refusal.py`.
    - Acceptance: Pre-tool quota/auth/limit errors classify as `NOT_EXECUTED`; `STARTED` certainty preserved; prompt acked; stream reusable on fresh generation.
-4. **PR 4: Quota Pre-Flight Refusal**
+4. **PR 4: Quota Pre-Flight Refusal — PENDING**
    - Files: `peerhub/extensions/ask.py`, `peerhub/cli/app.py`, `tests/communication/test_quota_preflight.py`.
    - Acceptance: Fresh committed exhausted quota evidence refuses prompt before subprocess spawn; stale or unknown evidence proceeds.
-5. **PR 5: Enforced-Policy Metadata & Automatic Settlement**
+5. **PR 5: Enforced-Policy Metadata & Automatic Settlement — PENDING**
    - Files: `peerhub/extensions/adapters/base.py`, `peerhub/extensions/bridge.py`, `tests/communication/test_readonly_enforcement.py`.
    - Acceptance: Persistence of write policy, sandbox provenance, and enforcement class; confirmed dead `cx` read-only timeouts auto-settle; non-enforced modes retain guard.
-6. **PR 6: Audited Stream Resolution CLI & Historical Recovery Runbook**
+6. **PR 6: Audited Stream Resolution CLI & Historical Recovery Runbook — PENDING**
    - Files: `peerhub/cli/app.py`, `peerhub/extensions/bridge.py`, `docs/design/plan-stuck-streams-2026-10-12.md`, `README.md`, `tests/communication/test_stream_resolve.py`.
    - Acceptance: CLI `peerhub stream resolve --as abandoned` fences claims, validates termination, appends audit record, requires `--accept-unknown-effects` for writable; runbook resolves the 7 historical deliveries.
 

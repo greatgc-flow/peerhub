@@ -1,8 +1,14 @@
 Plan document, 2026-10-12. Reference, not an instruction file.
 
-# PeerHub Monitoring Specification v2 (Release 0.16.0)
+# PeerHub Monitoring Specification v2 (Future Release)
 
 ## Status and Superseded Statements
+
+**2026-10-13:** PRs 1-7 remain pending. The original 0.16.0 allocation is
+superseded: that candidate contains stuck-streams PRs 1-3, the model profile
+refresh, and the CI trigger change. Monitoring's release version is unassigned;
+the staged implementation below remains the design SSOT. The 0.15.2 dashboard
+privacy fix does not complete PR-6's full monitor export contract.
 
 Reference plan for unified cross-peer quota monitoring, pace balancing, and CLI interface consolidation.
 Source of truth: `@W@\mon_spec_v2.md` (final decisions by cc, cx, ag).
@@ -145,8 +151,9 @@ ASCII output, no length cap. ag values are labelled 3P and G in `--line`, and th
 - **Non-Goals**: No daemons/services, no notification popups/webhooks/bells, no automated traffic steering, no ML forecasting, no rich/textual TUI dependencies, no auto-pruning.
 - **Risks**: Provider CLI output drift, unintentional agy token expenditure (guarded), quantization slope jitter in short windows, unbounded long-term SQLite growth without pruning.
 
-## 13. Implementation Steps (Release 0.16.0)
-Release **0.16.0** is required due to breaking CLI interface and exit-code changes. Delivered in ordered, independently releasable PRs: every PR includes its command-inventory/docs/schema updates and the regression tests for retained interfaces (diag, diag health, diag quota, observation refresh).
+## 13. Implementation Steps (Release Version Pending)
+A future release must document the breaking CLI interface and exit-code changes.
+Delivered in ordered, independently releasable PRs: every PR includes its command-inventory/docs/schema updates and the regression tests for retained interfaces (diag, diag health, diag quota, observation refresh).
 
 1. **PR-1: NO_COLOR/FORCE_COLOR standards + ESC/escape rules**: Standards compliance, terminal capability detection, empty `NO_COLOR` ignore, `FORCE_COLOR`/`CLICOLOR_FORCE` overrides, cursor controls restricted to interactive VT watch, and escape-free plain, non-interactive, JSON, and `--line` output.
    - Files: `peerhub/cli/view.py`, `tests/communication/e2e/test_cli_view.py`.
@@ -160,7 +167,7 @@ Release **0.16.0** is required due to breaking CLI interface and exit-code chang
    - Files: `peerhub/cli/monitor.py`, `peerhub/cli/app.py`, `peerhub/extensions/diag_watch.py`, `tests/communication/e2e/test_cli_monitor.py`.
 6. **PR-6: Monitor JSON allowlist/export sanitization with tests**: Monitor JSON allowlist export filtering (`observed_at`, `cycle`, pool id, peer, `used_fraction`, window start/end epochs, state, projection state/pace_pt/projected_at_reset/exhaustion_at, probe outcome code, alert ids), preserve retained diagnostic JSON contracts unchanged, and export sanitization tests.
    - Files: `peerhub/cli/monitor.py`, `peerhub/cli/view.py`, `tests/communication/e2e/test_cli_monitor.py`.
-7. **PR-7: Docs/CHANGELOG/release 0.16.0**: Documentation updates, root `CHANGELOG.md`, `README.md`, package version bump to 0.16.0 in `peerhub/_version.py`.
+7. **PR-7: Docs/CHANGELOG/release**: Documentation updates, root `CHANGELOG.md`, `README.md`, package version bump to the assigned monitoring release in `peerhub/_version.py`.
    - Files: `CHANGELOG.md`, `README.md`, `peerhub/_version.py`, `docs/implementation/command_inventory.json`.
 
 Each independently releasable.
