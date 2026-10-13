@@ -112,6 +112,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             metadata = json.loads(row[1])
             if "usage" in metadata:
                 result["usage"] = metadata["usage"]
+            if "display_truncated" in metadata:
+                result["display_truncated"] = metadata["display_truncated"]
         # A conversation may have earlier pending work. Report its progress without claiming this prompt completed.
         if result.get("record_id") != rec.record_id:
             result["processed_status"] = result["status"]

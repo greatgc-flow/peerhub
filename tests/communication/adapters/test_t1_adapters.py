@@ -135,9 +135,9 @@ def test_t1_hang_times_out_kills_process_and_is_uncertain(tmp_path, mk):
     assert exited(a)["timed_out"] is True and not pid_alive(exited(a)["pid"])
 
 
-def test_t1_huge_output_is_bounded_and_killed(mk):
+def test_t1_huge_output_is_bounded_and_drained(mk):
     a = mk("ag", "huge", max_bytes=100_000)
-    with pytest.raises(RuntimeTargetError, match="exceeded 100000"):
+    with pytest.raises(RuntimeTargetError, match="unparseable ag output"):
         drain(a.deliver("s", rec(), []))
     assert exited(a)["output_exceeded"] is True and not pid_alive(exited(a)["pid"])
     env = {**os.environ, "FAKE_KIND": "ag"}
