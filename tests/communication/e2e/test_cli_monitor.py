@@ -47,7 +47,7 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
     monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: vt)
     monkeypatch.setenv("NO_COLOR", "")
     clock = [0.0]
-    monkeypatch.setattr(monitor.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(monitor, "monotonic", lambda: clock[0])
 
     def sleep(seconds):
         if ending == "interrupt":
@@ -56,7 +56,7 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
             raise RuntimeError("render loop failed")
         clock[0] += seconds
 
-    monkeypatch.setattr(monitor.time, "sleep", sleep)
+    monkeypatch.setattr(monitor, "sleep", sleep)
     calls = []
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: calls.append("refresh") or {"status": "OK"})
@@ -84,7 +84,7 @@ def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch):
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
     monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: pytest.fail("JSON must not enable VT"))
-    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
     refreshes = []
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: refreshes.append(1) or {"status": "OK"})
@@ -114,7 +114,7 @@ def test_monitor_emits_committed_snapshot_before_calling_provider(tmp_path, monk
 
     with patch.object(ReadonlyDiag, "render", tracked), \
          patch("peerhub.extensions.quota_capture.refresh_quota", refresh), \
-         patch("time.sleep", lambda seconds: None):
+         patch("peerhub.cli.monitor.sleep", lambda seconds: None):
         assert _run(_db(tmp_path), "--json", "--cycles", "1") == 0
     assert events == ["snapshot", "probe", "snapshot"]
     frames = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
@@ -145,14 +145,14 @@ def test_monitor_skips_elapsed_monotonic_slots_after_slow_probe(tmp_path, monkey
     from peerhub.cli import monitor
     clock = [0.0]
     sleeps = []
-    monkeypatch.setattr(monitor.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(monitor, "monotonic", lambda: clock[0])
 
     def slow_probe(*args, **kwargs):
         clock[0] += 8.0
         return {"status": "OK", "observations": [], "warnings": []}
 
     with patch("peerhub.extensions.quota_capture.refresh_quota", slow_probe), \
-         patch("time.sleep", lambda seconds: sleeps.append(seconds)):
+         patch("peerhub.cli.monitor.sleep", lambda seconds: sleeps.append(seconds)):
         assert _run(_db(tmp_path), "--cycles", "2", "--interval-seconds", "5") == 0
     assert sleeps == []
 
@@ -168,7 +168,7 @@ def test_render_exception_restores_cursor(tmp_path, monkeypatch):
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
     monkeypatch.setattr(view, "enable_vt", lambda: True)
-    monkeypatch.setattr("time.sleep", lambda seconds: None)
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", lambda *a, **kw: {"status": "OK"})
     original = view.format_frame
     calls = []
@@ -243,7 +243,7 @@ def test_sleep_called_count_minus_1_times(tmp_path, capsys):
         return {"status": "OK", "observations": [], "warnings": []}
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
-         patch("time.sleep", lambda s: sleeps.append(s)):
+         patch("peerhub.cli.monitor.sleep", lambda s: sleeps.append(s)):
         assert _run(_db(tmp_path), "--cycles", "3", "--interval-seconds", "42") == 0
     assert sleeps == pytest.approx([42.0, 42.0], abs=0.1)
     assert calls == ["snapshot", "refresh", "snapshot", "refresh", "snapshot", "refresh", "snapshot"]
@@ -256,7 +256,7 @@ def test_collect_every_honoured(tmp_path, capsys):
         return {"status": "OK", "observations": [], "warnings": []}
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
-         patch("time.sleep", lambda s: None):
+         patch("peerhub.cli.monitor.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--cycles", "4", "--collect-every", "2") == 0
     assert calls == ["snapshot", "refresh", "snapshot", "snapshot", "refresh", "snapshot", "snapshot"]
 
@@ -273,7 +273,7 @@ def test_guard_stop_after_first_violation(tmp_path, capsys):
     
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
-         patch("time.sleep", lambda s: None):
+         patch("peerhub.cli.monitor.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--cycles", "5") == 1
     assert calls == ["snapshot", "refresh"]
     err = capsys.readouterr().err
@@ -292,7 +292,7 @@ def test_guard_continue_with_flag(tmp_path, capsys):
     
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
-         patch("time.sleep", lambda s: None):
+         patch("peerhub.cli.monitor.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--cycles", "2", "--allow-agy-token-use") == 1
     assert calls == ["snapshot", "refresh", "snapshot", "refresh", "snapshot"]
 
@@ -308,7 +308,7 @@ def test_keyboard_interrupt_exit_0(tmp_path, capsys):
     
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
-         patch("time.sleep", sleep):
+         patch("peerhub.cli.monitor.sleep", sleep):
         assert _run(_db(tmp_path), "--cycles", "0") == 0
 
 
@@ -320,7 +320,7 @@ def test_json_frames_parse_and_carry_stable_keys(tmp_path, capsys):
     
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
-         patch("time.sleep", lambda s: None):
+         patch("peerhub.cli.monitor.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--cycles", "2", "--collect-every", "2", "--json") == 0
     
     out = capsys.readouterr().out
@@ -360,7 +360,7 @@ def test_snapshot_step_performs_no_writes(tmp_path, capsys):
         hashes.append(hashlib.sha256(db_path.read_bytes()).hexdigest())
 
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
-         patch("time.sleep", record_hash):
+         patch("peerhub.cli.monitor.sleep", record_hash):
         assert _run(db_path, "--cycles", "3", "--collect-every", "2") == 0
 
     # cycle 0 = refresh+snapshot, cycle 1 = snapshot only, cycle 2 = refresh+snapshot: the two sleeps bracket the snapshot-only cycle

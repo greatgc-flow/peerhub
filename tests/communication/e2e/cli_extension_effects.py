@@ -232,10 +232,17 @@ def monitor_effect(e, option):
     elif option == "--view":
         argv += [option, "rich"]
     sleeps = []
+    fake_now = [0.0]
+
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        fake_now[0] += seconds
+
     with patch("peerhub.extensions.quota_probes.poll_claude_usage", probe), \
          patch("peerhub.extensions.quota_probes.poll_codex_usage", probe), \
          patch("peerhub.extensions.quota_probes.poll_agy_usage", probe_agy if option == "--allow-agy-token-use" else probe), \
-         patch("time.sleep", lambda s: sleeps.append(s)):
+         patch("peerhub.cli.monitor.monotonic", lambda: fake_now[0]), \
+         patch("peerhub.cli.monitor.sleep", fake_sleep):
         code, out, err = e.run(db, *argv)
         if option == "--view":
             plain_code, plain, plain_err = e.run(db, "monitor", "--cycles", "1", "--view", "plain")

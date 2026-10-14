@@ -10,7 +10,7 @@ import json
 import os
 import sqlite3
 import sys
-import time
+from time import monotonic, sleep
 from pathlib import Path
 from typing import Any
 
@@ -66,13 +66,13 @@ def _frame_drawer(format_frame: Any, view: str, *, color: bool, db_name: str, cy
 
 def _tick(rep: Any, draw: Any, interval: float, collect_in: float, advance: Any) -> None:
     """Between two cycles redraw once per second from the same snapshot (clock, ages and countdowns move; nothing is re-read)."""
-    start = time.monotonic()
+    start = monotonic()
     while True:
-        left = interval - (time.monotonic() - start)
+        left = interval - (monotonic() - start)
         if left <= 0:
             return
-        time.sleep(min(1.0, left))
-        elapsed = time.monotonic() - start
+        sleep(min(1.0, left))
+        elapsed = monotonic() - start
         if elapsed >= interval:
             return
         if elapsed >= 1.0:
@@ -110,7 +110,7 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
     total: int = args.cycles
     done: int = 0
     last_refresh_status_code: int = 0
-    next_deadline = time.monotonic() + args.interval
+    next_deadline = monotonic() + args.interval
 
     try:
         # Show the last committed evidence immediately; provider latency must not hide the current state.
@@ -185,14 +185,14 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 
             if live and draw is not None:
                 until_collect = ((done - 1) // args.collect_every + 1) * args.collect_every - (done - 1)
-                remaining = max(0.0, next_deadline - time.monotonic())
+                remaining = max(0.0, next_deadline - monotonic())
                 if remaining:
                     _tick(rep, draw, remaining, until_collect * args.interval, advance_report)
             else:
-                remaining = next_deadline - time.monotonic()
+                remaining = next_deadline - monotonic()
                 if remaining > 0:
-                    time.sleep(remaining)
-            now = time.monotonic()
+                    sleep(remaining)
+            now = monotonic()
             while next_deadline <= now:
                 next_deadline += args.interval
 
