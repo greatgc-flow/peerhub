@@ -143,15 +143,15 @@ def test_tick_redraws_each_second_with_a_counting_down_next_refresh():
 
     clock = {"t": 0.0}
     sleeps, frames = [], []
-    monitor.time.monotonic, real_mono = (lambda: clock["t"]), monitor.time.monotonic
-    monitor.time.sleep, real_sleep = (lambda s: (sleeps.append(s), clock.__setitem__("t", clock["t"] + s))), monitor.time.sleep
+    monitor.monotonic, real_mono = (lambda: clock["t"]), monitor.monotonic
+    monitor.sleep, real_sleep = (lambda s: (sleeps.append(s), clock.__setitem__("t", clock["t"] + s))), monitor.sleep
     try:
         class Rep:
             read_at = 100.0
 
         monitor._tick(Rep(), lambda rep, nxt: frames.append((rep, nxt)), 3.0, 10.0, lambda rep, now: now)
     finally:
-        monitor.time.monotonic, monitor.time.sleep = real_mono, real_sleep
+        monitor.monotonic, monitor.sleep = real_mono, real_sleep
     assert sleeps == [1.0, 1.0, 1.0] and [f[0] for f in frames] == [101.0, 102.0]
     assert [f[1] for f in frames] == [9.0, 8.0]
 
@@ -223,7 +223,7 @@ def test_diag_health_reports_how_the_store_was_chosen(tmp_path, capsys):
     db = tmp_path / "w.db"
     assert cli(["--db", str(db), "peer", "register", "--peer", "a"]) == 0
     capsys.readouterr()
-    assert cli(["--db", str(db), "diag", "health"]) == 0
+    assert cli(["--db", str(db), "diag", "health"]) == 4
     assert _json.loads(capsys.readouterr().out)["store_selection"] == {"path": str(db), "source": "explicit"}
 
 

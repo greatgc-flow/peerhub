@@ -117,7 +117,7 @@ def test_health_is_read_only_never_creates_or_migrates(tmp_path, capsys):
         c.commit()
     before = fhash(old)
     code, out, _ = run(capsys, old, "diag", "health", "--stream", "s")
-    assert code == 0 and json.loads(out)["status"] == "ERROR" and fhash(old) == before
+    assert code == 4 and json.loads(out)["status"] == "ERROR" and fhash(old) == before
     with closing(sqlite3.connect(old)) as c:
         assert [r[0] for r in c.execute("SELECT name FROM sqlite_master")] == ["legacy"] and c.execute("PRAGMA user_version").fetchone()[0] == 0
     fut = ObservationHarness(tmp_path / "fut").db_path
@@ -127,6 +127,13 @@ def test_health_is_read_only_never_creates_or_migrates(tmp_path, capsys):
     before = fhash(fut)
     code, out, err = run(capsys, fut, "diag", "health", "--stream", "s")
     assert code == 6 and "SCHEMA VERSION" in err and fhash(fut) == before
+
+
+def test_health_dashboard_uses_truthful_versioned_stream_sample(ws, capsys):
+    code, out, _ = run(capsys, ws.db_path, "diag", "health")
+    report = json.loads(out)
+    assert code == 0 and report["schema_version"] == "2.0"
+    assert "stream_sample" in report and "active_streams" not in report
 
 
 def test_quota_db_without_observation_tables_or_evidence(tmp_path, capsys):
@@ -189,7 +196,15 @@ def test_health_obs_db_is_effective(ws, tmp_path, capsys):
     gone = tmp_path / "gone.db"
     code, out, _ = run(capsys, ws.db_path, "diag", "health", "--stream", "s", "--observation-db", str(gone))
     rep = json.loads(out)
-    assert code == 0 and rep["status"] == "OK" and rep["observations"]["status"] == "UNAVAILABLE" and not gone.exists()
+    assert code == 4 and rep["status"] == "PARTIAL" and rep["observations"]["status"] == "UNAVAILABLE" and not gone.exists()
+
+
+def test_health_store_report_marks_secondary_observation_failure_partial(ws, tmp_path, capsys):
+    gone = tmp_path / "gone.db"
+    code, out, _ = run(capsys, ws.db_path, "diag", "health", "--observation-db", str(gone))
+    rep = json.loads(out)
+    assert code == 4 and rep["status"] == "PARTIAL"
+    assert rep["observations"]["status"] == "UNAVAILABLE" and not gone.exists()
 
 
 def test_observations_summary_honours_read_at(ws):

@@ -10,11 +10,13 @@ import json
 import os
 import sqlite3
 import sys
-import time
+from time import monotonic, sleep
 from pathlib import Path
 from typing import Any
 
 from peerhub.cli.support import agy_token_use, print_warnings
+
+MONITOR_FRAME_SCHEMA = "1.1"
 
 
 def register_monitor_parser(subparsers: Any) -> None:
@@ -64,17 +66,26 @@ def _frame_drawer(format_frame: Any, view: str, *, color: bool, db_name: str, cy
 
 def _tick(rep: Any, draw: Any, interval: float, collect_in: float, advance: Any) -> None:
     """Between two cycles redraw once per second from the same snapshot (clock, ages and countdowns move; nothing is re-read)."""
-    start = time.monotonic()
+    start = monotonic()
     while True:
-        left = interval - (time.monotonic() - start)
+        left = interval - (monotonic() - start)
         if left <= 0:
             return
-        time.sleep(min(1.0, left))
-        elapsed = time.monotonic() - start
+        sleep(min(1.0, left))
+        elapsed = monotonic() - start
         if elapsed >= interval:
             return
         if elapsed >= 1.0:
             draw(advance(rep, rep.read_at + elapsed), max(0.0, collect_in - elapsed))
+
+
+def _cycle_exit_code(report: Any, refresh_code: int) -> int:
+    """Return the most actionable failure from the completed diagnostic/refresh cycle."""
+    if report.status == "FAILED":
+        return 6 if (report.error or "").startswith("SchemaVersionError:") else 4
+    if report.status == "PARTIAL":
+        return 4
+    return refresh_code
 
 
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -99,8 +110,24 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
     total: int = args.cycles
     done: int = 0
     last_refresh_status_code: int = 0
+    next_deadline = monotonic() + args.interval
 
     try:
+        # Show the last committed evidence immediately; provider latency must not hide the current state.
+        initial = ReadonlyDiag(args.db).render(["peers", "streams", "resource_pools", "observations", "activity"])
+        initial_refresh = {"status": "NOT_STARTED"}
+        if args.json:
+            print(json.dumps({
+                "schema_version": MONITOR_FRAME_SCHEMA, "cycle": 0, "phase": "initial", "refresh": initial_refresh,
+                "store_selection": {"path": store_path, "source": store_source}, "snapshot": dashboard_data(initial),
+            }, ensure_ascii=True, separators=(",", ":")), flush=True)
+        else:
+            live = output.live
+            draw = _frame_drawer(format_frame, view, color=color, db_name=db_name, cycle=0,
+                                 refresh=initial_refresh, interval=args.interval,
+                                 collect_every=args.collect_every, output=output,
+                                 store_path=store_path, store_source=store_source)
+            draw(initial, args.interval)
         while True:
             if report_missing_store(args.db, json_output=args.json):
                 return 5
@@ -136,7 +163,9 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
             if args.json:
                 snapshot_dict = dashboard_data(rep)
                 frame = {
+                    "schema_version": MONITOR_FRAME_SCHEMA,
                     "cycle": done,
+                    "phase": "complete",
                     "refresh": refresh_info,
                     "store_selection": {"path": store_path, "source": store_source},
                     "snapshot": snapshot_dict,
@@ -152,13 +181,20 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 
             done += 1
             if total > 0 and done >= total:
-                return last_refresh_status_code
+                return _cycle_exit_code(rep, last_refresh_status_code)
 
             if live and draw is not None:
                 until_collect = ((done - 1) // args.collect_every + 1) * args.collect_every - (done - 1)
-                _tick(rep, draw, args.interval, until_collect * args.interval, advance_report)
+                remaining = max(0.0, next_deadline - monotonic())
+                if remaining:
+                    _tick(rep, draw, remaining, until_collect * args.interval, advance_report)
             else:
-                time.sleep(args.interval)
+                remaining = next_deadline - monotonic()
+                if remaining > 0:
+                    sleep(remaining)
+            now = monotonic()
+            while next_deadline <= now:
+                next_deadline += args.interval
 
     except KeyboardInterrupt:
         return 0

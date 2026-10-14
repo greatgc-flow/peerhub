@@ -4,7 +4,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 
 ## Core & Everyday Guides
 - [README.md](../README.md): Quick start, installation (`pipx`/`uv`/`pip`), core usage, and everyday operational commands.
-- [Common Tasks](../README.md#common-tasks): Worked recipes for multi-turn session resume, blocked stream recovery, offline diagnostics, and package lifecycle.
+- [Common Tasks](../README.md#common-tasks): Worked recipes for default retained-session continuation, blocked stream recovery, offline diagnostics, and package lifecycle.
 - [STATUS.md](STATUS.md): Current source (v0.16.0), remaining work, and historical evolution log.
 - [CONTRIBUTING.md](../CONTRIBUTING.md): Developer environment setup, deterministic testing, release gates, and incident lessons.
 
@@ -21,9 +21,13 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [CLI Reference](adapters/peer-cli-reference.md): Low-level adapter options and platform constraints.
 
 ## Active Design & Plans
-- [Monitoring Plan v2](design/plan-monitoring-v2-2026-10-12.md): Live quota dashboard, PACE balancing, and alerting specification.
-- [Session Reuse Plan](design/plan-session-reuse-2026-10-13.md): Retained session registry, explicit handle reuse, capability bug fix, and catch-up correctness.
-- [Blocked Streams Plan](design/plan-stuck-streams-2026-10-12.md): PRs 1-3 complete; quota pre-flight, policy settlement, and audited recovery remain.
+- [Pre-TDD Renewal (October 2026)](design/peerhub-pre-tdd-renewal-2026-10-14.md): Reconciled architecture and numbered RED contracts; no implementation authorized by this design stage.
+- [CLI, Monitoring, and Inspection Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md): MECE command boundaries, profile/session inspection, read-only guarantees, bounded snapshots, human/AI defaults, and PH-T095–105.
+- [Deepthink Debate Ledger](design/peerhub-deepthink-debate-2026-10-14.md): Debate provenance and corrections; records the three scoped pre-TDD design GOs and remaining implementation/owner/empirical gates.
+- [Retained Session Contract](implementation/RETAINED_SESSIONS.md): Registry migration, retention, immutable replay, receipts and current ask output (PR1-3 committed).
+- [Canonical Session Sequence](design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence): Existing sequence and implementation evidence; PR1-3 and health fixes are committed (`cfb28aba`). Proposed revisions remain candidates until pre-TDD closure.
+- [Monitoring Plan v2](design/plan-monitoring-v2-2026-10-12.md): Existing monitoring proposal; its dependencies and contracts are under review in the renewal.
+- [Blocked Streams Plan](design/plan-stuck-streams-2026-10-12.md): Existing plan; abandonment and recovery contracts are under review in the renewal.
 - [Audit & Triage Record](design/audit-2026-10-12.md): Consolidated October 2026 audit findings, owner decisions, and work packages.
 
 ## Archives & Evidence

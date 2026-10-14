@@ -13,11 +13,13 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Callable, cast
 
 from .migrations import enable_wal, rollback_quietly, run_migrations
+from .read_only_probe import probe_table_roots
+from .schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from .models import (
     AppendRequest,
     Offset,
@@ -120,7 +122,8 @@ STREAM_MUTATION_KEYS = frozenset({"state", "members", "title", "metadata"})
 class CoreStore:
     def __init__(self, db_path: str | Path, fault_hook: Callable[[str], None] | None = None, *,
                  busy_timeout_ms: int = 30000, conn_init: Callable[[sqlite3.Connection], None] | None = None,
-                 quick_check_max_bytes: int = DEFAULT_QUICK_CHECK_MAX_BYTES) -> None:
+                 quick_check_max_bytes: int = DEFAULT_QUICK_CHECK_MAX_BYTES,
+                 readonly: bool = False) -> None:
         """Test seams: `fault_hook(point)` (CrashInjector points: append.begin, append.before_commit, append.after_commit,
         offset.before_head_check); `conn_init(conn)` runs on every store connection (e.g. a real `PRAGMA max_page_count`);
         `busy_timeout_ms` bounds how long a writer waits for the database write lock before failing explicitly."""
@@ -130,7 +133,28 @@ class CoreStore:
         self.busy_timeout_ms = int(busy_timeout_ms)
         self.conn_init = conn_init
         self.quick_check_max_bytes = int(quick_check_max_bytes)
+        self.readonly = readonly
         self.preflight_mode = "none"  # none (no file yet) | full (quick_check) | light (header+schema+sampled rows); see _preflight
+        if readonly:
+            if not Path(self.db_path).is_file():
+                raise FileNotFoundError(f"database not found: {self.db_path}")
+            db_file = Path(self.db_path).resolve()
+            wal_file = Path(str(db_file) + "-wal")
+            # When no committed WAL needs replay, immutable schema inspection
+            # avoids creating transient -shm/-wal sidecars just to refuse a future DB.
+            if not wal_file.exists() or wal_file.stat().st_size == 0:
+                schema_uri = db_file.as_uri() + "?mode=ro&immutable=1"
+                with storage_errors():
+                    with closing(sqlite3.connect(schema_uri, uri=True)) as schema_conn:
+                        version = int(schema_conn.execute("PRAGMA user_version").fetchone()[0])
+                if version > SUPPORTED_SCHEMA_VERSION:
+                    raise SchemaVersionError(future_schema_message(version, SUPPORTED_SCHEMA_VERSION))
+            with self.read_uow() as conn:
+                version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+                if version > SUPPORTED_SCHEMA_VERSION:
+                    raise SchemaVersionError(future_schema_message(version, SUPPORTED_SCHEMA_VERSION))
+                probe_table_roots(conn)
+            return
         with storage_errors():
             self._preflight()  # fail closed on a corrupt/foreign file BEFORE any migration/WAL change (FLT-013)
             run_migrations(self.db_path)  # ordered, transactional, no-op at current version; rejects future versions (TD-14)
@@ -202,6 +226,14 @@ class CoreStore:
 
     def _get_connection(self) -> sqlite3.Connection:
         self._check_restore_epoch()
+        if self.readonly:
+            conn = sqlite3.connect(Path(self.db_path).resolve().as_uri() + "?mode=ro", uri=True,
+                                   timeout=self.busy_timeout_ms / 1000.0)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only = ON;")
+            conn.execute("PRAGMA foreign_keys = ON;")
+            conn.execute(f"PRAGMA busy_timeout = {self.busy_timeout_ms};")
+            return conn
         conn = sqlite3.connect(self.db_path, timeout=self.busy_timeout_ms / 1000.0)
         try:
             with storage_errors():
@@ -277,6 +309,17 @@ class CoreStore:
             row = conn.execute("SELECT * FROM peers WHERE peer_id = ?", (peer_id,)).fetchone()
             return self._row_to_peer(row) if row else None
 
+    def list_peers_page(self, *, after_peer_id: str | None, limit: int) -> list[Peer]:
+        if not _is_int(limit) or not 1 <= limit <= 201:
+            raise ValueError("page limit must be between 1 and 200")
+        with self._read() as conn:
+            if after_peer_id is None:
+                rows = conn.execute("SELECT * FROM peers ORDER BY peer_id LIMIT ?", (limit,)).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM peers WHERE peer_id > ? ORDER BY peer_id LIMIT ?",
+                                    (after_peer_id, limit)).fetchall()
+            return [self._row_to_peer(row) for row in rows]
+
     @staticmethod
     def _require_peers(conn: sqlite3.Connection, peer_ids: list[str]) -> None:
         for pid in peer_ids:
@@ -328,6 +371,29 @@ class CoreStore:
         with self.read_uow() as conn:
             return [self._load_stream(conn, row) for row in
                     conn.execute("SELECT * FROM streams ORDER BY stream_id").fetchall()]
+
+    def list_streams_page(self, *, after_stream_id: str | None, limit: int) -> list[Stream]:
+        if not _is_int(limit) or not 1 <= limit <= 201:
+            raise ValueError("page limit must be between 1 and 200")
+        with self.read_uow() as conn:
+            if after_stream_id is None:
+                rows = conn.execute("SELECT * FROM streams ORDER BY stream_id LIMIT ?", (limit,)).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM streams WHERE stream_id > ? ORDER BY stream_id LIMIT ?",
+                                    (after_stream_id, limit)).fetchall()
+            stream_ids = [row["stream_id"] for row in rows]
+            members: dict[str, list[str]] = {stream_id: [] for stream_id in stream_ids}
+            if stream_ids:
+                placeholders = ",".join("?" for _ in stream_ids)
+                for member in conn.execute(
+                    f"SELECT stream_id, peer_id FROM stream_members WHERE stream_id IN ({placeholders}) ORDER BY rowid",
+                    stream_ids,
+                ):
+                    members[member["stream_id"]].append(member["peer_id"])
+            return [Stream(stream_id=row["stream_id"], title=row["title"], state=StreamState(row["state"]),
+                           members=members[row["stream_id"]], revision=row["revision"],
+                           metadata=json.loads(row["metadata_json"]), created_at=row["created_at"])
+                    for row in rows]
 
     def find_record_by_idempotency(self, stream_id: str, author_peer_id: str,
                                    idempotency_key: str) -> Record | None:

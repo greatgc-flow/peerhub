@@ -63,6 +63,20 @@ CREATE TABLE IF NOT EXISTS observations (
 );
 CREATE INDEX IF NOT EXISTS idx_obs_subject_kind ON observations(subject_ref, kind, effective_at_us, capture_seq);
 CREATE INDEX IF NOT EXISTS idx_obs_pool ON observations(resource_pool_ref, capture_seq);
+CREATE INDEX IF NOT EXISTS idx_obs_session_quota ON observations(subject_ref,kind,resource_pool_ref,effective_at_us DESC,capture_seq DESC);
+CREATE TABLE IF NOT EXISTS observation_rollups (
+    subject_ref TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    pool_key TEXT NOT NULL,
+    latest_capture_seq INTEGER NOT NULL,
+    row_count INTEGER NOT NULL CHECK (row_count > 0),
+    PRIMARY KEY (subject_ref, kind, pool_key)
+);
+CREATE TABLE IF NOT EXISTS activity_rollups (
+    subject_ref TEXT NOT NULL,
+    capture_seq INTEGER PRIMARY KEY
+);
+CREATE INDEX IF NOT EXISTS idx_activity_rollups_subject_seq ON activity_rollups(subject_ref, capture_seq DESC);
 """
 _TRIGGERS = (
     "CREATE TRIGGER observations_no_update BEFORE UPDATE ON observations BEGIN SELECT RAISE(ABORT, 'observations are immutable evidence'); END",
@@ -74,6 +88,20 @@ _TRIGGERS = (
     "CREATE TRIGGER observations_no_seq_replace BEFORE INSERT ON observations "
     "WHEN NEW.capture_seq IS NOT NULL AND EXISTS (SELECT 1 FROM observations WHERE capture_seq = NEW.capture_seq) "
     "BEGIN SELECT RAISE(ABORT, 'observations are immutable evidence (append only)'); END",
+    "CREATE TRIGGER observations_rollup_insert AFTER INSERT ON observations BEGIN "
+    "INSERT INTO observation_rollups (subject_ref, kind, pool_key, latest_capture_seq, row_count) "
+    "VALUES (NEW.subject_ref, NEW.kind, COALESCE(NEW.resource_pool_ref, ''), NEW.capture_seq, 1) "
+    "ON CONFLICT(subject_ref, kind, pool_key) DO UPDATE SET "
+    "row_count = observation_rollups.row_count + 1, "
+    "latest_capture_seq = CASE WHEN "
+    "(SELECT effective_at_us FROM observations WHERE capture_seq = observation_rollups.latest_capture_seq) < NEW.effective_at_us "
+    "OR ((SELECT effective_at_us FROM observations WHERE capture_seq = observation_rollups.latest_capture_seq) = NEW.effective_at_us "
+    "AND observation_rollups.latest_capture_seq < NEW.capture_seq) "
+    "THEN NEW.capture_seq ELSE observation_rollups.latest_capture_seq END; END",
+    "CREATE TRIGGER observations_activity_rollup_insert AFTER INSERT ON observations WHEN NEW.kind = 'activity' BEGIN "
+    "INSERT INTO activity_rollups (subject_ref, capture_seq) VALUES (NEW.subject_ref, NEW.capture_seq); "
+    "DELETE FROM activity_rollups WHERE subject_ref = NEW.subject_ref AND capture_seq NOT IN "
+    "(SELECT capture_seq FROM activity_rollups WHERE subject_ref = NEW.subject_ref ORDER BY capture_seq DESC LIMIT 50); END",
     "CREATE TRIGGER resource_pools_no_rowid_replace BEFORE INSERT ON resource_pools "
     "WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM resource_pools WHERE rowid = NEW.rowid) "
     "BEGIN SELECT RAISE(ABORT, 'resource pools are immutable (append only)'); END",
@@ -83,7 +111,7 @@ _TRIGGERS = (
     "CREATE TRIGGER resource_pools_no_update BEFORE UPDATE ON resource_pools BEGIN SELECT RAISE(ABORT, 'resource pools are immutable'); END",
     "CREATE TRIGGER resource_pools_no_delete BEFORE DELETE ON resource_pools BEGIN SELECT RAISE(ABORT, 'resource pools are immutable'); END",
 )
-_OWNED_TABLES = ("observations", "resource_pools")
+_TRIGGER_OWNERS = ("observations", "resource_pools")
 _SELECT = ("SELECT capture_seq, observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, observed_at, captured_at "
            "FROM observations")
 _ORDER_LATEST = " ORDER BY effective_at_us DESC, capture_seq DESC"
@@ -152,11 +180,34 @@ class ObservationStore:
 
     def _init_schema(self) -> None:
         with self._tx() as conn:
+            had_rollups = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='observation_rollups'"
+            ).fetchone() is not None
+            had_activity_rollups = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='activity_rollups'"
+            ).fetchone() is not None
             for stmt in _DDL.split(";"):
                 if stmt.strip():
                     conn.execute(stmt)
-            for (name,) in conn.execute(  # reopen: drop EVERY trigger on owned tables (stale/legacy ones included), then reinstall
-                    "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN (?, ?)", _OWNED_TABLES).fetchall():
+            if not had_rollups:
+                conn.execute(
+                    "INSERT INTO observation_rollups (subject_ref, kind, pool_key, latest_capture_seq, row_count) "
+                    "SELECT subject_ref, kind, pool_key, latest_capture_seq, row_count FROM ("
+                    "SELECT subject_ref, kind, COALESCE(resource_pool_ref, '') AS pool_key, capture_seq, "
+                    "FIRST_VALUE(capture_seq) OVER (PARTITION BY subject_ref, kind, COALESCE(resource_pool_ref, '') "
+                    "ORDER BY effective_at_us DESC, capture_seq DESC) AS latest_capture_seq, "
+                    "COUNT(*) OVER (PARTITION BY subject_ref, kind, COALESCE(resource_pool_ref, '')) AS row_count, "
+                    "ROW_NUMBER() OVER (PARTITION BY subject_ref, kind, COALESCE(resource_pool_ref, '') "
+                    "ORDER BY effective_at_us DESC, capture_seq DESC) AS rn FROM observations) WHERE rn=1"
+                )
+            if not had_activity_rollups:
+                conn.execute(
+                    "INSERT INTO activity_rollups (subject_ref, capture_seq) SELECT subject_ref, capture_seq FROM ("
+                    "SELECT subject_ref, capture_seq, ROW_NUMBER() OVER (PARTITION BY subject_ref ORDER BY capture_seq DESC) AS rn "
+                    "FROM observations WHERE kind='activity') WHERE rn <= 50"
+                )
+            for (name,) in conn.execute(  # reopen: drop EVERY trigger on trigger-owned tables (stale/legacy ones included), then reinstall
+                    "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN (?, ?)", _TRIGGER_OWNERS).fetchall():
                 conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
             for t in _TRIGGERS:
                 conn.execute(t)

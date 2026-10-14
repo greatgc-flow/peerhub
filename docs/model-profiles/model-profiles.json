@@ -1,10 +1,10 @@
 {
   "$schema": "./model-profiles.schema.json",
   "schema_version": 1,
-  "revision": "2026-10-13.1",
-  "observed_at": "2026-10-13",
+  "revision": "2026-10-14.1",
+  "observed_at": "2026-10-14",
   "observed_versions": {
-    "ag": "1.3.3",
+    "ag": "1.3.4",
     "cc": "2.1.296",
     "cx": "0.162.1"
   },
@@ -13,13 +13,10 @@
       "model": "gemini-3.8-flash-low"
     },
     "ag.effort": {
-      "model": "gemini-3.8-flash-high"
+      "model": "gemini-3.8-flash-medium"
     },
     "ag.deepthink": {
       "model": "claude-sonnet-5-5-high"
-    },
-    "ag.pro": {
-      "model": "claude-opus-5-5-high"
     },
     "cc.standard": {
       "model": "claude-haiku-5-5"
@@ -32,24 +29,16 @@
       "model": "claude-opus-5-5",
       "reasoning_effort": "high"
     },
-    "cc.pro": {
-      "model": "claude-fable-5-1",
-      "reasoning_effort": "high"
-    },
     "cx.standard": {
       "model": "gpt-6-luna",
       "reasoning_effort": "low"
     },
     "cx.effort": {
       "model": "gpt-6.1-sol",
-      "reasoning_effort": "high"
+      "reasoning_effort": "medium"
     },
     "cx.deepthink": {
       "model": "gpt-6.1-sol",
-      "reasoning_effort": "xhigh"
-    },
-    "cx.pro": {
-      "model": "gpt-6-astra",
       "reasoning_effort": "xhigh"
     }
   },
@@ -68,10 +57,9 @@
     }
   },
   "tier_rules": [
-    "standard = cheapest/fastest current family (cc: haiku, cx: *-luna low, ag: newest flash low).",
-    "effort = balanced current family (cc: newest sonnet high, cx: newest *-sol high, ag: newest flash high).",
-    "deepthink = stronger reasoning without making extended runs the default (cc: newest opus high, cx: newest *-sol xhigh, ag: claude-sonnet-5-5 high while gemini pro absent).",
-    "pro = top-tier (cc: newest flagship, cx: *-astra xhigh, ag: claude-opus-5-5 high while gemini pro absent).",
+    "standard = cheap/fast triage (cc: haiku, cx: *-luna low, ag: newest flash low).",
+    "effort = daily driver (cc: newest sonnet high, cx: newest *-sol medium, ag: newest flash medium).",
+    "deepthink = deliberate escalation (cc: newest opus high, cx: newest *-sol xhigh, ag: claude-sonnet-5-5 high while gemini pro absent).",
     "max/ultra efforts are explicit per-call overrides, never a default tier.",
     "Never pick models with visibility 'hide'. Keep an effort only if the model lists it as supported."
   ],

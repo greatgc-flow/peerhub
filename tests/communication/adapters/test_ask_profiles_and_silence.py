@@ -28,7 +28,7 @@ def test_explicit_standard_profile_resolves_packaged_policy(tmp_path, kind):
     runtime = CliRuntimeTarget(kind, tmp_path, profile=f"{kind}.standard")
     assert model and runtime.binding().split("#")[0] == f"{kind}.standard/{model}/{effort or 'default'}"
     assert CliRuntimeTarget(kind, tmp_path).binding().split("#")[0] == "default/default"
-    assert not runtime.resumable  # selecting a policy does not invent capabilities
+    assert runtime.resumable == SPECS[kind].can_resume is True  # capability comes from the adapter, not profile policy
 
 
 def test_profile_precedence_and_explicit_overrides(tmp_path):

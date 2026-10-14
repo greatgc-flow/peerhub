@@ -37,7 +37,9 @@ def test_immutable_tables_reject_replace_update_delete_with_mutable_control(obs_
         assert conn.execute("PRAGMA recursive_triggers").fetchone()[0] == 1
     with closing(sqlite3.connect(obs_h.db_path)) as c:
         owned = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
-        assert owned - {"peers", "streams", "stream_members", "records", "offsets"} == {"observations", "resource_pools"}  # nothing unaudited
+        assert owned - {"peers", "streams", "stream_members", "records", "offsets"} == {
+            "observations", "resource_pools", "observation_rollups", "activity_rollups"
+        }  # append-only evidence plus the two trigger-maintained diagnostic projections
         # mutable control: identical statement shapes succeed on a genuinely mutable table, so the rejections above are not vacuous
         c.execute("CREATE TABLE mutable_control (id TEXT PRIMARY KEY, v TEXT)")
         c.execute("INSERT INTO mutable_control VALUES ('a','1')")

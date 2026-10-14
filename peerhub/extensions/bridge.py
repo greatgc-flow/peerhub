@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Mapping, Protocol, cast
 
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, StaleClaimError
+from peerhub.extensions import bridge_registry, session_receipts
 from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, ProjectedRecords, build_catch_up, project_catch_up
 from peerhub.core.models import Record
 from peerhub.core.store import CasMismatchError, CoreStore, IdempotencyConflictError
@@ -113,12 +114,77 @@ class SessionError(RuntimeError):
     """Session create/resume failure."""
 
 
+class SessionBridgeError(ValueError):
+    """Definitive session selection failure before invocation."""
+    code = "session_selection_error"
+
+
+class SessionNotFoundError(SessionBridgeError):
+    code = "session_not_found"
+
+
+class SessionTombstonedError(SessionBridgeError):
+    code = "session_tombstoned"
+
+
+class SessionDeltaOverflowError(SessionBridgeError):
+    code = "session_delta_overflow"
+
+
+class SessionStreamMismatchError(SessionBridgeError):
+    code = "session_stream_mismatch"
+
+
+class SessionPeerMismatchError(SessionBridgeError):
+    code = "session_peer_mismatch"
+
+
+class SessionWorkspaceMismatchError(SessionBridgeError):
+    code = "session_workspace_mismatch"
+
+
+class SessionBindingMismatchError(SessionBridgeError):
+    code = "session_binding_mismatch"
+
+
+class SessionFingerprintMismatchError(SessionBridgeError):
+    code = "session_fingerprint_mismatch"
+
+
+class SessionUnavailableError(SessionBridgeError):
+    code = "session_unavailable"
+
+
+class SessionLostError(SessionBridgeError):
+    code = "session_lost"
+
+
+class ConflictingSessionFlagsError(ValueError):
+    code = "conflicting_session_flags"
+
+
+class InvalidSessionHandleSyntaxError(ValueError):
+    code = "invalid_session_handle_syntax"
+
+
+def normalize_session_selector(*, fresh: bool = False, session: str | None = None) -> str:
+    if fresh and session is not None:
+        raise ConflictingSessionFlagsError("fresh and session are mutually exclusive")
+    if session is not None:
+        if not re.fullmatch(r"sess_[0-9a-f]{16}", session):
+            raise InvalidSessionHandleSyntaxError("session must be a full handle: sess_ followed by 16 lowercase hexadecimal digits")
+        return "sess:" + session
+    return "fresh" if fresh else "latest"
+
+
 RuntimeEvent = tuple[str, Any] | tuple[str, Any, Any]  # ("started", exec_id) | ("timeout", seconds) | ("terminal", {"response": ...}) | ...
 
 
 class RuntimeTarget(Protocol):
     runtime_kind: str
-    resumable: bool
+
+    @property
+    def resumable(self) -> bool: ...  # read capability; custom attributes also satisfy this boundary
 
     def fingerprint(self) -> str: ...
     def binding(self) -> str: ...  # model/profile binding; a mapping is only resumable under the same binding
@@ -140,6 +206,7 @@ class CycleResult:
     response_record_id: str | None = None
     session_generation: int | None = None
     detail: dict[str, Any] = field(default_factory=dict[str, Any])
+    session: dict[str, Any] | None = None
 
 
 CONTROL_EFFECT = {"control.pause": "interrupt", "control.cancel": "terminate", "control.redirect": "steer"}
@@ -165,11 +232,6 @@ class ControlResult:
 
 
 _DDL = [
-    """CREATE TABLE IF NOT EXISTS bridge_sessions (
-        stream_id TEXT NOT NULL, peer_id TEXT NOT NULL, runtime_kind TEXT NOT NULL, external_session_id TEXT NOT NULL,
-        session_generation INTEGER NOT NULL, adapter_fingerprint TEXT NOT NULL, binding TEXT NOT NULL,
-        resumable INTEGER NOT NULL, state TEXT NOT NULL, last_seen REAL NOT NULL,
-        workspace_generation TEXT NOT NULL DEFAULT '', PRIMARY KEY (stream_id, peer_id))""",
     """CREATE TABLE IF NOT EXISTS bridge_session_events (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, stream_id TEXT NOT NULL, peer_id TEXT NOT NULL, event TEXT NOT NULL,
         from_state TEXT NOT NULL, to_state TEXT NOT NULL, generation INTEGER NOT NULL, detail TEXT NOT NULL)""",
@@ -182,6 +244,9 @@ _DDL = [
     """CREATE TABLE IF NOT EXISTS bridge_evidence (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, delivery_id TEXT, stream_id TEXT NOT NULL, peer_id TEXT NOT NULL,
         kind TEXT NOT NULL, certainty TEXT, detail TEXT NOT NULL)""",
+    "CREATE INDEX IF NOT EXISTS idx_be_delivery_seq ON bridge_evidence(delivery_id,seq)",
+    "CREATE INDEX IF NOT EXISTS idx_bd_record_peer_attempt ON bridge_deliveries(record_id,peer_id,attempt)",
+    "CREATE INDEX IF NOT EXISTS idx_be_stream_kind_seq ON bridge_evidence(stream_id,kind,seq)",
     """CREATE TABLE IF NOT EXISTS bridge_reconciliations (
         delivery_id TEXT PRIMARY KEY, reconcile_record_id TEXT NOT NULL, decision TEXT NOT NULL, consumed_attempt INTEGER)""",
     """CREATE TABLE IF NOT EXISTS bridge_controls (
@@ -339,14 +404,99 @@ class Bridge:
                 conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
             for stmt in _DDL:
                 conn.execute(stmt)
-            if "workspace_generation" not in {r[1] for r in conn.execute("PRAGMA table_info(bridge_sessions)")}:
-                # stores created before FLT-008: unknown lineage ('' never equals a real generation) => never resumed, always fresh
-                conn.execute("ALTER TABLE bridge_sessions ADD COLUMN workspace_generation TEXT NOT NULL DEFAULT ''")
-            columns = {r[1] for r in conn.execute("PRAGMA table_info(bridge_sessions)")}
-            for name, kind in (("vendor_session_id", "TEXT"), ("context_watermark", "INTEGER"),
-                               ("bootstrap_truncated", "INTEGER"), ("usage_json", "TEXT")):
-                if name not in columns:
-                    conn.execute(f"ALTER TABLE bridge_sessions ADD COLUMN {name} {kind}")
+            bridge_registry.initialize(conn, self._upgrade_session_context, self._fire)
+            conn.execute("""CREATE TRIGGER IF NOT EXISTS bridge_delivery_session_immutable
+                BEFORE UPDATE OF external_session_id,session_generation,session_handle,session_snapshot_json ON bridge_deliveries
+                WHEN OLD.certainty!='NOT_STARTED' OR OLD.result_digest IS NOT NULL OR
+                    EXISTS(SELECT 1 FROM bridge_invocations i WHERE i.delivery_id=OLD.delivery_id AND NOT EXISTS
+                        (SELECT 1 FROM bridge_invocation_resolutions r WHERE r.delivery_id=i.delivery_id AND r.invocation_no=i.invocation_no))
+                BEGIN SELECT RAISE(ABORT,'accepted session is immutable after execution or settlement'); END""")
+            conn.execute("""CREATE TRIGGER IF NOT EXISTS bridge_result_write_once
+                BEFORE UPDATE OF result_json,result_digest ON bridge_deliveries WHEN OLD.result_digest IS NOT NULL
+                BEGIN SELECT RAISE(ABORT,'settled result is immutable'); END""")
+
+    @staticmethod
+    def _reconstruct_consumed_prompt(conn: sqlite3.Connection, m: sqlite3.Row) -> int | None:
+        """Require exact terminal identity and complete ordered context for every turn.
+
+        Historical same-peer exclusions and response watermarks are not proof.
+        A missing receipt, skipped record or uncertain attempt invalidates the chain.
+        """
+        if m["state"] not in ("ACTIVE", "FRESH") or m["vendor_session_id"] is None or m["bootstrap_truncated"] != 0:
+            return None
+        deliveries = conn.execute(
+            "SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? ORDER BY seq",
+            (m["stream_id"], m["peer_id"], m["session_generation"])).fetchall()
+        watermark = 0
+        for index, d in enumerate(deliveries):
+            if d["certainty"] != TERMINAL or d["external_session_id"] != m["external_session_id"] or d["record_position"] <= watermark:
+                return None
+            receipts = conn.execute("SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='terminal'", (d["delivery_id"],)).fetchall()
+            if len(receipts) != 1:
+                return None
+            try:
+                detail = json.loads(receipts[0][0])
+                result = json.loads(d["result_json"])
+                if not isinstance(detail, dict) or not isinstance(result, dict):
+                    return None
+                detail = cast("dict[str, Any]", detail)
+                if detail.get("digest") != d["result_digest"] or _digest(result) != d["result_digest"]:
+                    return None
+                bound = detail.get("session_bound")
+                if not isinstance(bound, dict):
+                    return None
+                bound = cast("dict[str, Any]", bound)
+                if any(bound.get(key) != value for key, value in {
+                    "vendor_session_digest": _digest(m["vendor_session_id"]), "watermark": d["record_position"],
+                    "binding": m["binding"], "adapter_fingerprint": m["adapter_fingerprint"],
+                    "session_generation": m["session_generation"], "claim_generation": d["claim_generation"],
+                    "execution_id": d["execution_id"],
+                }.items()):
+                    return None
+                if detail.get("effective_mode") != ("fresh" if index == 0 else "resumed") or detail.get("bootstrap_truncated") is not False:
+                    return None
+                record = conn.execute("SELECT record_id FROM records WHERE stream_id=? AND position=?",
+                                      (m["stream_id"], d["record_position"])).fetchone()
+                if record is None or record[0] != d["record_id"]:
+                    return None
+                prior = conn.execute("SELECT record_id, kind, targets_json FROM records WHERE stream_id=? AND position>? AND position<? ORDER BY position",
+                                     (m["stream_id"], watermark, d["record_position"])).fetchall()
+                expected = [r["record_id"] for r in prior if index == 0 or r["kind"] != "control.redirect"
+                            or not json.loads(r["targets_json"]) or m["peer_id"] in json.loads(r["targets_json"])]
+                if detail.get("injected_record_ids") != expected:
+                    return None
+            except (ValueError, TypeError):
+                return None
+            watermark = d["record_position"]
+        return watermark or None
+
+    @staticmethod
+    def _upgrade_session_context(conn: sqlite3.Connection) -> None:
+        """Writer-owned, atomic upgrade; capability alone never proves consumed context.
+
+        Old terminal receipts must prove complete context, not just delivery;
+        deltas may have skipped same-peer responses or concurrent records below
+        a response-position watermark. Unprovable chains are invalidated.
+        Local custom sessions keep their delivery-evidence continuity contract.
+        """
+        for m in conn.execute("SELECT * FROM bridge_sessions WHERE context_watermark_version=0").fetchall():
+            cli = m["runtime_kind"] in ("cc", "cx", "ag")
+            native = cli or m["vendor_session_id"] is not None
+            reconstructed = Bridge._reconstruct_consumed_prompt(conn, m) if native else None
+            lost = native and reconstructed is None
+            conn.execute(
+                "UPDATE bridge_sessions SET resumable=CASE WHEN runtime_kind IN ('cc','cx','ag') THEN 1 ELSE resumable END, "
+                "state=?, vendor_session_id=?, context_watermark=?, bootstrap_truncated=?, usage_json=?, context_watermark_version=1 "
+                "WHERE stream_id=? AND peer_id=? AND context_watermark_version=0",
+                ("LOST" if lost else m["state"], None if lost else m["vendor_session_id"],
+                 None if lost else reconstructed if native else m["context_watermark"], None if lost else m["bootstrap_truncated"],
+                 None if lost else m["usage_json"], m["stream_id"], m["peer_id"]))
+            if lost:
+                conn.execute(
+                    "INSERT INTO bridge_session_events (stream_id, peer_id, event, from_state, to_state, generation, detail) "
+                    "VALUES (?,?,'session_lost',?,'LOST',?,?)",
+                    (m["stream_id"], m["peer_id"], m["state"], m["session_generation"],
+                     json.dumps({"reason": "continuity_unproven"}, sort_keys=True)))
 
     def _fire(self, point: str) -> None:
         if self._hook is not None:
@@ -376,11 +526,19 @@ class Bridge:
         if to != row["certainty"]:
             conn.execute("UPDATE bridge_deliveries SET certainty=? WHERE delivery_id=?", (to, delivery_id))
         self._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, to, **detail)
+        if to == STARTED:
+            session_receipts.call(conn, row, self.claims.now())
         if to == MAY_HAVE_STARTED:
-            won = conn.execute("UPDATE bridge_sessions SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
-                               "AND session_generation=? AND external_session_id=? AND state!='LOST' AND vendor_session_id IS NOT NULL",
+            mapping = bridge_registry.generation(conn, row["stream_id"], row["peer_id"], row["session_generation"])
+            won = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
+                               "AND session_generation=? AND external_session_id=? AND state NOT IN ('LOST','TOMBSTONED') "
+                               "AND (vendor_session_id IS NOT NULL OR runtime_kind IN ('cc','cx','ag'))",
                                (row["stream_id"], row["peer_id"], row["session_generation"], row["external_session_id"])).rowcount
             if won:
+                bridge_registry.repair(conn, row["stream_id"], row["peer_id"], self.claims.now())
+                assert mapping is not None
+                conn.execute("INSERT INTO bridge_session_events(stream_id,peer_id,event,from_state,to_state,generation,detail) VALUES (?,?,'session_lost',?,'LOST',?,?)",
+                             (row["stream_id"], row["peer_id"], mapping["state"], row["session_generation"], session_receipts.dumps({"reason": "tainted"})))
                 self._evidence(conn, row["stream_id"], row["peer_id"], "session_tainted", delivery_id, to,
                                reason="tainted", session_generation=row["session_generation"])
 
@@ -498,8 +656,13 @@ class Bridge:
 
     # ------------------------------------------------------------------ harness-facing reads
     def current_mapping(self, peer_id: str, stream_id: str) -> dict[str, Any] | None:
+        """Inspect the MRU mapping, falling back to its retained lifecycle history."""
         with self.claims.transaction() as conn:
-            r = conn.execute("SELECT * FROM bridge_sessions WHERE stream_id=? AND peer_id=?", (stream_id, peer_id)).fetchone()
+            r = bridge_registry.current(conn, stream_id, peer_id)
+            if r is None:
+                r = conn.execute("SELECT * FROM bridge_session_history WHERE stream_id=? AND peer_id=? "
+                                 "ORDER BY last_seen DESC,session_generation DESC,session_handle DESC LIMIT 1",
+                                 (stream_id, peer_id)).fetchone()
         if r is None:
             return None
         d = dict(r)
@@ -516,9 +679,10 @@ class Bridge:
         with self.claims.transaction() as conn:
             dels = [dict(r) for r in conn.execute("SELECT * FROM bridge_deliveries WHERE record_id=? AND peer_id=? ORDER BY attempt",
                                                   (record_id, peer_id))]
-            ids = [d["delivery_id"] for d in dels]
-            ev = [dict(r) for r in conn.execute("SELECT * FROM bridge_evidence WHERE peer_id=? ORDER BY seq", (peer_id,))
-                  if r["delivery_id"] in ids]
+            ev = [dict(r) for r in conn.execute(
+                "SELECT e.* FROM bridge_evidence e WHERE e.peer_id=? AND e.delivery_id IN "
+                "(SELECT delivery_id FROM bridge_deliveries WHERE record_id=? AND peer_id=?) ORDER BY e.seq",
+                (peer_id, record_id, peer_id))]
         for e in ev:
             e["detail"] = json.loads(e["detail"])
         return {"deliveries": dels, "events": ev}
@@ -528,99 +692,197 @@ class Bridge:
         conn.execute("INSERT INTO bridge_session_events (stream_id, peer_id, event, from_state, to_state, generation, detail) "
                      "VALUES (?,?,?,?,?,?,?)", (token.stream_id, token.peer_id, event, frm, to, gen, json.dumps(detail, sort_keys=True)))
 
+    @staticmethod
+    def _public_reason(reason: str | None) -> str:
+        return {None: "no_prior", "resume_rejected": "missing", "rejected": "missing", "unsupported": "not_resumable",
+                "context_lost": "tainted", "continuity_unproven": "legacy_watermark_untrusted", "lost": "tainted"}.get(reason, reason or "no_prior")
+
+    def _mapping_for_generation(self, peer: str, stream: str, gen: int | None) -> dict[str, Any] | None:
+        with self.claims.transaction() as conn:
+            row = bridge_registry.generation(conn, stream, peer, gen)
+            return dict(row) if row is not None else None
+
+    def _bind_delivery(self, conn: sqlite3.Connection, did: str, mapping: Mapping[str, Any], mode: str,
+                       reason: str | None, prior: Mapping[str, Any] | None) -> None:
+        row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
+        accepted = session_receipts.snapshot(row)
+        if accepted is None or accepted["handle"] != mapping["session_handle"]:
+            accepted = dict(handle=mapping["session_handle"], generation=mapping["session_generation"], mode=mode,
+                            reason=None if mode == "resumed" else self._public_reason(reason),
+                            prior_handle=prior["session_handle"] if prior is not None else None,
+                            telemetry=session_receipts.unknown_telemetry())
+        conn.execute("UPDATE bridge_deliveries SET external_session_id=?,session_generation=?,session_handle=?,session_snapshot_json=? WHERE delivery_id=?",
+                     (mapping["external_session_id"], mapping["session_generation"], mapping["session_handle"], session_receipts.dumps(accepted), did))
+
+    def _validate_exact(self, token: ClaimToken, runtime: RuntimeTarget, handle: str,
+                        boundary: Record | _PersistedRecord) -> dict[str, Any]:
+        # Commit expiry and pointer repair before raising a selector error.
+        with self.claims.fenced(token) as conn:
+            now = self.claims.now()
+            bridge_registry.prune(conn, token.stream_id, token.peer_id, now)
+            row = conn.execute("SELECT * FROM bridge_session_history WHERE session_handle=?", (handle,)).fetchone()
+            mapping = dict(row) if row is not None else None
+        if mapping is None:
+            raise SessionNotFoundError("Requested session handle does not exist in this store.")
+        if mapping["stream_id"] != token.stream_id:
+            raise SessionStreamMismatchError("Requested session belongs to another Stream.")
+        if mapping["peer_id"] != token.peer_id:
+            raise SessionPeerMismatchError("Requested session belongs to another Peer.")
+        if mapping["state"] == "TOMBSTONED":
+            raise SessionTombstonedError("Requested session is expired or tombstoned.")
+        if mapping["state"] == "LOST":
+            raise SessionLostError("Requested session continuity is lost or tainted.")
+        if not runtime.resumable or mapping["runtime_kind"] != runtime.runtime_kind or not bridge_registry.eligible(mapping, now):
+            raise SessionUnavailableError("Requested session lacks compatible resume capability or trusted continuity.")
+        if mapping["workspace_generation"] != token.workspace_generation:
+            raise SessionWorkspaceMismatchError("Requested session belongs to another workspace lineage.")
+        if mapping["adapter_fingerprint"] != runtime.fingerprint():
+            raise SessionFingerprintMismatchError("Requested session adapter fingerprint differs.")
+        if mapping["binding"] != runtime.binding():
+            raise SessionBindingMismatchError("Requested session effective binding differs.")
+        delta = self._native_delta(mapping, boundary) if mapping["vendor_session_id"] is not None else self._local_history_delta(mapping, boundary)
+        if mapping["bootstrap_truncated"] or delta is not None and delta.truncated:
+            raise SessionDeltaOverflowError("Requested session catch-up delta exceeds its context budget.")
+        return mapping
+
+    def validate_selector_before_append(self, token: ClaimToken, runtime: RuntimeTarget, selector: str) -> None:
+        """Preflight exact intent where no earlier execution can change its context."""
+        if not selector.startswith("sess:"):
+            return
+        with self.claims.fenced(token) as conn:
+            # Recovery/uncertainty takes precedence over selection. The queued
+            # prompt is validated again after its own attempt is proven unstarted.
+            if conn.execute("SELECT 1 FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND acked=0 LIMIT 1",
+                            (token.stream_id, token.peer_id)).fetchone():
+                return
+            position = conn.execute("SELECT COALESCE(MAX(position),0)+1 FROM records WHERE stream_id=?", (token.stream_id,)).fetchone()[0]
+        self._validate_exact(token, runtime, selector[5:], _PersistedRecord("", position))
+
     def _resolve_session(self, token: ClaimToken, runtime: RuntimeTarget, record: Record, did: str):
-        m = self.current_mapping(token.peer_id, token.stream_id)
-        fp = runtime.fingerprint()
-        bnd = runtime.binding()
-        now = self.claims.now()
+        selector = record.metadata.get("session_selector", "latest")
+        exact = isinstance(selector, str) and selector.startswith("sess:")
+        fp, bnd, now = runtime.fingerprint(), runtime.binding(), self.claims.now()
+        with self.claims.fenced(token):
+            if record.metadata.get("runtime_kind", runtime.runtime_kind) != runtime.runtime_kind:
+                raise SessionUnavailableError("Queued request runtime kind differs from this runtime.")
+            if record.metadata.get("workspace_generation", token.workspace_generation) != token.workspace_generation:
+                raise SessionWorkspaceMismatchError("Queued request workspace lineage differs.")
+            if record.metadata.get("adapter_fingerprint", fp) != fp:
+                raise SessionFingerprintMismatchError("Queued request adapter fingerprint differs.")
+            if record.metadata.get("binding", bnd) != bnd:
+                raise SessionBindingMismatchError("Queued request effective binding differs from this runtime.")
+        with self.claims.fenced(token) as conn:
+            prior = bridge_registry.current(conn, token.stream_id, token.peer_id)
+            if prior is None:
+                prior = conn.execute("SELECT * FROM bridge_session_history WHERE stream_id=? AND peer_id=? ORDER BY last_seen DESC,session_generation DESC LIMIT 1",
+                                     (token.stream_id, token.peer_id)).fetchone()
+            prior = dict(prior) if prior is not None else None
+            bridge_registry.prune(conn, token.stream_id, token.peer_id, now)
+            rows = [dict(r) for r in bridge_registry.ordered(conn, token.stream_id, token.peer_id)]
+        # An MRU pointer supplies tie-breaking without restricting compatible history search.
+        if prior is not None:
+            rows.sort(key=lambda r: r["session_handle"] != prior["session_handle"])
         reason = None
-        native = m is not None and m["vendor_session_id"] is not None
-        overflow: bool = native and m is not None and (m["context_watermark"] is None or m["bootstrap_truncated"] or self._native_delta(m, record).truncated)
-        if overflow:
-            assert m is not None
-            reason = "delta_too_large"
-            with self.claims.fenced(token) as conn:
-                self._session_event(conn, token, reason, m["state"], "FRESH", m["session_generation"])
-        elif (m is not None and m["adapter_fingerprint"] == fp and m["binding"] == bnd and m["resumable"] and m["state"] in ("ACTIVE", "FRESH")
-                and m["workspace_generation"] == token.workspace_generation):  # FLT-008: a session of another lineage is never resumed
-            try:
-                accepts_vendor = False
-                if native:
-                    parameters: Mapping[str, inspect.Parameter]
-                    try:
-                        parameters = inspect.signature(runtime.resume_session).parameters
-                    except (TypeError, ValueError):
-                        parameters = {}
-                    accepts_vendor = ("vendor_session_id" in parameters and parameters["vendor_session_id"].kind != inspect.Parameter.POSITIONAL_ONLY
-                                      or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values()))
-                if accepts_vendor:
-                    outcome = runtime.resume_session(m["external_session_id"], vendor_session_id=m["vendor_session_id"])
-                else:
-                    outcome = runtime.resume_session(m["external_session_id"])
-            except SessionError:
-                outcome = "rejected"
-            if outcome == "ok":
-                with self.claims.fenced(token) as conn:
-                    if native:
-                        won = conn.execute("UPDATE bridge_sessions SET last_seen=?, state='ACTIVE' WHERE stream_id=? AND peer_id=? "
-                                           "AND session_generation=? AND state=? AND vendor_session_id IS ? AND context_watermark IS ?",
-                                           (now, token.stream_id, token.peer_id, m["session_generation"], m["state"],
-                                            m["vendor_session_id"], m["context_watermark"])).rowcount
-                    else:
-                        won = conn.execute("UPDATE bridge_sessions SET last_seen=?, state='ACTIVE' WHERE stream_id=? AND peer_id=?",
-                                           (now, token.stream_id, token.peer_id)).rowcount
+        if prior is not None:
+            if now-prior["last_seen"] > bridge_registry.MAX_AGE_S or prior["state"] == "TOMBSTONED":
+                reason = "retention_max_age"
+            elif not prior["resumable"]:
+                reason = "not_resumable"
+            elif prior["state"] == "LOST":
+                reason = self._lost_reason(token, prior["session_generation"])
+            elif prior["workspace_generation"] != token.workspace_generation:
+                reason = "workspace_generation_change"
+            elif prior["adapter_fingerprint"] != fp:
+                reason = "fingerprint_change"
+            elif prior["binding"] != bnd:
+                reason = "binding_change"
+            else:
+                reason = "missing"
+        if exact:
+            candidate = self._validate_exact(token, runtime, selector[5:], record)
+        elif selector == "fresh":
+            candidate, reason = None, "explicit_fresh"
+        else:
+            candidate = next((m for m in rows if runtime.resumable and bridge_registry.eligible(m, now) and m["runtime_kind"] == runtime.runtime_kind
+                              and m["workspace_generation"] == token.workspace_generation and m["adapter_fingerprint"] == fp and m["binding"] == bnd), None)
+        if candidate is not None:
+            m = candidate
+            native = m["vendor_session_id"] is not None
+            local_delta = None if native or exact else self._local_history_delta(m, record)
+            overflow = not exact and (native and (m["bootstrap_truncated"] or self._native_delta(m, record).truncated) or local_delta is not None and local_delta.truncated)
+            if overflow:
+                reason = "delta_too_large"
+            else:
+                parameters: Mapping[str, inspect.Parameter]
+                try:
+                    parameters = inspect.signature(runtime.resume_session).parameters
+                except (TypeError, ValueError):
+                    parameters = {}
+                accepts_vendor = "vendor_session_id" in parameters and parameters["vendor_session_id"].kind != inspect.Parameter.POSITIONAL_ONLY or any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+                try:
+                    outcome = runtime.resume_session(m["external_session_id"], vendor_session_id=m["vendor_session_id"]) if native and accepts_vendor else runtime.resume_session(m["external_session_id"])
+                except SessionError:
+                    outcome = "rejected"
+                if outcome == "ok":
+                    with self.claims.fenced(token) as conn:
+                        won = conn.execute("UPDATE bridge_session_history SET state='ACTIVE' WHERE session_handle=? AND state=? AND vendor_session_id IS ? AND context_watermark IS ?",
+                                           (m["session_handle"], m["state"], m["vendor_session_id"], m["context_watermark"])).rowcount
+                        if won:
+                            self._session_event(conn, token, "resume_ok", m["state"], "ACTIVE", m["session_generation"])
+                            bridge_registry.point(conn, m, now)
+                            self._bind_delivery(conn, did, m, "resumed", None, prior)
                     if won:
-                        self._session_event(conn, token, "resume_ok", m["state"], "ACTIVE", m["session_generation"])
-                if won:
-                    return m["external_session_id"], m["session_generation"]
-                m = self.current_mapping(token.peer_id, token.stream_id)
-            assert m is not None
-            reason = ("tainted" if outcome == "ok" else "resume_rejected") if native else outcome
-            with self.claims.fenced(token) as conn:
-                if outcome == "missing":
-                    conn.execute("UPDATE bridge_sessions SET state='LOST' WHERE stream_id=? AND peer_id=?",
-                                 (token.stream_id, token.peer_id))
-                    self._session_event(conn, token, "session_lost", m["state"], "LOST", m["session_generation"])
+                        return m["external_session_id"], m["session_generation"]
+                    reason = "tainted"
                 else:
-                    self._session_event(conn, token, "resume_rejected", m["state"], "FRESH", m["session_generation"], outcome=outcome)
-        elif m is not None:
-            reason = ("workspace_generation_change" if m["workspace_generation"] != token.workspace_generation
-                      else "fingerprint_change" if m["adapter_fingerprint"] != fp else "binding_change" if m["binding"] != bnd
-                      else "not_resumable" if not m["resumable"] else self._lost_reason(token) if m["state"] == "LOST" else m["state"].lower())
+                    reason = "resume_rejected" if native else outcome
+                    with self.claims.fenced(token) as conn:
+                        lost = native or outcome == "missing"
+                        if lost:
+                            conn.execute("UPDATE bridge_session_history SET state='LOST',vendor_session_id=NULL WHERE session_handle=? AND state!='TOMBSTONED'", (m["session_handle"],))
+                            bridge_registry.repair(conn, token.stream_id, token.peer_id, self.claims.now())
+                        self._session_event(conn, token, "session_lost" if outcome == "missing" else "resume_rejected", m["state"], "LOST" if outcome == "missing" else "FRESH", m["session_generation"], reason=reason, outcome=outcome)
+                if exact:
+                    error_cls = SessionLostError if reason in ("tainted", "resume_rejected", "missing") else SessionUnavailableError
+                    raise error_cls("Requested session could not be resumed; no substitute was allocated.")
+        elif prior is not None:
+            if not runtime.resumable and selector != "fresh":
+                reason = "not_resumable"
             with self.claims.fenced(token) as conn:
-                self._session_event(conn, token, reason, m["state"], "FRESH", m["session_generation"])
-        if m is not None:
-            self._fire("bridge.after_resume_failure")  # after a failed/unusable resume, before any creation attempt
+                self._session_event(conn, token, reason or "missing", prior["state"], "FRESH", prior["session_generation"])
+        if prior is not None:
+            self._fire("bridge.after_resume_failure")
         for i in range(self.max_session_attempts):
-            gated = self._gate(token, runtime, record, did)  # D-W4-2b: a durable pause/cancel stops EVERY creation attempt
+            gated = self._gate(token, runtime, record, did)
             if gated is not None:
                 return gated
             try:
                 ext = runtime.create_session()
-            except SessionError as e:
+            except SessionError as exc:
                 with self.claims.fenced(token) as conn:
-                    self._session_event(conn, token, "create_failed", (m or {}).get("state", "NONE"), (m or {}).get("state", "NONE"),
-                                        (m or {}).get("session_generation", 0), attempt=i + 1, error=str(e))
+                    self._session_event(conn, token, "create_failed", (prior or {}).get("state", "NONE"), (prior or {}).get("state", "NONE"),
+                                        (prior or {}).get("session_generation", 0), attempt=i+1, error=str(exc))
                 self._fire("bridge.after_create_failure")
                 continue
-            gen = 1 if m is None else m["session_generation"] + 1
             with self.claims.fenced(token) as conn:
-                conn.execute("INSERT OR REPLACE INTO bridge_sessions (stream_id, peer_id, runtime_kind, external_session_id, session_generation, "
-                             "adapter_fingerprint, binding, resumable, state, last_seen, workspace_generation) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                             (token.stream_id, token.peer_id, runtime.runtime_kind, ext, gen, fp, bnd,
-                              1 if runtime.resumable else 0, "ACTIVE" if m is None else "FRESH", now, token.workspace_generation))
-                self._session_event(conn, token, "created" if m is None else "fresh_generation",
-                                    "NONE" if m is None else ("LOST" if reason == "missing" or m["state"] == "LOST" else "ACTIVE"),
-                                    "ACTIVE" if m is None else "FRESH", gen, reason=reason, at=_iso(now))
+                created = bridge_registry.allocate(conn, dict(stream_id=token.stream_id, peer_id=token.peer_id,
+                    runtime_kind=runtime.runtime_kind, external_session_id=ext, adapter_fingerprint=fp, binding=bnd,
+                    resumable=int(runtime.resumable), state="ACTIVE" if prior is None else "FRESH", workspace_generation=token.workspace_generation),
+                    session_receipts.binding_attributes(runtime), now)
+                gen = created["session_generation"]
+                self._session_event(conn, token, "created" if prior is None else "fresh_generation", "NONE" if prior is None else "LOST" if reason == "missing" else prior["state"],
+                                    created["state"], gen, reason=reason, at=_iso(now), session_handle=created["session_handle"])
+                self._bind_delivery(conn, did, created, "fresh", reason, prior)
             return ext, gen
         return None
 
-    def _lost_reason(self, token: ClaimToken) -> str:
-        m = self.current_mapping(token.peer_id, token.stream_id)
+    def _lost_reason(self, token: ClaimToken, gen: int | None = None) -> str:
+        m = self._mapping_for_generation(token.peer_id, token.stream_id, gen) if gen is not None else self.current_mapping(token.peer_id, token.stream_id)
         if m is not None and m["vendor_session_id"] is None and m["context_watermark"] is not None:
             return "tainted"
         for e in reversed(self.session_events(token.peer_id, token.stream_id)):
-            if e["event"] == "session_lost":
+            if e["event"] == "session_lost" and (gen is None or e["generation"] == gen):
                 return json.loads(e["detail"]).get("reason", "missing")
         return "missing"
 
@@ -637,15 +899,18 @@ class Bridge:
 
     def _mark_lost(self, token: ClaimToken, reason: str) -> None:
         """Adapter reported context/session loss: the mapping is LOST; the next resolution creates a fresh generation."""
-        m = self.current_mapping(token.peer_id, token.stream_id)
-        if m is None or m["state"] == "LOST" or (reason == "tainted" and m["vendor_session_id"] is None):
+        inflight = self._inflight(token)
+        m = (self._mapping_for_generation(token.peer_id, token.stream_id, inflight["session_generation"])
+             if inflight is not None and inflight["session_generation"] is not None else self.current_mapping(token.peer_id, token.stream_id))
+        if m is None or m["state"] in ("LOST", "TOMBSTONED") or (reason == "tainted" and m["vendor_session_id"] is None and m["runtime_kind"] not in ("cc", "cx", "ag")):
             return
         with self.claims.fenced(token) as conn:
-            won = conn.execute("UPDATE bridge_sessions SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
+            won = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
                          "AND session_generation=? AND external_session_id=? AND vendor_session_id IS ? AND state=?",
                          (token.stream_id, token.peer_id, m["session_generation"], m["external_session_id"], m["vendor_session_id"], m["state"])).rowcount
             if not won:
                 return
+            bridge_registry.repair(conn, token.stream_id, token.peer_id, self.claims.now())
             self._session_event(conn, token, "session_lost", m["state"], "LOST", m["session_generation"], reason=reason)
             if m["vendor_session_id"] is not None:
                 self._evidence(conn, token.stream_id, token.peer_id, "session_tainted", reason=reason,
@@ -653,7 +918,7 @@ class Bridge:
 
     def _needs_catch_up(self, peer: str, stream: str, gen: int) -> bool:
         """Native continuity uses committed context; local sessions use delivery evidence."""
-        m = self.current_mapping(peer, stream)
+        m = self._mapping_for_generation(peer, stream, gen)
         if m is not None and m["session_generation"] == gen and m["vendor_session_id"] is not None and m["state"] == "ACTIVE":
             return False
         with self.claims.transaction() as conn:
@@ -661,17 +926,38 @@ class Bridge:
                                 (stream, peer, gen, NOT_STARTED)).fetchone()
         return seen is None
 
-    def _native_delta(self, mapping: Mapping[str, Any], rec: Record) -> CatchUpProjection:
+    def _native_delta(self, mapping: Mapping[str, Any], rec: Record | _PersistedRecord) -> CatchUpProjection:
         peer, stream = mapping["peer_id"], mapping["stream_id"]
         records = self.store.read_records(stream, mapping["context_watermark"], 2**31 - 1)
         candidates = (r for r in records if r.position < rec.position
-                      and not (r.author_peer_id == peer and r.kind == "response")
                       and (r.kind != "control.redirect" or (not r.targets or peer in r.targets)))
         # Native continuity is all-or-nothing; count limits belong to fresh bootstrap only.
         return project_catch_up(candidates, CatchUpBudget(max_bytes=self.catch_up_budget.max_bytes,
                                               max_tokens=self.catch_up_budget.max_tokens,
                                               token_estimator=self.catch_up_budget.token_estimator),
                                 after_position=mapping["context_watermark"], before_position=rec.position)
+
+    def _local_history_delta(self, mapping: Mapping[str, Any], rec: Record | _PersistedRecord) -> CatchUpProjection | None:
+        """Older local sessions use exact delivery evidence, not a native watermark.
+
+        Preserve the ordinary local-session redirect contract. When another
+        generation executed meanwhile, include the intervening context and only
+        omit responses provably generated by this exact local session.
+        """
+        stream, peer, gen = mapping["stream_id"], mapping["peer_id"], mapping["session_generation"]
+        with self.claims.transaction() as conn:
+            after = conn.execute("SELECT MAX(record_position) FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? AND external_session_id=? AND certainty='TERMINAL'",
+                                 (stream, peer, gen, mapping["external_session_id"])).fetchone()[0]
+            if after is None or not conn.execute("SELECT 1 FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation!=? AND record_position>? AND record_position<? AND certainty!='NOT_STARTED' LIMIT 1",
+                                                 (stream, peer, gen, after, rec.position)).fetchone():
+                return None
+            represented = {r[0] for r in conn.execute("SELECT response_record_id FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? AND external_session_id=? AND certainty='TERMINAL'",
+                                                     (stream, peer, gen, mapping["external_session_id"])) if r[0] is not None}
+        candidates = (r for r in self.store.read_records(stream, after, 2**31-1) if r.position < rec.position
+                      and r.record_id not in represented and (r.kind != "control.redirect" or not r.targets or peer in r.targets))
+        return project_catch_up(candidates, CatchUpBudget(max_bytes=self.catch_up_budget.max_bytes,
+                                max_tokens=self.catch_up_budget.max_tokens, token_estimator=self.catch_up_budget.token_estimator),
+                                after_position=after, before_position=rec.position)
 
     @staticmethod
     def _redirect_pin(peer: str) -> Callable[[Any], bool]:
@@ -686,13 +972,14 @@ class Bridge:
     def _catch_up_for(self, token: ClaimToken, rec: Record, gen: int) -> list[Any]:
         peer, stream = token.peer_id, token.stream_id
         if not self._needs_catch_up(peer, stream, gen):
-            mapping = self.current_mapping(peer, stream)
+            mapping = self._mapping_for_generation(peer, stream, gen)
             native = mapping is not None and mapping["vendor_session_id"] is not None
             if native:
                 assert mapping is not None
                 proj = self._native_delta(mapping, rec)
             else:
-                proj = project_catch_up(self._unseen_redirects(peer, stream, rec), self.catch_up_budget, before_position=rec.position)
+                assert mapping is not None
+                proj = self._local_history_delta(mapping, rec) or project_catch_up(self._unseen_redirects(peer, stream, rec), self.catch_up_budget, before_position=rec.position)
             out = ProjectedRecords(proj.records)
             out.boundary = {**proj.boundary(), "session_generation": gen, "mode": "resumed" if native else "resumed_unseen_redirects"}
             return out
@@ -791,11 +1078,27 @@ class Bridge:
 
     def run_cycle(self, token: ClaimToken, runtime: RuntimeTarget) -> CycleResult:
         try:
-            return self._run_cycle(token, runtime)
+            result = self._run_cycle(token, runtime)
         except OffsetAckConflictError as e:  # never report delivered/acked; terminal truth stays, next cycle re-acks
             infl = self._inflight(token)
-            return CycleResult("ack_failed", infl["record_id"] if infl else None, infl["delivery_id"] if infl else None,
+            result = CycleResult("ack_failed", infl["record_id"] if infl else None, infl["delivery_id"] if infl else None,
                                infl["certainty"] if infl else None, detail={"error": str(e)})
+        except Exception as error:
+            try:
+                with self.claims.transaction() as conn:
+                    self.claims.check(conn, token)
+                    row = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? ORDER BY seq DESC LIMIT 1",
+                                       (token.stream_id, token.peer_id)).fetchone()
+                    if row is not None and not row["acked"]:
+                        setattr(error, "session", session_receipts.snapshot(row))
+            except Exception:
+                pass  # unavailable/fenced evidence cannot justify an accepted identity
+            raise
+        if result.delivery_id is not None:
+            with self.claims.transaction() as conn:
+                row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,)).fetchone()
+                result.session = session_receipts.snapshot(row) if row is not None else None
+        return result
 
     def _run_cycle(self, token: ClaimToken, runtime: RuntimeTarget) -> CycleResult:
         peer, stream = token.peer_id, token.stream_id
@@ -840,11 +1143,18 @@ class Bridge:
             if rec is None:
                 return CycleResult("idle", detail={"consumed_controls": consumed} if consumed else {})
         did = self.begin_attempt(token, rec, reconcile_of=reconcile_of)
+        if rec.kind == "prompt":
+            selector = rec.metadata.get("session_selector")
+            if selector not in ("latest", "fresh") and not (isinstance(selector, str) and re.fullmatch(r"sess:sess_[0-9a-f]{16}", selector)):
+                return self._reject_selector(token, rec, did, dict(code="legacy_selector_unsupported", message="Request lacks supported session selector metadata."))
         self._fire("bridge.before_session_resolve")
         gated = self._gate(token, runtime, rec, did)
         if gated is not None:
             return gated
-        sess = self._resolve_session(token, runtime, rec, did)
+        try:
+            sess = self._resolve_session(token, runtime, rec, did)
+        except SessionBridgeError as exc:
+            return self._reject_selector(token, rec, did, dict(code=exc.code, message=str(exc)))
         if isinstance(sess, CycleResult):
             return sess
         if sess is None:
@@ -853,14 +1163,37 @@ class Bridge:
                                detail={"attempts": self.max_session_attempts})
         ext, gen = sess
         self._fire("bridge.after_session_resolved")
-        with self.claims.fenced(token) as conn:
-            conn.execute("UPDATE bridge_deliveries SET external_session_id=?, session_generation=? WHERE delivery_id=?", (ext, gen, did))
         catch_up = self._catch_up_for(token, rec, gen)
         self._fire("bridge.before_marker")
         gated = self._gate(token, runtime, rec, did)
         if gated is not None:
             return gated
         return self._run_runtime(token, runtime, rec, did, ext, gen, catch_up)
+
+    def _reject_selector(self, token: ClaimToken, rec: Record, did: str, error: dict[str, str]) -> CycleResult:
+        """Atomically consume only definitive unstarted selector failures."""
+        with self.claims.fenced(token) as conn:
+            row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
+            if row is None:
+                raise NoDeliveryError(did)
+            self._check_scope(row, token)
+            if row["certainty"] != NOT_STARTED or self._open_invocation(conn, did) is not None:
+                raise InvocationMarkerError("selector failure cannot be consumed after possible execution")
+            result = dict(response=None, error=error, session=session_receipts.snapshot(row))
+            if row["result_digest"] is None:
+                conn.execute("UPDATE bridge_deliveries SET result_json=?,result_digest=? WHERE delivery_id=?",
+                             (session_receipts.dumps(result), _digest(result), did))
+                self._evidence(conn, token.stream_id, token.peer_id, "request_rejected", did, NOT_STARTED, **result)
+            off = conn.execute("SELECT revision,read_through_position FROM offsets WHERE stream_id=? AND peer_id=?", (token.stream_id, token.peer_id)).fetchone()
+            if off is None:
+                conn.execute("INSERT INTO offsets(peer_id,stream_id,read_through_position,revision) VALUES (?,?,?,2)", (token.peer_id, token.stream_id, rec.position))
+            elif off["read_through_position"] < rec.position:
+                # Core CAS uses its own connection; use the same fenced writer transaction here.
+                conn.execute("UPDATE offsets SET read_through_position=?,revision=revision+1 WHERE stream_id=? AND peer_id=? AND revision=?",
+                             (rec.position, token.stream_id, token.peer_id, off["revision"]))
+            conn.execute("UPDATE bridge_deliveries SET acked=1 WHERE delivery_id=?", (did,))
+            self._evidence(conn, token.stream_id, token.peer_id, "offset_acked", did, NOT_STARTED, position=rec.position)
+        return CycleResult("failed_not_started", rec.record_id, did, NOT_STARTED, detail=result)
 
     def _next_record(self, token: ClaimToken, runtime: RuntimeTarget, consumed: list[str]):
         peer, stream = token.peer_id, token.stream_id
@@ -1035,6 +1368,7 @@ class Bridge:
         return self._finalize(token, delivery_id, result)
 
     def _finalize(self, token: ClaimToken, did: str, result: dict[str, Any], provenance: dict[str, Any] | None = None) -> "Bridge.FinalizeOutcome":
+        supplied_result = result
         dig = self._validate_result(result)  # before anything is committed
         conflict = False
         try:
@@ -1043,6 +1377,10 @@ class Bridge:
                 if row is None:
                     raise NoDeliveryError(did)
                 self._check_scope(row, token)
+                accepted = session_receipts.snapshot(row)
+                if accepted is not None:
+                    result = dict(result, session=accepted, error=None)
+                    dig = self._validate_result(result)
                 if row["certainty"] == TERMINAL:
                     if row["result_digest"] == dig:
                         outcome = "duplicate"
@@ -1050,7 +1388,7 @@ class Bridge:
                     else:
                         conflict, outcome = True, "conflict"
                         self._evidence(conn, row["stream_id"], row["peer_id"], "conflicting_terminal", did, TERMINAL,
-                                       digest=dig, committed_digest=row["result_digest"], result=result)
+                                       digest=dig, committed_digest=row["result_digest"], result=supplied_result)
                 else:
                     conn.execute("UPDATE bridge_deliveries SET result_json=?, result_digest=?, terminal_at=? WHERE delivery_id=?",
                                  (json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False), dig,
@@ -1059,7 +1397,7 @@ class Bridge:
                     if native and provenance is not None:
                         native.update(provenance)
                         if provenance["effective_mode"] == "fresh":
-                            conn.execute("UPDATE bridge_sessions SET bootstrap_truncated=? WHERE stream_id=? AND peer_id=? AND session_generation=?",
+                            conn.execute("UPDATE bridge_session_history SET bootstrap_truncated=? WHERE stream_id=? AND peer_id=? AND session_generation=?",
                                          (int(provenance["bootstrap_truncated"]), token.stream_id, token.peer_id, row["session_generation"]))
                     term_detail: dict[str, Any] = dict(digest=dig, **native)
                     if result.get("output_truncated"):
@@ -1067,6 +1405,12 @@ class Bridge:
                     if result.get("display_truncated"):
                         term_detail["display_truncated"] = True
                     self._transition_in(conn, did, TERMINAL, "terminal", token=token, **term_detail)  # illegal source state rolls the tx back
+                    completed = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
+                    session_receipts.telemetry(conn, completed, self.claims.now())
+                    mapping = bridge_registry.generation(conn, token.stream_id, token.peer_id, row["session_generation"])
+                    if mapping is not None and mapping["state"] not in ("LOST", "TOMBSTONED") and mapping["external_session_id"] == row["external_session_id"]:
+                        conn.execute("UPDATE bridge_session_history SET last_seen=? WHERE session_handle=?", (self.claims.now(), mapping["session_handle"]))
+                        bridge_registry.point(conn, mapping, self.claims.now())
                     outcome = "first"
         except StaleClaimError as e:
             self._late(token, did, "stale_terminal_callback", digest=dig, error=str(e))
@@ -1079,11 +1423,10 @@ class Bridge:
 
     def _commit_native_terminal(self, conn: sqlite3.Connection, token: ClaimToken,
                                 delivery: sqlite3.Row, result: dict[str, Any]) -> dict[str, Any]:
-        m = conn.execute("SELECT * FROM bridge_sessions WHERE stream_id=? AND peer_id=?",
-                         (token.stream_id, token.peer_id)).fetchone()
+        m = bridge_registry.generation(conn, token.stream_id, token.peer_id, delivery["session_generation"])
         usage = result.get("usage")
         detail: dict[str, Any] = {}
-        if (m is not None and m["state"] != "LOST" and m["session_generation"] == delivery["session_generation"]
+        if (m is not None and m["state"] not in ("LOST", "TOMBSTONED") and m["session_generation"] == delivery["session_generation"]
                     and m["external_session_id"] == delivery["external_session_id"]):
             vendor = result.get("vendor_session")
             vendor_id = cast("dict[str, Any]", vendor).get("id") if isinstance(vendor, dict) else None
@@ -1099,7 +1442,7 @@ class Bridge:
                              if all(k in previous and v >= previous[k] for k, v in raw_usage.items()) else None)
             watermark = max(m["context_watermark"] or 0, delivery["record_position"])
             won = conn.execute(
-                "UPDATE bridge_sessions SET vendor_session_id=?, context_watermark=?, usage_json=? "
+                "UPDATE bridge_session_history SET vendor_session_id=?, context_watermark=?, usage_json=?, state='ACTIVE' "
                 "WHERE stream_id=? AND peer_id=? AND session_generation=? AND external_session_id=? "
                 "AND state=? AND vendor_session_id IS ? AND context_watermark IS ? AND usage_json IS ?",
                 (vendor_id, watermark, json.dumps(raw_usage) if raw_usage is not None else m["usage_json"],
@@ -1135,6 +1478,12 @@ class Bridge:
 
     def _settle_refusal(self, token: ClaimToken, rec: Record, did: str, gen: int,
                         detail: dict[str, Any]) -> CycleResult:
+        with self.claims.fenced(token) as conn:
+            row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
+            if row["result_digest"] is None:
+                refused = dict(response=None, session=session_receipts.snapshot(row), error=dict(code=detail["reason"], message=detail.get("message", detail["reason"])), **detail)
+                conn.execute("UPDATE bridge_deliveries SET result_json=?,result_digest=? WHERE delivery_id=?", (session_receipts.dumps(refused), _digest(refused), did))
+                session_receipts.telemetry(conn, row, self.claims.now())
         # Durable refusal evidence authorizes recovery at each boundary. Keep the
         # delivery in flight until both session invalidation and offset commit.
         self._mark_lost(token, "refused")
@@ -1171,15 +1520,6 @@ class Bridge:
             if conn.execute("UPDATE bridge_deliveries SET response_record_id=? WHERE delivery_id=? AND response_record_id IS NULL",
                             (resp.record_id, did)).rowcount:
                 self._evidence(conn, d["stream_id"], d["peer_id"], "response_appended", did, TERMINAL, record_id=resp.record_id)
-            m = conn.execute("SELECT * FROM bridge_sessions WHERE stream_id=? AND peer_id=?",
-                             (token.stream_id, token.peer_id)).fetchone()
-            if (m is not None and m["state"] != "LOST" and m["session_generation"] == d["session_generation"]
-                    and m["external_session_id"] == d["external_session_id"] and m["vendor_session_id"] is not None and m["context_watermark"] is not None):
-                watermark = max(m["context_watermark"], resp.position)
-                if watermark != m["context_watermark"]:
-                    conn.execute("UPDATE bridge_sessions SET context_watermark=? WHERE stream_id=? AND peer_id=? "
-                                 "AND session_generation=? AND vendor_session_id IS ? AND context_watermark IS ?",
-                                 (watermark, token.stream_id, token.peer_id, m["session_generation"], m["vendor_session_id"], m["context_watermark"]))
         self._fire("bridge.after_terminal_evidence_before_offset_ack")
         for _ in range(self.ack_retries):
             off = self.store.get_offset(d["peer_id"], d["stream_id"])
@@ -1280,13 +1620,14 @@ class Bridge:
                                  "WHERE record_id=? AND peer_id=?", (*tgt, rid, peer))
                 if kind == "control.cancel":
                     target = conn.execute(sel, (rid, peer)).fetchone()
-                    tainted = conn.execute("UPDATE bridge_sessions SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
-                                 "AND state!='LOST' AND vendor_session_id IS NOT NULL AND external_session_id=? AND session_generation=(SELECT session_generation FROM bridge_deliveries WHERE delivery_id=?) "
+                    tainted = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
+                                 "AND state NOT IN ('LOST','TOMBSTONED') AND (vendor_session_id IS NOT NULL OR runtime_kind IN ('cc','cx','ag')) AND external_session_id=? AND session_generation=(SELECT session_generation FROM bridge_deliveries WHERE delivery_id=?) "
                                  "AND EXISTS (SELECT 1 FROM bridge_claims c WHERE c.stream_id=? AND c.peer_id=? "
                                  "AND c.generation=? AND c.workspace_generation=? AND c.expires_at>?)",
                                  (stream, peer, target["target_session_id"], target["target_delivery_id"], stream, peer,
                                   target["target_claim_generation"], self.claims.workspace_generation(), now)).rowcount
                     if tainted:
+                        bridge_registry.repair(conn, stream, peer, now)
                         self._evidence(conn, stream, peer, "session_tainted", target["target_delivery_id"],
                                        reason="control.cancel", control_record_id=rid, claim_generation=target["target_claim_generation"])
                 conn.execute("UPDATE bridge_controls SET lease_id=?, lease_expires=?, attempts=? WHERE record_id=? AND peer_id=?",

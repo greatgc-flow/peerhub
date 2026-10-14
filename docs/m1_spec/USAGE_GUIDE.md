@@ -81,6 +81,23 @@ have been retired. `peerhub`, `python -m peerhub`, and `python -m peerhub.cli`
 use the same public CLI. The v0 source is retained only on the Git branch
 `legacy/v0-main-final`; see the [structure cleanup](../implementation/STRUCTURE_CLEANUP.md).
 
-By default `ask` starts a fresh session with bounded Stream catch-up.
-`ask --resume` requests compatible native cc/cx/ag session reuse, with fresh
-session fallback when incompatible. Repeat the flag on each continuing ask.
+By default `ask` reuses the latest compatible retained session of this peer/Stream,
+including native cc/cx/ag continuity, with bounded Stream catch-up when a fresh
+session is needed. Mutually exclusive `--fresh` / `--session HANDLE` allocate
+a new generation or select one exact retained session. Fresh still receives
+bounded Stream context; use a dedicated Stream for an independent task.
+Exact selection requires matching store, Stream, Peer, lineage, fingerprint,
+effective binding and trusted continuity; failure never allocates a substitute.
+
+Session results carry an opaque handle, generation, mode and reason. Text asks
+end with one `session:` stdout trailer; JSON includes nullable `session` and
+`error`. Replay validates scoped identity and returns the original snapshot.
+Historical asks lacking complete selector identity cannot be replayed; unstarted legacy queued
+prompts are consumed with `legacy_selector_unsupported`, while uncertain work
+remains blocked. Retention is 20 non-tombstoned rows per scope; expiry occurs
+after more than 30 days of inactivity. Tombstones are audit rows.
+Context occupancy remains unknown, independently of
+billing usage. Inspection remains future work. Python selectors are
+`ask(..., fresh=True)` and `ask(..., session="sess_0123456789abcdef")`.
+Selector intent is part of immutable request identity; changed selectors
+conflict before replay. Exact replay returns its original snapshot after expiry.

@@ -43,8 +43,7 @@ can select an observation store separately from `PEERHUB_DB`.
 Deleted the duplicate initial implementation `extensions/session_bridge.py` and its dedicated `tests/unit/m1/test_extensions.py`. Actual Bridge claim / fencing / certainty tests replace them. Also updated future-schema rejection tests to target the current store. Deleted files can be recovered from the Git commit at the start of work.
 
 At the initial migration, continuity used fresh generation + bounded catch-up.
-Current cc/cx/ag adapters support compatible native session reuse through
-`ask --resume`, with bounded catch-up when reuse is incompatible. Current `ask`
+Current cc/cx/ag adapters support compatible retained-history native session reuse by default, with bounded catch-up when reuse is incompatible. Use a dedicated stream for a separate task. Current `ask`
 also supports `--profile` and `--silence-timeout-seconds`; `diag --live` reads
 committed snapshots, while `monitor` explicitly collects observations. These
 current commands do not restore every v0 control surface. See the

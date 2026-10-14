@@ -82,7 +82,8 @@ def test_cli_usage_is_json_only(tmp_path, monkeypatch, capsys, json_output):
     if json_output:
         assert json.loads(output.out)["usage"] == usage
     else:
-        assert output.out == "answer\n"
+        assert output.out.startswith("answer\nsession: sess_")
+        assert output.out.endswith(" fresh gen1 reason=no_prior\n")
 
 
 def test_prespawn_is_retryable_without_new_prompt(tmp_path):

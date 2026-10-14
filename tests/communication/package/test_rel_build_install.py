@@ -77,6 +77,39 @@ def test_rel_002_fresh_environment_install_and_import_cli_smoke(installed, outsi
     assert bad.returncode != 0 and "ModuleNotFoundError" in bad.stderr
 
 
+def test_rel_002_installed_ask_emits_final_session_contract(installed, outside):
+    script = textwrap.dedent("""
+        import io, json, sys
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+        from peerhub.cli.app import main
+        import peerhub.extensions.bridge_registry, peerhub.extensions.session_receipts
+        class Runtime:
+            runtime_kind = 'custom'
+            resumable = True
+            def fingerprint(self): return 'fake-v1'
+            def binding(self): return 'binding'
+            def create_session(self): return 'local'
+            def resume_session(self, external_session_id, *, vendor_session_id=None): return 'ok'
+            def deliver(self, external_session_id, record, catch_up):
+                yield 'started', 'execution'
+                yield 'terminal', {'response': 'answer'}
+        output = io.StringIO()
+        with patch('peerhub.extensions.ask.CliRuntimeTarget', lambda *a, **kw: Runtime()):
+            with redirect_stdout(output):
+                code = main(['--db', sys.argv[1], 'ask', 'cx', 'hello', '--request-id', 'one', '--json'])
+        print(json.dumps({'exit':code, 'result':json.loads(output.getvalue())}))
+    """)
+    run = installed.run(["-I", "-c", script, str(outside / "session-ask.db")], cwd=outside)
+    assert run.returncode == 0, run.stderr
+    result = json.loads(run.stdout)
+    assert result["exit"] == 0 and result["result"]["error"] is None
+    session = result["result"]["session"]
+    assert re.fullmatch(r"sess_[0-9a-f]{16}", session["handle"])
+    assert session["generation"] == 1 and session["mode"] == "fresh" and session["reason"] == "no_prior"
+    assert session["telemetry"]["context_pct"] is None and session["telemetry"]["source"] == "unknown"
+
+
 # ---------------------------------------------------------------------- REL-003
 CRASH_SNIPPET = textwrap.dedent("""
     import os, sys

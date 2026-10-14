@@ -14,6 +14,13 @@ configuration surface.
 | **cc** | [cc.md](cc.md) | `claude.cmd` (Claude Code) |
 | **cx** | [cx.md](cx.md) | `codex.cmd` (Codex CLI) |
 
+Ordinary `peerhub ask` calls reuse the latest compatible retained native session for the
+peer/Stream. Otherwise the Bridge creates a fresh generation with bounded
+catch-up. Mutually exclusive `--fresh` / `--session HANDLE` allocate a new
+generation or reuse one exact compatible retained session. Exact rejection
+never substitutes another session. Fresh still receives Stream context; use a
+dedicated Stream for an independent task.
+
 ## 2. CLI Reference & Contracts
 
 - [peer-cli-reference.md](peer-cli-reference.md) — Comprehensive reference of supported flags, subcommands, and invocation patterns across all three peers.

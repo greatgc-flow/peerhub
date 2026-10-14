@@ -26,4 +26,8 @@ def test_current_package_version_has_changelog_release_body():
     assert "Provider refusal" in body and "NOT_EXECUTED" in body
     assert "model defaults" in body
     assert "CI" in body and "main" in body
+    assert "session reuse PR1" in body
+    assert "Session reuse PR2" in body
+    assert "Session reuse PR3" in body
+    assert "CLI inspection and monitoring" in body
     assert "Contains the work planned for 0.15.1" not in body

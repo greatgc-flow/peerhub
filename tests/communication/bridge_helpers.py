@@ -56,3 +56,20 @@ def bseed(h, peers=("a", "b"), stream="s", n=1):
 def more_stream(h, stream, peers=("a", "b"), n=1):
     h.create_stream({"stream_id": stream, "members": list(peers)})
     return [h.append_record(req(body=f"m{i}", key=f"m{i}", author="a", stream=stream)) for i in range(n)]
+
+
+def downgrade_registry(conn):
+    """Fixture: recreate PR1's single-slot schema with its mapping facts."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='bridge_session_history'").fetchone():
+        return
+    read = conn.execute("SELECT h.* FROM bridge_sessions p JOIN bridge_session_history h ON h.session_handle=p.session_handle")
+    columns = [c[0] for c in read.description]
+    rows = [dict(zip(columns, row)) for row in read.fetchall()]
+    for table in ("bridge_session_monitor_stats", "bridge_session_monitor_scope", "bridge_sessions", "bridge_session_counters", "bridge_session_history"):
+        conn.execute(f"DROP TABLE {table}")
+    conn.execute("CREATE TABLE bridge_sessions (stream_id TEXT NOT NULL,peer_id TEXT NOT NULL,runtime_kind TEXT NOT NULL,external_session_id TEXT NOT NULL,"
+                 "session_generation INTEGER NOT NULL,adapter_fingerprint TEXT NOT NULL,binding TEXT NOT NULL,resumable INTEGER NOT NULL,state TEXT NOT NULL,last_seen REAL NOT NULL,"
+                 "workspace_generation TEXT NOT NULL DEFAULT '',vendor_session_id TEXT,context_watermark INTEGER,bootstrap_truncated INTEGER,usage_json TEXT,context_watermark_version INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(stream_id,peer_id))")
+    names = [r[1] for r in conn.execute("PRAGMA table_info(bridge_sessions)")]
+    for row in rows:
+        conn.execute(f"INSERT INTO bridge_sessions VALUES ({','.join('?' for _ in names)})", [row[n] for n in names])

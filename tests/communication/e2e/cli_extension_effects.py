@@ -31,7 +31,7 @@ def ask_effect(e, option):
         argv = ["ask", "cx", "--query-file", str(query), "--json"]
     elif option in ("--workspace", "-w"):
         argv += [option, str(e.tmp)]
-    elif option in ("--json", "--writable", "--resume"):
+    elif option in ("--json", "--writable"):
         argv += [option] if option != "--json" else []
     else:
         value = {"--stream": "conversation", "--request-id": "stable", "--author-peer": "operator",
@@ -62,14 +62,14 @@ def ask_effect(e, option):
             expected_value = {"model": "custom-model", "effort": "low", "timeout_s": 12, "max_bytes": 1234,
                               "profile": "cx.standard", "silence_timeout_s": 3}[key]
             assert captured[0][2][key] == expected_value
-        elif option in ("--writable", "--resume"):
+        elif option in ("--writable"):
             key = option.removeprefix("--")
             assert captured[0][2][key] is True
             e.j(db, "ask", "cx", "again", "--json")  # not passing the flag keeps the default
             assert captured[1][2][key] is False
         elif option == "--json":
             code, out, err = e.run(db, "ask", "cx", "next")
-            assert code == 0 and out.strip() == "hello"
+            assert code == 0 and out.startswith("hello\nsession: sess_")
 
 
 def diag_json(e):
@@ -79,6 +79,21 @@ def diag_json(e):
     result = e.j(db, "diag", "--json")
     assert result["status"] == "OK" and "peers" in result["sections"]
     assert not e.run(db, "diag")[1].lstrip().startswith("{")
+
+
+def session_selector_effect(e, option):
+    from tests.communication.fakes.runtime import NativeRuntimeTarget
+    rt = NativeRuntimeTarget()
+    db = e.fresh(False)
+    with patch("peerhub.extensions.ask.CliRuntimeTarget", lambda *a, **kw: rt):
+        first = e.j(db, "ask", "cx", "first", "--json")
+        fresh = e.j(db, "ask", "cx", "second", "--fresh", "--json")
+        assert fresh["session"]["handle"] != first["session"]["handle"]
+        assert fresh["session"]["reason"] == "explicit_fresh"
+        if option == "--session":
+            exact = e.j(db, "ask", "cx", "third", "--session", first["session"]["handle"], "--json")
+            assert exact["session"]["handle"] == first["session"]["handle"]
+            assert exact["session"]["mode"] == "resumed"
 
 
 def diag_live(e, option):
@@ -217,10 +232,17 @@ def monitor_effect(e, option):
     elif option == "--view":
         argv += [option, "rich"]
     sleeps = []
+    fake_now = [0.0]
+
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        fake_now[0] += seconds
+
     with patch("peerhub.extensions.quota_probes.poll_claude_usage", probe), \
          patch("peerhub.extensions.quota_probes.poll_codex_usage", probe), \
          patch("peerhub.extensions.quota_probes.poll_agy_usage", probe_agy if option == "--allow-agy-token-use" else probe), \
-         patch("time.sleep", lambda s: sleeps.append(s)):
+         patch("peerhub.cli.monitor.monotonic", lambda: fake_now[0]), \
+         patch("peerhub.cli.monitor.sleep", fake_sleep):
         code, out, err = e.run(db, *argv)
         if option == "--view":
             plain_code, plain, plain_err = e.run(db, "monitor", "--cycles", "1", "--view", "plain")
@@ -228,7 +250,9 @@ def monitor_effect(e, option):
     if option == "--view":
         assert code == plain_code == 0 and "refresh:" in err and "refresh:" in plain_err
         assert_view_glyph_effect(out, plain)
-    elif option == "--interval-seconds": assert sleeps == [3.14]
+    elif option == "--interval-seconds":
+        import pytest
+        assert sleeps == pytest.approx([3.14], abs=0.1)
     elif option == "--cycles": assert len(sleeps) == 1
     elif option == "--peers": assert captured[0]["instance_id"] == "cx"
     elif option == "--system-dir":
@@ -239,10 +263,84 @@ def monitor_effect(e, option):
     elif option == "--allow-agy-token-use": assert code == 1 and err.count("tokens used") == 2
     elif option == "--json": import json; assert "cycle" in json.loads(out.splitlines()[0])
 
+
+def profile_effect(e, command, option):
+    workspace = e.tmp / "profiles-workspace"
+    workspace.mkdir(exist_ok=True)
+    argv = ["profile", command]
+    if command == "show":
+        argv.append("cx.standard")
+    if option == "--workspace":
+        argv += [option, str(workspace)]
+    elif option == "--format":
+        argv += [option, "table"]
+    code, out, _ = e.run(e.tmp / "unused-profile.db", *argv)
+    assert code == 0 and not (e.tmp / "unused-profile.db").exists()
+    if option == "--format":
+        assert "PROFILE" in out if command == "list" else "FIELD" in out
+    elif option == "profile":
+        import json
+        assert json.loads(out)["profile"] == "cx.standard"
+    else:
+        import json
+        result = json.loads(out)
+        assert result["schema_version"] == "1.0"
+        if option == "--workspace":
+            assert result["workspace"] == str(workspace)
+
+
+def session_inspection_effect(e, command, option):
+    db = e.fresh(False)
+
+    def target(*args, **kwargs):
+        runtime = FakeRuntimeTarget()
+        runtime.script_deliver(("started", "exec"), ("terminal", {"response": "ok"}))
+        return runtime
+
+    with patch("peerhub.extensions.ask.CliRuntimeTarget", target):
+        for index in range(2):
+            code, _, _ = e.run(db, "ask", "cx", f"prompt {index}", "--fresh", "--json")
+            assert code == 0
+    if command == "show":
+        sessions = json.loads(e.run(db, "session", "list")[1])["items"]
+        argv = ["session", "show", sessions[0]["handle"]]
+    else:
+        argv = ["session", "list"]
+    if option == "--stream":
+        argv += [option, "peer:cx:chat"]
+    elif option == "--peer":
+        argv += [option, "cx"]
+    elif option == "--limit":
+        argv += [option, "1"]
+    elif option == "--cursor":
+        first = json.loads(e.run(db, "session", "list", "--limit", "1")[1])
+        argv += ["--limit", "1", option, first["next_cursor"]]
+    elif option == "--format":
+        argv += [option, "table"]
+    code, out, _ = e.run(db, *argv)
+    assert code == 0
+    if option == "--format":
+        assert "HANDLE" in out if command == "list" else "handle:" in out
+    else:
+        result = json.loads(out)
+        rows = result.get("items", [])
+        if option == "--stream":
+            assert all(row["stream_id"] == "peer:cx:chat" for row in rows)
+        elif option == "--peer":
+            assert all(row["peer_id"] == "cx" for row in rows)
+        elif option == "--limit":
+            assert len(rows) == 1 and result["next_cursor"]
+        elif option == "--cursor":
+            assert len(rows) == 1 and rows[0]["generation"] < 2
+        else:
+            assert result["session"]["handle"] == argv[2]
+
 EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for option in (
     "peer", "prompt", "--query-file", "--stream", "--request-id", "--author-peer", "-w", "--workspace", "--model",
-    "--effort", "-p", "--profile", "--writable", "--resume", "--timeout-seconds", "--silence-timeout-seconds",
+    "--effort", "-p", "--profile", "--writable", "--timeout-seconds", "--silence-timeout-seconds",
     "--max-output-bytes", "--json")}
+EFFECT.update({f"ask {option}": (lambda e, option=option: session_selector_effect(e, option))
+               for option in ("--fresh", "--session")})
 EFFECT["diag --json"] = diag_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
                for option in ("--live", "--interval-seconds", "--cycles", "--view")})
@@ -250,3 +348,12 @@ EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refres
                for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
                for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--allow-agy-token-use", "--collect-every", "--view")})
+EFFECT.update({f"profile list {option}": (lambda e, option=option: profile_effect(e, "list", option))
+               for option in ("--workspace", "--format")})
+EFFECT.update({"profile show profile": lambda e: profile_effect(e, "show", "profile"),
+               "profile show --workspace": lambda e: profile_effect(e, "show", "--workspace"),
+               "profile show --format": lambda e: profile_effect(e, "show", "--format")})
+EFFECT.update({f"session list {option}": (lambda e, option=option: session_inspection_effect(e, "list", option))
+               for option in ("--stream", "--peer", "--limit", "--cursor", "--format")})
+EFFECT.update({"session show handle": lambda e: session_inspection_effect(e, "show", "handle"),
+               "session show --format": lambda e: session_inspection_effect(e, "show", "--format")})

@@ -42,8 +42,8 @@
     },
     {
       "path": "01_M1/OBSERVATION_AND_DIAG.md",
-      "bytes": 779,
-      "sha256": "e9126e5312cae8408e424b90ba9d83a191477a37347c103fce49016fef1dcf79"
+      "bytes": 1558,
+      "sha256": "b6b3866639306ebd4d1db57a7650189c19a489c99f3000700a46dcc24375b5a0"
     },
     {
       "path": "01_M1/PEER_CARDINALITY_RESOURCE_POOL.md",
@@ -647,8 +647,8 @@
     },
     {
       "path": "USAGE_GUIDE.md",
-      "bytes": 2911,
-      "sha256": "fabb959ea478166507a16715520727055fafb7b2d718c6d4f8f74ef5c92e8fe7"
+      "bytes": 4132,
+      "sha256": "8a8a4a909cc7571b20dda5ad342b5228eedd6b150bb48a0fe926f6b39471b57b"
     },
     {
       "path": "tools/generate_docs.py",

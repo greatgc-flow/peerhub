@@ -58,10 +58,10 @@ def test_live_004_capability_mismatch_is_reported_never_synthesized():
         caps = d["capabilities"]
         if d["available"]:
             checked += 1
-            assert caps["resume"]["status"] == "unsupported" and caps["resume"]["fallback"]
+            assert caps["resume"]["status"] == "supported" and caps["resume"]["fallback"]
             assert caps["resume"]["cli_status"] in ("supported", "unsupported", "unavailable")
             adapter, _ = ls.make_adapter(kind, ls.ROOT / "docs")  # never spawned: capability-aware path only
-            assert adapter.resumable is False and adapter.resume_session("any-vendor-id") == "unsupported"
+            assert adapter.resumable is True and adapter.resume_session("any-vendor-id") == "missing"
             assert adapter.supports_terminate and caps["terminate"]["status"] == "supported"
             assert not (adapter.supports_interrupt or adapter.supports_steer)
         else:

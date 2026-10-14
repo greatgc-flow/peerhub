@@ -1,4 +1,4 @@
-"""Stage 1 native session identities, argv, binding and explicit adapter opt-in."""
+"""Stage 1 native session identities, argv, binding and static adapter capability."""
 import json
 import os
 from types import SimpleNamespace
@@ -112,8 +112,7 @@ def test_ag_fresh_and_resume_argv(writable, model, effort):
 
 @pytest.mark.parametrize("kind,sample,source", [("cc", CC, "cc.result.session_id"), ("cx", CX, "cx.thread.started"),
                                                    ("ag", AG, "ag.conversation_id")])
-@pytest.mark.parametrize("resume", [False, True])
-def test_terminal_candidate_and_explicit_binding(kind, sample, source, resume, monkeypatch, tmp_path):
+def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypatch, tmp_path):
     invocations = []
     result = base.ProcessResult(123, 0, sample.encode(), b"", False, False, 0.1)
 
@@ -122,7 +121,7 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, resume, m
         return SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
 
     monkeypatch.setattr(base, "BoundedProcess", process)
-    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], resume=resume)
+    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"])
     session = adapter.create_session()
     record = SimpleNamespace(body="question")
     first = list(adapter.deliver(session, record, []))
@@ -131,13 +130,14 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, resume, m
         expected["usage"] = {"input_tokens": 200, "cached_input_tokens": 150, "output_tokens": 10}
     assert first[-1] == ("terminal", expected)
     assert invocations[-1][0] == ["fake.exe", *base.SPECS[kind].argv(None, None, "question")]
-    assert adapter.resumable is resume
-    assert adapter.resume_session(session) == ("missing" if resume else "unsupported")
+    assert adapter.can_resume is True and adapter.resumable is True
+    assert base.SPECS[kind].can_resume is True
+    assert adapter.resume_session(session) == "missing"
     outcome = adapter.resume_session(session, vendor_session_id=first[-1][1]["vendor_session"]["id"])
-    assert outcome == ("ok" if resume else "unsupported")
+    assert outcome == "ok"
     assert list(adapter.deliver(session, record, []))[-1] == ("terminal", expected)
     assert invocations[-1][0] == ["fake.exe", *base.SPECS[kind].argv(
-        None, None, "question", vendor_session_id="opaque.A_1:-" if resume else None)]
+        None, None, "question", vendor_session_id="opaque.A_1:-")]
     assert invocations[-1][1]["stdin"] == (None if kind == "ag" else b"question")
     # Vendor bindings do not leak to a different local session.
     list(adapter.deliver(adapter.create_session(), record, []))
@@ -146,7 +146,7 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, resume, m
 
 @pytest.mark.parametrize("kind,sample", [("cc", CC), ("cx", CX), ("ag", AG)])
 def test_invalid_vendor_binding_and_failed_terminal(kind, sample, monkeypatch, tmp_path):
-    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], resume=True)
+    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"])
     assert adapter.resume_session("session", vendor_session_id="bad/id") == "rejected"
     assert adapter.resume_session("session", vendor_session_id="a" * 201) == "rejected"
     result = base.ProcessResult(123, 1, sample.encode(), b"error", False, False, 0.1)
@@ -181,13 +181,13 @@ def test_binding_includes_canonical_cwd_and_writable_and_version(tmp_path, kind)
     assert adapter.fingerprint() == f"adapter:{kind}:v2"
 
 
-@pytest.mark.parametrize("kind,resume", [("cc", False), ("cc", True), ("cx", False), ("cx", True), ("ag", False), ("ag", True)])
-def test_resume_capability_is_explicit_and_controls_remain_unsupported(kind, resume, tmp_path, monkeypatch):
-    adapter = base.CliRuntimeTarget(kind, tmp_path, resume=resume)
+@pytest.mark.parametrize("kind", ["cc", "cx", "ag"])
+def test_resume_capability_is_static_and_controls_remain_unsupported(kind, tmp_path, monkeypatch):
+    adapter = base.CliRuntimeTarget(kind, tmp_path)
     monkeypatch.setattr(adapter, "_run", lambda args, timeout: base.ProcessResult(
         123, 0, f"CLI 1.2.3 {base.SPECS[kind].resume_flag}".encode(), b"", False, False, 0.1))
     caps = adapter.discover()["capabilities"]
-    assert caps["resume"]["status"] == ("supported" if resume else "unsupported")
+    assert caps["resume"]["status"] == "supported"
     assert caps["resume"]["cli_status"] == "supported"
     assert not adapter.supports_interrupt and not adapter.supports_steer
     assert caps["interrupt"]["status"] == caps["steer"]["status"] == "unsupported"

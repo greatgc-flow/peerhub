@@ -19,8 +19,8 @@ def test_inventory_file_equals_the_real_parser():
     committed = json.loads(inv.INVENTORY.read_text(encoding="utf-8"))
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
-        "ask", "diag health", "diag quota", "monitor", "observation refresh", "offset advance", "offset get", "peer get", "peer register",
-        "record append", "record read", "stream create", "stream show"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
+        "ask", "diag health", "diag integrity", "diag quota", "monitor", "observation refresh", "offset advance", "offset get", "peer get", "peer list", "peer register",
+        "profile list", "profile show", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
 def test_inventory_detects_divergence_positive_control(monkeypatch):
@@ -101,7 +101,31 @@ def _quota_world(e):
 def x_db(e):
     d1, d2 = e.fresh(), e.fresh(populate=False)
     assert e.j(d1, "peer", "get", "--peer", "a")["peer_id"] == "a"
-    assert e.run(d2, "peer", "get", "--peer", "a")[0] == 1  # same command, other --db: different outcome
+    assert e.run(d2, "peer", "get", "--peer", "a")[0] == 5  # missing read-only store is unavailable and never bootstrapped
+
+
+def list_effect(e, entity, option):
+    db = e.fresh(populate=False)
+    if entity == "peer":
+        for peer in ("a", "b", "c"):
+            e.j(db, "peer", "register", "--peer", peer)
+        command = ["peer", "list"]
+        key = "peer_id"
+    else:
+        for stream in ("a", "b", "c"):
+            e.j(db, "stream", "create", "--stream", stream)
+        command = ["stream", "list"]
+        key = "stream_id"
+    if option == "--limit":
+        page = e.j(db, *command, "--limit", "1")
+        assert len(page["items"]) == 1 and page["next_cursor"]
+    elif option == "--cursor":
+        first = e.j(db, *command, "--limit", "1")
+        second = e.j(db, *command, "--limit", "1", "--cursor", first["next_cursor"])
+        assert second["items"][0][key] > first["items"][0][key]
+    else:
+        code, out, _ = e.run(db, *command, "--format", "table")
+        assert code == 0 and "peer_id" in out if entity == "peer" else code == 0 and "stream_id" in out
 
 
 def reg_id(e):
@@ -225,7 +249,9 @@ def oa_revision(e):
 
 def dh_stream(e):
     db = e.fresh()
-    assert e.j(db, "diag", "health", "--stream", "s")["record_count"] == 3 and e.j(db, "diag", "health", "--stream", "zz")["status"] == "NOT_FOUND"
+    assert e.j(db, "diag", "health", "--stream", "s")["record_count"] == 3
+    missing = e.j(db, "diag", "health", "--stream", "zz", code=1)
+    assert missing["status"] == "NOT_FOUND" and missing["schema_version"] == "2.0"
 
 
 def dh_obsdb(e):
@@ -272,8 +298,14 @@ EFFECT = {
     "* -v": lambda e: version_effect(e, "-v"),
     "* -V": lambda e: version_effect(e, "-V"),
     "* --db": x_db,
+    "peer list --limit": lambda e: list_effect(e, "peer", "--limit"),
+    "peer list --cursor": lambda e: list_effect(e, "peer", "--cursor"),
+    "peer list --format": lambda e: list_effect(e, "peer", "--format"),
     "peer register --peer": reg_id, "peer register --name": reg_name, "peer register --adapter": reg_adapter, "peer get --peer": get_id,
     "stream create --stream": sc_id, "stream create --title": sc_title, "stream create --members": sc_members, "stream show --stream": ss_id,
+    "stream list --limit": lambda e: list_effect(e, "stream", "--limit"),
+    "stream list --cursor": lambda e: list_effect(e, "stream", "--cursor"),
+    "stream list --format": lambda e: list_effect(e, "stream", "--format"),
     "record append --stream": ra_stream, "record append --author-peer": ra_author, "record append --kind": ra_kind, "record append --body": ra_body,
     "record append --idempotency-key": ra_idemp, "record append --created-at": ra_created, "record append --targets": ra_targets,
     "record read --stream": rr_stream, "record read --after": rr_after, "record read --limit": rr_limit,
@@ -325,7 +357,8 @@ def test_leaf_help_exit_zero_lists_every_option_and_unknown_option_exits_2(leaf,
         assert o["flags"][0] in out, (leaf["command"], o)
     if argv[0] == "diag":
         assert "example" in out.lower()  # public diag leaves carry copyable examples
-    req = [x for o in leaf["options"] if o["required"] for x in (o["flags"][0], "1" if o["dest"] in ("new_position", "expected_revision") else "x")]
+    req = [x for o in leaf["options"] if o["required"] for x in
+           (("x",) if o["positional"] else (o["flags"][0], "1" if o["dest"] in ("new_position", "expected_revision") else "x"))]
     code, out, err = run(capsys, "unused.db", *argv, *req, "--definitely-unknown")
     assert code == 2 and "Traceback" not in err and "unrecognized arguments: --definitely-unknown" in err
 
@@ -362,7 +395,7 @@ def test_json_outputs_parse_with_stable_keys(env):
     assert set(rec) == {"schema_version", "record_id", "stream_id", "position", "author_peer_id", "kind", "body", "targets", "reply_to", "refs", "metadata",
                         "idempotency_key", "payload_digest", "created_at", "appended_at"}
     assert set(env.j(db, "offset", "get", "--peer", "a", "--stream", "s")) == {"schema_version", "peer_id", "stream_id", "read_through_position", "revision"}
-    assert set(env.j(db, "diag", "health", "--stream", "s")) == {"status", "stream_id", "title", "state", "revision", "head_position", "record_count", "members",
+    assert set(env.j(db, "diag", "health", "--stream", "s")) == {"schema_version", "status", "stream_id", "title", "state", "revision", "head_position", "record_count", "members",
                                                               "offsets", "observations"}
     assert set(env.j(db, "diag", "health", "--stream", "s")["observations"]) == {"source_db", "status", "latest_total", "by_state", "error"}
     assert set(env.j(db, "diag", "quota", "--json", code=5)) == {"schema_version", "status", "source_db", "read_at", "filters", "overall", "pools", "reset_credits", "error"}

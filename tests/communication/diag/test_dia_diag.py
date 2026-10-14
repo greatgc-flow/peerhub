@@ -87,6 +87,7 @@ def test_dia_001_diag_opens_sqlite_read_only_and_never_begins_a_write(tmp_path, 
     for a, kw in connects:
         assert kw.get("uri") is True and "mode=ro" in a[0], (a, kw)
     assert any(s.upper().startswith("PRAGMA QUERY_ONLY") for s in stmts)
+    assert not any(s.upper().startswith("PRAGMA QUICK_CHECK") for s in stmts)
     for s in stmts:
         head = s.strip().split(None, 1)[0].upper() if s.strip() else ""
         assert head in {"SELECT", "PRAGMA", "BEGIN", "ROLLBACK", "COMMIT", "WITH"}, s
@@ -109,6 +110,132 @@ def test_dia_001_diag_enforces_query_only_itself_and_fails_closed(tmp_path):
     bad = ReadonlyDiag(h.db_path, connection_factory=rw_factory(log2, ignore_query_only=True)).render()
     assert bad.status == "FAILED" and "read-only" in bad.error
     assert not any(s.upper().startswith(("SELECT * FROM", "SELECT COUNT")) for s in log2)  # nothing was read through a writable handle
+
+
+def test_stream_diagnostic_query_count_does_not_grow_per_stream(tmp_path):
+    h = populated(tmp_path)
+    for i in range(8):
+        h.create_stream({"stream_id": f"extra-{i}", "members": ["a", "b"]})
+    conn = sqlite3.connect(h.db_path)
+    conn.row_factory = sqlite3.Row
+    statements = []
+    conn.set_trace_callback(statements.append)
+    try:
+        section = ReadonlyDiag._streams(conn, 0)
+    finally:
+        conn.close()
+    reads = [sql for sql in statements if sql.lstrip().upper().startswith(("SELECT", "WITH"))]
+    assert section.status == "OK" and len(section.data["streams"]) == 9
+    assert len(reads) <= 6
+    assert not any("WHERE STREAM_ID =" in sql.upper() for sql in reads)
+
+
+def test_activity_diagnostic_returns_only_per_peer_window(tmp_path):
+    h = populated(tmp_path)
+    with closing(sqlite3.connect(h.db_path)) as c:
+        c.executemany(
+            "INSERT INTO observations (observation_id, subject_ref, kind, source, state, payload_json, observed_at, captured_at, effective_at_us) "
+            "VALUES (?, 'peer:window', 'activity', 'test', 'MEASURED', ?, '2026-10-01T00:00:00Z', NULL, ?)",
+            [(f"activity-{i}", '{"status":"delivered"}', i) for i in range(75)],
+        )
+        c.commit()
+    with closing(sqlite3.connect(h.db_path)) as c:
+        c.row_factory = sqlite3.Row
+        statements = []
+        c.set_trace_callback(statements.append)
+        section = ReadonlyDiag._activity(c, T0)
+    peer = next(row for row in section.data["peers"] if row["peer"] == "peer:window")
+    assert peer["asks"] == 50 and peer["ok"] == 50 and peer["failed"] == 0
+    assert any("ACTIVITY_ROLLUPS" in sql.upper() for sql in statements)
+
+
+def test_observation_head_projection_tracks_latest_by_effective_time_and_pool(tmp_path):
+    from datetime import datetime
+
+    h = populated(tmp_path)
+    def timestamp_us(value):
+        return round(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1_000_000)
+
+    with closing(sqlite3.connect(h.db_path)) as c:
+        # A later append can carry older evidence time; tie-break still uses capture_seq.
+        c.executemany(
+            "INSERT INTO observations (observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, observed_at, captured_at, effective_at_us) "
+            "VALUES (?, 'peer:head', ?, 'quota', 'test', 'MEASURED', ?, ?, NULL, ?)",
+            [("head-old", None, '{"remaining":1}', "2026-10-01T00:00:00Z", timestamp_us("2026-10-01T00:00:00Z")),
+             ("head-later", None, '{"remaining":2}', "2026-10-02T00:00:00Z", timestamp_us("2026-10-02T00:00:00Z")),
+             ("head-tie", None, '{"remaining":4}', "2026-10-02T00:00:00Z", timestamp_us("2026-10-02T00:00:00Z")),
+             ("head-arrival-old", None, '{"remaining":5}', "2026-10-01T00:00:00Z", timestamp_us("2026-10-01T00:00:00Z")),
+             ("head-pooled", "P", '{"remaining":3}', "2026-09-30T00:00:00Z", timestamp_us("2026-09-30T00:00:00Z"))],
+        )
+        c.commit()
+        assert tuple(c.execute("SELECT COUNT(*), SUM(row_count) FROM observation_rollups WHERE subject_ref='peer:head'").fetchone()) == (2, 5)
+        head_seq = c.execute("SELECT latest_capture_seq FROM observation_rollups WHERE subject_ref='peer:head' AND pool_key='' ").fetchone()[0]
+    report = ReadonlyDiag(h.db_path).render(["observations"])
+    latest = [it for it in report.sections["observations"].data["items"] if it["subject_ref"] == "peer:head"]
+    unpooled = next(it for it in latest if it["resource_pool_ref"] is None)
+    assert unpooled["observation_id"] == "head-tie" and unpooled["capture_seq"] == head_seq
+    assert {it["resource_pool_ref"] for it in latest} == {None, "P"}
+
+
+def test_observation_projection_read_uses_identity_rows_not_full_history(tmp_path):
+    h = populated(tmp_path)
+    for i in range(30):
+        h.capture("peer:repeated", "quota", FakeObservationSource(measured({"remaining": i})))
+    with closing(sqlite3.connect(h.db_path)) as c:
+        c.row_factory = sqlite3.Row
+        statements = []
+        c.set_trace_callback(statements.append)
+        sec = ReadonlyDiag._observations(ReadonlyDiag(h.db_path), c, T0)
+    assert sec.status == "OK"
+    reads = [s.upper() for s in statements if s.lstrip().upper().startswith(("SELECT", "WITH"))]
+    assert any("OBSERVATION_ROLLUPS" in s for s in reads)
+    assert not any("FROM OBSERVATIONS ORDER BY CAPTURE_SEQ" in s for s in reads)
+
+
+def test_legacy_observation_store_without_projections_remains_readable(tmp_path):
+    h = populated(tmp_path)
+    with closing(sqlite3.connect(h.db_path)) as c:
+        c.execute("DROP TRIGGER observations_rollup_insert")
+        c.execute("DROP TRIGGER observations_activity_rollup_insert")
+        c.execute("DROP TABLE observation_rollups")
+        c.execute("DROP TABLE activity_rollups")
+        c.commit()
+    report = ReadonlyDiag(h.db_path).render(["observations", "activity", "resource_pools"])
+    assert report.status == "OK"
+    assert len(report.sections["observations"].data["items"]) == 3
+
+
+def test_first_observation_writer_backfills_legacy_projections_atomically(tmp_path):
+    from peerhub.extensions.observation import ObservationStore
+
+    h = populated(tmp_path)
+    original = h.obs_rows()
+    with closing(sqlite3.connect(h.db_path)) as c:
+        c.execute("DROP TRIGGER observations_rollup_insert")
+        c.execute("DROP TRIGGER observations_activity_rollup_insert")
+        c.execute("DROP TABLE observation_rollups")
+        c.execute("DROP TABLE activity_rollups")
+        c.commit()
+    ObservationStore(h.db_path)
+    with closing(sqlite3.connect(h.db_path)) as c:
+        assert c.execute("SELECT SUM(row_count) FROM observation_rollups").fetchone()[0] == len(original)
+        assert c.execute("SELECT COUNT(*) FROM activity_rollups").fetchone()[0] == 0
+    assert h.obs_rows() == original
+
+
+def test_explicit_integrity_check_detects_projection_drift_without_repair(tmp_path):
+    from peerhub.extensions.diag import integrity_check
+
+    h = populated(tmp_path)
+    before = h.full_state()
+    assert integrity_check(h.db_path)["observation_projections"] == "OK"
+    with closing(sqlite3.connect(h.db_path)) as c:
+        c.execute("DELETE FROM observation_rollups WHERE rowid=(SELECT MIN(rowid) FROM observation_rollups)")
+        c.commit()
+    damaged = h.full_state()
+    result = integrity_check(h.db_path)
+    assert result["status"] == "ERROR" and result["observation_projections"] == "ERROR"
+    assert h.full_state() == damaged and damaged != before
 
 
 @pytest.mark.catalog_id("DIA-002")
