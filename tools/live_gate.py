@@ -56,6 +56,9 @@ def main(argv: list[str] | None = None) -> int:
     worst = 0
     stamped: list[Path] = []
     stages = (CANARY_STAGE,) if args.only == "canary" else STAGES
+    for marker, _, name in stages:
+        if not args.only or args.only == marker:
+            (args.out / name).unlink(missing_ok=True)
     for marker, label, name in stages:
         if args.only and args.only != marker:
             continue
@@ -69,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         worst = worst or code
         if marker != "canary" and junit.is_file():
             stamped.append(junit)
+        if code:
+            break
     from tools.release_evidence import stamp_junit
 
     for junit in stamped:

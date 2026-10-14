@@ -2,11 +2,12 @@
 
 ## Current source: v0.16.0
 
-**Source candidate, 2026-10-14; publication pending.** The current work is on
-`feat/peerhub-cli-monitoring-20261014` and has not been merged into `main`.
+**Source candidate, 2026-10-14; publication pending.** Session reuse and
+CLI/monitoring work merged into `main` through PR #100; the live-gate oracle
+correction is under PR #101 and must merge before the final release gate.
 The candidate combines stuck-streams PRs 1-3 (#95/#97/#98), session reuse
 PRs 1-3, model-profile changes, and CLI/monitoring inspection. GitHub CI for
-the branch passed on Ubuntu and Windows with Python 3.11–3.14; candidate-matched
+PR #100 passed on Ubuntu and Windows with Python 3.11–3.14; final-candidate
 live and publication gates remain open. [CHANGELOG](../CHANGELOG.md) owns the
 user-facing release notes.
 
@@ -14,7 +15,7 @@ Eligible pre-work refusals settle as `NOT_EXECUTED` while preserving `STARTED`
 certainty. Timeouts and failures with possible effects remain guarded; neither
 automatic timeout settlement nor `stream resolve` ships in this candidate.
 Session PR1 (`eec2cba4`), PR2 (`7cdc6b76`), PR3 (`12129517`), and health check
-fixes (`cfb28aba`) are included in the current branch. Retained selectors
+fixes (`cfb28aba`) are included in `main`. Retained selectors
 (`--session`, `--fresh`), call receipts, and durable snapshots are committed
 and functional. The CLI/monitoring work implements bounded list/session inspection,
 read-only Core access, shared snapshots, and observation/activity projections.
@@ -22,14 +23,14 @@ Attributable runtime telemetry, alerts, retention, replay refinements, and
 recovery remain proposed work pending their design gates. See the
 [Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md), [Debate Ledger](design/peerhub-deepthink-debate-2026-10-14.md),
 and [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md).
-These branch changes are not merged or released. The bounded four-turn live
+These changes are not released. The bounded four-turn live
 session matrix passed for cc, cx and ag. The first cx selected-session recall
 used an ambiguous prompt after cross-session catch-up; the clarified prompt
 passed without changing product code. This canary is not a substitute for the
 candidate-matched full G3 release gate.
 
 0.15.2 is the previous published release; 0.15.1 was never published. Historical
-live evidence applies only to its recorded revision. Candidate-matched CI,
+live evidence applies only to its recorded revision. Final-SHA CI,
 local live gates, release assets, PyPI publication, and a clean-venv install
 smoke remain pending under [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 

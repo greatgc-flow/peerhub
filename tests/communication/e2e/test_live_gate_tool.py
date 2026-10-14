@@ -51,6 +51,31 @@ def test_runs_each_stage_with_live_env_and_junit(tmp_path, monkeypatch):
     assert live_gate.main(["--yes", "--only", "slow", "--out", str(tmp_path)]) == 0 and len(calls) == 1
 
 
+def test_failed_live_stage_does_not_spend_quota_on_later_stages(tmp_path, monkeypatch):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(live_gate.shutil, "which", lambda name: name)
+    monkeypatch.setattr(live_gate.subprocess, "check_output", lambda cmd, **k: "abc123" if "rev-parse" in cmd else "")
+    import tools.release_evidence as re_mod
+    stamps = []
+    monkeypatch.setattr(re_mod, "stamp_junit", lambda path, **k: stamps.append(path.name))
+    (tmp_path / "g3-slow.xml").write_text("stale", encoding="utf-8")
+    (tmp_path / "g3-e2e.xml").write_text("stale", encoding="utf-8")
+    calls = []
+
+    def failed_call(cmd, **kwargs):
+        calls.append(cmd)
+        junit = next(arg.split("=", 1)[1] for arg in cmd if arg.startswith("--junitxml="))
+        Path(junit).write_text("<testsuite failures='1'/>", encoding="utf-8")
+        return 1
+
+    monkeypatch.setattr(live_gate.subprocess, "call", failed_call)
+    assert live_gate.main(["--yes", "--out", str(tmp_path)]) == 1
+    assert len(calls) == 1
+    assert stamps == ["g3.xml"]
+    assert not (tmp_path / "g3-slow.xml").exists()
+    assert not (tmp_path / "g3-e2e.xml").exists()
+
+
 def test_refuses_to_stamp_a_dirty_tree(capsys, monkeypatch, tmp_path):
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.setattr(live_gate.shutil, "which", lambda name: name)

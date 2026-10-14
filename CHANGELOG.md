@@ -64,6 +64,9 @@ No changes recorded yet.
 
 ### Fixed
 
+- The live release gate accepts the session telemetry receipt in terminal
+  evidence, stops after a failed stage to avoid further provider calls, and
+  removes stale stage XML before a new run.
 - `diag health` now reports `PARTIAL` with a nonzero exit code when a requested
   observation database cannot be read, instead of hiding that failure behind
   an otherwise healthy store result.

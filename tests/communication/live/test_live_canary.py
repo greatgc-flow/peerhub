@@ -28,7 +28,7 @@ def _canary_oracle(kind: str) -> None:
     ls.merge_evidence(kind, "canary", c)
     assert c["status"] == "delivered" and c["certainty"] == "TERMINAL", c
     assert c["response_record"] and c["response_chars"] > 0
-    assert c["evidence_kinds"][-3:] == ["terminal", "response_appended", "offset_acked"]
+    assert c["evidence_kinds"][-4:] == ["terminal", "session_telemetry", "response_appended", "offset_acked"]
     assert c["profile"] == f"{kind}.standard"
 
 
