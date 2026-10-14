@@ -15,14 +15,13 @@ automatic timeout settlement nor `stream resolve` ships in this candidate.
 Session PR1 (`eec2cba4`), PR2 (`7cdc6b76`), PR3 (`12129517`), and health check
 fixes (`cfb28aba`) are committed on `feat/session-reuse`. Retained selectors
 (`--session`, `--fresh`), call receipts, and durable snapshots are committed
-and functional. The bounded inspection, telemetry and recovery renewal is a
-proposed pre-TDD candidate, not yet implemented. It includes intentional
-compatibility changes, which are called out for release notes; see the
-[Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md) and [Debate Ledger](design/peerhub-deepthink-debate-2026-10-14.md)
-for reconciled decisions and peer review.
-The [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md)
-records the unanimously reviewed command boundaries and additional pre-TDD
-contracts. Implementation and release remain pending.
+and functional. The CLI/monitoring branch implements bounded inspection,
+read-only Core access, shared snapshots, and observation/activity projections.
+Attributable runtime telemetry, alerts, retention, replay refinements, and
+recovery remain proposed work pending their design gates. See the
+[Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md), [Debate Ledger](design/peerhub-deepthink-debate-2026-10-14.md),
+and [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md).
+These branch changes are not merged or released.
 
 0.15.2 is the previous published release; 0.15.1 was never published. Historical
 live evidence applies only to its recorded revision. Candidate-matched CI,

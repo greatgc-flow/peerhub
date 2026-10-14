@@ -127,6 +127,9 @@ you tried, and the wording or behavior that would have helped. See the
    section. Wait for CI to be green: `gh pr checks`
    must show zero pending or failed checks before merging. Never merge before
    checks finish.
+   For a topic branch before opening its PR, the same hosted matrix can be
+   started directly with `gh workflow run ci.yml --ref <branch>`; ordinary
+   branch pushes do not trigger `ci.yml`.
 2. From a **clean checkout of the merged main commit**, run
    `python -m tools.live_gate --yes`. This spends provider quota, refuses CI,
    and requires `agy`, `claude` and `codex` on PATH and logged in. It writes
@@ -146,6 +149,12 @@ you tried, and the wording or behavior that would have helped. See the
 `publish.yml` consumes an already published GitHub Release and does not
 generate or edit its body. Supplying the extracted notes via `--notes-file`
 is the manual release step; do not substitute auto-generated PR notes.
+Before publishing, verify outside the repository that PyPI's Trusted Publisher
+matches `greatgc-flow/peerhub`, `.github/workflows/publish.yml`, and the `pypi`
+environment. The GitHub `pypi` environment is configured to accept only `v*`
+tags, with administrator bypass disabled. It has no required-reviewer rule.
+The workflow YAML cannot prove PyPI's OIDC trust configuration; that remains a
+release preflight check.
 
 Publishing the draft triggers `.github/workflows/publish.yml`: `verify` runs
 G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. `build` and

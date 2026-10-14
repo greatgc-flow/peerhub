@@ -330,3 +330,25 @@ def test_rel_006_verify_runs_the_same_gate_selections_sequentially_without_provi
             assert not re.search(r"(?:^|[;&\n])\s*(?:claude|codex|agy)(?:\s|$)", run)
             assert "-m tools.live_gate" not in run
             assert "tests/communication/live" not in run
+
+
+def test_ci_is_dispatchable_on_topic_branches_and_pins_external_actions():
+    wf = _wf("ci.yml")
+    triggers = wf.get("on", wf.get(True))
+    assert "workflow_dispatch" in triggers
+    assert triggers["pull_request"]["branches"] == ["main"]
+    assert wf["permissions"] == {"contents": "read"}
+    publish = _wf("publish.yml")
+    publish_triggers = publish.get("on", publish.get(True))
+    assert publish_triggers["release"]["types"] == ["published"]
+    publisher = publish["jobs"]["publish"]
+    assert publisher["if"] == "github.event_name == 'release'"
+    assert publisher["environment"] == "pypi"
+    assert publisher["permissions"] == {"id-token": "write"}
+    for workflow_name in ("ci.yml", "soak.yml", "publish.yml"):
+        workflow = _wf(workflow_name)
+        steps = [step for job in workflow["jobs"].values() for step in job["steps"]]
+        actions = [step["uses"] for step in steps if "uses" in step]
+        assert actions, workflow_name
+        for action in actions:
+            assert re.fullmatch(r"[\w-]+/[\w-]+@[0-9a-f]{40}(?:\s+# [^\r\n]+)?", action), (workflow_name, action)
