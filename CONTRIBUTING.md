@@ -135,6 +135,8 @@ you tried, and the wording or behavior that would have helped. See the
    and requires `agy`, `claude` and `codex` on PATH and logged in. It writes
    `g3.xml`, `g3-slow.xml` and `g3-e2e.xml` under `.peerhub/work/live-gate/`,
    stamped to HEAD. Require a successful run of all three stages.
+   A failed stage stops the run before later provider calls; each run clears
+   old XML for its selected stages so missing evidence cannot appear current.
 3. Extract the selected CHANGELOG section, then create a draft with all three assets.
    Run `python -m tools.release_notes --version X.Y.Z > <notes-file>` from
    the merged checkout. The release body must match that section exactly.
