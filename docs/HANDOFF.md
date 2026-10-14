@@ -1,4 +1,6 @@
 Reference notes for maintainers. Not an instruction file: open it only when needed.
+The release checkpoint below is historical; [STATUS](STATUS.md) records the
+published v0.16.0 release and the remaining work.
 
 ## 0. Release checkpoint (2026-10-13)
 

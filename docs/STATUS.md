@@ -2,18 +2,21 @@
 
 ## Current source: v0.16.0
 
-**Source candidate, 2026-10-14; publication pending.** Session reuse and
-CLI/monitoring work merged into `main` through PR #100; the live-gate oracle
-correction is under PR #101 and must merge before the final release gate.
-The candidate combines stuck-streams PRs 1-3 (#95/#97/#98), session reuse
-PRs 1-3, model-profile changes, and CLI/monitoring inspection. GitHub CI for
-PR #100 passed on Ubuntu and Windows with Python 3.11–3.14; final-candidate
-live and publication gates remain open. [CHANGELOG](../CHANGELOG.md) owns the
+**Released on 2026-10-15.** [v0.16.0](https://github.com/greatgc-flow/peerhub/releases/tag/v0.16.0)
+is tagged at `5951d0f2a32aa85151f6733f286eea03281fec55`. Session reuse and
+CLI/monitoring work merged through PR #100, and the live-gate oracle correction
+merged through PR #101. The release includes stuck-streams PRs 1-3
+(#95/#97/#98), session reuse PRs 1-3, model-profile changes, and CLI/monitoring
+inspection. Final-commit GitHub CI passed all eight Ubuntu/Windows and Python
+3.11–3.14 combinations. The full local G3 gate, all jobs in the
+[publication workflow](https://github.com/greatgc-flow/peerhub/actions/runs/38644198537),
+and a clean-environment installation of the PyPI wheel passed. PyPI lists
+both the wheel and sdist for 0.16.0. [CHANGELOG](../CHANGELOG.md) owns the
 user-facing release notes.
 
 Eligible pre-work refusals settle as `NOT_EXECUTED` while preserving `STARTED`
 certainty. Timeouts and failures with possible effects remain guarded; neither
-automatic timeout settlement nor `stream resolve` ships in this candidate.
+automatic timeout settlement nor `stream resolve` ships in v0.16.0.
 Session PR1 (`eec2cba4`), PR2 (`7cdc6b76`), PR3 (`12129517`), and health check
 fixes (`cfb28aba`) are included in `main`. Retained selectors
 (`--session`, `--fresh`), call receipts, and durable snapshots are committed
@@ -23,20 +26,19 @@ Attributable runtime telemetry, alerts, retention, replay refinements, and
 recovery remain proposed work pending their design gates. See the
 [Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md), [Debate Ledger](design/peerhub-deepthink-debate-2026-10-14.md),
 and [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md).
-These changes are not released. The bounded four-turn live
+The bounded four-turn live
 session matrix passed for cc, cx and ag. The first cx selected-session recall
 used an ambiguous prompt after cross-session catch-up; the clarified prompt
 passed without changing product code. This canary is not a substitute for the
-candidate-matched full G3 release gate.
+candidate-matched full G3 release gate, which also passed at the tagged commit.
 
 0.15.2 is the previous published release; 0.15.1 was never published. Historical
-live evidence applies only to its recorded revision. Final-SHA CI,
-local live gates, release assets, PyPI publication, and a clean-venv install
-smoke remain pending under [CONTRIBUTING](../CONTRIBUTING.md#releasing).
+live evidence applies only to its recorded revision. The v0.16.0 release
+completed the gates in [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 
 ## Remaining work
 
-| Track | Done / remaining after this candidate | Design SSOT |
+| Track | Done / remaining after v0.16.0 | Design SSOT |
 |---|---|---|
 | Stuck streams | PRs 1-3 complete. Quota admission and automatic settlement are proposed for removal/deferment; audited `stream resolve` still requires final contract review. | [Proposed Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md#3-coherent-prerequisite-dag-and-implementation-slices) |
 | Monitoring v2 | Shared snapshot/schema, bounded session inspection, and observation/activity projections are implemented. Core record totals and per-stream counts still scan history; stores without observation projections use a compatibility full scan until their next writer initializes the projection. Representative-store latency measurements and any further bounded-history design remain open. | [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md) |
