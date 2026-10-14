@@ -480,7 +480,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
                     "stream_sample": [s["stream_id"] for s in streams_data[:5]],
                 }
         result["observations"] = diag_quota.observations_summary(args.obs_db or args.db)
-        if result["observations"]["status"] != "OK" and result.get("status") == "OK":
+        if args.obs_db is not None and result["observations"]["status"] != "OK" and result.get("status") == "OK":
             result["status"] = "PARTIAL"
         result["schema_version"] = "2.0"
         print(json.dumps(result, indent=2, ensure_ascii=True))
