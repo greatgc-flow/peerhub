@@ -1,11 +1,12 @@
 # Retained sessions and durable ask results
 
-PR1 and PR2 are committed. PR3 fresh/exact selection is implemented in the
-worktree; recorded deterministic validation: 2314 passed, pyright 0 errors.
-See the [PR3 gate-to-test matrix](PR3_SESSION_REUSE_VALIDATION.md).
-Historical PR2 validation is recorded in the [PR2 scope review](PR2_SESSION_REUSE_VALIDATION.md).
-The [canonical sequence](../design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence)
-defines the remaining addressing, inspection and measured-telemetry work.
+PR1, PR2, and PR3 fresh/exact selection are committed (`12129517`), along
+with health check fixes (`cfb28aba`). Recorded deterministic validation: 2,329 passed,
+pyright 0 errors. Historical validation is recorded in the [PR2 scope review](PR2_SESSION_REUSE_VALIDATION.md)
+and [PR3 gate-to-test matrix](PR3_SESSION_REUSE_VALIDATION.md).
+The [Pre-TDD Renewal](../design/peerhub-pre-tdd-renewal-2026-10-14.md) and
+[Debate Ledger](../design/peerhub-deepthink-debate-2026-10-14.md) define the proposed
+bounded inspection, attributable telemetry, and recovery architecture.
 
 Ordinary asks search retained compatible history at `(store, stream, peer)`.
 Compatibility includes runtime kind, adapter fingerprint, effective binding and
@@ -100,7 +101,12 @@ session: sess_0000000000000002 fresh gen2 fallback reason=binding_change
 
 Context occupancy and quota snapshots remain unknown in PR2. Billing `usage`
 stays separate and is never converted into occupancy. Ask does not probe quota.
-Session list/show and monitoring views are not available yet.
+`peerhub session list/show` now provide read-only inspection. List defaults to
+20 rows and uses keyset pagination bound to database identity, workspace
+generation, filters, ordering, and first-page row high-water. Both commands
+expose PeerHub handles and redacted state only; vendor and external session IDs
+are never included. The CLI opens an existing database in read-only mode and
+does not initialize bridge tables. Monitoring views remain in progress.
 Writer implementations: [registry](../../peerhub/extensions/bridge_registry.py),
 [receipts](../../peerhub/extensions/session_receipts.py),
 [Bridge](../../peerhub/extensions/bridge.py), [ask](../../peerhub/extensions/ask.py).

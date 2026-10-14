@@ -9,12 +9,12 @@ worktree; this is a bounded inspection, not a production-store or legacy audit.
 This analysis covers the current checkout, the [reuse plan](plan-session-reuse-2026-10-13.md)
 and the [session monitoring plan](plan-session-monitoring-2026-10-13.md).
 The AS-IS map below is the pre-PR1 inspection snapshot; its anchors refer to
-that source revision. PR1 is committed at `eec2cba4`. PR2 is implemented in the uncommitted
-worktree (2026-10-14; 25 focused tests and Pyright pass locally; see the
-[scope review](../implementation/PR2_SESSION_REUSE_VALIDATION.md) for broader checks).
-Ordinary asks select compatible retained history with original-result replay
-and receipt/counter writers; retained selectors and inspection remain proposed. The writer upgrade reconstructs old consumed prompts only from complete exact
-terminal/context evidence; otherwise it invalidates native continuity. No provider calls or commit were made.
+that source revision. PR1 (`eec2cba4`), PR2 (`7cdc6b76`), PR3 (`12129517`), and
+health check fixes (`cfb28aba`) are committed on `feat/session-reuse`.
+Ordinary asks select compatible retained history with original-result replay,
+receipt/counter writers, and explicit `--session`/`--fresh` selectors.
+The proposed architecture for inspection, telemetry, and monitoring is specified in the
+[Pre-TDD Renewal](peerhub-pre-tdd-renewal-2026-10-14.md) and [Debate Ledger](peerhub-deepthink-debate-2026-10-14.md).
 
 ## AS-IS map
 
@@ -251,7 +251,8 @@ proof and exact emitted text/JSON. This PR provides the session snapshot API.
   in this one session integration PR: coverage-labelled selected-stream metrics,
   alert hysteresis/exit precedence, local ack, NDJSON allowlist and user docs.
   Collection remains explicit monitor behavior; the session reader is always
-  read-only and MV2 read-only monitor never collects.
+  read-only and `diag --live` never collects; `monitor` composes collection with
+  the same read-only snapshot.
 - Keep unknown measurements visible; no telemetry-driven switching. Close the
   monitoring proposal's policy/schema decisions before implementing those parts;
   this document does not silently approve them. A runtime read of an unmigrated
@@ -290,7 +291,7 @@ live work. Missing provider skips are unavailable evidence, not passes.
 | PR1 | 2 | First normal ask stores independent true capability; second normal ask recalls a random token with resumed mode and same generation/native digest. The original token-bearing prompt is absent from injection; a known prior response may appear beyond the corrected prompt watermark. Public removed-option rejection is tested offline. |
 | PR2 | 2 additional only if checking that PR candidate | New normal turn then continuation: same retained handle, final session output, one fresh and one resumed STARTED receipt; replay the request offline with a fail-on-spawn harness and verify unchanged receipt counts. |
 | PR3/final candidate | 4 | Default creates A and remembers token; default reuses A; fresh creates B with a benign marker; exact A recalls and includes B's committed intervening context. Check distinct handles, same A generation on reuse, accepted modes and injected IDs. |
-| PR4/5 | 0 additional | Inspect committed candidate receipts with list/show/diag and the read-only monitor. Require attributable numeric telemetry or explicit unknown values, read-only store/no probes, correct counts/coverage and sanitized export. |
+| PR4/5 | 0 additional | Inspect committed candidate receipts with session list/show and read-only `diag --live`. `monitor` shares the same snapshot but also collects quota. Require attributable numeric telemetry or explicit unknown values, read-only store/no probes for inspection, correct counts/coverage and sanitized export. |
 
 A final integrated four-turn run replaces the two-turn PR1/PR2 checks when only
 the final candidate needs verification; those incremental runs are optional,

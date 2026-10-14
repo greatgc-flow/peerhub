@@ -1,5 +1,18 @@
 # Observation + Readonly Diag
 
+## Physical storage and diagnostic projections
+
+`observations` remains the immutable evidence table. `ObservationStore` also
+maintains `observation_rollups` (latest capture and exact row count per subject,
+kind, and pool identity) and `activity_rollups` (the newest 50 activity capture
+sequences per subject). SQLite insert triggers update these projections in the
+same transaction as evidence append. A first write against a legacy store
+backfills missing projections transactionally; read-only diagnostics never
+create or repair them and use the historical-scan compatibility path when the
+tables are absent. `peerhub diag integrity` checks projection parity as well as
+SQLite page integrity. The projections are derived data, not additional public
+evidence or Core entities.
+
 ## Observation envelope
 
 ```text

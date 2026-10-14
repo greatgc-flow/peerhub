@@ -392,6 +392,7 @@ def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
         for name, sec in report.sections.items()
     }
     data: dict[str, object] = {
+        "schema_version": "1.0",
         "status": report.status,
         "read_at": report.read_at,
         "snapshot": _payload_fields(report.snapshot, ("records_total", "observations_total")),

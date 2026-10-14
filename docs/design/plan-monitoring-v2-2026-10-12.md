@@ -12,12 +12,19 @@ refresh, and the CI trigger change. Monitoring's release version is unassigned;
 the staged implementation below remains the design SSOT. The 0.15.2 dashboard
 privacy fix does not complete PR-6's full monitor export contract.
 
+**2026-10-14 CLI correction:** The [CLI/Monitoring Addendum](peerhub-cli-monitoring-inspection-2026-10-14.md)
+is authoritative for command semantics and defaults below. In particular,
+`diag --live` remains the read-only watcher; `monitor` remains the
+collection-plus-dashboard workflow. The old proposals to remove `diag --live`
+and add `monitor --read-only` are superseded. Other MV2 decisions remain
+proposals unless that addendum or the renewal closes them.
+
 Reference plan for unified cross-peer quota monitoring, pace balancing, and CLI interface consolidation.
 Source of truth: `@W@\mon_spec_v2.md` (final decisions by cc, cx, ag).
 This document explicitly supersedes the following statements from `plan-quota-forecast-2026-10-12.md`:
 1. **NO_COLOR empty value**: Superseded. An empty `NO_COLOR=""` is ignored per no-color.org; only non-empty strings disable color. Nonzero `FORCE_COLOR` or `CLICOLOR_FORCE` overrides `CLICOLOR=0`.
-2. **--collect-every**: Superseded. `--collect-every` is completely removed. Collection runs on a single monotonic interval (`--interval-seconds`, default 60s); countdowns redraw at 1 Hz on TTY with VT.
-3. **diag --live**: Superseded. `diag --live` is removed; its read-only watch capability moves to `monitor --read-only` (redraws from committed evidence without probes; single shared watch loop).
+2. **--collect-every**: Retained as the explicit collection-cost control. By default each monitor cycle collects; `--collect-every K` collects every Kth cycle. Cycle scheduling uses monotonic deadlines and skips missed slots.
+3. **diag --live**: Retained. `diag --live` is the read-only watch over committed evidence; `monitor` composes collection with the same dashboard reader.
 4. **Exit codes**: Superseded. Existing status codes are preserved (0 OK, 4 FAILED/PARTIAL, 5 UNAVAILABLE, 6 SCHEMA_VERSION; 2 usage; Ctrl-C 0). New ALERT code 1 is returned ONLY when diagnostic status is OK; JSON reports alerts independently.
 5. **Forecast v2 stance**: Superseded and clarified. Recent-rate (1h) is not in the product runtime; it is restricted to offline `tools/quota_backtest.py` as a candidate policy pending promotion criteria.
 
@@ -94,11 +101,11 @@ This document explicitly supersedes the following statements from `plan-quota-fo
 | `peerhub diag health` | Retained | Stream and store health inspection unchanged. |
 | `peerhub diag quota` | Retained | Quota inspection table / JSON unchanged; `--peer` and `--pool` filters. |
 | `peerhub diag --line` | **New** | Emits single-line status for prompts/AI status lines; exit codes below. |
-| `peerhub diag --live` | **Removed** | Read-only watch moves to `monitor --read-only`. |
-| `peerhub diag --cycles`, `--interval-seconds` | **Removed** | Redundant on `diag` root once `--live` is removed. |
+| `peerhub diag --live` | Retained | Read-only watch from committed evidence; it invokes no provider probes. |
+| `peerhub diag --cycles`, `--interval-seconds` | Retained | Bound and schedule the read-only watch. |
 | `peerhub monitor` | Retained | Foreground collect + watch loop; defaults: interval 60s, timeout 30s. |
-| `peerhub monitor --read-only` | **New** | Read-only watch from committed evidence; no probes; shared watch loop. |
-| `peerhub monitor --collect-every` | **Removed** | Superseded by unified 60s monotonic cadence. |
+| `peerhub monitor --read-only` | **Dropped** | Duplicates the existing read-only `diag --live` surface. |
+| `peerhub monitor --collect-every` | Retained | Defaults to 1 (collect every cycle); increase K to reduce provider polling. |
 | `peerhub monitor --once` | **Removed** | Superseded by `peerhub diag`. |
 | `peerhub monitor --json` | Retained | Emits NDJSON using documented allowlist (no full diagnostics payload). |
 | `peerhub monitor --peers`, `--cycles`, `--view`, `--system-dir`, `--allow-agy-token-use` | Retained | Existing monitor execution and configuration options preserved. |
@@ -165,7 +172,7 @@ Delivered in ordered, independently releasable PRs: every PR includes its comman
    - Files: `peerhub/cli/monitor.py`, `peerhub/extensions/quota_capture.py`, `tests/communication/observation/test_quota_probes.py`, `tests/communication/e2e/test_cli_monitor.py`.
 4. **PR-4: Pace-balance line and diag --line**: Implement R1 dual-pool balance engine ($cc.\text{pace} \le \min(ag.\text{3P}, ag.\text{G})$ and $|\max(ag) - cx| \le 5\text{ pt}$), factual `'lowest 7d pace: <peer/pool>'`, ag values labelled 3P and G in `--line`, and `peerhub diag --line`.
    - Files: `peerhub/extensions/quota_projection.py`, `peerhub/cli/app.py`, `peerhub/cli/view.py`, `tests/communication/observation/test_quota_projection.py`, `tests/communication/e2e/test_cli_diag_quota.py`.
-5. **PR-5: Monitor --read-only and removal of diag --live and monitor --once (separate from --line)**: Implement `peerhub monitor --read-only` (shared watch loop from committed evidence, no probes) and remove `diag --live`, `diag --cycles`/`--interval-seconds`, and `monitor --once` (separate from `--line`).
+5. **PR-5: Shared snapshot rendering and monitor truth (separate from --line)**: Keep `diag --live`; share snapshot rendering with `monitor`; render the committed snapshot before refresh; report refresh and diagnostic outcomes separately. Keep `--collect-every` and document that `monitor` collects provider evidence.
    - Files: `peerhub/cli/monitor.py`, `peerhub/cli/app.py`, `peerhub/extensions/diag_watch.py`, `tests/communication/e2e/test_cli_monitor.py`.
 6. **PR-6: Monitor JSON allowlist/export sanitization with tests**: Monitor JSON allowlist export filtering (`observed_at`, `cycle`, pool id, peer, `used_fraction`, window start/end epochs, state, projection state/pace_pt/projected_at_reset/exhaustion_at, probe outcome code, alert ids), preserve retained diagnostic JSON contracts unchanged, and export sanitization tests.
    - Files: `peerhub/cli/monitor.py`, `peerhub/cli/view.py`, `tests/communication/e2e/test_cli_monitor.py`.

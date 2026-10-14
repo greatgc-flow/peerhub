@@ -12,11 +12,19 @@ MV2 controls snapshot/policy reading, collection, watch, privacy and exit preced
 This document specifies inspection and the session export allowlist on the MV2
 infrastructure. The [AS-IS analysis and canonical PR1-PR5 sequence](analysis-session-reuse-as-is-2026-10-13.md)
 supersede earlier separate session PR assignments. It does not change ask
-envelopes or authorize telemetry-driven switching. PR1 removes public/caller
-resume preference everywhere; PR2 supplies registry and functioning receipt/
-projection writers; PR3 adds fresh/exact selection; PR4 supplies measured
-telemetry/shared readers; PR5 integrates session monitoring. Proposed schema
-and interfaces below are not existing columns/APIs. All defaults here are testable pending the owner questions at the end.
+envelopes or authorize telemetry-driven switching. PR1, PR2, and PR3 are committed
+(`12129517`), providing registry, receipts, durable snapshots, and fresh/exact selection.
+The proposed architecture for inspection, telemetry, and monitoring has been updated
+in the authoritative [Pre-TDD Renewal](peerhub-pre-tdd-renewal-2026-10-14.md) and
+[Debate Ledger](peerhub-deepthink-debate-2026-10-14.md).
+Proposed schema and interfaces below remain reference designs. All defaults are testable pending owner review.
+
+The [CLI/Monitoring Addendum](peerhub-cli-monitoring-inspection-2026-10-14.md)
+now owns the command boundary: `diag --live` is the read-only watcher and
+`monitor` is collection plus the shared dashboard. Session panes, if enabled,
+are the same read-only snapshot section in both; there is no separate
+`monitor --read-only` mode. Session-specific contracts below remain proposals
+only where they do not conflict with that addendum.
 
 Code inspected: `peerhub/extensions/{diag,diag_quota,diag_watch,bridge,ask}.py`,
 `peerhub/extensions/{observation,observation_model}.py`, and
@@ -24,7 +32,8 @@ Code inspected: `peerhub/extensions/{diag,diag_quota,diag_watch,bridge,ask}.py`,
 `ReadonlyDiag.render(sections, read_at)`; SR section 8.5 now uses that contract.
 Its URI `mode=ro`, verified `query_only`, authorizer and pinned transaction are
 the reader contract. Current monitor collects quota before rendering; the proposed
-session reader is always read-only. MV2 `monitor --read-only` disables collection.
+session reader is always read-only. The addendum changes the first-frame order
+and keeps `diag --live` as the canonical read-only watch.
 
 ## 1. Terms and persisted evidence contract
 
@@ -329,7 +338,7 @@ rules are normative; examples use one session for brevity. Pane appears after
 quota/credits and before latest asks/health. `R/F` is reuse/fresh deliveries;
 `W` is writable (yes/no/?), `*` is MRU, `?` means unknown, not zero.
 
-`peerhub monitor` (same pane in `--read-only`):
+`peerhub monitor` and `peerhub diag --live` (same read-only pane; monitor also collects):
 
 ```text
 Sessions  streams:20/peer  calls:20  account quota shared
@@ -592,7 +601,7 @@ counts_complete=false. No synthetic public id. Error codes include
 
 ## 6. Alerts in the MV2 state machine
 
-Pure evaluator, same shared policy for monitor, read-only monitor, list/show and
+Pure evaluator, same shared policy for monitor, `diag --live`, list/show and
 diag. Watch keeps in-memory state only; one-shot commands evaluate entry only.
 Key context/expiry by handle, reuse-unused/fallback by stream+peer, quota by
 peer+pool (one shared alert, never duplicated for every session). States
@@ -655,7 +664,7 @@ fresh session/model change, write permission change, steering or prompt injectio
 |---|---|
 | Store ownership | Global --db/env/discovery preserved. Missing explicit store remains missing; no fallback/bootstrap. Use mode=ro, query_only verified and authorizer denies DML/DDL/ATTACH/writable PRAGMAs. No Bridge initialization/migration. |
 | Snapshot | Sessions/pointers/counts/evidence/quota in one pinned transaction with one read_at. Concurrent writers are visible next frame, never halfway through counters/receipts. |
-| Zero provider work | Session read path, list/show/diag/monitor --read-only spawn zero subprocesses, network calls, vendor DB reads, rollout parsing or cache refreshes. Ordinary monitor quota collection remains explicitly MV2-owned. |
+| Zero provider work | Session read path, list/show/diag/diag --live spawn zero subprocesses, network calls, vendor DB reads, rollout parsing or cache refreshes. `monitor` collection is explicit and separate from its snapshot reader. |
 | Complexity | O(displayed sessions + 20 streams/peer * N + declared pools), ignoring B-tree seeks; bounds above are enforced. Lifetime counts are O(1) projection reads. No SELECT * on result_json or linear delivery/observation history scans. |
 | Refresh budget | For 3 peers, 20 streams each, 20 retained rows/scope, N=20, 8 pools/peer, <=150ms reader p95 on warmed local SQLite; <=1MiB new session payload/frame. 1Hz redraw performs zero SQL. Benchmark with >=100k unrelated deliveries/evidence/observations; p95 is a benchmark gate, deterministic tests assert query plans/row bounds. |
 | Lock/time budget | Reader busy timeout <=250ms, query cancellation at 500ms; total session refresh <=750ms. Timeout yields partial last snapshot marked stale/unknown with stable error, never a write retry/repair. |

@@ -12,10 +12,17 @@ requests. [CHANGELOG](../CHANGELOG.md) owns the user-facing release notes.
 Eligible pre-work refusals settle as `NOT_EXECUTED` while preserving `STARTED`
 certainty. Timeouts and failures with possible effects remain guarded; neither
 automatic timeout settlement nor `stream resolve` ships in this candidate.
-Session PR1 is committed at `eec2cba4`. Uncommitted PR2 work (2026-10-14;
-25 focused tests and Pyright pass locally) adds retained history, safe
-compatible selection, durable snapshots and receipt/counter writers. Retained
-selectors and inspection are not available yet.
+Session PR1 (`eec2cba4`), PR2 (`7cdc6b76`), PR3 (`12129517`), and health check
+fixes (`cfb28aba`) are committed on `feat/session-reuse`. Retained selectors
+(`--session`, `--fresh`), call receipts, and durable snapshots are committed
+and functional. The bounded inspection, telemetry and recovery renewal is a
+proposed pre-TDD candidate, not yet implemented. It includes intentional
+compatibility changes, which are called out for release notes; see the
+[Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md) and [Debate Ledger](design/peerhub-deepthink-debate-2026-10-14.md)
+for reconciled decisions and peer review.
+The [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md)
+records the unanimously reviewed command boundaries and additional pre-TDD
+contracts. Implementation and release remain pending.
 
 0.15.2 is the previous published release; 0.15.1 was never published. Historical
 live evidence applies only to its recorded revision. Candidate-matched CI,
@@ -26,10 +33,10 @@ smoke remain pending under [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 
 | Track | Done / remaining after this candidate | Design SSOT |
 |---|---|---|
-| Stuck streams | PRs 1-3 complete. PR 4: quota pre-flight; PR 5: enforced-policy metadata + automatic settlement; PR 6: audited `stream resolve` + historical recovery. | [Recovery plan](design/plan-stuck-streams-2026-10-12.md#8-pr-order-files-and-acceptance) |
-| Monitoring v2 | PRs 1-7 pending: color/escape rules; shared snapshot/policy reader + alerts/exit codes; monotonic cadence; pace balance + `diag --line`; `monitor --read-only` + interface removals; JSON export allowlist; docs/release. Original 0.16.0 target superseded; release version unassigned. | [Monitoring plan](design/plan-monitoring-v2-2026-10-12.md#13-implementation-steps-release-version-pending) |
-| Audit | WP-A complete (#91). WP-B: CLI learnability; WP-C: TOML provider IDs/config SSOT + remove `./peerhub` lookup; WP-D: cancellation certainty + warn-only resolver (partially addressed by #95); WP-E: live/test hygiene remain open. Diagnostic Agy model-catalog drift detection also remains open. | [Audit and progress](design/audit-2026-10-12.md) |
-| Session reuse | PR1 committed (`eec2cba4`); PR2 implemented in the uncommitted worktree, focused tests and typing pass locally. Broader checks are tracked in the [PR2 review](implementation/PR2_SESSION_REUSE_VALIDATION.md). Remaining canonical PRs cover addressing, inspection/telemetry and views. Retained selectors remain proposed; release version unassigned. | [Canonical session sequence](design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence) |
+| Stuck streams | PRs 1-3 complete. Quota admission and automatic settlement are proposed for removal/deferment; audited `stream resolve` still requires final contract review. | [Proposed Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md#3-coherent-prerequisite-dag-and-implementation-slices) |
+| Monitoring v2 | Shared snapshot/schema, bounded session inspection, and observation/activity projections are implemented. Core record totals and per-stream counts still scan history; stores without observation projections use a compatibility full scan until their next writer initializes the projection. Representative-store latency measurements and any further bounded-history design remain open. | [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md) |
+| CLI and inspection | Bounded peer/stream/profile/session reads, read-only Core access, and aligned human/JSON output are implemented. No profile catalog mutation. Remaining work is operational validation on representative stores and any issues it finds. | [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md) |
+| Session reuse | PRs 1-3, health fixes, and bounded list/show inspection are committed. Attributable runtime telemetry, session alerts/watch behavior, retention policy, and replay refinements remain proposed work; resolve the listed owner/empirical gates before TDD. | [Proposed Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md#4-concrete-final-interfaces-and-module-ownership) |
 
 Operational lessons and coordinator handoff: [HANDOFF](HANDOFF.md).
 
@@ -138,4 +145,3 @@ See [`docs/history/design/2026-08/HUB-REPLACEMENT-ROADMAP-2026-08-09.md`](https:
 **hub.py-replacement design phase (2026-08-23 to 2026-08-26): DESIGN-complete, TDD-ready.** The 7 functional categories `hub.py` covers beyond basic dispatch — compat/cutover strategy, consensus, session/room/thread continuity, health/leadership/duty-lease, task lifecycle/approval, governance/learning, and diagnostics parity — each now have either a concrete `TargetState` JSON schema or a concrete dedicated design, all converged and ratified (52 of 53 remaining open items resolved by design-consistency reasoning, 1 genuine business decision resolved by the user, 1 shared infrastructure prerequisite scoped as its own task). Start at [`docs/history/design/HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md) (supersedes older per-doc "Unresolved" lists), then [`docs/history/design/HUB-REPLACEMENT-DESIGN-REINFORCEMENT-INDEX-2026-08-24.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/HUB-REPLACEMENT-DESIGN-REINFORCEMENT-INDEX-2026-08-24.md) for the full per-gap breakdown. **Update**: most of this design has since been implemented during the TDD phase below (consensus, task, lessons, duty-lease, and half of session/room/thread) — see [`docs/history/design/PEERHUB-BACKLOG-2026-08-27.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PEERHUB-BACKLOG-2026-08-27.md) for exactly what from this design phase is still unimplemented.
 
 The target architecture was designed and converged through a 9-round adversarial review (`ag`/`cx`/`cc`) documented in [`docs/history/design/2026-07/ARCHITECTURE.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-07/ARCHITECTURE.md). The full debate record, including rejected alternatives and evidence citations, is in [`docs/history/design/2026-07/peerhub-architecture-debate.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-07/peerhub-architecture-debate.md). Later design decisions are under [`docs/design/`](https://github.com/greatgc-flow/peerhub/tree/main/docs/design), dated by filename.
-

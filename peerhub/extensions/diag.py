@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import cast, Any, Callable
 
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
+from peerhub.core.read_only_probe import probe_table_roots
 from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     ObservationCorruptError,
@@ -69,6 +70,54 @@ def _err(e: BaseException, **extra: Any) -> dict[str, Any]:
     return {**extra, "error": f"{type(e).__name__}: {e}"}
 
 
+def integrity_check(db_path: str | Path) -> dict[str, Any]:
+    """Run SQLite's full integrity scan only when explicitly requested."""
+    conn = _default_factory(str(db_path))
+    try:
+        conn.execute("PRAGMA query_only = ON")
+        conn.set_authorizer(read_only_authorizer(allow_transactions=True))
+        found = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        if found > SUPPORTED_SCHEMA_VERSION:
+            raise SchemaVersionError(future_schema_message(found, SUPPORTED_SCHEMA_VERSION))
+        rows = [str(row[0]) for row in conn.execute("PRAGMA quick_check").fetchall()]
+        has_rollups = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='observation_rollups'"
+        ).fetchone() is not None
+        has_activity = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='activity_rollups'"
+        ).fetchone() is not None
+        projection_status = "UNAVAILABLE"
+        if has_rollups and has_activity:
+            expected_rollups = [tuple(row) for row in conn.execute(
+                "SELECT subject_ref, kind, pool_key, latest_capture_seq, row_count FROM ("
+                "SELECT subject_ref, kind, COALESCE(resource_pool_ref, '') AS pool_key, capture_seq, "
+                "FIRST_VALUE(capture_seq) OVER (PARTITION BY subject_ref, kind, COALESCE(resource_pool_ref, '') "
+                "ORDER BY effective_at_us DESC, capture_seq DESC) AS latest_capture_seq, "
+                "COUNT(*) OVER (PARTITION BY subject_ref, kind, COALESCE(resource_pool_ref, '')) AS row_count, "
+                "ROW_NUMBER() OVER (PARTITION BY subject_ref, kind, COALESCE(resource_pool_ref, '') "
+                "ORDER BY effective_at_us DESC, capture_seq DESC) AS rn FROM observations) WHERE rn=1 "
+                "ORDER BY subject_ref, kind, pool_key"
+            ).fetchall()]
+            actual_rollups = [tuple(row) for row in conn.execute(
+                "SELECT subject_ref, kind, pool_key, latest_capture_seq, row_count FROM observation_rollups "
+                "ORDER BY subject_ref, kind, pool_key"
+            ).fetchall()]
+            expected_activity = [tuple(row) for row in conn.execute(
+                "SELECT subject_ref, capture_seq FROM (SELECT subject_ref, capture_seq, "
+                "ROW_NUMBER() OVER (PARTITION BY subject_ref ORDER BY capture_seq DESC) AS rn "
+                "FROM observations WHERE kind='activity') WHERE rn <= ? ORDER BY subject_ref, capture_seq DESC",
+                (ACTIVITY_WINDOW,),
+            ).fetchall()]
+            actual_activity = [tuple(row) for row in conn.execute(
+                "SELECT subject_ref, capture_seq FROM activity_rollups ORDER BY subject_ref, capture_seq DESC"
+            ).fetchall()]
+            projection_status = "OK" if expected_rollups == actual_rollups and expected_activity == actual_activity else "ERROR"
+        status = "OK" if rows == ["ok"] and projection_status != "ERROR" else "ERROR"
+        return {"status": status, "sqlite": rows, "observation_projections": projection_status}
+    finally:
+        conn.close()
+
+
 class ReadonlyDiag:
     def __init__(self, db_path: str | Path, *, log_path: str | Path | None = None, policy: FreshnessPolicy | None = None,
                  connection_factory: Callable[[str], Any] | None = None, open_log: Callable[[Path], Any] | None = None,
@@ -95,9 +144,9 @@ class ReadonlyDiag:
             found = conn.execute("PRAGMA user_version").fetchone()[0]
             if found > SUPPORTED_SCHEMA_VERSION:  # never interpret a schema this build does not understand (MIG-003)
                 raise SchemaVersionError(future_schema_message(found, SUPPORTED_SCHEMA_VERSION))
-            rows = conn.execute("PRAGMA quick_check").fetchall()  # read-only probe: a corrupt authoritative store is FAILED, never half-reported
-            if [r[0] for r in rows] != ["ok"]:
-                raise sqlite3.DatabaseError(f"integrity check failed: {[r[0] for r in rows[:3]]}")
+            # A bounded root-page probe preserves fail-closed behavior for damaged
+            # authoritative tables without scanning every page on every dashboard frame.
+            probe_table_roots(conn)
         except BaseException:
             try:
                 conn.close()
@@ -118,24 +167,37 @@ class ReadonlyDiag:
         has_bridge_evidence = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='bridge_evidence'"
         ).fetchone() is not None
+        streams = conn.execute("SELECT stream_id, title, state, revision FROM streams ORDER BY stream_id").fetchall()
+        ids = [s[0] for s in streams]
+        if not ids:
+            return Section("streams", "OK", {"streams": []})
+        records = {r[0]: (r[1], r[2]) for r in conn.execute(
+            "SELECT stream_id, COUNT(*), COALESCE(MAX(position), 0) FROM records GROUP BY stream_id"
+        ).fetchall()}
+        members: dict[str, list[str]] = {sid: [] for sid in ids}
+        for sid, peer in conn.execute("SELECT stream_id, peer_id FROM stream_members ORDER BY stream_id, peer_id").fetchall():
+            members[sid].append(peer)
+        offsets: dict[str, dict[str, int]] = {sid: {} for sid in ids}
+        for sid, peer, position in conn.execute("SELECT stream_id, peer_id, read_through_position FROM offsets ORDER BY stream_id, peer_id").fetchall():
+            offsets[sid][peer] = position
+        refusals: dict[str, str] = {}
+        if has_bridge_evidence:
+            for sid, raw in conn.execute(
+                "SELECT stream_id, detail FROM (SELECT stream_id, detail, ROW_NUMBER() OVER (PARTITION BY stream_id ORDER BY seq DESC) AS rn "
+                "FROM bridge_evidence WHERE kind = 'refusal_detected') WHERE rn = 1"
+            ).fetchall():
+                refusals[sid] = raw
         out: list[dict[str, Any]] = []
-        for s in conn.execute("SELECT stream_id, title, state, revision FROM streams ORDER BY stream_id").fetchall():
+        for s in streams:
             sid = s[0]
-            head = conn.execute("SELECT COALESCE(MAX(position), 0) FROM records WHERE stream_id = ?", (sid,)).fetchone()[0]
-            count = conn.execute("SELECT COUNT(*) FROM records WHERE stream_id = ?", (sid,)).fetchone()[0]
-            members = [r[0] for r in conn.execute("SELECT peer_id FROM stream_members WHERE stream_id = ? ORDER BY peer_id", (sid,)).fetchall()]
-            offsets = {r[0]: r[1] for r in conn.execute(
-                "SELECT peer_id, read_through_position FROM offsets WHERE stream_id = ? ORDER BY peer_id", (sid,)).fetchall()}
+            count, head = records.get(sid, (0, 0))
             stream_info: dict[str, Any] = {"stream_id": sid, "title": s[1], "state": s[2], "revision": s[3], "head_position": head,
-                        "record_count": count, "members": members, "offsets": offsets}
+                        "record_count": count, "members": members[sid], "offsets": offsets[sid]}
             if has_bridge_evidence:
-                refusal_row = conn.execute(
-                    "SELECT detail FROM bridge_evidence WHERE stream_id = ? AND kind = 'refusal_detected' ORDER BY seq DESC LIMIT 1",
-                    (sid,)
-                ).fetchone()
-                if refusal_row:
+                refusal_raw = refusals.get(sid)
+                if refusal_raw:
                     try:
-                        ref_detail = json.loads(refusal_row[0])
+                        ref_detail = json.loads(refusal_raw)
                         ref_info: dict[str, Any] = {
                             "reason": ref_detail.get("reason"),
                             "task_outcome": ref_detail.get("task_outcome", "NOT_EXECUTED"),
@@ -154,16 +216,37 @@ class ReadonlyDiag:
 
     @staticmethod
     def _pools(conn: sqlite3.Connection, _us: int) -> Section:
-        counts = {r[0]: r[1] for r in conn.execute(
-            "SELECT resource_pool_ref, COUNT(*) FROM observations WHERE resource_pool_ref IS NOT NULL GROUP BY resource_pool_ref").fetchall()}
+        has_rollups = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='observation_rollups'"
+        ).fetchone() is not None
+        if has_rollups:
+            counts = {r[0]: r[1] for r in conn.execute(
+                "SELECT pool_key, SUM(row_count) FROM observation_rollups WHERE pool_key != '' GROUP BY pool_key"
+            ).fetchall()}
+        else:
+            counts = {r[0]: r[1] for r in conn.execute(
+                "SELECT resource_pool_ref, COUNT(*) FROM observations WHERE resource_pool_ref IS NOT NULL GROUP BY resource_pool_ref"
+            ).fetchall()}
         rows = conn.execute("SELECT resource_pool_id, provider, kind, metadata_json FROM resource_pools ORDER BY resource_pool_id").fetchall()
         return Section("resource_pools", "OK", {"pools": [
             {"resource_pool_id": r[0], "provider": r[1], "kind": r[2], "metadata_json": r[3], "observation_count": counts.get(r[0], 0)} for r in rows]})
 
     def _observations(self, conn: sqlite3.Connection, read_us: int) -> Section:
-        rows = conn.execute(
-            "SELECT capture_seq, observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, observed_at, captured_at "
-            "FROM observations ORDER BY capture_seq").fetchall()
+        has_rollups = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='observation_rollups'"
+        ).fetchone() is not None
+        if has_rollups:
+            rows = conn.execute(
+                "SELECT o.capture_seq, o.observation_id, o.subject_ref, o.resource_pool_ref, o.kind, o.source, "
+                "o.state, o.payload_json, o.observed_at, o.captured_at, o.effective_at_us FROM observation_rollups AS h "
+                "JOIN observations AS o ON o.capture_seq = h.latest_capture_seq "
+                "ORDER BY h.subject_ref, h.kind, h.pool_key"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT capture_seq, observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, "
+                "observed_at, captured_at, effective_at_us FROM observations ORDER BY capture_seq"
+            ).fetchall()
         best: dict[tuple[str, str, str | None], ObservationView] = {}
         errors: list[dict[str, Any]] = []
         for r in rows:
@@ -201,8 +284,23 @@ class ReadonlyDiag:
         import statistics
         from datetime import datetime
 
-        rows = conn.execute("SELECT subject_ref, payload_json, observed_at FROM observations WHERE kind = 'activity' "
-                            "ORDER BY capture_seq DESC").fetchall()
+        has_activity_rollups = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='activity_rollups'"
+        ).fetchone() is not None
+        if has_activity_rollups:
+            rows = conn.execute(
+                "SELECT o.subject_ref, o.payload_json, o.observed_at FROM activity_rollups AS h "
+                "JOIN observations AS o ON o.capture_seq=h.capture_seq "
+                "ORDER BY h.subject_ref, h.capture_seq DESC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "WITH ranked AS (SELECT subject_ref, payload_json, observed_at, capture_seq, "
+                "ROW_NUMBER() OVER (PARTITION BY subject_ref ORDER BY capture_seq DESC) AS rn "
+                "FROM observations WHERE kind = 'activity') "
+                "SELECT subject_ref, payload_json, observed_at FROM ranked WHERE rn <= ? ORDER BY subject_ref, rn",
+                (ACTIVITY_WINDOW,),
+            ).fetchall()
         per: dict[str, list[tuple[str, float | None, float | None]]] = {}
         for subject, raw, observed in rows:
             bucket = per.setdefault(subject, [])
@@ -268,8 +366,16 @@ class ReadonlyDiag:
         out: dict[str, Section] = {}
         try:
             snapshot: dict[str, Any] = {}
+            def observation_total() -> int:
+                has_rollups = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='observation_rollups'"
+                ).fetchone() is not None
+                if has_rollups:
+                    return int(conn.execute("SELECT COALESCE(SUM(row_count), 0) FROM observation_rollups").fetchone()[0])
+                return int(conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0])
+
             for key, one in (("records_total", lambda: conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]),
-                             ("observations_total", lambda: conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0])):
+                             ("observations_total", observation_total)):
                 try:
                     snapshot[key] = one()
                 except sqlite3.Error:

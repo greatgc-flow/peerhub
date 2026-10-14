@@ -1,19 +1,24 @@
 """PeerHub CLI Entrypoint.
 
 Commands (canonical inventory: docs/implementation/command_inventory.json, derived from this parser by tools/command_inventory.py):
-  peer register / get
-  stream create / show
+  peer register / get / list
+  stream create / show / list
   record append / read
   offset get / advance
-  diag health / quota   (read-only; quota never refreshes evidence)
+  profile list / show   (read-only effective TOML)
+  session list / show   (read-only, bounded and redacted)
+  diag health / quota / integrity (read-only; integrity is explicit)
 Exit codes: 0 ok, 1 error, 2 idempotency conflict, 3 CAS lost, 4 storage fault, 5 diag unavailable, 6 schema version.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -39,6 +44,68 @@ def _resolve_db_path(configured_path: str, *, use_env: bool = True, discover: bo
     return _select_db(configured_path, use_env=use_env, discover=discover, workspace_root=workspace_root).path
 
 
+def _page_limit(value: str) -> int:
+    try:
+        limit = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("limit must be an integer from 1 to 200") from exc
+    if not 1 <= limit <= 200:
+        raise argparse.ArgumentTypeError("limit must be from 1 to 200")
+    return limit
+
+
+def _session_page_limit(value: str) -> int:
+    try:
+        limit = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("limit must be an integer from 1 to 100") from exc
+    if not 1 <= limit <= 100:
+        raise argparse.ArgumentTypeError("limit must be from 1 to 100")
+    return limit
+
+
+def _page_cursor(kind: str, cursor: str | None) -> str | None:
+    if cursor is None:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
+        data = json.loads(raw)
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("invalid page cursor") from exc
+    if not isinstance(data, dict):
+        raise ValueError("invalid page cursor")
+    cursor_data = cast(dict[str, Any], data)
+    if cursor_data.get("v") != 1 or cursor_data.get("kind") != kind or not isinstance(cursor_data.get("after"), str):
+        raise ValueError("page cursor does not match this listing")
+    return cast(str, cursor_data["after"])
+
+
+def _make_page_cursor(kind: str, after: str) -> str:
+    raw = json.dumps({"v": 1, "kind": kind, "after": after}, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _encode_session_cursor(cursor: dict[str, Any]) -> str:
+    raw = json.dumps(cursor, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_session_cursor(raw_cursor: str, *, store_id: str, lineage: str, filters: dict[str, str | None]) -> dict[str, Any]:
+    try:
+        decoded: object = json.loads(base64.urlsafe_b64decode(raw_cursor + "=" * (-len(raw_cursor) % 4)))
+    except (ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("invalid session cursor") from exc
+    if not isinstance(decoded, dict):
+        raise ValueError("invalid session cursor")
+    data = cast(dict[str, Any], decoded)
+    if (data.get("v") != 1 or data.get("store") != store_id or data.get("lineage") != lineage
+            or data.get("filters") != filters or data.get("order") != "scope-generation-handle-v1"
+            or not isinstance(data.get("high_water"), int) or not isinstance(data.get("after"), list)
+            or len(data["after"]) != 4):
+        raise ValueError("session cursor does not match store, lineage, filters, or ordering")
+    return data
+
+
 def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     description = "PeerHub CLI"
     parser = argparse.ArgumentParser(prog=prog, description=description)
@@ -59,6 +126,11 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     p_get = peer_sub.add_parser("get", help="Get a peer")
     p_get.add_argument("--peer", required=True, dest="peer_id")
 
+    p_list = peer_sub.add_parser("list", help="List peers (read-only, bounded)")
+    p_list.add_argument("--limit", type=_page_limit, default=50)
+    p_list.add_argument("--cursor")
+    p_list.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+
     # stream
     stream_parser = subparsers.add_parser("stream", help="Stream commands")
     st_sub = stream_parser.add_subparsers(dest="action", required=True)
@@ -70,6 +142,11 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     s_show = st_sub.add_parser("show", help="Show stream details")
     s_show.add_argument("--stream", required=True, dest="stream_id")
+
+    s_list = st_sub.add_parser("list", help="List streams (read-only, bounded)")
+    s_list.add_argument("--limit", type=_page_limit, default=50)
+    s_list.add_argument("--cursor")
+    s_list.add_argument("--format", choices=["auto", "table", "json"], default="auto")
 
     # record
     record_parser = subparsers.add_parser("record", help="Record commands")
@@ -124,6 +201,28 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
     ask_parser.add_argument("--json", action="store_true")
 
+    profile_parser = subparsers.add_parser("profile", help="Inspect effective local model profiles (read-only)")
+    profile_sub = profile_parser.add_subparsers(dest="action", required=True)
+    profile_list = profile_sub.add_parser("list", help="List configured profiles")
+    profile_list.add_argument("--workspace", type=Path, default=None)
+    profile_list.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+    profile_show = profile_sub.add_parser("show", help="Show effective profile values and source layers")
+    profile_show.add_argument("profile")
+    profile_show.add_argument("--workspace", type=Path, default=None)
+    profile_show.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+
+    session_parser = subparsers.add_parser("session", help="Inspect retained sessions (read-only)")
+    session_sub = session_parser.add_subparsers(dest="action", required=True)
+    session_list = session_sub.add_parser("list", help="List retained sessions")
+    session_list.add_argument("--stream")
+    session_list.add_argument("--peer")
+    session_list.add_argument("--limit", type=_session_page_limit, default=20)
+    session_list.add_argument("--cursor")
+    session_list.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+    session_show = session_sub.add_parser("show", help="Show a retained session by PeerHub handle")
+    session_show.add_argument("handle")
+    session_show.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+
     observation_parser = subparsers.add_parser("observation", help="Explicit observation collection (mutating)")
     observation_sub = observation_parser.add_subparsers(dest="action", required=True)
     refresh = observation_sub.add_parser("refresh", help="Collect provider quota into append-only Observation evidence")
@@ -162,6 +261,9 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     d_quota.add_argument("--pool", default=None, help="Only this resource_pool_ref (exact match)")
     d_quota.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Machine-readable output (schema_version 1.0) instead of the table")
     d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --observation-db other_ws.db"
+
+    d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
+    d_integrity.epilog = "example: peerhub diag integrity"
 
     return parser
 
@@ -325,6 +427,25 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         if code and not args.json:
             print(f"DIAG QUOTA {rep['status']}: {rep['error']}", file=sys.stderr)
         return code
+    if args.action == "integrity":
+        if not Path(args.db).is_file():
+            report_missing_store(args.db)
+            result = {"status": "UNAVAILABLE", "error": f"database not found: {args.db}"}
+            print(json.dumps(result, indent=2, ensure_ascii=True))
+            return 5
+        try:
+            from peerhub.extensions.diag import integrity_check
+            result = integrity_check(args.db)
+        except SchemaVersionError as exc:
+            result = {"status": "SCHEMA_VERSION_ERROR", "error": str(exc)}
+            print(json.dumps(result, indent=2, ensure_ascii=True))
+            return 6
+        except sqlite3.Error as exc:
+            result = {"status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
+            print(json.dumps(result, indent=2, ensure_ascii=True))
+            return 4
+        print(json.dumps(result, indent=2, ensure_ascii=True))
+        return 0 if result["status"] == "OK" else 4
     if args.action == "health":  # pure reader as well: never CoreStore (no create, no migration of a missing/old --db)
         if not Path(args.db).is_file():
             report_missing_store(args.db)
@@ -345,19 +466,25 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
                 peers_sec = rep.sections.get("peers")
                 peers_data: list[dict[str, Any]] = peers_sec.data.get("peers", []) if peers_sec and peers_sec.status == "OK" else []
                 result = {
+                    "schema_version": "2.0",
                     "status": rep.status,
                     "store": args.db,
                     "store_selection": {"path": args.db, "source": getattr(args, "db_source", "unknown")},
                     "snapshot": rep.snapshot,
                     "total_peers": len(peers_data),
                     "total_streams": len(streams_data),
-                    "active_streams": [s["stream_id"] for s in streams_data[:5]],
+                    "stream_sample": [s["stream_id"] for s in streams_data[:5]],
                 }
         result["observations"] = diag_quota.observations_summary(args.obs_db or args.db)
+        result["schema_version"] = "2.0"
         print(json.dumps(result, indent=2, ensure_ascii=True))
         if str(result.get("error", "")).startswith("SchemaVersionError"):
             print(f"SCHEMA VERSION ERROR: {result['error']}", file=sys.stderr)
             return 6
+        if result.get("status") == "NOT_FOUND":
+            return 1
+        if result.get("status") in ("ERROR", "PARTIAL"):
+            return 4
         return 0
     return 0
 
@@ -373,6 +500,13 @@ def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
                 )
             )
             print(_dump(p))
+        elif args.action == "list":
+            after = _page_cursor("peer", args.cursor)
+            fetched = store.list_peers_page(after_peer_id=after, limit=args.limit + 1)
+            items = fetched[:args.limit]
+            next_cursor = _make_page_cursor("peer", items[-1].peer_id) if len(fetched) > args.limit else None
+            _print_page([item.model_dump(mode="json") for item in items], next_cursor, args.format,
+                        "peer_id", "display_name", store_selection={"path": args.db, "source": getattr(args, "db_source", "unknown")})
         elif args.action == "get":
             p = store.get_peer(args.peer_id)
             if not p:
@@ -396,6 +530,14 @@ def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
                 print(f"Stream not found: {args.stream_id}", file=sys.stderr)
                 return 1
             print(_dump(s))
+        elif args.action == "list":
+            after = _page_cursor("stream", args.cursor)
+            fetched = store.list_streams_page(after_stream_id=after, limit=args.limit + 1)
+            items = fetched[:args.limit]
+            next_cursor = _make_page_cursor("stream", items[-1].stream_id) if len(fetched) > args.limit else None
+            _print_page([item.model_dump(mode="json") for item in items], next_cursor, args.format,
+                        "stream_id", "state", "title", "members",
+                        store_selection={"path": args.db, "source": getattr(args, "db_source", "unknown")})
 
     elif args.subcommand == "record":
         if args.action == "append":
@@ -440,6 +582,203 @@ def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
     return 0
 
 
+def _print_page(items: list[dict[str, Any]], next_cursor: str | None, output_format: str,
+                *columns: str, store_selection: dict[str, str]) -> None:
+    use_json = output_format == "json" or (output_format == "auto" and not sys.stdout.isatty())
+    if use_json:
+        print(json.dumps({"schema_version": "1.0", "store_selection": store_selection,
+                          "items": items, "next_cursor": next_cursor}, ensure_ascii=True, indent=2))
+        return
+    if not items:
+        print("(no results)")
+        return
+    values = [[", ".join(row[key]) if isinstance(row[key], list) else str(row[key] or "") for key in columns]
+              for row in items]
+    widths = [max(len(column), *(len(row[i]) for row in values)) for i, column in enumerate(columns)]
+    print("  ".join(column.ljust(widths[i]) for i, column in enumerate(columns)))
+    print("  ".join("-" * width for width in widths))
+    for row in values:
+        print("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)))
+    if next_cursor:
+        print(f"next_cursor: {next_cursor}")
+
+
+def _run_profile_cli(args: argparse.Namespace) -> int:
+    from peerhub.extensions.adapters.profiles import inspect_profile, list_profiles
+
+    workspace = args.workspace or Path.cwd()
+    try:
+        if args.action == "list":
+            profiles = list_profiles(workspace)
+            payload: dict[str, Any] = {"schema_version": "1.0", "workspace": str(workspace), "profiles": profiles}
+        else:
+            profile = inspect_profile(args.profile, workspace)
+            payload = {"schema_version": "1.0", "workspace": str(workspace), **profile}
+    except (OSError, ValueError) as exc:
+        use_json = args.format == "json" or (args.format == "auto" and not sys.stdout.isatty())
+        error = {"schema_version": "1.0", "status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
+        if use_json:
+            print(json.dumps(error, ensure_ascii=True, indent=2))
+        else:
+            print(f"ERROR: {error['error']}", file=sys.stderr)
+        return 1
+    use_json = args.format == "json" or (args.format == "auto" and not sys.stdout.isatty())
+    if use_json:
+        print(json.dumps(payload, ensure_ascii=True, indent=2))
+        return 0
+    if args.action == "list":
+        rows = [[profile["profile"], str(profile["fields"]["model"]["value"] or "CLI default"),
+                 str(profile["fields"]["effort"]["value"] or "provider default")] for profile in payload["profiles"]]
+        columns = ["PROFILE", "MODEL", "EFFORT"]
+    else:
+        rows = [[key, str(field["value"] or "(unset)"), str(field["source"])]
+                for key, field in payload["fields"].items()]
+        columns = ["FIELD", "VALUE", "SOURCE"]
+    if not rows:
+        print("(no profiles)")
+        return 0
+    widths = [max(len(col), *(len(row[index]) for row in rows)) for index, col in enumerate(columns)]
+    print("  ".join(col.ljust(widths[i]) for i, col in enumerate(columns)))
+    print("  ".join("-" * width for width in widths))
+    for row in rows:
+        print("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)))
+    return 0
+
+
+def _run_session_cli(args: argparse.Namespace) -> int:
+    db_path = Path(args.db)
+    if not db_path.is_file():
+        from peerhub.cli.store_select import report_missing_store
+        report_missing_store(args.db, json_output=True)
+        return 5
+    from contextlib import closing
+    from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
+    from peerhub.extensions.observation_model import read_only_authorizer
+
+    stat = db_path.stat()
+    identity = f"{db_path.resolve()}|{stat.st_dev}|{stat.st_ino}".casefold()
+    store_id = hashlib.sha256(identity.encode()).hexdigest()
+    generation_path = db_path.parent / "workspace.generation"
+    lineage = generation_path.read_text(encoding="utf-8").strip() if generation_path.is_file() else ""
+    filters = {"stream": getattr(args, "stream", None), "peer": getattr(args, "peer", None)}
+    use_json = args.format == "json" or (args.format == "auto" and not sys.stdout.isatty())
+
+    def emit(payload: dict[str, Any]) -> int:
+        if use_json:
+            print(json.dumps(payload, ensure_ascii=True, indent=2))
+        elif payload.get("status") == "NOT_FOUND":
+            print(f"Session not found: {args.handle}", file=sys.stderr)
+        elif args.action == "show":
+            for key, value in payload.get("session", {}).items():
+                print(f"{key}: {value}")
+        else:
+            rows = payload.get("items", [])
+            if not rows:
+                print("(no sessions)")
+            else:
+                keys = ("handle", "stream_id", "peer_id", "generation", "state", "resumable", "last_seen")
+                widths = [max(len(key), *(len(str(row.get(key, ""))) for row in rows)) for key in keys]
+                print("  ".join(key.upper().ljust(widths[i]) for i, key in enumerate(keys)))
+                print("  ".join("-" * width for width in widths))
+                for row in rows:
+                    print("  ".join(str(row.get(key, "")).ljust(widths[i]) for i, key in enumerate(keys)))
+                if payload.get("next_cursor"):
+                    print(f"next_cursor: {payload['next_cursor']}")
+        status = payload.get("status")
+        return 1 if status == "NOT_FOUND" else 4 if status == "ERROR" else 0
+
+    try:
+        uri = db_path.resolve().as_uri() + "?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True, timeout=5.0)) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only = ON")
+            if conn.execute("PRAGMA query_only").fetchone()[0] != 1:
+                raise sqlite3.OperationalError("session inspection connection is not read-only")
+            conn.set_authorizer(read_only_authorizer(allow_transactions=True))
+            conn.execute("BEGIN")
+            conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()
+            schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            if schema_version > SUPPORTED_SCHEMA_VERSION:
+                raise SchemaVersionError(future_schema_message(schema_version, SUPPORTED_SCHEMA_VERSION))
+            has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bridge_session_history'").fetchone()
+            if args.action == "show":
+                row = None if not has_table else conn.execute(
+                    "SELECT session_handle,stream_id,peer_id,session_generation,state,resumable,last_seen,"
+                    "context_watermark,bootstrap_truncated,context_watermark_version,created_at,tombstoned_at "
+                    "FROM bridge_session_history WHERE session_handle=?", (args.handle,)).fetchone()
+                if row is None:
+                    return emit({"schema_version": "1.0", "status": "NOT_FOUND", "handle": args.handle})
+                return emit({"schema_version": "1.0", "status": "OK", "session": _session_public_row(row)})
+            if not has_table:
+                return emit({"schema_version": "1.0", "store_selection": {"path": str(db_path), "source": getattr(args, "db_source", "unknown")},
+                             "items": [], "next_cursor": None})
+            cursor = None if not args.cursor else _decode_session_cursor(args.cursor, store_id=store_id, lineage=lineage, filters=filters)
+            high_water = int(cursor["high_water"]) if cursor else int(
+                conn.execute("SELECT COALESCE(MAX(rowid),0) FROM bridge_session_history").fetchone()[0])
+            where = ["rowid <= ?"]
+            params: list[Any] = [high_water]
+            if filters["stream"] is not None:
+                where.append("stream_id = ?")
+                params.append(filters["stream"])
+            if filters["peer"] is not None:
+                where.append("peer_id = ?")
+                params.append(filters["peer"])
+            if cursor:
+                stream, peer, generation, handle = cursor["after"]
+                where.append("(stream_id > ? OR (stream_id = ? AND peer_id > ?) OR "
+                             "(stream_id = ? AND peer_id = ? AND session_generation < ?) OR "
+                             "(stream_id = ? AND peer_id = ? AND session_generation = ? AND session_handle < ?))")
+                params.extend([stream, stream, peer, stream, peer, generation, stream, peer, generation, handle])
+            params.append(args.limit + 1)
+            rows = conn.execute(
+                "SELECT rowid,session_handle,stream_id,peer_id,session_generation,state,resumable,last_seen,"
+                "context_watermark,bootstrap_truncated,context_watermark_version,created_at,tombstoned_at "
+                "FROM bridge_session_history WHERE " + " AND ".join(where) +
+                " ORDER BY stream_id,peer_id,session_generation DESC,session_handle DESC LIMIT ?", params).fetchall()
+            page_rows = rows[:args.limit]
+            next_cursor = None
+            if len(rows) > args.limit and page_rows:
+                last = page_rows[-1]
+                next_cursor = _encode_session_cursor({"v": 1, "store": store_id, "lineage": lineage, "filters": filters,
+                    "order": "scope-generation-handle-v1", "high_water": high_water,
+                    "after": [last["stream_id"], last["peer_id"], last["session_generation"], last["session_handle"]]})
+            return emit({"schema_version": "1.0", "store_selection": {"path": str(db_path), "source": getattr(args, "db_source", "unknown")},
+                         "items": [_session_public_row(row) for row in page_rows], "next_cursor": next_cursor})
+    except SchemaVersionError as exc:
+        error = {"schema_version": "1.0", "status": "SCHEMA_VERSION_ERROR", "error": str(exc)}
+        if use_json:
+            print(json.dumps(error, ensure_ascii=True, indent=2))
+        else:
+            print(f"SCHEMA VERSION ERROR: {exc}", file=sys.stderr)
+        return 6
+    except ValueError as exc:
+        error = {"schema_version": "1.0", "status": "ERROR", "error": str(exc)}
+        if use_json:
+            print(json.dumps(error, ensure_ascii=True, indent=2))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    except sqlite3.Error as exc:
+        error = {"schema_version": "1.0", "status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
+        if use_json:
+            print(json.dumps(error, ensure_ascii=True, indent=2))
+        else:
+            print(f"ERROR: {error['error']}", file=sys.stderr)
+        return 4
+
+
+def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "handle": str(row["session_handle"]), "stream_id": str(row["stream_id"]),
+        "peer_id": str(row["peer_id"]), "generation": int(row["session_generation"]),
+        "state": str(row["state"]), "resumable": bool(row["resumable"]),
+        "last_seen": float(row["last_seen"]), "context_watermark": row["context_watermark"],
+        "bootstrap_truncated": None if row["bootstrap_truncated"] is None else bool(row["bootstrap_truncated"]),
+        "context_watermark_version": int(row["context_watermark_version"]),
+        "created_at": float(row["created_at"]), "tombstoned_at": row["tombstoned_at"],
+    }
+
+
 def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     tolerant_streams()
     parser = build_parser(prog=prog)
@@ -468,11 +807,23 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":
             return _run_ask_cli(args, parser, argv)
+        if args.subcommand == "profile":
+            return _run_profile_cli(args)
+        if args.subcommand == "session":
+            return _run_session_cli(args)
         if args.subcommand in ("monitor", "observation"):
             return _run_light_command(args, parser)
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
             return _run_diag_cli(args, parser)
-        store = CoreStore(args.db)
+        core_read = ((args.subcommand, args.action) in {
+            ("peer", "get"), ("peer", "list"), ("stream", "show"), ("stream", "list"),
+            ("record", "read"), ("offset", "get")
+        })
+        if core_read:
+            from peerhub.cli.store_select import report_missing_store
+            if report_missing_store(args.db):
+                return 5
+        store = CoreStore(args.db, readonly=core_read)
         return _run_core_cli(args, store)
 
     except (StorageReadOnlyError, StorageFullError, StorageCorruptError) as e:

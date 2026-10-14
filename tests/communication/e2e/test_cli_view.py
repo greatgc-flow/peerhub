@@ -223,7 +223,7 @@ def test_diag_health_reports_how_the_store_was_chosen(tmp_path, capsys):
     db = tmp_path / "w.db"
     assert cli(["--db", str(db), "peer", "register", "--peer", "a"]) == 0
     capsys.readouterr()
-    assert cli(["--db", str(db), "diag", "health"]) == 0
+    assert cli(["--db", str(db), "diag", "health"]) == 4
     assert _json.loads(capsys.readouterr().out)["store_selection"] == {"path": str(db), "source": "explicit"}
 
 

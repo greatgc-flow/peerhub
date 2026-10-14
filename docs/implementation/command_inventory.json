@@ -203,6 +203,10 @@
       ]
     },
     {
+      "command": "diag integrity",
+      "options": []
+    },
+    {
       "command": "diag quota",
       "options": [
         {
@@ -463,6 +467,41 @@
       ]
     },
     {
+      "command": "peer list",
+      "options": [
+        {
+          "default": null,
+          "dest": "cursor",
+          "flags": [
+            "--cursor"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": "auto",
+          "dest": "format",
+          "flags": [
+            "--format"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 50,
+          "dest": "limit",
+          "flags": [
+            "--limit"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
       "command": "peer register",
       "options": [
         {
@@ -492,6 +531,66 @@
             "--peer"
           ],
           "positional": false,
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "profile list",
+      "options": [
+        {
+          "default": "auto",
+          "dest": "format",
+          "flags": [
+            "--format"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "workspace",
+          "flags": [
+            "--workspace"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "profile show",
+      "options": [
+        {
+          "default": "auto",
+          "dest": "format",
+          "flags": [
+            "--format"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "workspace",
+          "flags": [
+            "--workspace"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "profile",
+          "flags": [
+            "profile"
+          ],
+          "positional": true,
           "required": true,
           "takes_value": true
         }
@@ -608,6 +707,86 @@
       ]
     },
     {
+      "command": "session list",
+      "options": [
+        {
+          "default": null,
+          "dest": "cursor",
+          "flags": [
+            "--cursor"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": "auto",
+          "dest": "format",
+          "flags": [
+            "--format"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 20,
+          "dest": "limit",
+          "flags": [
+            "--limit"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "peer",
+          "flags": [
+            "--peer"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "stream",
+          "flags": [
+            "--stream"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "session show",
+      "options": [
+        {
+          "default": "auto",
+          "dest": "format",
+          "flags": [
+            "--format"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "handle",
+          "flags": [
+            "handle"
+          ],
+          "positional": true,
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
       "command": "stream create",
       "options": [
         {
@@ -635,6 +814,41 @@
           "dest": "title",
           "flags": [
             "--title"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "stream list",
+      "options": [
+        {
+          "default": null,
+          "dest": "cursor",
+          "flags": [
+            "--cursor"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": "auto",
+          "dest": "format",
+          "flags": [
+            "--format"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 50,
+          "dest": "limit",
+          "flags": [
+            "--limit"
           ],
           "positional": false,
           "required": false,
@@ -751,7 +965,15 @@
       "options": []
     },
     {
+      "command": "profile",
+      "options": []
+    },
+    {
       "command": "record",
+      "options": []
+    },
+    {
+      "command": "session",
       "options": []
     },
     {

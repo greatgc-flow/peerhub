@@ -106,7 +106,7 @@ def test_arch_003_no_vendor_peer_cardinality_ceiling(harness):
 
 
 DIAG_MOD = "peerhub.extensions.diag"
-DIAG_ALLOWED_INTERNAL = {"peerhub.extensions.observation_model", "peerhub.core.models", "peerhub.core.schema_version"}  # pure models + freshness + pure schema-version contract (no store, no writers; W7 MIG-003)
+DIAG_ALLOWED_INTERNAL = {"peerhub.extensions.observation_model", "peerhub.core.models", "peerhub.core.schema_version", "peerhub.core.read_only_probe"}  # pure models + freshness + schema contract + bounded read-only table-root probe
 DIAG_BANNED_STDLIB = {"subprocess", "socket", "shutil", "multiprocessing", "threading", "os", "tempfile", "ctypes", "http", "urllib",
                       "asyncio", "signal", "pty", "webbrowser", "smtplib", "ftplib", "pickle", "shelve"}
 DIAG_BANNED_NAMES = {"CoreStore", "ObservationStore", "SessionBridge", "Bridge", "ClaimStore", "register_peer", "create_stream", "append_record",

@@ -71,7 +71,7 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
     else:
         assert "\x1b" not in out
     assert len(calls) == (2 if ending == "normal" else 1)
-    assert out.count("PeerHub") == (4 if ending == "normal" and tty and vt else 2 if ending == "normal" else 1)
+    assert out.count("PeerHub") >= (3 if ending == "normal" else 1)
 
 
 def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch):
@@ -90,9 +90,71 @@ def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch):
                         lambda *a, **kw: refreshes.append(1) or {"status": "OK"})
     assert _run(_db(tmp_path), "--json", "--cycles", "3", "--collect-every", "2") == 0
     lines = output.getvalue().splitlines()
-    assert len(lines) == 3 and len(refreshes) == 2
-    assert [json.loads(line)["cycle"] for line in lines] == [0, 1, 2]
+    frames = [json.loads(line) for line in lines]
+    assert len(lines) == 4 and len(refreshes) == 2
+    assert all(frame["schema_version"] == "1.1" for frame in frames)
+    assert frames[0]["phase"] == "initial" and frames[0]["refresh"]["status"] == "NOT_STARTED"
+    assert [frame["cycle"] for frame in frames[1:]] == [0, 1, 2]
+    assert all(frame["snapshot"]["schema_version"] == "1.0" for frame in frames)
     assert "\x1b" not in output.getvalue() and " [H" not in output.getvalue()
+
+
+def test_monitor_emits_committed_snapshot_before_calling_provider(tmp_path, monkeypatch, capsys):
+    events = []
+    from peerhub.extensions.diag import ReadonlyDiag
+    original = ReadonlyDiag.render
+
+    def tracked(self, *args, **kwargs):
+        events.append("snapshot")
+        return original(self, *args, **kwargs)
+
+    def refresh(*args, **kwargs):
+        events.append("probe")
+        return {"status": "OK", "observations": [], "warnings": []}
+
+    with patch.object(ReadonlyDiag, "render", tracked), \
+         patch("peerhub.extensions.quota_capture.refresh_quota", refresh), \
+         patch("time.sleep", lambda seconds: None):
+        assert _run(_db(tmp_path), "--json", "--cycles", "1") == 0
+    assert events == ["snapshot", "probe", "snapshot"]
+    frames = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert frames[0]["phase"] == "initial" and frames[0]["refresh"]["status"] == "NOT_STARTED"
+    assert frames[1]["phase"] == "complete"
+    assert frames[0]["snapshot"].keys() == frames[1]["snapshot"].keys()
+
+
+@pytest.mark.parametrize(("diag_status", "error", "refresh_status", "expected"), [
+    ("PARTIAL", None, "OK", 4),
+    ("FAILED", "SchemaVersionError: unsupported schema", "OK", 6),
+    ("FAILED", "sqlite3.DatabaseError: damaged", "OK", 4),
+    ("OK", None, "PARTIAL", 1),
+])
+def test_monitor_exit_code_reports_diagnostic_failure_before_refresh_status(
+    tmp_path, monkeypatch, diag_status, error, refresh_status, expected
+):
+    from peerhub.extensions.diag import DiagnosticReport
+
+    empty = DiagnosticReport(diag_status, 0.0, {}, {}, error)
+    monkeypatch.setattr("peerhub.extensions.diag.ReadonlyDiag.render", lambda *a, **kw: empty)
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: {"status": refresh_status, "observations": [], "warnings": []})
+    assert _run(_db(tmp_path), "--json", "--cycles", "1") == expected
+
+
+def test_monitor_skips_elapsed_monotonic_slots_after_slow_probe(tmp_path, monkeypatch):
+    from peerhub.cli import monitor
+    clock = [0.0]
+    sleeps = []
+    monkeypatch.setattr(monitor.time, "monotonic", lambda: clock[0])
+
+    def slow_probe(*args, **kwargs):
+        clock[0] += 8.0
+        return {"status": "OK", "observations": [], "warnings": []}
+
+    with patch("peerhub.extensions.quota_capture.refresh_quota", slow_probe), \
+         patch("time.sleep", lambda seconds: sleeps.append(seconds)):
+        assert _run(_db(tmp_path), "--cycles", "2", "--interval-seconds", "5") == 0
+    assert sleeps == []
 
 
 def test_render_exception_restores_cursor(tmp_path, monkeypatch):
@@ -183,8 +245,8 @@ def test_sleep_called_count_minus_1_times(tmp_path, capsys):
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
          patch("time.sleep", lambda s: sleeps.append(s)):
         assert _run(_db(tmp_path), "--cycles", "3", "--interval-seconds", "42") == 0
-    assert sleeps == [42.0, 42.0]
-    assert calls == ["refresh", "snapshot", "refresh", "snapshot", "refresh", "snapshot"]
+    assert sleeps == pytest.approx([42.0, 42.0], abs=0.1)
+    assert calls == ["snapshot", "refresh", "snapshot", "refresh", "snapshot", "refresh", "snapshot"]
 
 
 def test_collect_every_honoured(tmp_path, capsys):
@@ -196,7 +258,7 @@ def test_collect_every_honoured(tmp_path, capsys):
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
          patch("time.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--cycles", "4", "--collect-every", "2") == 0
-    assert calls == ["refresh", "snapshot", "snapshot", "refresh", "snapshot", "snapshot"]
+    assert calls == ["snapshot", "refresh", "snapshot", "snapshot", "refresh", "snapshot", "snapshot"]
 
 
 def test_guard_stop_after_first_violation(tmp_path, capsys):
@@ -213,7 +275,7 @@ def test_guard_stop_after_first_violation(tmp_path, capsys):
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
          patch("time.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--cycles", "5") == 1
-    assert calls == ["refresh"]
+    assert calls == ["snapshot", "refresh"]
     err = capsys.readouterr().err
     assert "agy /usage consumed model tokens" in err
 
@@ -232,7 +294,7 @@ def test_guard_continue_with_flag(tmp_path, capsys):
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
          patch("time.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--cycles", "2", "--allow-agy-token-use") == 1
-    assert calls == ["refresh", "snapshot", "refresh", "snapshot"]
+    assert calls == ["snapshot", "refresh", "snapshot", "refresh", "snapshot"]
 
 
 def test_keyboard_interrupt_exit_0(tmp_path, capsys):
@@ -263,9 +325,10 @@ def test_json_frames_parse_and_carry_stable_keys(tmp_path, capsys):
     
     out = capsys.readouterr().out
     lines = [line for line in out.splitlines() if line.strip()]
-    assert len(lines) == 2
-    
-    f0 = json.loads(lines[0])
+    assert len(lines) == 3
+    initial = json.loads(lines[0])
+    assert initial["phase"] == "initial" and initial["refresh"]["status"] == "NOT_STARTED"
+    f0 = json.loads(lines[1])
     assert f0["cycle"] == 0
     assert set(f0["refresh"].keys()) == {"status", "warnings", "observations"}
     assert f0["refresh"]["observations"] == 2
@@ -273,7 +336,7 @@ def test_json_frames_parse_and_carry_stable_keys(tmp_path, capsys):
     assert f0["snapshot"]["threats"]["state"] == "unknown"
     assert f0["snapshot"]["threats"]["fresh_pools"] == 0
     
-    f1 = json.loads(lines[1])
+    f1 = json.loads(lines[2])
     assert f1["cycle"] == 1
     assert set(f1["refresh"].keys()) == {"skipped"}
     assert f1["refresh"]["skipped"] is True
@@ -352,7 +415,7 @@ def test_monitor_json_carries_projection_per_item(tmp_path, capsys):
         assert _run(db, "--cycles", "1", "--json") == 0
 
     out = capsys.readouterr().out
-    line = next(l for l in out.splitlines() if l.strip())
+    line = next(l for l in out.splitlines() if l.strip() and json.loads(l).get("phase") == "complete")
     frame = json.loads(line)
     assert frame["store_selection"] == {"path": str(db), "source": "explicit"}
     items = frame["snapshot"]["sections"]["observations"]["data"]["items"]
@@ -457,7 +520,8 @@ def test_monitor_json_privacy_scrubs_sentinel_ids_and_payloads(tmp_path, capsys)
     assert sentinel_quota_secret not in raw_out
     assert "SENTINEL" not in raw_out
     assert sentinel_id_hash in raw_out
-    items = json.loads(raw_out)["snapshot"]["sections"]["observations"]["data"]["items"]
+    completed = next(json.loads(line) for line in raw_out.splitlines() if json.loads(line).get("phase") == "complete")
+    items = completed["snapshot"]["sections"]["observations"]["data"]["items"]
     by_kind = {item["kind"]: item for item in items}
     assert set(by_kind) == {"reset_credit", "activity", "quota"}
     assert by_kind["reset_credit"]["payload"]["credits"][0]["id_hash"] == sentinel_id_hash

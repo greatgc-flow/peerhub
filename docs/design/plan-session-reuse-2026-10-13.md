@@ -763,7 +763,8 @@ class Bridge:
         claims.fenced(token). Commit expiry/event/pointer effects before raising
         exact-selection errors. Revalidate under the fence even after direct
         pre-append validation; never use an unfenced helper to mutate history.
-        List/show readers use the separate read-only monitoring interfaces.
+        List/show readers use bounded read-only `session` commands and the
+        shared diagnostic snapshot; collection remains under `monitor`.
         """
         ...
 
