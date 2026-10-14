@@ -9,6 +9,7 @@ from peerhub.core.models import Peer, Stream
 from peerhub.core.store import CoreStore, IdempotencyConflictError
 from peerhub.extensions.ask import ask
 from peerhub.extensions.bridge import Bridge, _DDL
+from peerhub.extensions import bridge_registry
 from peerhub.extensions.bridge_claims import ClaimStore, StaleClaimError
 from tests.communication.bridge_helpers import bseed, sql
 from tests.communication.control_helpers import ctl
@@ -28,6 +29,54 @@ def history(h):
 
 def counts(h, handle):
     return sql(h, "SELECT reuse_count, fresh_count, counts_complete FROM bridge_session_monitor_stats WHERE session_handle=?", (handle,))[0]
+
+
+def test_initialized_registry_reopen_does_not_reseed_history(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    statements = []
+    with h.cs.transaction() as conn:
+        before = [tuple(r) for r in conn.execute("SELECT * FROM bridge_session_counters")]
+        scopes = [tuple(r) for r in conn.execute("SELECT * FROM bridge_session_monitor_scope")]
+        conn.set_trace_callback(statements.append)
+        try:
+            bridge_registry.initialize(conn, h.bridge._upgrade_session_context, h.bridge._fire)
+        finally:
+            conn.set_trace_callback(None)
+        assert [tuple(r) for r in conn.execute("SELECT * FROM bridge_session_counters")] == before
+        assert [tuple(r) for r in conn.execute("SELECT * FROM bridge_session_monitor_scope")] == scopes
+    assert not any("GROUP BY" in s or "UNION ALL" in s for s in statements)
+    assert not any("INSERT INTO bridge_session_counters" in s or "INSERT INTO bridge_session_monitor_scope" in s for s in statements)
+
+
+@pytest.mark.parametrize("missing", ["bridge_session_counters", "bridge_session_monitor_scope"])
+def test_missing_registry_seed_table_reseeds_without_rewinding(tmp_path, missing):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    with h.cs.transaction() as conn:
+        if missing == "bridge_session_monitor_scope":
+            conn.execute("UPDATE bridge_session_counters SET next_generation=100")
+        conn.execute(f"DROP TABLE {missing}")
+    h.reopen()
+    expected = 100 if missing == "bridge_session_monitor_scope" else 2
+    assert sql(h, "SELECT next_generation FROM bridge_session_counters") == [(expected,)]
+    expected_counts = (None, None, 0) if missing == "bridge_session_monitor_scope" else (0, 1, 1)
+    assert sql(h, "SELECT reuse_count,fresh_count,counts_complete FROM bridge_session_monitor_scope") == [expected_counts]
+
+
+def test_delivery_only_scope_is_initialized_by_allocation_not_reopen(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    (rec,) = bseed(h)
+    with h.cs.transaction() as conn:
+        conn.execute("INSERT INTO bridge_deliveries(delivery_id,seq,stream_id,peer_id,record_id,record_position,attempt,certainty,claim_generation) "
+                     "VALUES ('unstarted',1,'s','b',?,?,1,'NOT_STARTED',1)", (rec.record_id, rec.position))
+    h.reopen()
+    assert sql(h, "SELECT * FROM bridge_session_monitor_scope") == []
+    result = h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    assert result.status == "delivered"
+    assert sql(h, "SELECT reuse_count,fresh_count,counts_complete,coverage_start_seq FROM bridge_session_monitor_scope") == [(0, 1, 1, 0)]
 
 
 @pytest.mark.parametrize("runtime_cls", [NativeRuntimeTarget, FakeRuntimeTarget])
@@ -186,6 +235,9 @@ def test_legacy_slot_migration_is_atomic_idempotent_and_preserves_unknown_counts
 
 def test_registry_migration_rolls_back_ddl_data_and_minted_handles(tmp_path):
     db, store, claims = legacy_store(tmp_path)
+    with claims.transaction() as conn:
+        conn.execute("INSERT INTO bridge_session_events(stream_id,peer_id,event,from_state,to_state,generation,detail) "
+                     "VALUES ('overwritten','b','created','NONE','ACTIVE',19,'{}')")
     crash = CrashInjector()
     crash.arm("bridge.registry.before_commit")
     with pytest.raises(CrashInjected):
@@ -193,7 +245,11 @@ def test_registry_migration_rolls_back_ddl_data_and_minted_handles(tmp_path):
     with sqlite3.connect(db) as conn:
         assert conn.execute("SELECT external_session_id FROM bridge_sessions").fetchone() == ("local-4",)
         assert conn.execute("SELECT name FROM sqlite_master WHERE name='bridge_session_history'").fetchone() is None
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name IN ('bridge_session_counters','bridge_session_monitor_scope')").fetchall() == []
     Bridge(store, claims)
+    with claims.transaction() as conn:
+        assert conn.execute("SELECT next_generation FROM bridge_session_counters WHERE stream_id='overwritten'").fetchone()[0] == 20
+        assert tuple(conn.execute("SELECT reuse_count,fresh_count,counts_complete FROM bridge_session_monitor_scope WHERE stream_id='overwritten'").fetchone()) == (None, None, 0)
 
 
 def test_legacy_queued_prompt_is_consumed_without_execution_and_later_intent_runs(tmp_path):

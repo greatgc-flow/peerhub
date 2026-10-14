@@ -2,6 +2,7 @@
 import json
 import multiprocessing as mp
 import threading
+from contextlib import contextmanager
 
 import pytest
 
@@ -14,6 +15,85 @@ from tests.communication.harness.bridge_workers import crash_cycle_worker
 from tests.communication.harness.mp import run_threads
 
 pytestmark = [pytest.mark.integration, pytest.mark.bridge]
+
+
+def test_execution_evidence_does_not_read_unrelated_peer_history(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    (rec,) = bseed(h)
+    result = h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    expected = h.execution_evidence(rec.record_id, "b")
+    with h.cs.transaction() as conn:
+        conn.executemany(
+            "INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,detail) VALUES (?,?,'b','noise',?)",
+            ((f"unrelated-{i}", "other", "not-json") for i in range(20_000)),
+        )
+        # NULL IDs and wrong-peer evidence must not leak into this result.
+        conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,detail) VALUES (NULL,'s','b','noise','not-json')")
+        conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,detail) VALUES (?,'s','a','noise','not-json')", (result.delivery_id,))
+
+    original = h.cs.transaction
+    ticks = 0
+
+    def budget():
+        nonlocal ticks
+        ticks += 1
+        return int(ticks > 100)  # 10,000 VM instructions; unrelated history must not be visited.
+
+    @contextmanager
+    def bounded_transaction():
+        with original() as conn:
+            conn.set_progress_handler(budget, 100)
+            try:
+                yield conn
+            finally:
+                conn.set_progress_handler(None, 0)
+
+    monkeypatch.setattr(h.cs, "transaction", bounded_transaction)
+    assert h.execution_evidence(rec.record_id, "b") == expected
+    assert h.execution_evidence("missing", "b") == {"deliveries": [], "events": []}
+
+
+def test_execution_evidence_indexes_install_on_reopen_and_preserve_order(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    (rec,) = bseed(h)
+    rt = FakeRuntimeTarget()
+    rt.script_deliver(("started", "one"), ("timeout", 1))
+    result = h.delivery_cycle("b", "s", rt)
+    expected = h.execution_evidence(rec.record_id, "b")
+    with h.cs.transaction() as conn:
+        for name in ("idx_be_delivery_seq", "idx_bd_record_peer_attempt", "idx_be_stream_kind_seq"):
+            conn.execute(f"DROP INDEX IF EXISTS {name}")
+    h.reopen()
+    assert h.execution_evidence(rec.record_id, "b") == expected
+    with h.cs.transaction() as conn:
+        statements = (
+            ("SELECT * FROM bridge_deliveries WHERE record_id=? AND peer_id=? ORDER BY attempt", (rec.record_id, "b"), "idx_bd_record_peer_attempt"),
+            ("SELECT * FROM bridge_evidence WHERE delivery_id=? ORDER BY seq", (result.delivery_id,), "idx_be_delivery_seq"),
+            ("SELECT detail FROM bridge_evidence WHERE stream_id=? AND kind='refusal_detected' ORDER BY seq DESC LIMIT 1", ("s",), "idx_be_stream_kind_seq"),
+        )
+        for query, params, index in statements:
+            plan = " ".join(str(r[3]) for r in conn.execute("EXPLAIN QUERY PLAN " + query, params))
+            assert "SEARCH" in plan and index in plan
+
+
+def test_execution_evidence_multiple_attempts_keep_global_event_order(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    (rec,) = bseed(h)
+    result = h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    with h.cs.transaction() as conn:
+        conn.execute(
+            "INSERT INTO bridge_deliveries(delivery_id,seq,stream_id,peer_id,record_id,record_position,attempt,certainty,claim_generation) "
+            "VALUES ('second-attempt',2,'s','b',?,?,2,'NOT_STARTED',1)", (rec.record_id, rec.position))
+        for delivery, value in (("second-attempt", 2), (result.delivery_id, 1), ("second-attempt", 3)):
+            conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,detail) VALUES (?,'s','b','test',?)",
+                         (delivery, json.dumps({"value": value})))
+    evidence = h.execution_evidence(rec.record_id, "b")
+    assert [d["attempt"] for d in evidence["deliveries"]] == [1, 2]
+    assert [e["detail"]["value"] for e in evidence["events"] if e["kind"] == "test"] == [2, 1, 3]
+    with h.cs.transaction() as conn:
+        conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,detail) VALUES ('second-attempt','s','b','test','not-json')")
+    with pytest.raises(json.JSONDecodeError):
+        h.execution_evidence(rec.record_id, "b")
 
 
 def _delivery_id(h, rec):

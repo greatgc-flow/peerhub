@@ -48,6 +48,13 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- Retained-session startup seeds historical counters/scopes only during initial
+  migration or when a seed table is absent, avoiding lifetime-history aggregation
+  on every ask. Atomic upgrade and monotonic generation allocation are preserved.
+- Ask execution evidence now selects only the requested record/peer deliveries
+  in SQL, instead of loading the peer's lifetime evidence history. Extension-owned
+  delivery/evidence indexes also accelerate replay and per-stream refusal reads;
+  attempt ordering, certainty and retained session identity are unchanged.
 - Resume capability is independent of each call. Native context watermarks stay
   at the consumed prompt, so concurrent records and later same-peer responses
   enter the next delta. The idempotent writer upgrade corrects known CLI capability

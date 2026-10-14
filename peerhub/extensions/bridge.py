@@ -244,6 +244,9 @@ _DDL = [
     """CREATE TABLE IF NOT EXISTS bridge_evidence (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, delivery_id TEXT, stream_id TEXT NOT NULL, peer_id TEXT NOT NULL,
         kind TEXT NOT NULL, certainty TEXT, detail TEXT NOT NULL)""",
+    "CREATE INDEX IF NOT EXISTS idx_be_delivery_seq ON bridge_evidence(delivery_id,seq)",
+    "CREATE INDEX IF NOT EXISTS idx_bd_record_peer_attempt ON bridge_deliveries(record_id,peer_id,attempt)",
+    "CREATE INDEX IF NOT EXISTS idx_be_stream_kind_seq ON bridge_evidence(stream_id,kind,seq)",
     """CREATE TABLE IF NOT EXISTS bridge_reconciliations (
         delivery_id TEXT PRIMARY KEY, reconcile_record_id TEXT NOT NULL, decision TEXT NOT NULL, consumed_attempt INTEGER)""",
     """CREATE TABLE IF NOT EXISTS bridge_controls (
@@ -676,9 +679,10 @@ class Bridge:
         with self.claims.transaction() as conn:
             dels = [dict(r) for r in conn.execute("SELECT * FROM bridge_deliveries WHERE record_id=? AND peer_id=? ORDER BY attempt",
                                                   (record_id, peer_id))]
-            ids = [d["delivery_id"] for d in dels]
-            ev = [dict(r) for r in conn.execute("SELECT * FROM bridge_evidence WHERE peer_id=? ORDER BY seq", (peer_id,))
-                  if r["delivery_id"] in ids]
+            ev = [dict(r) for r in conn.execute(
+                "SELECT e.* FROM bridge_evidence e WHERE e.peer_id=? AND e.delivery_id IN "
+                "(SELECT delivery_id FROM bridge_deliveries WHERE record_id=? AND peer_id=?) ORDER BY e.seq",
+                (peer_id, record_id, peer_id))]
         for e in ev:
             e["detail"] = json.loads(e["detail"])
         return {"deliveries": dels, "events": ev}

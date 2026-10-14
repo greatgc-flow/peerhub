@@ -101,6 +101,12 @@ def prune(conn: sqlite3.Connection, stream: str, peer: str, now: float) -> None:
 def initialize(conn: sqlite3.Connection, upgrade: Callable[[sqlite3.Connection], None], fire: Callable[[str], None]) -> None:
     columns = {r[1] for r in conn.execute("PRAGMA table_info(bridge_sessions)")}
     legacy = bool(columns) and "session_handle" not in columns
+    # PR2 creates and seeds these tables atomically. Check before DDL: their
+    # presence proves completed initialization, not the integrity of each row.
+    seeded = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
+        "('bridge_session_counters','bridge_session_monitor_scope')")}
+    need_scope_seed = legacy or len(seeded) != 2
     if legacy:
         for name, kind in (("workspace_generation", "TEXT NOT NULL DEFAULT ''"), ("vendor_session_id", "TEXT"),
                            ("context_watermark", "INTEGER"), ("bootstrap_truncated", "INTEGER"), ("usage_json", "TEXT"),
@@ -132,14 +138,16 @@ def initialize(conn: sqlite3.Connection, upgrade: Callable[[sqlite3.Connection],
                                (row["stream_id"], row["peer_id"])*3).fetchone()[0]
         conn.execute("INSERT INTO bridge_session_counters VALUES (?,?,?)", (row["stream_id"], row["peer_id"], maximum+1))
         point(conn, values, row["last_seen"])
-    # Scopes with only overwritten evidence still need monotonic counters and unknown coverage.
-    for scope in conn.execute("SELECT stream_id,peer_id,MAX(g) FROM (SELECT stream_id,peer_id,session_generation g FROM bridge_deliveries "
-                              "UNION ALL SELECT stream_id,peer_id,generation g FROM bridge_session_events) GROUP BY stream_id,peer_id").fetchall():
-        conn.execute("INSERT INTO bridge_session_counters VALUES (?,?,?) ON CONFLICT(stream_id,peer_id) DO UPDATE SET next_generation=MAX(next_generation,excluded.next_generation)",
-                     (scope[0], scope[1], (scope[2] or 0)+1))
-        if not conn.execute("SELECT 1 FROM bridge_session_monitor_scope WHERE stream_id=? AND peer_id=?", (scope[0], scope[1])).fetchone():
-            high = conn.execute("SELECT COALESCE(MAX(seq),0) FROM bridge_evidence").fetchone()[0]
-            conn.execute("INSERT INTO bridge_session_monitor_scope VALUES (?,?,?,?,?,?)", (scope[0], scope[1], *session_receipts.historical_counts(conn, scope[0], scope[1]), high))
+    # Historical/overwritten scopes need seeding on upgrade, not every ask.
+    # Ordinary allocation and confirmed-call writers maintain the projections.
+    if need_scope_seed:
+        for scope in conn.execute("SELECT stream_id,peer_id,MAX(g) FROM (SELECT stream_id,peer_id,session_generation g FROM bridge_deliveries "
+                                  "UNION ALL SELECT stream_id,peer_id,generation g FROM bridge_session_events) GROUP BY stream_id,peer_id").fetchall():
+            conn.execute("INSERT INTO bridge_session_counters VALUES (?,?,?) ON CONFLICT(stream_id,peer_id) DO UPDATE SET next_generation=MAX(next_generation,excluded.next_generation)",
+                         (scope[0], scope[1], (scope[2] or 0)+1))
+            if not conn.execute("SELECT 1 FROM bridge_session_monitor_scope WHERE stream_id=? AND peer_id=?", (scope[0], scope[1])).fetchone():
+                high = conn.execute("SELECT COALESCE(MAX(seq),0) FROM bridge_evidence").fetchone()[0]
+                conn.execute("INSERT INTO bridge_session_monitor_scope VALUES (?,?,?,?,?,?)", (scope[0], scope[1], *session_receipts.historical_counts(conn, scope[0], scope[1]), high))
     cols = {r[1] for r in conn.execute("PRAGMA table_info(bridge_deliveries)")}
     for name in ("session_handle", "session_snapshot_json"):
         if name not in cols:

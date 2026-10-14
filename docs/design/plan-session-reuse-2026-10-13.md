@@ -6,12 +6,12 @@ Plan document, 2026-10-13. Reference, not an instruction file.
 
 - **AS-IS and canonical PR/live-check sequence**: [Checkout analysis](analysis-session-reuse-as-is-2026-10-13.md). Its PR1-PR5 assignments supersede earlier stage assignments in both session plans; each PR is independently green.
 - **Session inspection companion**: [Session monitoring pre-TDD specification](plan-session-monitoring-2026-10-13.md) (proposed metrics, views, alerts and test catalog; owner questions remain).
-- Status: design approved (owner+cc+cx 2026-10-13), PR1 committed; PR2 implemented in uncommitted worktree (validation pending); decision: --resume removed, default reuse + --fresh + --session
+- Status: design approved (owner+cc+cx 2026-10-13); PR1–PR3 committed locally through `12129517`. Default reuse and fresh/exact selection are implemented; session inspection and monitoring remain pending their shared MV2 prerequisites.
 - **Target Release**: `0.18.0` (planned; follows the `0.16.0` stuck-streams PRs 1-3 candidate and remaining recovery/monitoring work; monitoring's original `0.16.0` allocation is superseded).
 - **Consensus**: Owner + `cc` + `cx` unanimous agreement; `cx` critique verified against codebase truth.
 - **Reference Document**: `docs/design/plan-session-reuse-2026-10-13.md`.
 - **Owner-agreed decision**: Default reuse of the latest compatible session; `--fresh` opts out; `--session <handle>` selects exactly. The PeerHub `--resume` option is removed entirely, with no alias or compatibility path. Vendor CLI resume arguments remain adapter implementation details.
-- **Precedence**: Supersedes prior ad-hoc reuse design notes; the historical session loss bug remains open until implementation. PR1 removed caller resume preference at `eec2cba4`. PR2 implements retained-history selection and receipt writers in the uncommitted worktree; regression validation is pending. Fresh/exact selectors and inspection remain future work.
+- **Precedence**: Supersedes prior ad-hoc reuse design notes. PR1 removed caller resume preference at `eec2cba4`; PR2 committed retained-history selection and receipt writers at `7cdc6b76`; PR3 committed fresh/exact selectors at `12129517`. All three providers demonstrated native session reuse in the [2026-10-14 health check](../implementation/HEALTH_CHECK_2026_10_14.md). Inspection remains future work.
 
 ---
 
@@ -1629,4 +1629,3 @@ Pointer deletion/repointing is settled by §7.3 and is not an open decision.
 | **Q3** | **Proactive Session Liveness Probe** | Can PeerHub proactively query vendor CLI APIs to verify if a thread is still alive before dispatching? | Pre-query spends latency and API tokens; reactive failure handling works out of the box. | **Reactive handling**: classify vendor "session not found" on exit code 1 as specified. |
 | **Q4** | **Verification of Claude (`cc`) and Agy (`ag`) Context Windows** | Do Claude CLI `stream-json` result events expose `modelUsage.contextWindow` (or equivalent metadata)? Does `agy` JSON output expose context window size? | If unexposed, calculating context percentage is impossible without external registries; hardcoding static registry risks drift across CLI versions. | **Verify via empirical trace spikes.** Until verified from runtime CLI outputs, report tokens only (`last_input_tokens`) and set `context_window=null`, `context_pct=null`, `source="unknown"`. Never invent or estimate percentages. |
 | **Q5** | **Vendor Model Context Window Cache Strategy** | For `codex debug models` (and future CLI discovery), where should the model capability mapping be cached? | In-memory cache with 24h TTL vs lightweight SQLite table in PeerHub store (`vendor_model_capabilities`). | **Cache in-memory with fallback to local JSON cache file with timestamp**; mark `source="unknown"` if cache is absent or CLI probe fails. Never block `ask`. |
-
