@@ -10,6 +10,17 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- **Session reuse PR3:** Python `ask(fresh=True)` / `ask(session=HANDLE)` and
+  mutually exclusive CLI `--fresh` / `--session HANDLE`. Fresh sessions receive
+  bounded Stream catch-up. Exact selection validates scope, lineage, adapter,
+  effective binding and continuity; rejection never allocates a substitute.
+- Durable normalized selectors participate in request identity. Replay returns
+  the original session snapshot after expiry; changed selectors conflict.
+  Definitive unstarted queued selector failures atomically commit rejection
+  evidence, result and Offset progress, preserving uncertain-execution guards.
+- **Breaking — complete request identity:** new prompts include adapter
+  fingerprint and workspace lineage. Changed proofs conflict before replay;
+  older prompts lacking them remain inspectable but cannot replay through ask.
 - **Session reuse PR2:** retained session history with opaque handles, monotonic
   generations and an MRU pointer. Default asks choose the latest compatible
   retained session, including an older binding that becomes compatible again.
@@ -21,6 +32,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- **Breaking — model profiles:** *.pro removed (retired IDs raise the existing unknown-profile configuration error); cx.effort medium (`gpt-6.1-sol`); ag.effort flash-medium (`gemini-3.8-flash-medium`). 9 profiles retained: `{cc,cx,ag}.{standard,effort,deepthink}`.
 - **Breaking — PR2 ask output:** JSON always carries nullable `session` and
   `error`; text output ends with one session trailer after allocation. Scoped
   request-id replay returns the original durable handle/mode/reason/telemetry

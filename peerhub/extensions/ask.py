@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.peer_kinds import ALIASES  # noqa: F401  (re-exported for existing importers)
-from peerhub.extensions.bridge import Bridge, CycleResult, RuntimeTarget
+from peerhub.extensions.bridge import Bridge, CycleResult, RuntimeTarget, normalize_session_selector
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, StaleClaimError
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
@@ -60,7 +60,9 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         model: str | None = None, effort: str | None = None, timeout_s: float = 60,
         profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False,
         max_bytes: int = 1_000_000, runtime: RuntimeTarget | None = None,
+        fresh: bool = False, session: str | None = None,
         on_output: Callable[[str], None] | None = None) -> dict[str, Any]:
+    selector = normalize_session_selector(fresh=fresh, session=session)
     if not prompt.strip():
         raise ValueError("prompt must not be empty")
     if not math.isfinite(timeout_s) or timeout_s <= 0 or max_bytes <= 0:
@@ -98,7 +100,10 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     sid = stream_id or f"peer:{peer_id}:chat"
     rid = request_id or uuid.uuid4().hex
     key = f"ask:{rid}"
-    prompt_metadata = {"runtime_kind": target.runtime_kind, "binding": target.binding(), "session_selector": "latest"}
+    prompt_metadata = {"runtime_kind": target.runtime_kind, "binding": target.binding(), "session_selector": selector}
+    generation_path = db.parent / "workspace.generation"
+    identity_metadata = {"adapter_fingerprint": target.fingerprint(),
+                         "workspace_generation": generation_path.read_text(encoding="utf-8") if generation_path.is_file() else None}
     # Validate immutable scoped request identity before inspecting cached execution,
     # and return the original durable result without constructing Bridge or a claim.
     if db.is_file() and db.stat().st_size:
@@ -107,12 +112,19 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             previous = conn.execute("SELECT * FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?", (sid, author, key)).fetchone()
             if previous is not None:
                 previous_metadata = json.loads(previous["metadata_json"])
-                base_metadata = {k: v for k, v in previous_metadata.items() if k != "session_selector"}
+                base_metadata = {k: v for k, v in previous_metadata.items() if k not in ("session_selector", *identity_metadata)}
                 expected_base = {k: v for k, v in prompt_metadata.items() if k != "session_selector"}
                 if previous["kind"] != "prompt" or json.loads(previous["body_json"]) != prompt or json.loads(previous["targets_json"]) != [peer_id] or base_metadata != expected_base:
                     raise IdempotencyConflictError(f"request {rid!r} conflicts with its stored identity")
-                if previous_metadata.get("session_selector") != "latest":
+                stored_selector = previous_metadata.get("session_selector")
+                if stored_selector is None:
                     raise LegacySelectorUnsupported(f"Request {rid!r} lacks supported session selector metadata.")
+                if stored_selector != selector:
+                    raise IdempotencyConflictError(f"request {rid!r} conflicts with its stored session selector")
+                if any(name not in previous_metadata for name in identity_metadata):
+                    raise LegacySelectorUnsupported(f"Request {rid!r} lacks complete session selector identity metadata.")
+                if any(previous_metadata[name] != value for name, value in identity_metadata.items()):
+                    raise IdempotencyConflictError(f"request {rid!r} conflicts with its stored fingerprint or workspace lineage")
                 if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bridge_deliveries'").fetchone():
                     settled = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND record_id=? AND acked=1 AND result_json IS NOT NULL ORDER BY attempt DESC LIMIT 1",
                                            (sid, peer_id, previous["record_id"])).fetchone()
@@ -133,6 +145,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         except AlreadyExistsError:  # another caller created the same conversation
             pass
     lineage = Workspace(Path(db_path).resolve().parent)
+    prompt_metadata.update(adapter_fingerprint=target.fingerprint(), workspace_generation=lineage.generation())
     claims = ClaimStore(db_path, generation=lineage.generation)
     # Runtime events may be silent until completion; keep the claim alive for the bounded run.
     lease_sec = timeout_s + 60
@@ -147,6 +160,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             if scope["stream_id"] != token.stream_id:
                 raise ClaimScopeError("prompt and delivery claim must share a Stream")
             claims.check(conn, token)
+        if previous is None:
+            bridge.validate_selector_before_append(token, target, selector)
         rec = store.append_record(stream_id=sid, author_peer_id=author, kind="prompt", body=prompt,
                                   targets=[peer_id], idempotency_key=key,
                                   metadata=prompt_metadata,
@@ -168,7 +183,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as conn:
                 conn.row_factory = sqlite3.Row
                 delivered = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result["delivery_id"],)).fetchone()
-                if delivered is not None and delivered["acked"] and delivered["result_json"] and delivered["certainty"] in ("STARTED", "TERMINAL"):
+                if delivered is not None and delivered["acked"] and delivered["result_json"] and delivered["certainty"] in ("NOT_STARTED", "STARTED", "TERMINAL"):
                     result.update(_read_delivery_result(conn, delivered))
                     if not terminal and not refused and delivered["certainty"] == "TERMINAL":
                         result["status"] = "delivered"

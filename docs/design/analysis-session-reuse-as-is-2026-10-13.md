@@ -314,9 +314,11 @@ $env:PEERHUB_LIVE = "1"
 python -m pytest -q -m "canary and cx" tests/communication/live/test_ask_measurements.py::test_resume_recalls_first_turn_token
 ```
 
-The future four-turn test must be added as an explicit opt-in canary with its
-own documented invocation/budget; it does not exist today. Do not claim the
-existing recall test covers exact handles or monitoring. Timeout/uncertainty
+PR3 adds `test_fresh_exact_four_turn_session_matrix` as an explicit opt-in
+canary with `PEERHUB_SESSION_SELECTION_LIVE=1` in addition to `PEERHUB_LIVE=1`.
+Its [documented invocation/budget](../../CONTRIBUTING.md#local-live-gate) is
+four asks per selected provider. The existing recall test alone does not cover
+exact handles or monitoring. Timeout/uncertainty
 stops the sequence and requires reconciliation; do not rerun automatically.
 Optional canary artifacts are not release evidence. Full release validation
 follows CONTRIBUTING against the exact clean candidate and all required stages.

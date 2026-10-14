@@ -114,6 +114,69 @@ class SessionError(RuntimeError):
     """Session create/resume failure."""
 
 
+class SessionBridgeError(ValueError):
+    """Definitive session selection failure before invocation."""
+    code = "session_selection_error"
+
+
+class SessionNotFoundError(SessionBridgeError):
+    code = "session_not_found"
+
+
+class SessionTombstonedError(SessionBridgeError):
+    code = "session_tombstoned"
+
+
+class SessionDeltaOverflowError(SessionBridgeError):
+    code = "session_delta_overflow"
+
+
+class SessionStreamMismatchError(SessionBridgeError):
+    code = "session_stream_mismatch"
+
+
+class SessionPeerMismatchError(SessionBridgeError):
+    code = "session_peer_mismatch"
+
+
+class SessionWorkspaceMismatchError(SessionBridgeError):
+    code = "session_workspace_mismatch"
+
+
+class SessionBindingMismatchError(SessionBridgeError):
+    code = "session_binding_mismatch"
+
+
+class SessionFingerprintMismatchError(SessionBridgeError):
+    code = "session_fingerprint_mismatch"
+
+
+class SessionUnavailableError(SessionBridgeError):
+    code = "session_unavailable"
+
+
+class SessionLostError(SessionBridgeError):
+    code = "session_lost"
+
+
+class ConflictingSessionFlagsError(ValueError):
+    code = "conflicting_session_flags"
+
+
+class InvalidSessionHandleSyntaxError(ValueError):
+    code = "invalid_session_handle_syntax"
+
+
+def normalize_session_selector(*, fresh: bool = False, session: str | None = None) -> str:
+    if fresh and session is not None:
+        raise ConflictingSessionFlagsError("fresh and session are mutually exclusive")
+    if session is not None:
+        if not re.fullmatch(r"sess_[0-9a-f]{16}", session):
+            raise InvalidSessionHandleSyntaxError("session must be a full handle: sess_ followed by 16 lowercase hexadecimal digits")
+        return "sess:" + session
+    return "fresh" if fresh else "latest"
+
+
 RuntimeEvent = tuple[str, Any] | tuple[str, Any, Any]  # ("started", exec_id) | ("timeout", seconds) | ("terminal", {"response": ...}) | ...
 
 
@@ -647,8 +710,63 @@ class Bridge:
         conn.execute("UPDATE bridge_deliveries SET external_session_id=?,session_generation=?,session_handle=?,session_snapshot_json=? WHERE delivery_id=?",
                      (mapping["external_session_id"], mapping["session_generation"], mapping["session_handle"], session_receipts.dumps(accepted), did))
 
+    def _validate_exact(self, token: ClaimToken, runtime: RuntimeTarget, handle: str,
+                        boundary: Record | _PersistedRecord) -> dict[str, Any]:
+        # Commit expiry and pointer repair before raising a selector error.
+        with self.claims.fenced(token) as conn:
+            now = self.claims.now()
+            bridge_registry.prune(conn, token.stream_id, token.peer_id, now)
+            row = conn.execute("SELECT * FROM bridge_session_history WHERE session_handle=?", (handle,)).fetchone()
+            mapping = dict(row) if row is not None else None
+        if mapping is None:
+            raise SessionNotFoundError("Requested session handle does not exist in this store.")
+        if mapping["stream_id"] != token.stream_id:
+            raise SessionStreamMismatchError("Requested session belongs to another Stream.")
+        if mapping["peer_id"] != token.peer_id:
+            raise SessionPeerMismatchError("Requested session belongs to another Peer.")
+        if mapping["state"] == "TOMBSTONED":
+            raise SessionTombstonedError("Requested session is expired or tombstoned.")
+        if mapping["state"] == "LOST":
+            raise SessionLostError("Requested session continuity is lost or tainted.")
+        if not runtime.resumable or mapping["runtime_kind"] != runtime.runtime_kind or not bridge_registry.eligible(mapping, now):
+            raise SessionUnavailableError("Requested session lacks compatible resume capability or trusted continuity.")
+        if mapping["workspace_generation"] != token.workspace_generation:
+            raise SessionWorkspaceMismatchError("Requested session belongs to another workspace lineage.")
+        if mapping["adapter_fingerprint"] != runtime.fingerprint():
+            raise SessionFingerprintMismatchError("Requested session adapter fingerprint differs.")
+        if mapping["binding"] != runtime.binding():
+            raise SessionBindingMismatchError("Requested session effective binding differs.")
+        delta = self._native_delta(mapping, boundary) if mapping["vendor_session_id"] is not None else self._local_history_delta(mapping, boundary)
+        if mapping["bootstrap_truncated"] or delta is not None and delta.truncated:
+            raise SessionDeltaOverflowError("Requested session catch-up delta exceeds its context budget.")
+        return mapping
+
+    def validate_selector_before_append(self, token: ClaimToken, runtime: RuntimeTarget, selector: str) -> None:
+        """Preflight exact intent where no earlier execution can change its context."""
+        if not selector.startswith("sess:"):
+            return
+        with self.claims.fenced(token) as conn:
+            # Recovery/uncertainty takes precedence over selection. The queued
+            # prompt is validated again after its own attempt is proven unstarted.
+            if conn.execute("SELECT 1 FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND acked=0 LIMIT 1",
+                            (token.stream_id, token.peer_id)).fetchone():
+                return
+            position = conn.execute("SELECT COALESCE(MAX(position),0)+1 FROM records WHERE stream_id=?", (token.stream_id,)).fetchone()[0]
+        self._validate_exact(token, runtime, selector[5:], _PersistedRecord("", position))
+
     def _resolve_session(self, token: ClaimToken, runtime: RuntimeTarget, record: Record, did: str):
+        selector = record.metadata.get("session_selector", "latest")
+        exact = isinstance(selector, str) and selector.startswith("sess:")
         fp, bnd, now = runtime.fingerprint(), runtime.binding(), self.claims.now()
+        with self.claims.fenced(token):
+            if record.metadata.get("runtime_kind", runtime.runtime_kind) != runtime.runtime_kind:
+                raise SessionUnavailableError("Queued request runtime kind differs from this runtime.")
+            if record.metadata.get("workspace_generation", token.workspace_generation) != token.workspace_generation:
+                raise SessionWorkspaceMismatchError("Queued request workspace lineage differs.")
+            if record.metadata.get("adapter_fingerprint", fp) != fp:
+                raise SessionFingerprintMismatchError("Queued request adapter fingerprint differs.")
+            if record.metadata.get("binding", bnd) != bnd:
+                raise SessionBindingMismatchError("Queued request effective binding differs from this runtime.")
         with self.claims.fenced(token) as conn:
             prior = bridge_registry.current(conn, token.stream_id, token.peer_id)
             if prior is None:
@@ -676,13 +794,18 @@ class Bridge:
                 reason = "binding_change"
             else:
                 reason = "missing"
-        candidate = next((m for m in rows if runtime.resumable and bridge_registry.eligible(m, now) and m["runtime_kind"] == runtime.runtime_kind
-                          and m["workspace_generation"] == token.workspace_generation and m["adapter_fingerprint"] == fp and m["binding"] == bnd), None)
+        if exact:
+            candidate = self._validate_exact(token, runtime, selector[5:], record)
+        elif selector == "fresh":
+            candidate, reason = None, "explicit_fresh"
+        else:
+            candidate = next((m for m in rows if runtime.resumable and bridge_registry.eligible(m, now) and m["runtime_kind"] == runtime.runtime_kind
+                              and m["workspace_generation"] == token.workspace_generation and m["adapter_fingerprint"] == fp and m["binding"] == bnd), None)
         if candidate is not None:
             m = candidate
             native = m["vendor_session_id"] is not None
-            local_delta = None if native else self._local_history_delta(m, record)
-            overflow = native and (m["bootstrap_truncated"] or self._native_delta(m, record).truncated) or local_delta is not None and local_delta.truncated
+            local_delta = None if native or exact else self._local_history_delta(m, record)
+            overflow = not exact and (native and (m["bootstrap_truncated"] or self._native_delta(m, record).truncated) or local_delta is not None and local_delta.truncated)
             if overflow:
                 reason = "delta_too_large"
             else:
@@ -716,8 +839,11 @@ class Bridge:
                             conn.execute("UPDATE bridge_session_history SET state='LOST',vendor_session_id=NULL WHERE session_handle=? AND state!='TOMBSTONED'", (m["session_handle"],))
                             bridge_registry.repair(conn, token.stream_id, token.peer_id, self.claims.now())
                         self._session_event(conn, token, "session_lost" if outcome == "missing" else "resume_rejected", m["state"], "LOST" if outcome == "missing" else "FRESH", m["session_generation"], reason=reason, outcome=outcome)
+                if exact:
+                    error_cls = SessionLostError if reason in ("tainted", "resume_rejected", "missing") else SessionUnavailableError
+                    raise error_cls("Requested session could not be resumed; no substitute was allocated.")
         elif prior is not None:
-            if not runtime.resumable:
+            if not runtime.resumable and selector != "fresh":
                 reason = "not_resumable"
             with self.claims.fenced(token) as conn:
                 self._session_event(conn, token, reason or "missing", prior["state"], "FRESH", prior["session_generation"])
@@ -796,7 +922,7 @@ class Bridge:
                                 (stream, peer, gen, NOT_STARTED)).fetchone()
         return seen is None
 
-    def _native_delta(self, mapping: Mapping[str, Any], rec: Record) -> CatchUpProjection:
+    def _native_delta(self, mapping: Mapping[str, Any], rec: Record | _PersistedRecord) -> CatchUpProjection:
         peer, stream = mapping["peer_id"], mapping["stream_id"]
         records = self.store.read_records(stream, mapping["context_watermark"], 2**31 - 1)
         candidates = (r for r in records if r.position < rec.position
@@ -807,7 +933,7 @@ class Bridge:
                                               token_estimator=self.catch_up_budget.token_estimator),
                                 after_position=mapping["context_watermark"], before_position=rec.position)
 
-    def _local_history_delta(self, mapping: Mapping[str, Any], rec: Record) -> CatchUpProjection | None:
+    def _local_history_delta(self, mapping: Mapping[str, Any], rec: Record | _PersistedRecord) -> CatchUpProjection | None:
         """Older local sessions use exact delivery evidence, not a native watermark.
 
         Preserve the ordinary local-session redirect contract. When another
@@ -1013,13 +1139,18 @@ class Bridge:
             if rec is None:
                 return CycleResult("idle", detail={"consumed_controls": consumed} if consumed else {})
         did = self.begin_attempt(token, rec, reconcile_of=reconcile_of)
-        if rec.kind == "prompt" and rec.metadata.get("session_selector") != "latest":
-            return self._reject_legacy_selector(token, rec, did)
+        if rec.kind == "prompt":
+            selector = rec.metadata.get("session_selector")
+            if selector not in ("latest", "fresh") and not (isinstance(selector, str) and re.fullmatch(r"sess:sess_[0-9a-f]{16}", selector)):
+                return self._reject_selector(token, rec, did, dict(code="legacy_selector_unsupported", message="Request lacks supported session selector metadata."))
         self._fire("bridge.before_session_resolve")
         gated = self._gate(token, runtime, rec, did)
         if gated is not None:
             return gated
-        sess = self._resolve_session(token, runtime, rec, did)
+        try:
+            sess = self._resolve_session(token, runtime, rec, did)
+        except SessionBridgeError as exc:
+            return self._reject_selector(token, rec, did, dict(code=exc.code, message=str(exc)))
         if isinstance(sess, CycleResult):
             return sess
         if sess is None:
@@ -1035,14 +1166,16 @@ class Bridge:
             return gated
         return self._run_runtime(token, runtime, rec, did, ext, gen, catch_up)
 
-    def _reject_legacy_selector(self, token: ClaimToken, rec: Record, did: str) -> CycleResult:
-        """Consume only proven unstarted legacy intent, retaining the original Record."""
-        error = dict(code="legacy_selector_unsupported", message="Request lacks supported session selector metadata.")
-        result = dict(response=None, error=error, session=None)
+    def _reject_selector(self, token: ClaimToken, rec: Record, did: str, error: dict[str, str]) -> CycleResult:
+        """Atomically consume only definitive unstarted selector failures."""
         with self.claims.fenced(token) as conn:
             row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
+            if row is None:
+                raise NoDeliveryError(did)
+            self._check_scope(row, token)
             if row["certainty"] != NOT_STARTED or self._open_invocation(conn, did) is not None:
-                raise InvocationMarkerError("legacy intent cannot be consumed after possible execution")
+                raise InvocationMarkerError("selector failure cannot be consumed after possible execution")
+            result = dict(response=None, error=error, session=session_receipts.snapshot(row))
             if row["result_digest"] is None:
                 conn.execute("UPDATE bridge_deliveries SET result_json=?,result_digest=? WHERE delivery_id=?",
                              (session_receipts.dumps(result), _digest(result), did))

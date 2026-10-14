@@ -10,13 +10,19 @@ ASK_TIMEOUT = 240
 
 
 def ask_args(peer: str, workspace: Path, prompt: str, request_id: str, *,
-             writable: bool = False) -> list[str]:
+             writable: bool = False, fresh: bool = False, session: str | None = None) -> list[str]:
+    if fresh and session is not None:
+        raise ValueError("fresh and session are mutually exclusive")
     args = ["--db", str(workspace / "core.db"), "ask", peer, prompt,
             "--workspace", str(workspace), "--stream", "live-measurement",
             "--request-id", request_id, "--profile", f"{peer}.standard",
             "--timeout-seconds", str(ASK_TIMEOUT), "--max-output-bytes", "65536", "--json"]
     if writable:
         args.append("--writable")
+    if fresh:
+        args.append("--fresh")
+    if session is not None:
+        args.extend(["--session", session])
     return args
 
 

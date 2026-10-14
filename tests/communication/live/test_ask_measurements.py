@@ -1,7 +1,8 @@
-"""Local paid canaries: five bounded invocations per peer, no retries or quota probes."""
+"""Local paid canaries; the four-turn selector matrix requires a second opt-in."""
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import shutil
 import sqlite3
@@ -65,6 +66,38 @@ def test_resume_recalls_first_turn_token(tmp_path, peer):
             assert token not in json.dumps(json.loads(injected[0]), ensure_ascii=False), record_id
     assert row == first_binding
     assert token in second["response"], second
+
+
+@pytest.mark.skipif(os.environ.get("PEERHUB_SESSION_SELECTION_LIVE") != "1", reason="four-call selector matrix requires PEERHUB_SESSION_SELECTION_LIVE=1")
+def test_fresh_exact_four_turn_session_matrix(peer):
+    """Four asks/provider; uncertainty fails immediately, with no retry or probe."""
+    workspace = ROOT / ".peerhub" / "work" / f"session-selection-{uuid.uuid4().hex}"
+    workspace.mkdir(parents=True)
+    token = "memory_" + uuid.uuid4().hex
+    def native_digest(handle):
+        with sqlite3.connect(workspace / "core.db") as conn:
+            vendor = conn.execute("SELECT vendor_session_id FROM bridge_session_history WHERE session_handle=?", (handle,)).fetchone()[0]
+        assert vendor
+        return hashlib.sha256(vendor.encode()).hexdigest()
+    try:
+        a = _ask(peer, workspace, f"Remember the word {token}. Reply with OK only.", "one")
+        ah = a["session"]["handle"]
+        digest = native_digest(ah)
+        continued = _ask(peer, workspace, "Recall the word from my earlier message. Reply with only that word.", "two")
+        assert continued["session"]["handle"] == ah and continued["session"]["mode"] == "resumed"
+        assert native_digest(ah) == digest and token in continued["response"]
+        b = _ask(peer, workspace, "This is another session. Reply with B_MARKER only.", "three", fresh=True)
+        assert b["session"]["handle"] != ah and b["session"]["reason"] == "explicit_fresh"
+        exact = _ask(peer, workspace, "Recall the word from this session's earlier message. Reply with only that word.", "four", session=ah)
+        assert exact["session"]["handle"] == ah and exact["session"]["generation"] == a["session"]["generation"]
+        assert exact["session"]["mode"] == "resumed" and native_digest(ah) == digest
+        assert token in exact["response"] and b["response_record_id"] in exact["injected_record_ids"]
+        assert a["requested_record_id"] not in exact["injected_record_ids"]
+        with sqlite3.connect(workspace / "core.db") as conn:
+            assert conn.execute("SELECT fresh_count,reuse_count FROM bridge_session_monitor_stats WHERE session_handle=?", (ah,)).fetchone() == (1, 2)
+            assert conn.execute("SELECT COUNT(*) FROM bridge_evidence WHERE kind='session_call'").fetchone()[0] == 4
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
 
 
 def test_writable_ask_creates_sentinel(peer):

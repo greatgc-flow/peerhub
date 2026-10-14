@@ -81,6 +81,21 @@ def diag_json(e):
     assert not e.run(db, "diag")[1].lstrip().startswith("{")
 
 
+def session_selector_effect(e, option):
+    from tests.communication.fakes.runtime import NativeRuntimeTarget
+    rt = NativeRuntimeTarget()
+    db = e.fresh(False)
+    with patch("peerhub.extensions.ask.CliRuntimeTarget", lambda *a, **kw: rt):
+        first = e.j(db, "ask", "cx", "first", "--json")
+        fresh = e.j(db, "ask", "cx", "second", "--fresh", "--json")
+        assert fresh["session"]["handle"] != first["session"]["handle"]
+        assert fresh["session"]["reason"] == "explicit_fresh"
+        if option == "--session":
+            exact = e.j(db, "ask", "cx", "third", "--session", first["session"]["handle"], "--json")
+            assert exact["session"]["handle"] == first["session"]["handle"]
+            assert exact["session"]["mode"] == "resumed"
+
+
 def diag_live(e, option):
     from peerhub.extensions.observation import ObservationStore
     db = e.fresh()
@@ -243,6 +258,8 @@ EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for 
     "peer", "prompt", "--query-file", "--stream", "--request-id", "--author-peer", "-w", "--workspace", "--model",
     "--effort", "-p", "--profile", "--writable", "--timeout-seconds", "--silence-timeout-seconds",
     "--max-output-bytes", "--json")}
+EFFECT.update({f"ask {option}": (lambda e, option=option: session_selector_effect(e, option))
+               for option in ("--fresh", "--session")})
 EFFECT["diag --json"] = diag_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
                for option in ("--live", "--interval-seconds", "--cycles", "--view")})

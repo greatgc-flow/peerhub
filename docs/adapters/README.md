@@ -16,7 +16,10 @@ configuration surface.
 
 Ordinary `peerhub ask` calls reuse the latest compatible retained native session for the
 peer/Stream. Otherwise the Bridge creates a fresh generation with bounded
-catch-up. Use a dedicated Stream for a separate task.
+catch-up. Mutually exclusive `--fresh` / `--session HANDLE` allocate a new
+generation or reuse one exact compatible retained session. Exact rejection
+never substitutes another session. Fresh still receives Stream context; use a
+dedicated Stream for an independent task.
 
 ## 2. CLI Reference & Contracts
 

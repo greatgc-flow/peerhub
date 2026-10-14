@@ -216,6 +216,23 @@ release-catalog IDs and are excluded from default tests, CI and the release
 gate. `--only live --peer <peer>` remains available for partial release
 evidence; skipped or missing catalog cases cannot satisfy the full G3 gate.
 
+PR3 adds a separately opted-in four-turn default/default/fresh/exact canary.
+It makes exactly four asks per selected provider with 240-second timeouts,
+bounded output, no retries and no quota probes. It checks handles, native
+identity digests, accepted modes, intervening response injection and receipts.
+It uses a scratch store under `.peerhub/work/` and stops on uncertainty.
+The ordinary canary selection skips this matrix unless its second opt-in is set:
+
+```powershell
+$env:PEERHUB_LIVE = "1"
+$env:PEERHUB_SESSION_SELECTION_LIVE = "1"
+python -m pytest -q -m "canary and cx" tests/communication/live/test_ask_measurements.py::test_fresh_exact_four_turn_session_matrix
+```
+
+This command spends up to four cx calls; selecting all peers spends up to 12.
+Unset `PEERHUB_SESSION_SELECTION_LIVE` after the bounded check. Optional canary
+results remain separate from release evidence.
+
 `tools/release_evidence.py` requires every blocking M1 catalog test and every
 M2/M3 catalog test (`docs/m2/test-catalog.m2.json` and
 `docs/m3/test-catalog.m3.json`, gate G2) to pass. Live `LIVE-*` tests must also
@@ -274,5 +291,5 @@ and watch the 7-day pace; distribute work so cc is not the heaviest user.
   `python -m tools.a2a_sdk_interop <venv-python>` to start the SDK server with
   that interpreter and check interoperability.
 - `python -m tools.model_ping` spends a little quota per profile. Pass profile
-  IDs, for example `python -m tools.model_ping cc.pro`, to limit the checks.
+  IDs, for example `python -m tools.model_ping cc.effort`, to limit the checks.
 Maintainer handoff notes: [docs/HANDOFF.md](docs/HANDOFF.md)

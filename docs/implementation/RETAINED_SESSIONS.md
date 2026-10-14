@@ -1,8 +1,9 @@
 # Retained sessions and durable ask results
 
-PR1 is committed at `eec2cba4`. PR2 is implemented in the uncommitted worktree.
-The 25 focused registry/output regressions and Pyright pass locally; broader
-validation is recorded in the [PR2 scope review](PR2_SESSION_REUSE_VALIDATION.md).
+PR1 and PR2 are committed. PR3 fresh/exact selection is implemented in the
+worktree; recorded deterministic validation: 2314 passed, pyright 0 errors.
+See the [PR3 gate-to-test matrix](PR3_SESSION_REUSE_VALIDATION.md).
+Historical PR2 validation is recorded in the [PR2 scope review](PR2_SESSION_REUSE_VALIDATION.md).
 The [canonical sequence](../design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence)
 defines the remaining addressing, inspection and measured-telemetry work.
 
@@ -37,14 +38,31 @@ continuity becomes LOST, while custom local resolution survives. A rollback
 restores schema and data together; reopen does not mint another handle or append
 historical call receipts. No temporary second session store remains.
 
-New ask prompts persist normalized `session_selector="latest"` with their full
-scoped identity. Replay compares that identity before looking at a durable
+New ask prompts persist normalized `session_selector` (`latest`, `fresh`, or
+`sess:<full-handle>`) with their full scoped identity. Python accepts only
+`fresh` and `session`; CLI exposes mutually exclusive `--fresh` / `--session`.
+PR3 also records adapter fingerprint and workspace lineage in prompt identity.
+Earlier prompts lacking these immutable proofs remain inspectable but cannot
+be replayed through `ask` (`legacy_selector_unsupported`); no proof is invented.
+Replay compares that identity before looking at a durable
 result and returns its original session snapshot without constructing a Bridge,
 reading the MRU pointer, checking current liveness or executing a provider.
 Selector-less historical terminals remain inspectable as Records/evidence but
 have no replay shim. Proven unstarted queued legacy prompts commit a rejection
 result/evidence and Offset consumption together (`legacy_selector_unsupported`);
 unresolved invocation markers, STARTED and MAY_HAVE_STARTED remain guarded.
+
+Fresh selection always allocates with `reason="explicit_fresh"` and records
+the deliberately unused prior handle; bounded Stream catch-up still applies.
+Exact selection validates scope, expiry/state, capability and trusted native
+continuity, workspace lineage, fingerprint, effective binding and delta budget.
+Custom local sessions retain external-ID resolution without a native watermark.
+Known failures and overflow are checked before a new prompt is appended where
+provable, and queued intent is revalidated under its claim fence. Expiry commits
+before rejection. Exact resolution failures never allocate a substitute.
+Definitive NOT_STARTED rejection commits result, evidence and Offset progress
+together; storage faults, stale fences and open invocation markers remain errors
+or uncertain work. Rejected requests replay their durable error without execution.
 
 Delivery snapshots bind handle, generation, accepted mode/reason and prior
 handle before invocation. They become immutable at the invocation marker and
@@ -82,7 +100,7 @@ session: sess_0000000000000002 fresh gen2 fallback reason=binding_change
 
 Context occupancy and quota snapshots remain unknown in PR2. Billing `usage`
 stays separate and is never converted into occupancy. Ask does not probe quota.
-Fresh/exact selectors, session list/show and monitoring views are not available
-yet. Writer implementations: [registry](../../peerhub/extensions/bridge_registry.py),
+Session list/show and monitoring views are not available yet.
+Writer implementations: [registry](../../peerhub/extensions/bridge_registry.py),
 [receipts](../../peerhub/extensions/session_receipts.py),
 [Bridge](../../peerhub/extensions/bridge.py), [ask](../../peerhub/extensions/ask.py).

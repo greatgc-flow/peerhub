@@ -21,6 +21,15 @@ otherwise they start fresh with bounded catch-up. Adapter resume capability is
 independent of each call, and vendor resume arguments are internal. Use a
 dedicated Stream for a separate task.
 
+`ask --fresh` creates a new generation with bounded Stream catch-up;
+`ask --session HANDLE` uses exactly the full retained handle from a prior result.
+The options are mutually exclusive. Exact scope, lineage, binding, fingerprint,
+expiry, continuity or delta-budget failures exit 2 before provider delivery,
+without allocating a substitute. JSON preserves nullable `session` / `error`.
+Request-id retries require the same selector and replay the original snapshot,
+including after the selected handle expires. Writable permission must match
+the selected binding on every call. Uncertain work blocks all selectors.
+
 Exact invocation and decoder details are in [ag.md](ag.md), [cc.md](cc.md), and
 [cx.md](cx.md).
 

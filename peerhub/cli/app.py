@@ -104,12 +104,14 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     o_adv.add_argument("--revision", required=True, type=int, dest="expected_revision")
 
     ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge",
-                                     description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Results include a session handle and mode.")
+                                     description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Select --fresh or an exact --session HANDLE. Results include a session handle and mode.")
     ask_parser.add_argument("peer", help="Peer ID (built-ins: cx/codex, cc/claude, ag/agy)")
     ask_parser.add_argument("prompt", nargs="?")
     ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
     ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat)")
     ask_parser.add_argument("--request-id", help="Reuse on retries; uncertain execution is never replayed automatically")
+    ask_parser.add_argument("--fresh", action="store_true", help="Allocate a fresh session with bounded Stream catch-up")
+    ask_parser.add_argument("--session", metavar="HANDLE", help="Reuse this exact retained handle; incompatible sessions are rejected")
     ask_parser.add_argument("--author-peer", dest="author", default="user", help="Peer ID recorded as the prompt author (auto-registered)")
     ask_parser.add_argument("-w", "--workspace", help="Provider working directory; default: current directory")
     ask_parser.add_argument("--model")
@@ -180,6 +182,8 @@ def _session_trailer(session: dict[str, Any]) -> str:
 
 def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv: list[str] | None) -> int:
     from peerhub.extensions.ask import ask
+    from peerhub.extensions.bridge import normalize_session_selector
+    normalize_session_selector(fresh=args.fresh, session=args.session)
     if (args.prompt is None) == (args.query_file is None):
         parser.error("ask requires exactly one of prompt or --query-file")
     prompt = Path(args.query_file).read_text(encoding="utf-8-sig") if args.query_file else args.prompt
@@ -201,6 +205,7 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
                      author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
                      profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
+                     fresh=args.fresh, session=args.session,
                      on_output=None if args.json else show_output)
     except Exception:
         if has_streamed and not args.json and not output_has_newline:
@@ -238,7 +243,7 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
             print()
         print(_session_trailer(session))
     error: dict[str, Any] | None = result.get("error")
-    if error is not None and error.get("code") == "legacy_selector_unsupported":
+    if error is not None and error.get("code") != "session_lost" and (error.get("code") == "legacy_selector_unsupported" or str(error.get("code", "")).startswith("session_")):
         return 2
     return 0 if result["status"] in ("delivered", "recovered_terminal") else 1
 
@@ -484,7 +489,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         return 3
     except ValueError as e:
         error_output(getattr(e, "code", "invalid_arguments"), f"ERROR: {e}")
-        return 2 if args.subcommand == "ask" else 1
+        return 2 if args.subcommand == "ask" and getattr(e, "code", None) != "session_lost" else 1
     except SystemExit as e:
         if args.subcommand == "ask" and args.json and e.code == 2:
             error_output("invalid_arguments", "Invalid ask arguments.")

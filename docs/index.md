@@ -24,7 +24,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Monitoring Plan v2](design/plan-monitoring-v2-2026-10-12.md): Live quota dashboard, PACE balancing, and alerting specification.
 - [Retained Session Contract](implementation/RETAINED_SESSIONS.md): Registry migration, retention, immutable replay, receipts and current ask output.
 - [Session PR2 Scope Review](implementation/PR2_SESSION_REUSE_VALIDATION.md): Test/doc/changelog coverage and local validation results.
-- [Canonical Session Sequence](design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence): PR1 is committed; PR2 retained history and receipt writers are implemented in the uncommitted worktree, validation pending. Selectors and inspection remain future work.
+- [Canonical Session Sequence](design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence): PR1/PR2 are committed; PR3 fresh/exact selectors are implemented in the worktree, recorded deterministic validation: 2314 passed, pyright 0 errors ([gate-to-test matrix](implementation/PR3_SESSION_REUSE_VALIDATION.md)). Inspection and measured telemetry remain future work.
 - [Session Reuse Plan](design/plan-session-reuse-2026-10-13.md): Retained session registry, explicit handle reuse, capability bug fix, and catch-up correctness.
 - [Session Monitoring Spec](design/plan-session-monitoring-2026-10-13.md): Pre-TDD metrics, bounded read-only queries, session views/JSON, alert rules and numbered test catalog.
 - [Blocked Streams Plan](design/plan-stuck-streams-2026-10-12.md): PRs 1-3 complete; quota pre-flight, policy settlement, and audited recovery remain.

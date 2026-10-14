@@ -75,7 +75,7 @@ authenticated, and spend provider quota. See the [adapter guide](docs/adapters/R
 
 Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer identities can be registered with `peer register --peer worker --adapter cx`.
 
-`ask` supports explicit `--profile`, `--model`, `--effort`, `--writable`, `--timeout-seconds`, optional `--silence-timeout-seconds`, `--max-output-bytes`, `--author-peer` and `--json`. Profile policy resolves workspace → global → packaged defaults; it does not assert measured model availability. Retrying the same `--request-id` reuses a completed response. A different prompt or binding conflicts, and an uncertain execution requires explicit reconciliation before another execution. By default, each ask reuses the latest compatible retained session of this peer/stream; otherwise it starts a fresh session with bounded Stream catch-up. CLI peers (cc, cx, ag) retain native vendor continuity. Use a dedicated stream for a separate task. Older native mappings with unproven context are invalidated on upgrade; existing request replay and uncertain-execution blocking remain intact. `--json` always includes `session` (accepted handle, generation, mode, reason and telemetry, or null before allocation) and `error` (null on success). Text output ends with one `session:` line after allocation, including on failure or replay. Existing delivery details remain available. Context occupancy is unknown: billing usage is not an occupancy measurement.
+`ask` supports explicit `--profile`, `--model`, `--effort`, `--writable`, `--timeout-seconds`, optional `--silence-timeout-seconds`, `--max-output-bytes`, `--author-peer` and `--json`. Profile policy resolves workspace → global → packaged defaults; it does not assert measured model availability. Retrying the same `--request-id` reuses a completed response. A different prompt, binding or session selector conflicts, and an uncertain execution requires explicit reconciliation before another execution. By default, each ask reuses the latest compatible retained session of this peer/stream; otherwise it starts a fresh session with bounded Stream catch-up. Mutually exclusive `--fresh` and `--session HANDLE` select a new generation or one exact retained session. Exact selection rejects incompatibility or context overflow without allocating a substitute. Fresh still receives Stream history; use a dedicated stream for an independent task. CLI peers (cc, cx, ag) retain native vendor continuity. Older native mappings with unproven context are invalidated on upgrade; existing request replay and uncertain-execution blocking remain intact. `--json` always includes `session` (accepted handle, generation, mode, reason and telemetry, or null before allocation) and `error` (null on success). Text output ends with one `session:` line after allocation, including on failure or replay. Existing delivery details remain available. Context occupancy is unknown: billing usage is not an occupancy measurement.
 
 `--writable` is off by default. It maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` (default `-s read-only`), and ag `--mode accept-edits`. cx resume inherits the sandbox of the initial session and does not accept `-s`; writable mode is therefore part of the session binding, and changing it starts a fresh generation.
 
@@ -131,10 +131,23 @@ The Bridge retains up to 20 non-tombstoned sessions per peer/Stream and expires
 sessions after more than 30 days of inactivity. Tombstones remain audit rows;
 generations never rewind. Compatible history can be reused after a binding
 changes back. Request-id replay returns its original session snapshot even if
-the handle later expires. Historical asks lacking selector metadata are
+the handle later expires. Historical asks lacking complete selector identity metadata are
 inspectable as Records but cannot be replayed through the new interface; do not
-retry uncertain work. Fresh/exact selectors and session inspection are not yet
-available. See the [registry contract](docs/implementation/RETAINED_SESSIONS.md).
+retry uncertain work. Session inspection remains future work.
+See the [registry contract](docs/implementation/RETAINED_SESSIONS.md).
+
+To create another generation on the same Stream, then return to the first
+session, copy its full handle from the first result:
+
+```powershell
+peerhub ask cx "Start another conversation with Stream context" --stream convo-01 --request-id turn-003 --fresh
+peerhub ask cx "Continue the first conversation" --stream convo-01 --request-id turn-004 --session <handle-from-turn-001>
+```
+
+Exact reuse includes intervening eligible Records, including the other
+session's responses. Python uses `ask(..., fresh=True)` or
+`ask(..., session="sess_0123456789abcdef")`. Handles belong to one store,
+Stream, Peer and workspace lineage; full binding and continuity must match.
 
 ### Recover from a blocked stream
 
