@@ -1,7 +1,7 @@
 # PeerHub Pre-TDD Renewal and Architecture Synthesis (2026-10-14)
 
-**Document Path:** `docs/design/peerhub-pre-tdd-renewal-2026-10-14.md`  
-**Status:** PROPOSED Architecture Specification & Pre-TDD Contracts (ag/cx/cc gave GO for pre-TDD design only; implementation, owner-choice and empirical gates remain)  
+**Document Path:** `docs/design/peerhub-pre-tdd-renewal-2026-10-14.md`
+**Status:** PROPOSED Architecture Specification & Pre-TDD Contracts (ag/cx/cc gave GO for pre-TDD design only; implementation, owner-choice and empirical gates remain)
 **Stream & Author Provenance:** The initial synthesis was authored by **Gemini 3.8 Flash High** on a new ag stream after the original Sonnet stream could not continue. cx and cc supplied separate analyses and reviews on their recorded streams. These streams do not share native model continuity. Repository claims were checked against source where stated; reviewer assertions and unresolved claims are identified separately below.
 **Owner Authorization:** The owner explicitly authorized reconsidering implemented, frozen, or planned designs and requested completion through the pre-TDD boundary. This document proposes that redesign; it does not claim implementation authorization.
 
@@ -42,6 +42,14 @@ PeerHub's core architectural mission is durable, governed multi-turn AI peer coo
 ```
 
 ### Key Differences: As-Is vs. Proposed
+
+This table records the baseline at design time. The CLI/monitoring slice later
+implemented bounded `session list/show`, shared snapshot output and cadence;
+see the [implementation addendum](peerhub-cli-monitoring-inspection-2026-10-14.md)
+and [current status](../STATUS.md) for the live source state. In particular,
+the Session Inspection and Monitoring V2 rows below are historical baselines,
+not remaining-work claims. Core record totals and legacy observation fallback
+still scan history.
 
 | Domain | As-Is Implemented / Planned Contract | Proposed Reconciled Architecture | Rationale & Counterexample |
 |---|---|---|---|
@@ -289,7 +297,7 @@ def resolve_delivery(store_path: str, *, stream_id: str, delivery_id: str,
 
 ### Scenario 4: Audited Stream Resolution (`stream resolve`)
 - **Trace:** Delivery `deliv_987` on stream `str_main` timed out and is locked in `blocked_uncertain`.
-- **Execution:** Operator executes:  
+- **Execution:** Operator executes:
   `peerhub stream resolve --stream str_main --delivery deliv_987 --as abandoned --reason "Provider timeout" --accept-unknown-effects`
 - **Behavior:** Under claim fence, Bridge:
   1. Verifies delivery is not currently running (rejects known-running execution).

@@ -8,8 +8,17 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+No changes recorded yet.
+
+## [0.16.0] - 2026-10-14
+
 ### Added
 
+- **CLI inspection and monitoring:** grouped read-only status, profile, session,
+  diagnostic and observation views around shared projections. Output schemas and
+  monitor cadence are consistent across text and JSON consumers. List and
+  session reads are bounded; Core record totals still scan history. Inspection
+  commands do not mutate state.
 - **Session reuse PR3:** Python `ask(fresh=True)` / `ask(session=HANDLE)` and
   mutually exclusive CLI `--fresh` / `--session HANDLE`. Fresh sessions receive
   bounded Stream catch-up. Exact selection validates scope, lineage, adapter,
@@ -32,6 +41,13 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- **Profiles — model defaults refreshed (#96):** `cc.standard` now selects
+  `claude-haiku-5-5`; `ag.deepthink` selects `claude-sonnet-5-5-high`, replacing
+  retired `gemini-3.1-pro-*` models. The intermediate `ag.pro` profile is
+  removed in this release.
+  Availability still depends on the provider catalog and quota.
+- **CI — triggers narrowed:** branch pushes no longer start the full matrix;
+  pushes to `main`, pull requests targeting `main`, and manual dispatch still do.
 - **Breaking — model profiles:** *.pro removed (retired IDs raise the existing unknown-profile configuration error); cx.effort medium (`gpt-6.1-sol`); ag.effort flash-medium (`gemini-3.8-flash-medium`). 9 profiles retained: `{cc,cx,ag}.{standard,effort,deepthink}`.
 - **Breaking — PR2 ask output:** JSON always carries nullable `session` and
   `error`; text output ends with one session trailer after allocation. Scoped
@@ -48,32 +64,9 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
-- Retained-session startup seeds historical counters/scopes only during initial
-  migration or when a seed table is absent, avoiding lifetime-history aggregation
-  on every ask. Atomic upgrade and monotonic generation allocation are preserved.
-- Ask execution evidence now selects only the requested record/peer deliveries
-  in SQL, instead of loading the peer's lifetime evidence history. Extension-owned
-  delivery/evidence indexes also accelerate replay and per-stream refusal reads;
-  attempt ordering, certainty and retained session identity are unchanged.
-- Resume capability is independent of each call. Native context watermarks stay
-  at the consumed prompt, so concurrent records and later same-peer responses
-  enter the next delta. The idempotent writer upgrade corrects known CLI capability
-  values and invalidates old native continuity lacking complete context proof,
-  preserving custom local sessions, immutable replay and uncertain blocking.
-
-## [0.16.0] - 2026-10-13
-
-### Changed
-
-- **Profiles — model defaults refreshed (#96):** `cc.standard` now selects
-  `claude-haiku-5-5`; `ag.deepthink` selects `claude-sonnet-5-5-high` and `ag.pro`
-  selects `claude-opus-5-5-high`, replacing retired `gemini-3.1-pro-*` models.
-  Availability still depends on the provider catalog and quota.
-- **CI — triggers narrowed:** branch pushes no longer start the full matrix;
-  pushes to `main`, pull requests targeting `main`, and manual dispatch still do.
-
-### Fixed
-
+- `diag health` now reports `PARTIAL` with a nonzero exit code when a requested
+  observation database cannot be read, instead of hiding that failure behind
+  an otherwise healthy store result.
 - **Termination confirmation — stuck-streams PR 1 (#95):** timeout, abort, and
   error evidence now records whether the whole process tree was confirmed
   terminated. A dead parent with surviving children remains unconfirmed;
@@ -92,6 +85,18 @@ they do not claim new validation or publication evidence.
   `STARTED`; failures after tool execution, incomplete evidence, and writable
   Agy refusals remain uncertain. Successful answer text cannot trigger refusal
   settlement; repeating a request ID returns its stored refusal.
+- Retained-session startup seeds historical counters/scopes only during initial
+  migration or when a seed table is absent, avoiding lifetime-history aggregation
+  on every ask. Atomic upgrade and monotonic generation allocation are preserved.
+- Ask execution evidence now selects only the requested record/peer deliveries
+  in SQL, instead of loading the peer's lifetime evidence history. Extension-owned
+  delivery/evidence indexes also accelerate replay and per-stream refusal reads;
+  attempt ordering, certainty and retained session identity are unchanged.
+- Resume capability is independent of each call. Native context watermarks stay
+  at the consumed prompt, so concurrent records and later same-peer responses
+  enter the next delta. The idempotent writer upgrade corrects known CLI capability
+  values and invalidates old native continuity lacking complete context proof,
+  preserving custom local sessions, immutable replay and uncertain blocking.
 
 ## [0.15.2] - 2026-10-12
 

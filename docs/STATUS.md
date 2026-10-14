@@ -2,26 +2,31 @@
 
 ## Current source: v0.16.0
 
-**Source candidate, 2026-10-13; publication pending.** Prepared locally on
-`release/v0.16.0` from main `22404eeb`. This candidate includes stuck-streams
-PRs 1-3 (#95/#97/#98): process-tree termination confirmation, bounded output
-drain-and-truncate, and provider refusal classification. Model profiles were
-refreshed in #96, and CI now runs on main pushes, PRs to main, and manual
-requests. [CHANGELOG](../CHANGELOG.md) owns the user-facing release notes.
+**Source candidate, 2026-10-14; publication pending.** The current work is on
+`feat/peerhub-cli-monitoring-20261014` and has not been merged into `main`.
+The candidate combines stuck-streams PRs 1-3 (#95/#97/#98), session reuse
+PRs 1-3, model-profile changes, and CLI/monitoring inspection. GitHub CI for
+the branch passed on Ubuntu and Windows with Python 3.11–3.14; candidate-matched
+live and publication gates remain open. [CHANGELOG](../CHANGELOG.md) owns the
+user-facing release notes.
 
 Eligible pre-work refusals settle as `NOT_EXECUTED` while preserving `STARTED`
 certainty. Timeouts and failures with possible effects remain guarded; neither
 automatic timeout settlement nor `stream resolve` ships in this candidate.
 Session PR1 (`eec2cba4`), PR2 (`7cdc6b76`), PR3 (`12129517`), and health check
-fixes (`cfb28aba`) are committed on `feat/session-reuse`. Retained selectors
+fixes (`cfb28aba`) are included in the current branch. Retained selectors
 (`--session`, `--fresh`), call receipts, and durable snapshots are committed
-and functional. The CLI/monitoring branch implements bounded inspection,
+and functional. The CLI/monitoring work implements bounded list/session inspection,
 read-only Core access, shared snapshots, and observation/activity projections.
 Attributable runtime telemetry, alerts, retention, replay refinements, and
 recovery remain proposed work pending their design gates. See the
 [Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md), [Debate Ledger](design/peerhub-deepthink-debate-2026-10-14.md),
 and [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md).
-These branch changes are not merged or released.
+These branch changes are not merged or released. The bounded four-turn live
+session matrix passed for cc, cx and ag. The first cx selected-session recall
+used an ambiguous prompt after cross-session catch-up; the clarified prompt
+passed without changing product code. This canary is not a substitute for the
+candidate-matched full G3 release gate.
 
 0.15.2 is the previous published release; 0.15.1 was never published. Historical
 live evidence applies only to its recorded revision. Candidate-matched CI,

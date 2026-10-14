@@ -7,6 +7,10 @@ Commands (canonical inventory: docs/implementation/command_inventory.json, deriv
   offset get / advance
   profile list / show   (read-only effective TOML)
   session list / show   (read-only, bounded and redacted)
+  ask                 (provider execution and durable delivery)
+  observation refresh (provider probes and persisted evidence)
+  monitor             (collection plus dashboard)
+  diag                (read-only dashboard, optionally live)
   diag health / quota / integrity (read-only; integrity is explicit)
 Exit codes: 0 ok, 1 error, 2 idempotency conflict, 3 CAS lost, 4 storage fault, 5 diag unavailable, 6 schema version.
 """
@@ -245,7 +249,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     
     d_health = diag_sub.add_parser("health", help="Inspect stream or store health (read-only)")
     d_health.add_argument("--stream", default=None, dest="stream_id",
-                          help="Optional stream ID to inspect (default: inspects entire store and active streams)")
+                          help="Optional stream ID to inspect (default: inspects the store and a bounded stream sample)")
     d_health.add_argument("--observation-db", dest="obs_db", default=None, metavar="PATH",
                           help="Read the observations summary from this OTHER PeerHub workspace database (opened read-only, never created); "
                                "default: the --db database. The stream part always comes from --db.")
@@ -476,6 +480,8 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
                     "stream_sample": [s["stream_id"] for s in streams_data[:5]],
                 }
         result["observations"] = diag_quota.observations_summary(args.obs_db or args.db)
+        if result["observations"]["status"] != "OK" and result.get("status") == "OK":
+            result["status"] = "PARTIAL"
         result["schema_version"] = "2.0"
         print(json.dumps(result, indent=2, ensure_ascii=True))
         if str(result.get("error", "")).startswith("SchemaVersionError"):

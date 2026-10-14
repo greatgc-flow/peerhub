@@ -196,7 +196,15 @@ def test_health_obs_db_is_effective(ws, tmp_path, capsys):
     gone = tmp_path / "gone.db"
     code, out, _ = run(capsys, ws.db_path, "diag", "health", "--stream", "s", "--observation-db", str(gone))
     rep = json.loads(out)
-    assert code == 0 and rep["status"] == "OK" and rep["observations"]["status"] == "UNAVAILABLE" and not gone.exists()
+    assert code == 4 and rep["status"] == "PARTIAL" and rep["observations"]["status"] == "UNAVAILABLE" and not gone.exists()
+
+
+def test_health_store_report_marks_secondary_observation_failure_partial(ws, tmp_path, capsys):
+    gone = tmp_path / "gone.db"
+    code, out, _ = run(capsys, ws.db_path, "diag", "health", "--observation-db", str(gone))
+    rep = json.loads(out)
+    assert code == 4 and rep["status"] == "PARTIAL"
+    assert rep["observations"]["status"] == "UNAVAILABLE" and not gone.exists()
 
 
 def test_observations_summary_honours_read_at(ws):

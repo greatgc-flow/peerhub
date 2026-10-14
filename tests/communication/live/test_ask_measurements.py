@@ -88,7 +88,7 @@ def test_fresh_exact_four_turn_session_matrix(peer):
         assert native_digest(ah) == digest and token in continued["response"]
         b = _ask(peer, workspace, "This is another session. Reply with B_MARKER only.", "three", fresh=True)
         assert b["session"]["handle"] != ah and b["session"]["reason"] == "explicit_fresh"
-        exact = _ask(peer, workspace, "Recall the word from this session's earlier message. Reply with only that word.", "four", session=ah)
+        exact = _ask(peer, workspace, "In this selected session, recall the word starting with memory_ that I asked you to remember. Ignore B_MARKER from the other session. Reply with only the memory_ word.", "four", session=ah)
         assert exact["session"]["handle"] == ah and exact["session"]["generation"] == a["session"]["generation"]
         assert exact["session"]["mode"] == "resumed" and native_digest(ah) == digest
         assert token in exact["response"] and b["response_record_id"] in exact["injected_record_ids"]

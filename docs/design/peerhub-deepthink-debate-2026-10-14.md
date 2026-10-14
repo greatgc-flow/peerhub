@@ -1,7 +1,7 @@
 # PeerHub Deepthink Dialectical Debate Ledger (2026-10-14)
 
-**Document Path:** `docs/design/peerhub-deepthink-debate-2026-10-14.md`  
-**Status:** Permanent Debate Record and Reconciliation Ledger (ag/cx/cc gave GO for pre-TDD design only; implementation, owner-choice and empirical gates remain)  
+**Document Path:** `docs/design/peerhub-deepthink-debate-2026-10-14.md`
+**Status:** Permanent Debate Record and Reconciliation Ledger (ag/cx/cc gave GO for pre-TDD design only; implementation, owner-choice and empirical gates remain)
 **Participants & Provenance:**
 - **ag (Primary Synthesis Writer & Dialectical Critic):** Recovered by **Gemini 3.8 Flash High** on a newly initialized stream following Sonnet High quota exhaustion during Round 2. All code references verified against HEAD `cfb28aba`.
 - **cx (Adversarial Test Architect):** Authored independent and cross-critique proposals analyzing race conditions, process boundaries, containment proofs, and failure modes.

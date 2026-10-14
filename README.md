@@ -62,7 +62,8 @@ peerhub diag health
 peerhub diag --live --interval-seconds 2
 peerhub diag --view rich
 
-# Collect quota evidence and watch the dashboard in one loop.
+# Collect quota evidence and watch the dashboard in one loop. Collection may
+# call provider CLIs (including agy /usage) and consume provider quota.
 peerhub monitor --interval-seconds 60
 peerhub monitor --view plain --cycles 1
 
@@ -133,7 +134,8 @@ generations never rewind. Compatible history can be reused after a binding
 changes back. Request-id replay returns its original session snapshot even if
 the handle later expires. Historical asks lacking complete selector identity metadata are
 inspectable as Records but cannot be replayed through the new interface; do not
-retry uncertain work. Session inspection remains future work.
+retry uncertain work. Use `peerhub session list` and `peerhub session show`
+for bounded, read-only session inspection.
 See the [registry contract](docs/implementation/RETAINED_SESSIONS.md).
 
 To create another generation on the same Stream, then return to the first
