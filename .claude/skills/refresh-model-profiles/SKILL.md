@@ -1,6 +1,6 @@
 ---
 name: refresh-model-profiles
-description: Refresh PeerHub's latest AI models and the 12 model profiles (cc/cx/ag x standard/effort/deepthink/pro) from the installed CLIs, then ping-test them. Use when asked to update models/profiles or check which model really answers.
+description: Refresh PeerHub's latest AI models and the 9 model profiles (cc/cx/ag x standard/effort/deepthink) from the installed CLIs, then ping-test them. Use when asked to update models/profiles or check which model really answers.
 ---
 
 The single source of truth is `docs/model-profiles/model-profiles.json` (schema: `model-profiles.schema.json`).

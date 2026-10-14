@@ -7,7 +7,7 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-10-13.1"
+defaults_revision = "2026-10-14.1"
 
 [profiles."cx.standard"]
 selection_mode = "pinned"
@@ -17,16 +17,11 @@ reasoning_effort = "low"
 [profiles."cx.effort"]
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
-reasoning_effort = "high"
+reasoning_effort = "medium"
 
 [profiles."cx.deepthink"]
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
-reasoning_effort = "xhigh"
-
-[profiles."cx.pro"]
-selection_mode = "pinned"
-model = "gpt-6-astra"
 reasoning_effort = "xhigh"
 
 [profiles."cc.standard"]
@@ -43,23 +38,14 @@ selection_mode = "pinned"
 model = "claude-opus-5-5"
 reasoning_effort = "high"
 
-[profiles."cc.pro"]
-selection_mode = "pinned"
-model = "claude-fable-5-1"
-reasoning_effort = "high"
-
 [profiles."ag.standard"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-low"
 
 [profiles."ag.effort"]
 selection_mode = "pinned"
-model = "gemini-3.8-flash-high"
+model = "gemini-3.8-flash-medium"
 
 [profiles."ag.deepthink"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5-high"
-
-[profiles."ag.pro"]
-selection_mode = "pinned"
-model = "claude-opus-5-5-high"

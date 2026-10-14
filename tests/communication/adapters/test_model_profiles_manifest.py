@@ -43,24 +43,44 @@ def test_manifest_update_targets_exist():
 
 
 def test_packaged_defaults_revision_and_expected_models():
-    assert TOML["defaults_revision"] == "2026-10-13.1"
+    assert TOML["defaults_revision"] == "2026-10-14.1"
     profiles = TOML["profiles"]
+    assert len(profiles) == 9
     assert profiles["ag.standard"]["model"] == "gemini-3.8-flash-low"
-    assert profiles["ag.effort"]["model"] == "gemini-3.8-flash-high"
+    assert profiles["ag.effort"]["model"] == "gemini-3.8-flash-medium"
     assert profiles["ag.deepthink"]["model"] == "claude-sonnet-5-5-high"
-    assert profiles["ag.pro"]["model"] == "claude-opus-5-5-high"
     assert profiles["cc.standard"]["model"] == "claude-haiku-5-5"
     assert profiles["cc.effort"]["model"] == "claude-sonnet-5-5"
+    assert profiles["cc.effort"].get("reasoning_effort") == "high"
     assert profiles["cc.deepthink"]["model"] == "claude-opus-5-5"
-    assert profiles["cc.pro"]["model"] == "claude-fable-5-1"
+    assert profiles["cc.deepthink"].get("reasoning_effort") == "high"
     assert profiles["cx.standard"]["model"] == "gpt-6-luna"
+    assert profiles["cx.standard"].get("reasoning_effort") == "low"
     assert profiles["cx.effort"]["model"] == "gpt-6.1-sol"
+    assert profiles["cx.effort"].get("reasoning_effort") == "medium"
     assert profiles["cx.deepthink"]["model"] == "gpt-6.1-sol"
-    assert profiles["cx.pro"]["model"] == "gpt-6-astra"
+    assert profiles["cx.deepthink"].get("reasoning_effort") == "xhigh"
+    assert "ag.pro" not in profiles
+    assert "cc.pro" not in profiles
+    assert "cx.pro" not in profiles
 
 
 def test_no_gemini_3_1_pro_or_haiku_4_5_in_packaged_profiles():
     for name, p in TOML["profiles"].items():
         assert "gemini-3.1-pro" not in p["model"], f"{name} contains gemini-3.1-pro"
         assert "haiku-4-5" not in p["model"], f"{name} contains haiku-4-5"
+
+
+@pytest.mark.parametrize("kind,pid", [
+    ("ag", "ag.pro"),
+    ("cc", "cc.pro"),
+    ("cx", "cx.pro"),
+    ("ag", "pro"),
+    ("cc", "pro"),
+    ("cx", "pro"),
+])
+def test_retired_pro_profiles_raise_unknown_profile_error(tmp_path, kind, pid):
+    from peerhub.extensions.adapters.profiles import resolve_profile
+    with pytest.raises(ValueError, match="unknown model profile"):
+        resolve_profile(kind, pid, tmp_path)
 
