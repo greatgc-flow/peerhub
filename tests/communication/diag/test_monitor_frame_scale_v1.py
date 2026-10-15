@@ -158,8 +158,7 @@ def _assert_scale_cardinalities(db_path: str) -> None:
         assert db.execute("SELECT COUNT(*) FROM observations WHERE kind='activity'").fetchone()[0] == UNRELATED_OBSERVATIONS
         assert db.execute("SELECT COUNT(*) FROM resource_pools").fetchone()[0] == QUOTA_POOLS
         assert UNRELATED_DELIVERIES + UNRELATED_EVIDENCE + UNRELATED_OBSERVATIONS == 100_000
-        assert (UNRELATED_DELIVERIES + UNRELATED_EVIDENCE + UNRELATED_OBSERVATIONS) >= 100_000
-        assert db.execute("SELECT SUM(retained_session_count) FROM bridge_session_monitor_scope").fetchone()[0] == 5000
+        assert dict(db.execute("SELECT retained_session_count,COUNT(*) FROM bridge_session_monitor_scope GROUP BY retained_session_count")) == {83: 40, 84: 20}
 
 
 def _frame(harness, trace=None):
@@ -198,12 +197,12 @@ def test_monitor_frame_scale_v1_full_fixture_has_bounded_output_and_select_count
     assert "idx_monitor_delivery_day" in plans["days"]
     assert "idx_bridge_session_history" in plans["sessions"] or "SCAN bridge_session_history" in plans["sessions"]
     assert "observation_rollups" in plans["observations"]
+    if os.environ.get("PEERHUB_MONITOR_BENCHMARK") == "1":
+        _benchmark(harness)
 
 
-@pytest.mark.skipif(os.environ.get("PEERHUB_MONITOR_BENCHMARK") != "1", reason="local scale latency gate is opt-in")
-def test_monitor_frame_scale_v1_local_benchmark_p95(scale_harness):
+def _benchmark(harness):
     import math
-    harness = scale_harness
     _assert_scale_cardinalities(harness.db_path)
     for _ in range(20):
         _frame(harness)

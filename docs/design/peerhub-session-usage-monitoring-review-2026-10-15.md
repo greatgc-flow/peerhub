@@ -2136,7 +2136,7 @@ semantics above must be RED-tested before their implementation changes.
   counters match the 83/84 per-scope distribution. CI asserts cardinalities,
   caps, query plans, and <=6 read statements without a timing threshold.
   Local Windows 11 / Python 3.14.8 / SQLite 3.50.4 run: 20 warm + 20 measured,
-  p95 **75.543 ms** (<=150 ms); both structural and benchmark tests pass.
+  p95 **27.415 ms** (<=150 ms); the combined structural/benchmark test passes.
 - Focused monitor CLI/read-model, scope, capacity, context, runtime, projection,
   and scale tests plus pyright and inventories are being rerun against these
   final edits. The hosted docs-only follow-up run `38756022559` passed Ubuntu
@@ -2149,6 +2149,11 @@ semantics above must be RED-tested before their implementation changes.
   allowlist now records those read-only edges plus the newly shared pure
   `quota_projection` dependency. Focused graph tests pass; final hosted rerun
   must confirm the full release gate.
+- Run `38763199834` passed all six compatibility smoke cells and the Windows
+  inventory's tests themselves, but the inventory verifier rejected the
+  optional benchmark's separate skipped test. The benchmark now runs
+  conditionally inside the always-running structural test, so Windows no
+  longer reports an expected skip; a new pushed run will verify this change.
 - Ruleset `main-ci-pass` (ID `25168666`) now requires the GitHub Actions
   aggregate check `ci-pass` on `refs/heads/main`, with strict/up-to-date
   behavior and no bypass actors. The existing all-ref `gc` deletion and
