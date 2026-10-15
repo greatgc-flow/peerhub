@@ -1421,6 +1421,7 @@ class Bridge:
                     self._transition_in(conn, did, TERMINAL, "terminal", token=token, **term_detail)  # illegal source state rolls the tx back
                     completed = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
                     session_receipts.telemetry(conn, completed, self.claims.now(), provider_candidate)
+                    session_receipts.record_usage_coverage(conn, completed, self.claims.now())
                     mapping = bridge_registry.generation(conn, token.stream_id, token.peer_id, row["session_generation"])
                     if mapping is not None and mapping["state"] not in ("LOST", "TOMBSTONED") and mapping["external_session_id"] == row["external_session_id"]:
                         conn.execute("UPDATE bridge_session_history SET last_seen=? WHERE session_handle=?", (self.claims.now(), mapping["session_handle"]))

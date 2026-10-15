@@ -41,6 +41,17 @@ DDL = (
         PRIMARY KEY(stream_id,peer_id,day_utc))""",
     "CREATE INDEX IF NOT EXISTS idx_session_latency_peer_day ON bridge_session_latency_daily(peer_id,day_utc DESC)",
     "CREATE INDEX IF NOT EXISTS idx_session_latency_day ON bridge_session_latency_daily(day_utc)",
+    """CREATE TABLE IF NOT EXISTS bridge_session_usage_coverage_daily (
+        stream_id TEXT NOT NULL, peer_id TEXT NOT NULL, day_utc TEXT NOT NULL,
+        eligible_count INTEGER NOT NULL CHECK(eligible_count>=0), measured_count INTEGER NOT NULL CHECK(measured_count>=0),
+        absent_count INTEGER NOT NULL CHECK(absent_count>=0), unsupported_count INTEGER NOT NULL CHECK(unsupported_count>=0),
+        unknown_count INTEGER NOT NULL CHECK(unknown_count>=0), missing_count INTEGER NOT NULL CHECK(missing_count>=0),
+        CHECK(eligible_count=measured_count+absent_count+unsupported_count+unknown_count+missing_count),
+        PRIMARY KEY(stream_id,peer_id,day_utc))""",
+    "CREATE INDEX IF NOT EXISTS idx_session_usage_coverage_day ON bridge_session_usage_coverage_daily(day_utc)",
+    """CREATE TABLE IF NOT EXISTS bridge_session_usage_coverage_scope (
+        stream_id TEXT NOT NULL, peer_id TEXT NOT NULL, coverage_start_delivery_seq INTEGER NOT NULL,
+        coverage_start_day TEXT NOT NULL, PRIMARY KEY(stream_id,peer_id))""",
     "CREATE TABLE IF NOT EXISTS bridge_session_monitor_meta (name TEXT PRIMARY KEY, version INTEGER NOT NULL)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_be_session_call_once ON bridge_evidence(delivery_id) WHERE kind='session_call'",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_be_session_telemetry_once ON bridge_evidence(delivery_id) WHERE kind='session_telemetry'",
@@ -139,6 +150,69 @@ def record_latency(conn: sqlite3.Connection, stream_id: str, peer_id: str, obser
     conn.execute("DELETE FROM bridge_session_latency_daily WHERE day_utc<?", (cutoff,))
 
 
+def telemetry_coverage_state(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row) -> str:
+    rows = conn.execute("SELECT * FROM bridge_evidence WHERE delivery_id=? AND kind='session_telemetry'",
+                        (delivery["delivery_id"],)).fetchall()
+    if not rows:
+        return "MISSING"
+    if (len(rows) != 1 or delivery["certainty"] != "TERMINAL" or rows[0]["certainty"] != "TERMINAL"
+            or rows[0]["stream_id"] != delivery["stream_id"] or rows[0]["peer_id"] != delivery["peer_id"]):
+        return "UNKNOWN"
+    accepted = snapshot(delivery)
+    if accepted is None:
+        return "UNKNOWN"
+    try:
+        detail_raw: object = json.loads(rows[0]["detail"])
+    except (ValueError, TypeError):
+        return "UNKNOWN"
+    if not isinstance(detail_raw, dict):
+        return "UNKNOWN"
+    detail = cast("dict[str, Any]", detail_raw)
+    expected_keys = {"handle", "generation", "observed_at", "last_input_tokens", "context_window", "context_pct",
+                     "source", "window_reported_at", "configured_model", "resolved_model", "schema_version",
+                     "provider_kind", "captured_at", "adapter_version", "provider_cli_version", "configured_binding",
+                     "usage", "steps", "step_coverage"}
+    if (set(detail) != expected_keys or type(detail.get("schema_version")) is not int or detail["schema_version"] != 3
+            or detail.get("handle") != accepted.get("handle")
+            or type(detail.get("generation")) is not int or detail["generation"] != accepted.get("generation")):
+        return "UNKNOWN"
+    identity = conn.execute("SELECT runtime_kind FROM bridge_session_history WHERE session_handle=?",
+                            (accepted["handle"],)).fetchone()
+    provider_kind = identity[0] if identity and identity[0] in ("cc", "cx", "ag") else "unknown"
+    usage_raw = detail.get("usage")
+    if not isinstance(usage_raw, dict):
+        return "UNKNOWN"
+    usage = cast("dict[str, Any]", usage_raw)
+    candidate = {key: usage.get(key) for key in ("schema_version", "scope", "source", "reported", "normalized", "coverage")}
+    normalized = _provider_usage(candidate, provider_kind)
+    if normalized != usage:
+        return "UNKNOWN"
+    return str(usage["coverage"]["state"])
+
+
+def record_usage_coverage(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row, observed_at: float) -> None:
+    state = telemetry_coverage_state(conn, delivery)
+    column = {"MEASURED": "measured_count", "ABSENT": "absent_count", "UNSUPPORTED": "unsupported_count",
+              "UNKNOWN": "unknown_count", "MISSING": "missing_count"}[state]
+    day = datetime.fromtimestamp(observed_at, timezone.utc).date()
+    conn.execute("INSERT OR IGNORE INTO bridge_session_usage_coverage_scope VALUES (?,?,?,?)",
+                 (delivery["stream_id"], delivery["peer_id"], delivery["seq"], day.isoformat()))
+    values = {name: int(name == column) for name in
+              ("measured_count", "absent_count", "unsupported_count", "unknown_count", "missing_count")}
+    conn.execute(
+        "INSERT INTO bridge_session_usage_coverage_daily(stream_id,peer_id,day_utc,eligible_count,"
+        "measured_count,absent_count,unsupported_count,unknown_count,missing_count) VALUES (?,?,?,1,?,?,?,?,?) "
+        "ON CONFLICT(stream_id,peer_id,day_utc) DO UPDATE SET eligible_count=eligible_count+1,"
+        "measured_count=measured_count+excluded.measured_count,absent_count=absent_count+excluded.absent_count,"
+        "unsupported_count=unsupported_count+excluded.unsupported_count,unknown_count=unknown_count+excluded.unknown_count,"
+        "missing_count=missing_count+excluded.missing_count",
+        (delivery["stream_id"], delivery["peer_id"], day.isoformat(), values["measured_count"],
+         values["absent_count"], values["unsupported_count"], values["unknown_count"], values["missing_count"]),
+    )
+    cutoff = (day - timedelta(days=29)).isoformat()
+    conn.execute("DELETE FROM bridge_session_usage_coverage_daily WHERE day_utc<?", (cutoff,))
+
+
 def repair_latest_telemetry_pointers(conn: sqlite3.Connection) -> None:
     """One-time projection repair; only identity-matched terminal v3 receipts qualify."""
     name = "latest_terminal_telemetry_v1"
@@ -193,14 +267,16 @@ def repair_latest_telemetry_pointers(conn: sqlite3.Connection) -> None:
             candidate = (row["observed_at"], row["seq"])
             if row["session_handle"] not in latest or candidate > latest[row["session_handle"]]:
                 latest[row["session_handle"]] = candidate
-    stats = conn.execute("SELECT session_handle,latest_telemetry_seq FROM bridge_session_monitor_stats")
-    while batch := stats.fetchmany(500):
+    last_handle = ""
+    while batch := conn.execute("SELECT session_handle,latest_telemetry_seq FROM bridge_session_monitor_stats "
+                                "WHERE session_handle>? ORDER BY session_handle LIMIT 500", (last_handle,)).fetchall():
         for row in batch:
             candidate = latest.get(row["session_handle"])
             pointer = candidate[1] if candidate else None
             if row["latest_telemetry_seq"] != pointer:
                 conn.execute("UPDATE bridge_session_monitor_stats SET latest_telemetry_seq=? WHERE session_handle=?",
                              (pointer, row["session_handle"]))
+        last_handle = batch[-1]["session_handle"]
     conn.execute("UPDATE bridge_session_monitor_meta SET version=1 WHERE name=?", (name,))
 
 
@@ -378,7 +454,10 @@ def initialize_stats(conn: sqlite3.Connection, mapping: Mapping[str, Any], bindi
 
 def snapshot(delivery: Mapping[str, Any] | sqlite3.Row) -> dict[str, Any] | None:
     raw = delivery["session_snapshot_json"]
-    return json.loads(raw) if raw else None
+    if not raw:
+        return None
+    parsed: object = json.loads(raw)
+    return cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else None
 
 
 def call(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row, now: float) -> None:

@@ -1807,7 +1807,8 @@ covered by the tests above remains out of the first implementation slice.
   installed-package smoke cells, Windows platform job, marker reverse-check,
   pyright, and the `ci-pass` aggregate all succeeded. The same gates passed
   again in `38736206373` and `38737105274` as timing and daily projection
-  changes were added.
+  changes were added. Pointer repair also passed the full GitHub gate in
+  `38738269131`.
 - Phase 2 timing: RED reproduced for the missing process clock contract, then
   GREEN for a normal same-process sample and four invalid-clock cases. The
   implementation adds `session_call` detail v2 with timing sub-schema v1 and
@@ -1817,16 +1818,35 @@ covered by the tests above remains out of the first implementation slice.
   the same terminal transaction. Tests cover valid, invalid, missing-start,
   UTC-day split, daily accumulation, retention, and rollback cases. Focused
   receipt/refusal regression tests passed (125 tests before the daily
-  projection additions); pyright is clean. Backfill completeness, strict
-  receipt validation, and read-model/CLI exposure remain pending; this is not
-  a completed monitoring feature.
+  projection additions); pyright is clean. Historical latency backfill and
+  grouped CLI exposure remain pending; this is not a completed monitoring
+  feature.
+- Phase 3 coverage projections: RED reproduced for missing/unknown terminal
+  coverage rollups. GREEN records one disjoint `MEASURED`/`ABSENT`/
+  `UNSUPPORTED`/`UNKNOWN`/`MISSING` count in the terminal transaction and
+  retains the UTC daily rows for 30 days. Receipt identity and normalized
+  provider usage are revalidated before any state is counted; duplicate
+  terminal callbacks add nothing, and rollback removes the rollup with the
+  receipt. Per-scope start delivery sequence/day lets the reader mark a
+  rolling window incomplete until its baseline is covered. Historical
+  backfill is not implemented yet.
 - Phase 1 pointer safety: RED reproduced a stale pointer to a non-telemetry
   terminal event. GREEN now performs a one-time, chunked repair from
   identity-matched terminal v3 receipts, ignores a later STARTED/malformed
   receipt, orders by `(observed_at,evidence_seq)`, and only advances the live
   pointer when that tuple increases. Focused bridge/monitor/CI regression
-  tests pass locally (117 tests) with pyright clean. This pointer change is
-  not yet included in a GitHub run.
+  tests passed locally, and the pointer repair is included in successful
+  GitHub run `38738269131`.
+- Phase 4 read-model contracts: RED reproduced because the shared read model
+  had no bounded daily latency projection reader and counted malformed or
+  identity-mismatched telemetry as measured. GREEN adds one UTC 30-day
+  aggregate query for latency and one for writer-maintained usage coverage;
+  neither recounts delivery/evidence history. Coverage groups expose the
+  start sequence and completeness of the rolling window. The focused diag,
+  bridge, monitor, and CI suites passed locally (120 tests before the latest
+  direct malformed-receipt assertion) with pyright clean. These helpers are
+  not yet wired into grouped monitor rendering; query-budget and scale-fixture
+  gates remain pending.
 - CI follow-up: docs-only Windows selection now also bypasses Windows Python
   setup and dependency installation after suite selection; its RED assertion
   and focused GREEN check pass. This optimization was added after CI run
