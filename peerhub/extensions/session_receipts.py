@@ -10,6 +10,7 @@ import re
 import sqlite3
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, TypeGuard, cast
 
 from peerhub.extensions.usage_normalization import NORMALIZED_FIELDS, REPORTED_FIELDS, normalize_provider_usage
@@ -28,6 +29,17 @@ DDL = (
         fresh_count INTEGER CHECK(fresh_count IS NULL OR fresh_count>=0),
         counts_complete INTEGER NOT NULL CHECK(counts_complete IN (0,1)), coverage_start_seq INTEGER NOT NULL,
         PRIMARY KEY(stream_id,peer_id))""",
+    """CREATE TABLE IF NOT EXISTS bridge_session_latency_daily (
+        stream_id TEXT NOT NULL, peer_id TEXT NOT NULL, day_utc TEXT NOT NULL,
+        latency_sum_ns INTEGER NOT NULL CHECK(latency_sum_ns BETWEEN 0 AND 9223372036854775807),
+        latency_count INTEGER NOT NULL CHECK(latency_count BETWEEN 0 AND 9223372036854775807),
+        missing_start_count INTEGER NOT NULL CHECK(missing_start_count>=0),
+        domain_mismatch_count INTEGER NOT NULL CHECK(domain_mismatch_count>=0),
+        invalid_ticks_count INTEGER NOT NULL CHECK(invalid_ticks_count>=0),
+        terminal_before_start_count INTEGER NOT NULL CHECK(terminal_before_start_count>=0),
+        PRIMARY KEY(stream_id,peer_id,day_utc))""",
+    "CREATE INDEX IF NOT EXISTS idx_session_latency_peer_day ON bridge_session_latency_daily(peer_id,day_utc DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_session_latency_day ON bridge_session_latency_daily(day_utc)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_be_session_call_once ON bridge_evidence(delivery_id) WHERE kind='session_call'",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_be_session_telemetry_once ON bridge_evidence(delivery_id) WHERE kind='session_telemetry'",
     "CREATE INDEX IF NOT EXISTS idx_be_peer_call ON bridge_evidence(peer_id,seq DESC) WHERE kind='session_call'",
@@ -87,6 +99,38 @@ def terminal_timing(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqli
             elapsed = end_tick - start_tick
     return {"schema_version": 1, "clock_domain": end_domain, "terminal_monotonic_ns": end_tick,
             "elapsed_ns": elapsed, "latency_reason": reason}
+
+
+def record_latency(conn: sqlite3.Connection, stream_id: str, peer_id: str, observed_at: float,
+                   timing: Mapping[str, Any]) -> None:
+    """Maintain a bounded 30-day UTC scope projection inside the terminal transaction."""
+    day = datetime.fromtimestamp(observed_at, timezone.utc).date()
+    cutoff = (day - timedelta(days=29)).isoformat()
+    day_text = day.isoformat()
+    elapsed, reason = timing.get("elapsed_ns"), timing.get("latency_reason")
+    if reason is None and not _valid_tick(elapsed):
+        reason = "invalid_ticks"
+        elapsed = None
+    reason_columns = {
+        "missing_start": "missing_start_count", "domain_mismatch": "domain_mismatch_count",
+        "invalid_ticks": "invalid_ticks_count", "terminal_before_start": "terminal_before_start_count",
+    }
+    if reason is not None and reason not in reason_columns:
+        reason = "invalid_ticks"
+    conn.execute(
+        "INSERT INTO bridge_session_latency_daily(stream_id,peer_id,day_utc,latency_sum_ns,latency_count,"
+        "missing_start_count,domain_mismatch_count,invalid_ticks_count,terminal_before_start_count) "
+        "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(stream_id,peer_id,day_utc) DO UPDATE SET "
+        "latency_sum_ns=latency_sum_ns+excluded.latency_sum_ns,latency_count=latency_count+excluded.latency_count,"
+        "missing_start_count=missing_start_count+excluded.missing_start_count,"
+        "domain_mismatch_count=domain_mismatch_count+excluded.domain_mismatch_count,"
+        "invalid_ticks_count=invalid_ticks_count+excluded.invalid_ticks_count,"
+        "terminal_before_start_count=terminal_before_start_count+excluded.terminal_before_start_count",
+        (stream_id, peer_id, day_text, elapsed if reason is None else 0, int(reason is None),
+         int(reason == "missing_start"), int(reason == "domain_mismatch"),
+         int(reason == "invalid_ticks"), int(reason == "terminal_before_start")),
+    )
+    conn.execute("DELETE FROM bridge_session_latency_daily WHERE day_utc<?", (cutoff,))
 
 
 def _safe_binding(value: object) -> str | None:

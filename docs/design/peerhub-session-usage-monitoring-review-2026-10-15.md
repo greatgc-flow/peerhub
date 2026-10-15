@@ -1810,10 +1810,16 @@ covered by the tests above remains out of the first implementation slice.
   GREEN for a normal same-process sample and four invalid-clock cases. The
   implementation adds `session_call` detail v2 with timing sub-schema v1 and
   append-only terminal timing sub-schema v1; provider telemetry remains v3.
-  Focused receipt/refusal regression tests passed (118 tests), and pyright is
-  clean. Scope/day latency counters, strict receipt validation, and read-model
-  exposure remain pending; this is not a completed monitoring feature.
+  A writer-maintained UTC daily projection now stores integer sum/count and
+  the four disjoint latency reasons, pruned to a 30-day per-scope window in
+  the same terminal transaction. Tests cover valid, invalid, missing-start,
+  UTC-day split, daily accumulation, retention, and rollback cases. Focused
+  receipt/refusal regression tests passed (125 tests before the daily
+  projection additions); pyright is clean. Backfill completeness, strict
+  receipt validation, and read-model/CLI exposure remain pending; this is not
+  a completed monitoring feature.
 - CI follow-up: docs-only Windows selection now also bypasses Windows Python
   setup and dependency installation after suite selection; its RED assertion
   and focused GREEN check pass. This optimization was added after CI run
-  `38734981452`; the next pushed revision must validate it on GitHub.
+  `38734981452`; revision `23e6761d` validates it on GitHub in run
+  `38736206373`, which is currently in progress.

@@ -209,6 +209,9 @@ def test_session_timing_uses_process_monotonic_clock(tmp_path, monkeypatch):
     assert start_timing == {"schema_version": 1, "clock_domain": "process-a", "started_monotonic_ns": 1_000_000}
     assert terminal_timing["elapsed_ns"] == 1_011_345_678
     assert terminal_timing["latency_reason"] is None
+    assert sql(h, "SELECT latency_sum_ns,latency_count,missing_start_count,domain_mismatch_count,invalid_ticks_count,terminal_before_start_count FROM bridge_session_latency_daily") == [
+        (1_011_345_678, 1, 0, 0, 0, 0)
+    ]
 
 
 @pytest.mark.parametrize(("start_tick", "end_tick", "change_domain", "reason"), [
@@ -235,6 +238,66 @@ def test_session_timing_refuses_invalid_clock_pairs(tmp_path, monkeypatch, start
     timing = json.loads(terminal)["peerhub_timing"]
     assert timing["elapsed_ns"] is None
     assert timing["latency_reason"] == reason
+    counters = sql(h, "SELECT latency_sum_ns,latency_count,missing_start_count,domain_mismatch_count,invalid_ticks_count,terminal_before_start_count FROM bridge_session_latency_daily")[0]
+    assert counters[0:2] == (0, 0)
+    assert counters[{"missing_start": 2, "domain_mismatch": 3, "invalid_ticks": 4, "terminal_before_start": 5}[reason]] == 1
+
+
+def test_terminal_without_session_call_records_missing_start_without_latency(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    (record,) = bseed(h)
+    monkeypatch.setattr(session_receipts, "monotonic_ns", lambda: 100)
+    token = h.acquire_claim("b", "s", h.bridge.owner_id)
+    delivery_id = h.bridge.begin_attempt(token, record)
+    h.bridge.transition(token, delivery_id, "STARTED", "started")
+    h.bridge.finalize_terminal(token, {"response": "ok"}, delivery_id)
+    timing = json.loads(sql(h, "SELECT detail FROM bridge_evidence WHERE kind='terminal'", ())[0][0])["peerhub_timing"]
+    assert timing["elapsed_ns"] is None and timing["latency_reason"] == "missing_start"
+    assert sql(h, "SELECT latency_sum_ns,latency_count,missing_start_count FROM bridge_session_latency_daily") == [(0, 0, 1)]
+
+
+def test_session_latency_projection_retains_only_thirty_utc_days(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    ticks = iter([1, 2, 3, 5])
+    monkeypatch.setattr(session_receipts, "monotonic_ns", lambda: next(ticks))
+    h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    first_day = sql(h, "SELECT day_utc FROM bridge_session_latency_daily")[0][0]
+    with h.cs.transaction() as conn:
+        conn.execute("INSERT INTO bridge_session_latency_daily VALUES ('idle-stream','idle-peer','1969-01-01',7,1,0,0,0,0)")
+    h.clock.advance(31 * 24 * 60 * 60)
+    add(h, "next-day-window")
+    h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    rows = sql(h, "SELECT day_utc,latency_count FROM bridge_session_latency_daily")
+    assert len(rows) == 1 and rows[0][1] == 1
+    assert first_day != rows[0][0]
+
+
+def test_session_latency_projection_splits_utc_days(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    ticks = iter([10, 20, 30, 50])
+    monkeypatch.setattr(session_receipts, "monotonic_ns", lambda: next(ticks))
+    h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    first_day = sql(h, "SELECT day_utc FROM bridge_session_latency_daily")[0][0]
+    h.clock.advance(24 * 60 * 60)
+    add(h, "tomorrow")
+    h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    rows = sql(h, "SELECT day_utc,latency_sum_ns,latency_count FROM bridge_session_latency_daily ORDER BY day_utc")
+    assert len(rows) == 2
+    assert rows[0] == (first_day, 10, 1)
+    assert rows[1][1:] == (20, 1)
+
+
+def test_session_latency_projection_accumulates_samples_within_scope_day(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    ticks = iter([10, 20, 30, 50])
+    monkeypatch.setattr(session_receipts, "monotonic_ns", lambda: next(ticks))
+    h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    add(h, "same-day-second")
+    h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    assert sql(h, "SELECT latency_sum_ns,latency_count FROM bridge_session_latency_daily") == [(30, 2)]
 
 
 def test_stale_owner_cannot_mutate_registry_or_receipts(tmp_path):
@@ -580,6 +643,7 @@ def test_terminal_rolls_back_when_telemetry_projection_row_is_missing(tmp_path):
 
     assert sql(h, "SELECT certainty,result_json FROM bridge_deliveries") == [("STARTED", None)]
     assert sql(h, "SELECT COUNT(*) FROM bridge_evidence WHERE kind IN ('terminal','session_telemetry')") == [(0,)]
+    assert sql(h, "SELECT COUNT(*) FROM bridge_session_latency_daily") == [(0,)]
     assert sql(h, "SELECT vendor_session_id,context_watermark FROM bridge_session_history") == [(None, None)]
     assert sql(h, "SELECT COUNT(*) FROM records WHERE kind='response'") == [(0,)]
 

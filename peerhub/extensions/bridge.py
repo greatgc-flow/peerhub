@@ -529,6 +529,9 @@ class Bridge:
         if to == TERMINAL and kind == "terminal":
             detail["peerhub_timing"] = session_receipts.terminal_timing(conn, row)
         self._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, to, **detail)
+        if to == TERMINAL and kind == "terminal":
+            session_receipts.record_latency(conn, row["stream_id"], row["peer_id"], self.claims.now(),
+                                            detail["peerhub_timing"])
         if to == STARTED:
             session_receipts.call(conn, row, self.claims.now())
         if to == MAY_HAVE_STARTED:
