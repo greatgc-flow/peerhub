@@ -1243,16 +1243,20 @@ process reuse based only on monitoring tests.
 | 1 — AG stream parser contract | Commit `6fd3daff`: bounded allowlist parser, sanitized golden fixture, duplicate-key rejection, fail-closed ordering/state/size checks. | Parser, adjacent adapter, and architecture set: 57 passed; pyright: 0 errors. CX, CC, and AG unanimously approved the final diff. |
 | 2 — Telemetry receipt v2 scaffold | Commit `a2c7c748`: extends the existing unique `session_telemetry` receipt with version, provider/adapter provenance, sanitized binding, and explicit unknown usage/step coverage. Generic result usage is deliberately not promoted. | Targeted adapter/receipt/bridge set: 135 passed; retained-session/adapter subset: 79 passed; pyright: 0 errors. CX, CC, and AG approved. |
 | 3 — PH-T082 projection atomicity | Commit `7649cd1a`: terminal telemetry persistence fails and rolls back if its stats projection is missing; registry initialization reconstructs missing projection rows from durable evidence and leaves unprovable historical counts unknown. | Retained-session tests: 37 passed; pyright: 0 errors; architecture gate: 4 passed. CX, CC, and AG approved. |
+| 4 — A1–A4 receipt semantics and bounded rebuild | Commit `3d59c6ff`: schema-v3 configured/resolved model separation; shared provider-native usage normalization; terminal-delivery usage-coverage aggregate; and indexed per-scope historical projection rebuild. No extension-version runner or parallel telemetry ledger was added. | Tests-only RED preceded implementation. Focused Windows set: 107 passed; pyright: 0 errors; architecture/M2-M3 gates and 5k-session/50k-delivery query plan pass. CC and AG approved the final summary and A3 edge correction. CX unanimously approved the design and schema-v3 choice; full-diff review failed repeatedly with the Codex MCP adapter's `AuthRequired` OAuth error. Draft PR #103 CI run `38722958886` is in progress. |
 
-Slice 2 is intentionally scaffolding: provider-native telemetry fixtures,
-validated usage normalization, and step transport have not been implemented.
-Until those later slices pass their contracts, usage and step coverage remain
-`UNKNOWN` with `not_captured`; current context remains explicitly unknown.
+Slice 4 now persists allowlisted provider usage using a shared normalizer and
+reports terminal-delivery receipt coverage. Provider usage remains
+session-cumulative/unattributed where documented; step transport and context
+occupancy/window are still `UNKNOWN` until their adapter contracts are proven.
+Schema-v2 receipts remain immutable and readers must branch by schema version.
 
-Remaining approved slices are: provider receipt fixtures and semantics
-(USM-13/15/15a/15b/16/17/18/19a/22), provider telemetry transport and live
-adapter boundaries (USM-26/28/29/31–34), projection consistency/rebuild
-(USM-14/19), bounded monitor read model/output (USM-01–08/20–24/35), group
-preferences and CLI (USM-09–12/25), followed by the separate persistent-process
-experiment gate (USM-30). No new adapter default or persistent process reuse
-has been enabled.
+Remaining approved slices are: broad bounded monitor group reader/output and
+complete coverage projections (USM-01–08/14/19–24/35); group catalog,
+selection/default preferences and CLI rendering (USM-09–12/25); validated
+step transport and context-window/occupancy adapters with live exception
+gates (USM-15a/15b/26–34); GitHub required-status configuration and full PR
+CI; followed by the separate persistent-process experiment gate (USM-30).
+No new adapter default or persistent process reuse has been enabled. Draft
+PR #103 exists to run the full repository CI; do not merge or release it as
+the completed monitoring feature until these remaining slices are done.
