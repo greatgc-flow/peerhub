@@ -1,9 +1,8 @@
 # Peer CLI option audit (2026-10-15)
 
-Status: source/help audit and pre-TDD recommendations. No provider prompt was
-sent and no runtime option behavior beyond local `--help` / `--version` was
-canaried. This is not a request to change adapter argv before its contracts
-and live canary matrix are ready.
+Status: source/help audit plus bounded live canaries; recommendations are
+pre-TDD. Production adapter argv is unchanged. Provider behavior findings are
+dated, machine-specific observations and not guaranteed performance claims.
 
 ## Evidence and current commands
 
@@ -104,15 +103,39 @@ Provider flags must not create competing owners for those policies.
   confine filesystem access. It may be tested as defense in depth if the
   terminal restriction is acceptable, but OS-level workspace confinement and
   explicit permission mode remain separate requirements.
-- **Promising but larger follow-up: stream-json input/output.** Installed help
-  says `--input-format stream-json` accepts one NDJSON message per line and
-  requires `--output-format stream-json`. This could remove the Windows
-  command-line prompt ceiling and enable progress/step telemetry. Current
-  PeerHub instead places the prompt in argv (30,000 UTF-8 bytes on Windows),
-  expects one flat JSON result, and treats malformed/partial output
-  conservatively. A migration needs a typed event allowlist, redaction,
-  session-ID conflict checks, byte bounds, and a compatibility matrix; do not
-  merely flip the output flag.
+- **Promote to a high-priority TDD prototype: stream-json input/output.**
+  Installed help and official headless docs say `--input-format stream-json`
+  accepts one NDJSON message per line and requires `--output-format
+  stream-json`. In direct live probes, both a two-turn CC process and a
+  two-turn AG process returned two successful results and recalled a unique
+  marker from turn one. This could remove AG's Windows command-line prompt
+  ceiling, expose safe progress/step usage, and avoid repeated process startup
+  when the same retained session has consecutive deliveries. Current PeerHub
+  instead places AG's prompt in argv (30,000 UTF-8 bytes on Windows), expects
+  one flat JSON result, and treats malformed/partial output conservatively.
+  A transport change needs typed event allowlists, redaction, session-ID
+  conflict checks, byte bounds, per-turn result framing, and a compatibility
+  matrix; do not merely flip the output flag.
+- **Observed startup signal, not a benchmark:** for one matched two-prompt AG
+  scenario, one streaming process took 10.41 seconds wall time. Two processes
+  with explicit `--conversation` took 19.32 seconds total (7.41 + 11.90); both
+  recalled their unique marker. For one CC scenario, one streaming process
+  took 5.47 seconds; two processes using explicit `--resume` took 9.78 seconds
+  total (5.05 + 4.73), with successful recall in both. These are single
+  sequential samples; service load, cache state, project instructions, and
+  timing noise are uncontrolled. They justify a paired repeated benchmark,
+  not a production latency claim or default change.
+- **Usage semantics measured during streaming:** AG's per-turn
+  `step_update.usage` and terminal `result.usage` are different scopes. The
+  second result's `num_turns` was 2 and result usage was cumulative across both
+  turns; its agent-response step usage was only that turn's 13,745 tokens.
+  Separate-process resume also reported cumulative `num_turns`/usage. Never
+  store AG result totals as per-delivery usage without exact baseline
+  subtraction; prefer validated per-turn step usage when the event is
+  complete, and retain source/scope/coverage. CC emitted a separate terminal
+  result for each input turn (`num_turns=1` each in this probe), with usage
+  corresponding to that result/turn. This behavior must be locked with
+  versioned fixtures before replacing current parser semantics.
 - **Do not use `--continue`.** It resumes the latest conversation implicitly;
   PeerHub already passes an exact `--conversation ID`, which preserves session
   identity and avoids wrong-session selection.
@@ -143,10 +166,11 @@ Provider flags must not create competing owners for those policies.
    process-tree cancellation, retries, byte caps, session selection, and
    output acceptance. Vendor-level controls are added only for a distinct
    verified guarantee.
-5. **No provider canary has been run in this audit.** `--version` and `--help`
-   are local measurements; they incur no model request. Option behavior,
-   latency, token/quota impact, native-resume recall, and permission behavior
-   remain unmeasured here.
+5. **Evidence has different confidence levels.** Local `--version`/`--help`
+   probes cost no quota. The public ask canary and direct plan/stream probes
+   spent quota and provide functional evidence, but not a statistically useful
+   latency estimate. Exact provider billing/quota conversion remains unknown;
+   reported token counters are not an invoice.
 
 ## Required TDD / canary before changing argv
 
@@ -163,6 +187,13 @@ Provider flags must not create competing owners for those policies.
   malformed/truncated events, retries, tool/text privacy, output caps,
   session-ID conflicts, usage scope, process cancellation, and refusal
   certainty.
+- For one-process streaming, test several sequential requests on the same
+  retained session, exact result-to-delivery association, per-peer queue
+  serialization, process lease/liveness, crash/restart fallback to explicit
+  native resume, cancellation of one active turn without losing later
+  deliveries, and no duplicate terminal commit after process reuse. Benchmark
+  matched same-profile tasks against per-delivery process launch with repeated
+  randomized A/B order and report distributions, not a single winner.
 - Record wall latency and bytes, not only model-reported duration; separate
   process startup, CLI setup, model response, tool execution, and PeerHub
   orchestration where directly measurable. Compare the same profile and task
@@ -185,7 +216,100 @@ notably, the old Claude `default` permission-mode recommendation is now stale.
 
 Current official references: [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-usage),
 [Codex CLI source](https://github.com/openai/codex/blob/main/codex-rs/exec/src/cli.rs),
-[Gemini CLI headless mode reference](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/headless.md).
-The local installed `agy` help is authoritative for `agy 1.3.5`; the Gemini
-reference is supporting lineage only and may not describe every fork/version
-behavior.
+[Antigravity CLI headless mode](https://www.antigravity.google/docs/cli/headless/),
+and [Gemini CLI headless mode](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/headless.md).
+The Antigravity documentation matches the installed `agy` product and is the
+primary source for streamed input, output, scope, and permission semantics;
+local `agy 1.3.5 --help` remains the observed version contract.
+
+## Live evidence log
+
+Append one dated record for every paid option investigation. Do not overwrite
+prior measurements when a CLI version changes. Store sanitized observations
+only: never commit prompts with user data, session IDs, raw stdout, tool
+arguments/results, authentication details, or vendor request identifiers.
+
+### 2026-10-15 / run `CLI-OPT-20261015-A`
+
+- **Environment:** local Windows workspace `D:\PkgDev\workspace\peerhub`,
+  branch `docs/peer-review-20261015`, HEAD `adab24a9` at probe start. Local
+  CLI versions: CC `2.1.299`, CX `0.162.1`, AG `1.3.5`; profiles used were
+  CC standard `claude-haiku-5-5`, AG standard `gemini-3.8-flash-low`.
+- **Existing public `peerhub ask` canary:**
+  `python -m tools.live_gate --yes --only canary`; result **12 passed, 3
+  skipped, 12 deselected** in 99.40 s. The skipped cases are the separately
+  opted-in fresh/exact four-turn selector matrix, not failures. It verifies
+  basic text+positive usage, native default resume recall, writable sentinel
+  creation, and committed-start cancellation for CC/CX/AG. Per-test wall
+  seconds (pytest measured; one sample each):
+
+  | Peer | Basic ask | Native resume recall | Writable sentinel | Cancel |
+  |---|---:|---:|---:|---:|
+  | CC | 5.458 | 10.727 | 7.676 | 1.008 |
+  | CX | 7.435 | 14.417 | 10.602 | 1.114 |
+  | AG | 9.320 | 18.180 | 11.590 | 1.151 |
+
+  These are end-to-end test-case durations, not model-only latency. The
+  scenarios differ in work; cross-peer or feature causality must not be
+  inferred. Cancellation timings include intentional early cancellation and
+  are not answer latency.
+- **Permission-mode probes:** direct CC `--permission-mode plan` and AG
+  `--mode plan` were each asked to create a uniquely named file in an ignored
+  probe directory. Both commands exited 0 with a successful text result;
+  neither created the file. The explicit `plan` option therefore worked as a
+  write-denial mode on this installation. CC's refusal response reported 403
+  output tokens; AG returned 365 response characters (the AG write-denial run
+  did not retain a separately inspected usage object). A second short,
+  no-tool prompt succeeded in each plan mode. Direct runs were launched from
+  a directory under the repository and may have inherited project
+  instructions; do not use their token counts as a clean-workspace baseline.
+  CC output usage for that short run was input 2, cached input 16,362,
+  cache-creation input 10,025, output 50; AG usage was input 12,852, cached
+  input 0, output 1, total 12,853. No speed conclusion follows from these
+  single observations.
+- **Persistent input stream, two turns each:** CC returned 7 JSON events and
+  two terminal successes in 5.47 s; the second answer recalled its marker.
+  Result usage was per-turn in these events (`num_turns=1` per result). AG
+  returned 10 JSON events and two terminal successes in 10.41 s; the second
+  answer recalled its marker; both results shared one conversation ID.
+  Per-turn step usage and cumulative result usage differed as recorded above.
+- **Separate-process explicit resume, two turns each:** CC `--resume` calls
+  took 5.05 s and 4.73 s (9.78 s total); AG `--conversation` calls took 7.41 s
+  and 11.90 s (19.32 s total). Both second turns recalled their first-turn
+  markers. AG's second result reported cumulative `num_turns=2` and cumulative
+  usage; CC's result counters remained turn-scoped in this probe. These
+  single-run comparisons support a persistent-process prototype, but do not
+  establish a stable 44–46% speedup.
+- **Limits:** provider token/quota was consumed, but these CLI results do not
+  expose authoritative subscription quota depletion or invoice cost. No CX
+  optional-flag candidate was identified or changed; CX's JSONL, explicit
+  sandbox, and exact resume passed the public ask canary. No `--output-schema`,
+  AG `--sandbox`, `--max-turns`, or settings-bypass option was enabled. This
+  evidence is local and bound to the versions above, not a release/G3 result.
+
+### 2026-10-15 / run `SESSION-SELECT-20261015-B`
+
+- **Command:** with `PEERHUB_LIVE=1` and
+  `PEERHUB_SESSION_SELECTION_LIVE=1`, ran only
+  `test_fresh_exact_four_turn_session_matrix` for CC/CX/AG.
+- **Result:** **3 passed in 121.63 s** (four asks per peer, 12 provider turns
+  total). Every peer verified initial remember, default native resume and
+  recall, explicit fresh handle/generation change, then explicit selection of
+  the original handle and recall across the other session. This closes the
+  three skips from the ordinary canary run for this separate live test; it is
+  still outside the release/G3 artifact and is not bound as release evidence.
+- **Implication:** exact retained-session selection and native provider
+  identity continuity work for these installed versions on this host. This
+  does not prove crash recovery, cross-host filesystem durability, or
+  long-lived child-process pooling.
+
+### Update procedure
+
+On each relevant provider CLI upgrade or adapter change: record local
+`--version`/`--help` and command-builder commit; check official primary docs;
+rerun the narrow option canary; append a new evidence-log entry; update the
+current recommendation and version table without deleting earlier results;
+then update linked TDD traceability. Rerun the full provider canary only when
+the change affects invocation, permissions, session resume, event framing, or
+telemetry. Keep the four-call selector matrix a distinct opt-in because it
+makes additional paid turns.

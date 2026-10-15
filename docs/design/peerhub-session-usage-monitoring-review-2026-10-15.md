@@ -19,6 +19,13 @@ receipts, plus lifetime fresh/reuse projections. The bounded read model and
 session CLI/diagnostic surfaces remain proposed; `session_receipts.py` is a
 writer projection, not a completed monitoring reader.
 
+**Current-decision correction (2026-10-15):** older paragraphs in the Oct. 13
+proposal describe the absence of a normalized durable ledger. That was accurate
+for the proposal's then-current state, but is superseded here: TDD will extend
+the existing unique `bridge_evidence.kind=session_telemetry` receipt to schema
+v2 and build bounded projections from it. The single-receipt authority remains
+unchanged; no parallel facts table is approved.
+
 ## Peer review
 
 CC and CX recommend excluding monetary cost, cross-provider token averages,
@@ -86,7 +93,7 @@ implemented:
 | Requested fact | Current evidence | Exactness limit | Safe statement today |
 |---|---|---|---|
 | Current context occupancy and context-window size | Terminal `session_telemetry` receipts are written with null token/window/percentage values and `source=unknown` | No verified, attributable occupancy/window measurement is wired into the receipt. Record-position watermarks are not tokens. | Unknown; do not infer from billing usage. |
-| Total tokens used over a session or lifetime | Adapters parse some usage fields; results can be attached to response metadata. Bridge keeps a raw latest usage snapshot for native sessions and calculates deltas only under specific conditions. | Providers expose different field semantics; some counters are cumulative, some per-turn, some fields absent. Missing usage is not a zero. The session monitor has no normalized durable token ledger or completeness projection. | Provider-reported usage may be shown for an individual attributable delivery after validation; no exact universal cumulative total. |
+| Total tokens used over a session or lifetime | Adapters parse some usage fields; results can be attached to response metadata. Bridge keeps a raw latest usage snapshot for native sessions and calculates deltas only under specific conditions. | Providers expose different field semantics; some counters are cumulative, some per-turn, some fields absent. Missing usage is not a zero. Current v1 receipts do not yet provide the proposed normalized schema-v2 usage contract or completeness projection. | Provider-reported usage may be shown for an individual attributable delivery after validation; no exact universal cumulative total. |
 | Average tokens per turn | Same incomplete, mixed adapter reports | The denominator is unknown when some turns omit counters; cross-model/provider fields may differ. | No general average. A future bounded same-semantics sample may report coverage and a conditional average. |
 | Actual monetary/unit/average billed cost | No persisted authoritative billing amount, invoice linkage, contract tier, discount, or per-request billing evidence | CC documents a client-side estimate, and its Admin API can provide organization/time-bucketed billing evidence for eligible accounts; neither currently provides a reliable amount attributed to each PeerHub delivery across peers. Token counts alone cannot reconstruct actual charges. | Actual per-delivery billed cost is unknown. A CC estimate is a distinct possible metric and must be explicitly labeled, versioned, and scope-validated. |
 | Number of actual model inference turns inside a delivery | Bridge records confirmed deliveries/calls | A CLI delivery may include provider-internal tool/model loops that adapters do not consistently expose. One `session_call` is not necessarily one model inference. | Count confirmed Bridge calls, label them as calls/deliveries, not model turns. |
@@ -144,13 +151,53 @@ queried for this review.
 |---|---|---|---|---|
 | **CC (Claude Code)** | Current parser reads final JSONL `result.usage`: input, cache-read, cache-write, and output token fields. It combines input categories only when all required input fields exist. The configured session binding/model/effort, delivery outcome, and end-to-end duration are also locally recorded. | Agent SDK docs define usage scope, per-model `modelUsage`, and `total_cost_usd` as a client-side price-table estimate. Current resumed sessions can report cumulative session estimate; before CLI v2.1.277 resumed print/SDK totals covered only that call. SDK docs distinguish top-level `usage` (excluding subagents) from cumulative cost/model usage (including subagents). Anthropic's Admin Usage/Cost API documents organization-level, time-bucketed reports grouped/filtered by model, workspace, service tier, and API key; data is typically available within five minutes. | Confirm installed `claude` version and exact `claude -p --output-format json` result schema. If estimate is exposed and desired, persist it separately from billed amounts, label estimate basis/version, and derive delivery deltas only from validated session baselines. Add a context-window source only if a documented, versioned output field is verified. Org API integration would need explicit credentials, scope, refresh/caching, and must stay outside read-only monitor snapshots. | Actual invoice amount per PeerHub delivery/session; provider quota/spend attributable to one session; exact model/backend for every hidden subagent or internal turn; current exact context occupancy unless returned by a verified runtime field; inference-only latency. |
 | **CX (Codex CLI)** | Current parser reads `turn.completed.usage` fields (input, cached input, cache-write input, output). On resumed threads these are raw cumulative counters; Bridge stores a baseline and derives a delta only if the values remain monotonic. Binding, outcomes, and end-to-end duration are local. | Upstream CLI exporter source shows the completion event is populated from its latest total-token snapshot. The distinct app-server schema exposes `last`, `total`, and nullable `modelContextWindow`. | Pin/test the installed Codex version and raw event fixtures. To capture context size and provider-reported last-turn usage, adopt a supported app-server telemetry path or wait for the exec event to expose equivalent fields; add protocol lifecycle and privacy tests. Do not read vendor databases. | Exact context occupancy/window through the current exec adapter; invoice-level USD cost for a CLI delivery; provider-resolved backend/model actually serving every internal turn; exact model-only latency; session-level quota allocation. |
-| **AG (Antigravity CLI)** | Current parser reads one JSON result's input, cache-read, and output usage fields. `--conversation` binding, delivery outcome, and end-to-end duration are local. The parser does not currently persist AG-reported thinking/total token fields as normalized usage. | Official headless docs enumerate result usage (input/output/thinking/cache-read/total), `duration_seconds`, and `num_turns`. Stream-json exposes per-step usage/duration. In a continuous stream-input process, each step's usage/duration is per-step, while result counters, turns, and duration are cumulative over the session. No result cost field is documented. | Decide and test a narrow `--conversation` resume case to establish counter scope across separate processes before computing delivery deltas. If step metrics are needed, add an allowlist stream parser and persist only safe numeric fields; omit response fragments, tool inputs/outputs, subagent identifiers, and raw stream records. Validate actual binary version/output. | Whether result counters are cumulative when a new process resumes via `--conversation`; actual billed cost; provider quota attributable to one session; exact model-only latency; exact provider-side context occupancy unless a supported output field is verified. |
+| **AG (Antigravity CLI)** | Current parser reads one JSON result's input, cache-read, and output usage fields. `--conversation` binding, delivery outcome, and end-to-end duration are local. The parser does not currently persist AG-reported thinking/total token fields as normalized usage. | Official headless docs enumerate result usage (input/output/thinking/cache-read/total), `duration_seconds`, and `num_turns`. Stream-json exposes per-step usage/duration. In a continuous stream-input process, each step's usage/duration is per-step, while result counters, turns, and duration are cumulative over the session. No result cost field is documented. | The 2026-10-15 live probe confirmed cumulative result usage and `num_turns` on both a single process with two inputs and a new process resumed with exact `--conversation`; the agent-response step carried per-turn usage in the stream mode. Add an allowlist stream parser and persist only safe numeric fields; omit response fragments, tool inputs/outputs, subagent identifiers, and raw stream records. Tool/subagent-heavy ask completeness remains to be validated. | Actual billed cost; provider quota attributable to one session; exact model-only latency; exact provider-side context occupancy unless a supported output field is verified. |
+
+### CLI option and paid-canary findings
+
+The installed CLI option matrix, exact probes, event/count observations, and
+update procedure live in the [Peer CLI option audit](peer-cli-option-audit-2026-10-15.md).
+These findings change the telemetry and session design as follows:
+
+- The 2026-10-15 public ask canary passed 12 tests across CC/CX/AG; 3 skips
+  were only the separately opted-in fresh/exact four-turn selector tests.
+  Basic usage, native resume recall, writable sentinel creation, and process
+  cancellation were exercised. Per-test wall times are saved in the option
+  audit but represent whole test scenarios, not model-only latency.
+- CC `--permission-mode plan` and AG `--mode plan` denied a live write request
+  in direct probes while returning normal successful text results. Treat plan
+  refusal as task-level denial, not necessarily process failure. Pin these
+  modes only after PeerHub integration tests verify read/search capability,
+  writable-mode transitions, and binding fingerprints. The legacy CC
+  `permission-mode default` spelling is no longer accepted by this installed
+  version and must not be copied into the adapter.
+- Both CC and AG accept streamed JSON user input and produce per-turn terminal
+  results in one continuous process; a small two-turn live probe confirmed
+  native conversational recall. AG terminal usage and `duration_seconds` are
+  cumulative over session turns, while the tested agent-response step reports
+  per-turn usage. Separate-process AG `--conversation` resume also returned a
+  cumulative total. Readers must not count these cumulative totals as one
+  delivery without a verified baseline or complete per-turn event ledger.
+- One paired, single-sample probe per CC/AG showed lower total wall time for
+  two turns in one process than two explicit-resume processes (CC: 5.47 s vs
+  9.78 s; AG: 10.41 s vs 19.32 s). This justifies a repeated benchmark and
+  process-reuse design spike, not a default or product speed claim. Persistent
+  child processes would change Bridge lifecycle, cancellation, per-delivery
+  terminal framing, session serialization, and crash recovery; do not include
+  them in the monitoring-table migration.
+- AG streamed input is also a candidate replacement for its 30 KB Windows
+  prompt-argument ceiling. Test it first as a per-delivery process with one
+  stdin message and a closed stdin, independently of long-lived process
+  reuse. This isolates prompt transport/output framing from process pooling.
+- Local CLI versions were CC 2.1.299, CX 0.162.1, AG 1.3.5. These are
+  environment measurements, not package compatibility policy. Exact
+  per-delivery quota depletion and invoice cost remain unknown.
 
 ### Updated classification of unknowns
 
 - **Can be settled by documentation:** AGY continuous-process cumulative result semantics; CC estimate-vs-billing distinction, subagent inclusion, and resumed-session cumulative scope/version caveat; Codex app-server availability of last/total usage and model context window.
 - **Can be made observable with PeerHub changes:** AGY per-step token/time facts via allowlisted stream parsing; CC provider-estimated cost with explicit estimate/scope/version labels and baseline handling; CX context and last-turn usage if PeerHub adopts app-server telemetry; exact all-time PeerHub error totals through writer-maintained projections.
-- **Still not knowable from public docs alone:** AGY usage scope across a fresh process resuming `--conversation`; the installed binaries' actual versions/output; exact invoice-level cost attributable to every PeerHub delivery across peers; model-inference-only latency; provider-side session validity without attempting resume; CX backend-resolved model per internal turn. These require local version/output validation, a safe empirical test, provider/account-specific evidence, or remain unavailable.
+- **Still not knowable from public docs alone:** tool/subagent-heavy AG per-turn usage completeness; whether these observed versions represent other supported machines; exact invoice-level cost attributable to every PeerHub delivery across peers; model-inference-only latency; provider-side session validity without attempting resume; CX backend-resolved model per internal turn. These require more local/versioned tests, provider/account-specific evidence, or remain unavailable.
 
 ### Maintenance rules
 
@@ -309,59 +356,88 @@ CLI selection contract:
 | Layer | Contents | Rule |
 |---|---|---|
 | Existing facts | `bridge_deliveries`, append-only `bridge_evidence`, session history/receipts, quota `observations`, activity observations | Keep current sources authoritative; preserve certainty and idempotency. |
-| Provider telemetry fact | Versioned allowlist from confirmed CLI result or safe terminal step, keyed to delivery and local session handle when known | Persist in the same fenced terminal transaction; dedupe by delivery + source event/step identity. Store provider kind, safe CLI version if available, adapter/schema version, source field, capture time, scope (`delivery`, `session_cumulative`, `step`), and numeric/enum values. No raw payloads or opaque IDs. |
+| Provider telemetry fact | Versioned allowlist from confirmed CLI result or safe terminal step, keyed to a Bridge delivery and local session handle when known | Extend the existing unique `bridge_evidence.kind=session_telemetry` receipt. Persist in the same fenced terminal transaction; dedupe by delivery and deterministic local step identity. Store provider kind, safe CLI version if available, adapter/schema version, source field, capture time, scope (`delivery`, `session_cumulative`, `step`), and numeric/enum values. No raw payloads or opaque IDs. |
 | Coverage projection | By peer/provider/model/profile/window: eligible, measured, missing, unsupported, reset/non-monotonic counts; outcome counts; latest sequence and coverage start | Update transactionally with facts; legacy backfill declares exact coverage or incomplete. Never recount full history in monitor. |
 | Usage/health rollups | Bounded-window or calendar-bucket sums/counts and latency distribution inputs for attributable facts | Writer-maintained, idempotent, with denominator and semantics version. Never aggregate across incomparable providers/models/fields. Percentiles name the bounded sample or approximation. |
 | Monitor preferences | Selected default group IDs only | TOML config, not Core DB; no secrets or provider-state values. |
 
-Physical schema is **not yet ratified**. The working candidate is an
-append-only Bridge-owned `bridge_telemetry_facts` table with one row per
-delivery result and zero or more keyed safe step facts. Before TDD, compare
-this against extending `bridge_evidence` with a typed event kind and bounded
-versioned detail contract. The current `bridge_evidence` is append-only and
-already indexed by delivery/stream/kind, but its generic `detail` column has
-no telemetry-specific schema or fact-key uniqueness. Reuse it only if a
-schema-versioned validator, uniqueness rule, indexed query path, and bounded
-projection inputs can be added without weakening existing evidence
-invariants. Do not store the same provider measurement in both stores. Pick
-one authoritative ledger and derive projections from it. The legacy branch's
-separate typed evidence/projection pattern is precedent for separation of
-measurement and read model, not proof that a second current table is needed.
+Physical schema decision for TDD: extend the existing append-only
+`bridge_evidence.kind=session_telemetry` receipt. The accepted Oct. 13 PH-T091
+contract already provides one immutable telemetry receipt per delivery and a
+unique partial index; adding a second measurement ledger would contradict that
+authority and duplicate delivery metadata. Keep `bridge_deliveries.result_json`
+and response metadata as immutable API/replay snapshots, not as dashboard
+sources. Monitoring reads the typed receipt and writer-maintained projections;
+no new `bridge_telemetry_facts` table is added.
 
-If the dedicated-table candidate wins, proposed columns are: `fact_seq` primary key,
-`delivery_id`, `stream_id`, `peer_id`, nullable local `session_handle`,
-`provider_kind`, `fact_kind` (`delivery_usage`, `provider_result`,
-`provider_step`), nullable `step_key`, `captured_at_us`, `source`,
-`metric_scope`, `peerhub_version`, `adapter_version`, `provider_cli_version`,
-`configured_profile`, `configured_model`, `configured_effort`, `schema_version`,
-`reported_json`, and `normalized_json`. Unique keys are
-`(delivery_id, fact_kind, step_key)` with a normalized empty step key for the
-single delivery result. Add indexes for `(peer_id, fact_seq DESC)`,
-`(session_handle, fact_seq DESC)`, and `(delivery_id, fact_seq)`; do not put
-high-cardinality model/profile values first in the write path's indexes.
-`reported_json` contains only provider-native allowlisted scalars/enums;
-`normalized_json` contains mapped field names and explicit semantics. Both are
-schema-validated, bounded to 8 KiB per row, and immutable. Cap captured step
-facts at 512 per delivery; if a provider exceeds the cap, preserve the delivery
-result and mark step coverage truncated with the dropped count when known.
-Repeated ACTIVE/DONE updates collapse to the terminal event for the same local
-step key. Never store raw lines, responses, or opaque event IDs. The existing terminal receipt remains
-authoritative for execution certainty; telemetry facts reference its delivery
-and are inserted in the same fenced transaction. A delivery fact is unique,
-and a step fact uses a deterministic local step key (event type + step index),
-not a provider conversation ID. A writer-owned rollup table keyed by peer,
-provider/configuration, and UTC day is added only for dashboard aggregates
-required by tests. Its counts, sums, missing counts, and semantics version
-must be rebuildable/auditable from facts. Do not create an unversioned copy of
-provider output in `bridge_evidence.detail`.
+Version the JSON detail contract (`schema_version=2`) and validate it in the
+Bridge writer. Preserve the existing session/context fields and add provider
+identity, source kind, adapter/CLI/schema versions, capture time, configured
+binding, metric scope, provider-native allowlisted counters, normalized
+counters/formula version, and explicit per-field evidence/coverage states.
+When stream events are enabled, embed a bounded list of per-delivery safe
+numeric step summaries keyed by deterministic local `step_index`/step type;
+collapse repeated ACTIVE/DONE updates to one terminal step. Cap at 512 steps
+and 64 KiB per receipt; on overflow preserve terminal result and delivery
+usage, mark step coverage truncated, and include dropped count when known.
+Never store raw lines, response fragments, tool inputs/outputs, subagent
+payloads, opaque provider event/session IDs, or secrets. Missing usage remains
+explicitly unknown. Existing `idx_be_session_telemetry_once(delivery_id)`
+enforces one authoritative receipt; session facts and any writer projection
+update in the same fenced terminal transaction. Projections are rebuildable
+from these receipts and carry denominator/semantics version. Add only
+projection tables required by bounded monitor queries; never recount all
+evidence on monitor reads.
 
-This table is a structured allowlisted measurement ledger; the terminal
-receipt remains the Bridge outcome ledger. They are distinct evidence roles,
-not competing authorities. Reuse CoreStore's schema-version/migration path,
-Bridge writer ownership, read-only diagnostics, and core DB backup. Never read
-vendor DBs. If migration cost or write amplification disproves this table
-design, retain this contract and select an equally queryable typed alternative
-before TDD rather than falling back to raw JSON scans.
+Canonical v2 detail shape (illustrative keys; no raw event object):
+
+```json
+{
+  "schema_version": 2,
+  "handle": "local-session-handle",
+  "generation": 3,
+  "observed_at": 1792047600.0,
+  "last_input_tokens": null,
+  "context_window": null,
+  "context_pct": null,
+  "source": "unknown",
+  "window_reported_at": null,
+  "model": "configured-model",
+  "provider_kind": "ag",
+  "captured_at": 1792047600.0,
+  "adapter_version": "2",
+  "provider_cli_version": "1.3.5",
+  "configured_binding": {"profile": "ag.standard", "model": "gemini-3.8-flash-low", "effort": null},
+  "usage": {
+    "scope": "delivery",
+    "source": "agy.result.usage",
+    "reported": {"input_tokens": 12861, "output_tokens": 1, "total_tokens": 12862},
+    "normalized": {"provider_input_tokens": 12861, "output_tokens": 1},
+    "field_evidence": {
+      "provider_input_tokens": {"state": "MEASURED", "scope": "delivery", "formula_version": null},
+      "cache_read_tokens": {"state": "ABSENT", "scope": "delivery", "formula_version": null}
+    },
+    "coverage": {"state": "MEASURED", "reason": null}
+  },
+  "steps": [],
+  "step_coverage": {"state": "ABSENT", "measured": 0, "dropped": 0}
+}
+```
+
+In this example AG `total_tokens` and `num_turns` are preserved in the native
+reported map, while the public per-delivery projection is not inferred from a
+cumulative result unless the baseline/step contract validates it. The `source`
+and state vocabulary must use the current adapter/source identity and
+`Observation` semantics; the sample values are synthetic and are not a claim
+that context was measured. Existing receipt consumers remain backward
+compatible with v1 detail; v2 fields are additive and unknown fields are
+rejected by the new writer validator.
+
+The delivery receipt is the immutable measured fact and indexed Bridge-owned
+telemetry authority; health assessments and monitor aggregates remain derived
+layers. Reuse CoreStore's existing schema-version/migration path and Bridge
+writer ownership. Never read vendor DBs. No provider metric is dual-written
+to a second evidence table or copied into generic terminal evidence details.
 
 Initial provider field allowlists:
 
@@ -440,10 +516,11 @@ as follows:
 - Group selection affects rendering only. It does not alter acquisition,
   retention, or collection cadence.
 
-No live provider calls or CX cross-review were used for this cross-check.
-Existing documented AG/CC peer positions were considered; this environment
-does not expose AG/CC review terminals, so this is source-backed reconciliation,
-not a new unanimous peer vote.
+The initial document cross-check was source-backed and did not use live
+provider calls. The follow-up paid probes and their precise scope are recorded
+in the linked CLI option audit. No CX cross-review was used. Existing
+documented AG/CC positions were considered, but this environment does not
+expose AG/CC review terminals, so this is not a new unanimous peer vote.
 
 ### Legacy-branch research reconciliation
 
@@ -498,7 +575,8 @@ do not reintroduce legacy private-state collectors.
 
 ### TDD entry gate
 
-Before implementation, close the physical-schema decision and prepare
+The physical-schema decision is closed by this addendum: reuse the current
+unique receipt and extend its versioned detail. Before implementation, prepare
 version-tagged golden fixtures from documented schemas and locally observed
 CLI output. Fixtures use synthetic IDs and secret sentinels. Provider tests
 stay opt-in and disclose token/quota risk; deterministic tests never spawn
@@ -544,10 +622,14 @@ provider CLIs or access the network. Add these contracts to existing USM-01–08
 - **USM-19 — Projection consistency:** facts update rollups exactly once in
   the same transaction; explicit audit catches drift; monitor never recounts
   all history.
-- **USM-19a — Physical-ledger choice:** compare a typed `bridge_evidence`
-  event against a dedicated facts table for migration safety, uniqueness,
-  query/index bounds, immutability, and projection rebuildability. Exactly
-  one authoritative measurement ledger is selected; no dual writes.
+- **USM-19a — Receipt schema/immutability:** extend the existing
+  `session_telemetry` detail with schema v2 under the current unique
+  delivery-receipt index; a repeated terminal callback cannot create another
+  receipt or mutate the first. No parallel provider-facts table or duplicate
+  evidence kind exists. Replay `result_json`/response metadata remains
+  immutable API output and is not queried as the monitor ledger. Migration
+  rollback preserves the prior user-version and all evidence if DDL/backfill
+  fails.
 - **USM-20 — Improvement cohorts:** versions, provider, binding, and coverage
   differences remain visible and cannot masquerade as regressions.
 - **USM-21 — Bounded all-groups view:** large stores stay within page/window
@@ -561,13 +643,98 @@ provider CLIs or access the network. Add these contracts to existing USM-01–08
   separate; no cross-provider token or cost averages appear.
 - **USM-25 — Preference/backup safety:** config stores group IDs only; backup
   behavior for the new preference is explicit; no secrets/account/path data.
+- **USM-26 — Provider option matrix:** argv snapshots assert current and
+  proposed commands for each peer, read-only/writable, fresh/resume, model,
+  effort, OS, and supported CLI versions. The retired CC `default` permission
+  mode and unsafe/bypass flags cannot reappear unnoticed.
+- **USM-27 — Read-only plan modes:** CC/AG plan invocations can read a known
+  workspace fixture, cannot create or modify a sentinel, preserve output
+  parsing and resume recall, and are distinguished from task-level denial
+  even when CLI exit is zero. Writable sentinel tests still pass. Mode is in
+  the session binding/fingerprint and mode changes cannot silently resume.
+- **USM-28 — AG stdin stream transport:** one JSON user message through
+  `--input-format stream-json --output-format stream-json` has one associated
+  terminal result, correct conversation ID and session receipt, bounded line
+  sizes, and canonical response/usage decoding. Malformed/truncated input or
+  output remains uncertain as specified by the delivery certainty contract.
+  Prompts over the current Windows argv limit pass through stdin without
+  leaking raw prompt text to telemetry/logs. This can ship independently from
+  persistent child processes.
+- **USM-29 — Stream usage scope:** CC results are attributed to the current
+  input turn; AG `step_update` facts are validated as per-step and AG terminal
+  result counters as session-cumulative on continuous and resumed sessions.
+  Duplicate ACTIVE/DONE events, multiple agent responses, tools/subagents,
+  omitted usage, reset, retry, and model-switch fixtures cannot double-count
+  or invent complete ask usage.
+- **USM-30 — Persistent-process experiment gate:** before implementing process
+  reuse, run at least 20 randomized matched pairs per peer/profile; require
+  at least 15% lower median end-to-end time with a paired confidence interval
+  excluding zero, no p95 regression over 5%, and no more than 5% higher
+  attributable token usage. These are proposed go/no-go thresholds, not
+  observed optima. Process lease/serialization, crash-to-explicit-resume,
+  cancellation, per-delivery commit, and replay/idempotency tests must all pass
+  before enabling reuse; otherwise keep one child per ask.
+- **USM-31 — Evidence freshness:** all live probe entries include exact local
+  CLI versions, profile/model, invocation mode, request count, wall-time
+  definition, results, skips/failures, and measurement caveats. Raw prompts,
+  outputs, paths, session/vendor IDs, credentials, and request IDs never enter
+  committed evidence. A new CLI version appends a new run without overwriting
+  prior results.
 
-After contracts and migration/index/query budgets are reviewed, implement in
-this order: (1) field semantics and fixtures, (2) safe durable telemetry facts,
-(3) writer projections and completeness, (4) bounded group reader/JSON, (5)
-text rendering and preferences, (6) performance and comparison validation.
-Each slice updates command inventory, schemas, evidence register, and release
-notes together.
+After the contracts and migration/index/query budgets are reviewed, implement
+in this order: (1) versioned field semantics and golden fixtures, (2) selected
+typed telemetry ledger and atomic writes, (3) writer projections and exact
+coverage, (4) bounded group reader/JSON, (5) text rendering and preferences,
+(6) performance/plan-mode validation, and (7) a separate AG stdin transport
+slice. Persistent CC/AG child-process pooling stays behind USM-30 and is not a
+prerequisite for complete monitoring. Each slice updates command inventory,
+schemas, evidence register, and release notes together.
+
+### TDD handoff status (2026-10-15)
+
+**Design is ready for TDD; implementation has not started.** The open design
+questions material to this slice are resolved: one receipt authority, v2
+allowlist and size bounds, provider-specific counter semantics, group and
+preference behavior, bounded read/projection rules, and CLI options to retain
+or defer. The live evidence is version-bound and linked below; it supports
+adapter contract choices but is not release qualification or statistical
+performance proof. No code, migration, or provider default has been changed by
+this design pass.
+
+Start RED in this order, keeping each slice independently reviewable:
+
+1. **Receipt contract:** USM-13, USM-15/15a/15b, USM-16/17/18, and USM-19a.
+   Add synthetic CC/CX/AG golden fixtures first. Assert exact native fields,
+   scope, null/unknown behavior, secret rejection, deterministic step
+   collapsing, byte/step caps, immutable one-receipt uniqueness, migration
+   rollback, and counter-baseline validity. Do not depend on a live CLI.
+2. **Write atomicity and projections:** USM-14, USM-19, and USM-22. Exercise
+   Bridge terminal transaction/fencing, retry/replay, projection idempotency,
+   incomplete legacy backfill, and an audit/rebuild oracle. Keep the existing
+   delivery/result snapshot contract unchanged.
+3. **Read model and output:** USM-01–08, USM-20–24, and USM-21. Prove one pinned
+   snapshot, bounded query counts, explicit denominators/freshness, no N+1,
+   and no provider work. Group rendering consumes that read model rather than
+   adding another collector.
+4. **Preferences and CLI:** USM-09–12 and USM-25. Validate precedence,
+   atomic TOML writes, invalid-input fail-closed behavior, stable JSON/NDJSON,
+   and read-only `show`/`reset` behavior without DB or provider writes.
+5. **Adapter invocations and live boundary:** USM-26/27/28/29/31. First use
+   argv/parser unit fixtures, then opt-in canaries for changed invocation,
+   plan-mode, stream transport, and exact session selection. Preserve the
+   current public ask defaults until each adapter slice passes.
+6. **Performance experiment only:** USM-30 is a separate decision gate, not a
+   prerequisite to monitoring. Run randomized matched pairs in a clean
+   workspace with identical task/model/profile, capture per-turn and
+   end-to-end metrics, and apply its stated thresholds before enabling any
+   persistent process reuse. The 2026-10-15 two-turn smoke comparison is not
+   enough to pass this gate.
+
+TDD exit requires the deterministic suite and migration checks to pass, a
+reviewed trace from each USM contract to its RED test, documented query/receipt
+bounds, and updated evidence/CLI references. Only then should implementation
+proceed to the next slice. Paid probes remain explicitly opt-in and their
+request count and quota risk must be disclosed at invocation.
 
 ## Pre-TDD additions
 
