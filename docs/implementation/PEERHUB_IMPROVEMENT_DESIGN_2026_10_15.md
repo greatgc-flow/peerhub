@@ -9,19 +9,17 @@ This design takes the findings in [the cross-peer review](PEERHUB_REVIEW_2026_10
 | Order | Item | Priority / confidence | Why this order | Batch boundary |
 | ---: | --- | --- | --- | --- |
 | 1 | Explicit database selection precedence | P1, reproduced | A command can mutate a different database than the operator selected. Contract is simple and cross-command. | Small isolated CLI/config fix. |
-| 2 | Cancel during spawn-to-STARTED window | P1, serious code path; not yet reproduced | A durable `nothing_running` result can mislead the operator while work continues. Fixing it touches durable state and process ownership. | Bridge/control state-machine change, kept separate from other changes. |
-| 3 | MCP scoped reads and privileged record writes | P1 for embedded hosts that rely on registered scopes; not CLI-exposed | MCP is a library-level surface, but `register_session` documents scoped capabilities. Reads bypass those scopes and appends can emit controls. | MCP API compatibility/security change. |
+| 2 | Cancel during spawn-to-STARTED window | P1 consequence if concurrent control is supported; not yet reproduced | The code has a race window, but whether an accepted cancel can miss the registered process needs deterministic characterization. Fixing it touches durable state and process ownership. | First add a race test; only design a state change if it fails. |
+| 3 | MCP scoped reads and privileged record writes | P2, host-contract dependent; library-level, not CLI-exposed | MCP registration documents scopes, while stream reads and resource reads bypass them. Control writes need an explicit capability contract. | Clarify which host capabilities are promised, then update MCP API compatibly. |
 | 4 | Snapshot-consistent integrity audit | P2, code path confirmed | Can falsely report corruption during ordinary concurrent writes; isolated read-transaction change. | Diagnostics only. |
 | 5 | Bridge-aware stream health | P2, code path confirmed | Users can see `OK` while a subsequent ask is blocked. Requires an honest combined operational projection. | Read-only diagnostics and CLI output contract. |
 | 6 | Human output terminal-control sanitization | P2, reproduced | Stored text can forge rows or issue terminal controls. Scope is human renderers; JSON remains exact. | CLI rendering only. |
-| 7 | Monitor overrun schedule | P2, simulated | Current loop can run back-to-back after slow collection. Define fixed-rate/skipped-slot contract. | Monitoring cadence only. |
-| 8 | Per-ask ClaimStore schema DDL | P2, repeated schema churn reproduced; contention impact unmeasured | Recreates four triggers on every ask and takes a write transaction. Avoid schema writes on the hot path. | Bridge claim persistence/migration behavior. |
-| 9 | Targeted single-stream health and N+1 listing reads | P2/P3, query shapes confirmed; scale impact unmeasured | Clear query inefficiency, but size the benefit before broad optimization. | Separate diagnostics and projection optimization changes. |
-| 10 | Windows process-tree exit classification | P3, race plausible | Preserve certainty about descendants while avoiding a false failure for an exited process. | Process supervision only. |
-| 11 | Vendor session ID option-shaped values | P3, input gap confirmed | Prevent IDs such as `--last` being parsed as CLI flags. Small validation change. | Adapter validation only. |
-| 12 | Session eligibility visibility and uncertain-delivery resolution | P2/P3 design work | Important recovery/UX gap, but it requires a product contract and auditable operator intent. Do not conflate with routine fixes. | Separate design/feature proposal before implementation. |
+| 7 | Per-ask ClaimStore schema DDL | P3, repeated schema churn reproduced; user-visible cost unproven | Recreates four triggers on every ask and takes a write transaction. This is maintenance/lock hygiene; do not frame it as a runtime bottleneck without contention evidence. | Small initialization cleanup only if it preserves legacy-trigger repair. |
+| 8 | Targeted single-stream health and N+1 listing reads | P2/P3, query shapes confirmed; scale impact unmeasured | Clear query inefficiency, but size the benefit before broad optimization. | Separate diagnostics and projection optimization changes. |
+| 9 | Vendor session ID option-shaped values | P3, input gap confirmed | Prevent IDs such as `--last` being parsed as CLI flags. Small validation change. | Adapter validation only. |
+| 10 | Session eligibility visibility and uncertain-delivery resolution | P2/P3 design work | Important recovery/UX gap, but it requires a product contract and auditable operator intent. Do not conflate with routine fixes. | Separate design/feature proposal before implementation. |
 
-Items 2 and 3 should not be combined into one patch: they have different owners, contracts, and rollback criteria. Items 4–8 are individually testable and should remain independently reviewable. Performance item 9 follows correctness because the measured current store is small and no scale claim is established.
+Items 2 and 3 should not be combined into one patch: they have different owners, contracts, and rollback criteria. Item 2 is characterization first, not an approved state-machine rewrite. Items 4–7 are individually testable and should remain independently reviewable. Performance item 8 follows correctness because the measured current store is small and no scale claim is established.
 
 ## TDD-ready contracts and test specifications
 
@@ -37,7 +35,7 @@ Items 2 and 3 should not be combined into one patch: they have different owners,
 - `test_env_db_used_when_cli_db_omitted`: preserve environment behavior when no CLI option was supplied.
 - `test_empty_peerhub_db_is_rejected_or_treated_as_unset`: never interpret an empty environment value as the current directory or an unintended database.
 - `test_workspace_discovery_used_only_when_cli_and_env_absent`: preserve nearest-store behavior.
-- `test_explicit_db_and_workspace_relative_paths_have_stable_precedence`: cover `--workspace`, relative paths, symlink/case-normalized paths on Windows, and ensure store provenance matches the actual selected file.
+- `test_explicit_db_and_workspace_precedence_matches_documented_contract`: cover the documented `ask --workspace` interaction and ensure store provenance matches the selected file. Do not add path alias/symlink matrices unless canonical path identity is an explicit supported contract.
 - Cover CLI JSON and human error output and all entry points sharing store selection (`ask`, core mutation, monitor/diagnostics). Avoid duplicate tests where one command-level test plus the common selector contract proves propagation.
 
 **Design seam:** argparse must preserve whether the option was supplied. A default string equal to `DEFAULT_DB_PATH` cannot distinguish omitted from explicitly supplied default. Represent omission separately (for example `None` plus resolved default) and keep explicit source/provenance in `StoreSelection`. Update the documented precedence and current test that intentionally encodes environment-over-explicit precedence.
@@ -61,14 +59,14 @@ CC's independent review recommends a deterministic hook after the invocation gat
 
 ### 3. MCP sessions, read scope, and privileged writes
 
-**Contract decision required:** clarify whether `register_session(... allowed_streams=...)` is an access-control boundary or only an append constraint. This design assumes it is a boundary. Every stream-scoped read and write must validate an active session and its stream scope. Unscoped sessions retain current broad access only if the host explicitly registers that capability. Control records (`control.cancel`, `control.pause`, `control.redirect`) require a distinct explicit capability; ordinary append capability cannot issue them. Resource listing must not disclose streams outside scope.
+**Contract decision required:** clarify whether `register_session(... allowed_streams=...)` is an access-control boundary or only an append constraint. This design treats a registered scoped session as a boundary. Every operation made on behalf of that scope must enforce it. Trusted, explicitly unbound host calls may retain current broad access if that is a documented embedding mode. Control records (`control.cancel`, `control.pause`, `control.redirect`) require a distinct explicit capability; ordinary append capability cannot issue them. Resource listing must not disclose streams outside scope. Do not require a caller-supplied `session_id` on every wire method until the host's trusted identity propagation is defined.
 
 **Test-first scenarios after the contract is approved:**
 
 - `test_scoped_session_cannot_read_other_stream_slice`: authorized stream succeeds; other stream raises `MCPSessionInvalidError`; no content is returned.
 - `test_scoped_session_cannot_read_other_stream_resource`: same for `resources/read`.
 - `test_scoped_session_resource_list_only_contains_allowed_streams`: no IDs/titles for disallowed streams.
-- `test_scoped_session_cannot_read_work_or_search_skills_without_capability`: `get_work_tree` and `search_skills` are currently sessionless too; define whether they are scoped by stream or need separate resource capabilities.
+- `test_scoped_session_cannot_read_work_or_search_skills_without_capability`: `get_work_tree` and `search_skills` are currently sessionless too; define them as separate `work.read`/`skills.search` capabilities instead of pretending `allowed_streams` scopes non-stream resources.
 - `test_missing_or_revoked_session_cannot_read_or_append`: cover each read/write port and revoked status.
 - `test_default_append_capability_rejects_control_kinds`: ordinary capability cannot append control records; explicitly authorized control capability can only issue permitted effects/targets.
 - `test_stream_scope_and_author_scope_are_both_enforced`: preserve existing append author binding and add read checks.
@@ -76,7 +74,7 @@ CC's independent review recommends a deterministic hook after the invocation gat
 
 **Compatibility note:** current `resources/read` has only a URI parameter. Decide how trusted session identity is conveyed (transport-bound context is preferred; a caller-supplied capability ID is weaker). Do not silently add a session field without updating MCP schemas, client docs, and compatibility tests.
 
-Prefer one MCP-specific `AccessScope`/capability policy called by every stream/resource/tool port. Keep its authorization facts independent of the CLI and Core model; the Core package should not learn about MCP clients. Add tests that exercise the policy through public JSON-RPC dispatch, not only direct helper calls.
+Prefer one small MCP-specific capability policy called by each protected tool/resource port. Keep its authorization facts independent of the CLI and Core model; the Core package should not learn about MCP clients. This is commonization within one ownership boundary, not a universal access layer. Add tests through public JSON-RPC dispatch once trusted caller identity reaches the handler.
 
 ### 4. Snapshot-consistent integrity audit
 
@@ -91,7 +89,7 @@ Prefer one MCP-specific `AccessScope`/capability policy called by every stream/r
 
 ### 5. Bridge-aware stream health
 
-**Contract:** preserve Core stream status (`OPEN`/`CLOSED`) separately from Bridge delivery status. Report whether a peer/stream is blocked by unresolved certainty, with the blocking delivery identity, peer, certainty, and concise resolution hint. If an unresolved delivery blocks the next ask, command status cannot be `OK`; the CLI exit code must be documented and stable. Read-only command must not reconcile, prune sessions, or mutate records.
+**Architecture constraint:** do not teach Core-only `ReadonlyDiag` to import or query Bridge internals; ARCH-004 intentionally constrains it. Add a Bridge-owned read-only health projection and let the CLI composition root combine the projections. Preserve Core stream status (`OPEN`/`CLOSED`) separately from Bridge delivery state. Report whether a peer/stream is blocked by unresolved certainty, with blocking delivery identity, peer, certainty, and concise resolution hint. If unresolved delivery blocks the next ask, combined operational status must not say `OK`; settle the exit code with the CLI contract owner. The reader must not reconcile, prune sessions, or mutate records.
 
 **Tests:**
 
@@ -101,35 +99,34 @@ Prefer one MCP-specific `AccessScope`/capability policy called by every stream/r
 - `test_stream_health_multiple_peers_identifies_only_blocked_peers`.
 - `test_stream_health_never_mutates_bridge_or_core_state`.
 - CLI tests assert human/JSON shape and exit code for healthy, degraded, missing stream, and unavailable Bridge schema.
+- Architecture tests assert Core and `ReadonlyDiag` still import no Bridge code, and composition stays at the CLI boundary. If one atomic snapshot across Core and Bridge tables is required, pass an already verified read-only connection through a narrow reader protocol; do not add a broad database service layer solely for diagnostics.
 
 ### 6. Human CLI rendering
 
-**Contract:** all values from persisted/user-controlled text are rendered as one visible line with terminal control characters escaped or replaced. Cursor metadata and row boundaries are generated only by the renderer. JSON output preserves original values via JSON escaping. Width/truncation behavior stays deterministic.
+**Contract:** all values from persisted/user-controlled text are rendered as one line with terminal controls escaped or replaced by safe visible characters/spaces. No raw controls or embedded line breaks reach the terminal. Cursor metadata and row boundaries are generated only by the renderer. JSON output preserves original values via JSON escaping. Width/truncation behavior stays deterministic.
+
+`cli.view._safe_text` already sanitizes dashboard values but importing the whole view module into the main CLI dispatcher would pull extension diagnostics into Core-only command startup. If sharing the same behavior, move only the dependency-free sanitizer into `peerhub.cli.text` and use it from both modules; do not introduce a generic formatting framework. Alternatively keep a tiny local sanitizer if the shared module would be used only once.
 
 **Tests:**
 
-- `test_page_renderer_escapes_ansi_and_c0_controls` with ESC, CR, TAB, BEL, and backspace in each displayed field.
+- `test_page_renderer_neutralizes_ansi_and_c0_controls` with ESC, CR, TAB, BEL, and backspace in each displayed field.
 - `test_page_renderer_cannot_forge_cursor_or_rows` with newline plus `next_cursor:` and table delimiters.
 - `test_page_renderer_preserves_zero_and_false_values`: `0` and `False` must not collapse to an empty cell.
+- `test_page_renderer_measures_sanitized_visible_cells`: width calculation and printed cells use the same sanitized text, so escaping/replacement cannot break table alignment.
+- `test_core_only_cli_keeps_working_without_extension_imports`: if a shared CLI text helper is added, importing it for Core list output must not import `peerhub.extensions`.
 - `test_json_output_preserves_control_characters_as_escaped_data`.
 - `test_terminal_safe_rendering_does_not_change_unicode_or_valid_spacing`.
 - Cover peer, stream, and session list/show paths; share a sanitizer only if it has no hidden terminal-width side effects.
 
-### 7. Monitor overrun schedule
+### Monitor cadence: retain the existing behavior pending a product requirement
 
-**Contract:** interval is a fixed-rate cadence anchored to monotonic time. If a cycle overruns one or more slots, skip expired slots and wait until the next future slot; never run catch-up probes back-to-back. Document that actual probe runtime can exceed interval and that missed slots are skipped.
+CX and AG correctly challenged the proposed cadence change. `test_monitor_skips_elapsed_monotonic_slots_after_slow_probe` explicitly asserts that a two-cycle run does not add another sleep after its slow first cycle. The implementation waits for a future monotonic deadline when cycle work ends early; after a slow cycle it advances expired deadlines and begins one next cycle immediately. Depending on how quickly that next cycle finishes, the next start may be less than one interval after the delayed start. That behavior is already reflected by code/test intent, and no provider-quota harm was demonstrated.
 
-**Tests:**
-
-- `test_monitor_waits_until_next_future_slot_after_probe_overrun`: fake monotonic times, interval 60, cycle duration 75; start times 0, 120, 240.
-- `test_monitor_does_not_sleep_when_probe_finishes_before_deadline`: sleep remaining interval precisely.
-- `test_monitor_skips_multiple_elapsed_slots`: duration >2 intervals; next start aligns to first future slot.
-- `test_monitor_cycle_count_and_shutdown_are_unchanged`: preserve count semantics and interruptible shutdown.
-- Replace the existing no-sleep assertion for a 75-second overrun with the new cadence oracle.
+Do not replace the existing test with a 0/120/240 schedule without an owner decision. The CLI currently promises a cycle interval but the precise overrun rule is ambiguous. Keep this out of the improvement batch; only clarify help/docs if the product owner confirms which cadence is intended. If a minimum start-to-start interval is required, add a three-or-more-cycle test before changing scheduling.
 
 ### 8. ClaimStore DDL on ask path
 
-**Contract:** constructing a ClaimStore against the current schema with the current trigger set performs no DDL and does not change `PRAGMA schema_version`. New database creation and upgrade/legacy repair still install exactly the required triggers. Future-schema rejection remains before any mutation. Initialization does not weaken append-only protections.
+**Contract:** constructing a ClaimStore against the current schema with the current trigger set should not replace identical triggers or change `PRAGMA schema_version`. New database creation and upgrade/legacy repair still install exactly the required triggers. Future-schema refusal remains before mutation. Initialization does not weaken append-only protections.
 
 **Tests:**
 
@@ -138,8 +135,7 @@ Prefer one MCP-specific `AccessScope`/capability policy called by every stream/r
 - `test_legacy_claim_store_repairs_only_known_obsolete_triggers` with explicit legacy fixtures.
 - `test_future_claim_schema_refuses_before_ddl`: preserve existing refusal tests and assert schema version/triggers/tables unchanged.
 - `test_finalization_triggers_still_reject_update_delete_replace`.
-- `test_concurrent_claim_store_open_does_not_hold_unnecessary_writer_lock`: two independent connections/processes; establish lock behavior without brittle wall-time assertion.
-- Benchmark separately: repeated `ask` setup with warm DB and concurrent writer, report schema version change, lock wait, and setup p50/p95. Do not use a CI timing threshold as correctness oracle.
+- No broad timing suite is justified for this cleanup. If real concurrent asks show lock waits, add a focused concurrent-open regression and state its workload before claiming a performance improvement.
 
 **Design preference:** use an explicit extension migration/version or an idempotent compare-before-DDL path. Do not blindly skip trigger verification, because existing code intentionally replaces unknown/legacy trigger sets. Preserve exact schema compatibility and `refuse_future_schema` ordering.
 
@@ -149,11 +145,11 @@ Prefer one MCP-specific `AccessScope`/capability policy called by every stream/r
 
 **N+1 work/skills contract/tests:** list/search results are produced from one consistent database snapshot with a bounded query count independent of item count. Compare full returned values against the current getters; test zero, one, and many items, ordering, missing associated data, and malformed JSON error policy. Measure connection/query counts rather than unstable absolute milliseconds.
 
-**Benchmark:** compare 10/1,000/100,000 records across 1/100/1,000 streams; compare item lists of 1/100/1,000 entries. Capture wall time, SQL count, connections, peak memory. Use realistic Windows and Linux runs because the reported CI time is longer on Windows. Avoid expanding scope to connection pooling unless these measurements show it is necessary.
+**Measurement gate:** first capture query and connection counts at the current store size and one representative larger fixture. Only add a larger benchmark matrix if the measured difference changes a real command's latency or boundedness contract. Absolute timing thresholds do not belong in correctness tests; don't add connection pooling absent evidence.
 
 ### 10–12. Remaining test-first contracts
 
-- **Windows process tree:** fake `taskkill` result for parent-not-found while a descendant remains alive; result must remain unconfirmed. Parent missing and no descendants verified can be classified as complete. Test success, access denied, timeout, parent exit race, child survival, and fallback. Never report confirmed termination based on parent poll alone.
+- **Windows process tree:** current code already returns unconfirmed when `taskkill` fails and explicitly states that `proc.kill()` is best-effort. A natural-exit race may produce an imprecise error, but no failed tree-kill or harmful effect was demonstrated. Do not prioritize a change. If a regression is reproduced, test parent-not-found with a surviving descendant and preserve `termination_confirmed=False`; never infer whole-tree termination from parent exit alone.
 - **Session IDs:** accepted vendor session IDs begin with an alphanumeric and then use the documented allowed alphabet; reject `--last`, `-x`, whitespace, shell punctuation, empty, and overlength values at both adapter output and persisted Bridge boundary. Accept valid punctuation already supported. Ensure argv remains a sequence with no shell.
 - **Session eligibility projection:** compute read-only eligibility reasons for exact handle: peer/stream/workspace/fingerprint/model/binding mismatch, expired age, tombstoned/lost state, and uncertain blocker. Redact secret binding fields. Do not prune or mutate as a side effect of list/show.
 - **Uncertain delivery resolution:** design explicit operator choices (confirm not executed/retry authorization, accept outcome/ack, abandon) with evidence, identity, actor, timestamp, and irreversible audit. Require the exact stream/peer/delivery ID and expected certainty/revision; stale or mismatched confirmation fails. Never infer not-executed merely from process kill.
@@ -176,9 +172,9 @@ At the reviewed commit, the actual `peerhub/core` package totals about 1,321 phy
 
 ### Bridge is a genuine decomposition candidate, but not a safe opportunistic edit
 
-`Bridge` spans roughly 1,452 method lines in one class and combines delivery orchestration, evidence/certainty transitions, recovery, control, session selection/retention, and projection helpers. These are distinct concepts, but the durable state machine intentionally connects them. Candidate later boundaries are pure selectors/serializers, read-only projections, session-selection policy, and control-record validation/application behind a narrow internal port. Keep transition ownership and state-changing workflows in one explicit coordinator until characterization tests prove a narrower owner. Decomposition should preserve SQL trigger invariants, ordering, fences, and certainty transitions exactly. Do not move cancellation/control code before the cancel contract is fixed.
+`Bridge` spans roughly 1,452 method lines in one class and combines delivery orchestration, evidence/certainty transitions, recovery, control, session selection/retention, and projection helpers. These are distinct concepts, but the durable state machine intentionally connects them. Candidate later boundaries are pure selectors/serializers and catch-up construction. Keep transition ownership and state-changing workflows in one explicit coordinator until characterization tests prove a narrower owner. Do not move cancellation/control code before the cancel contract is fixed. AG suggested a `bridge_projections.py` split for lines 1770–1838, but those lines include cancellation gating and uncertain reconciliation, so that proposed boundary is not a read-only projection and is rejected. A control module may become reasonable after cancel tests define the owner/lease boundary; it is not a current priority.
 
-`IncrementalEventParser` in `adapters/base.py` is also a substantial, separable concern (roughly 443 lines) from subprocess lifecycle (`CliRuntimeTarget`). Its parsing behavior can be characterized with the existing adapter tests and moved to an internal parser module if navigation or test ownership justifies it. Keep vendor-specific parse rules explicit; a large generic parser can be harder to understand than three small provider adapters.
+`IncrementalEventParser` in `adapters/base.py` is also a substantial, separable concern (roughly 443 lines) from subprocess lifecycle (`CliRuntimeTarget`). Its parsing behavior can be characterized with existing adapter tests and moved to an internal parser module if navigation or test ownership justifies it. Keep vendor-specific parse rules explicit; a large generic parser can be harder to understand than three small provider adapters. YAML/frontmatter parsing and directory hashing in `skills.py` are pure candidates, but extract them only when a separate owner or reuse exists; a file split alone does not improve the event-sourced catalog boundary.
 
 First add/confirm behavioral characterization at public API boundaries, then extract one cohesive area at a time while keeping the public `Bridge` API stable. The repository's architecture tests explicitly inspect allowed modules/imports; update `tests/continuity/test_m2_m3_exit_gates.py` and `tests/communication/architecture/test_arch_extension_graph.py` together for any new extension module. Avoid circular imports and ensure the Core dependency direction remains intact.
 
@@ -189,10 +185,12 @@ PeerHub already uses standard-library `sqlite3` for deliberate SQLite transactio
 - **SQLAlchemy/SQLModel:** would add an abstraction and dependency but would not eliminate SQLite write locks, schema-version churn, or N+1 queries automatically. It risks obscuring existing explicit transaction/trigger behavior. Do not introduce for these findings.
 - **Alembic:** potentially useful only if extension-schema migration ownership and ordering are being redesigned. The repo already has guarded, ordered migrations and future-schema refusal; one trigger-set hot-path issue does not justify wholesale migration replacement.
 - **Pydantic/jsonschema additions:** no need; already present and not a performance bottleneck indicated by evidence.
-- **SQLite utility commonization:** there are repeated read-only connection/snapshot patterns across `diag.py`, `ask.py`, and Core's `read_uow`, but their architecture constraints differ: diagnostics cannot import `CoreStore`; some reads need one snapshot; ask reads only selected metadata; Core applies restore-lineage checks. A small dependency-neutral helper is worth considering only after mapping these contracts and updating architecture gates. Do not funnel all three through a generic abstraction that hides read-only mode, snapshot pinning, or restore checks.
+- **SQLite utility commonization:** do not add a shared helper in this work. `diag.py` integrity needs a local read transaction; its regular renderer already has `_open()`/snapshot handling; `ask.py` reads selected metadata; Core `read_uow` also enforces restore lineage. These contracts differ, and the integrity fix is local. If Bridge health later requires one atomic Core+extension snapshot, define the narrow connection handoff at the CLI/reader boundary first; don't introduce a general database service layer.
 - **External process library:** no evidence supports replacement of current argv/no-shell bounded runner; process-tree behavior is platform-sensitive and must retain explicit certainty semantics.
 
 The best near-term efficiency gains are algorithmic: stop repeated schema DDL, filter diagnostics to the requested stream, and remove N+1 connection/query patterns. These need measurements at representative cardinalities before claiming user-visible speed gains.
+
+**Architecture decision:** the current Core → extension ports → CLI composition-root structure is already explicit and guarded by import-graph tests. Do not add another global service/repository layer. The only clear commonization candidate in this review is an MCP-owned capability policy because several MCP ports need the same scope rules. Shared SQLite primitives remain a research candidate, not an approved extraction: Core restore lineage, diagnostic snapshots, and extension transactions have different owners and guarantees. Keep any later split behind existing public facades and update both architecture gates.
 
 ## Review and release gates for implementation
 
@@ -200,6 +198,6 @@ Before each implementation batch, turn the matching scenarios above into failing
 
 ## Peer review status
 
-The original delivered reviews from `cc`, `cx`, and `ag` are the cross-peer baseline. A bounded second-round critique from `cc.standard` delivered. It agrees on the database precedence, cancel race, MCP scope, repeated DDL, diagnostic truthfulness, and monitor cadence. It corrected the cancel priority to P1, identified falsy-value loss in `_print_page`, noted MCP `get_work_tree`/`search_skills` and `created_at`/initialization-contract gaps, and cautioned that the Windows process-tree claim is only a hypothesis and must preserve uncertainty. The follow-up `cx.effort` and `ag.effort` calls ended uncertain without reviewer text. Their output is not treated as consensus and the listed open MCP capability and state-machine decisions remain pre-implementation gates.
+The original delivered reviews from `cc`, `cx`, and `ag` are the cross-peer baseline. A bounded second-round critique from `cc.standard`, `cx.standard`, and `ag.standard` delivered after retries. CC/AG regard the cancel race as a serious P1 code path; CX says to keep it a hypothesis until deterministic characterization proves the process escapes cancellation. This design requires that test first and treats severity as conditional. All three identify the MCP mismatch, while CX/AG caution that severity depends on the embedded host contract and identity transport; it is P2 here. CX/AG challenged the monitor cadence as an unnecessary P2 fix. The existing test covers only two cycles and does not establish the cadence after that; there is no demonstrated quota harm, so this design removes the behavior change and leaves cadence wording as an owner decision. CC found falsy-value loss in `_print_page`; all priorities are adjusted accordingly. CX advised against premature Core/persistence helpers and broad scale matrices. AG's proposed Bridge read-only projection split at lines 1770–1838 is rejected because those methods include cancellation and reconciliation state changes. The remaining disagreements are recorded as gates, not consensus.
 
-The GitHub line inventory was produced by script from tracked UTF-8 files and its category sums were recomputed locally; CC did not independently rerun this inventory. Likewise, the `schema_version` 6→14→22 experiment is recorded from the prior isolated disposable-database reproduction, not independently rerun by CC.
+The GitHub line inventory was produced by script from tracked UTF-8 files and its category sums were recomputed locally; no follow-up reviewer independently reran it. Likewise, the `schema_version` 6→14→22 experiment is recorded from the prior isolated disposable-database reproduction, not independently rerun in the follow-up reviews. The failed first-round CC/CX/AG calls recorded `runtime_timeout` after 60 seconds with no output and confirmed termination. CX and AG delivered on retry with 240-second silence limits. The cause was the short silence timeout, not demonstrated quota exhaustion. The original uncertain records remain in the default peer chat streams; retry responses used dedicated streams.
