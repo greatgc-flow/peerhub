@@ -541,8 +541,9 @@ as follows:
 The initial document cross-check was source-backed. Follow-up paid probes and
 their precise scope are recorded in the linked CLI option audit. CX, CC, and
 AG cross-reviews were subsequently run; their first two rounds remain
-conditional, so this document is **not yet unanimously approved** and TDD
-implementation must wait for a final vote on the exact amended packet.
+conditional, then the final amended packet received explicit approval from CX,
+CC, and AG. The unanimous vote authorizes local tests-only RED as specified
+below; it does not authorize production changes before their RED tests exist.
 
 ### Legacy-branch research reconciliation
 
