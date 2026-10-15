@@ -19,12 +19,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.full_matrix || false }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && !(inputs.full_matrix || false) }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ubuntu-full:
-    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.full_matrix)
+    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.full_matrix) && (github.ref == 'refs/heads/main' || github.event_name != 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -38,21 +38,27 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -e ".[dev]"
+      - name: Verify platform-sensitive marker inventory
+        run: python -m tools.ci_platform verify-marker-inventory --inventory ci/platform_sensitive_tests.txt
       - name: Run pyright
         run: python -m pyright
       - name: Run full deterministic suite
         run: python -u -m pytest -q --junitxml=junit/ubuntu-full.xml
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
+        if: failure()
         with:
-          name: junit-ubuntu-full-${{ github.sha }}
+          name: junit-ubuntu-full-${{ github.sha }}-${{ github.run_id }}
           path: junit/ubuntu-full.xml
           if-no-files-found: warn
+          retention-days: 7
+          overwrite: true
 
   windows-platform:
-    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.full_matrix)
+    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.full_matrix) && (github.ref == 'refs/heads/main' || github.event_name != 'push')
     runs-on: windows-latest
     timeout-minutes: 35
+    outputs:
+      windows_suite: ${{ steps.suite.outputs.windows_suite }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -63,10 +69,10 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.sha }}
-          FULL_MATRIX: ${{ inputs.full_matrix || false }}
+          TARGET_REF: ${{ github.ref }}
         shell: pwsh
         run: |
-          $selection = python -m tools.ci_platform detect-windows-suite --event "$env:GITHUB_EVENT_NAME" --base "$env:BASE_SHA" --head "$env:HEAD_SHA"
+          $selection = python -m tools.ci_platform detect-windows-suite --event "$env:GITHUB_EVENT_NAME" --ref "$env:TARGET_REF" --base "$env:BASE_SHA" --head "$env:HEAD_SHA"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Add-Content -Path $env:GITHUB_OUTPUT -Value $selection
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -85,11 +91,13 @@ jobs:
         if: steps.suite.outputs.windows_suite == 'targeted'
         run: python -m tools.ci_platform verify-junit junit/windows-platform.xml --inventory ci/platform_sensitive_tests.txt
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
+        if: failure()
         with:
-          name: junit-windows-${{ steps.suite.outputs.windows_suite }}-${{ github.sha }}
+          name: junit-windows-${{ steps.suite.outputs.windows_suite }}-${{ github.sha }}-${{ github.run_id }}
           path: junit/windows-*.xml
           if-no-files-found: warn
+          retention-days: 7
+          overwrite: true
 
   compatibility-smoke:
     if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.full_matrix)
@@ -155,8 +163,39 @@ jobs:
       - name: Run full deterministic suite
         run: python -u -m pytest -q --junitxml=junit/full-matrix.xml
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        if: always()
+        if: failure()
         with:
-          name: junit-full-${{ matrix.os }}-py${{ matrix.python-version }}-${{ github.sha }}
+          name: junit-full-${{ matrix.os }}-py${{ matrix.python-version }}-${{ github.sha }}-${{ github.run_id }}
           path: junit/full-matrix.xml
           if-no-files-found: warn
+          retention-days: 7
+          overwrite: true
+
+  ci-pass:
+    if: always()
+    needs: [ubuntu-full, windows-platform, compatibility-smoke, full-matrix]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Verify required CI lanes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_FULL_MATRIX: ${{ inputs.full_matrix || false }}
+          WINDOWS_SUITE: ${{ needs.windows-platform.outputs.windows_suite || 'skip' }}
+          UBUNTU_RESULT: ${{ needs.ubuntu-full.result }}
+          WINDOWS_RESULT: ${{ needs.windows-platform.result }}
+          SMOKE_RESULT: ${{ needs.compatibility-smoke.result }}
+          MATRIX_RESULT: ${{ needs.full-matrix.result }}
+        run: >-
+          python -m tools.ci_platform verify-ci-results
+          --event "$EVENT_NAME" --run-full-matrix "$RUN_FULL_MATRIX"
+          --windows-suite "$WINDOWS_SUITE"
+          --ubuntu-full-result "$UBUNTU_RESULT"
+          --windows-platform-result "$WINDOWS_RESULT"
+          --compatibility-smoke-result "$SMOKE_RESULT"
+          --full-matrix-result "$MATRIX_RESULT"
