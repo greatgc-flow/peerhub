@@ -23,7 +23,7 @@ OS_CLASSIFIERS = {"ubuntu-latest": "Operating System :: POSIX :: Linux", "window
 
 def _ci():
     wf = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
-    jobs = {k: v for k, v in wf["jobs"].items() if "matrix" in (v.get("strategy") or {})}
+    jobs = {k: wf["jobs"][k] for k in ("full-matrix",) if k in wf["jobs"]}
     return wf, jobs
 
 

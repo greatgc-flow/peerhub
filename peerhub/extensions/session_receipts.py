@@ -55,6 +55,106 @@ def unknown_telemetry() -> dict[str, Any]:
     return dict(last_input_tokens=None, context_window=None, context_pct=None, source="unknown", quota=None)
 
 
+_PROVIDER_USAGE_CONTRACT = {
+    "cc": ("session_cumulative", "cc.result.usage"),
+    "cx": ("session_cumulative", "cx.turn.completed.usage"),
+    "ag": ("session_cumulative", "ag.result.usage"),
+}
+_USAGE_REPORTED_FIELDS = {
+    "cc": {"input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"},
+    "cx": {"input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"},
+    "ag": {"input_tokens", "output_tokens", "thinking_tokens", "cache_read_tokens", "total_tokens"},
+}
+_USAGE_NORMALIZED_FIELDS = {"input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens"}
+_SAFE_COVERAGE_REASON = re.compile(r"[a-z_]{1,64}\Z")
+
+
+def _provider_usage(candidate: object, provider_kind: str) -> dict[str, Any]:
+    """Validate the adapter candidate again at the fenced persistence boundary."""
+    def unknown(reason: str) -> dict[str, Any]:
+        return {"schema_version": 1, "scope": None, "source": None, "attribution": "unattributed",
+                "reported": {}, "normalized": {}, "field_evidence": {},
+                "coverage": {"state": "UNKNOWN", "reason": reason}}
+
+    if candidate is None:
+        return unknown("not_captured")
+    if not isinstance(candidate, dict):
+        return unknown("invalid_candidate_shape")
+    candidate = cast("dict[str, Any]", candidate)
+    if set(candidate) != {"schema_version", "scope", "source", "reported", "normalized", "coverage"}:
+        return unknown("invalid_candidate_shape")
+    schema_version = candidate.get("schema_version")
+    if (provider_kind not in _PROVIDER_USAGE_CONTRACT or isinstance(schema_version, bool)
+            or schema_version != 1):
+        return unknown("unsupported_provider_schema")
+    expected_scope, expected_source = _PROVIDER_USAGE_CONTRACT[provider_kind]
+    scope, source = candidate.get("scope"), candidate.get("source")
+    reported, normalized, coverage = candidate.get("reported"), candidate.get("normalized"), candidate.get("coverage")
+    if scope is None and source is None:
+        if reported != {} or normalized != {} or not isinstance(coverage, dict):
+            return unknown("invalid_unknown_candidate")
+        coverage = cast("dict[str, Any]", coverage)
+        if coverage.get("state") != "UNKNOWN":
+            return unknown("invalid_unknown_candidate")
+        reason = coverage.get("reason")
+        if not isinstance(reason, str) or _SAFE_COVERAGE_REASON.fullmatch(reason) is None:
+            return unknown("invalid_coverage_reason")
+        return unknown(reason)
+    if scope != expected_scope or source != expected_source:
+        return unknown("provider_scope_mismatch")
+    if not isinstance(reported, dict) or not isinstance(normalized, dict) or not isinstance(coverage, dict):
+        return unknown("invalid_candidate_shape")
+    reported = cast("dict[str, Any]", reported)
+    normalized = cast("dict[str, Any]", normalized)
+    coverage = cast("dict[str, Any]", coverage)
+    if set(reported) - _USAGE_REPORTED_FIELDS[provider_kind] or set(normalized) - _USAGE_NORMALIZED_FIELDS:
+        return unknown("unsupported_usage_field")
+    for values in (reported, normalized):
+        if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 or v > 2**63 - 1 for v in values.values()):
+            return unknown("invalid_usage_counter")
+    expected_normalized = _normalize_provider_usage(provider_kind, reported)
+    if normalized != expected_normalized:
+        return unknown("normalization_mismatch")
+    state, reason = coverage.get("state"), coverage.get("reason")
+    if state not in ("MEASURED", "ABSENT", "UNSUPPORTED", "UNKNOWN"):
+        return unknown("invalid_coverage_state")
+    if reason is not None and (not isinstance(reason, str) or _SAFE_COVERAGE_REASON.fullmatch(reason) is None):
+        return unknown("invalid_coverage_reason")
+    if state == "MEASURED" and (not reported or reason is not None):
+        return unknown("incomplete_measured_candidate")
+    if state != "MEASURED" and (reported or normalized):
+        return unknown("non_measured_candidate_has_counters")
+    attribution = "delivery" if scope == "delivery" else "unattributed"
+    return {"schema_version": 1, "scope": scope, "source": source, "attribution": attribution,
+            "reported": dict(reported), "normalized": dict(normalized), "field_evidence": {},
+            "coverage": {"state": state, "reason": reason}}
+
+
+def _normalize_provider_usage(provider_kind: str, reported: dict[str, Any]) -> dict[str, int]:
+    """Derive normalized fields at the persistence boundary from allowlisted native counters."""
+    normalized: dict[str, int] = {}
+    mappings = {
+        "cx": (("input_tokens", "input_tokens"), ("cached_input_tokens", "cached_input_tokens"),
+               ("cache_write_input_tokens", "cache_write_tokens"), ("output_tokens", "output_tokens")),
+        "ag": (("input_tokens", "input_tokens"), ("cache_read_tokens", "cached_input_tokens"),
+               ("output_tokens", "output_tokens")),
+    }
+    if provider_kind == "cc":
+        input_fields = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+        if all(key in reported for key in input_fields):
+            normalized["input_tokens"] = sum(reported[key] for key in input_fields)
+        for source, target in (("cache_read_input_tokens", "cached_input_tokens"),
+                               ("cache_creation_input_tokens", "cache_write_tokens"),
+                               ("output_tokens", "output_tokens")):
+            if source in reported:
+                normalized[target] = reported[source]
+    else:
+        for source, target in mappings.get(provider_kind, ()):
+            if source in reported:
+                normalized[target] = reported[source]
+    return normalized
+
+
 def binding_attributes(runtime: object) -> dict[str, Any]:
     method = getattr(runtime, "session_binding", None)
     raw: Any = method() if callable(method) else {}
@@ -138,7 +238,8 @@ def call(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row, no
                  (reuse, fresh, delivery["stream_id"], delivery["peer_id"]))
 
 
-def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row, now: float) -> None:
+def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row, now: float,
+              provider_candidate: object = None) -> None:
     accepted = snapshot(delivery)
     if accepted is None or conn.execute("SELECT 1 FROM bridge_evidence WHERE delivery_id=? AND kind='session_telemetry'", (delivery["delivery_id"],)).fetchone():
         return
@@ -159,8 +260,7 @@ def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Ro
                   window_reported_at=None, model=binding_detail["model"], schema_version=2,
                   provider_kind=provider_kind, captured_at=now, adapter_version=adapter_version,
                   provider_cli_version=None, configured_binding=binding_detail,
-                  usage={"scope": None, "source": None, "reported": {}, "normalized": {},
-                         "field_evidence": {}, "coverage": {"state": "UNKNOWN", "reason": "not_captured"}},
+                  usage=_provider_usage(provider_candidate, provider_kind),
                   steps=[], step_coverage={"state": "UNKNOWN", "measured": 0, "dropped": 0})
     seq = conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,'session_telemetry',?,?)",
                        (delivery["delivery_id"], delivery["stream_id"], delivery["peer_id"], delivery["certainty"], dumps(detail))).lastrowid

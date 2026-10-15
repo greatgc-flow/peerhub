@@ -49,6 +49,54 @@ def test_session_show_is_read_only_and_not_found_is_structured(tmp_path, capsys)
     assert json.loads(capsys.readouterr().out)["status"] == "NOT_FOUND"
 
 
+def test_session_show_links_configured_profile_and_scoped_usage(tmp_path, capsys):
+    class ProfileTelemetryRuntime(FakeRuntimeTarget):
+        runtime_kind = "cx"
+
+        def __init__(self, *args, model=None, effort=None, profile=None, writable=False, **kwargs):
+            super().__init__(fingerprint="adapter:cx:v2", binding="gpt-6-luna/low")
+
+        def session_binding(self):
+            return {"profile": "cx.standard", "model": "gpt-6-luna", "effort": "low", "writable": False}
+
+        def deliver(self, external_session_id, record, catch_up):
+            self.script_deliver(("started", "exec"), ("terminal", {
+                "response": "ok", "provider_telemetry": {
+                    "schema_version": 1, "scope": "session_cumulative", "source": "cx.turn.completed.usage",
+                    "reported": {"input_tokens": 40, "output_tokens": 4},
+                    "normalized": {"input_tokens": 40, "output_tokens": 4},
+                    "coverage": {"state": "MEASURED", "reason": None},
+                },
+                "usage": {"input_tokens": 40, "output_tokens": 4},
+            }))
+            yield from super().deliver(external_session_id, record, catch_up)
+
+    db = tmp_path / "core.db"
+    with patch("peerhub.extensions.ask.CliRuntimeTarget", ProfileTelemetryRuntime):
+        assert main(["--db", str(db), "ask", "cx", "profile check", "--json"]) == 0
+    ask_result = json.loads(capsys.readouterr().out)
+    assert ask_result["usage"] == {"input_tokens": 40, "output_tokens": 4}
+    assert ask_result["usage_scope"] == "session_cumulative"
+    assert ask_result["usage_attribution"] == "unattributed"
+    listed = json.loads((lambda: (main(["--db", str(db), "session", "list"]), capsys.readouterr().out)[1])())
+    handle = listed["items"][0]["handle"]
+
+    assert main(["--db", str(db), "session", "show", handle]) == 0
+    session = json.loads(capsys.readouterr().out)["session"]
+    assert session["configured_binding"] == {
+        "profile": "cx.standard", "model": "gpt-6-luna", "effort": "low", "writable": False,
+    }
+    assert session["call_counts"]["fresh"] == 1 and session["call_counts"]["complete"] is True
+    assert session["latest_telemetry"]["usage"]["schema_version"] == 1
+    assert session["latest_telemetry"]["usage"]["scope"] == "session_cumulative"
+    assert session["latest_telemetry"]["usage"]["attribution"] == "unattributed"
+    assert "provider_telemetry" not in json.dumps(session)
+    assert main(["--db", str(db), "session", "list", "--format", "table"]) == 0
+    table = capsys.readouterr().out
+    assert "None" not in table
+    assert "cx.standard" in table and "gpt-6-luna" in table
+
+
 def test_session_cursor_rejects_changed_filter(tmp_path, capsys):
     db = tmp_path / "core.db"
     _seed(db, capsys, count=2)

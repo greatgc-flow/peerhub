@@ -10,7 +10,7 @@ from tests.communication.harness.mp_workers import (
 )
 from tests.communication.helpers import append_n, req, seed
 
-pytestmark = [pytest.mark.concurrency, pytest.mark.multiprocess]
+pytestmark = [pytest.mark.concurrency, pytest.mark.multiprocess, pytest.mark.platform_sensitive]
 NPROC = 4
 
 

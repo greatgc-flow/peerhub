@@ -1362,13 +1362,21 @@ class Bridge:
                              (token.stream_id, token.peer_id)).fetchone()
         return r[0] if r else None
 
-    def finalize_terminal(self, token: ClaimToken, result: dict[str, Any], delivery_id: str) -> "Bridge.FinalizeOutcome":
+    def finalize_terminal(self, token: ClaimToken, result: Any, delivery_id: str) -> "Bridge.FinalizeOutcome":
         """Callbacks are bound to the delivery_id they belong to (never inferred from 'newest')."""
-        self._validate_result(result)
         return self._finalize(token, delivery_id, result)
 
-    def _finalize(self, token: ClaimToken, did: str, result: dict[str, Any], provenance: dict[str, Any] | None = None) -> "Bridge.FinalizeOutcome":
-        supplied_result = result
+    def _finalize(self, token: ClaimToken, did: str, result: Any, provenance: dict[str, Any] | None = None) -> "Bridge.FinalizeOutcome":
+        # Validate the outer terminal payload before inspecting optional fields;
+        # direct callers and malformed runtime callbacks may violate the type hint.
+        if not isinstance(result, dict):
+            self._validate_result(result)
+        typed_result = cast(dict[str, Any], result)
+        provider_candidate = typed_result.get("provider_telemetry")
+        # Provider telemetry is internal evidence, not part of terminal truth,
+        # result digests, replay snapshots, or public response metadata.
+        supplied_result = {key: value for key, value in typed_result.items() if key != "provider_telemetry"}
+        result = supplied_result
         dig = self._validate_result(result)  # before anything is committed
         conflict = False
         try:
@@ -1406,7 +1414,7 @@ class Bridge:
                         term_detail["display_truncated"] = True
                     self._transition_in(conn, did, TERMINAL, "terminal", token=token, **term_detail)  # illegal source state rolls the tx back
                     completed = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
-                    session_receipts.telemetry(conn, completed, self.claims.now())
+                    session_receipts.telemetry(conn, completed, self.claims.now(), provider_candidate)
                     mapping = bridge_registry.generation(conn, token.stream_id, token.peer_id, row["session_generation"])
                     if mapping is not None and mapping["state"] not in ("LOST", "TOMBSTONED") and mapping["external_session_id"] == row["external_session_id"]:
                         conn.execute("UPDATE bridge_session_history SET last_seen=? WHERE session_handle=?", (self.claims.now(), mapping["session_handle"]))
@@ -1426,6 +1434,10 @@ class Bridge:
         m = bridge_registry.generation(conn, token.stream_id, token.peer_id, delivery["session_generation"])
         usage = result.get("usage")
         detail: dict[str, Any] = {}
+        raw_usage: dict[str, Any] | None = cast("dict[str, Any] | None", result.get("usage"))
+        if (m is not None and m["runtime_kind"] in ("cc", "cx", "ag")
+                and isinstance(raw_usage, dict)):
+            detail.update(usage=raw_usage, usage_scope="session_cumulative", usage_attribution="unattributed")
         if (m is not None and m["state"] not in ("LOST", "TOMBSTONED") and m["session_generation"] == delivery["session_generation"]
                     and m["external_session_id"] == delivery["external_session_id"]):
             vendor = result.get("vendor_session")
@@ -1433,13 +1445,7 @@ class Bridge:
             if not isinstance(vendor_id, str) or re.fullmatch(r"[A-Za-z0-9._:-]{1,200}", vendor_id) is None:
                 vendor_id = m["vendor_session_id"]
             if vendor_id is None:
-                return {}
-            raw_usage: dict[str, Any] | None = cast("dict[str, Any] | None", result.get("usage"))
-            if m["runtime_kind"] in ("cx", "ag") and isinstance(raw_usage, dict):
-                previous = json.loads(m["usage_json"]) if m["usage_json"] else None
-                if previous is not None:
-                    usage = ({k: v - previous[k] for k, v in raw_usage.items()}
-                             if all(k in previous and v >= previous[k] for k, v in raw_usage.items()) else None)
+                return detail
             watermark = max(m["context_watermark"] or 0, delivery["record_position"])
             won = conn.execute(
                 "UPDATE bridge_session_history SET vendor_session_id=?, context_watermark=?, usage_json=?, state='ACTIVE' "
@@ -1455,7 +1461,10 @@ class Bridge:
                     claim_generation=token.generation, session_generation=m["session_generation"],
                     execution_id=delivery["execution_id"])
         if detail:
-            detail["usage"] = usage
+            detail.setdefault("usage", usage)
+            if detail.get("usage") is not None:
+                detail.setdefault("usage_scope", "session_cumulative")
+                detail.setdefault("usage_attribution", "unattributed")
         return detail
 
     def delivery_details(self, delivery_id: str | None) -> dict[str, Any]:
@@ -1508,6 +1517,9 @@ class Bridge:
         resp_metadata: dict[str, Any] = {"delivery_id": did, "execution_id": d["execution_id"]}
         if include_usage:
             resp_metadata["usage"] = usage
+            if "usage_scope" in terminal_detail:
+                resp_metadata["usage_scope"] = terminal_detail.get("usage_scope", "session_cumulative")
+                resp_metadata["usage_attribution"] = terminal_detail.get("usage_attribution", "unattributed")
         if result.get("output_truncated") or terminal_detail.get("output_truncated"):
             resp_metadata["output_truncated"] = True
         if result.get("display_truncated") or terminal_detail.get("display_truncated"):

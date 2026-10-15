@@ -178,7 +178,8 @@ def test_terminal_recovery_and_duplicate_callback_never_duplicate_receipts(tmp_p
     assert telemetry["provider_kind"] == "unknown"
     assert telemetry["configured_binding"] == {"profile": None, "model": None, "effort": None}
     assert telemetry["usage"] == {
-        "scope": None, "source": None, "reported": {}, "normalized": {}, "field_evidence": {},
+        "schema_version": 1, "scope": None, "source": None, "attribution": "unattributed",
+        "reported": {}, "normalized": {}, "field_evidence": {},
         "coverage": {"state": "UNKNOWN", "reason": "not_captured"},
     }
     assert telemetry["steps"] == []
@@ -546,3 +547,124 @@ def test_registry_reopen_backfills_missing_session_stats_projection(tmp_path):
     # old counts; the row is repaired but remains explicitly incomplete.
     assert sql(h, "SELECT reuse_count,fresh_count,counts_complete FROM bridge_session_monitor_stats WHERE session_handle=?",
                (handle,)) == [(None, None, 0)]
+
+
+class _ProviderTelemetryRuntime(NativeRuntimeTarget):
+    runtime_kind = "cc"
+
+    def __init__(self, kind="cc"):
+        super().__init__(fingerprint=f"adapter:{kind}:v2")
+        self.runtime_kind = kind
+
+
+def _start_telemetry_delivery(h, runtime):
+    (prompt,) = bseed(h)
+    token = h.acquire_claim("b", "s", h.bridge.owner_id)
+    did = h.bridge.begin_attempt(token, prompt)
+    h.bridge._resolve_session(token, runtime, h.store.read_records("s", 0, 1)[0], did)
+    h.bridge.transition(token, did, "STARTED", "started")
+    return token, did
+
+
+def test_provider_telemetry_is_receipt_only_and_bound_to_fenced_delivery(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    token, did = _start_telemetry_delivery(h, _ProviderTelemetryRuntime())
+    candidate = {
+        "schema_version": 1, "scope": "session_cumulative", "source": "cc.result.usage",
+        "reported": {"input_tokens": 9, "cache_read_input_tokens": 2,
+                     "cache_creation_input_tokens": 1, "output_tokens": 3},
+        "normalized": {"input_tokens": 12, "cached_input_tokens": 2,
+                       "cache_write_tokens": 1, "output_tokens": 3},
+        "coverage": {"state": "MEASURED", "reason": None},
+    }
+
+    h.finalize_terminal(token, {"response": "ok", "provider_telemetry": candidate}, did)
+
+    result_json, = sql(h, "SELECT result_json FROM bridge_deliveries WHERE delivery_id=?", (did,))[0]
+    response_metadata, = sql(h, "SELECT metadata_json FROM records WHERE kind='response'")[0]
+    telemetry_json, = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?", (did,))[0]
+    telemetry = json.loads(telemetry_json)
+    assert "provider_telemetry" not in result_json
+    assert "provider_telemetry" not in response_metadata
+    assert telemetry["usage"]["scope"] == "session_cumulative"
+    assert telemetry["usage"]["attribution"] == "unattributed"
+    assert telemetry["usage"]["normalized"] == {"input_tokens": 12, "cached_input_tokens": 2,
+                                                  "cache_write_tokens": 1, "output_tokens": 3}
+    assert sql(h, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE '%usage%fact%'") == [(0,)]
+    replacement = {**candidate, "normalized": {"input_tokens": 900, "output_tokens": 900}}
+    assert h.finalize_terminal(token, {"response": "ok", "provider_telemetry": replacement}, did).outcome == "duplicate"
+    reread, = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?", (did,))[0]
+    assert json.loads(reread)["usage"]["normalized"] == {
+        "input_tokens": 12, "cached_input_tokens": 2, "cache_write_tokens": 1, "output_tokens": 3}
+
+
+def test_provider_telemetry_scope_and_spoofed_delivery_id_fail_closed(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    token, did = _start_telemetry_delivery(h, _ProviderTelemetryRuntime())
+    candidate = {
+        "schema_version": 1, "scope": "session_cumulative", "source": "cc.result.usage", "delivery_id": "spoofed-delivery",
+        "reported": {"input_tokens": 12, "output_tokens": 3},
+        "normalized": {"input_tokens": 12, "output_tokens": 3},
+        "coverage": {"state": "MEASURED", "reason": None},
+    }
+
+    h.finalize_terminal(token, {"response": "still delivered", "provider_telemetry": candidate}, did)
+
+    telemetry_json, = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?", (did,))[0]
+    usage = json.loads(telemetry_json)["usage"]
+    assert usage["scope"] is None
+    assert usage["attribution"] == "unattributed"
+    assert usage["normalized"] == {}
+    assert usage["coverage"]["state"] == "UNKNOWN"
+    assert "spoofed-delivery" not in telemetry_json
+    assert sql(h, "SELECT certainty FROM bridge_deliveries WHERE delivery_id=?", (did,)) == [("TERMINAL",)]
+
+
+def test_provider_usage_persistence_rejects_fabricated_normalization(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    token, did = _start_telemetry_delivery(h, _ProviderTelemetryRuntime())
+    candidate = {
+        "schema_version": 1, "scope": "session_cumulative", "source": "cc.result.usage",
+        "reported": {"output_tokens": 3}, "normalized": {"output_tokens": 3, "input_tokens": 999999},
+        "coverage": {"state": "MEASURED", "reason": None},
+    }
+    h.finalize_terminal(token, {"response": "ok", "provider_telemetry": candidate}, did)
+    detail, = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?", (did,))[0]
+    usage = json.loads(detail)["usage"]
+    assert usage["reported"] == usage["normalized"] == {}
+    assert usage["coverage"] == {"state": "UNKNOWN", "reason": "normalization_mismatch"}
+
+
+def test_provider_usage_persistence_keeps_valid_partial_native_counts(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    token, did = _start_telemetry_delivery(h, _ProviderTelemetryRuntime())
+    candidate = {
+        "schema_version": 1, "scope": "session_cumulative", "source": "cc.result.usage",
+        "reported": {"input_tokens": 7}, "normalized": {},
+        "coverage": {"state": "MEASURED", "reason": None},
+    }
+    h.finalize_terminal(token, {"response": "ok", "provider_telemetry": candidate}, did)
+    detail, = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?", (did,))[0]
+    usage = json.loads(detail)["usage"]
+    assert usage["reported"] == {"input_tokens": 7}
+    assert usage["normalized"] == {}
+    assert usage["coverage"]["state"] == "MEASURED"
+
+
+def test_session_cumulative_usage_is_generation_observation_not_delivery_usage(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    token, did = _start_telemetry_delivery(h, _ProviderTelemetryRuntime("cx"))
+    candidate = {
+        "schema_version": 1, "scope": "session_cumulative", "source": "cx.turn.completed.usage",
+        "reported": {"input_tokens": 40, "output_tokens": 4},
+        "normalized": {"input_tokens": 40, "output_tokens": 4},
+        "coverage": {"state": "MEASURED", "reason": None},
+    }
+
+    h.finalize_terminal(token, {"response": "ok", "provider_telemetry": candidate}, did)
+
+    telemetry_json, = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?", (did,))[0]
+    telemetry = json.loads(telemetry_json)
+    assert telemetry["usage"]["scope"] == "session_cumulative"
+    assert telemetry["usage"]["attribution"] == "unattributed"
+    assert telemetry["usage"]["normalized"] == {"input_tokens": 40, "output_tokens": 4}

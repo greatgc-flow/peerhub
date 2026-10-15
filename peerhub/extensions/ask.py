@@ -47,9 +47,9 @@ def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> di
     if row is not None:
         result["response"] = json.loads(row[0])
         metadata = json.loads(row[1])
-        # Billing usage belongs to the durable response, not session occupancy.
+        # Provider usage stays distinct from session context occupancy; metadata carries its scope.
         result.pop("usage", None)
-        for key in ("usage", "display_truncated", "output_truncated"):
+        for key in ("usage", "usage_scope", "usage_attribution", "display_truncated", "output_truncated"):
             if key in metadata:
                 result[key] = metadata[key]
     return result
@@ -199,10 +199,9 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                       requested_record_id=rec.record_id, response=json.loads(row[0]) if row else None)
         if row:
             metadata = json.loads(row[1])
-            if "usage" in metadata:
-                result["usage"] = metadata["usage"]
-            if "display_truncated" in metadata:
-                result["display_truncated"] = metadata["display_truncated"]
+            for key in ("usage", "usage_scope", "usage_attribution", "display_truncated", "output_truncated"):
+                if key in metadata:
+                    result[key] = metadata[key]
         # A conversation may have earlier pending work. Report its progress without claiming this prompt completed.
         if result.get("record_id") != rec.record_id:
             result["processed_status"] = result["status"]

@@ -173,7 +173,7 @@ def test_rel_005_live_and_soak_tests_are_deselected_by_the_default_command(tmp_p
 PUBLISH_TEXT = (REPO / ".github/workflows/publish.yml").read_text(encoding="utf-8")
 GATE_JOB = {"G0": "verify", "G1": "verify", "G2": "verify", "G3": "live-validation", "G4": "build",
             "G5": "release-evidence", "G7": "verify"}  # release-gates.json blocking gate -> publish.yml job that provides it
-PUBLISH_NEEDS = "needs: [verify, live-validation, build, release-evidence]"
+PUBLISH_NEEDS = "needs: [verify, live-validation, build, matrix, release-matrix, release-evidence]"
 
 
 def _mutate(text, how):
@@ -242,7 +242,7 @@ def test_rel_006_every_blocking_gate_in_release_gates_json_maps_to_a_job_in_publ
     for job in clo:  # no bypass anywhere in the closure or on publish itself
         assert not _bypass(wf["jobs"][job]), f"{job}: continue-on-error/always() bypass"
     assert not _bypass(wf["jobs"]["publish"])
-    assert closure(wf, "publish") == {"verify", "live-validation", "build", "matrix", "release-evidence"}
+    assert closure(wf, "publish") == {"verify", "live-validation", "build", "matrix", "release-matrix", "release-evidence"}
     assert _needs(wf["jobs"]["verify"]) == []
     assert _needs(wf["jobs"]["live-validation"]) == ["verify"]
     assert _needs(wf["jobs"]["build"]) == ["verify"]
@@ -307,12 +307,12 @@ def test_rel_006_publish_evidence_job_runs_the_release_evidence_tool_over_every_
     for g in ("g0", "g1", "g2", "g3", "g4"):
         assert f"junit/{g}.xml" in run
     ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
-    assert "pytest" in yaml.safe_dump(ci["jobs"]["build"]) and not ci["jobs"]["build"].get("continue-on-error")  # CI runner is blocking
+    assert "pytest" in yaml.safe_dump(ci["jobs"]["ubuntu-full"]) and not ci["jobs"]["ubuntu-full"].get("continue-on-error")  # CI runner is blocking
 
 
 def test_rel_006_verify_runs_the_same_gate_selections_sequentially_without_providers():
     wf = _wf("publish.yml")
-    assert set(wf["jobs"]) == {"verify", "live-validation", "build", "matrix", "release-evidence", "publish"}
+    assert set(wf["jobs"]) == {"verify", "live-validation", "build", "matrix", "release-matrix", "release-evidence", "publish"}
     verify = wf["jobs"]["verify"]
     assert _needs(verify) == []
     runs = [step["run"] for step in verify["steps"] if "run" in step]

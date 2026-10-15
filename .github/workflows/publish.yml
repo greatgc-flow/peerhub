@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -109,7 +109,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -130,6 +131,11 @@ jobs:
           }
           test "$RELEASE_TAG" = "v$PACKAGE_VERSION" || {
             echo "::error::Release tag $RELEASE_TAG does not match v$PACKAGE_VERSION"
+            exit 1
+          }
+          TAG_SHA="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+          test "$TAG_SHA" = "$GITHUB_SHA" || {
+            echo "::error::Release tag $RELEASE_TAG moved after this workflow event"
             exit 1
           }
       - name: Install test dependencies
@@ -174,7 +180,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+          ref: ${{ github.sha }}
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
@@ -198,15 +204,49 @@ jobs:
           name: junit-g4-matrix-${{ matrix.os }}-py${{ matrix.python-version }}
           path: junit/g4-matrix-*.xml
 
+  release-matrix:
+    # Run the full deterministic suite on every supported OS/Python cell for
+    # this exact release candidate before publishing.
+    needs: [verify]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run full deterministic suite
+        run: python -u -m pytest -q --junitxml="junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml"
+      - name: Bind JUnit to the exact release candidate source
+        if: always()
+        run: python -m tools.release_evidence --stamp-junit "junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml" --gate G2 --commit "$(git rev-parse HEAD)"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: junit-g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: junit/g2-rc-matrix-*.xml
+          if-no-files-found: warn
+
   release-evidence:
     # G5 evidence index + hashes: fails (exit 1) unless every blocking catalog test passed and every requirement is covered.
-    needs: [verify, live-validation, build, matrix]
+    needs: [verify, live-validation, build, matrix, release-matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
@@ -220,7 +260,16 @@ jobs:
           path: junit/
           merge-multiple: true
       - name: Generate release evidence bundle
-        run: python -m tools.release_evidence --junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml $(for f in junit/g4-matrix-*.xml; do printf -- '--junit %s ' "$f"; done) --dist dist --out evidence --commit "$(git rev-parse HEAD)" --candidate --policy-file docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json --release-policy docs/m1_impl/release-policy.json
+        run: |
+          junit_args=(--junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml)
+          for f in junit/g4-matrix-*.xml; do test ! -e "$f" || junit_args+=(--junit "$f"); done
+          rc_junits=(junit/g2-rc-matrix-*.xml)
+          if [[ ! -e "${rc_junits[0]}" || ${#rc_junits[@]} -ne 8 ]]; then
+            echo "::error::Expected all 8 full release-candidate matrix JUnit files; found ${#rc_junits[@]}"
+            exit 1
+          fi
+          for f in "${rc_junits[@]}"; do junit_args+=(--junit "$f"); done
+          python -m tools.release_evidence "${junit_args[@]}" --dist dist --out evidence --commit "$(git rev-parse HEAD)" --candidate --policy-file docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json --release-policy docs/m1_impl/release-policy.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: always()
         with:
@@ -228,7 +277,7 @@ jobs:
           path: evidence/
 
   publish:
-    needs: [verify, live-validation, build, release-evidence]
+    needs: [verify, live-validation, build, matrix, release-matrix, release-evidence]
     # Manual dispatch is a safe live-validation/build dry run. Only a published
     # GitHub Release may mint an OIDC token and publish the resulting artifact.
     if: github.event_name == 'release'

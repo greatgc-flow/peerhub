@@ -17,7 +17,7 @@ from tests.communication.harness.crash_workers import CRASH_EXIT, cycles_worker,
 from tests.communication.harness.mp import OUTQ, run_one
 from tests.communication.helpers import req
 
-pytestmark = [pytest.mark.fault, pytest.mark.bridge]
+pytestmark = [pytest.mark.fault, pytest.mark.bridge, pytest.mark.platform_sensitive]
 NS, MAY, ST, TERM = "NOT_STARTED", "MAY_HAVE_STARTED", "STARTED", "TERMINAL"
 OK_SCRIPT = [["started", "e1"], ["terminal", {"response": "R"}]]
 

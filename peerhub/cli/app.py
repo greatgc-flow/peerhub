@@ -682,12 +682,18 @@ def _run_session_cli(args: argparse.Namespace) -> int:
             if not rows:
                 print("(no sessions)")
             else:
-                keys = ("handle", "stream_id", "peer_id", "generation", "state", "resumable", "last_seen")
-                widths = [max(len(key), *(len(str(row.get(key, ""))) for row in rows)) for key in keys]
+                keys = ("handle", "stream_id", "peer_id", "generation", "state", "profile", "model", "effort", "resumable", "last_seen")
+                def cell(row: dict[str, Any], key: str) -> str:
+                    if key in ("profile", "model", "effort"):
+                        value = row.get("configured_binding", {}).get(key)
+                    else:
+                        value = row.get(key)
+                    return "-" if value is None or value == "" else str(value)
+                widths = [max(len(key), *(len(cell(row, key)) for row in rows)) for key in keys]
                 print("  ".join(key.upper().ljust(widths[i]) for i, key in enumerate(keys)))
                 print("  ".join("-" * width for width in widths))
                 for row in rows:
-                    print("  ".join(str(row.get(key, "")).ljust(widths[i]) for i, key in enumerate(keys)))
+                    print("  ".join(cell(row, key).ljust(widths[i]) for i, key in enumerate(keys)))
                 if payload.get("next_cursor"):
                     print(f"next_cursor: {payload['next_cursor']}")
         status = payload.get("status")
@@ -707,11 +713,17 @@ def _run_session_cli(args: argparse.Namespace) -> int:
             if schema_version > SUPPORTED_SCHEMA_VERSION:
                 raise SchemaVersionError(future_schema_message(schema_version, SUPPORTED_SCHEMA_VERSION))
             has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bridge_session_history'").fetchone()
+            has_stats = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bridge_session_monitor_stats'").fetchone()
             if args.action == "show":
+                extra_select = (",s.binding_json,s.fresh_count,s.reuse_count,s.counts_complete,e.detail AS telemetry_detail "
+                                "FROM bridge_session_history h LEFT JOIN bridge_session_monitor_stats s ON s.session_handle=h.session_handle "
+                                "LEFT JOIN bridge_evidence e ON e.seq=s.latest_telemetry_seq AND e.kind='session_telemetry'") if has_stats else (
+                                ",NULL AS binding_json,NULL AS fresh_count,NULL AS reuse_count,NULL AS counts_complete,NULL AS telemetry_detail "
+                                "FROM bridge_session_history h")
                 row = None if not has_table else conn.execute(
-                    "SELECT session_handle,stream_id,peer_id,session_generation,state,resumable,last_seen,"
-                    "context_watermark,bootstrap_truncated,context_watermark_version,created_at,tombstoned_at "
-                    "FROM bridge_session_history WHERE session_handle=?", (args.handle,)).fetchone()
+                    "SELECT h.session_handle,h.stream_id,h.peer_id,h.session_generation,h.state,h.resumable,h.last_seen,"
+                    "h.context_watermark,h.bootstrap_truncated,h.context_watermark_version,h.created_at,h.tombstoned_at" +
+                    extra_select + " WHERE h.session_handle=?", (args.handle,)).fetchone()
                 if row is None:
                     return emit({"schema_version": "1.0", "status": "NOT_FOUND", "handle": args.handle})
                 return emit({"schema_version": "1.0", "status": "OK", "session": _session_public_row(row)})
@@ -721,26 +733,31 @@ def _run_session_cli(args: argparse.Namespace) -> int:
             cursor = None if not args.cursor else _decode_session_cursor(args.cursor, store_id=store_id, lineage=lineage, filters=filters)
             high_water = int(cursor["high_water"]) if cursor else int(
                 conn.execute("SELECT COALESCE(MAX(rowid),0) FROM bridge_session_history").fetchone()[0])
-            where = ["rowid <= ?"]
+            where = ["h.rowid <= ?"]
             params: list[Any] = [high_water]
             if filters["stream"] is not None:
-                where.append("stream_id = ?")
+                where.append("h.stream_id = ?")
                 params.append(filters["stream"])
             if filters["peer"] is not None:
-                where.append("peer_id = ?")
+                where.append("h.peer_id = ?")
                 params.append(filters["peer"])
             if cursor:
                 stream, peer, generation, handle = cursor["after"]
-                where.append("(stream_id > ? OR (stream_id = ? AND peer_id > ?) OR "
-                             "(stream_id = ? AND peer_id = ? AND session_generation < ?) OR "
-                             "(stream_id = ? AND peer_id = ? AND session_generation = ? AND session_handle < ?))")
+                where.append("(h.stream_id > ? OR (h.stream_id = ? AND h.peer_id > ?) OR "
+                             "(h.stream_id = ? AND h.peer_id = ? AND h.session_generation < ?) OR "
+                             "(h.stream_id = ? AND h.peer_id = ? AND h.session_generation = ? AND h.session_handle < ?))")
                 params.extend([stream, stream, peer, stream, peer, generation, stream, peer, generation, handle])
             params.append(args.limit + 1)
+            extra_select = (",s.binding_json,s.fresh_count,s.reuse_count,s.counts_complete,e.detail AS telemetry_detail "
+                            "FROM bridge_session_history h LEFT JOIN bridge_session_monitor_stats s ON s.session_handle=h.session_handle "
+                            "LEFT JOIN bridge_evidence e ON e.seq=s.latest_telemetry_seq AND e.kind='session_telemetry'") if has_stats else (
+                            ",NULL AS binding_json,NULL AS fresh_count,NULL AS reuse_count,NULL AS counts_complete,NULL AS telemetry_detail "
+                            "FROM bridge_session_history h")
             rows = conn.execute(
-                "SELECT rowid,session_handle,stream_id,peer_id,session_generation,state,resumable,last_seen,"
-                "context_watermark,bootstrap_truncated,context_watermark_version,created_at,tombstoned_at "
-                "FROM bridge_session_history WHERE " + " AND ".join(where) +
-                " ORDER BY stream_id,peer_id,session_generation DESC,session_handle DESC LIMIT ?", params).fetchall()
+                "SELECT h.rowid,h.session_handle,h.stream_id,h.peer_id,h.session_generation,h.state,h.resumable,h.last_seen,"
+                "h.context_watermark,h.bootstrap_truncated,h.context_watermark_version,h.created_at,h.tombstoned_at" +
+                extra_select + " WHERE " + " AND ".join(where) +
+                " ORDER BY h.stream_id,h.peer_id,h.session_generation DESC,h.session_handle DESC LIMIT ?", params).fetchall()
             page_rows = rows[:args.limit]
             next_cursor = None
             if len(rows) > args.limit and page_rows:
@@ -774,7 +791,45 @@ def _run_session_cli(args: argparse.Namespace) -> int:
 
 
 def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
-    return {
+    binding: dict[str, Any] = {"profile": None, "model": None, "effort": None, "writable": None}
+    binding_json = row["binding_json"] if "binding_json" in row.keys() else None
+    if isinstance(binding_json, str):
+        try:
+            parsed = json.loads(binding_json)
+            if isinstance(parsed, dict):
+                parsed = cast("dict[str, Any]", parsed)
+                for key in binding:
+                    value = parsed.get(key)
+                    if value is None or isinstance(value, (str, bool)):
+                        binding[key] = value
+        except (ValueError, TypeError):
+            pass
+    calls = None
+    if "counts_complete" in row.keys():
+        complete = bool(row["counts_complete"])
+        calls = {"fresh": row["fresh_count"], "reuse": row["reuse_count"], "complete": complete}
+    latest = None
+    raw_telemetry = row["telemetry_detail"] if "telemetry_detail" in row.keys() else None
+    if isinstance(raw_telemetry, str):
+        try:
+            detail = json.loads(raw_telemetry)
+            if isinstance(detail, dict):
+                detail = cast("dict[str, Any]", detail)
+                raw_usage = detail.get("usage")
+                usage = None
+                if isinstance(raw_usage, dict):
+                    raw_usage = cast("dict[str, Any]", raw_usage)
+                    usage = {key: raw_usage.get(key) for key in
+                             ("schema_version", "scope", "source", "attribution", "reported", "normalized", "coverage")}
+                latest = {
+                    "observed_at": detail.get("observed_at"),
+                    "context": {key: detail.get(key) for key in
+                                ("last_input_tokens", "context_window", "context_pct", "source", "window_reported_at")},
+                    "usage": usage,
+                }
+        except (ValueError, TypeError):
+            latest = None
+    result = {
         "handle": str(row["session_handle"]), "stream_id": str(row["stream_id"]),
         "peer_id": str(row["peer_id"]), "generation": int(row["session_generation"]),
         "state": str(row["state"]), "resumable": bool(row["resumable"]),
@@ -782,7 +837,13 @@ def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
         "bootstrap_truncated": None if row["bootstrap_truncated"] is None else bool(row["bootstrap_truncated"]),
         "context_watermark_version": int(row["context_watermark_version"]),
         "created_at": float(row["created_at"]), "tombstoned_at": row["tombstoned_at"],
+        "configured_binding": binding,
     }
+    if calls is not None:
+        result["call_counts"] = calls
+    if latest is not None:
+        result["latest_telemetry"] = latest
+    return result
 
 
 def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:

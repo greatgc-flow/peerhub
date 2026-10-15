@@ -1202,6 +1202,11 @@ class CliRuntimeTarget:
             payload["display_truncated"] = True
         if usage is not None:
             payload["usage"] = usage
+        telemetry_text = res.stdout.decode("utf-8", "replace")
+        from peerhub.extensions.adapters.telemetry import parse_provider_usage, unknown_usage
+        payload["provider_telemetry"] = (
+            unknown_usage("output_incomplete") if res.stdout_truncated or parser.truncated
+            else parse_provider_usage(self.runtime_kind, telemetry_text))
         if vendor_session_id is not None:
             source = {"cc": "cc.result.session_id", "cx": "cx.thread.started",
                       "ag": "ag.conversation_id"}[self.runtime_kind]

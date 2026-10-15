@@ -75,4 +75,5 @@ markers = [
     "architecture", "schema", "property", "meta", "traceability", "unit", "sqlite", "concurrency",
     "multiprocess", "fault", "migration", "bridge", "observation", "diag", "security", "package",
     "release", "ci", "evidence", "matrix", "cutover", "compatibility", "claim", "certainty", "restart", "integration", "live", "soak", "provider", "cc", "cx", "ag", "isolation", "control", "context", "persistence", "immutability",
+    "platform_sensitive: tests that exercise OS/process/SQLite boundary behavior and must run on Windows",
 ]

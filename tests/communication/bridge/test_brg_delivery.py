@@ -14,7 +14,7 @@ from tests.communication.harness.bridge import BridgeHarness
 from tests.communication.harness.bridge_workers import crash_cycle_worker
 from tests.communication.harness.mp import run_threads
 
-pytestmark = [pytest.mark.integration, pytest.mark.bridge]
+pytestmark = [pytest.mark.integration, pytest.mark.bridge, pytest.mark.platform_sensitive]
 
 
 def test_execution_evidence_does_not_read_unrelated_peer_history(tmp_path, monkeypatch):

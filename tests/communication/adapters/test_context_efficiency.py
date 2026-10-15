@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.extensions.adapters import base
+from peerhub.extensions.adapters.telemetry import parse_provider_usage
 from peerhub.extensions.catchup import ProjectedRecords
 
 pytestmark = pytest.mark.unit
@@ -31,7 +32,40 @@ def test_literal_usage_is_normalized_and_carried_in_terminal(kind, stdout, expec
     monkeypatch.setattr(base, "BoundedProcess", lambda *a, **kw: process)
     adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"])
     events = list(adapter.deliver("session", SimpleNamespace(body="question"), []))
-    assert events[-1] == ("terminal", {"response": "OK", "usage": expected})
+    assert events[-1][0] == "terminal"
+    assert events[-1][1]["response"] == "OK"
+    assert events[-1][1]["usage"] == expected
+    assert events[-1][1]["provider_telemetry"] == parse_provider_usage(kind, stdout)
+
+
+def test_truncated_output_marks_provider_telemetry_unknown(monkeypatch, tmp_path):
+    stdout = b'{"type":"result","is_error":false,"result":"OK","usage":{"output_tokens":1}}'
+    result = base.ProcessResult(123, 0, stdout, b"", False, False, 0.1)
+    process = SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
+
+    class TruncatedParser:
+        truncated = True
+        parser_failed = False
+        has_tool_calls = False
+        has_success = True
+        refusal_evidence_incomplete = False
+        oversized_count = 0
+        refusal_event = None
+
+        def __init__(self, *args: object, **kwargs: object) -> None: pass
+        def feed(self, chunk: bytes) -> None: pass
+        def close(self) -> None: pass
+        def parse(self) -> str: return "OK"
+        def parse_usage(self) -> dict[str, int] | None: return None
+        def parse_session_id(self) -> str | None: return None
+
+    monkeypatch.setattr(base, "IncrementalEventParser", TruncatedParser)
+    monkeypatch.setattr(base, "BoundedProcess", lambda *a, **kw: process)
+    adapter = base.CliRuntimeTarget("cc", tmp_path, command=["fake.exe"])
+    events = list(adapter.deliver("session", SimpleNamespace(body="question"), []))
+    assert events[-1][0] == "terminal"
+    assert events[-1][1]["provider_telemetry"]["coverage"] == {
+        "state": "UNKNOWN", "reason": "output_incomplete"}
 
 
 @pytest.mark.parametrize("kind", ["cc", "cx", "ag"])

@@ -1,0 +1,12 @@
+tests.communication.test_adapters_process
+tests.communication.test_output_cap
+tests.communication.adapters.test_t1_adapters
+tests.communication.adapters.test_output_streaming
+tests.communication.adapters.test_native_resume_adapters
+tests.communication.adapters.test_native_terminate
+tests.communication.bridge.test_brg_delivery
+tests.communication.bridge.test_native_resume
+tests.communication.bridge.test_w3_gate_fixes
+tests.communication.concurrency.test_mp_processes
+tests.communication.fault.test_flt_bridge
+tests.communication.fault.test_flt_storage
