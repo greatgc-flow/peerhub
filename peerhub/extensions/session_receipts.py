@@ -8,7 +8,9 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from typing import Any, Mapping, cast
+import time
+import uuid
+from typing import Any, Mapping, TypeGuard, cast
 
 from peerhub.extensions.usage_normalization import NORMALIZED_FIELDS, REPORTED_FIELDS, normalize_provider_usage
 
@@ -44,6 +46,47 @@ _SECRET_LIKE_BINDING = re.compile(
     r"\b(?:api[_-]?key|token|secret|password|credential)[_-][A-Za-z0-9_-]{8,}\b)"
 )
 _ADAPTER_VERSION = re.compile(r"adapter:(cc|cx|ag):v([0-9]{1,3})\Z")
+PROCESS_CLOCK_DOMAIN = str(uuid.uuid4())
+monotonic_ns = time.monotonic_ns
+_MAX_TICK = 2**63 - 1
+
+
+def _valid_tick(value: object) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= _MAX_TICK
+
+
+def terminal_timing(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row) -> dict[str, Any]:
+    """Create an append-only terminal timing pair; never infer across process clocks."""
+    end_tick = monotonic_ns()
+    end_domain = PROCESS_CLOCK_DOMAIN
+    row = conn.execute("SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='session_call'",
+                       (delivery["delivery_id"],)).fetchone()
+    start: dict[str, Any] | None = None
+    if row is not None:
+        try:
+            detail: object = json.loads(row[0])
+            detail_dict = cast("dict[str, Any]", detail) if isinstance(detail, dict) else {}
+            raw_start = detail_dict.get("peerhub_timing")
+            start = cast("dict[str, Any]", raw_start) if isinstance(raw_start, dict) else None
+        except (TypeError, ValueError):
+            start = None
+    reason: str | None = None
+    elapsed: int | None = None
+    if start is None:
+        reason = "missing_start"
+    else:
+        start_domain: object = start.get("clock_domain")
+        start_tick: object = start.get("started_monotonic_ns")
+        if not _valid_tick(start_tick) or not _valid_tick(end_tick) or not isinstance(start_domain, str) or not start_domain:
+            reason = "invalid_ticks"
+        elif start_domain != end_domain:
+            reason = "domain_mismatch"
+        elif end_tick < start_tick:
+            reason = "terminal_before_start"
+        else:
+            elapsed = end_tick - start_tick
+    return {"schema_version": 1, "clock_domain": end_domain, "terminal_monotonic_ns": end_tick,
+            "elapsed_ns": elapsed, "latency_reason": reason}
 
 
 def _safe_binding(value: object) -> str | None:
@@ -242,7 +285,10 @@ def call(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Row, no
     if conn.execute("SELECT 1 FROM bridge_evidence WHERE delivery_id=? AND kind='session_call'", (delivery["delivery_id"],)).fetchone():
         return
     detail = {key: accepted.get(key) for key in ("handle", "generation", "mode", "reason", "prior_handle")}
+    detail["schema_version"] = 2
     detail["started_at"] = now
+    detail["peerhub_timing"] = {"schema_version": 1, "clock_domain": PROCESS_CLOCK_DOMAIN,
+                                "started_monotonic_ns": monotonic_ns()}
     seq = conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,'session_call','STARTED',?)",
                        (delivery["delivery_id"], delivery["stream_id"], delivery["peer_id"], dumps(detail))).lastrowid
     reuse, fresh = int(accepted["mode"] == "resumed"), int(accepted["mode"] == "fresh")

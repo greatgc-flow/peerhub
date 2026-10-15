@@ -526,6 +526,8 @@ class Bridge:
             raise IllegalCertaintyTransition(f"{row['certainty']} -> {to} is forbidden (TD-11/TD-26)")
         if to != row["certainty"]:
             conn.execute("UPDATE bridge_deliveries SET certainty=? WHERE delivery_id=?", (to, delivery_id))
+        if to == TERMINAL and kind == "terminal":
+            detail["peerhub_timing"] = session_receipts.terminal_timing(conn, row)
         self._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, to, **detail)
         if to == STARTED:
             session_receipts.call(conn, row, self.claims.now())

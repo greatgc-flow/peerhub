@@ -30,6 +30,10 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     }
     windows_run = "\n".join(step.get("run", "") for step in jobs["windows-platform"]["steps"])
     assert "-m platform_sensitive" in windows_run and "verify-junit" in windows_run
+    windows_steps = jobs["windows-platform"]["steps"]
+    for step in windows_steps:
+        if step.get("uses", "").startswith("actions/setup-python@") or step.get("name") == "Install dependencies":
+            assert step.get("if") == "steps.suite.outputs.windows_suite != 'skip'"
     ubuntu_steps = jobs["ubuntu-full"]["steps"]
     reverse_check = next(i for i, step in enumerate(ubuntu_steps)
                          if "verify-marker-inventory" in step.get("run", ""))

@@ -1796,3 +1796,24 @@ module in both `tests/continuity/test_m2_m3_exit_gates.py` and
 `tests/communication/architecture/test_arch_extension_graph.py`, keeping their
 module lists/classification/import permissions consistent. Any code path not
 covered by the tests above remains out of the first implementation slice.
+
+### TDD execution status (2026-10-15)
+
+- Phase 0 CI contracts: GREEN locally. The new contract tests first produced
+  five expected failures, then passed after the workflow selector, marker
+  inventory verifier, and required-lane aggregate were implemented. The
+  focused module has 7 passing tests; pyright is clean. PR run
+  `38734981452` passed on GitHub: Ubuntu deterministic suite, six
+  installed-package smoke cells, Windows platform job, marker reverse-check,
+  pyright, and the `ci-pass` aggregate all succeeded.
+- Phase 2 timing: RED reproduced for the missing process clock contract, then
+  GREEN for a normal same-process sample and four invalid-clock cases. The
+  implementation adds `session_call` detail v2 with timing sub-schema v1 and
+  append-only terminal timing sub-schema v1; provider telemetry remains v3.
+  Focused receipt/refusal regression tests passed (118 tests), and pyright is
+  clean. Scope/day latency counters, strict receipt validation, and read-model
+  exposure remain pending; this is not a completed monitoring feature.
+- CI follow-up: docs-only Windows selection now also bypasses Windows Python
+  setup and dependency installation after suite selection; its RED assertion
+  and focused GREEN check pass. This optimization was added after CI run
+  `38734981452`; the next pushed revision must validate it on GitHub.

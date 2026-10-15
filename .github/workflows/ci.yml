@@ -76,10 +76,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Add-Content -Path $env:GITHUB_OUTPUT -Value $selection
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        if: steps.suite.outputs.windows_suite != 'skip'
         with:
           python-version: "3.11"
           cache: pip
       - name: Install dependencies
+        if: steps.suite.outputs.windows_suite != 'skip'
         run: python -m pip install -e ".[dev]"
       - name: Run full Windows suite for platform-sensitive changes
         if: steps.suite.outputs.windows_suite == 'full'

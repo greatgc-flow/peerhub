@@ -9,7 +9,7 @@ from peerhub.core.models import Peer, Stream
 from peerhub.core.store import CoreStore, IdempotencyConflictError
 from peerhub.extensions.ask import ask
 from peerhub.extensions.bridge import Bridge, _DDL
-from peerhub.extensions import bridge_registry
+from peerhub.extensions import bridge_registry, session_receipts
 from peerhub.extensions.bridge_claims import ClaimStore, StaleClaimError
 from tests.communication.bridge_helpers import bseed, sql
 from tests.communication.control_helpers import ctl
@@ -192,6 +192,49 @@ def test_terminal_recovery_and_duplicate_callback_never_duplicate_receipts(tmp_p
     token = h.acquire_claim("b", "s", h.bridge.owner_id)
     h.finalize_terminal(token, {"response": "ok", "vendor_session": {"id": "native-ext-1"}}, result.delivery_id)
     assert sql(h, "SELECT COUNT(*) FROM bridge_evidence WHERE kind IN ('session_call','session_telemetry')") == [(2,)]
+
+
+def test_session_timing_uses_process_monotonic_clock(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    ticks = iter([1_000_000, 1_012_345_678])
+    monkeypatch.setattr(session_receipts, "PROCESS_CLOCK_DOMAIN", "process-a")
+    monkeypatch.setattr(session_receipts, "monotonic_ns", lambda: next(ticks))
+    result = h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    start = sql(h, "SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='session_call'", (result.delivery_id,))[0][0]
+    terminal = sql(h, "SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='terminal'", (result.delivery_id,))[0][0]
+    start_timing = json.loads(start)["peerhub_timing"]
+    terminal_timing = json.loads(terminal)["peerhub_timing"]
+    assert json.loads(start)["schema_version"] == 2
+    assert start_timing == {"schema_version": 1, "clock_domain": "process-a", "started_monotonic_ns": 1_000_000}
+    assert terminal_timing["elapsed_ns"] == 1_011_345_678
+    assert terminal_timing["latency_reason"] is None
+
+
+@pytest.mark.parametrize(("start_tick", "end_tick", "change_domain", "reason"), [
+    (100, 200, True, "domain_mismatch"),
+    (200, 100, False, "terminal_before_start"),
+    (-1, 100, False, "invalid_ticks"),
+    (100, True, False, "invalid_ticks"),
+])
+def test_session_timing_refuses_invalid_clock_pairs(tmp_path, monkeypatch, start_tick, end_tick, change_domain, reason):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    ticks = iter([start_tick, end_tick])
+    monkeypatch.setattr(session_receipts, "PROCESS_CLOCK_DOMAIN", "process-a")
+
+    def next_tick():
+        tick = next(ticks)
+        if change_domain and tick == end_tick:
+            monkeypatch.setattr(session_receipts, "PROCESS_CLOCK_DOMAIN", "process-b")
+        return tick
+
+    monkeypatch.setattr(session_receipts, "monotonic_ns", next_tick)
+    result = h.delivery_cycle("b", "s", FakeRuntimeTarget())
+    terminal = sql(h, "SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='terminal'", (result.delivery_id,))[0][0]
+    timing = json.loads(terminal)["peerhub_timing"]
+    assert timing["elapsed_ns"] is None
+    assert timing["latency_reason"] == reason
 
 
 def test_stale_owner_cannot_mutate_registry_or_receipts(tmp_path):
