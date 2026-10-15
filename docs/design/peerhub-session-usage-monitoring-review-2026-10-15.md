@@ -80,10 +80,10 @@ peer consensus vote or implementation approval.
 
 | Surface | Include | Meaning and source | Guardrail |
 |---|---|---|---|
-| Peer overview | retained sessions by state; currently eligible count; fresh/reuse counts and completeness; bounded recent confirmed-call outcomes; latest activity age/duration; latest quota pools and freshness | Session history and writer-owned projections; call receipts; bounded existing activity projection; quota observations | State the selected stream/window scope. Do not present bounded recent activity as an all-time total. |
+| Peer overview | retained-session total when the scope projection is complete; fresh/reuse counts and completeness; bounded recent delivery-certainty states; latest activity age; latest quota pools and freshness | Session history and writer-owned projections; call receipts; bounded existing activity projection; quota observations | State the selected stream/window scope. Do not claim current eligibility, success/error totals, or latency where no source proves it. Do not present bounded recent activity as an all-time total. |
 | Session row/detail | PeerHub handle, stream, generation, state, latest pointer, created/last-used/expiry, profile/model/effort binding, fresh/reuse counts, latest confirmed call mode/result, context tokens/window/percentage/source/age, quota pool observations | Retained session history, binding snapshot, call/telemetry receipts, pinned quota observations | Never expose vendor session IDs, prompt/response text, raw adapter output, credentials, or account identifiers. Unknown and stale are explicit. |
 | Recent usage | Provider-reported input/output/cache counters when present; include source/model, reporting coverage, time, and outcome | Typed existing `session_telemetry` receipt; broader bounded coverage/rollup remains proposed | Keep provider-native counters distinguishable. Session-cumulative values are unattributed and never become per-delivery aggregates. |
-| Execution health | confirmed calls, successful terminal calls, failed terminal calls, unresolved/uncertain calls, recent latency distribution | Durable delivery/call receipts and bounded indexes | Distinguish `ask` attempts from confirmed provider calls. Failed-before-start requests are not provider calls. Label latency as end-to-end PeerHub operation time unless provider-only timing is measured. |
+| Execution health | Bridge delivery-certainty states, fresh/reuse calls, per-peer started-to-terminal elapsed average and recent measured samples | Durable delivery/call receipts and bounded projections | Do not infer success/error cause from certainty. Label elapsed time as PeerHub-observed and composition-sensitive, never AI/provider-only. Failed-before-start requests are not provider calls. |
 
 The default dashboard should show concise peer summaries and a small bounded
 session sample. `session list/show` remains the complete paginated inventory.
@@ -131,10 +131,10 @@ implemented:
 | Actual monetary/unit/average billed cost | No persisted authoritative billing amount, invoice linkage, contract tier, discount, or per-request billing evidence | CC documents a client-side estimate, and its Admin API can provide organization/time-bucketed billing evidence for eligible accounts; neither currently provides a reliable amount attributed to each PeerHub delivery across peers. Token counts alone cannot reconstruct actual charges. | Actual per-delivery billed cost is unknown. A CC estimate is a distinct possible metric and must be explicitly labeled, versioned, and scope-validated. |
 | Number of actual model inference turns inside a delivery | Bridge records confirmed deliveries/calls | A CLI delivery may include provider-internal tool/model loops that adapters do not consistently expose. One `session_call` is not necessarily one model inference. | Count confirmed Bridge calls, label them as calls/deliveries, not model turns. |
 | Exact all-time error totals | Durable delivery evidence exists; current activity diagnostic keeps only the newest 50 best-effort ask observations per peer | The activity sample is bounded and can omit events; no all-time peer outcome/error projection currently exists. Legacy certainty and terminal classification can also be incomplete. | Show recent sample counts with its window. All-time error counts require a writer-maintained counter and completeness flag. |
-| Provider-only generation latency / time to first token | `operation_elapsed_seconds` measures end-to-end ask operation duration | It includes local work such as claim/Bridge processing, process startup, and other overhead; separate provider timings are not consistently measured. | Label as end-to-end operation latency; do not call it inference latency. |
+| Provider-only generation latency / time to first token | `operation_elapsed_seconds` and same-delivery `session_call.started_at` → terminal evidence | Existing operation duration includes local work and startup; Bridge start-to-terminal elapsed time also includes adapter completion. Neither isolates provider inference. | Report PeerHub-observed elapsed time with scope; provider-only latency and TTFT remain unknown. |
 | Session actually resumable at the provider right now | Local retained state, binding, last use, and eligibility evidence | The remote provider can expire, revoke, or invalidate a session between calls. Only a later resume attempt can confirm acceptance, and probing may have side effects/cost. | Show local eligibility/last-known state, not guaranteed provider availability. |
 | Quota or spend attributable to a particular session | Provider quota observations at peer/account-pool scope | Accounts and pools can be shared across sessions and external clients; providers do not report a reliable session allocation. | Show shared quota evidence at its observed scope only. |
-| Exact whole-peer session/error totals in every live dashboard frame | The design bounds monitor reads to selected recent streams and session rows | Scanning every retained/tombstoned session or delivery each frame breaks bounded-work guarantees; current projections are per stream+peer for fresh/reuse, not every requested outcome. | Mark monitor totals with scope/coverage. Complete inventory remains paginated; whole-peer exact rollups need dedicated projections. |
+| Exact whole-peer session/error totals in every live dashboard frame | Retained-session scope projection planned; no typed all-time error projection | Monitor caps displayed sessions/scopes; complete session inventory remains paginated. Terminal certainty does not establish provider success/error. | Exact retained count only when scope projection is complete; otherwise mark partial. Error totals remain unavailable beyond bounded recent evidence. |
 | Provider-resolved model/effort actually used for every sub-turn | Session binding stores selected profile/model/effort attributes | A configured alias or CLI target is not proof of a provider's resolved backend or hidden internal sub-turn settings. | Report the stored selection/binding as configured; do not claim internal provider execution details. |
 
 The reliable current facts are narrower: PeerHub session handles and local
@@ -172,8 +172,8 @@ the linked CLI audit and are not release qualification.
 |---|---|---|
 | Session inventory, state, age, expiry, configured binding | Local session history and binding snapshots | Exact only within the selected stream/peer and retained-history scope. Configured profile/model/effort is not proof of provider-resolved execution. |
 | Fresh/reuse counts | Writer-maintained per-stream/per-peer projections | Use only when completeness metadata permits; state selected scope. |
-| Confirmed call and terminal outcome | Durable Bridge call/evidence receipts | Counts Bridge deliveries/calls, not internal provider model turns. Preserve success, failed, uncertain, and pre-start categories separately. |
-| Latest operation duration and recent activity | `operation_elapsed_seconds` and bounded activity sample (currently at most 50 per peer) | End-to-end PeerHub operation time; includes local work and process startup. Activity is not an all-time durable call count. |
+| Confirmed call and terminal outcome | Durable Bridge certainty states and call evidence | Counts Bridge deliveries/calls, not internal provider model turns. Do not infer success/failure from certainty. |
+| Latest operation duration and recent activity | `operation_elapsed_seconds`, same-delivery monotonic start/terminal pair, and bounded activity sample (currently at most 50 per peer) | End-to-end PeerHub elapsed time; not provider-only. Activity is not an all-time durable call count. |
 | Context occupancy/window | Session telemetry receipt schema exists, but current writer records null token/window/percentage with `source=unknown` | Not presently measured. Never substitute usage tokens or a public model's advertised maximum. |
 | Quota observations | Existing quota probe/projection at peer/account-pool level | Shared-pool observation with source/freshness; no session allocation. |
 | Durable provider usage | Adapter parses versioned, allowlisted usage candidates; the Bridge terminal transaction stores safe provider usage in the authoritative `session_telemetry` receipt | Delivery-scoped facts are eligible only when the provider/schema contract says delivery scope. Cumulative CC/CX/AG snapshots are displayed as unattributed observations. No replay/result snapshot is a monitoring source. |
@@ -276,8 +276,8 @@ and must not persist or expose raw stream events.
   accounting.
 - **Latency** from `operation_elapsed_seconds` covers end-to-end PeerHub ask
   operation timing, not model generation alone. Existing diagnostic output
-  provides median over its bounded ask sample. Add p95 only if the same bounded
-  sample is explicitly named; no lifetime percentile claim.
+  provides median over its bounded ask sample. Do not add a latency p95 to
+  monitor in this slice; no lifetime percentile claim.
 - **Context and quota** values always carry evidence source and age/state. A
   later call without terminal telemetry invalidates an older context value as
   current. Quota is selected at the snapshot time, never copied from an old
@@ -350,7 +350,7 @@ derived totals only when they link to the owning group's source and coverage.
 | Stable group ID | Owns | Canonical source | Examples / exclusions |
 |---|---|---|---|
 | `overview` | Cross-group peer summary and highest-priority state | Derived from groups below; no independent counters | Peer state, retained/current session counts, last activity age, health warnings. |
-| `execution` | PeerHub delivery and operation health | `bridge_deliveries`, `bridge_evidence`, bounded activity receipts | Confirmed deliveries, terminal success/failure, uncertain/pre-start counts, bounded end-to-end latency; not provider inference-turn count. |
+| `execution` | PeerHub delivery and operation health | `bridge_deliveries`, `bridge_evidence`, bounded activity receipts | Delivery-certainty states, fresh/reuse, Bridge-observed started-to-terminal elapsed average, and recent samples with start-time binding; no inferred success/error or provider inference-turn count. |
 | `sessions` | Retained PeerHub session lifecycle and reuse | `bridge_session_history`, `bridge_sessions`, session receipts and writer projections | Handle, state, configured binding, age/expiry, fresh/reuse, eligibility and completeness; never vendor IDs. Full inventory remains paginated. |
 | `usage` | Provider-reported token and usage facts | Validated telemetry facts linked to a Bridge delivery | Per-delivery input/output/cache/thinking/total where emitted, CC model usage/cost estimate if validated, reporting coverage; not context occupancy or billed cost. |
 | `context` | Runtime context occupancy evidence | Validated telemetry facts or terminal telemetry receipt | Occupancy tokens, matching window, percentage, source and age; never billing input or advertised model maximum. |
@@ -416,27 +416,73 @@ CLI selection contract:
 
 - `peerhub monitor --group usage --group sessions` selects exactly those
   groups and overrides defaults for that invocation. Repeating a group is
-  idempotent. `--group all` cannot be combined with named groups. Unknown IDs
-  fail before DB open or provider spawn.
+  idempotent. `--group all` means the catalog's complete nine-group order and
+  cannot be combined with any other `--group` value. Unknown IDs fail before
+  DB open or provider spawn. Preference paths are rooted at the current working
+  directory; `--db`/`PEERHUB_DB` never changes the workspace root.
 - `peerhub monitor groups` prints the stable catalog, order, default status,
-  and collection effects; it is read-only and works without a DB.
+  and collection effects; it is read-only and works without a DB/provider.
+  With corrupt effective preferences it prints the catalog with
+  each group's `default_selected=null`, bounded collection-effect metadata,
+  and top-level status `ERROR` and exit 1; it must not silently fall through
+  to a lower-precedence layer. The catalog is still emitted. Its JSON contract
+  is `schema_version`, `status`, `groups`
+  (stable catalog objects `{id, order, default_selected, collection_effect}`),
+  and `preference={status, source, reason}`.
 - `peerhub monitor defaults show`, `defaults set --group ...`, and `defaults
   reset` inspect/change display preferences without provider calls or Core DB
   writes. `--global` explicitly selects the global preference; otherwise
-  changes apply to the workspace.
+  changes apply to the workspace. `set` requires one or more known group IDs,
+  removes duplicates while preserving catalog order, and replaces only the
+  chosen layer's file. Without `--global`, it writes the workspace file even
+  when a global file exists. `reset` removes only the chosen layer's file;
+  resetting workspace reveals global/package defaults, and resetting global
+  does not alter a workspace override. Reset of a missing file is successful
+  and reports `changed=false`. `set` and `reset` can repair a corrupt target
+  file without reading or modifying another layer.
 - Defaults resolve workspace `.peerhub/config/monitor.toml` over global
-  `PEERHUB_CONFIG_HOME/monitor.toml` (or `~/.peerhub/config/monitor.toml`),
-  over packaged defaults. Keep this separate from `models.toml`; validate IDs
-  and atomically replace only this preference file. Show the effective source.
+  `$PEERHUB_CONFIG_HOME/monitor.toml` when `PEERHUB_CONFIG_HOME` is set; the
+  variable names a directory, not a file. When unset or empty, use
+  `~/.peerhub/config/monitor.toml`. Resolve these over packaged defaults. Keep
+  this separate from `models.toml`; the TOML contract is
+  `schema_version = 1` plus `[monitor] default_groups = ["..."]`. The list is
+  one atomic preference value, not per-group field merging. Validate IDs and
+  atomically replace only the selected preference file. `defaults show` emits
+  `schema_version`, `status`, `selected_groups`, and `preference={status,
+  source, reason}`. Sources are only `workspace`, `global`, or `packaged`; do
+  not serialize file paths or parser exception text. For malformed TOML,
+  unsupported schema, or invalid IDs, `reason` is respectively
+  `invalid_toml`, `unsupported_schema`, or `invalid_group`. A corrupt effective
+  file yields status `ERROR` and exit 1 for `defaults show`; it never opens DB.
+  `groups --json` uses the same bounded preference error object with
+  `default_selected=null` for every catalog entry.
 - Existing `--view`, `--json`, interval/cycle behavior, store selection, first
   committed snapshot, and refresh cadence remain intact. Group selection may
   not trigger extra probes. Each JSON frame carries `selected_groups`,
   `available_groups`, preference source, and coverage per selected group.
-  Changes to section inclusion bump monitor/dashboard schema versions.
+  Grouped frames use `MONITOR_FRAME_SCHEMA="2.0"`; schema changes are
+  versioned separately from the existing 1.1 dashboard frames.
+  Each group object is `{status, data, coverage}`; coverage is
+  `{scope, window, sample_size, truncated, complete, reason}` with nulls only
+  where a field does not apply. Group status is `OK`, `PARTIAL`,
+  `UNAVAILABLE`, or `ERROR`. Frame status precedence is `ERROR` > `PARTIAL` >
+  `OK` (`UNAVAILABLE` makes the frame `PARTIAL`). Usable partial/unavailable
+  data exits 0; a grouped read error exits 4; missing store/schema retain the
+  existing 5/6 exit codes. The snapshot mode never returns provider refresh
+  errors because it performs no refresh.
+- Add `peerhub monitor --snapshot` for a single pinned, read-only grouped frame
+  with no quota refresh, provider call, or Core DB write. It accepts the same
+  `--group` selection and output view flags. It conflicts with explicit
+  watch/collection options (`--interval-seconds`, `--cycles`, `--peers`,
+  `--timeout-seconds`, `--collect-every`, `--allow-agy-token-use`, and
+  `--system-dir`) rather than silently ignoring them. The existing monitor
+  watch mode retains its current refresh cadence and initial/complete frames.
 - TTY output uses group headers and concise summaries; JSON/NDJSON uses
   structured group objects, never scraped terminal text. `all` stays bounded:
-  detail is paginated/capped with continuation and coverage. `session
-  list/show` remains the complete retained-session inventory.
+  exact projections show complete totals when their coverage is complete;
+  row-level detail is a latest-100 sample with `sample_size`, window, and
+  `truncated` status. Monitor does not page raw delivery/receipt history.
+  `session list/show` remains the complete retained-session inventory.
 
 ### Durable evidence model
 
@@ -447,6 +493,155 @@ CLI selection contract:
 | Coverage projection | By peer/provider/model/profile/window: eligible, measured, missing, unsupported, reset/non-monotonic counts; outcome counts; latest sequence and coverage start | Update transactionally with facts; legacy backfill declares exact coverage or incomplete. Never recount full history in monitor. |
 | Usage/health rollups | Bounded-window or calendar-bucket sums/counts and latency distribution inputs for attributable facts | Writer-maintained, idempotent, with denominator and semantics version. Never aggregate across incomparable providers/models/fields. Percentiles name the bounded sample or approximation. |
 | Monitor preferences | Selected default group IDs only | TOML config, not Core DB; no secrets or provider-state values. |
+
+#### Projection, query, and completeness contract (peer-ratified)
+
+The existing `bridge_deliveries` row keyed by `delivery_id`, append-only
+`bridge_evidence` receipts, `bridge_session_history`,
+`bridge_session_monitor_stats`, and `bridge_session_monitor_scope` remain the
+only source facts. Reuse the existing session/scope fresh-reuse projections;
+do not add parallel raw-fact tables. Add only rebuildable aggregate/coverage
+projections when a requested metric cannot be produced within the bounded
+read contract. Projection definitions must name their source row, key,
+dimensions, numerator, denominator, semantics version, completeness watermark,
+and retention assumptions before RED tests begin.
+
+- **Eligible additive facts:** current delivery-certainty counts from each
+  durable `bridge_deliveries.delivery_id`; fresh/reuse events from existing
+  unique `session_call` evidence; provider counters only when a versioned
+  source contract binds them to that delivery. The idempotency key is the
+  stable source `delivery_id` (and evidence kind where needed). Apply a
+  contribution once in the same fenced SQLite transaction as its authoritative
+  source write. Identical retries are no-ops. Delivery certainty gauges move
+  by subtracting the previous state and adding the new state only on an actual
+  Bridge transition. If existing reconciliation semantics correct a source
+  fact, replace/reverse the old contribution atomically; do not invent
+  correction semantics in the monitor layer. Never count an
+  uncertain/unstarted call as a confirmed provider execution. The current
+  schema has no universal typed success/error outcome, so all-time
+  provider-error totals are unavailable; do not infer them from certainty,
+  exit code, or terminal duration fields. A same-delivery `session_call` has a
+  durable `started_at`; combined with terminal time it supports an observed
+  elapsed interval, but this interval includes provider, adapter, and Bridge
+  completion work and cannot be attributed to AI alone.
+- **Latency capture:** at confirmed STARTED, extend the existing unique
+  `session_call` receipt with `clock_domain` (a Bridge process-instance UUID),
+  `started_monotonic_ns`, and the sanitized immutable configured
+  profile/model/effort binding for that generation. At first terminal commit,
+  persist the same `clock_domain` and `terminal_monotonic_ns` in terminal
+  evidence in the same fenced transaction. Derive
+  `peerhub_started_to_terminal_elapsed_ms` only when both evidence rows belong
+  to the same delivery, domains match, values are valid integers, and terminal
+  ticks are not less than start ticks. Do not fall back to wall-clock subtraction
+  on missing start, retry/recovery, process restart, or domain mismatch. Keep
+  wall timestamps for ordering and UTC bucketing. The metric includes all work
+  from confirmed Bridge STARTED to terminal receipt; it is not AI/provider
+  duration or an error diagnosis. Store sum/count and missing-start,
+  domain-mismatch, and invalid counts in the peer/day projections. Persist no
+  binding cohorts or histogram yet; use the bounded latest-100 per-delivery
+  sample, with its sample size and start-time binding, to inspect outliers.
+  Python documents the monotonic clock as non-adjustable with an undefined
+  reference point, so the implementation must persist the domain and compare
+  only paired values from that domain; use integer nanoseconds to avoid float
+  precision loss. [Python time.monotonic_ns documentation](https://docs.python.org/3/library/time.html#time.monotonic_ns).
+- **Coverage projection:** add rebuildable
+  `bridge_monitor_delivery_scope`, primary key `(stream_id, peer_id)`, with
+  nonnegative current-state gauges (`not_started_count`,
+  `may_have_started_count`, `started_count`, `terminal_count`), terminal
+  telemetry coverage counters (`measured_count`, `absent_count`,
+  `unsupported_count`, `unknown_count`, `missing_count`), separate delivery
+  and telemetry coverage-start/high-water sequences and completeness flags,
+  `latency_sum_ms`, `latency_count`, `latency_missing_start_count`,
+  `latency_domain_mismatch_count`, `latency_invalid_count`, and
+  `semantics_version`. The denominator is terminal deliveries only. A
+  valid usage-coverage numerator requires an attached `session_telemetry`
+  receipt whose own `certainty='TERMINAL'`; absent, malformed, or mismatched
+  receipts classify as unknown/missing and never measured. Session-cumulative
+  usage remains non-additive regardless of this coverage classification.
+  Existing refusal receipts are `STARTED` and excluded from the denominator.
+  Remove the refusal-path `session_telemetry` write (retain refusal evidence
+  and `session_call`); refusal provides no validated usage/context sample and
+  must not advance the latest telemetry pointer. Preserve the existing unique
+  per-delivery receipt index. During migration, repoint legacy session stats
+  from a nonterminal receipt to the greatest valid terminal receipt for that
+  handle, or null when none exists; never rewrite append-only evidence.
+- **Daily trend projection:** add rebuildable
+  `bridge_monitor_delivery_day`, primary key
+  `(stream_id, peer_id, terminal_day_utc)`, with terminal-delivery count, the
+  five disjoint telemetry-coverage counts, and the same latency sum/count/
+  missing/domain-mismatch/invalid counters. `terminal_day_utc` is the UTC
+  epoch-day derived from immutable `terminal_at`. It reports terminal volume,
+  evidence coverage, and PeerHub-observed elapsed time only, not provider
+  success/error or token sums. Persist peer/stream/day aggregates only; do not
+  add binding-cohort tables or a histogram in this slice. Aggregate latency is
+  composition-sensitive when profiles/models change. Recent per-delivery
+  samples include the configured profile/model/effort captured at call start.
+  Only delivery-scoped provider metrics with explicit contracts may later add
+  their own versioned columns/buckets.
+- **Projection lifecycle:** create scope/day contributions on terminal and
+  certainty transitions under the same fenced transaction; delivery rows are
+  never deleted and terminal fields/evidence are immutable. Rebuild in
+  monotonic bounded chunks from `bridge_deliveries` joined to
+  `bridge_evidence`; use source sequence domains separately. Backfill the
+  retained source set, but mark a family's completeness only if its stored
+  coverage start/high-water and no-pruning guarantee prove the range. Legacy
+  history that cannot be proved complete is visibly `incomplete`, never
+  guessed all-time. Replacement and rollback are atomic. No separate raw fact
+  or per-delivery contribution ledger is added; the unique durable delivery
+  rows and fenced transition path are the idempotency authority.
+- **Non-additive evidence:** session-cumulative usage, context samples, and
+  pool quota stay point-in-time facts. Keep all accepted telemetry receipts;
+  `bridge_session_monitor_stats.latest_telemetry_seq` points to the greatest
+  `(observed_at, evidence_seq)` for that session. Update the pointer in the
+  same receipt transaction only when that tuple increases. Equal timestamps
+  use the greater evidence sequence. A late receipt remains immutable history
+  but cannot regress the pointer; a lower counter is a reset observation,
+  never a delta. Label this pointer `latest_by_observed_order`, with no claim
+  of provider sequence. Missing/corrupt receipt means latest is unknown and
+  coverage incomplete. Snapshot count/freshness may be tracked; token values
+  are never summed or differenced.
+- **Read budget:** one pinned read-only SQLite transaction per monitor frame,
+  at most six set-based `SELECT` statements total, independent of selected
+  groups and history size. All selected groups share one read model. The six
+  query families are (1) peer/runtime state, (2) stream/activity summary,
+  (3) retained session page plus session projections/latest-receipt pointers,
+  (4) delivery/terminal page, (5) latest pool observations, and (6) bounded
+  time-bucket and coverage projections. Group renderers may not issue their
+  own reads. Validate the final query plan against production-shaped stores;
+  no N+1 reads or full-history scans are permitted. This is an acceptance
+  target, not a claim that the current monitor already meets the budget.
+- **Initial frame caps:** 3 peers, 20 stream scopes, 100 session rows, 100
+  latest delivery/receipt rows, and 30 daily buckets from the latest 30 UTC
+  days. Each bounded list reads
+  `LIMIT cap+1`; the extra row establishes `truncated` and exact `sample_size`
+  without a separate count query. Latest telemetry is fetched through the
+  per-session pointer and is not limited to the recent-receipt sample. Overflow
+  reports `truncated=true` with a named sample window; it does not claim an
+  all-time total. Exact counts come from complete writer projections and carry
+  a separate `complete` flag. Full session inventory remains `session list`
+  pagination; monitor has no raw-row cursor protocol.
+- **Coverage and repair:** projection rows include `complete`, source
+  watermark/range, coverage start, and a bounded reason enum. Backfill reads
+  immutable sources in monotonic chunks; mark complete only when the scanned
+  retained source range proves the watermark and no pruned gap exists.
+  Otherwise show incomplete/unknown. Repair is an explicit offline operation,
+  chunked and idempotent; construct replacement projections and publish them
+  atomically. Monitor reads never backfill, repair, count the whole history,
+  or call providers. `store` group integrity checks remain bounded; full
+  integrity scans stay under explicit `diag integrity`. Require
+  `EXPLAIN QUERY PLAN` to show indexed scope reads without full-history monitor
+  scans, and warmed monitor-frame query/render p95 at or below 150 ms on the
+  existing synthetic
+  5,000-session / 50,000-delivery fixture. If SQLite misses either gate, revise
+  the projection/query plan before implementation; raise the query ceiling to
+  eight only with a benchmark-backed design amendment. This p95 is a
+  performance gate for monitor frame latency, not a per-provider or usage
+  metric; latency output remains average plus recent named samples only.
+
+These constraints are unanimous across CC, AG, and CX review rounds. The key
+resolution is that durable projections serve exactly attributable facts;
+bounded samples alone cannot satisfy trend/completeness goals, while
+cumulative provider snapshots cannot safely be made additive.
 
 Physical schema decision for TDD: extend the existing append-only
 `bridge_evidence.kind=session_telemetry` receipt. The accepted Oct. 13 PH-T091
@@ -574,9 +769,11 @@ observational rather than causal. Cohort by PeerHub version, adapter/schema
 version, provider, configured model/profile/effort, time window, and scope.
 Initial indicators are:
 
-- delivery success, terminal failure, uncertain, and pre-start rates;
+- delivery-certainty distribution and refusal/pre-start counts, not universal
+  provider success/error rates;
 - fresh/reuse share and resume acceptance where resume was attempted;
-- end-to-end operation latency median/p95 for a named peer/model/window;
+- PeerHub-observed started-to-terminal elapsed average and recent measured
+  samples, labeled composition-sensitive; no provider/AI-only latency claim;
 - provider-reported per-delivery token fields and coverage, separately by
   provider/model/field semantics;
 - optional CC estimated amount, separately labeled and estimate-basis/version
@@ -1126,11 +1323,15 @@ Add the following RED contracts to the existing session-monitoring test plan
 before implementing the read model:
 
 - **USM-01 — Scope and completeness:** fixture with multiple peers, streams,
-  live/lost/tombstoned sessions, and legacy incomplete projections; peer
-  overview reports exact retained inventory scope and nulls unknown totals.
-- **USM-02 — Call/outcome semantics:** replay, confirmed success/failure,
-  unresolved execution, and pre-start rejection; each delivery contributes at
-  most once to its correct category.
+  live/lost/tombstoned sessions, >20 scopes, missing projection rows, and legacy
+  incomplete projections; peer overview reports exact retained totals only
+  when complete, otherwise `value=null` with `scope_cap`,
+  `legacy_incomplete`, or `projection_missing` reason. Validate disjoint group
+  and frame status/exit-code precedence.
+- **USM-02 — Call/certainty semantics:** replay, forward certainty transitions,
+  refusal, unresolved execution, and pre-start rejection; each delivery
+  contributes at most once to its current certainty category. Do not infer
+  terminal success/failure without a typed outcome source.
 - **USM-03 — Activity versus calls:** best-effort ask observations differ from
   durable call receipts; output labels each source/window and never claims the
   50-row activity sample is an all-time count.
@@ -1140,8 +1341,12 @@ before implementing the read model:
 - **USM-05 — Context/quota separation:** billing usage exceeds context
   occupancy and quota is shared; context percentage uses only matching
   occupancy/window evidence and quota remains account/pool scoped.
-- **USM-06 — Latency label:** operation timing includes Bridge overhead; output
-  labels end-to-end latency and bounds median/p95 to the named sample.
+- **USM-06 — Latency label:** capture monotonic start/terminal values in one
+  Bridge process domain; emit elapsed time only for a same-delivery valid pair,
+  label it PeerHub-observed and composition-sensitive, preserve missing and
+  domain-mismatch counts, and include per-sample start-time binding. Never
+  label this AI/provider-only latency; percentiles are out of scope in this
+  slice.
 - **USM-07 — Bounded snapshot:** grow unrelated delivery/evidence history and
   session count; query/row work stays within the declared page/window bound,
   with no per-session N+1 reads or live provider work.
@@ -1195,11 +1400,12 @@ until all three peers approve this exact amended packet.
   Keep one immutable evidence authority; add only rebuildable projections
   needed by named bounded queries. Do not use an unsupported wall-clock SLO.
 - **Privacy and input validation:** test that no prompt/response/tool payload,
-  vendor/session identifier, credential, raw path, or request ID reaches
-  telemetry or rendered monitor output. Bound and sanitize profile/model/
-  version/stream display fields, including control characters and oversized
-  values. This does not change the separate replay-response retention
-  contract.
+  vendor/session identifier, credential, adapter/config filesystem path, or
+  request ID reaches telemetry or grouped fields. Keep the existing explicit
+  `store_selection.path` field as a separate local store diagnostic. Bound
+  and sanitize profile/model/version/stream display fields, including control
+  characters and oversized values. This does not change the separate
+  replay-response retention contract.
 - **Live gate evidence integrity:** current `tools.live_gate --allow-dirty`
   can stamp G3 against `HEAD` while testing uncommitted source, and G5 cannot
   detect that mismatch. Remove this bypass; reject every dirty worktree before
@@ -1260,3 +1466,190 @@ CI; followed by the separate persistent-process experiment gate (USM-30).
 No new adapter default or persistent process reuse has been enabled. Draft
 PR #103 exists to run the full repository CI; do not merge or release it as
 the completed monitoring feature until these remaining slices are done.
+
+## 2026-10-15 final pre-TDD ratification packet
+
+This packet supersedes earlier open wording in this document where it differs.
+CC, AG, and CX completed independent critique and follow-up rounds. No monitor
+group implementation has started. TDD may begin only from the contracts below;
+this is the last design checkpoint before writing RED tests.
+
+### Accepted scope and source relationships
+
+- Keep the nine stable MECE groups and their ownership from the catalog above.
+  `runtime` exposes the effective configured peer profile, model/alias, effort,
+  source layer, and observed adapter/CLI version. `sessions` exposes the binding
+  snapshot actually selected for a PeerHub session generation. Neither proves
+  provider entitlement, context window, or backend-resolved model. The
+  complete local profile catalog remains `peerhub profile list`; runtime
+  monitoring shows selected/effective profile provenance, not every unused
+  profile as a session fact. `capacity` is a peer/account-pool observation
+  independent of profile,
+  model, session, or context; never allocate shared quota to a session.
+- The dependency chain is configured peer/profile/model selection → immutable
+  session-generation binding → Bridge deliveries → allowlisted usage/context
+  observations. Context occupancy is valid only when occupancy and window
+  share the same source sample, model identity, and freshness. Delivery-scoped
+  cost estimates require a provider-resolved model and compatible delivery
+  usage; cumulative snapshots and configured aliases cannot enter them.
+- Complete session inventory is `peerhub session list/show` with cursor
+  pagination. The monitor shows a latest-100 session sample with sample size,
+  window, and truncation/coverage. It also shows an exact retained-history total by peer
+  when the complete set of at most 20 stream-scope projection rows is available.
+  Add only `retained_session_count` and `retained_complete` to the existing
+  `bridge_session_monitor_scope` row, keyed `(stream_id, peer_id)`. Count every
+  `bridge_session_history` row, including tombstoned rows. Increment once with
+  immutable session-history creation in that transaction; never decrement
+  because history rows cannot be deleted. Migration backfills grouped counts;
+  if the scope's history completeness cannot be proven, preserve the retained
+  count as known-but-incomplete. In the monitor payload, expose
+  `retained_sessions={value, complete, reason}`: `value` is null unless all
+  peer scopes were enumerated and every scope count is complete; otherwise
+  `complete=false` and `reason` is one of `scope_cap`, `legacy_incomplete`,
+  or `projection_missing`. The lower-bound counts may remain internal; do not
+  present them as the peer total. Do not add active/current/eligible gauges.
+  More than 20 scopes truncates the scope sample and makes the peer-wide total
+  incomplete. This minimal gauge was unanimously preferred over lifecycle
+  counters; active-state counts are not provider eligibility.
+
+### Exact durable projection contract
+
+- Existing source authorities remain `bridge_deliveries` (never deleted,
+  terminal fields immutable), append-only `bridge_evidence`, session history,
+  and quota observations. Keep the unique per-delivery `session_telemetry`
+  receipt; add no raw-fact or contribution ledger.
+- Add `bridge_monitor_delivery_scope`, primary key `(stream_id, peer_id)`, with
+  nonnegative current-state gauges `not_started_count`, `may_have_started_count`,
+  `started_count`, `terminal_count`; terminal telemetry coverage counters
+  `measured_count`, `absent_count`, `unsupported_count`, `unknown_count`, and
+  `missing_count`; `delivery_coverage_start_seq`, `delivery_high_water_seq`,
+  `delivery_complete`, `telemetry_coverage_start_seq`,
+  `telemetry_high_water_seq`, `telemetry_complete`, and `semantics_version`.
+  The certainty counters describe each delivery row's current state, not
+  cumulative transition volume. On insert, increment `NOT_STARTED`; on a real
+  forward certainty transition, decrement the old bucket and increment the
+  new bucket in the same fenced transaction. A duplicate same-state callback
+  contributes zero. Do not count a provider invocation from `NOT_STARTED` or
+  `MAY_HAVE_STARTED` evidence.
+- Coverage denominator is `bridge_deliveries.certainty='TERMINAL'`. A receipt
+  contributes `MEASURED`, `ABSENT`, or `UNSUPPORTED` only if the attached
+  `session_telemetry.certainty='TERMINAL'` and its v1+ usage coverage validates.
+  A missing receipt increments `missing_count`; malformed, legacy-untyped, or
+  certainty-mismatched receipts increment `unknown_count`. These categories
+  are disjoint and sum to the terminal denominator. Refusal rows stay in
+  `refusal_detected`/`session_call` evidence; they do not create telemetry,
+  because they contain no validated usage/context sample. Legacy STARTED
+  refusal telemetry remains immutable but never counts as terminal coverage.
+  Repoint `latest_telemetry_seq` during migration to the greatest
+  `certainty='TERMINAL'` receipt by `(observed_at, evidence_seq)`, or null if
+  none exists. For new receipts, advance that pointer only when that tuple is
+  greater; keep late receipts immutable and do not regress the pointer.
+- Add `bridge_monitor_delivery_day`, primary key
+  `(stream_id, peer_id, terminal_day_utc)`, with terminal count, the five
+  disjoint usage-coverage counters, latency sum/count and missing-reason
+  counters, source high-water, completeness, and semantics version. Derive
+  `terminal_day_utc` from immutable `terminal_at` in UTC epoch days. Latency
+  uses same-delivery monotonic call/terminal evidence; do not add provider
+  success/error classification or token sums because no universal typed
+  terminal success/error contract exists and session-cumulative tokens are
+  non-additive.
+- Maintain delivery/scope/day projections atomically with existing fenced
+  delivery transitions and receipt writes. Backfill by bounded monotonic
+  source-sequence chunks; use delivery and evidence sequence domains
+  separately. Migration rollback restores old schema version, evidence,
+  latest pointers, and projection rows. Completeness is `true` only when the
+  retained source range and no-delete guarantees prove coverage; else retain
+  useful counts but mark them incomplete. Repair is explicit, offline,
+  idempotent, chunked, and atomically publishes replacement projections.
+- Every monitor frame shares one pinned read-only SQLite snapshot and a shared
+  read model. Hard target: no more than six set-based `SELECT`s total across
+  selected groups, not six per group. The six query families and caps,
+  and the `EXPLAIN`/p95 gate are defined above. The usage-coverage reader must
+  consume `bridge_monitor_delivery_scope`, never aggregate every delivery on
+  each frame. If query plans scan full history or warmed p95 exceeds 150 ms on
+  the existing 5,000-session/50,000-delivery fixture, stop and amend this
+  design before implementation; raise the ceiling to eight only with measured
+  evidence.
+
+### TDD execution packet
+
+Start RED in the order below, keeping provider/network probes out of the
+deterministic suite. Each test must fail against current code for the stated
+reason; peers do not run tests, and the owner verifies every patch.
+
+1. **Receipt and clock correctness:** extend
+   `tests/communication/bridge/test_retained_sessions.py` and
+   `tests/communication/test_provider_refusal.py`. Prove a refusal writes no
+   telemetry receipt and does not advance `latest_telemetry_seq`; legacy
+   STARTED receipt pointers migrate to latest terminal receipt or null; pointer
+   update is monotone by `(observed_at, seq)` including equal timestamps,
+   out-of-order arrival, duplicate receipt, counter decrease, and injected
+   rollback. A refusal receipt never makes a terminal delivery `MEASURED`.
+   Inject a process-instance clock domain and monotonic ticks; normal start and
+   terminal in one domain produce the exact elapsed milliseconds, while a
+   different domain/restart, missing start, non-integer/negative ticks, and
+   terminal-before-start produce no duration and increment the distinct reason
+   count. Duplicate terminal callbacks do not alter a committed sample. The
+   stored sample includes the immutable configured profile/model/effort from
+   the generation at call start, never the current profile configuration.
+2. **Projection atomicity and migration:** add tests under
+   `tests/communication/diag/` for each certainty transition, idempotent
+   duplicate, terminal coverage categories (all five disjoint), missing and
+   mismatched receipts, UTC day boundaries, session retained count creation,
+   grouped backfill completeness, deliberate gap/incomplete coverage, chunked
+   rebuild idempotency, migration fault rollback, no evidence rewriting,
+   delivery-scope latency sum/count, UTC-day split, missing/domain-mismatch/
+   invalid counters, and composition-sensitive labeling. Test absent/zero
+   separately; no provider error or AI-only latency is fabricated.
+3. **Bounded read model:** extend
+   `tests/communication/diag/test_diag_monitor_read_model.py` with the six
+   shared SELECT budget, one pinned snapshot, set-based joins, cap+1 and
+   sample-size/truncation behavior at every bounded list (monitor has no cursor
+   protocol; session list/show cursor tests remain controls),
+   no provider calls, and stable per-metric completeness. Measure the warmed
+   monitor-frame p95 as a performance gate, not a usage percentile. Use the
+   existing 5,000-session/50,000-delivery fixture; assert `EXPLAIN QUERY PLAN`
+   uses the scope/session/delivery/evidence indexes and no monitor query scans
+   full history. Run warmed 20-frame p95 and record the result; require <=150ms
+   on the task environment or amend design with evidence before RED closes.
+4. **Group/config behavior:** add focused E2E cases in
+   `tests/communication/e2e/test_cli_monitor.py` for catalog ordering,
+   selection/deduplication/`all`, invalid group rejection before DB/provider,
+   exact defaults, workspace/global/package precedence, corrupt-file error
+   shape/redaction, atomic set/reset, `--snapshot` one-shot semantics, its
+   watch-option conflicts, and DB/provider non-effects. Test the
+   existing `--view`, JSON/NDJSON, cycle/interval, first frame, store selection,
+   and quota refresh cadence as compatibility controls. Every watch frame uses the
+   one shared read model and selected groups never change collection.
+5. **Field ownership and dependencies:** fixture-test profile source layer,
+   configured vs resolved model, model/effort binding snapshot per generation,
+   account-pool quota with no session allocation, context only from one
+   compatible fresh sample, cumulative usage only as latest unattributed
+   snapshot, and cost estimate null absent a delivery-scoped counter plus
+   provider-resolved model. Every output field belongs to one group; summary
+   repetition links to owner/coverage.
+6. **CLI/effect/privacy gates:** update
+   `tools/command_inventory.py`,
+   `tests/communication/e2e/cli_extension_effects.py`, JSON schema snapshots,
+   and README/help snapshots. Prove monitor groups/defaults do not open/write
+   Core DB or invoke providers; monitor frames use read-only DB access except
+   the pre-existing quota refresh path. Sentinel tests reject credentials,
+   vendor IDs, prompts, responses, adapter/config paths, oversized/control-
+   character profile values, and raw adapter/event payloads from grouped
+   monitor/session fields; the existing explicit store selection path remains
+   covered by its compatibility snapshot.
+
+Implementation ownership after RED passes: schema/version and atomic migration
+in `peerhub/core/migrations.py`; session/refusal receipt and writer projections
+in `peerhub/extensions/session_receipts.py`, `bridge_registry.py`, and the
+central fenced transitions in `peerhub/extensions/bridge.py`; shared read
+model and query plans in `peerhub/extensions/monitor_read_model.py` and
+`diag.py`; preference resolution in a dedicated
+`peerhub/cli/monitor_preferences.py`; argument/state flow in
+`peerhub/cli/monitor.py` and `app.py`; grouped TTY/JSON rendering in
+`peerhub/cli/view.py`. Do not split source ownership across a second telemetry
+ledger or change profile file semantics. Register every new M2/M3 extension
+module in both `tests/continuity/test_m2_m3_exit_gates.py` and
+`tests/communication/architecture/test_arch_extension_graph.py`, keeping their
+module lists/classification/import permissions consistent. Any code path not
+covered by the tests above remains out of the first implementation slice.

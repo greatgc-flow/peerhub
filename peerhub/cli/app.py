@@ -822,6 +822,9 @@ def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
                     usage = {key: raw_usage.get(key) for key in
                              ("schema_version", "scope", "source", "attribution", "reported", "normalized", "coverage")}
                 latest = {
+                    "schema_version": detail.get("schema_version"),
+                    "configured_model": detail.get("configured_model"),
+                    "resolved_model": detail.get("resolved_model"),
                     "observed_at": detail.get("observed_at"),
                     "context": {key: detail.get(key) for key in
                                 ("last_input_tokens", "context_window", "context_pct", "source", "window_reported_at")},

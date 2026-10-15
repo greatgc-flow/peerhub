@@ -64,7 +64,7 @@ def test_session_show_links_configured_profile_and_scoped_usage(tmp_path, capsys
                 "response": "ok", "provider_telemetry": {
                     "schema_version": 1, "scope": "session_cumulative", "source": "cx.turn.completed.usage",
                     "reported": {"input_tokens": 40, "output_tokens": 4},
-                    "normalized": {"input_tokens": 40, "output_tokens": 4},
+                    "normalized": {"provider_input_tokens": 40, "output_tokens": 4},
                     "coverage": {"state": "MEASURED", "reason": None},
                 },
                 "usage": {"input_tokens": 40, "output_tokens": 4},
@@ -87,7 +87,10 @@ def test_session_show_links_configured_profile_and_scoped_usage(tmp_path, capsys
         "profile": "cx.standard", "model": "gpt-6-luna", "effort": "low", "writable": False,
     }
     assert session["call_counts"]["fresh"] == 1 and session["call_counts"]["complete"] is True
+    assert session["latest_telemetry"]["schema_version"] == 3
     assert session["latest_telemetry"]["usage"]["schema_version"] == 1
+    assert session["latest_telemetry"]["configured_model"] == "gpt-6-luna"
+    assert session["latest_telemetry"]["resolved_model"] is None
     assert session["latest_telemetry"]["usage"]["scope"] == "session_cumulative"
     assert session["latest_telemetry"]["usage"]["attribution"] == "unattributed"
     assert "provider_telemetry" not in json.dumps(session)
