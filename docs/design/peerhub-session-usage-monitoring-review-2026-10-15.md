@@ -43,6 +43,24 @@ shared rather than session-attributed; raw provider payloads and vendor session
 IDs must not leak; and per-session or per-frame N+1 reads threaten bounded
 latency.
 
+### CX cross-review (2026-10-15)
+
+The independent read-only CX review found a stale AG resume caveat and two TDD
+handoff ambiguities. The document now records the observed cumulative result
+scope for `agy 1.3.5` after exact process-boundary resume, while retaining
+USM-15b as the stricter gate for deriving per-delivery deltas. The review also
+required separating AG stream RED tests from the later transport implementation
+and specifying the live CC/CX usage-scope call budget; both are now explicit in
+the TDD sequence and live matrix. The final read-through found no blocker; the
+overlap between usage-scope and exact-selection call budgets is also explicit.
+Its optional suggestion to omit step summaries from the initial
+scope was considered: the user requirement is to preserve CLI-measurable data,
+so the v2 receipt keeps an optional bounded step shape, but adapters only
+populate it when their event scope is validated; absent/partial step coverage
+stays explicit, and unsafe/raw events are never persisted. The illustrative
+CLI version is marked synthetic. This review is a design cross-review, not a
+peer consensus vote or implementation approval.
+
 ## Metric catalogue
 
 | Surface | Include | Meaning and source | Guardrail |
@@ -119,7 +137,7 @@ repository's installed binaries and live accounts were not queried.
 
 | Peer/source | Resolvable from official documentation | Remaining work or limitation |
 |---|---|---|
-| AGY / Antigravity CLI | Its JSON result documents `duration_seconds`, `num_turns`, and input/output/thinking/cache/total usage. `stream-json` adds per-step usage and duration. In a continuous stream-input process, result usage, turns, and duration are cumulative session counters; individual `step_update` usage/duration is per step. | PeerHub currently parses the final JSON result. A stream parser could capture validated step facts, but must discard `text_delta`, `tool_info`, subagent details, and other payloads to preserve privacy. Docs say `--conversation` resumes in a new process but do not specify whether its result counters are cumulative across that process boundary; verify this with a narrow live test before delta accounting. No cost field is documented. [Headless mode docs](https://www.agy.dev/docs/cli/headless/) |
+| AGY / Antigravity CLI | Its JSON result documents `duration_seconds`, `num_turns`, and input/output/thinking/cache/total usage. `stream-json` adds per-step usage and duration. In a continuous stream-input process, result usage, turns, and duration are cumulative session counters; individual `step_update` usage/duration is per step. The 2026-10-15 live probe also observed cumulative result counters in one exact `--conversation` resume across a process boundary. | PeerHub currently parses the final JSON result. A stream parser could capture validated step facts, but must discard `text_delta`, `tool_info`, subagent details, and other payloads to preserve privacy. The single resume pair establishes scope for that observed version and simple task, not safe deltas under model switches, concurrent use, compaction, retries, or tool/subagent-heavy asks; those remain gated by USM-15b/29 and the live matrix below. No cost field is documented. [Headless mode docs](https://www.agy.dev/docs/cli/headless/) |
 | CC / Claude Code | Official Agent SDK docs specify per-turn `usage` scope and cumulative `total_cost_usd` / `modelUsage` behavior, including resumed sessions and subagent coverage differences. `total_cost_usd` is a client-side estimate from a bundled/selected price table, not authoritative billing. It can support a clearly labeled estimate if the installed CLI JSON output exposes it and the version/scope is validated. | The exact installed `claude -p` JSON shape/version must be checked against PeerHub's adapter before relying on those SDK fields. Resumed-session cost is cumulative in current versions (before v2.1.277 it covered only that call), so a delivery metric needs a baseline/delta and version-aware handling. The Anthropic Usage and Cost Admin API provides org-level, time-bucketed usage/cost dimensions, with data typically appearing within five minutes; it requires suitable organization credentials and has no PeerHub session/delivery key, so it cannot establish per-session billing. [SDK cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking), [Usage and Cost API](https://platform.claude.com/docs/en/manage-claude/usage-cost-api) |
 | CX / Codex CLI | Current upstream `exec --json` code emits `turn.completed` usage from the latest accumulated total usage snapshot. The separate app-server protocol exposes `last`, `total`, and `modelContextWindow`, which can provide clearer per-turn/cumulative usage and context-window evidence. | Current PeerHub uses exec JSON, not that app-server telemetry. Context window and `last` usage therefore require an adapter/protocol change, then versioned integration tests. The completion event does not provide an authoritative per-call USD amount or prove provider-resolved model identity. [Codex exec JSONL exporter](https://github.com/openai/codex/blob/main/codex-rs/exec/src/event_processor_with_jsonl_output.rs), [app-server token usage schema](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ThreadTokenUsageUpdatedNotification.json) |
 
@@ -129,8 +147,9 @@ This register separates values PeerHub can observe from facts learned through
 provider documentation and from facts that still require local validation or
 cannot currently be attributed. “Measurable” means the adapter can parse the
 value; it does not mean the monitoring CLI already displays it or that the
-provider's semantics are interchangeable. No live provider binary/version was
-queried for this review.
+provider's semantics are interchangeable. The initial source review did not
+query provider binaries; subsequent paid, version-pinned probes are recorded in
+the linked CLI audit and are not release qualification.
 
 ### Common PeerHub measurements
 
@@ -142,7 +161,7 @@ queried for this review.
 | Latest operation duration and recent activity | `operation_elapsed_seconds` and bounded activity sample (currently at most 50 per peer) | End-to-end PeerHub operation time; includes local work and process startup. Activity is not an all-time durable call count. |
 | Context occupancy/window | Session telemetry receipt schema exists, but current writer records null token/window/percentage with `source=unknown` | Not presently measured. Never substitute usage tokens or a public model's advertised maximum. |
 | Quota observations | Existing quota probe/projection at peer/account-pool level | Shared-pool observation with source/freshness; no session allocation. |
-| Durable per-delivery provider usage | Adapter parses usage; Bridge persists normalized usage in terminal evidence/response metadata where available | Semantics and fields vary by peer; no complete normalized durable ledger/coverage projection yet. |
+| Durable per-delivery provider usage | Adapter parses usage; delivery result/response snapshots may preserve raw provider output or parsed metadata, while the current `session_telemetry` receipt records unknown context fields | No schema-v2 normalized usage receipt or completeness projection is implemented yet. Do not treat replay/result snapshots as the monitor ledger. |
 | PeerHub all-time error totals | Durable delivery evidence exists, but activity is bounded and no complete all-time outcome projection is present | Requires a writer-maintained aggregate and migration/completeness treatment; do not scan all history on each monitor read. |
 
 ### Per-peer telemetry
@@ -406,7 +425,7 @@ Canonical v2 detail shape (illustrative keys; no raw event object):
   "provider_kind": "ag",
   "captured_at": 1792047600.0,
   "adapter_version": "2",
-  "provider_cli_version": "1.3.5",
+  "provider_cli_version": "example-version",
   "configured_binding": {"profile": "ag.standard", "model": "gemini-3.8-flash-low", "effort": null},
   "usage": {
     "scope": "delivery",
@@ -424,7 +443,9 @@ Canonical v2 detail shape (illustrative keys; no raw event object):
 }
 ```
 
-In this example AG `total_tokens` and `num_turns` are preserved in the native
+All IDs, timestamps, values, bindings, and versions in this schema example are
+synthetic placeholders, not production IDs or compatibility guarantees. In
+this example AG `total_tokens` and `num_turns` are preserved in the native
 reported map, while the public per-delivery projection is not inferred from a
 cumulative result unless the baseline/step contract validates it. The `source`
 and state vocabulary must use the current adapter/source identity and
@@ -445,7 +466,7 @@ Initial provider field allowlists:
 |---|---|---|
 | CC | Input/output/cache-read/cache-write; per-model counters and estimated amount/basis only if present in installed JSON; turns/duration only if returned and validated | Preserve current `result.usage`. SDK docs say `usage` is per-turn/main loop, while `modelUsage` and cost may be cumulative and include subagents. Version-gate resume baselines; estimated USD is never billed USD. |
 | CX | Current `turn.completed.usage`; if a supported app-server path is later adopted, `last`, `total`, and `modelContextWindow` distinctly | Current exec completion derives from cumulative total snapshot on resumed threads. Retain baseline/reset evidence. App-server is a separate adapter decision; never inspect private session files. |
-| AG | Current result input/output/cache-read plus currently unpersisted thinking/total, `duration_seconds`, and `num_turns`; optionally per-step numeric usage/duration from stream-json | `num_turns` is a CLI conversation-turn count, not an inference-call count. Report duration as CLI-reported elapsed time, not model-only latency. Docs describe cumulative results in a continuous process and per-step updates. Until `--conversation` fresh-process scope is tested, do not calculate deltas from resumed result. Stream parser accepts only safe terminal numeric fields and drops text/tool/subagent payloads. |
+| AG | Current result input/output/cache-read plus currently unpersisted thinking/total, `duration_seconds`, and `num_turns`; optionally per-step numeric usage/duration from stream-json | `num_turns` is a CLI conversation-turn count, not an inference-call count. Report duration as CLI-reported elapsed time, not model-only latency. Docs and the 2026-10-15 simple live probe show cumulative result counters across continuous turns and one exact fresh-process `--conversation` resume. Do not derive delivery deltas until USM-15b validates same-session/generation/model baseline, monotonicity, no concurrency, and retry/compaction boundaries. Stream parser accepts only safe numeric fields and drops text/tool/subagent payloads. |
 
 Keep provider-native counters and versioned normalized mappings side by side;
 do not merge fields into universal “tokens used” until semantics are validated.
@@ -661,8 +682,10 @@ provider CLIs or access the network. Add these contracts to existing USM-01–08
   leaking raw prompt text to telemetry/logs. This can ship independently from
   persistent child processes.
 - **USM-29 — Stream usage scope:** CC results are attributed to the current
-  input turn; AG `step_update` facts are validated as per-step and AG terminal
-  result counters as session-cumulative on continuous and resumed sessions.
+  input turn only for versioned output contracts that prove this; AG
+  `step_update` facts are validated as per-step and terminal result counters
+  as session-cumulative for the versioned continuous/resume paths that prove
+  this (the current live evidence covers `agy 1.3.5` and simple asks).
   Duplicate ACTIVE/DONE events, multiple agent responses, tools/subagents,
   omitted usage, reset, retry, and model-switch fixtures cannot double-count
   or invent complete ask usage.
@@ -680,20 +703,61 @@ provider CLIs or access the network. Add these contracts to existing USM-01–08
   outputs, paths, session/vendor IDs, credentials, and request IDs never enter
   committed evidence. A new CLI version appends a new run without overwriting
   prior results.
+- **USM-32 — Live compatibility matrix:** for each changed provider path, an
+  explicitly opted-in live test records version/model/profile, invocation,
+  request count, expected recall/output, observed usage scope, elapsed-time
+  definition, and sanitized outcome. Cover one fresh call, native resume, and
+  exact prior-handle selection after a separate fresh session. Add plan/read-only
+  or stream transport cases only for adapters whose argv/parser changes. A
+  live pass supplements, never replaces, deterministic fixtures; a skipped or
+  unavailable provider is reported as unverified, not pass.
+- **USM-33 — Fault and ambiguity matrix:** deterministic fake-process tests
+  inject missing executable, auth/rate-limit-shaped nonzero exit, zero-exit
+  refusal, malformed/empty/truncated JSONL, unexpected event order, duplicate
+  terminal events, partial usage, output/line cap, timeout, cancellation,
+  process-tree exit, resume-not-found, session-ID mismatch, model/mode change,
+  concurrent use, compaction/reset/decrease, and crash between terminal result
+  and commit. Assert exact delivery certainty, no fabricated usage, no leaked
+  sentinel secrets, child cleanup, and atomic rollback/idempotent retry. Never
+  deliberately exhaust real quota or invalidate a real authentication state.
+- **USM-34 — Live usage-scope discriminator:** the paid AG probe uses a fresh
+  two-turn stream process and a separate exact `--conversation` resumed
+  process, compares each `step_update.usage` with cumulative result usage, and
+  verifies session identity and monotonic/reset behavior. For CC and CX, live
+  resume captures first and second result usage to classify per-turn versus
+  cumulative semantics. The 2026-10-15 AG probe already supplies the documented
+  2-turn stream + 2-turn exact-resume sample for `agy 1.3.5`; it is evidence,
+  not a substitute for testing a changed PeerHub parser. On an unchanged
+  binary/path, reuse that evidence rather than spending quota again. If CC/CX
+  usage parsing or CLI version changes, budget 2 asks per affected peer (one
+  fresh, one resumed); if AG stream parsing changes, budget 3 asks (two in one
+  stream process, one exact resume). Tool/subagent-heavy, refusal, and
+  multi-step behavior is first covered with sanitized fixtures; paid variants
+  are required only when supported parsing behavior changes. A scope
+  observation alone does not authorize delta accounting; USM-15b remains the
+  gate. If a full 4-ask exact-selection matrix is already required for the
+  same peer and unchanged run, its initial fresh/resume pair satisfies the
+  2-ask CC/CX scope check; do not add those calls again.
+- **USM-35 — Failure-isolated monitor:** inject one provider/section error,
+  corrupt optional preference config, stale quota data, and incomplete history;
+  unaffected groups remain readable from one snapshot, unavailable values
+  retain reason/freshness, and exit status follows the CLI diagnostic contract.
 
 After the contracts and migration/index/query budgets are reviewed, implement
 in this order: (1) versioned field semantics and golden fixtures, (2) selected
-typed telemetry ledger and atomic writes, (3) writer projections and exact
+typed telemetry receipt and atomic writes, (3) writer projections and exact
 coverage, (4) bounded group reader/JSON, (5) text rendering and preferences,
-(6) performance/plan-mode validation, and (7) a separate AG stdin transport
-slice. Persistent CC/AG child-process pooling stays behind USM-30 and is not a
-prerequisite for complete monitoring. Each slice updates command inventory,
+(6) adapter permission/session changes after their canary contracts, and (7)
+the separate AG stdin transport slice after its RED tests exist. Run live
+canaries only after the implementation under test is present. Persistent CC/AG
+child-process pooling stays behind USM-30 and is not a prerequisite for
+complete monitoring. Each slice updates command inventory,
 schemas, evidence register, and release notes together.
 
 ### TDD handoff status (2026-10-15)
 
-**Design is ready for TDD; implementation has not started.** The open design
-questions material to this slice are resolved: one receipt authority, v2
+**Design is ready for TDD; implementation has not started.** The design choices
+material to the first implementation slices are set: one receipt authority, v2
 allowlist and size bounds, provider-specific counter semantics, group and
 preference behavior, bounded read/projection rules, and CLI options to retain
 or defer. The live evidence is version-bound and linked below; it supports
@@ -712,17 +776,17 @@ Start RED in this order, keeping each slice independently reviewable:
    Bridge terminal transaction/fencing, retry/replay, projection idempotency,
    incomplete legacy backfill, and an audit/rebuild oracle. Keep the existing
    delivery/result snapshot contract unchanged.
-3. **Read model and output:** USM-01–08, USM-20–24, and USM-21. Prove one pinned
+3. **Read model and output:** USM-01–08, USM-20–24, USM-21, and USM-35. Prove one pinned
    snapshot, bounded query counts, explicit denominators/freshness, no N+1,
    and no provider work. Group rendering consumes that read model rather than
    adding another collector.
 4. **Preferences and CLI:** USM-09–12 and USM-25. Validate precedence,
    atomic TOML writes, invalid-input fail-closed behavior, stable JSON/NDJSON,
    and read-only `show`/`reset` behavior without DB or provider writes.
-5. **Adapter invocations and live boundary:** USM-26/27/28/29/31. First use
-   argv/parser unit fixtures, then opt-in canaries for changed invocation,
-   plan-mode, stream transport, and exact session selection. Preserve the
-   current public ask defaults until each adapter slice passes.
+5. **Adapter contracts and live-boundary RED tests:** USM-26/27/28/29/31–34.
+   Write argv/parser fixtures and opt-in canary definitions. Run live tests
+   only after the matching adapter slice is implemented; preserve current
+   public ask defaults until that slice passes.
 6. **Performance experiment only:** USM-30 is a separate decision gate, not a
    prerequisite to monitoring. Run randomized matched pairs in a clean
    workspace with identical task/model/profile, capture per-turn and
@@ -735,6 +799,35 @@ reviewed trace from each USM contract to its RED test, documented query/receipt
 bounds, and updated evidence/CLI references. Only then should implementation
 proceed to the next slice. Paid probes remain explicitly opt-in and their
 request count and quota risk must be disclosed at invocation.
+
+### Live and exceptional-case test plan
+
+Live tests answer only questions a fixture cannot settle: installed CLI argv
+compatibility, native session continuity, actual output/event shape, and the
+provider's observed counter scope. All parsing, failure, privacy, migration,
+fencing, and certainty rules are tested deterministically with fake
+executables/fixtures; the default CI suite never spends provider quota. Tests
+must use a temporary isolated workspace, synthetic marker prompts, bounded
+timeouts/output, and cleanup in `finally`, and must assert the persistent
+workspace digest before/after read-only cases.
+
+| Stage | Required cases | Pass oracle / exception handling | Quota policy |
+|---|---|---|---|
+| Preflight (no provider call) | Supported executable/version, help/argv snapshot, config/profile resolution, sandbox/permission argument, session fingerprint | Fail before spawn for invalid profile/options; unsupported versions are explicit `UNVERIFIED`; never print credentials | No quota |
+| Basic live ask (CC/CX/AG) | Fresh handle, text success, returned usage when available, one terminal result, cancellation after confirmed start | Correct peer/session binding and certainty; absent usage remains unknown; zero-exit refusal is not counted as task success; worktree is cleaned | One bounded ask per changed peer path |
+| Resume and selection (CC/CX/AG) | Fresh then native default resume/recall; create another fresh session; explicitly select first handle and recall its marker | Same native session identity on resume, generation changes only on fresh, exact selection unaffected by intervening session; resume-not-found/mismatch fails closed | Separate opt-in; 4 asks per peer when full matrix is needed; first fresh/resume pair also covers USM-34 scope checks. Don't rerun on unchanged path when version-pinned evidence still applies |
+| Read-only/write mode (CC/AG when changed) | Read a known fixture, attempt sentinel create/modify/delete in plan mode, then authorized writable sentinel operation; repeat resume with mode fingerprint | Plan cannot mutate; writable control succeeds; CLI exit 0 alone is not the oracle; no other repo files change | Opt-in, minimum calls for both modes |
+| AG stream and usage scope (AG when changed) | Two user messages in one stream process; one exact resume in another process; duplicate/terminal event behavior; long stdin prompt; cumulative result vs per-step counters | Correct conversation ID, one receipt per delivery, per-step usage not confused with cumulative totals, no raw event/text/tool content persisted. Tool/subagent completeness stays `PARTIAL/UNKNOWN` unless proven | Opt-in; 3 asks per changed path. Existing 2026-10-15 evidence used 4 turns (two-turn stream + two-turn separate-process resume); no speed claim |
+| CC/CX usage scope (when parser/version changes) | Fresh result followed by exact resumed result for the same native session; compare raw provider counters and PeerHub baseline/delta output | Turn versus cumulative scope matches the pinned CLI contract; invalid baseline/reset produces unknown/partial, never a guessed delta | Opt-in; 2 asks per affected peer (one fresh, one resumed), included in the 4-ask full selection matrix when both run together; evidence reuse is allowed only for unchanged binary/path |
+| Fault injection (all peers) | Missing binary, nonzero exit, zero-exit refusal, malformed/truncated output, timeout/cancel, output caps, interrupted process, stale/wrong session, retry/replay | Deterministic fakes assert certainty transitions, cleanup, rollback, no duplicate evidence, and no invented counters; live providers are not forced into auth/rate-limit failure | No quota |
+| Migration and monitor isolation | Old DB with complete/incomplete history, duplicate callback, failed migration, provider section unavailable, corrupt preference TOML, large unrelated history | Atomic rollback; legacy coverage honest; one bounded snapshot/no N+1/no provider invocation; other groups remain available with reason | No quota |
+
+Run live cases only after their deterministic RED/green parser and state
+contract is stable, and only for the CLI path whose behavior changed. Record
+the exact case IDs and totals in the evidence ledger; never treat an optional
+skip as successful verification. Any live failure blocks enabling that argv
+or telemetry path, while unrelated monitor groups may still ship if their
+contracts pass.
 
 ## Pre-TDD additions
 
