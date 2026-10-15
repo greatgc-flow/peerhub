@@ -216,6 +216,283 @@ Reconstruct public JSON from field allowlists. Treat user-controlled stream
 names as potentially sensitive. Never serialize raw `detail`, response
 metadata, adapter output, or provider/account identifiers.
 
+## Unified monitoring and telemetry design (pre-TDD)
+
+This section resolves the expanded request to browse all useful monitoring
+items, select groups, choose defaults, and retain measurements as evidence for
+future quality comparisons. It extends the existing CLI/monitoring contract in
+[`peerhub-cli-monitoring-inspection-2026-10-14.md`](peerhub-cli-monitoring-inspection-2026-10-14.md).
+It is a design target only; no CLI, schema, or adapter implementation is
+authorized by this document.
+
+### Decisions and boundaries
+
+1. `diag` remains the read-only snapshot command, `diag --live` remains the
+   read-only watcher, `observation refresh` remains the explicit quota
+   collector, and `monitor` remains the combined collection-and-display
+   workflow. Do not create a second provider collector or change these side
+   effects. The monitor snapshot reads one pinned read-only DB snapshot;
+   provider work stays in its explicit refresh phase.
+2. Monitoring exposes every **safe, measurable, attributable scalar or
+   categorical fact** emitted by PeerHub or an allowlisted provider CLI. “All
+   CLI info” does not mean persisting raw stdout, prompts, responses, tool
+   arguments/results, environment variables, paths, credentials, account IDs,
+   vendor session IDs, or opaque provider payloads. Unknown fields remain
+   absent/null with coverage; they are never reconstructed from text.
+3. Separate immutable measured evidence, writer-maintained projections for
+   bounded totals/trends, and read-only report rendering. Store allowlisted
+   evidence before deriving dashboard values. Derived averages/percentages
+   carry denominator, scope, coverage, and source semantics. Display
+   preferences do not belong in the telemetry database.
+4. Reuse existing durable sources where sufficient: quota `observations`,
+   Bridge delivery/evidence/session receipts, activity rollups, and provider
+   usage already attached to terminal/response metadata. Add versioned
+   telemetry facts only where current evidence loses provenance, fields,
+   scope, or step granularity. Do not create a parallel source of truth or
+   retain raw and normalized copies without a declared reason.
+5. Do not add an accounting/budget/forecasting/routing subsystem. A validated
+   provider-generated CC cost estimate is an optional peer-specific estimate,
+   never a billed amount, and never summed with another peer's estimate.
+   Existing quota pace remains conditional pool-level evidence, not spend or
+   per-request cost.
+
+### MECE group catalog and default selection
+
+Every displayed field has exactly one primary group. Summary cards may repeat
+derived totals only when they link to the owning group's source and coverage.
+
+| Stable group ID | Owns | Canonical source | Examples / exclusions |
+|---|---|---|---|
+| `overview` | Cross-group peer summary and highest-priority state | Derived from groups below; no independent counters | Peer state, retained/current session counts, last activity age, health warnings. |
+| `execution` | PeerHub delivery and operation health | `bridge_deliveries`, `bridge_evidence`, bounded activity receipts | Confirmed deliveries, terminal success/failure, uncertain/pre-start counts, bounded end-to-end latency; not provider inference-turn count. |
+| `sessions` | Retained PeerHub session lifecycle and reuse | `bridge_session_history`, `bridge_sessions`, session receipts and writer projections | Handle, state, configured binding, age/expiry, fresh/reuse, eligibility and completeness; never vendor IDs. Full inventory remains paginated. |
+| `usage` | Provider-reported token and usage facts | Validated telemetry facts linked to a Bridge delivery | Per-delivery input/output/cache/thinking/total where emitted, CC model usage/cost estimate if validated, reporting coverage; not context occupancy or billed cost. |
+| `context` | Runtime context occupancy evidence | Validated telemetry facts or terminal telemetry receipt | Occupancy tokens, matching window, percentage, source and age; never billing input or advertised model maximum. |
+| `capacity` | Provider/account-pool quota observations | `observations`, resource-pool identity, existing quota projections | Used/remaining, reset, freshness, 7-day pace and conditional ETA when supported; never allocated to a session. |
+| `runtime` | Selected configuration and adapter provenance | Session binding snapshots and safe adapter invocation metadata | Configured provider/model/profile/effort, CLI version when safely observed, adapter/schema version, selected-vs-reported distinction; no hidden-backend claims. |
+| `coverage` | Data quality and completeness | Telemetry/session projection metadata and source freshness | Measured/missing/unsupported counts, stale/unknown sources, legacy gaps, counter resets, truncation and provenance. |
+| `store` | PeerHub storage and diagnostic integrity | Read-only diagnostic report and projection audits | DB/schema status, projection integrity, bounded record/observation totals; full integrity scans remain explicit `diag integrity`. |
+
+Default view: `overview`, `execution`, `sessions`, `usage`, `context`,
+`capacity`, and `coverage`, in that order. `runtime` and `store` remain
+available on demand. Defaults affect rendering only, never collection or
+persistence. `--group all` includes every group.
+
+CLI selection contract:
+
+- `peerhub monitor --group usage --group sessions` selects exactly those
+  groups and overrides defaults for that invocation. Repeating a group is
+  idempotent. `--group all` cannot be combined with named groups. Unknown IDs
+  fail before DB open or provider spawn.
+- `peerhub monitor groups` prints the stable catalog, order, default status,
+  and collection effects; it is read-only and works without a DB.
+- `peerhub monitor defaults show`, `defaults set --group ...`, and `defaults
+  reset` inspect/change display preferences without provider calls or Core DB
+  writes. `--global` explicitly selects the global preference; otherwise
+  changes apply to the workspace.
+- Defaults resolve workspace `.peerhub/config/monitor.toml` over global
+  `PEERHUB_CONFIG_HOME/monitor.toml` (or `~/.peerhub/config/monitor.toml`),
+  over packaged defaults. Keep this separate from `models.toml`; validate IDs
+  and atomically replace only this preference file. Show the effective source.
+- Existing `--view`, `--json`, interval/cycle behavior, store selection, first
+  committed snapshot, and refresh cadence remain intact. Group selection may
+  not trigger extra probes. Each JSON frame carries `selected_groups`,
+  `available_groups`, preference source, and coverage per selected group.
+  Changes to section inclusion bump monitor/dashboard schema versions.
+- TTY output uses group headers and concise summaries; JSON/NDJSON uses
+  structured group objects, never scraped terminal text. `all` stays bounded:
+  detail is paginated/capped with continuation and coverage. `session
+  list/show` remains the complete retained-session inventory.
+
+### Durable evidence model
+
+| Layer | Contents | Rule |
+|---|---|---|
+| Existing facts | `bridge_deliveries`, append-only `bridge_evidence`, session history/receipts, quota `observations`, activity observations | Keep current sources authoritative; preserve certainty and idempotency. |
+| Provider telemetry fact | Versioned allowlist from confirmed CLI result or safe terminal step, keyed to delivery and local session handle when known | Persist in the same fenced terminal transaction; dedupe by delivery + source event/step identity. Store provider kind, safe CLI version if available, adapter/schema version, source field, capture time, scope (`delivery`, `session_cumulative`, `step`), and numeric/enum values. No raw payloads or opaque IDs. |
+| Coverage projection | By peer/provider/model/profile/window: eligible, measured, missing, unsupported, reset/non-monotonic counts; outcome counts; latest sequence and coverage start | Update transactionally with facts; legacy backfill declares exact coverage or incomplete. Never recount full history in monitor. |
+| Usage/health rollups | Bounded-window or calendar-bucket sums/counts and latency distribution inputs for attributable facts | Writer-maintained, idempotent, with denominator and semantics version. Never aggregate across incomparable providers/models/fields. Percentiles name the bounded sample or approximation. |
+| Monitor preferences | Selected default group IDs only | TOML config, not Core DB; no secrets or provider-state values. |
+
+Physical schema decision for TDD: add an append-only Bridge-owned
+`bridge_telemetry_facts` table with one row per delivery result and zero or
+more keyed safe step facts. Proposed columns: `fact_seq` primary key,
+`delivery_id`, `stream_id`, `peer_id`, nullable local `session_handle`,
+`provider_kind`, `fact_kind` (`delivery_usage`, `provider_result`,
+`provider_step`), nullable `step_key`, `captured_at_us`, `source`,
+`metric_scope`, `peerhub_version`, `adapter_version`, `provider_cli_version`,
+`configured_profile`, `configured_model`, `configured_effort`, `schema_version`,
+`reported_json`, and `normalized_json`. Unique keys are
+`(delivery_id, fact_kind, step_key)` with a normalized empty step key for the
+single delivery result. Add indexes for `(peer_id, fact_seq DESC)`,
+`(session_handle, fact_seq DESC)`, and `(delivery_id, fact_seq)`; do not put
+high-cardinality model/profile values first in the write path's indexes.
+`reported_json` contains only provider-native allowlisted scalars/enums;
+`normalized_json` contains mapped field names and explicit semantics. Both are
+schema-validated, bounded to 8 KiB per row, and immutable. Cap captured step
+facts at 512 per delivery; if a provider exceeds the cap, preserve the delivery
+result and mark step coverage truncated with the dropped count when known.
+Repeated ACTIVE/DONE updates collapse to the terminal event for the same local
+step key. Never store raw lines, responses, or opaque event IDs. The existing terminal receipt remains
+authoritative for execution certainty; telemetry facts reference its delivery
+and are inserted in the same fenced transaction. A delivery fact is unique,
+and a step fact uses a deterministic local step key (event type + step index),
+not a provider conversation ID. A writer-owned rollup table keyed by peer,
+provider/configuration, and UTC day is added only for dashboard aggregates
+required by tests. Its counts, sums, missing counts, and semantics version
+must be rebuildable/auditable from facts. Do not create an unversioned copy of
+provider output in `bridge_evidence.detail`.
+
+This table is a structured allowlisted measurement ledger; the terminal
+receipt remains the Bridge outcome ledger. They are distinct evidence roles,
+not competing authorities. Reuse CoreStore's schema-version/migration path,
+Bridge writer ownership, read-only diagnostics, and core DB backup. Never read
+vendor DBs. If migration cost or write amplification disproves this table
+design, retain this contract and select an equally queryable typed alternative
+before TDD rather than falling back to raw JSON scans.
+
+Initial provider field allowlists:
+
+| Peer | Durable safe facts | Scope and gate |
+|---|---|---|
+| CC | Input/output/cache-read/cache-write; per-model counters and estimated amount/basis only if present in installed JSON; turns/duration only if returned and validated | Preserve current `result.usage`. SDK docs say `usage` is per-turn/main loop, while `modelUsage` and cost may be cumulative and include subagents. Version-gate resume baselines; estimated USD is never billed USD. |
+| CX | Current `turn.completed.usage`; if a supported app-server path is later adopted, `last`, `total`, and `modelContextWindow` distinctly | Current exec completion derives from cumulative total snapshot on resumed threads. Retain baseline/reset evidence. App-server is a separate adapter decision; never inspect private session files. |
+| AG | Current result input/output/cache-read plus currently unpersisted thinking/total, `duration_seconds`, and `num_turns`; optionally per-step numeric usage/duration from stream-json | `num_turns` is a CLI conversation-turn count, not an inference-call count. Report duration as CLI-reported elapsed time, not model-only latency. Docs describe cumulative results in a continuous process and per-step updates. Until `--conversation` fresh-process scope is tested, do not calculate deltas from resumed result. Stream parser accepts only safe terminal numeric fields and drops text/tool/subagent payloads. |
+
+Keep provider-native counters and versioned normalized mappings side by side;
+do not merge fields into universal “tokens used” until semantics are validated.
+CC cache-read/cache-write and uncached input stay distinct. Missing CX/AG
+counters are not zero. A context percentage requires a matching occupancy
+numerator/window, not billing usage.
+
+The first normalization must be lossless for current adapter facts. In
+particular, CC currently combines `input_tokens`, cache-read, and cache-write
+into one adapter `input_tokens` value after parsing; the adapter contract must
+retain each original allowlisted field before deriving any optional total.
+Historical deliveries for which only the combined value survives must keep
+the component fields unknown; do not reverse-engineer them.
+Define separate native counters and normalized fields such as
+`provider_input_tokens`, `uncached_input_tokens` (only where provider
+semantics prove it), `cache_read_input_tokens`,
+`cache_creation_input_tokens`, `output_tokens`, `thinking_tokens`, and
+`provider_total_tokens`. Every derived total records its formula/version and
+never overwrites native values. CX's CLI `input_tokens` must not be relabeled
+uncached without source evidence. Store `duration_seconds`/`num_turns` only as
+provider-reported CLI result facts and do not interpret them as pure inference
+duration or model invocation count.
+
+### Improvement indicators
+
+Persist facts for later PeerHub-version comparisons, but label results
+observational rather than causal. Cohort by PeerHub version, adapter/schema
+version, provider, configured model/profile/effort, time window, and scope.
+Initial indicators are:
+
+- delivery success, terminal failure, uncertain, and pre-start rates;
+- fresh/reuse share and resume acceptance where resume was attempted;
+- end-to-end operation latency median/p95 for a named peer/model/window;
+- provider-reported per-delivery token fields and coverage, separately by
+  provider/model/field semantics;
+- optional CC estimated amount, separately labeled and estimate-basis/version
+  specific;
+- context occupancy only after direct-source validation, with matching window
+  and age;
+- quota freshness, observed headroom/pace, and missing-pool coverage;
+- telemetry completeness, source availability, counter reset/decrease rate,
+  projection completeness, and sample truncation.
+
+Do not interpret token reductions alone as quality or speed improvement:
+prompt/task, model/effort, cache, retries, and reporting coverage can change.
+Show configuration cohorts and completeness beside trends.
+
+### Cross-check disposition
+
+The earlier session proposal, provider-document research, current adapters,
+Bridge receipts, monitor cadence, and recorded peer-review findings reconcile
+as follows:
+
+- Retain bounded read-only snapshots and explicit collection boundaries; reuse
+  quota observations and activity/session projections instead of adding a
+  collector.
+- Retain confirmed-call semantics, bounded history, explicit freshness and
+  coverage, privacy allowlists, and one-snapshot reads.
+- Expand “usage may be shown” into a durable, versioned, attributable telemetry
+  fact and completeness contract. Existing response metadata alone is not a
+  sufficient monitor ledger.
+- Keep exact cross-provider cost, per-session quota, hidden provider model
+  identity, and pure inference latency out of claims. CC estimates can be an
+  optional provider-specific observation after local validation.
+- Do not introduce an SDK, OpenTelemetry exporter, or vendor DB parser for
+  this slice. Existing CLI JSON and SQLite writer contracts are the narrowest
+  adequate path; revisit only if a named metric cannot be obtained there.
+- Group selection affects rendering only. It does not alter acquisition,
+  retention, or collection cadence.
+
+No live provider calls or CX cross-review were used for this cross-check.
+Existing documented AG/CC peer positions were considered; this environment
+does not expose AG/CC review terminals, so this is source-backed reconciliation,
+not a new unanimous peer vote.
+
+### TDD entry gate
+
+Before implementation, close the physical-schema decision and prepare
+version-tagged golden fixtures from documented schemas and locally observed
+CLI output. Fixtures use synthetic IDs and secret sentinels. Provider tests
+stay opt-in and disclose token/quota risk; deterministic tests never spawn
+provider CLIs or access the network. Add these contracts to existing USM-01–08:
+
+- **USM-09 — Full group catalog:** every exposed field has one primary group
+  and catalog metadata (ID, title, order, fields, default, collection effect).
+- **USM-10 — Group selection:** exact named selection, idempotent duplicates,
+  exclusive `all`, invalid input fails before DB/provider work, and selection
+  never changes collection.
+- **USM-11 — Group preferences:** packaged/global/workspace precedence;
+  show/set/reset; invalid TOML/IDs fail closed; atomic writes preserve files on
+  failure and touch neither Core DB nor providers.
+- **USM-12 — Output schema:** groups, coverage, source, status, and selected
+  defaults appear in stable JSON/NDJSON; bump versions when inclusion/meaning
+  changes; one snapshot contract is shared where applicable.
+- **USM-13 — Safe capture matrix:** CC/CX/AG fixtures persist only allowlisted
+  numeric/enum facts with source, scope, timestamp, binding, and versions.
+- **USM-14 — Atomicity/idempotency:** terminal and telemetry facts commit or
+  roll back together; retries cannot duplicate delivery or step facts;
+  uncertain calls acquire no fabricated usage.
+- **USM-15 — Counter semantics:** fixtures cover per-turn/cumulative, resume,
+  model change, decrease/reset, omissions, and partial reports; invalid deltas
+  remain unknown and record a coverage reason.
+- **USM-16 — Step dedupe/privacy:** repeated ACTIVE/DONE events count once;
+  prompts, responses, tool payloads, paths, raw JSON, vendor IDs, and credentials
+  never persist or render. Per-row size/step caps preserve terminal results and
+  report dropped-step coverage instead of silently truncating.
+- **USM-17 — Context semantics:** percentage is null if occupancy/window is
+  missing, stale, or mismatched; usage and public model maximum never substitute.
+- **USM-18 — Coverage denominator:** missing/unsupported/failure differs from
+  zero; reports include eligible, measured, missing, stale, truncated counts
+  and named time/scope.
+- **USM-19 — Projection consistency:** facts update rollups exactly once in
+  the same transaction; explicit audit catches drift; monitor never recounts
+  all history.
+- **USM-20 — Improvement cohorts:** versions, provider, binding, and coverage
+  differences remain visible and cannot masquerade as regressions.
+- **USM-21 — Bounded all-groups view:** large stores stay within page/window
+  query bounds; `all` does no provider work or N+1 reads; history drills down
+  through cursors.
+- **USM-22 — Legacy completeness:** backfill marks exact coverage only where
+  evidence proves it; unknown history stays null/incomplete; upgrade is atomic.
+- **USM-23 — Partial group failure:** unavailable groups carry reason while
+  other groups remain usable; status and exit code follow diagnostic contracts.
+- **USM-24 — Indicator validity:** config/version/provider/window cohorts are
+  separate; no cross-provider token or cost averages appear.
+- **USM-25 — Preference/backup safety:** config stores group IDs only; backup
+  behavior for the new preference is explicit; no secrets/account/path data.
+
+After contracts and migration/index/query budgets are reviewed, implement in
+this order: (1) field semantics and fixtures, (2) safe durable telemetry facts,
+(3) writer projections and completeness, (4) bounded group reader/JSON, (5)
+text rendering and preferences, (6) performance and comparison validation.
+Each slice updates command inventory, schemas, evidence register, and release
+notes together.
+
 ## Pre-TDD additions
 
 Add the following RED contracts to the existing session-monitoring test plan
