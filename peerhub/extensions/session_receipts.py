@@ -10,6 +10,8 @@ import re
 import sqlite3
 from typing import Any, Mapping, cast
 
+from peerhub.extensions.usage_normalization import NORMALIZED_FIELDS, REPORTED_FIELDS, normalize_provider_usage
+
 
 DDL = (
     """CREATE TABLE IF NOT EXISTS bridge_session_monitor_stats (
@@ -60,12 +62,6 @@ _PROVIDER_USAGE_CONTRACT = {
     "cx": ("session_cumulative", "cx.turn.completed.usage"),
     "ag": ("session_cumulative", "ag.result.usage"),
 }
-_USAGE_REPORTED_FIELDS = {
-    "cc": {"input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"},
-    "cx": {"input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"},
-    "ag": {"input_tokens", "output_tokens", "thinking_tokens", "cache_read_tokens", "total_tokens"},
-}
-_USAGE_NORMALIZED_FIELDS = {"input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens"}
 _SAFE_COVERAGE_REASON = re.compile(r"[a-z_]{1,64}\Z")
 
 
@@ -107,12 +103,12 @@ def _provider_usage(candidate: object, provider_kind: str) -> dict[str, Any]:
     reported = cast("dict[str, Any]", reported)
     normalized = cast("dict[str, Any]", normalized)
     coverage = cast("dict[str, Any]", coverage)
-    if set(reported) - _USAGE_REPORTED_FIELDS[provider_kind] or set(normalized) - _USAGE_NORMALIZED_FIELDS:
+    if set(reported) - REPORTED_FIELDS[provider_kind] or set(normalized) - NORMALIZED_FIELDS:
         return unknown("unsupported_usage_field")
     for values in (reported, normalized):
         if any(isinstance(v, bool) or not isinstance(v, int) or v < 0 or v > 2**63 - 1 for v in values.values()):
             return unknown("invalid_usage_counter")
-    expected_normalized = _normalize_provider_usage(provider_kind, reported)
+    expected_normalized = normalize_provider_usage(provider_kind, reported)
     if normalized != expected_normalized:
         return unknown("normalization_mismatch")
     state, reason = coverage.get("state"), coverage.get("reason")
@@ -128,31 +124,6 @@ def _provider_usage(candidate: object, provider_kind: str) -> dict[str, Any]:
     return {"schema_version": 1, "scope": scope, "source": source, "attribution": attribution,
             "reported": dict(reported), "normalized": dict(normalized), "field_evidence": {},
             "coverage": {"state": state, "reason": reason}}
-
-
-def _normalize_provider_usage(provider_kind: str, reported: dict[str, Any]) -> dict[str, int]:
-    """Derive normalized fields at the persistence boundary from allowlisted native counters."""
-    normalized: dict[str, int] = {}
-    mappings = {
-        "cx": (("input_tokens", "input_tokens"), ("cached_input_tokens", "cached_input_tokens"),
-               ("cache_write_input_tokens", "cache_write_tokens"), ("output_tokens", "output_tokens")),
-        "ag": (("input_tokens", "input_tokens"), ("cache_read_tokens", "cached_input_tokens"),
-               ("output_tokens", "output_tokens")),
-    }
-    if provider_kind == "cc":
-        input_fields = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
-        if all(key in reported for key in input_fields):
-            normalized["input_tokens"] = sum(reported[key] for key in input_fields)
-        for source, target in (("cache_read_input_tokens", "cached_input_tokens"),
-                               ("cache_creation_input_tokens", "cache_write_tokens"),
-                               ("output_tokens", "output_tokens")):
-            if source in reported:
-                normalized[target] = reported[source]
-    else:
-        for source, target in mappings.get(provider_kind, ()):
-            if source in reported:
-                normalized[target] = reported[source]
-    return normalized
 
 
 def binding_attributes(runtime: object) -> dict[str, Any]:
@@ -194,12 +165,55 @@ def historical_counts(conn: sqlite3.Connection, stream: str, peer: str, generati
     return reuse, fresh, 1
 
 
-def initialize_stats(conn: sqlite3.Connection, mapping: Mapping[str, Any], binding: dict[str, Any], *, legacy: bool = False) -> None:
+def historical_counts_by_generation(conn: sqlite3.Connection, stream: str, peer: str) -> tuple[dict[int, tuple[int | None, int | None, int]], tuple[int | None, int | None, int]]:
+    """Rebuild one scope from a bounded indexed scan, not per-session queries."""
+    rows = conn.execute(
+        "SELECT d.session_generation,d.external_session_id,d.certainty,d.delivery_id,"
+        "SUM(CASE WHEN e.kind='terminal' THEN 1 ELSE 0 END) terminal_count,"
+        "MAX(CASE WHEN e.kind='started' THEN 1 ELSE 0 END) has_started,"
+        "MAX(CASE WHEN e.kind='terminal' AND json_valid(e.detail) THEN json_extract(e.detail,'$.effective_mode') END) mode "
+        "FROM bridge_deliveries d LEFT JOIN bridge_evidence e ON e.delivery_id=d.delivery_id "
+        "WHERE d.stream_id=? AND d.peer_id=? GROUP BY d.delivery_id",
+        (stream, peer),
+    ).fetchall()
+    if not rows:
+        return {}, (None, None, 0)
+    per_generation: dict[int, list[int | bool]] = {}
+    scope = [0, 0]
+    incomplete_generations: set[int] = set()
+    scope_incomplete = False
+    for row in rows:
+        if row[0] is not None:
+            per_generation.setdefault(row[0], [0, 0])
+        if row[2] not in ("STARTED", "TERMINAL") and not row[5]:
+            continue
+        generation = row[0]
+        if row[4] != 1 or generation is None or row[1] is None or row[6] not in ("fresh", "resumed"):
+            scope_incomplete = True
+            if generation is not None:
+                incomplete_generations.add(generation)
+            continue
+        counts = per_generation.setdefault(generation, [0, 0])
+        index = 0 if row[6] == "resumed" else 1
+        counts[index] = int(counts[index]) + 1
+        scope[index] += 1
+    result: dict[int, tuple[int | None, int | None, int]] = {
+        generation: (None, None, 0) if generation in incomplete_generations else (int(counts[0]), int(counts[1]), 1)
+        for generation, counts in per_generation.items()
+    }
+    for generation in incomplete_generations:
+        result[generation] = (None, None, 0)
+    return result, (None, None, 0) if scope_incomplete else (int(scope[0]), int(scope[1]), 1)
+
+
+def initialize_stats(conn: sqlite3.Connection, mapping: Mapping[str, Any], binding: dict[str, Any], *, legacy: bool = False,
+                     historical: tuple[int | None, int | None, int] | None = None,
+                     historical_scope: tuple[int | None, int | None, int] | None = None) -> None:
     stream, peer, handle = mapping["stream_id"], mapping["peer_id"], mapping["session_handle"]
-    stats = historical_counts(conn, stream, peer, mapping["session_generation"]) if legacy else (0, 0, 1)
+    stats = historical if historical is not None else historical_counts(conn, stream, peer, mapping["session_generation"]) if legacy else (0, 0, 1)
     conn.execute("INSERT INTO bridge_session_monitor_stats(session_handle,reuse_count,fresh_count,counts_complete,binding_json) VALUES (?,?,?,?,?)",
                  (handle, *stats, dumps(binding)))
-    scope = historical_counts(conn, stream, peer) if legacy else (0, 0, 1)
+    scope = historical_scope if historical_scope is not None else historical_counts(conn, stream, peer) if legacy else (0, 0, 1)
     coverage = conn.execute("SELECT COALESCE(MAX(seq),0) FROM bridge_evidence").fetchone()[0] if legacy else 0
     conn.execute("INSERT OR IGNORE INTO bridge_session_monitor_scope VALUES (?,?,?,?,?,?)", (stream, peer, *scope, coverage))
 
@@ -257,7 +271,7 @@ def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Ro
     adapter_version = version_match.group(2) if version_match and version_match.group(1) == provider_kind else None
     detail = dict(handle=accepted["handle"], generation=accepted["generation"], observed_at=now,
                   last_input_tokens=None, context_window=None, context_pct=None, source="unknown",
-                  window_reported_at=None, model=binding_detail["model"], schema_version=2,
+                  window_reported_at=None, configured_model=binding_detail["model"], resolved_model=None, schema_version=3,
                   provider_kind=provider_kind, captured_at=now, adapter_version=adapter_version,
                   provider_cli_version=None, configured_binding=binding_detail,
                   usage=_provider_usage(provider_candidate, provider_kind),

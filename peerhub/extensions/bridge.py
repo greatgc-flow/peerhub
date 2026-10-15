@@ -246,6 +246,7 @@ _DDL = [
         kind TEXT NOT NULL, certainty TEXT, detail TEXT NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS idx_be_delivery_seq ON bridge_evidence(delivery_id,seq)",
     "CREATE INDEX IF NOT EXISTS idx_bd_record_peer_attempt ON bridge_deliveries(record_id,peer_id,attempt)",
+    "CREATE INDEX IF NOT EXISTS idx_bd_scope_generation ON bridge_deliveries(stream_id,peer_id,session_generation)",
     "CREATE INDEX IF NOT EXISTS idx_be_stream_kind_seq ON bridge_evidence(stream_id,kind,seq)",
     """CREATE TABLE IF NOT EXISTS bridge_reconciliations (
         delivery_id TEXT PRIMARY KEY, reconcile_record_id TEXT NOT NULL, decision TEXT NOT NULL, consumed_attempt INTEGER)""",

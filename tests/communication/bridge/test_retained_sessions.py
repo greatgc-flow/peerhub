@@ -174,7 +174,8 @@ def test_terminal_recovery_and_duplicate_callback_never_duplicate_receipts(tmp_p
     rows = sql(h, "SELECT kind, detail FROM bridge_evidence WHERE kind IN ('session_call','session_telemetry') ORDER BY seq")
     assert [r[0] for r in rows] == ["session_call", "session_telemetry"]
     telemetry = json.loads(rows[1][1])
-    assert telemetry["schema_version"] == 2
+    assert telemetry["schema_version"] == 3
+    assert "model" not in telemetry
     assert telemetry["provider_kind"] == "unknown"
     assert telemetry["configured_binding"] == {"profile": None, "model": None, "effort": None}
     assert telemetry["usage"] == {
@@ -246,6 +247,11 @@ def test_legacy_slot_migration_is_atomic_idempotent_and_preserves_unknown_counts
 def test_registry_migration_rolls_back_ddl_data_and_minted_handles(tmp_path):
     db, store, claims = legacy_store(tmp_path)
     with claims.transaction() as conn:
+        prior_user_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        prior_evidence = conn.execute("SELECT COUNT(*) FROM bridge_evidence").fetchone()[0]
+        conn.execute("INSERT INTO bridge_evidence(stream_id,peer_id,kind,certainty,detail) "
+                     "VALUES ('overwritten','b','migration-sentinel','STARTED','{}')")
+        prior_evidence += 1
         conn.execute("INSERT INTO bridge_session_events(stream_id,peer_id,event,from_state,to_state,generation,detail) "
                      "VALUES ('overwritten','b','created','NONE','ACTIVE',19,'{}')")
     crash = CrashInjector()
@@ -256,6 +262,8 @@ def test_registry_migration_rolls_back_ddl_data_and_minted_handles(tmp_path):
         assert conn.execute("SELECT external_session_id FROM bridge_sessions").fetchone() == ("local-4",)
         assert conn.execute("SELECT name FROM sqlite_master WHERE name='bridge_session_history'").fetchone() is None
         assert conn.execute("SELECT name FROM sqlite_master WHERE name IN ('bridge_session_counters','bridge_session_monitor_scope')").fetchall() == []
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == prior_user_version
+        assert conn.execute("SELECT COUNT(*) FROM bridge_evidence").fetchone()[0] == prior_evidence
     Bridge(store, claims)
     with claims.transaction() as conn:
         assert conn.execute("SELECT next_generation FROM bridge_session_counters WHERE stream_id='overwritten'").fetchone()[0] == 20
@@ -549,6 +557,87 @@ def test_registry_reopen_backfills_missing_session_stats_projection(tmp_path):
                (handle,)) == [(None, None, 0)]
 
 
+def test_registry_reopen_with_complete_projections_skips_historical_recount(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    assert h.delivery_cycle("b", "s", FakeRuntimeTarget()).status == "delivered"
+
+    monkeypatch.setattr(bridge_registry.session_receipts, "historical_counts",
+                        lambda *args, **kwargs: pytest.fail("ordinary open must not recount history"))
+    monkeypatch.setattr(bridge_registry.session_receipts, "historical_counts_by_generation",
+                        lambda *args, **kwargs: pytest.fail("ordinary open must not scan historical scopes"))
+    Bridge(h.store, h.cs)
+
+
+def test_registry_rebuild_scales_with_scope_not_session_delivery_product(tmp_path, monkeypatch):
+    from peerhub.extensions import session_receipts
+
+    h = BridgeHarness(tmp_path / "ws")
+    session_count, deliveries_per_session = 5_000, 10
+    with h.cs.transaction() as conn:
+        sessions = [
+            (f"rebuild-{i}", "rebuild", "cc", "cc", f"external-{i}", i + 1, "adapter:cc:v1", "{}", 1,
+             "LOST", 100.0, "lineage", f"vendor-{i}", 0, 0, None, 1, 100.0, None)
+            for i in range(session_count)
+        ]
+        conn.executemany(
+            "INSERT INTO bridge_session_history(session_handle,stream_id,peer_id,runtime_kind,external_session_id,"
+            "session_generation,adapter_fingerprint,binding,resumable,state,last_seen,workspace_generation,"
+            "vendor_session_id,context_watermark,bootstrap_truncated,usage_json,context_watermark_version,created_at,tombstoned_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", sessions)
+        deliveries = [
+            (f"delivery-{generation}-{item}", generation * deliveries_per_session + item + 1, "rebuild", "cc",
+             f"record-{generation}-{item}", generation * deliveries_per_session + item + 1, 1, "NOT_STARTED", 1,
+             f"external-{generation}", generation + 1, None, None, None, None, None, 0, None, None, None)
+            for generation in range(session_count)
+            for item in range(deliveries_per_session)
+        ]
+        conn.executemany(
+            "INSERT INTO bridge_deliveries(delivery_id,seq,stream_id,peer_id,record_id,record_position,attempt,certainty,"
+            "claim_generation,external_session_id,session_generation,execution_id,result_json,result_digest,terminal_at,"
+            "response_record_id,acked,reconcile_record_id,session_handle,session_snapshot_json) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", deliveries)
+        conn.execute("UPDATE bridge_deliveries SET certainty='STARTED' WHERE stream_id='rebuild'")
+        conn.execute("INSERT INTO bridge_session_monitor_scope VALUES ('rebuild','cc',NULL,NULL,0,0)")
+
+    count_calls = 0
+
+    def count_legacy_reads(conn, stream, peer, generation=None):
+        nonlocal count_calls
+        count_calls += 1
+        return None, None, 0
+
+    def count_scope_reads(conn, stream, peer):
+        nonlocal count_calls
+        count_calls += 1
+        return {}, (None, None, 0)
+
+    monkeypatch.setattr(session_receipts, "historical_counts_by_generation", count_scope_reads)
+    Bridge(h.store, h.cs)
+    assert count_calls <= 2, "5k per-session projections must be backfilled with bounded scope queries"
+    plan = sql(h, "EXPLAIN QUERY PLAN SELECT delivery_id FROM bridge_deliveries "
+                  "WHERE stream_id='rebuild' AND peer_id='cc' AND session_generation=1")
+    assert any("SEARCH bridge_deliveries USING INDEX idx_bd_scope_generation" in str(row) for row in plan)
+
+
+def test_historical_scope_with_only_prestart_deliveries_is_known_zero():
+    import sqlite3
+    from peerhub.extensions.session_receipts import historical_counts_by_generation
+
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("""
+        CREATE TABLE bridge_deliveries(delivery_id TEXT, stream_id TEXT, peer_id TEXT,
+            session_generation INTEGER, external_session_id TEXT, certainty TEXT);
+        CREATE TABLE bridge_evidence(delivery_id TEXT, kind TEXT, detail TEXT);
+        INSERT INTO bridge_deliveries VALUES ('d1','s','cc',7,'external','NOT_STARTED');
+    """)
+
+    generations, scope = historical_counts_by_generation(conn, "s", "cc")
+
+    assert generations == {7: (0, 0, 1)}
+    assert scope == (0, 0, 1)
+
+
 class _ProviderTelemetryRuntime(NativeRuntimeTarget):
     runtime_kind = "cc"
 
@@ -573,8 +662,8 @@ def test_provider_telemetry_is_receipt_only_and_bound_to_fenced_delivery(tmp_pat
         "schema_version": 1, "scope": "session_cumulative", "source": "cc.result.usage",
         "reported": {"input_tokens": 9, "cache_read_input_tokens": 2,
                      "cache_creation_input_tokens": 1, "output_tokens": 3},
-        "normalized": {"input_tokens": 12, "cached_input_tokens": 2,
-                       "cache_write_tokens": 1, "output_tokens": 3},
+        "normalized": {"provider_input_tokens": 12, "uncached_input_tokens": 9,
+                       "cache_read_input_tokens": 2, "cache_creation_input_tokens": 1, "output_tokens": 3},
         "coverage": {"state": "MEASURED", "reason": None},
     }
 
@@ -588,14 +677,16 @@ def test_provider_telemetry_is_receipt_only_and_bound_to_fenced_delivery(tmp_pat
     assert "provider_telemetry" not in response_metadata
     assert telemetry["usage"]["scope"] == "session_cumulative"
     assert telemetry["usage"]["attribution"] == "unattributed"
-    assert telemetry["usage"]["normalized"] == {"input_tokens": 12, "cached_input_tokens": 2,
-                                                  "cache_write_tokens": 1, "output_tokens": 3}
+    assert telemetry["usage"]["normalized"] == {"provider_input_tokens": 12, "uncached_input_tokens": 9,
+                                                  "cache_read_input_tokens": 2, "cache_creation_input_tokens": 1,
+                                                  "output_tokens": 3}
     assert sql(h, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name LIKE '%usage%fact%'") == [(0,)]
     replacement = {**candidate, "normalized": {"input_tokens": 900, "output_tokens": 900}}
     assert h.finalize_terminal(token, {"response": "ok", "provider_telemetry": replacement}, did).outcome == "duplicate"
     reread, = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?", (did,))[0]
     assert json.loads(reread)["usage"]["normalized"] == {
-        "input_tokens": 12, "cached_input_tokens": 2, "cache_write_tokens": 1, "output_tokens": 3}
+        "provider_input_tokens": 12, "uncached_input_tokens": 9, "cache_read_input_tokens": 2,
+        "cache_creation_input_tokens": 1, "output_tokens": 3}
 
 
 def test_provider_telemetry_scope_and_spoofed_delivery_id_fail_closed(tmp_path):
@@ -604,7 +695,7 @@ def test_provider_telemetry_scope_and_spoofed_delivery_id_fail_closed(tmp_path):
     candidate = {
         "schema_version": 1, "scope": "session_cumulative", "source": "cc.result.usage", "delivery_id": "spoofed-delivery",
         "reported": {"input_tokens": 12, "output_tokens": 3},
-        "normalized": {"input_tokens": 12, "output_tokens": 3},
+        "normalized": {"provider_input_tokens": 12, "uncached_input_tokens": 12, "output_tokens": 3},
         "coverage": {"state": "MEASURED", "reason": None},
     }
 
@@ -632,7 +723,7 @@ def test_provider_usage_persistence_rejects_fabricated_normalization(tmp_path):
     detail, = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?", (did,))[0]
     usage = json.loads(detail)["usage"]
     assert usage["reported"] == usage["normalized"] == {}
-    assert usage["coverage"] == {"state": "UNKNOWN", "reason": "normalization_mismatch"}
+    assert usage["coverage"] == {"state": "UNKNOWN", "reason": "unsupported_usage_field"}
 
 
 def test_provider_usage_persistence_keeps_valid_partial_native_counts(tmp_path):
@@ -640,14 +731,14 @@ def test_provider_usage_persistence_keeps_valid_partial_native_counts(tmp_path):
     token, did = _start_telemetry_delivery(h, _ProviderTelemetryRuntime())
     candidate = {
         "schema_version": 1, "scope": "session_cumulative", "source": "cc.result.usage",
-        "reported": {"input_tokens": 7}, "normalized": {},
+        "reported": {"input_tokens": 7}, "normalized": {"uncached_input_tokens": 7},
         "coverage": {"state": "MEASURED", "reason": None},
     }
     h.finalize_terminal(token, {"response": "ok", "provider_telemetry": candidate}, did)
     detail, = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?", (did,))[0]
     usage = json.loads(detail)["usage"]
     assert usage["reported"] == {"input_tokens": 7}
-    assert usage["normalized"] == {}
+    assert usage["normalized"] == {"uncached_input_tokens": 7}
     assert usage["coverage"]["state"] == "MEASURED"
 
 
@@ -657,7 +748,7 @@ def test_session_cumulative_usage_is_generation_observation_not_delivery_usage(t
     candidate = {
         "schema_version": 1, "scope": "session_cumulative", "source": "cx.turn.completed.usage",
         "reported": {"input_tokens": 40, "output_tokens": 4},
-        "normalized": {"input_tokens": 40, "output_tokens": 4},
+        "normalized": {"provider_input_tokens": 40, "output_tokens": 4},
         "coverage": {"state": "MEASURED", "reason": None},
     }
 
@@ -667,4 +758,21 @@ def test_session_cumulative_usage_is_generation_observation_not_delivery_usage(t
     telemetry = json.loads(telemetry_json)
     assert telemetry["usage"]["scope"] == "session_cumulative"
     assert telemetry["usage"]["attribution"] == "unattributed"
-    assert telemetry["usage"]["normalized"] == {"input_tokens": 40, "output_tokens": 4}
+    assert telemetry["usage"]["normalized"] == {"provider_input_tokens": 40, "output_tokens": 4}
+
+
+def test_session_telemetry_never_promotes_configured_model_to_resolved_model(tmp_path):
+    class BoundRuntime(_ProviderTelemetryRuntime):
+        def session_binding(self):
+            return {"profile": "cc.effort", "model": "claude-sonnet-5-5", "effort": "high", "writable": False}
+
+    h = BridgeHarness(tmp_path / "ws")
+    token, did = _start_telemetry_delivery(h, BoundRuntime())
+    h.finalize_terminal(token, {"response": "ok"}, did)
+
+    detail, = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry' AND delivery_id=?", (did,))[0]
+    telemetry = json.loads(detail)
+    assert telemetry["configured_model"] == "claude-sonnet-5-5"
+    assert telemetry["resolved_model"] is None
+    assert telemetry["schema_version"] == 3
+    assert "model" not in telemetry

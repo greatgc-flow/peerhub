@@ -18,8 +18,8 @@ SENTINELS = ("cc-vendor-session-sentinel", "cx-vendor-thread-sentinel", "ag-vend
         "schema_version": 1, "scope": "session_cumulative", "source": "cc.result.usage",
         "reported": {"input_tokens": 10418, "cache_read_input_tokens": 8113,
                      "cache_creation_input_tokens": 100, "output_tokens": 589},
-        "normalized": {"input_tokens": 18631, "cached_input_tokens": 8113,
-                       "cache_write_tokens": 100, "output_tokens": 589},
+        "normalized": {"provider_input_tokens": 18631, "uncached_input_tokens": 10418,
+                       "cache_read_input_tokens": 8113, "cache_creation_input_tokens": 100, "output_tokens": 589},
         "coverage": {"state": "MEASURED", "reason": None},
     }),
     ("cx", "cx-turn-usage-v1.ndjson", {
@@ -27,15 +27,16 @@ SENTINELS = ("cc-vendor-session-sentinel", "cx-vendor-thread-sentinel", "ag-vend
         "reported": {"input_tokens": 18351, "cached_input_tokens": 18176,
                      "cache_write_input_tokens": 0, "output_tokens": 10,
                      "reasoning_output_tokens": 0},
-        "normalized": {"input_tokens": 18351, "cached_input_tokens": 18176,
-                       "cache_write_tokens": 0, "output_tokens": 10},
+        "normalized": {"provider_input_tokens": 18351, "cached_input_tokens": 18176,
+                       "cache_write_tokens": 0, "output_tokens": 10, "reasoning_output_tokens": 0},
         "coverage": {"state": "MEASURED", "reason": None},
     }),
     ("ag", "ag-result-usage-v1.json", {
         "schema_version": 1, "scope": "session_cumulative", "source": "ag.result.usage",
         "reported": {"input_tokens": 10418, "output_tokens": 589, "thinking_tokens": 551,
                      "cache_read_tokens": 8113, "total_tokens": 11007},
-        "normalized": {"input_tokens": 10418, "cached_input_tokens": 8113, "output_tokens": 589},
+        "normalized": {"provider_input_tokens": 10418, "cached_input_tokens": 8113, "output_tokens": 589,
+                       "thinking_tokens": 551, "provider_total_tokens": 11007},
         "coverage": {"state": "MEASURED", "reason": None},
     }),
 ])
@@ -90,4 +91,25 @@ def test_usm_usage_06_partial_native_usage_is_preserved(kind, raw, reported):
     facts = parse_provider_usage(kind, raw)
     assert facts["reported"] == reported
     assert facts["coverage"]["state"] == "MEASURED"
-    assert facts["normalized"] == {}
+    assert facts["normalized"] == {"uncached_input_tokens": 7} if kind == "cc" else {
+        "thinking_tokens": 5, "provider_total_tokens": 7}
+
+
+def test_usm_usage_07_cc_normalized_fields_keep_native_input_buckets_distinct():
+    raw = (FIXTURES / "cc-result-usage-v1.ndjson").read_text(encoding="utf-8")
+
+    facts = parse_provider_usage("cc", raw)
+
+    assert facts["reported"] == {
+        "input_tokens": 10418,
+        "cache_read_input_tokens": 8113,
+        "cache_creation_input_tokens": 100,
+        "output_tokens": 589,
+    }
+    assert facts["normalized"] == {
+        "provider_input_tokens": 18631,
+        "uncached_input_tokens": 10418,
+        "cache_read_input_tokens": 8113,
+        "cache_creation_input_tokens": 100,
+        "output_tokens": 589,
+    }

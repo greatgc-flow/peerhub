@@ -457,11 +457,16 @@ and response metadata as immutable API/replay snapshots, not as dashboard
 sources. Monitoring reads the typed receipt and writer-maintained projections;
 no new `bridge_telemetry_facts` table is added.
 
-Version the JSON detail contract (`schema_version=2`) and validate it in the
+Version the JSON detail contract (`schema_version=3`) and validate it in the
 Bridge writer. Preserve the existing session/context fields and add provider
 identity, source kind, adapter/CLI/schema versions, capture time, configured
 binding, metric scope, provider-native allowlisted counters, normalized
 counters/formula version, and explicit per-field evidence/coverage states.
+The configured model and provider-resolved model are distinct fields;
+`resolved_model` remains null unless the provider reports it. Schema v2
+receipts stay immutable and are interpreted according to their original
+shape; readers must branch by schema version rather than silently relabel the
+old `model` field.
 When stream events are enabled, embed a bounded list of per-delivery safe
 numeric step summaries keyed by deterministic local `step_index`/step type;
 collapse repeated ACTIVE/DONE updates to one terminal step. Cap at 512 steps
@@ -477,11 +482,11 @@ from these receipts and carry denominator/semantics version. Add only
 projection tables required by bounded monitor queries; never recount all
 evidence on monitor reads.
 
-Canonical v2 detail shape (illustrative keys; no raw event object):
+Canonical v3 detail shape (illustrative keys; no raw event object):
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "handle": "local-session-handle",
   "generation": 3,
   "observed_at": 1792047600.0,
@@ -490,7 +495,8 @@ Canonical v2 detail shape (illustrative keys; no raw event object):
   "context_pct": null,
   "source": "unknown",
   "window_reported_at": null,
-  "model": "configured-model",
+  "configured_model": "configured-model",
+  "resolved_model": null,
   "provider_kind": "ag",
   "captured_at": 1792047600.0,
   "adapter_version": "2",
@@ -719,7 +725,7 @@ provider CLIs or access the network. Add these contracts to existing USM-01–08
   the same transaction; explicit audit catches drift; monitor never recounts
   all history.
 - **USM-19a — Receipt schema/immutability:** extend the existing
-  `session_telemetry` detail with schema v2 under the current unique
+  `session_telemetry` detail with schema v3 under the current unique
   delivery-receipt index; a repeated terminal callback cannot create another
   receipt or mutate the first. No parallel provider-facts table or duplicate
   evidence kind exists. Replay `result_json`/response metadata remains
@@ -955,17 +961,46 @@ schemas, evidence register, and release notes together.
 
 ### TDD handoff status (2026-10-15; initial-plan notes below are historical)
 
-The design was unanimously approved before implementation. The first code
-slice has now completed tests-only RED and GREEN for provider usage parsing,
-sanitized Bridge receipt persistence, safe session binding/usage inspection,
-and CI/release workflow contracts. CC/CX re-review of the corrective changes
-is in progress; AG's second review is pending. Local verification currently
-includes focused CLI/receipt/parser/CI tests and the Windows platform-sensitive
-inventory. This remains a partial implementation: full grouped monitoring,
-coverage projections, preferences, broader profile/quota/context drill-down,
-and CI status-check migration remain outstanding. The live evidence below is
-version-bound support for adapter contracts, not release qualification or
-statistical performance proof.
+CC, CX, and AG unanimously approved the refined A1–A4 design and exact TDD
+boundaries after three compact adversarial rounds. The approval is scoped to
+the decisions below; it does not imply completion of the broader monitor CLI.
+The current work has passed focused GREEN for the A1–A4 tests: 107 tests passed
+across receipt, adapter/provider usage, monitor coverage, extension
+architecture, and M2/M3 isolation. Pyright reports zero errors. Full CI and
+the peer review limitations recorded below remain before release qualification.
+
+| Decision | Normative contract | RED/GREEN evidence now present |
+|---|---|---|
+| A1 — atomic initialization | Do not introduce another extension-version runner. Keep DDL, registry seed, and bridge registry initialization in the existing fenced transaction. | Migration fault injection asserts DDL/data rollback, unchanged `PRAGMA user_version`, and no surviving minted evidence; an ordinary reopen must not enter historical recount. |
+| A2 — usage denominator | Coverage counts eligible terminal (`certainty='TERMINAL'`) deliveries through a `LEFT JOIN` to the unique telemetry receipt. Missing receipt is `missing`, never synthetic `UNKNOWN`, `ABSENT`, or zero usage. No session snapshot means no receipt. | Scope filters exclude nonterminal/other-peer/other-stream deliveries; terminal legacy delivery without receipt increments `eligible` and `missing`. |
+| A3 — legacy rebuild | Historic projection repair occurs only when absent/legacy, not on ordinary open. One indexed scope scan returns per-generation and scope counts; no per-session/per-delivery query loop. Incomplete attribution remains unknown; a nonempty scope containing only pre-start deliveries is known zero, matching the previous recount semantics. | Representative fixture: 5,000 sessions × 10 deliveries (50,000 deliveries); at most two scope reads, `EXPLAIN QUERY PLAN` must use `idx_bd_scope_generation`, ordinary open fails if the recount function is reached, and a pre-start-only scope remains complete known zero. |
+| A4 — provider semantics and model dependency | Keep provider-native `reported` fields lossless. Share one allowlisted normalizer between parser and persistence. Use provider-qualified common names only where semantics are documented. Keep configured profile/model separate from provider-resolved model; unresolved stays null. Shape changes require receipt `schema_version=3`; do not keep an ambiguous `model` alias. | CC cache/input bucket distinctions, CX/AG native fields, candidate revalidation, configured-vs-resolved model tests, and schema-version assertions. Unknown or unsupported semantics stay unknown; no cost is inferred. |
+
+The relationship remains **quota pool → provider/model catalog → configured
+profile → session-generation binding → accepted delivery → usage/context
+receipt**. Each edge carries its own source, scope, time, and confidence. A
+profile is selection policy; it cannot establish entitlement or context
+window. A session binding snapshots configured values; it cannot establish
+provider resolution. A cumulative usage receipt is an observation and remains
+unattributed to a delivery. Usage coverage uses delivery eligibility only for
+the denominator and does not relabel cumulative usage as per-call usage.
+
+CC, CX, and AG separately reached unanimity on schema v3 after comparing a
+version bump with a deprecated `model` alias. All selected v3: keeping the
+alias under v2 could make existing readers interpret configured selection as
+provider-resolved execution. CX's first two code-review attempts failed with
+the adapter's `AuthRequired` error for its tldraw OAuth MCP transport; a
+no-tools schema vote succeeded, but a final code-diff vote was unavailable in
+this round. CC and AG approved the final summarized diff.
+
+The new shared normalizer and read-model module are classified as M1 and are
+covered by the extension import allowlist and M2/M3 isolation gate. The design
+is still a partial implementation: grouped monitor presentation, coverage
+rollups/projections beyond the read-only coverage aggregate, selectable group
+preferences, complete profile/quota/context drill-down, and GitHub status-check
+migration remain outstanding. The live evidence below is version-bound
+support for adapter contracts, not release qualification or statistical
+performance proof.
 
 The sequence that follows is the remaining design roadmap, not a claim that
 those slices have already been implemented. Keep each one independently
