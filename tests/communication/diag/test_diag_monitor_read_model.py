@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.diag, pytest.mark.platform_sensitive]
 
 
 def test_usage_coverage_reads_bounded_daily_projection():
@@ -184,7 +184,11 @@ def test_monitor_telemetry_projection_is_schema_bound_and_allowlisted():
               "response": "prompt/secret must never be exposed", "vendor_session_id": "vendor-secret"}
     public = _public_telemetry(json.dumps(detail), handle="peerhub-handle", generation=2, provider="cc")
     assert public["usage"]["reported"] == {"input_tokens": 4, "output_tokens": 2}
-    assert public["context"]["occupancy_tokens"] == 10
+    assert public["context"]["occupancy_tokens"] is None
+    assert public["context"]["window_tokens"] is None
+    assert public["context"]["percent"] is None
+    assert public["context"]["state"] == "UNKNOWN"
+    assert public["context"]["reason"] == "unvalidated_context_source"
     assert "response" not in public and "vendor_session_id" not in public
     mismatched = _public_telemetry(json.dumps(detail), handle="another-handle", generation=2, provider="cc")
     assert mismatched["usage"] is None and mismatched["context"]["occupancy_tokens"] is None

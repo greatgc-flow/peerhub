@@ -8,5 +8,10 @@ tests.communication.bridge.test_brg_delivery
 tests.communication.bridge.test_native_resume
 tests.communication.bridge.test_w3_gate_fixes
 tests.communication.concurrency.test_mp_processes
+tests.communication.diag.test_diag_monitor_read_model
+tests.communication.diag.test_monitor_capacity_contract
+tests.communication.diag.test_monitor_context_coherence
+tests.communication.diag.test_monitor_runtime_provenance
+tests.communication.diag.test_monitor_scope_scale
 tests.communication.fault.test_flt_bridge
 tests.communication.fault.test_flt_storage

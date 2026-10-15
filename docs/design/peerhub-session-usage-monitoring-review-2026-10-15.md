@@ -2078,3 +2078,47 @@ The reviewers agree these requirements are necessary. The full-scale p95
 remains an overall GREEN gate but does not prevent separate TDD slices from
 moving forward while it remains visibly open. The query, field, and context
 semantics above must be RED-tested before their implementation changes.
+
+### TDD implementation progress (2026-10-16)
+
+- Replaced full-table window ranking in the grouped scope reader with indexed
+  recursive successor seeks for at most four peer keys, followed by indexed
+  per-peer `stream_id` branches capped at 21 rows before ranking or rollup
+  joins. The new test captures and explains the actual frame queries, checks
+  exact 3×20 output and cap+1 behavior, and compares SQLite VM work before and
+  after adding 20,000 scopes to the first peer. It passes; skewed work stays
+  within the bounded-growth assertion and both plans use
+  `idx_monitor_delivery_peer`. This test is additional evidence, not the
+  canonical 5,000-session fixture.
+- `capacity` now reads only quota/rate-limit rollups and exposes an allowlisted
+  set of measured payload fields, provider/pool attribution, stored and
+  read-time state, timestamps, age, freshness basis, TTL, and skew. It uses the
+  canonical Observation parser/evaluator; expired or non-measured values have
+  null measurements, and no pool value is assigned to a session. Distinct-pool,
+  no-secret-leak, freshness, absent/unknown, and rate-limit tests pass.
+- `runtime` now carries receipt `adapter_version` and explicit nullable
+  `provider_cli_version`. Saved binding values are labeled as a session
+  snapshot with unknown historical field-source layers; current profile
+  inspection is separately labeled `current_config`, reports current
+  per-field layers, and is resolved from the selected database workspace when
+  that location is identifiable. This prevents later config edits from being
+  backfilled as historical facts and performs no CLI subprocess probe.
+- Context occupancy, window, and percentage remain null with `UNKNOWN` and an
+  explicit reason because no supported provider context source is currently
+  wired. Adversarial tests cover a year-old sample, future/malformed times,
+  source/sample/model/session/generation mismatch, invalid occupancy and
+  percentage. No arbitrary global freshness TTL was introduced.
+- Focused monitor CLI/read-model, scope, capacity, context, and runtime tests:
+  97 passed. Pyright: zero issues. The platform-sensitive inventory verifier
+  passes with the new SQLite boundary modules included. The hosted docs-only
+  follow-up run `38756022559` passed Ubuntu full (5m33s), Windows platform
+  inventory (6m27s), six package smoke cells, and `ci-pass`.
+- Ruleset `main-ci-pass` (ID `25168666`) now requires the GitHub Actions
+  aggregate check `ci-pass` on `refs/heads/main`, with strict/up-to-date
+  behavior and no bypass actors. The existing all-ref `gc` deletion and
+  non-fast-forward ruleset was read back unchanged.
+
+The single blocking acceptance slice still open is the canonical
+`monitor_frame_scale_v1` fixture and local warmed p95 <=150ms evidence. Do not
+claim overall monitoring completion until that fixture, environment record,
+and final hosted checks pass.

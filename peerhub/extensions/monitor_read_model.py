@@ -10,6 +10,13 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, cast
 
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
+from peerhub.extensions.observation_model import (
+    MEASUREMENT_KEYS,
+    FreshnessPolicy,
+    ObservationCorruptError,
+    evaluate as evaluate_observation,
+    row_to_observation,
+)
 
 
 def _filters(peer_id: str | None, stream_id: str | None, alias: str = "s") -> tuple[str, list[Any]]:
@@ -92,13 +99,37 @@ def _public_binding_value(value: object) -> str | None:
     return None
 
 
+def _current_profile(profile: object, workspace: Path) -> dict[str, Any]:
+    if not isinstance(profile, str) or _public_binding_value(profile) is None:
+        return {"basis": "current_config", "profile": None, "fields": None, "reason": "profile_unavailable"}
+    from peerhub.extensions.adapters.profiles import inspect_profile
+    try:
+        current = inspect_profile(profile, workspace)
+    except (OSError, ValueError):
+        return {"basis": "current_config", "profile": profile, "fields": None, "reason": "profile_config_unavailable"}
+    return {"basis": "current_config", **current}
+
+
+def _monitor_workspace(db_path: str, workspace: str | Path | None) -> Path:
+    if workspace is not None:
+        return Path(workspace)
+    database = Path(db_path).resolve()
+    if (database.parent / "workspace.generation").is_file():
+        return database.parent
+    if database.parent.name == ".peerhub":
+        return database.parent.parent
+    return Path.cwd()
+
+
 def _public_telemetry(raw: object, *, handle: str, generation: int, provider: str) -> dict[str, Any]:
     detail = _safe_object(raw)
     if (detail.get("schema_version") != 3 or detail.get("handle") != handle or
             detail.get("generation") != generation or detail.get("provider_kind") != provider):
         return {"configured_model": None, "resolved_model": None, "observed_at": None,
-                "usage": None, "context": {"occupancy_tokens": None, "window_tokens": None,
-                                             "percent": None, "source": None, "observed_at": None}}
+                "adapter_version": None, "provider_cli_version": None, "usage": None,
+                "context": {"occupancy_tokens": None, "window_tokens": None, "percent": None,
+                            "source": None, "observed_at": None, "window_reported_at": None,
+                            "state": "UNKNOWN", "reason": "invalid_or_missing_receipt"}}
     def model(value: object) -> str | None:
         return value if isinstance(value, str) and _SAFE_MODEL.fullmatch(value) else None
     usage_raw: object = detail.get("usage")
@@ -119,19 +150,26 @@ def _public_telemetry(raw: object, *, handle: str, generation: int, provider: st
         isinstance(sample_at, (int, float)) and not isinstance(sample_at, bool) and
         isinstance(window_at, (int, float)) and not isinstance(window_at, bool)
     )
-    context = {"occupancy_tokens": occupancy if valid_context else None,
-               "window_tokens": window if valid_context else None,
-               "percent": pct if valid_context else None,
+    has_context = any(detail.get(key) is not None for key in
+                      ("last_input_tokens", "context_window", "context_pct", "context_sample"))
+    # No adapter currently has a validated, versioned occupancy source. Keep
+    # values unknown until a provider-specific validator is explicitly added.
+    context = {"occupancy_tokens": None, "window_tokens": None, "percent": None,
                "source": model(detail.get("source")),
                "observed_at": sample_at if valid_context else None,
-               "window_reported_at": window_at if valid_context else None}
+               "window_reported_at": window_at if valid_context else None,
+               "state": "UNKNOWN",
+               "reason": "unvalidated_context_source" if has_context else "no_context_measurement"}
     return {"configured_model": model(detail.get("configured_model")), "resolved_model": model(detail.get("resolved_model")),
+            "adapter_version": _public_binding_value(detail.get("adapter_version")),
+            "provider_cli_version": _public_binding_value(detail.get("provider_cli_version")),
             "observed_at": sample_at if isinstance(sample_at, (int, float)) and not isinstance(sample_at, bool) else None,
             "usage": public_usage, "context": context}
 
 
 def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | None = None,
-                         trace_callback: Callable[[str], None] | None = None) -> dict[str, Any]:
+                         trace_callback: Callable[[str], None] | None = None,
+                         workspace: str | Path | None = None) -> dict[str, Any]:
     """Read grouped monitor facts from one query-only SQLite snapshot (five bounded query families)."""
     import time
     now = time.time() if read_at is None else read_at
@@ -208,34 +246,72 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                                                                               "generation": item["generation"], "context": item["telemetry"]["context"]}
                                                                      for item in sessions]}}
         if "runtime" in groups:
-            output["runtime"] = {"status": "ERROR" if "sessions" in errors else "OK", "data": {"sessions": [{"handle": item["handle"], "peer_id": item["peer_id"],
-                                                                              "provider": item["provider"], "configured_binding": item["configured_binding"],
-                                                                              "resolved_model": item["telemetry"]["resolved_model"]}
-                                                                     for item in sessions]}}
+            config_workspace = _monitor_workspace(db_path, workspace)
+            current_profiles: dict[str, dict[str, Any]] = {}
+            runtime_sessions: list[dict[str, Any]] = []
+            for item in sessions:
+                binding = item["configured_binding"]
+                profile = binding.get("profile")
+                if isinstance(profile, str):
+                    if profile not in current_profiles:
+                        current_profiles[profile] = _current_profile(profile, config_workspace)
+                    current_profile = current_profiles[profile]
+                else:
+                    current_profile = _current_profile(profile, config_workspace)
+                runtime_sessions.append({
+                    "handle": item["handle"], "peer_id": item["peer_id"], "provider": item["provider"],
+                    "configured_binding": binding, "resolved_model": item["telemetry"]["resolved_model"],
+                    "adapter_version": item["telemetry"]["adapter_version"],
+                    "provider_cli_version": item["telemetry"]["provider_cli_version"],
+                    "configured_binding_provenance": {
+                        "basis": "session_snapshot",
+                        "field_sources": {"profile": None, "model": None, "effort": None}},
+                    "current_profile": current_profile,
+                })
+            output["runtime"] = {"status": "ERROR" if "sessions" in errors else "OK",
+                                  "data": {"sessions": runtime_sessions}}
         scopes: list[dict[str, Any]] = []
         scope_rows: list[sqlite3.Row] = []
         scope_truncated_peers: set[str] = set()
         try:
             needs_scopes = bool(set(groups) & {"execution", "coverage", "usage", "sessions"})
-            scope_rows = conn.execute(
-                "WITH peer_ranks AS (SELECT peer_id,ROW_NUMBER() OVER (ORDER BY peer_id) peer_rank "
-                "FROM (SELECT DISTINCT peer_id FROM bridge_monitor_delivery_scope)), "
-                "ranked AS (SELECT s.*,r.retained_session_count,r.retained_complete,"
-                "ROW_NUMBER() OVER (PARTITION BY s.peer_id ORDER BY s.stream_id) scope_rank,p.peer_rank "
-                "FROM bridge_monitor_delivery_scope s JOIN peer_ranks p ON p.peer_id=s.peer_id "
-                "LEFT JOIN bridge_session_monitor_scope r ON r.stream_id=s.stream_id AND r.peer_id=s.peer_id) "
-                "SELECT s.stream_id,s.peer_id,s.not_started_count,s.may_have_started_count,s.started_count,s.terminal_count,"
-                "s.measured_count,s.absent_count,s.unsupported_count,s.unknown_count,s.missing_count,s.delivery_complete,"
-                "s.telemetry_complete,s.delivery_coverage_start_seq,s.telemetry_coverage_start_seq,"
-                "COALESCE(SUM(d.latency_sum_ns),0),COALESCE(SUM(d.latency_count),0),"
-                "COALESCE(SUM(d.latency_missing_start_count),0),COALESCE(SUM(d.latency_domain_mismatch_count),0),"
-                "COALESCE(SUM(d.latency_invalid_count),0),COALESCE(SUM(d.latency_terminal_before_start_count),0),"
-                "s.scope_rank,s.peer_rank,s.retained_session_count,s.retained_complete "
-                "FROM ranked s LEFT JOIN bridge_monitor_delivery_day d "
-                "ON d.stream_id=s.stream_id AND d.peer_id=s.peer_id AND d.terminal_day_utc>=? AND d.terminal_day_utc<=? "
-                "WHERE s.peer_rank<=4 AND s.scope_rank<=21 GROUP BY s.stream_id,s.peer_id "
-                "ORDER BY s.peer_rank,s.scope_rank", (start_day, end_day.isoformat()),
-            ).fetchall() if needs_scopes else []
+            if needs_scopes:
+                peer_rows = conn.execute(
+                    "WITH RECURSIVE peer_keys(peer_id,peer_rank) AS ("
+                    "SELECT MIN(peer_id),1 FROM bridge_monitor_delivery_scope "
+                    "UNION ALL SELECT (SELECT MIN(peer_id) FROM bridge_monitor_delivery_scope WHERE peer_id>p.peer_id),"
+                    "p.peer_rank+1 FROM peer_keys p WHERE p.peer_id IS NOT NULL AND p.peer_rank<4) "
+                    "SELECT peer_id,peer_rank FROM peer_keys WHERE peer_id IS NOT NULL ORDER BY peer_rank"
+                ).fetchall()
+                branches: list[str] = []
+                scope_args: list[Any] = []
+                for peer_row in peer_rows:
+                    branches.append(
+                        "SELECT * FROM (SELECT ? AS peer_rank,s.* FROM bridge_monitor_delivery_scope s "
+                        "WHERE s.peer_id=? ORDER BY s.stream_id LIMIT 21)"
+                    )
+                    scope_args.extend((int(peer_row[1]), str(peer_row[0])))
+                selected = " UNION ALL ".join(branches)
+                scope_rows = conn.execute(
+                    "WITH selected AS (" + selected + "), ranked AS ("
+                    "SELECT s.*,r.retained_session_count,r.retained_complete,"
+                    "ROW_NUMBER() OVER (PARTITION BY s.peer_id ORDER BY s.stream_id) scope_rank "
+                    "FROM selected s LEFT JOIN bridge_session_monitor_scope r "
+                    "ON r.stream_id=s.stream_id AND r.peer_id=s.peer_id) "
+                    "SELECT s.stream_id,s.peer_id,s.not_started_count,s.may_have_started_count,s.started_count,s.terminal_count,"
+                    "s.measured_count,s.absent_count,s.unsupported_count,s.unknown_count,s.missing_count,s.delivery_complete,"
+                    "s.telemetry_complete,s.delivery_coverage_start_seq,s.telemetry_coverage_start_seq,"
+                    "COALESCE(SUM(d.latency_sum_ns),0),COALESCE(SUM(d.latency_count),0),"
+                    "COALESCE(SUM(d.latency_missing_start_count),0),COALESCE(SUM(d.latency_domain_mismatch_count),0),"
+                    "COALESCE(SUM(d.latency_invalid_count),0),COALESCE(SUM(d.latency_terminal_before_start_count),0),"
+                    "s.scope_rank,s.peer_rank,s.retained_session_count,s.retained_complete "
+                    "FROM ranked s LEFT JOIN bridge_monitor_delivery_day d "
+                    "ON d.stream_id=s.stream_id AND d.peer_id=s.peer_id AND d.terminal_day_utc>=? AND d.terminal_day_utc<=? "
+                    "GROUP BY s.stream_id,s.peer_id ORDER BY s.peer_rank,s.scope_rank",
+                    (*scope_args, start_day, end_day.isoformat()),
+                ).fetchall() if branches else []
+            else:
+                scope_rows = []
             selected_scope_rows = [row for row in scope_rows if int(row[22]) <= 3 and int(row[21]) <= 20]
             scope_truncated_peers = {str(row[1]) for row in scope_rows if int(row[22]) <= 3 and int(row[21]) == 21}
             scope_truncated = bool(scope_truncated_peers)
@@ -299,14 +375,52 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         if "capacity" in groups:
             try:
                 rows = conn.execute(
-                    "SELECT o.subject_ref,o.kind,o.resource_pool_ref,o.source,o.state,o.effective_at_us "
+                    "SELECT o.capture_seq,o.observation_id,o.subject_ref,o.resource_pool_ref,o.kind,o.source,o.state,"
+                    "o.payload_json,o.observed_at,o.captured_at,o.effective_at_us,p.provider,p.kind AS pool_kind "
                     "FROM observation_rollups r JOIN observations o ON o.capture_seq=r.latest_capture_seq "
-                    "ORDER BY o.subject_ref,o.kind,r.pool_key LIMIT 101"
+                    "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref "
+                    "WHERE r.kind IN ('quota','rate_limit') ORDER BY o.subject_ref,r.pool_key LIMIT 101"
                 ).fetchall()
-                output["capacity"] = {"status": "OK", "data": {"observations": [
-                    {"peer_id": str(row[0]), "kind": str(row[1]), "pool_ref": row[2], "source": str(row[3]),
-                     "state": str(row[4]), "effective_at_us": int(row[5])}
-                    for row in rows[:100]], "sample_size": min(len(rows), 100), "truncated": len(rows) > 100}}
+                observations: list[dict[str, Any]] = []
+                for row in rows[:100]:
+                    try:
+                        observation, capture_seq = row_to_observation(row)
+                    except ObservationCorruptError as exc:
+                        raise sqlite3.DataError(f"invalid quota observation at capture_seq={row['capture_seq']}") from exc
+                    freshness = evaluate_observation(observation, capture_seq, round(now * 1_000_000), FreshnessPolicy())
+                    measurements = None
+                    if freshness.state.value == "MEASURED":
+                        measured: dict[str, int | float] = {}
+                        for key in MEASUREMENT_KEYS.intersection(observation.payload):
+                            value = observation.payload[key]
+                            if (isinstance(value, (int, float)) and not isinstance(value, bool) and
+                                    math.isfinite(float(value)) and value >= 0 and
+                                    (key != "remaining_fraction" or value <= 1)):
+                                measured[key] = value
+                        measurements = measured
+                    pool_ref = observation.resource_pool_ref
+                    observations.append({
+                        "observation_id": observation.observation_id,
+                        "peer_id": observation.subject_ref,
+                        "provider": row["provider"],
+                        "kind": observation.kind,
+                        "pool_ref": pool_ref,
+                        "pool_kind": row["pool_kind"],
+                        "attribution_scope": "peer_account_pool" if pool_ref is not None else "peer",
+                        "source": observation.source,
+                        "state": freshness.state.value,
+                        "stored_state": freshness.stored_state.value,
+                        "observed_at": observation.observed_at,
+                        "captured_at": observation.captured_at,
+                        "effective_at_us": int(row["effective_at_us"]),
+                        "age_seconds": freshness.age_seconds,
+                        "ttl_seconds": freshness.ttl_seconds,
+                        "freshness_basis": freshness.basis,
+                        "skew_seconds": freshness.skew_seconds,
+                        "measurements": measurements,
+                    })
+                output["capacity"] = {"status": "OK", "data": {"observations": observations,
+                    "sample_size": min(len(rows), 100), "truncated": len(rows) > 100}}
             except sqlite3.Error as exc:
                 errors["capacity"] = type(exc).__name__
                 output["capacity"] = {"status": "ERROR", "data": None}
