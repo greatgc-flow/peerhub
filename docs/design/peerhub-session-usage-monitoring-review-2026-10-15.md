@@ -15,8 +15,9 @@ inventory and state, profile/model/effort binding, fresh/reuse counts, last
 request context occupancy, per-session quota evidence, recent confirmed calls,
 expiry/eligibility, and explicit freshness/completeness. Source review confirms
 that Bridge writers already persist session-call and terminal-telemetry
-receipts, plus lifetime fresh/reuse projections. The bounded read model and
-session CLI/diagnostic surfaces remain proposed; `session_receipts.py` is a
+receipts, plus lifetime fresh/reuse projections. The bounded monitoring read
+model remains proposed; `session list/show` already provides read-only,
+cursor-paginated retained-session inspection. `session_receipts.py` is a
 writer projection, not a completed monitoring reader.
 
 **Current-decision correction (2026-10-15):** older paragraphs in the Oct. 13
@@ -537,11 +538,11 @@ as follows:
 - Group selection affects rendering only. It does not alter acquisition,
   retention, or collection cadence.
 
-The initial document cross-check was source-backed and did not use live
-provider calls. The follow-up paid probes and their precise scope are recorded
-in the linked CLI option audit. No CX cross-review was used. Existing
-documented AG/CC positions were considered, but this environment does not
-expose AG/CC review terminals, so this is not a new unanimous peer vote.
+The initial document cross-check was source-backed. Follow-up paid probes and
+their precise scope are recorded in the linked CLI option audit. CX, CC, and
+AG cross-reviews were subsequently run; their first two rounds remain
+conditional, so this document is **not yet unanimously approved** and TDD
+implementation must wait for a final vote on the exact amended packet.
 
 ### Legacy-branch research reconciliation
 
@@ -756,7 +757,7 @@ schemas, evidence register, and release notes together.
 
 ### TDD handoff status (2026-10-15)
 
-**Design is ready for TDD; implementation has not started.** The design choices
+**CX, CC, and AG unanimously approved local tests-only RED on 2026-10-15; implementation has not started.** The design choices
 material to the first implementation slices are set: one receipt authority, v2
 allowlist and size bounds, provider-specific counter semantics, group and
 preference behavior, bounded read/projection rules, and CLI options to retain
@@ -765,29 +766,70 @@ adapter contract choices but is not release qualification or statistical
 performance proof. No code, migration, or provider default has been changed by
 this design pass.
 
-Start RED in this order, keeping each slice independently reviewable:
+After unanimous approval of this exact plan, start RED in this order, keeping each slice independently reviewable. RED tests may fail locally, but remain uncommitted and unpushed until their slice reaches GREEN; do not merge or run required CI against an intentionally red tree. Commit the tests and matching implementation together only after that slice passes its deterministic tests.
 
-1. **Receipt contract:** USM-13, USM-15/15a/15b, USM-16/17/18, and USM-19a.
-   Add synthetic CC/CX/AG golden fixtures first. Assert exact native fields,
+0. **Release/CI evidence integrity (PH-T074 and G6 wiring):** RED then GREEN.
+   Add/extend `tests/communication/e2e/test_live_gate_tool.py` so dirty trees
+   are refused with exit 2 before provider spawn, including when the removed
+   legacy `--allow-dirty` flag is supplied; no JUnit/G3 stamp may be written.
+   Retain a clean-tree positive control that stamps exact HEAD. In
+   `tests/communication/soak/test_soak_ci_wiring.py`, invert the assertion
+   that currently requires job-level `continue-on-error: true`; assert
+   correctness failures remain job failures, evidence upload stays
+   `always()`, and the release graph still treats G6 as non-blocking. Dirty
+   canary runs are refused too; do not add an unstamped dirty bypass.
+   **GREEN owner:** remove `--allow-dirty` from `tools/live_gate.py`, enforce
+   dirty-tree refusal for every stage before provider spawn, and remove the
+   job-level `continue-on-error` from `.github/workflows/soak.yml`. Keep the
+   artifact upload `if: always()` and G6 outside publish dependencies.
+
+1. **Provider parser/schema fixtures:** tests only, before receipt migration.
+   Store sanitized golden input fixtures under
+   `tests/communication/fixtures/telemetry/`; record the accepted AG event and
+   numeric-field allowlist in this design contract. Finalize it before tests
+   whose oracle depends on AG step fields. For the documented AG
+   `stream-json` contract, accept only `init`, `step_update`, and terminal
+   `result` envelopes; for a step accept `step_index` (nonnegative integer),
+   `state` (`ACTIVE`/`DONE`), `step_type` (the observed enum
+   `user_input`/`agent_response`/`tool`/`checkpoint`), `duration_seconds`
+   (finite nonnegative number), and `usage.{input_tokens,output_tokens,
+   thinking_tokens,cache_read_tokens,total_tokens}` (nonnegative integers).
+   Capture usage only when present on completed steps, preserve step index and
+   type, and do not sum across steps until a provider-specific formula is
+   proven. Treat `conversation_id` as transient correlation only. Discard
+   `text_delta`, `tool_name`, `tool_info`, `subagent_info`, `cwd`, `tools`,
+   and all unknown/raw fields; unknown enum/value shapes become incomplete
+   coverage, never a parse crash or fabricated zero. The official [AGY
+   headless stream-json contract](https://www.agy.dev/docs/cli/headless/#streaming-json)
+   documents these event and field shapes; the version-pinned sanitized live
+   fixture remains the test oracle. Cover CC/CX output
+   fixtures and AG schema/parser behavior without persistence, including
+   missing, duplicate, reordered, truncated, and oversized events. This
+   establishes the parser contract needed by the receipt schema.
+
+2. **Receipt contract:** USM-13, USM-15/15a/15b, USM-16/17/18, and USM-19a.
+   With schema finalized, add synthetic CC/CX/AG golden fixtures. Assert exact native fields,
    scope, null/unknown behavior, secret rejection, deterministic step
    collapsing, byte/step caps, immutable one-receipt uniqueness, migration
    rollback, and counter-baseline validity. Do not depend on a live CLI.
-2. **Write atomicity and projections:** USM-14, USM-19, and USM-22. Exercise
+3. **Write atomicity and projections:** USM-14, USM-19, and USM-22. Exercise
    Bridge terminal transaction/fencing, retry/replay, projection idempotency,
    incomplete legacy backfill, and an audit/rebuild oracle. Keep the existing
    delivery/result snapshot contract unchanged.
-3. **Read model and output:** USM-01–08, USM-20–24, USM-21, and USM-35. Prove one pinned
+4. **Read model and output:** USM-01–08, USM-20–24, and USM-35. Prove one pinned
    snapshot, bounded query counts, explicit denominators/freshness, no N+1,
    and no provider work. Group rendering consumes that read model rather than
    adding another collector.
-4. **Preferences and CLI:** USM-09–12 and USM-25. Validate precedence,
+5. **Preferences and CLI:** USM-09–12 and USM-25. Validate precedence,
    atomic TOML writes, invalid-input fail-closed behavior, stable JSON/NDJSON,
    and read-only `show`/`reset` behavior without DB or provider writes.
-5. **Adapter contracts and live-boundary RED tests:** USM-26/27/28/29/31–34.
-   Write argv/parser fixtures and opt-in canary definitions. Run live tests
-   only after the matching adapter slice is implemented; preserve current
+6. **Adapter contracts and live-boundary RED tests:** USM-26/27/28/29/31–34.
+   First derive golden JSONL/CLI fixtures from sanitized captured shapes and
+   write argv/parser and exception tests; then implement the AG transport in
+   its own RED/green slice. Add opt-in canary definitions, but run a canary
+   only after the matching adapter slice is implemented. Preserve current
    public ask defaults until that slice passes.
-6. **Performance experiment only:** USM-30 is a separate decision gate, not a
+7. **Performance experiment only:** USM-30 is a separate decision gate, not a
    prerequisite to monitoring. Run randomized matched pairs in a clean
    workspace with identical task/model/profile, capture per-turn and
    end-to-end metrics, and apply its stated thresholds before enabling any
@@ -799,6 +841,16 @@ reviewed trace from each USM contract to its RED test, documented query/receipt
 bounds, and updated evidence/CLI references. Only then should implementation
 proceed to the next slice. Paid probes remain explicitly opt-in and their
 request count and quota risk must be disclosed at invocation.
+
+Each slice's RED phase is local and uncommitted; push, merge, or required CI
+starts only after that slice's GREEN changes make the deterministic suite pass.
+For slice 0, GREEN owns both `tools/live_gate.py` and `.github/workflows/soak.yml`
+as named above. For extension architecture, no new M2/M3 module is assumed in
+this design. If implementation introduces one, that same slice must register
+it in `tests/continuity/test_m2_m3_exit_gates.py` and classify its imports in
+`tests/communication/architecture/test_arch_extension_graph.py`; if it reuses
+existing modules, verify those architecture gates remain green. Trace each
+PH-T074/G6 criterion alongside USM contracts to its RED test.
 
 ### Live and exceptional-case test plan
 
@@ -861,3 +913,82 @@ Do not implement price catalogs, monetary averages, quotas-per-session,
 forecasting, budget controls, or adaptive routing as part of this monitoring
 work. Revisit per-turn token totals only after normalized adapter semantics and
 coverage are demonstrated in fixtures for each supported peer.
+
+## Cross-review amendments required before TDD
+
+These are binding acceptance criteria for the plan and first RED tests. They
+resolve source-backed CX/CC/AG findings; they do not authorize implementation
+until all three peers approve this exact amended packet.
+
+- **Outcome denominator and evidence authority:** `bridge_deliveries` remains
+  the denominator for confirmed, terminal-failed, uncertain, and pre-start
+  outcomes. `bridge_evidence(kind=session_telemetry)` remains the single
+  immutable authority for measured usage facts; do not create synthetic
+  telemetry for pre-start or uncertain deliveries. Distinguish “no measured
+  receipt” from zero usage and show coverage against the delivery ledger.
+  Reuse PH-T082 for atomic rollback when the receipt counter update affects
+  zero rows; reuse PH-T093 for invocation/resolution uniqueness, unknown-mode
+  coverage, idempotent evidence folds, and missing projection-row failure.
+  Add regression cases proving a missing expected projection row cannot
+  silently succeed or emit fabricated usage.
+- **Counter scope and session deltas:** cumulative session counters can be
+  shown as cumulative only. A delivery delta is valid only when the adapter
+  proves matching session, generation, model, immediately preceding terminal
+  baseline, monotonic counters, and absence of reset/compaction/retry/parallel
+  or out-of-band advancement. Since current code cannot exclude out-of-band
+  CLI use, test `unconfirmed_prior_delivery` as `UNKNOWN/PARTIAL`; do not
+  subtract it into a per-delivery value. Preserve existing response metadata
+  compatibility or introduce a separately versioned typed field.
+- **Schema and field ownership:** finalize the sanitized AG step schema from
+  parser fixtures before migration/transport work. Define one owner for every
+  displayed field: session owns configured binding; runtime owns observed
+  adapter/CLI provenance; coverage is completeness metadata; store is DB
+  integrity. Summary cards link to the owner and must not duplicate facts.
+  Context remains selectable and explicitly unknown until an actual matching
+  occupancy source is proven; do not imply a current measurement.
+- **Bounded query/read oracle:** before choosing indexes or adding projections,
+  name each required query, filter/order, maximum rows, returned bytes, and
+  expected query count. Test `EXPLAIN QUERY PLAN`, row/byte caps, and absence
+  of raw step blobs in summary reads against representative large history.
+  Keep one immutable evidence authority; add only rebuildable projections
+  needed by named bounded queries. Do not use an unsupported wall-clock SLO.
+- **Privacy and input validation:** test that no prompt/response/tool payload,
+  vendor/session identifier, credential, raw path, or request ID reaches
+  telemetry or rendered monitor output. Bound and sanitize profile/model/
+  version/stream display fields, including control characters and oversized
+  values. This does not change the separate replay-response retention
+  contract.
+- **Live gate evidence integrity:** current `tools.live_gate --allow-dirty`
+  can stamp G3 against `HEAD` while testing uncommitted source, and G5 cannot
+  detect that mismatch. Remove this bypass; reject every dirty worktree before
+  provider spawn, including canary mode and the legacy flag, and write no JUnit
+  or G3 stamp. Clean candidate live evidence must match the exact candidate
+  SHA, with a positive control that a clean candidate can still stamp.
+- **Soak failure semantics:** `.github/workflows/soak.yml` currently applies
+  job-level `continue-on-error: true`, hiding hard correctness-oracle failures
+  despite the workflow comment. Change the CI contract so correctness failures
+  fail the soak job while G6 remains non-blocking to publishing; keep evidence
+  upload on `always()` and test missing evidence separately.
+- **Live exceptions and scope:** deterministic fakes cover prerequisite
+  absence, unsupported CLI version, auth/rate-limit-shaped errors, refusal,
+  malformed/truncated events, duplicate/out-of-order events, timeout,
+  cancellation, process-tree cleanup, changed session/model/mode, concurrent
+  use, reset/decrease, interrupted commit, and output caps. Live skips carry
+  machine-readable peer/cause and remain `UNVERIFIED`; never turn a skip into
+  a pass. No test deliberately exhausts quota or invalidates credentials.
+- **Existing CLI and test evidence:** `session list/show` with cursor paging
+  already exists; test its boundaries as current functionality instead of
+  proposing a new command. Existing PH-T082 and PH-T093 contracts are
+  authoritative and should be extended, not duplicated under new IDs.
+
+## Proposed implementation gate
+
+The final peer vote must explicitly approve these amendments and the RED
+ordering. Until then status remains **design review open**. Once approved, each
+slice starts with local tests-only RED; no commit or push occurs until its
+matching GREEN implementation passes deterministic tests. Each RED maps to
+one USM/PH contract; schema migration, monitor CLI, adapter transport, and
+process reuse remain separate slices. After deterministic tests pass, run only
+the minimum affected live cases, record skips as unverified, then run the
+complete local suite and CI. Do not enable new adapter defaults or persistent
+process reuse based only on monitoring tests.
