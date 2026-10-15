@@ -314,9 +314,21 @@ CLI selection contract:
 | Usage/health rollups | Bounded-window or calendar-bucket sums/counts and latency distribution inputs for attributable facts | Writer-maintained, idempotent, with denominator and semantics version. Never aggregate across incomparable providers/models/fields. Percentiles name the bounded sample or approximation. |
 | Monitor preferences | Selected default group IDs only | TOML config, not Core DB; no secrets or provider-state values. |
 
-Physical schema decision for TDD: add an append-only Bridge-owned
-`bridge_telemetry_facts` table with one row per delivery result and zero or
-more keyed safe step facts. Proposed columns: `fact_seq` primary key,
+Physical schema is **not yet ratified**. The working candidate is an
+append-only Bridge-owned `bridge_telemetry_facts` table with one row per
+delivery result and zero or more keyed safe step facts. Before TDD, compare
+this against extending `bridge_evidence` with a typed event kind and bounded
+versioned detail contract. The current `bridge_evidence` is append-only and
+already indexed by delivery/stream/kind, but its generic `detail` column has
+no telemetry-specific schema or fact-key uniqueness. Reuse it only if a
+schema-versioned validator, uniqueness rule, indexed query path, and bounded
+projection inputs can be added without weakening existing evidence
+invariants. Do not store the same provider measurement in both stores. Pick
+one authoritative ledger and derive projections from it. The legacy branch's
+separate typed evidence/projection pattern is precedent for separation of
+measurement and read model, not proof that a second current table is needed.
+
+If the dedicated-table candidate wins, proposed columns are: `fact_seq` primary key,
 `delivery_id`, `stream_id`, `peer_id`, nullable local `session_handle`,
 `provider_kind`, `fact_kind` (`delivery_usage`, `provider_result`,
 `provider_step`), nullable `step_key`, `captured_at_us`, `source`,
@@ -433,6 +445,57 @@ Existing documented AG/CC peer positions were considered; this environment
 does not expose AG/CC review terminals, so this is source-backed reconciliation,
 not a new unanimous peer vote.
 
+### Legacy-branch research reconciliation
+
+The audit used `origin/legacy/v0-main-final` at
+`57a137cd6a0cc7e89124ea2b87b72995087627a5`, including the ratified quota
+research, the old diagnostics architecture, and telemetry contract/tests.
+These are design evidence, not a directive to restore the old implementation.
+
+- **Adopt:** source-specific collection followed by loss-aware normalization
+  and a read-only renderer; immutable measured evidence with rebuildable
+  writer projections; explicit provenance, observation/capture time, scope,
+  freshness, and completeness; and a strict distinction between observations
+  and health/admission assessments. Current `Observation` already provides
+  `MEASURED`, `ABSENT`, `UNAVAILABLE`, `ERROR`, `STALE`, and `UNKNOWN`; reuse
+  these meanings for monitor coverage rather than inventing zero-valued
+  substitutes. Keep quota observations as pool-scoped evidence, not request
+  cost or session allocation.
+- **Adopt as provider-field rules:** Codex `input_tokens` is inclusive where
+  the inspected source says so; cached input is a subset and must not be added
+  again. Preserve provider-native inclusive input/output and subset counters
+  (cache and reasoning) separately. A CLI event name does not prove
+  per-delivery scope. Distinguish a complete ask from its internal model/tool
+  steps; “last response usage” can undercount an ask. Cumulative values may
+  only be differenced against an exact same-session/generation pre-dispatch
+  baseline, with reset, compaction, concurrency, retry, model-switch, and
+  missing-baseline cases left unknown or explicitly partial. Source
+  disagreements and null/unknown scope must not be silently summed.
+- **Adopt as metric boundaries:** provider token counts, runtime context
+  occupancy, provider quota-pool usage, and billed/provider-estimated cost are
+  separate measures. A public context limit does not measure current
+  occupancy; API billing does not establish subscription quota consumption;
+  provider cost estimates remain estimates with source/version/basis.
+- **Do not port legacy collectors:** statusline-log scraping, private vendor
+  state databases, account identifiers, private account/credit inventory,
+  or mutation commands hidden behind diagnostics. Those old source paths are
+  outside current PeerHub's safe CLI telemetry boundary. Credit consumption
+  was separately audited in legacy and remains outside read-only monitoring.
+- **Use legacy claims with their adjudication:** the ratified CX research
+  records unsupported claims and unresolved runtime behaviors; raw AG/CX/CC
+  discussion drafts are not independent proof. Historical cost/token logs
+  with null scope or incomplete coverage are not a trustworthy backfill
+  denominator. Backfill only from attributable current Bridge evidence and
+  mark historical coverage incomplete otherwise.
+
+Relevant legacy references: `docs/design/quota-efficiency-RATIFIED-cx-astra-2026-09-13.md`,
+`docs/design/HUB-REPLACEMENT-GAP7-DIAGNOSTICS-2026-08-24.md`,
+`docs/history/from-engram-repo/protocol-docs/engram-peer-governance/diag-telemetry-architecture.md`,
+`peerhub/telemetry/contract.py`, and its immutable evidence/projection tests.
+The current architecture has since moved: apply the semantics above through
+current adapters, `bridge_evidence`/session receipts, and CoreStore migrations;
+do not reintroduce legacy private-state collectors.
+
 ### TDD entry gate
 
 Before implementation, close the physical-schema decision and prepare
@@ -460,6 +523,15 @@ provider CLIs or access the network. Add these contracts to existing USM-01–08
 - **USM-15 — Counter semantics:** fixtures cover per-turn/cumulative, resume,
   model change, decrease/reset, omissions, and partial reports; invalid deltas
   remain unknown and record a coverage reason.
+- **USM-15a — Inclusive/subset arithmetic:** Codex inclusive input and output
+  remain unchanged when cached/reasoning subset fields are present; derived
+  totals declare formulas and never double-count subsets. Complete ask usage
+  is distinct from the last internal response; duplicate/retried steps cannot
+  inflate it.
+- **USM-15b — Cumulative baseline validity:** delta derivation requires exact
+  peer session, generation, provider/model scope, and pre-dispatch baseline;
+  reset/decrease, compaction, concurrent use, retry ambiguity, or absent
+  baseline produces unknown/partial coverage, never a guessed delta.
 - **USM-16 — Step dedupe/privacy:** repeated ACTIVE/DONE events count once;
   prompts, responses, tool payloads, paths, raw JSON, vendor IDs, and credentials
   never persist or render. Per-row size/step caps preserve terminal results and
@@ -472,6 +544,10 @@ provider CLIs or access the network. Add these contracts to existing USM-01–08
 - **USM-19 — Projection consistency:** facts update rollups exactly once in
   the same transaction; explicit audit catches drift; monitor never recounts
   all history.
+- **USM-19a — Physical-ledger choice:** compare a typed `bridge_evidence`
+  event against a dedicated facts table for migration safety, uniqueness,
+  query/index bounds, immutability, and projection rebuildability. Exactly
+  one authoritative measurement ledger is selected; no dual writes.
 - **USM-20 — Improvement cohorts:** versions, provider, binding, and coverage
   differences remain visible and cannot masquerade as regressions.
 - **USM-21 — Bounded all-groups view:** large stores stay within page/window
