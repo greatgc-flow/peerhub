@@ -6,6 +6,7 @@ Billing usage is deliberately not interpreted as final-request occupancy.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from typing import Any, Mapping, cast
 
@@ -34,6 +35,22 @@ def dumps(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
+_SAFE_BINDING_VALUE = re.compile(r"[A-Za-z0-9._+-]{1,128}\Z")
+_SECRET_LIKE_BINDING = re.compile(
+    r"(?i)(?:\b(?:sk|pk|rk|ghp|gho|ghs|xox[abp])[-_][A-Za-z0-9_-]{8,}|"
+    r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}|"
+    r"\b(?:api[_-]?key|token|secret|password|credential)[_-][A-Za-z0-9_-]{8,}\b)"
+)
+_ADAPTER_VERSION = re.compile(r"adapter:(cc|cx|ag):v([0-9]{1,3})\Z")
+
+
+def _safe_binding(value: object) -> str | None:
+    if (isinstance(value, str) and _SAFE_BINDING_VALUE.fullmatch(value)
+            and not _SECRET_LIKE_BINDING.search(value)):
+        return value
+    return None
+
+
 def unknown_telemetry() -> dict[str, Any]:
     return dict(last_input_tokens=None, context_window=None, context_pct=None, source="unknown", quota=None)
 
@@ -42,7 +59,7 @@ def binding_attributes(runtime: object) -> dict[str, Any]:
     method = getattr(runtime, "session_binding", None)
     raw: Any = method() if callable(method) else {}
     values = cast("dict[str, Any]", raw) if isinstance(raw, dict) else {}
-    return {key: values.get(key) if isinstance(values.get(key), str) else None for key in ("profile", "model", "effort")} | {
+    return {key: _safe_binding(values.get(key)) for key in ("profile", "model", "effort")} | {
         "writable": values.get("writable") if isinstance(values.get("writable"), bool) else None}
 
 
@@ -126,9 +143,25 @@ def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Ro
     if accepted is None or conn.execute("SELECT 1 FROM bridge_evidence WHERE delivery_id=? AND kind='session_telemetry'", (delivery["delivery_id"],)).fetchone():
         return
     binding = conn.execute("SELECT binding_json FROM bridge_session_monitor_stats WHERE session_handle=?", (accepted["handle"],)).fetchone()
+    identity = conn.execute("SELECT runtime_kind,adapter_fingerprint FROM bridge_session_history WHERE session_handle=?",
+                            (accepted["handle"],)).fetchone()
+    raw_binding: object = json.loads(binding[0]) if binding else {}
+    if not isinstance(raw_binding, dict):
+        raw_binding = {}
+    raw_binding = cast("dict[str, Any]", raw_binding)
+    binding_detail = {key: _safe_binding(raw_binding.get(key)) for key in ("profile", "model", "effort")}
+    provider_kind = identity["runtime_kind"] if identity and identity["runtime_kind"] in ("cc", "cx", "ag") else "unknown"
+    fingerprint = identity["adapter_fingerprint"] if identity else None
+    version_match = _ADAPTER_VERSION.fullmatch(fingerprint) if isinstance(fingerprint, str) else None
+    adapter_version = version_match.group(2) if version_match and version_match.group(1) == provider_kind else None
     detail = dict(handle=accepted["handle"], generation=accepted["generation"], observed_at=now,
                   last_input_tokens=None, context_window=None, context_pct=None, source="unknown",
-                  window_reported_at=None, model=json.loads(binding[0]).get("model") if binding else None)
+                  window_reported_at=None, model=binding_detail["model"], schema_version=2,
+                  provider_kind=provider_kind, captured_at=now, adapter_version=adapter_version,
+                  provider_cli_version=None, configured_binding=binding_detail,
+                  usage={"scope": None, "source": None, "reported": {}, "normalized": {},
+                         "field_evidence": {}, "coverage": {"state": "UNKNOWN", "reason": "not_captured"}},
+                  steps=[], step_coverage={"state": "UNKNOWN", "measured": 0, "dropped": 0})
     seq = conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,'session_telemetry',?,?)",
                        (delivery["delivery_id"], delivery["stream_id"], delivery["peer_id"], delivery["certainty"], dumps(detail))).lastrowid
     conn.execute("UPDATE bridge_session_monitor_stats SET latest_telemetry_seq=? WHERE session_handle=?", (seq, accepted["handle"]))

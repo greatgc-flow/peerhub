@@ -174,6 +174,15 @@ def test_terminal_recovery_and_duplicate_callback_never_duplicate_receipts(tmp_p
     rows = sql(h, "SELECT kind, detail FROM bridge_evidence WHERE kind IN ('session_call','session_telemetry') ORDER BY seq")
     assert [r[0] for r in rows] == ["session_call", "session_telemetry"]
     telemetry = json.loads(rows[1][1])
+    assert telemetry["schema_version"] == 2
+    assert telemetry["provider_kind"] == "unknown"
+    assert telemetry["configured_binding"] == {"profile": None, "model": None, "effort": None}
+    assert telemetry["usage"] == {
+        "scope": None, "source": None, "reported": {}, "normalized": {}, "field_evidence": {},
+        "coverage": {"state": "UNKNOWN", "reason": "not_captured"},
+    }
+    assert telemetry["steps"] == []
+    assert telemetry["step_coverage"] == {"state": "UNKNOWN", "measured": 0, "dropped": 0}
     assert telemetry["last_input_tokens"] is telemetry["context_window"] is telemetry["context_pct"] is None
     assert telemetry["source"] == "unknown"
     stored = json.loads(sql(h, "SELECT result_json FROM bridge_deliveries")[0][0])
@@ -485,3 +494,19 @@ def test_terminal_telemetry_and_result_roll_back_together(tmp_path):
         conn.execute("DROP TRIGGER fail_telemetry")
     h.bridge.finalize_terminal(token, result, did)
     assert sql(h, "SELECT COUNT(*) FROM bridge_evidence WHERE kind='session_telemetry'") == [(1,)]
+
+
+def test_v2_telemetry_does_not_promote_unvalidated_result_usage(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    (rec,) = bseed(h)
+    token = h.acquire_claim("b", "s", h.bridge.owner_id)
+    did = h.bridge.begin_attempt(token, rec)
+    h.bridge._resolve_session(token, NativeRuntimeTarget(), h.store.read_records("s", 0, 1)[0], did)
+    h.bridge.transition(token, did, "STARTED", "started")
+    h.bridge.finalize_terminal(token, {
+        "response": "ok", "usage": {"input_tokens": 41, "private_sentinel": "must-not-enter-ledger"},
+    }, did)
+    raw = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry'")[0][0]
+    detail = json.loads(raw)
+    assert detail["usage"]["coverage"] == {"state": "UNKNOWN", "reason": "not_captured"}
+    assert "private_sentinel" not in raw and "must-not-enter-ledger" not in raw

@@ -80,6 +80,11 @@ def test_t1_bridge_roundtrip_is_terminal_with_durable_response(tmp_path, mk, kin
     receipts = kinds(h, delivery_rows(h, r.record_id)[-1][0])
     assert receipts[-4:] == ["terminal", "session_telemetry", "response_appended", "offset_acked"]
     assert receipts.count("session_call") == receipts.count("session_telemetry") == 1
+    telemetry_rows = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry'")
+    telemetry = json.loads(telemetry_rows[0][0])
+    assert telemetry["schema_version"] == 2
+    assert telemetry["provider_kind"] == kind and telemetry["adapter_version"] == "2"
+    assert telemetry["configured_binding"] == {"profile": None, "model": None, "effort": None}
     assert offset_row(h)[0] == r.position
 
 
