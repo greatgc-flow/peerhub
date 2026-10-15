@@ -1976,7 +1976,105 @@ covered by the tests above remains out of the first implementation slice.
   commit `d5d839e2`: Ubuntu full deterministic suite, Windows selected suite,
   all six installed-package smoke cells, pyright, and `ci-pass`. A follow-up
   commit only corrects the scale-fixture label/acceptance note and pins the
-  `selection_scope` CLI contract; it requires a final CI rerun. No full-suite
-  local run was attempted by design. The repo ruleset currently enforces
-  deletion and non-fast-forward protections only; it does not require `ci-pass`.
-  Making that check mandatory is a GitHub policy change outside this code diff.
+  `selection_scope` CLI contract. The final follow-up run `38754540903` passed
+  Ubuntu full, Windows platform suite, all six installed-package smoke cells,
+  and `ci-pass`; the full matrix was correctly skipped for a PR. No full-suite
+  local run was attempted by design. At the time of the earlier review, the
+  `gc` ruleset enforced only deletion and non-fast-forward protection.
+
+### Independent completion audit (2026-10-15)
+
+The next review round found additional acceptance gaps; grouped monitoring is
+not complete until these are resolved or explicitly re-scoped by peer review:
+
+- **Actual bounded work:** the scope reader assigns window ranks over all rows
+  in `bridge_monitor_delivery_scope` and filters to the configured peer/scope
+  cap afterward. Bounded output is not a bounded read. Replace this with an
+  indexed peer selection and per-peer `LIMIT cap+1` key query, then aggregate
+  only those selected keys. The canonical fixture must inspect the actual
+  grouped query plan and prove unrelated scope growth does not expand selected
+  keys or full-table work; do not accept a plan assertion against a surrogate
+  query.
+- **Canonical scale acceptance:** `monitor_frame_scale_smoke_v1` is useful as a
+  fast deterministic regression, but it does not replace `monitor_frame_scale_v1`.
+  The latter must build 5,000 retained sessions, 50,000 terminal deliveries,
+  30 day buckets, 24 quota pools, and >=100,000 unrelated rows, then warm 20
+  frames and measure 20 frames. Record host, Python, and SQLite versions and
+  prove warmed p95 <=150 ms locally. Keep hosted CI timing informational; run
+  deterministic cardinality, query-family, row-cap, and actual-query plan
+  assertions in CI.
+- **Field ownership and safe unknowns:** `capacity` must expose only
+  peer/account-pool observations actually persisted (amount, reset, freshness,
+  source, and state when those fields are present); `runtime` must identify
+  configured/effective profile provenance and observed adapter/CLI version
+  only when source records carry them. Missing fields remain explicitly
+  unknown. Context occupancy/window remain null until the writer and reader
+  validate source-sample/model identity, timestamps, and freshness together;
+  numeric shape alone is insufficient evidence.
+- **Required CI status:** at the audit start, no active repository ruleset
+  required a status check and `main` had no classic branch protection. Peer review agrees
+  that `ci-pass` is the single stable check to require (it aggregates expected
+  event-specific lane results); avoid requiring each matrix child separately.
+  A main-only `ci-pass` rule is now active (strict/up-to-date, Actions app
+  integration 15368); the existing general deletion/non-fast-forward policy
+  remains unchanged. The API read-back confirms the rule; run `38754540903`
+  confirms the aggregate check is green.
+
+The second-round cross-review reached agreement on the requirements and gates.
+The implementation syntax for bounded key selection is intentionally left to
+the TDD comparison: indexed successor seek for at most four peer keys, then
+per-peer indexed `ORDER BY stream_id LIMIT 21` branches (or an equivalent
+bounded seek) before joining daily/session rollups. No peer endorsed retaining
+full-table window ranking. The final query must preserve one read snapshot and
+the six-SELECT ceiling; choose the simplest query shape that proves bounded
+work on skewed data.
+
+#### Agreed TDD sequence
+
+1. **RED — scope selection and work.** Exercise the actual frame renderer with
+   three selected peers, >21 scopes per peer, a very large first peer, and
+   additional non-selected peers. Pin deterministic peer/scope order, exactly
+   20 returned scopes per peer, cap+1 truncation, one snapshot, and <=6 SELECT
+   statements. Inspect `EXPLAIN QUERY PLAN` for the actual executed scope SQL;
+   instrument SQLite VM progress or equivalent work to prove unrelated scope
+   growth does not cause a full-scope scan/window sort. Keep the existing
+   smoke test as a fast supplemental test.
+2. **RED — capacity provenance.** Seed `observation_rollups` and immutable
+   `observations` for distinct account pools. Assert the group emits only
+   allowlisted measured payload fields (including remaining amounts/fractions,
+   limits and reset/window times when present), source, pool identity, and
+   observed/captured/effective time. Apply the existing freshness evaluator at
+   read time. Missing/invalid values stay unknown; never combine distinct
+   pools, assign pool quota to a session, or call estimates billing. A 7-day
+   pace is permitted only for comparable measured observations from the same
+   subject+pool+kind and otherwise remains null with a reason.
+3. **RED — runtime provenance.** Separate immutable generation binding from
+   currently configured profile values. Tests must prove profile/model/effort
+   and source layer are labeled with their actual temporal scope. Current
+   profile inspection may be shown as current configuration, never as
+   historical session provenance. Persist source-layer provenance at session
+   generation creation only if it can be captured transactionally without
+   confusing provider-resolved values; otherwise expose unknown. Adapter
+   version may be emitted from the versioned receipt; provider CLI version
+   remains unknown until an observation actually records it. Do not spawn a
+   CLI process during monitor reads.
+4. **RED — context coherence.** Until a shared validator proves source,
+   sample/model identity, session+generation, compatible window, and timestamp
+   freshness/order, occupancy/window/context percentage remain null with an
+   explicit unknown reason. Include negative fixtures for stale/future or
+   malformed timestamps, mismatched source/sample/model, occupancy above the
+   window, and inconsistent percentage. Never derive occupancy from usage
+   counters.
+5. **Acceptance — canonical scale and governance.** Build
+   `monitor_frame_scale_v1` at the agreed 5,000 sessions/50,000 terminal
+   deliveries/30 day buckets/24 quota pools/at least 100,000 unrelated rows.
+   Run 20 warm frames, record host/Python/SQLite details and local p95 <=150ms;
+   keep elapsed-time CI assertions informational while cardinality, cap,
+   query-plan, and deterministic query-work gates run in CI. Require the
+   aggregate `ci-pass` check on `main` only and verify GitHub reflects it,
+   leaving the existing all-ref deletion/non-fast-forward rules unchanged.
+
+The reviewers agree these requirements are necessary. The full-scale p95
+remains an overall GREEN gate but does not prevent separate TDD slices from
+moving forward while it remains visibly open. The query, field, and context
+semantics above must be RED-tested before their implementation changes.
