@@ -148,6 +148,14 @@ def initialize(conn: sqlite3.Connection, upgrade: Callable[[sqlite3.Connection],
             if not conn.execute("SELECT 1 FROM bridge_session_monitor_scope WHERE stream_id=? AND peer_id=?", (scope[0], scope[1])).fetchone():
                 high = conn.execute("SELECT COALESCE(MAX(seq),0) FROM bridge_evidence").fetchone()[0]
                 conn.execute("INSERT INTO bridge_session_monitor_scope VALUES (?,?,?,?,?,?)", (scope[0], scope[1], *session_receipts.historical_counts(conn, scope[0], scope[1]), high))
+    # Older or repaired registries may retain session history without its
+    # rebuildable per-session projection. Reconstruct only those missing rows;
+    # terminal writers can then require the projection update to affect one row.
+    missing_stats = conn.execute(
+        "SELECT h.* FROM bridge_session_history h LEFT JOIN bridge_session_monitor_stats s "
+        "ON s.session_handle=h.session_handle WHERE s.session_handle IS NULL").fetchall()
+    for mapping in missing_stats:
+        session_receipts.initialize_stats(conn, mapping, session_receipts.binding_attributes(None), legacy=True)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(bridge_deliveries)")}
     for name in ("session_handle", "session_snapshot_json"):
         if name not in cols:

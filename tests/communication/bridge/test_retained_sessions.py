@@ -510,3 +510,39 @@ def test_v2_telemetry_does_not_promote_unvalidated_result_usage(tmp_path):
     detail = json.loads(raw)
     assert detail["usage"]["coverage"] == {"state": "UNKNOWN", "reason": "not_captured"}
     assert "private_sentinel" not in raw and "must-not-enter-ledger" not in raw
+
+
+def test_terminal_rolls_back_when_telemetry_projection_row_is_missing(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    (rec,) = bseed(h)
+    token = h.acquire_claim("b", "s", h.bridge.owner_id)
+    did = h.bridge.begin_attempt(token, rec)
+    h.bridge._resolve_session(token, NativeRuntimeTarget(), h.store.read_records("s", 0, 1)[0], did)
+    h.bridge.transition(token, did, "STARTED", "started")
+    handle = sql(h, "SELECT session_handle FROM bridge_session_history")[0][0]
+    with h.cs.transaction() as conn:
+        conn.execute("DELETE FROM bridge_session_monitor_stats WHERE session_handle=?", (handle,))
+
+    with pytest.raises(sqlite3.IntegrityError, match="session telemetry projection missing"):
+        h.bridge.finalize_terminal(token, {"response": "ok", "vendor_session": {"id": "native-ext-1"}}, did)
+
+    assert sql(h, "SELECT certainty,result_json FROM bridge_deliveries") == [("STARTED", None)]
+    assert sql(h, "SELECT COUNT(*) FROM bridge_evidence WHERE kind IN ('terminal','session_telemetry')") == [(0,)]
+    assert sql(h, "SELECT vendor_session_id,context_watermark FROM bridge_session_history") == [(None, None)]
+    assert sql(h, "SELECT COUNT(*) FROM records WHERE kind='response'") == [(0,)]
+
+
+def test_registry_reopen_backfills_missing_session_stats_projection(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    assert h.delivery_cycle("b", "s", FakeRuntimeTarget()).status == "delivered"
+    handle = sql(h, "SELECT session_handle FROM bridge_session_history")[0][0]
+    with h.cs.transaction() as conn:
+        conn.execute("DELETE FROM bridge_session_monitor_stats WHERE session_handle=?", (handle,))
+
+    Bridge(h.store, h.cs)
+
+    # A fake runtime without exact external-session attribution cannot prove
+    # old counts; the row is repaired but remains explicitly incomplete.
+    assert sql(h, "SELECT reuse_count,fresh_count,counts_complete FROM bridge_session_monitor_stats WHERE session_handle=?",
+               (handle,)) == [(None, None, 0)]
