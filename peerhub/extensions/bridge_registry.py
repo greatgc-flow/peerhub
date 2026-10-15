@@ -176,6 +176,7 @@ def initialize(conn: sqlite3.Connection, upgrade: Callable[[sqlite3.Connection],
     conn.execute("CREATE INDEX IF NOT EXISTS idx_bd_session ON bridge_deliveries(session_handle,seq)")
     if conn.execute("SELECT 1 FROM sqlite_master WHERE name='observations'").fetchone():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_obs_session_quota ON observations(subject_ref,kind,resource_pool_ref,effective_at_us DESC,capture_seq DESC)")
+    session_receipts.repair_latest_telemetry_pointers(conn)
     fire("bridge.registry.before_commit")
 
 

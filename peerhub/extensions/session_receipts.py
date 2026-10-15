@@ -6,6 +6,7 @@ Billing usage is deliberately not interpreted as final-request occupancy.
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
 import time
@@ -40,6 +41,7 @@ DDL = (
         PRIMARY KEY(stream_id,peer_id,day_utc))""",
     "CREATE INDEX IF NOT EXISTS idx_session_latency_peer_day ON bridge_session_latency_daily(peer_id,day_utc DESC)",
     "CREATE INDEX IF NOT EXISTS idx_session_latency_day ON bridge_session_latency_daily(day_utc)",
+    "CREATE TABLE IF NOT EXISTS bridge_session_monitor_meta (name TEXT PRIMARY KEY, version INTEGER NOT NULL)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_be_session_call_once ON bridge_evidence(delivery_id) WHERE kind='session_call'",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_be_session_telemetry_once ON bridge_evidence(delivery_id) WHERE kind='session_telemetry'",
     "CREATE INDEX IF NOT EXISTS idx_be_peer_call ON bridge_evidence(peer_id,seq DESC) WHERE kind='session_call'",
@@ -61,6 +63,10 @@ _ADAPTER_VERSION = re.compile(r"adapter:(cc|cx|ag):v([0-9]{1,3})\Z")
 PROCESS_CLOCK_DOMAIN = str(uuid.uuid4())
 monotonic_ns = time.monotonic_ns
 _MAX_TICK = 2**63 - 1
+
+
+def _valid_observed_at(value: object) -> TypeGuard[int | float]:
+    return type(value) in (int, float) and math.isfinite(cast(float, value))
 
 
 def _valid_tick(value: object) -> TypeGuard[int]:
@@ -131,6 +137,71 @@ def record_latency(conn: sqlite3.Connection, stream_id: str, peer_id: str, obser
          int(reason == "invalid_ticks"), int(reason == "terminal_before_start")),
     )
     conn.execute("DELETE FROM bridge_session_latency_daily WHERE day_utc<?", (cutoff,))
+
+
+def repair_latest_telemetry_pointers(conn: sqlite3.Connection) -> None:
+    """One-time projection repair; only identity-matched terminal v3 receipts qualify."""
+    name = "latest_terminal_telemetry_v1"
+    conn.execute("INSERT OR IGNORE INTO bridge_session_monitor_meta(name,version) VALUES (?,0)", (name,))
+    if conn.execute("SELECT version FROM bridge_session_monitor_meta WHERE name=?", (name,)).fetchone()[0] >= 1:
+        return
+    candidates = conn.execute(
+        "SELECT e.seq,d.session_handle,CAST(CASE WHEN json_valid(e.detail) "
+        "THEN json_extract(e.detail,'$.observed_at') END AS REAL) observed_at "
+        "FROM bridge_evidence e JOIN bridge_deliveries d ON d.delivery_id=e.delivery_id "
+        "JOIN bridge_session_history h ON h.session_handle=d.session_handle "
+        "WHERE e.kind='session_telemetry' AND e.certainty='TERMINAL' AND d.certainty='TERMINAL' "
+        "AND e.stream_id=d.stream_id AND e.peer_id=d.peer_id "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail) END='object' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.schema_version') END='integer' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.schema_version') END=3 "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.handle') END='text' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.handle') END=d.session_handle "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.generation') END='integer' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.generation') END=d.session_generation "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.observed_at') END IN ('integer','real') "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.provider_kind') END='text' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.provider_kind') END="
+        "CASE WHEN h.runtime_kind IN ('cc','cx','ag') THEN h.runtime_kind ELSE 'unknown' END "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.configured_binding') END='object' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.steps') END='array' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.step_coverage') END='object' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage') END='object' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.schema_version') END='integer' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.schema_version') END=1 "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.reported') END='object' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.normalized') END='object' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.field_evidence') END='object' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.scope') END IN ('text','null') "
+        "AND (CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.scope') END='null' OR "
+        "CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.scope') END IN ('session_cumulative','delivery')) "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.source') END IN ('text','null') "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.attribution') END='text' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.attribution') END IN ('delivery','unattributed') "
+        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.attribution') END="
+        "CASE WHEN CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.scope') END='delivery' "
+        "THEN 'delivery' ELSE 'unattributed' END "
+        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.source') END IS "
+        "CASE h.runtime_kind WHEN 'cc' THEN 'cc.result.usage' WHEN 'cx' THEN 'cx.turn.completed.usage' "
+        "WHEN 'ag' THEN 'ag.result.usage' ELSE NULL END "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.coverage.state') END='text' "
+        "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.coverage.reason') END IN ('text','null') "
+        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.coverage.state') END IN ('MEASURED','ABSENT','UNSUPPORTED','UNKNOWN')")
+    latest: dict[str, tuple[float, int]] = {}
+    while batch := candidates.fetchmany(500):
+        for row in batch:
+            candidate = (row["observed_at"], row["seq"])
+            if row["session_handle"] not in latest or candidate > latest[row["session_handle"]]:
+                latest[row["session_handle"]] = candidate
+    stats = conn.execute("SELECT session_handle,latest_telemetry_seq FROM bridge_session_monitor_stats")
+    while batch := stats.fetchmany(500):
+        for row in batch:
+            candidate = latest.get(row["session_handle"])
+            pointer = candidate[1] if candidate else None
+            if row["latest_telemetry_seq"] != pointer:
+                conn.execute("UPDATE bridge_session_monitor_stats SET latest_telemetry_seq=? WHERE session_handle=?",
+                             (pointer, row["session_handle"]))
+    conn.execute("UPDATE bridge_session_monitor_meta SET version=1 WHERE name=?", (name,))
 
 
 def _safe_binding(value: object) -> str | None:
@@ -368,7 +439,36 @@ def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Ro
                   steps=[], step_coverage={"state": "UNKNOWN", "measured": 0, "dropped": 0})
     seq = conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,'session_telemetry',?,?)",
                        (delivery["delivery_id"], delivery["stream_id"], delivery["peer_id"], delivery["certainty"], dumps(detail))).lastrowid
-    updated = conn.execute("UPDATE bridge_session_monitor_stats SET latest_telemetry_seq=? WHERE session_handle=?",
-                           (seq, accepted["handle"])).rowcount
-    if updated != 1:
+    current = conn.execute("SELECT latest_telemetry_seq FROM bridge_session_monitor_stats WHERE session_handle=?",
+                           (accepted["handle"],)).fetchone()
+    if current is None:
         raise sqlite3.IntegrityError("session telemetry projection missing")
+    pointer = current[0]
+    should_advance = pointer is None
+    if pointer is not None:
+        old = conn.execute("SELECT e.kind,e.certainty,e.stream_id,e.peer_id,e.detail,d.certainty,d.stream_id,d.peer_id,"
+                           "d.session_handle,d.session_generation FROM bridge_evidence e JOIN bridge_deliveries d "
+                           "ON d.delivery_id=e.delivery_id WHERE e.seq=?", (pointer,)).fetchone()
+        valid_old = False
+        old_time: object = None
+        if (old is not None and old["kind"] == "session_telemetry" and old["certainty"] == "TERMINAL"
+                and old["certainty"] == old[5] and old["stream_id"] == old[6] == delivery["stream_id"]
+                and old["peer_id"] == old[7] == delivery["peer_id"] and old["session_handle"] == accepted["handle"]
+                and old["session_generation"] == accepted["generation"]):
+            try:
+                parsed: object = json.loads(old["detail"])
+                old_detail = cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else {}
+                if (old_detail.get("schema_version") == 3
+                        and not isinstance(old_detail.get("schema_version"), bool)
+                        and old_detail.get("handle") == accepted["handle"]
+                        and old_detail.get("generation") == accepted["generation"]
+                        and isinstance(old_detail.get("usage"), dict)
+                        and old_detail["usage"].get("schema_version") == 1):
+                    old_time = old_detail.get("observed_at")
+                    valid_old = _valid_observed_at(old_time)
+            except (TypeError, ValueError):
+                pass
+        should_advance = not valid_old or (float(now), seq) > (float(cast(int | float, old_time)), pointer)
+    if should_advance:
+        conn.execute("UPDATE bridge_session_monitor_stats SET latest_telemetry_seq=? WHERE session_handle=?",
+                     (seq, accepted["handle"]))

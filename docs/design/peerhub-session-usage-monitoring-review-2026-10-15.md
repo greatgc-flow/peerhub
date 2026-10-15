@@ -1805,7 +1805,9 @@ covered by the tests above remains out of the first implementation slice.
   focused module has 7 passing tests; pyright is clean. PR run
   `38734981452` passed on GitHub: Ubuntu deterministic suite, six
   installed-package smoke cells, Windows platform job, marker reverse-check,
-  pyright, and the `ci-pass` aggregate all succeeded.
+  pyright, and the `ci-pass` aggregate all succeeded. The same gates passed
+  again in `38736206373` and `38737105274` as timing and daily projection
+  changes were added.
 - Phase 2 timing: RED reproduced for the missing process clock contract, then
   GREEN for a normal same-process sample and four invalid-clock cases. The
   implementation adds `session_call` detail v2 with timing sub-schema v1 and
@@ -1818,8 +1820,15 @@ covered by the tests above remains out of the first implementation slice.
   projection additions); pyright is clean. Backfill completeness, strict
   receipt validation, and read-model/CLI exposure remain pending; this is not
   a completed monitoring feature.
+- Phase 1 pointer safety: RED reproduced a stale pointer to a non-telemetry
+  terminal event. GREEN now performs a one-time, chunked repair from
+  identity-matched terminal v3 receipts, ignores a later STARTED/malformed
+  receipt, orders by `(observed_at,evidence_seq)`, and only advances the live
+  pointer when that tuple increases. Focused bridge/monitor/CI regression
+  tests pass locally (117 tests) with pyright clean. This pointer change is
+  not yet included in a GitHub run.
 - CI follow-up: docs-only Windows selection now also bypasses Windows Python
   setup and dependency installation after suite selection; its RED assertion
   and focused GREEN check pass. This optimization was added after CI run
-  `38734981452`; revision `23e6761d` validates it on GitHub in run
-  `38736206373`, which is currently in progress.
+  `38734981452`; revision `23e6761d` validated it on GitHub in run
+  `38736206373`.

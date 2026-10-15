@@ -300,6 +300,52 @@ def test_session_latency_projection_accumulates_samples_within_scope_day(tmp_pat
     assert sql(h, "SELECT latency_sum_ns,latency_count FROM bridge_session_latency_daily") == [(30, 2)]
 
 
+def test_registry_reopen_repairs_latest_telemetry_pointer_to_terminal_receipt(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    h.delivery_cycle("b", "s", NativeRuntimeTarget())
+    add(h, "second-receipt")
+    second = h.delivery_cycle("b", "s", NativeRuntimeTarget())
+    handle = second.session["handle"]
+    expected = sql(h, "SELECT seq FROM bridge_evidence WHERE delivery_id=? AND kind='session_telemetry'", (second.delivery_id,))[0][0]
+    pending = add(h, "uncommitted-third")
+    token = h.acquire_claim("b", "s", h.bridge.owner_id)
+    pending_delivery = h.bridge.begin_attempt(token, pending)
+    runtime = NativeRuntimeTarget()
+    h.bridge._resolve_session(token, runtime, pending, pending_delivery)
+    h.bridge.transition(token, pending_delivery, "STARTED", "started")
+    with h.cs.transaction() as conn:
+        conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                     "VALUES (?, 's','b','session_telemetry','STARTED','{}')", (pending_delivery,))
+        bad = conn.execute("SELECT MAX(seq) FROM bridge_evidence WHERE delivery_id=?", (pending_delivery,)).fetchone()[0]
+        conn.execute("UPDATE bridge_session_monitor_stats SET latest_telemetry_seq=? WHERE session_handle=?", (bad, handle))
+        conn.execute("UPDATE bridge_session_monitor_meta SET version=0 WHERE name='latest_terminal_telemetry_v1'")
+
+    h.reopen()
+
+    assert sql(h, "SELECT latest_telemetry_seq FROM bridge_session_monitor_stats WHERE session_handle=?", (handle,)) == [(expected,)]
+
+
+@pytest.mark.parametrize(("second_time", "expect_second"), [(999.0, False), (1000.0, True)])
+def test_latest_telemetry_pointer_advances_by_observed_time_then_sequence(tmp_path, second_time, expect_second):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    runtime = NativeRuntimeTarget()
+    first = h.delivery_cycle("b", "s", runtime)
+    first_seq = sql(h, "SELECT seq FROM bridge_evidence WHERE delivery_id=? AND kind='session_telemetry'", (first.delivery_id,))[0][0]
+    add(h, "pointer-order")
+    with h.cs.transaction() as conn:
+        conn.execute("UPDATE bridge_session_history SET last_seen=? WHERE session_handle=?", (second_time, first.session["handle"]))
+    h.clock.set(second_time)
+    second = h.delivery_cycle("b", "s", runtime)
+    second_seq = sql(h, "SELECT seq FROM bridge_evidence WHERE delivery_id=? AND kind='session_telemetry'", (second.delivery_id,))[0][0]
+    assert second.status == "delivered" and second_seq > first_seq
+    assert second.session["handle"] == first.session["handle"]
+    assert sql(h, "SELECT json_extract(detail,'$.observed_at') FROM bridge_evidence WHERE seq=?", (second_seq,)) == [(second_time,)]
+    expected = second_seq if expect_second else first_seq
+    assert sql(h, "SELECT latest_telemetry_seq FROM bridge_session_monitor_stats WHERE session_handle=?", (first.session["handle"],)) == [(expected,)]
+
+
 def test_stale_owner_cannot_mutate_registry_or_receipts(tmp_path):
     h = BridgeHarness(tmp_path / "ws")
     (record,) = bseed(h)
