@@ -15,7 +15,9 @@ ALLOWED: dict[str, set[str]] = {
     "bridge": {"bridge_claims", "catchup", "schema_guard", "bridge_registry", "session_receipts"},
     "bridge_registry": {"session_receipts"},
     "session_receipts": {"usage_normalization"},
-    "monitor_read_model": {"session_receipts"},  # revalidate provider usage receipts at the public read boundary
+    "monitor_read_model": {"adapters", "observation_model", "quota_projection", "session_receipts"},
+    # Read-only current-profile inspection, canonical observation evaluation,
+    # shared quota projection math, and provider receipt validation.
     "bridge_claims": {"schema_guard"},
     # M1 Observation
     "observation": {"schema_guard", "observation_model"},

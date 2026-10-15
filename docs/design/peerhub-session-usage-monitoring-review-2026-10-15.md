@@ -2045,9 +2045,15 @@ work on skewed data.
    limits and reset/window times when present), source, pool identity, and
    observed/captured/effective time. Apply the existing freshness evaluator at
    read time. Missing/invalid values stay unknown; never combine distinct
-   pools, assign pool quota to a session, or call estimates billing. A 7-day
-   pace is permitted only for comparable measured observations from the same
-   subject+pool+kind and otherwise remains null with a reason.
+   pools, assign pool quota to a session, or call estimates billing. The
+   approved 7-day PACE is a single-current-observation window projection:
+   `used_fraction * 100 - elapsed_window_fraction * 100`, using that
+   observation's `observed_at`, `window_started_at`, and `resets_at`. It is not
+   a delta between two historical samples. Emit the existing typed
+   `project_exhaustion` result without changing its schema; preserve its
+   freshness state, conditional inferred-anchor label, and reason. A
+   historical sample-to-sample consumption velocity is a distinct future
+   metric and must not feed 7-day balance.
 3. **RED — runtime provenance.** Separate immutable generation binding from
    currently configured profile values. Tests must prove profile/model/effort
    and source layer are labeled with their actual temporal scope. Current
@@ -2096,6 +2102,21 @@ semantics above must be RED-tested before their implementation changes.
   canonical Observation parser/evaluator; expired or non-measured values have
   null measurements, and no pool value is assigned to a session. Distinct-pool,
   no-secret-leak, freshness, absent/unknown, and rate-limit tests pass.
+- Capacity PACE contract correction: reviewer discussion surfaced a proposed
+  two-sample seven-day delta. Cross-check against
+  `plan-monitoring-v2-2026-10-12.md` §3 and `project_exhaustion` rejected that
+  metric as design drift. The agreed meaning is current-window
+  `used% - elapsed%` from one latest observation, with the existing typed
+  projection and anchor provenance. A 5-hour window must not be labeled as
+  7-day PACE. The replacement RED test checks one fresh weekly-window
+  observation, inferred-anchor labeling, and typed unknown/stale/expired
+  outcomes; it adds no historical observation scan or query.
+- `capacity` now carries the existing typed `project_exhaustion` result for
+  each latest quota/rate-limit observation. The RED test failed first on the
+  absent field, then passed after the reader reused the pure policy function.
+  The current 7-day pace comes from a single measured sample and its own
+  window anchors; no historical scan was added. Tests cover weekly pace math,
+  inferred anchor provenance, and typed unknown/stale/expired outcomes.
 - `runtime` now carries receipt `adapter_version` and explicit nullable
   `provider_cli_version`. Saved binding values are labeled as a session
   snapshot with unknown historical field-source layers; current profile
@@ -2108,17 +2129,31 @@ semantics above must be RED-tested before their implementation changes.
   wired. Adversarial tests cover a year-old sample, future/malformed times,
   source/sample/model/session/generation mismatch, invalid occupancy and
   percentage. No arbitrary global freshness TTL was introduced.
-- Focused monitor CLI/read-model, scope, capacity, context, and runtime tests:
-  97 passed. Pyright: zero issues. The platform-sensitive inventory verifier
-  passes with the new SQLite boundary modules included. The hosted docs-only
-  follow-up run `38756022559` passed Ubuntu full (5m33s), Windows platform
-  inventory (6m27s), six package smoke cells, and `ci-pass`.
+- The canonical `monitor_frame_scale_v1` fixture now seeds 5,000 retained
+  sessions (1,200 active, 3,800 tombstoned), 50,000 terminal deliveries over
+  60 scopes × 30 days, 24 quota pools, and exactly 100,000 unrelated rows
+  (40,000 deliveries, 40,000 evidence, 20,000 observations). Scope-retained
+  counters match the 83/84 per-scope distribution. CI asserts cardinalities,
+  caps, query plans, and <=6 read statements without a timing threshold.
+  Local Windows 11 / Python 3.14.8 / SQLite 3.50.4 run: 20 warm + 20 measured,
+  p95 **75.543 ms** (<=150 ms); both structural and benchmark tests pass.
+- Focused monitor CLI/read-model, scope, capacity, context, runtime, projection,
+  and scale tests plus pyright and inventories are being rerun against these
+  final edits. The hosted docs-only follow-up run `38756022559` passed Ubuntu
+  full (5m33s), Windows platform inventory (6m27s), six package smoke cells,
+  and `ci-pass`; a hosted run for the latest implementation is still required.
+- The completed older hosted run `38759237641` passed Windows platform and all
+  six compatibility smoke cells, but Ubuntu full failed the extension import
+  graph and its nested release-CI rerun for the same undocumented existing
+  `monitor_read_model` edges (`adapters`, `observation_model`). The graph
+  allowlist now records those read-only edges plus the newly shared pure
+  `quota_projection` dependency. Focused graph tests pass; final hosted rerun
+  must confirm the full release gate.
 - Ruleset `main-ci-pass` (ID `25168666`) now requires the GitHub Actions
   aggregate check `ci-pass` on `refs/heads/main`, with strict/up-to-date
   behavior and no bypass actors. The existing all-ref `gc` deletion and
   non-fast-forward ruleset was read back unchanged.
 
-The single blocking acceptance slice still open is the canonical
-`monitor_frame_scale_v1` fixture and local warmed p95 <=150ms evidence. Do not
-claim overall monitoring completion until that fixture, environment record,
-and final hosted checks pass.
+The canonical scale fixture and local warmed p95 acceptance now pass. Overall
+monitoring completion remains open until the final focused checks pass and a
+hosted run validates the pushed implementation commit.

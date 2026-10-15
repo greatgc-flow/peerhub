@@ -17,6 +17,7 @@ from peerhub.extensions.observation_model import (
     evaluate as evaluate_observation,
     row_to_observation,
 )
+from peerhub.extensions.quota_projection import project_exhaustion
 
 
 def _filters(peer_id: str | None, stream_id: str | None, alias: str = "s") -> tuple[str, list[Any]]:
@@ -388,6 +389,21 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     except ObservationCorruptError as exc:
                         raise sqlite3.DataError(f"invalid quota observation at capture_seq={row['capture_seq']}") from exc
                     freshness = evaluate_observation(observation, capture_seq, round(now * 1_000_000), FreshnessPolicy())
+                    observed_at = observation.observed_at
+                    try:
+                        measured_at = datetime.fromisoformat(observed_at.replace("Z", "+00:00")).timestamp()
+                    except (ValueError, OverflowError):
+                        measured_at = None
+                    remaining = observation.payload.get("remaining_fraction")
+                    used_fraction = (1 - float(remaining)
+                                     if isinstance(remaining, (int, float)) and not isinstance(remaining, bool)
+                                     and math.isfinite(float(remaining)) and 0 <= remaining <= 1 else None)
+                    projection = project_exhaustion(
+                        used_fraction, observation.payload.get("window_started_at"), measured_at,
+                        observation.payload.get("resets_at"), now,
+                        evidence_state=freshness.state.value,
+                        anchor_basis=observation.payload.get("anchor_basis"),
+                    )
                     measurements = None
                     if freshness.state.value == "MEASURED":
                         measured: dict[str, int | float] = {}
@@ -408,6 +424,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         "pool_kind": row["pool_kind"],
                         "attribution_scope": "peer_account_pool" if pool_ref is not None else "peer",
                         "source": observation.source,
+                        "projection": projection,
                         "state": freshness.state.value,
                         "stored_state": freshness.stored_state.value,
                         "observed_at": observation.observed_at,
