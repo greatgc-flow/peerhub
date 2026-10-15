@@ -67,10 +67,12 @@ compose its explicit quota refresh with that snapshot.
    Never sum across providers or models merely because field names match. A
    truncated window must report dropped/unmeasured turns in its coverage.
 3. Do not show unit cost or average cost from token counts. No stable price,
-   discount, tier, currency, or billing source is currently persisted. A future
-   direct provider-reported cost may be shown as reported cost with currency,
-   source, and timestamp; price-table estimates belong to a separately scoped
-   accounting feature.
+   discount, tier, currency, or billing source is currently persisted. A
+   provider's explicitly estimated amount may only be added later as a
+   provider-specific estimate, with its estimate basis, adapter/CLI version,
+   session-vs-delivery scope, and coverage. Never call it billed cost or combine
+   estimates across providers. Authoritative account-level billing evidence
+   belongs to a separately scoped accounting feature.
 4. Do not attribute account quota to a session or divide it among sessions.
    Show quota only at its observed account/pool scope, with state, age, and
    reset evidence.
@@ -100,6 +102,29 @@ state; recorded binding attributes when present; fresh/reuse delivery counts
 when the projection says history is complete; confirmed Bridge-call receipts;
 and quota observations with source/freshness when collected. These are still
 not all exposed through the monitoring CLI today.
+
+## Official provider documentation research (2026-10-15)
+
+Internet research can settle several field semantics, but it cannot prove what
+the installed CLI versions on a particular machine emit. These findings are
+from official provider documentation and current upstream schemas/source; the
+repository's installed binaries and live accounts were not queried.
+
+| Peer/source | Resolvable from official documentation | Remaining work or limitation |
+|---|---|---|
+| AGY / Antigravity CLI | Its JSON result documents `duration_seconds`, `num_turns`, and input/output/thinking/cache/total usage. `stream-json` adds per-step usage and duration. In a continuous stream-input process, result usage, turns, and duration are cumulative session counters; individual `step_update` usage/duration is per step. | PeerHub currently parses the final JSON result. A stream parser could capture validated step facts, but must discard `text_delta`, `tool_info`, subagent details, and other payloads to preserve privacy. Docs say `--conversation` resumes in a new process but do not specify whether its result counters are cumulative across that process boundary; verify this with a narrow live test before delta accounting. No cost field is documented. [Headless mode docs](https://www.agy.dev/docs/cli/headless/) |
+| CC / Claude Code | Official Agent SDK docs specify per-turn `usage` scope and cumulative `total_cost_usd` / `modelUsage` behavior, including resumed sessions and subagent coverage differences. `total_cost_usd` is a client-side estimate from a bundled/selected price table, not authoritative billing. It can support a clearly labeled estimate if the installed CLI JSON output exposes it and the version/scope is validated. | The exact installed `claude -p` JSON shape/version must be checked against PeerHub's adapter before relying on those SDK fields. Resumed-session cost is cumulative in current versions (before v2.1.277 it covered only that call), so a delivery metric needs a baseline/delta and version-aware handling. The Anthropic Usage and Cost Admin API provides org-level, time-bucketed usage/cost dimensions, with data typically appearing within five minutes; it requires suitable organization credentials and has no PeerHub session/delivery key, so it cannot establish per-session billing. [SDK cost tracking](https://code.claude.com/docs/en/agent-sdk/cost-tracking), [Usage and Cost API](https://platform.claude.com/docs/en/manage-claude/usage-cost-api) |
+| CX / Codex CLI | Current upstream `exec --json` code emits `turn.completed` usage from the latest accumulated total usage snapshot. The separate app-server protocol exposes `last`, `total`, and `modelContextWindow`, which can provide clearer per-turn/cumulative usage and context-window evidence. | Current PeerHub uses exec JSON, not that app-server telemetry. Context window and `last` usage therefore require an adapter/protocol change, then versioned integration tests. The completion event does not provide an authoritative per-call USD amount or prove provider-resolved model identity. [Codex exec JSONL exporter](https://github.com/openai/codex/blob/main/codex-rs/exec/src/event_processor_with_jsonl_output.rs), [app-server token usage schema](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ThreadTokenUsageUpdatedNotification.json) |
+
+### Updated classification of unknowns
+
+- **Can be settled by documentation:** AGY continuous-process cumulative result semantics; CC estimate-vs-billing distinction, subagent inclusion, and resumed-session cumulative scope/version caveat; Codex app-server availability of last/total usage and model context window.
+- **Can be made observable with PeerHub changes:** AGY per-step token/time facts via allowlisted stream parsing; CC provider-estimated cost with explicit estimate/scope/version labels and baseline handling; CX context and last-turn usage if PeerHub adopts app-server telemetry; exact all-time PeerHub error totals through writer-maintained projections.
+- **Still not knowable from public docs alone:** AGY usage scope across a fresh process resuming `--conversation`; the installed binaries' actual versions/output; exact invoice-level cost attributable to every PeerHub delivery across peers; model-inference-only latency; provider-side session validity without attempting resume; CX backend-resolved model per internal turn. These require local version/output validation, a safe empirical test, provider/account-specific evidence, or remain unavailable.
+
+AGY stream events contain response fragments and tool invocation inputs/outputs in
+addition to useful telemetry. Any future implementation must parse an allowlist
+and must not persist or expose raw stream events.
 
 ## Counting and freshness contract
 
