@@ -20,14 +20,8 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.16.0"
-    assert "### Fixed" in body and "Termination confirmation" in body
-    assert "drain-and-truncate" in body
-    assert "Provider refusal" in body and "NOT_EXECUTED" in body
-    assert "model defaults" in body
-    assert "CI" in body and "main" in body
-    assert "session reuse PR1" in body
-    assert "Session reuse PR2" in body
-    assert "Session reuse PR3" in body
-    assert "CLI inspection and monitoring" in body
-    assert "Contains the work planned for 0.15.1" not in body
+    assert __version__ == "0.16.1"
+    assert "Grouped read-only monitoring" in body
+    assert "typed quota projections and source/pool provenance" in body
+    assert "Corrected scale-test inventory classification" in body
+    assert "provider usage normalization" in body
