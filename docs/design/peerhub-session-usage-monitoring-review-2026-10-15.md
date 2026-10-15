@@ -758,7 +758,7 @@ schemas, evidence register, and release notes together.
 
 ### TDD handoff status (2026-10-15)
 
-**CX, CC, and AG unanimously approved local tests-only RED on 2026-10-15; implementation has not started.** The design choices
+**At this handoff point, CX, CC, and AG had unanimously approved local tests-only RED on 2026-10-15; implementation had not yet started.** The design choices
 material to the first implementation slices are set: one receipt authority, v2
 allowlist and size bounds, provider-specific counter semantics, group and
 preference behavior, bounded read/projection rules, and CLI options to retain
@@ -982,14 +982,36 @@ until all three peers approve this exact amended packet.
   proposing a new command. Existing PH-T082 and PH-T093 contracts are
   authoritative and should be extended, not duplicated under new IDs.
 
-## Proposed implementation gate
+## Approved implementation gate
 
-The final peer vote must explicitly approve these amendments and the RED
-ordering. Until then status remains **design review open**. Once approved, each
-slice starts with local tests-only RED; no commit or push occurs until its
-matching GREEN implementation passes deterministic tests. Each RED maps to
-one USM/PH contract; schema migration, monitor CLI, adapter transport, and
+CX, CC, and AG unanimously approved this plan, its amendments, and the RED
+ordering on 2026-10-15. Implementation proceeds as independent test-first
+slices. Each slice starts with local tests-only RED; tests and implementation
+are committed together only after the matching GREEN tests pass. Each RED maps
+to one USM/PH contract; schema migration, monitor CLI, adapter transport, and
 process reuse remain separate slices. After deterministic tests pass, run only
 the minimum affected live cases, record skips as unverified, then run the
 complete local suite and CI. Do not enable new adapter defaults or persistent
 process reuse based only on monitoring tests.
+
+### Implementation progress (2026-10-15)
+
+| Slice | Result | Verification and review |
+|---|---|---|
+| 0 — PH-T074 / G6 evidence integrity | Commit `70c958d2`: dirty live-gate evidence is rejected before provider spawn, including the removed legacy bypass; soak correctness failures remain failures. | RED reproduced first. Targeted tests: 15 passed. Release/soak regression set: 123 passed, 2 deselected. |
+| 1 — AG stream parser contract | Commit `6fd3daff`: bounded allowlist parser, sanitized golden fixture, duplicate-key rejection, fail-closed ordering/state/size checks. | Parser, adjacent adapter, and architecture set: 57 passed; pyright: 0 errors. CX, CC, and AG unanimously approved the final diff. |
+| 2 — Telemetry receipt v2 scaffold | Commit `a2c7c748`: extends the existing unique `session_telemetry` receipt with version, provider/adapter provenance, sanitized binding, and explicit unknown usage/step coverage. Generic result usage is deliberately not promoted. | Targeted adapter/receipt/bridge set: 135 passed; retained-session/adapter subset: 79 passed; pyright: 0 errors. CX, CC, and AG approved. |
+| 3 — PH-T082 projection atomicity | Commit `7649cd1a`: terminal telemetry persistence fails and rolls back if its stats projection is missing; registry initialization reconstructs missing projection rows from durable evidence and leaves unprovable historical counts unknown. | Retained-session tests: 37 passed; pyright: 0 errors; architecture gate: 4 passed. CX, CC, and AG approved. |
+
+Slice 2 is intentionally scaffolding: provider-native telemetry fixtures,
+validated usage normalization, and step transport have not been implemented.
+Until those later slices pass their contracts, usage and step coverage remain
+`UNKNOWN` with `not_captured`; current context remains explicitly unknown.
+
+Remaining approved slices are: provider receipt fixtures and semantics
+(USM-13/15/15a/15b/16/17/18/19a/22), provider telemetry transport and live
+adapter boundaries (USM-26/28/29/31–34), projection consistency/rebuild
+(USM-14/19), bounded monitor read model/output (USM-01–08/20–24/35), group
+preferences and CLI (USM-09–12/25), followed by the separate persistent-process
+experiment gate (USM-30). No new adapter default or persistent process reuse
+has been enabled.
