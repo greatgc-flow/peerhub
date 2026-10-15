@@ -1597,6 +1597,12 @@ approved the amended contracts below. TDD may begin from this packet.
   `latency_domain_mismatch_count`, `latency_invalid_count`,
   `latency_terminal_before_start_count`, and
   `semantics_version`.
+  Delivery cursors are in `bridge_deliveries.seq`; telemetry cursors are in
+  `bridge_evidence.seq` and track terminal-evidence processing, including a
+  terminal delivery whose telemetry receipt is missing. The telemetry start is
+  the first processed terminal-evidence sequence, not the first receipt
+  sequence; the high-water is the greatest terminal or attached telemetry
+  evidence sequence processed for that scope.
   The certainty counters describe each delivery row's current state, not
   cumulative transition volume. On insert, increment `NOT_STARTED`; on a real
   forward certainty transition, decrement the old bucket and increment the
@@ -1847,8 +1853,124 @@ covered by the tests above remains out of the first implementation slice.
   direct malformed-receipt assertion) with pyright clean. These helpers are
   not yet wired into grouped monitor rendering; query-budget and scale-fixture
   gates remain pending.
+- Post-ratification peer audit found two writer correctness gaps in the new
+  daily projections. RED now reproduces a `MAY_HAVE_STARTED -> TERMINAL`
+  delivery entering the latency population despite having no durable `started`
+  or `session_call` evidence, and reproduces a projection date drifting from
+  immutable `terminal_at`. GREEN limits latency participation to durable
+  start evidence and derives both latency and usage-coverage UTC days from
+  `terminal_at` (using the supplied observation time only for legacy rows with
+  no parseable terminal timestamp). New focused tests cover uncertain-start
+  exclusion, confirmed-start/missing-call accounting, and a midnight boundary.
+  This corrects those writer semantics only; it does not complete the accepted
+  `bridge_monitor_delivery_scope/day` projection, historical repair/backfill,
+  retained-session totals, or the six-query monitor read model. The current
+  `bridge_session_*_daily` tables are an intermediate implementation and must
+  not be presented as satisfying the canonical scope/day, high-water, gauge,
+  completeness, semantics-version, or repair contract. Before broad grouped
+  monitor completion, add the canonical projections with an atomic migration
+  and explicit retirement/compatibility plan for the intermediate daily tables.
+- Independent CLI review: preserve the existing provider-refresh `monitor`
+  default while routing `monitor groups` and `monitor defaults` read-only
+  commands before database/provider setup; test option-presence (not argparse
+  effective defaults) for `--snapshot` conflicts; assign lifecycle fresh/reuse
+  only to `sessions` and delivery certainty/latency only to `execution`.
+  `runtime` owns effective profile provenance and `sessions` owns the selected
+  generation binding snapshot. No dissent on proceeding after these contract
+  fixes; implementation remains pending.
 - CI follow-up: docs-only Windows selection now also bypasses Windows Python
   setup and dependency installation after suite selection; its RED assertion
   and focused GREEN check pass. This optimization was added after CI run
   `38734981452`; revision `23e6761d` validated it on GitHub in run
   `38736206373`.
+
+### Earlier implementation checkpoint (2026-10-15, superseded below)
+
+- Independent CLI, data-model, and projection-contract reviews converged on the
+  canonical `bridge_monitor_delivery_scope/day` contract after the
+  uncertain-start and UTC-day attribution corrections. The CI review found the
+  hosted workflow balanced: full deterministic Ubuntu coverage, reviewed
+  Windows platform-sensitive selection, package smoke cells, and a required
+  aggregate. No reviewer dissent remains on those contracts. This is design
+  agreement, not a claim that all implementation gates are complete.
+- The working tree maintains canonical scope/day delivery gauges, disjoint
+  terminal usage coverage, latency sums/reason counters, terminal-day
+  attribution, retained-session scope totals, and completeness/high-water
+  metadata with fenced Bridge writes. `monitor repair` reconstructs canonical
+  and compatibility projections under one bounded `BEGIN IMMEDIATE` rebuild;
+  repeat repair is idempotent and ordinary monitor reads do not repair data.
+  The CLI adds stable groups, workspace/global/package display defaults,
+  read-only grouped snapshots, and bounded scope/session samples. A selected
+  group avoids unrelated query families (for example, `store` performs no
+  SELECT against peer/session/scope data).
+- At this earlier checkpoint, RED/GREEN evidence included: the query-selection test first failed
+  with three unrelated SELECTs and now passes; the full CLI contract suite
+  passes (134 tests); grouped read-model tests pass (5); the monitor CLI/read
+  model suite passes (61); pyright reports zero errors; and
+  `tools/command_inventory.py --check` passes. The focused retained-session
+  suite previously passed 66 tests after retained counts were added. These are
+  local results; no GitHub run has tested this uncommitted working tree. The
+  last successful hosted run, `38740564214`, validated commit `6794adde` only.
+- Command inventory and behavioral effect proofs include monitor groups,
+  defaults, snapshot, and repair. The enum-aware `monitor defaults set` help
+  contract is fixed; all 134 public CLI contract tests pass. The TTY snapshot
+  renderer is still JSON rather than a polished grouped view. Preserve the
+  existing quota-refresh watch behavior while implementing grouped watch
+  integration; selected groups must not change collection cadence.
+- Follow-up peer review had found and reproduced additional implementation defects;
+  fixes included a future `user_version` rejected
+  inside the pinned read snapshot (exit 6); selected group SQL errors exit 4;
+  duplicate `all` selections are idempotent; persisted binding values are
+  revalidated at read time; and unrelated evidence no longer advances the
+  telemetry high-water mark. Rebuild now aborts on missing/malformed terminal
+  timestamps before replacing projections, terminal-to-terminal callbacks do
+  not duplicate latency, and every live scope/day update checks its affected
+  row count so a broken projection rolls back the delivery transaction. New
+  regressions first reproduced these issues. See the following update for the
+  final current-tree validation and remaining release gates.
+
+### Working-tree follow-up (2026-10-15, supersedes stale checkpoint items)
+
+- The latest projection-contract review agreed that latency evidence now checks
+  exact integer schema versions (session-call v2, nested timing v1), malformed
+  attached starts classify as `invalid_ticks`, and rebuild rejects duplicate
+  terminal receipts. New tests cover historical parsing, live terminal
+  classification (including JSON `1.0`), and duplicate-terminal rebuild
+  refusal. The focused four-test regression set passes.
+- Grouped watch is implemented for explicit `--group` selection and saved
+  workspace/global preferences. It emits an initial read-only frame before
+  provider refresh, retains `--collect-every` and the agy token-use stop, and
+  reports selected groups, preference source, availability, and store scope.
+  TTY output uses `FrameOutput`; non-TTY output is ASCII/escape-free and JSON
+  remains NDJSON. Bare `monitor` deliberately retains its tested 1.1 dashboard
+  contract for backward compatibility; `monitor groups/defaults` labels the
+  configured selection as applying to `grouped_views`. Explicit `--group` or
+  saved workspace/global selection opts into schema 2.0 grouped watch.
+- This is an explicit compatibility boundary: the bare watch's packaged
+  default remains the full legacy dashboard, while packaged group defaults
+  apply to grouped snapshots and grouped watch only. The `groups`/`defaults`
+  commands expose `selection_scope=grouped_views`, and tests pin the 1.1 vs
+  2.0 split. In an unbounded grouped watch, a transient query error is shown
+  on that frame and later cycles continue so recovery is possible; a bounded
+  watch returns the last cycle's selected-group error (4) after its final
+  frame.
+- The CLI peer found that corruption in a required scope query could leave
+  dependent groups marked OK. Read-model status now propagates such failures
+  through selected dependent groups, while `scope_cap` remains partial coverage
+  rather than a query failure. A CLI regression removes the canonical scope
+  table and verifies `usage` fails closed. Corrupt preference handling emits a
+  JSON error envelope when `--json` is selected.
+- Current focused evidence: `test_cli_contract.py` passed 134 tests; combined
+  monitor CLI/read-model passed 78; the full retained-session suite passed 82;
+  architecture graph passed 4; CI workflow tests passed 7; pyright reports zero
+  errors; command inventory and `git diff --check` pass. The named
+  `monitor_frame_scale_v1` fixture covers three peers, 21 scopes per peer,
+  30 days per scope, indexed scope/day query plans, and bounded SELECT families.
+  Its local warmed p95 was 11.024 ms (test ceiling 250 ms). This is a local
+  fixture measurement, not a production workload guarantee.
+- Latest CLI/data/projection reviewers agree on the compatibility boundary,
+  grouped dependency error propagation, and evidence validation. CI review found
+  no workflow blocker; branch protection must still require `ci-pass`, which is
+  configured outside this repository. No full-suite local run was attempted by
+  design; the updated hosted workflow must run against the pushed commit. Hosted
+  run `38740564214` covers commit `6794adde` only.

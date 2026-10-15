@@ -125,6 +125,14 @@ def initialize(conn: sqlite3.Connection, upgrade: Callable[[sqlite3.Connection],
     conn.execute("CREATE INDEX IF NOT EXISTS idx_bs_monitor_peer ON bridge_sessions(peer_id,updated_at DESC,stream_id)")
     for stmt in session_receipts.DDL:
         conn.execute(stmt)
+    scope_columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(bridge_session_monitor_scope)")}
+    retained_columns_added = ("bridge_session_monitor_scope" not in seeded or
+                              "retained_session_count" not in scope_columns)
+    if "retained_session_count" not in scope_columns:
+        conn.execute("ALTER TABLE bridge_session_monitor_scope ADD COLUMN retained_session_count INTEGER "
+                     "CHECK(retained_session_count IS NULL OR retained_session_count>=0)")
+        conn.execute("ALTER TABLE bridge_session_monitor_scope ADD COLUMN retained_complete INTEGER NOT NULL DEFAULT 0 "
+                     "CHECK(retained_complete IN (0,1))")
     historical_cache: dict[tuple[str, str], tuple[dict[int, tuple[int | None, int | None, int]], tuple[int | None, int | None, int]]] = {}
     def historical(stream: str, peer: str) -> tuple[dict[int, tuple[int | None, int | None, int]], tuple[int | None, int | None, int]]:
         key = (stream, peer)
@@ -139,7 +147,7 @@ def initialize(conn: sqlite3.Connection, upgrade: Callable[[sqlite3.Connection],
         per_generation, scope_counts = historical(row["stream_id"], row["peer_id"])
         session_receipts.initialize_stats(conn, values, session_receipts.binding_attributes(None), legacy=True,
                                           historical=per_generation.get(row["session_generation"], (None, None, 0)),
-                                          historical_scope=scope_counts)
+                                          historical_scope=scope_counts, history_created=True)
         # Seed from all durable generation evidence, including overwritten legacy slots.
         maximum = conn.execute("SELECT MAX(g) FROM (SELECT session_generation g FROM bridge_deliveries WHERE stream_id=? AND peer_id=? "
                                "UNION ALL SELECT generation FROM bridge_session_events WHERE stream_id=? AND peer_id=? "
@@ -157,7 +165,11 @@ def initialize(conn: sqlite3.Connection, upgrade: Callable[[sqlite3.Connection],
             if not conn.execute("SELECT 1 FROM bridge_session_monitor_scope WHERE stream_id=? AND peer_id=?", (scope[0], scope[1])).fetchone():
                 high = conn.execute("SELECT COALESCE(MAX(seq),0) FROM bridge_evidence").fetchone()[0]
                 _generations, scope_counts = historical(scope[0], scope[1])
-                conn.execute("INSERT INTO bridge_session_monitor_scope VALUES (?,?,?,?,?,?)", (scope[0], scope[1], *scope_counts, high))
+                retained = conn.execute("SELECT COUNT(*) FROM bridge_session_history WHERE stream_id=? AND peer_id=?",
+                                        (scope[0], scope[1])).fetchone()[0]
+                conn.execute("INSERT INTO bridge_session_monitor_scope(stream_id,peer_id,reuse_count,fresh_count,counts_complete,"
+                             "coverage_start_seq,retained_session_count,retained_complete) VALUES (?,?,?,?,?,?,?,?)",
+                             (scope[0], scope[1], *scope_counts, high, retained, int(not legacy)))
     # Older or repaired registries may retain session history without its
     # rebuildable per-session projection. Reconstruct only those missing rows;
     # terminal writers can then require the projection update to affect one row.
@@ -169,6 +181,18 @@ def initialize(conn: sqlite3.Connection, upgrade: Callable[[sqlite3.Connection],
         session_receipts.initialize_stats(conn, mapping, session_receipts.binding_attributes(None), legacy=True,
                                           historical=per_generation.get(mapping["session_generation"], (None, None, 0)),
                                           historical_scope=scope_counts)
+    if retained_columns_added:
+        complete = int(not legacy)
+        grouped = conn.execute("SELECT stream_id,peer_id,COUNT(*) FROM bridge_session_history GROUP BY stream_id,peer_id").fetchall()
+        for stream, peer, retained_count in grouped:
+            high = int(conn.execute("SELECT COALESCE(MAX(seq),0) FROM bridge_evidence").fetchone()[0])
+            conn.execute("INSERT INTO bridge_session_monitor_scope(stream_id,peer_id,reuse_count,fresh_count,counts_complete,"
+                         "coverage_start_seq,retained_session_count,retained_complete) VALUES (?,?,NULL,NULL,0,?,?,?) "
+                         "ON CONFLICT(stream_id,peer_id) DO UPDATE SET retained_session_count=excluded.retained_session_count,"
+                         "retained_complete=excluded.retained_complete",
+                         (stream, peer, high, int(retained_count), complete))
+        conn.execute("UPDATE bridge_session_monitor_scope SET retained_session_count=0,retained_complete=? "
+                     "WHERE retained_session_count IS NULL", (complete,))
     cols = {r[1] for r in conn.execute("PRAGMA table_info(bridge_deliveries)")}
     for name in ("session_handle", "session_snapshot_json"):
         if name not in cols:
@@ -193,7 +217,7 @@ def allocate(conn: sqlite3.Connection, values: dict[str, Any], binding: dict[str
                   context_watermark_version=1)
     names = list(values)
     conn.execute(f"INSERT INTO bridge_session_history ({','.join(names)}) VALUES ({','.join('?' for _ in names)})", [values[n] for n in names])
-    session_receipts.initialize_stats(conn, values, binding)
+    session_receipts.initialize_stats(conn, values, binding, history_created=True)
     point(conn, values, now)
     prune(conn, stream, peer, now)
     # A newly allocated CLI has no vendor id yet, but remains the active allocation pointer.

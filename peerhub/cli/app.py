@@ -380,6 +380,12 @@ def _reject_dashboard_flags_on_subcommand(parser: argparse.ArgumentParser, args:
 def _run_light_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     """Commands that never open CoreStore through main(): the monitor loop and explicit collection."""
     if args.subcommand == "monitor":
+        if getattr(args, "monitor_action", None) is not None:
+            if args.monitor_action == "repair":
+                from peerhub.cli.monitor import run_monitor_repair
+                return run_monitor_repair(args)
+            from peerhub.cli.monitor_preferences import run_preferences
+            return run_preferences(args)
         from peerhub.cli.monitor import run_monitor
         return run_monitor(args, parser)
     return _run_observation_cli(args)
@@ -873,6 +879,8 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         if hasattr(args, "db") and args.db:
             selection = _select_db(args.db, discover=not explicit_db)
             args.db, args.db_source = selection.path, selection.source
+        if args.subcommand == "monitor":
+            args._provided_options = {item.split("=", 1)[0] for item in actual if item.startswith("--")}
         if getattr(args, "obs_db", None):
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":

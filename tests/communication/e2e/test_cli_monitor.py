@@ -8,6 +8,162 @@ import pytest
 from peerhub.cli.app import main
 
 
+def test_monitor_groups_is_read_only_and_does_not_require_a_store(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    db = tmp_path / "absent" / "core.db"
+    with patch("peerhub.extensions.quota_capture.refresh_quota", side_effect=AssertionError("probe")):
+        assert main(["--db", str(db), "monitor", "groups", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "2.0"
+    assert [group["id"] for group in payload["groups"]] == [
+        "overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
+    ]
+    assert not db.parent.exists()
+
+
+def test_monitor_snapshot_does_not_refresh_providers(tmp_path, monkeypatch, capsys):
+    db = _db(tmp_path)
+    calls = []
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *args, **kwargs: calls.append("refresh") or {"status": "OK"})
+    assert _run(db, "--snapshot", "--group", "store", "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "2.0"
+    assert payload["selected_groups"] == ["store"]
+    assert "store" in payload["available_groups"]
+    assert payload["preference"]["source"] in ("workspace", "global", "packaged")
+    assert payload["groups"]["store"]["coverage"]["read"] == "complete"
+    assert calls == []
+
+
+def test_monitor_snapshot_refuses_future_schema(tmp_path, capsys):
+    import sqlite3
+
+    db = _db(tmp_path)
+    with sqlite3.connect(db) as conn:
+        conn.execute("PRAGMA user_version=999")
+    assert _run(db, "--snapshot", "--group", "store", "--json") == 6
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "FAILED"
+    assert payload["errors"]["schema"] == "SchemaVersionError"
+
+
+def test_monitor_snapshot_returns_error_for_selected_group_query_failure(tmp_path, capsys):
+    import sqlite3
+
+    db = _db(tmp_path)
+    with sqlite3.connect(db) as conn:
+        conn.execute("DROP TABLE observation_rollups")
+    assert _run(db, "--snapshot", "--group", "capacity", "--json") == 4
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["groups"]["capacity"]["status"] == "ERROR"
+
+
+def test_monitor_usage_snapshot_propagates_required_scope_query_failure(tmp_path, capsys):
+    from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
+    from tests.communication.harness.bridge import BridgeHarness
+    from tests.communication.bridge_helpers import bseed
+
+    h = BridgeHarness(tmp_path / "bridge")
+    bseed(h)
+    h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    with h.cs.transaction() as conn:
+        conn.execute("DROP TABLE bridge_monitor_delivery_scope")
+    assert main(["--db", str(h.db_path), "monitor", "--snapshot", "--group", "usage", "--json"]) == 4
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "PARTIAL"
+    assert payload["groups"]["usage"]["status"] == "ERROR"
+
+
+def test_monitor_snapshot_group_all_deduplicates(tmp_path, capsys):
+    db = _db(tmp_path)
+    assert _run(db, "--snapshot", "--group", "all", "--group", "all", "--json") in (0, 4)
+    assert json.loads(capsys.readouterr().out)["selected_groups"] == [
+        "overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
+    ]
+
+
+def test_monitor_snapshot_plain_view_renders_group_heading(tmp_path, capsys):
+    db = _db(tmp_path)
+    assert _run(db, "--snapshot", "--group", "store", "--view", "plain") == 0
+    output = capsys.readouterr().out
+    assert "STORE - OK" in output
+    assert '"groups"' not in output
+
+
+def test_monitor_defaults_set_and_reset_workspace_layer(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global-config"))
+    assert main(["monitor", "defaults", "set", "--group", "usage", "sessions", "usage", "--json"]) == 0
+    written = json.loads(capsys.readouterr().out)
+    assert written["selected_groups"] == ["sessions", "usage"]
+    workspace_file = tmp_path / ".peerhub" / "config" / "monitor.toml"
+    assert workspace_file.is_file()
+    assert main(["monitor", "defaults", "show", "--json"]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["selected_groups"] == ["sessions", "usage"]
+    assert shown["preference"]["source"] == "workspace"
+    assert main(["monitor", "defaults", "reset", "--json"]) == 0
+    assert not workspace_file.exists()
+    reset = json.loads(capsys.readouterr().out)
+    assert reset["changed"] is True
+
+
+def test_monitor_default_precedence_and_corrupt_effective_file_fail_closed(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    global_dir = tmp_path / "global"
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(global_dir))
+    assert main(["monitor", "defaults", "set", "--global", "--group", "runtime", "store", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["monitor", "defaults", "show", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["selected_groups"] == ["runtime", "store"]
+    assert payload["preference"]["source"] == "global"
+    workspace_file = tmp_path / ".peerhub" / "config" / "monitor.toml"
+    workspace_file.parent.mkdir(parents=True)
+    workspace_file.write_text("schema_version = 1\n[monitor]\ndefault_groups = ['unknown']\n", encoding="utf-8")
+    db = tmp_path / "absent" / "core.db"
+    assert main(["--db", str(db), "monitor", "groups", "--json"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "ERROR"
+    assert result["preference"]["reason"] == "invalid_group"
+    assert all(item["default_selected"] is None for item in result["groups"])
+    assert not db.parent.exists()
+
+
+def test_monitor_repair_rebuilds_projections_idempotently_without_provider_calls(tmp_path, monkeypatch, capsys):
+    from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
+    from tests.communication.harness.bridge import BridgeHarness
+    from tests.communication.bridge_helpers import bseed, sql
+
+    h = BridgeHarness(tmp_path / "workspace")
+    bseed(h)
+    h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    db = h.db_path
+    with h.cs.transaction() as conn:
+        conn.execute("UPDATE bridge_monitor_delivery_scope SET terminal_count=17")
+    calls = []
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *args, **kwargs: calls.append("refresh") or {"status": "OK"})
+    assert main(["--db", str(db), "monitor", "repair", "--json"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["status"] == "OK" and first["complete"] is True
+    assert sql(h, "SELECT terminal_count,unknown_count FROM bridge_monitor_delivery_scope") == [(1, 1)]
+    before = sql(h, "SELECT * FROM bridge_monitor_delivery_scope")
+    assert main(["--db", str(db), "monitor", "repair", "--json"]) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert second["status"] == "OK"
+    assert sql(h, "SELECT * FROM bridge_monitor_delivery_scope") == before
+    assert calls == []
+
+
+@pytest.mark.parametrize("option", ["--interval-seconds", "--cycles"])
+def test_monitor_snapshot_rejects_explicit_watch_options_including_defaults(tmp_path, option):
+    db = _db(tmp_path)
+    value = "60" if option == "--interval-seconds" else "0"
+    assert _run(db, "--snapshot", option, value) == 2
+
+
 @pytest.mark.parametrize("command", [
     ["monitor", "--view", "rich"], ["monitor", "--view", "plain"], ["monitor", "--json"],
     ["diag", "--view", "rich"], ["diag", "--view", "plain"], ["diag", "--json"],
@@ -97,6 +253,79 @@ def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch):
     assert [frame["cycle"] for frame in frames[1:]] == [0, 1, 2]
     assert all(frame["snapshot"]["schema_version"] == "1.0" for frame in frames)
     assert "\x1b" not in output.getvalue() and " [H" not in output.getvalue()
+
+
+def test_grouped_watch_emits_initial_and_cycle_frames_without_changing_collect_cadence(tmp_path, monkeypatch, capsys):
+    calls = []
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: calls.append(1) or {"status": "OK", "observations": [], "warnings": []})
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
+    assert _run(_db(tmp_path), "--json", "--group", "store", "--cycles", "3", "--collect-every", "2") == 0
+    frames = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [frame["phase"] for frame in frames] == ["initial", "complete", "complete", "complete"]
+    assert [frame["cycle"] for frame in frames] == [0, 0, 1, 2]
+    assert [frame["refresh"].get("status") for frame in frames] == ["NOT_STARTED", "OK", None, "OK"]
+    assert all(frame["snapshot"]["selected_groups"] == ["store"] for frame in frames)
+    assert len(calls) == 2
+
+
+def test_monitor_corrupt_preference_still_emits_json_error(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    config = tmp_path / ".peerhub" / "config" / "monitor.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("broken = [", encoding="utf-8")
+    assert main(["--db", str(_db(tmp_path)), "monitor", "--json", "--cycles", "1"]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "ERROR"
+
+
+def test_monitor_grouped_watch_plain_has_no_terminal_controls_or_unicode(tmp_path, monkeypatch, capsys):
+    import io
+
+    class Pipe(io.StringIO):
+        def isatty(self):
+            return False
+
+    output = Pipe()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
+    assert _run(_db(tmp_path), "--view", "rich", "--group", "store", "--cycles", "1") == 0
+    assert "\x1b" not in output.getvalue()
+    assert "·" not in output.getvalue()
+
+
+@pytest.mark.parametrize(("tty", "vt"), [(False, True), (True, False), (True, True)])
+def test_grouped_watch_respects_tty_vt_and_no_color(tmp_path, monkeypatch, tty, vt):
+    import io
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return tty
+
+    output = Output()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: vt)
+    monkeypatch.setenv("NO_COLOR", "")
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
+    assert _run(_db(tmp_path), "--group", "store", "--view", "rich", "--cycles", "1") == 0
+    value = output.getvalue()
+    assert ("\x1b[?25l" in value) is (tty and vt)
+    assert "\x1b[1;36m" not in value
+
+
+def test_bare_monitor_watch_preserves_legacy_dashboard_contract(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
+    db = _db(tmp_path)
+    assert main(["--db", str(db), "monitor", "--json", "--cycles", "1"]) in (0, 4)
+    frames = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert len(frames) == 2
+    assert all(frame["schema_version"] == "1.1" for frame in frames)
 
 
 def test_monitor_emits_committed_snapshot_before_calling_provider(tmp_path, monkeypatch, capsys):

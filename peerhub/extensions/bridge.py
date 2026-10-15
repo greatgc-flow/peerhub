@@ -522,16 +522,22 @@ class Bridge:
             raise NoDeliveryError(delivery_id)
         if token is not None:
             self._check_scope(row, token)  # BEFORE any mutation
-        if to not in _ALLOWED.get(row["certainty"], set()):
+        old_certainty = str(row["certainty"])
+        if to not in _ALLOWED.get(old_certainty, set()):
             raise IllegalCertaintyTransition(f"{row['certainty']} -> {to} is forbidden (TD-11/TD-26)")
         if to != row["certainty"]:
             conn.execute("UPDATE bridge_deliveries SET certainty=? WHERE delivery_id=?", (to, delivery_id))
-        if to == TERMINAL and kind == "terminal":
+        if to == TERMINAL and kind == "terminal" and old_certainty != to:
             detail["peerhub_timing"] = session_receipts.terminal_timing(conn, row)
         self._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, to, **detail)
-        if to == TERMINAL and kind == "terminal":
-            session_receipts.record_latency(conn, row["stream_id"], row["peer_id"], self.claims.now(),
-                                            detail["peerhub_timing"])
+        current_row = row
+        if old_certainty != to or (to == TERMINAL and kind == "terminal"):
+            current_row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (delivery_id,)).fetchone()
+            assert current_row is not None
+        if old_certainty != to:
+            session_receipts.record_delivery_transition(conn, current_row, old_certainty, to, observed_at=self.claims.now())
+        if to == TERMINAL and kind == "terminal" and old_certainty != to:
+            session_receipts.record_latency(conn, current_row, self.claims.now(), detail["peerhub_timing"])
         if to == STARTED:
             session_receipts.call(conn, row, self.claims.now())
         if to == MAY_HAVE_STARTED:
@@ -652,6 +658,9 @@ class Bridge:
                 "INSERT INTO bridge_deliveries (delivery_id, seq, stream_id, peer_id, record_id, record_position, attempt, certainty, "
                 "claim_generation, reconcile_record_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (did, seq, s, p, record.record_id, record.position, attempt, NOT_STARTED, token.generation, rec_rec))
+            inserted = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
+            assert inserted is not None
+            session_receipts.record_delivery_created(conn, inserted)
             self._evidence(conn, s, p, "attempt_created", did, NOT_STARTED, attempt=attempt, reconcile_record_id=rec_rec,
                            claim_generation=token.generation)
             return did

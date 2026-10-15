@@ -262,6 +262,305 @@ def test_terminal_without_session_call_records_missing_start_without_latency(tmp
     ]
 
 
+def test_terminal_without_durable_start_is_excluded_from_latency_population(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    (record,) = bseed(h)
+    monkeypatch.setattr(session_receipts, "monotonic_ns", lambda: 100)
+    token = h.acquire_claim("b", "s", h.bridge.owner_id)
+    delivery_id = h.bridge.begin_attempt(token, record)
+    h.bridge.transition(token, delivery_id, "MAY_HAVE_STARTED", "start_uncertain")
+    h.bridge.finalize_terminal(token, {"response": "refused"}, delivery_id)
+    assert sql(h, "SELECT COUNT(*) FROM bridge_evidence WHERE delivery_id=? AND kind='started'", (delivery_id,)) == [(0,)]
+    assert sql(h, "SELECT COUNT(*) FROM bridge_session_latency_daily") == [(0,)]
+
+
+def test_durable_start_without_call_receipt_counts_as_missing_latency_start(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    (record,) = bseed(h)
+    monkeypatch.setattr(session_receipts, "monotonic_ns", lambda: 100)
+    token = h.acquire_claim("b", "s", h.bridge.owner_id)
+    delivery_id = h.bridge.begin_attempt(token, record)
+    h.bridge.transition(token, delivery_id, "STARTED", "started")
+    with h.cs.transaction() as conn:
+        conn.execute("DELETE FROM bridge_evidence WHERE delivery_id=? AND kind='session_call'", (delivery_id,))
+    h.bridge.finalize_terminal(token, {"response": "ok"}, delivery_id)
+    assert sql(h, "SELECT latency_sum_ns,latency_count,missing_start_count FROM bridge_session_latency_daily") == [(0, 0, 1)]
+
+
+def test_terminal_projections_use_persisted_terminal_day_across_midnight(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    h.clock.set(datetime(2026, 10, 14, 23, 59, 59, tzinfo=timezone.utc).timestamp())
+    monkeypatch.setattr(session_receipts, "monotonic_ns", iter([10, 20]).__next__)
+    result = h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    terminal_day = "2026-10-14"
+    later_observation = datetime(2026, 10, 15, 0, 0, 1, tzinfo=timezone.utc).timestamp()
+    with h.cs.transaction() as conn:
+        conn.execute("DELETE FROM bridge_session_latency_daily")
+        conn.execute("DELETE FROM bridge_session_usage_coverage_daily")
+        delivery = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,)).fetchone()
+        terminal_evidence = conn.execute("SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='terminal'",
+                                         (result.delivery_id,)).fetchone()
+        timing = json.loads(terminal_evidence[0])["peerhub_timing"]
+        session_receipts.record_latency(conn, delivery, later_observation, timing)
+        session_receipts.record_usage_coverage(conn, delivery, later_observation)
+    assert sql(h, "SELECT day_utc FROM bridge_session_latency_daily") == [(terminal_day,)]
+    assert sql(h, "SELECT day_utc FROM bridge_session_usage_coverage_daily") == [(terminal_day,)]
+    assert sql(h, "SELECT terminal_day_utc FROM bridge_monitor_delivery_day") == [(terminal_day,)]
+
+
+def test_live_terminal_day_uses_persisted_row_not_observation_clock_fallback(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+
+    h = BridgeHarness(tmp_path / "ws")
+    (record,) = bseed(h)
+    terminal_at = datetime(2026, 10, 14, 23, 59, 59, tzinfo=timezone.utc).timestamp()
+    h.clock.set(terminal_at)
+    monkeypatch.setattr(session_receipts.time, "time", lambda: datetime(2030, 1, 1, tzinfo=timezone.utc).timestamp())
+    monkeypatch.setattr(session_receipts, "monotonic_ns", iter([10, 20]).__next__)
+    h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    assert sql(h, "SELECT terminal_day_utc FROM bridge_monitor_delivery_day") == [("2026-10-14",)]
+
+
+def test_same_terminal_transition_does_not_count_latency_twice(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    monkeypatch.setattr(session_receipts, "monotonic_ns", iter([10, 20]).__next__)
+    result = h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    token = h.acquire_claim("b", "s", h.bridge.owner_id)
+    delivery_id = result.delivery_id
+    h.bridge.transition(token, delivery_id, "TERMINAL", "terminal")
+    assert sql(h, "SELECT latency_count FROM bridge_monitor_delivery_scope") == [(1,)]
+    assert sql(h, "SELECT latency_count FROM bridge_monitor_delivery_day") == [(1,)]
+
+
+def test_canonical_delivery_scope_and_day_track_terminal_once(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    monkeypatch.setattr(session_receipts, "monotonic_ns", iter([10, 20]).__next__)
+    result = h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    assert sql(h, "SELECT not_started_count,may_have_started_count,started_count,terminal_count,"
+                   "measured_count,absent_count,unsupported_count,unknown_count,missing_count "
+                   "FROM bridge_monitor_delivery_scope") == [(0, 0, 0, 1, 0, 0, 0, 1, 0)]
+    assert sql(h, "SELECT terminal_count,measured_count,absent_count,unsupported_count,unknown_count,missing_count "
+                   "FROM bridge_monitor_delivery_day") == [(1, 0, 0, 0, 1, 0)]
+    assert sql(h, "SELECT telemetry_coverage_start_seq,telemetry_high_water_seq "
+                  "FROM bridge_monitor_delivery_scope") == [(
+        sql(h, "SELECT seq FROM bridge_evidence WHERE delivery_id=? AND kind='terminal'", (result.delivery_id,))[0][0],
+        sql(h, "SELECT MAX(seq) FROM bridge_evidence WHERE delivery_id=? AND kind IN ('terminal','session_telemetry')", (result.delivery_id,))[0][0],
+    )]
+    assert sql(h, "SELECT COUNT(*) FROM bridge_monitor_delivery_day WHERE stream_id='s' AND peer_id='b'") == [(1,)]
+
+
+def test_unrelated_evidence_does_not_advance_telemetry_high_water(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    (record,) = bseed(h)
+    token = h.acquire_claim("b", "s", h.bridge.owner_id)
+    delivery_id = h.bridge.begin_attempt(token, record)
+    h.bridge.transition(token, delivery_id, "MAY_HAVE_STARTED", "start_uncertain")
+    assert sql(h, "SELECT telemetry_coverage_start_seq,telemetry_high_water_seq,telemetry_complete "
+                  "FROM bridge_monitor_delivery_scope") == [(0, 0, 1)]
+
+
+def test_projection_rebuild_rejects_missing_terminal_day_without_replacing_old_projection(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    result = h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    before = sql(h, "SELECT * FROM bridge_monitor_delivery_day")
+    with h.cs.transaction() as conn:
+        conn.execute("DROP TRIGGER bridge_terminal_immutable")
+        conn.execute("UPDATE bridge_deliveries SET terminal_at=NULL WHERE delivery_id=?", (result.delivery_id,))
+    with pytest.raises(ValueError, match="terminal_at"):
+        session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+    assert sql(h, "SELECT * FROM bridge_monitor_delivery_day") == before
+
+
+def test_projection_rebuild_rejects_duplicate_delivery_sequence_at_chunk_boundary(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h, n=2)
+    runtime = _ProviderTelemetryRuntime()
+    h.delivery_cycle("b", "s", runtime)
+    h.delivery_cycle("b", "s", runtime)
+    with h.cs.transaction() as conn:
+        conn.execute("UPDATE bridge_deliveries SET seq=1 WHERE seq=2")
+    with pytest.raises(ValueError, match="not unique"):
+        session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+
+
+def test_projection_rebuild_failure_after_delete_rolls_back_all_projection_tables(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    tables = ("bridge_monitor_delivery_scope", "bridge_monitor_delivery_day",
+              "bridge_session_latency_daily", "bridge_session_usage_coverage_daily",
+              "bridge_session_usage_coverage_scope")
+    before = {table: sql(h, f"SELECT * FROM {table}") for table in tables}
+    with h.cs.transaction() as conn:
+        conn.execute("CREATE TRIGGER fail_monitor_scope BEFORE INSERT ON bridge_monitor_delivery_scope "
+                     "BEGIN SELECT RAISE(ABORT,'injected rebuild failure'); END")
+    with pytest.raises(sqlite3.IntegrityError, match="injected rebuild failure"):
+        session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+    assert {table: sql(h, f"SELECT * FROM {table}") for table in tables} == before
+
+
+def test_projection_rebuild_is_equivalent_across_chunks_and_uses_bounded_days(tmp_path):
+    from datetime import datetime, timezone
+
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h, n=2)
+    runtime = _ProviderTelemetryRuntime()
+    h.clock.set(datetime(2026, 9, 1, tzinfo=timezone.utc).timestamp())
+    h.delivery_cycle("b", "s", runtime)
+    h.clock.set(datetime(2026, 10, 15, tzinfo=timezone.utc).timestamp())
+    h.delivery_cycle("b", "s", runtime)
+    session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1, through_day="2026-10-15")
+    tables = ("bridge_monitor_delivery_scope", "bridge_monitor_delivery_day")
+    first = {table: sql(h, f"SELECT * FROM {table} ORDER BY 1,2,3") for table in tables}
+    assert sql(h, "SELECT terminal_day_utc FROM bridge_monitor_delivery_day ORDER BY terminal_day_utc") == [("2026-10-15",)]
+    session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=100, through_day="2026-10-15")
+    assert {table: sql(h, f"SELECT * FROM {table} ORDER BY 1,2,3") for table in tables} == first
+
+
+def test_projection_rebuild_busy_lock_leaves_existing_rows_unchanged(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    before = sql(h, "SELECT * FROM bridge_monitor_delivery_day")
+    lock = sqlite3.connect(h.db_path, isolation_level=None)
+    try:
+        lock.execute("BEGIN IMMEDIATE")
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+    finally:
+        lock.execute("ROLLBACK")
+        lock.close()
+    assert sql(h, "SELECT * FROM bridge_monitor_delivery_day") == before
+
+
+def test_concurrent_projection_repairs_serialize_and_both_complete(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h, n=2)
+    runtime = _ProviderTelemetryRuntime()
+    h.delivery_cycle("b", "s", runtime)
+    h.delivery_cycle("b", "s", runtime)
+    gate = Barrier(2)
+
+    def repair():
+        gate.wait(timeout=5)
+        return session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: repair(), range(2)))
+    assert all(result["status"] == "OK" and result["delivery_count"] == 2 for result in results)
+    assert sql(h, "SELECT SUM(terminal_count) FROM bridge_monitor_delivery_scope") == [(2,)]
+
+
+def test_historical_latency_ignores_mismatched_call_identity(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    result = h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    with h.cs.transaction() as conn:
+        conn.execute("DROP TRIGGER bridge_evidence_no_update")
+        conn.execute("UPDATE bridge_evidence SET stream_id='other' WHERE delivery_id=? AND kind='session_call'",
+                     (result.delivery_id,))
+        delivery = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,)).fetchone()
+        assert session_receipts._historical_latency(conn, delivery) == (None, "missing_start")
+
+
+def test_projection_rebuild_rejects_mismatched_terminal_evidence_identity(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    result = h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    with h.cs.transaction() as conn:
+        conn.execute("DROP TRIGGER bridge_evidence_no_update")
+        conn.execute("UPDATE bridge_evidence SET peer_id='other' WHERE delivery_id=? AND kind='terminal'",
+                     (result.delivery_id,))
+    with pytest.raises(ValueError, match="terminal evidence identity"):
+        session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+
+
+@pytest.mark.parametrize("target", ["call", "terminal_timing"])
+def test_historical_latency_rejects_unsupported_timing_schema(tmp_path, target):
+    import json
+
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    result = h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    with h.cs.transaction() as conn:
+        conn.execute("DROP TRIGGER bridge_evidence_no_update")
+        kind = "session_call" if target == "call" else "terminal"
+        row = conn.execute("SELECT seq,detail FROM bridge_evidence WHERE delivery_id=? AND kind=?",
+                           (result.delivery_id, kind)).fetchone()
+        detail = json.loads(row["detail"])
+        if target == "call":
+            detail["schema_version"] = 99
+        else:
+            detail["peerhub_timing"]["schema_version"] = 99
+        conn.execute("UPDATE bridge_evidence SET detail=? WHERE seq=?", (json.dumps(detail), row["seq"]))
+        delivery = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,)).fetchone()
+        assert session_receipts._historical_latency(conn, delivery) == (None, "invalid_ticks")
+
+
+def test_projection_rebuild_rejects_duplicate_terminal_evidence(tmp_path):
+    import json
+
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    result = h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    with h.cs.transaction() as conn:
+        conn.execute("DROP TRIGGER bridge_evidence_no_replace")
+        row = conn.execute("SELECT stream_id,peer_id,detail FROM bridge_evidence WHERE delivery_id=? AND kind='terminal'",
+                           (result.delivery_id,)).fetchone()
+        conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                     "VALUES (?,?,?,'terminal','TERMINAL',?)",
+                     (result.delivery_id, row["stream_id"], row["peer_id"], row["detail"]))
+    with pytest.raises(ValueError, match="terminal evidence cardinality"):
+        session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+
+
+def test_live_terminal_classifies_unsupported_call_timing_as_invalid_not_missing(tmp_path, monkeypatch):
+    h = BridgeHarness(tmp_path / "ws")
+    token, did = _start_telemetry_delivery(h, _ProviderTelemetryRuntime())
+    with h.cs.transaction() as conn:
+        conn.execute("DROP TRIGGER bridge_evidence_no_update")
+        detail = json.loads(conn.execute("SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='session_call'",
+                                         (did,)).fetchone()[0])
+        detail["peerhub_timing"]["schema_version"] = 1.0
+        conn.execute("UPDATE bridge_evidence SET detail=? WHERE delivery_id=? AND kind='session_call'",
+                     (json.dumps(detail), did))
+    h.finalize_terminal(token, {"response": "ok"}, did)
+    terminal = json.loads(sql(h, "SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='terminal'", (did,))[0][0])
+    assert terminal["peerhub_timing"]["latency_reason"] == "invalid_ticks"
+    assert sql(h, "SELECT latency_invalid_count,latency_missing_start_count FROM bridge_monitor_delivery_day") == [(1, 0)]
+
+
+def test_projection_rebuild_marks_evidence_sequence_gap_incomplete(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    h.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    with h.cs.transaction() as conn:
+        conn.execute("DROP TRIGGER bridge_evidence_no_delete")
+        conn.execute("DELETE FROM bridge_evidence WHERE seq=(SELECT MIN(seq) FROM bridge_evidence)")
+    result = session_receipts.rebuild_delivery_projections(h.db_path, chunk_size=1)
+    assert result["complete"] is False
+    assert sql(h, "SELECT delivery_complete,telemetry_complete FROM bridge_monitor_delivery_scope") == [(1, 0)]
+
+
+def test_retained_session_total_is_explicit_and_counts_tombstones(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    h.delivery_cycle("b", "s", NativeRuntimeTarget())
+    assert sql(h, "SELECT retained_session_count,retained_complete FROM bridge_session_monitor_scope WHERE stream_id='s' AND peer_id='b'") == [(1, 1)]
+    with h.cs.transaction() as conn:
+        conn.execute("UPDATE bridge_session_history SET state='TOMBSTONED',tombstoned_at=2000 WHERE stream_id='s' AND peer_id='b'")
+    assert sql(h, "SELECT retained_session_count,retained_complete FROM bridge_session_monitor_scope WHERE stream_id='s' AND peer_id='b'") == [(1, 1)]
+
+
 @pytest.mark.parametrize(("coverage_state", "reported", "normalized"), [
     ("MEASURED", {"output_tokens": 3}, {"output_tokens": 3}),
     ("ABSENT", {}, {}),
@@ -304,6 +603,8 @@ def test_session_latency_projection_retains_only_thirty_utc_days(tmp_path, monke
     rows = sql(h, "SELECT day_utc,latency_count FROM bridge_session_latency_daily")
     assert len(rows) == 1 and rows[0][1] == 1
     assert first_day != rows[0][0]
+    canonical_days = sql(h, "SELECT terminal_day_utc FROM bridge_monitor_delivery_day ORDER BY terminal_day_utc")
+    assert canonical_days == [(rows[0][0],)]
 
 
 def test_session_latency_projection_splits_utc_days(tmp_path, monkeypatch):
@@ -798,7 +1099,8 @@ def test_registry_rebuild_scales_with_scope_not_session_delivery_product(tmp_pat
             "response_record_id,acked,reconcile_record_id,session_handle,session_snapshot_json) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", deliveries)
         conn.execute("UPDATE bridge_deliveries SET certainty='STARTED' WHERE stream_id='rebuild'")
-        conn.execute("INSERT INTO bridge_session_monitor_scope VALUES ('rebuild','cc',NULL,NULL,0,0)")
+        conn.execute("INSERT INTO bridge_session_monitor_scope(stream_id,peer_id,reuse_count,fresh_count,counts_complete,coverage_start_seq) "
+                     "VALUES ('rebuild','cc',NULL,NULL,0,0)")
 
     count_calls = 0
 

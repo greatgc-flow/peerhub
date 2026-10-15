@@ -252,43 +252,103 @@
       ]
     },
     {
-      "command": "monitor",
+      "command": "monitor defaults reset",
       "options": [
         {
           "default": false,
-          "dest": "allow_agy_token_use",
+          "dest": "global_preferences",
           "flags": [
-            "--allow-agy-token-use"
+            "--global"
           ],
           "positional": false,
           "required": false,
           "takes_value": false
         },
         {
-          "default": 1,
-          "dest": "collect_every",
+          "default": false,
+          "dest": "json",
           "flags": [
-            "--collect-every"
+            "--json"
           ],
           "positional": false,
           "required": false,
-          "takes_value": true
-        },
+          "takes_value": false
+        }
+      ]
+    },
+    {
+      "command": "monitor defaults set",
+      "options": [
         {
-          "default": 0,
-          "dest": "cycles",
+          "default": false,
+          "dest": "global_preferences",
           "flags": [
-            "--cycles"
+            "--global"
           ],
           "positional": false,
           "required": false,
+          "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "group",
+          "flags": [
+            "--group"
+          ],
+          "positional": false,
+          "required": true,
           "takes_value": true
         },
         {
-          "default": 60.0,
-          "dest": "interval",
+          "default": false,
+          "dest": "json",
           "flags": [
-            "--interval-seconds"
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
+    },
+    {
+      "command": "monitor defaults show",
+      "options": [
+        {
+          "default": false,
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
+    },
+    {
+      "command": "monitor groups",
+      "options": [
+        {
+          "default": false,
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
+    },
+    {
+      "command": "monitor repair",
+      "options": [
+        {
+          "default": 500,
+          "dest": "chunk_size",
+          "flags": [
+            "--chunk-size"
           ],
           "positional": false,
           "required": false,
@@ -303,46 +363,6 @@
           "positional": false,
           "required": false,
           "takes_value": false
-        },
-        {
-          "default": "['cx', 'cc', 'ag']",
-          "dest": "peers",
-          "flags": [
-            "--peers"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
-          "default": null,
-          "dest": "sys_dir",
-          "flags": [
-            "--system-dir"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
-          "default": 15.0,
-          "dest": "timeout",
-          "flags": [
-            "--timeout-seconds"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
-        },
-        {
-          "default": "auto",
-          "dest": "view",
-          "flags": [
-            "--view"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": true
         }
       ]
     },
@@ -951,6 +971,125 @@
           "takes_value": true
         }
       ]
+    },
+    {
+      "command": "monitor",
+      "options": [
+        {
+          "default": false,
+          "dest": "allow_agy_token_use",
+          "flags": [
+            "--allow-agy-token-use"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": 1,
+          "dest": "collect_every",
+          "flags": [
+            "--collect-every"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 0,
+          "dest": "cycles",
+          "flags": [
+            "--cycles"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "group",
+          "flags": [
+            "--group"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 60.0,
+          "dest": "interval",
+          "flags": [
+            "--interval-seconds"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": false,
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": "['cx', 'cc', 'ag']",
+          "dest": "peers",
+          "flags": [
+            "--peers"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": false,
+          "dest": "snapshot",
+          "flags": [
+            "--snapshot"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "sys_dir",
+          "flags": [
+            "--system-dir"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 15.0,
+          "dest": "timeout",
+          "flags": [
+            "--timeout-seconds"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": "auto",
+          "dest": "view",
+          "flags": [
+            "--view"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "monitor defaults",
+      "options": []
     },
     {
       "command": "observation",
