@@ -18,6 +18,7 @@ def test_monitor_groups_is_read_only_and_does_not_require_a_store(tmp_path, monk
     assert [group["id"] for group in payload["groups"]] == [
         "overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
     ]
+    assert payload["selection_scope"] == "grouped_views"
     assert not db.parent.exists()
 
 

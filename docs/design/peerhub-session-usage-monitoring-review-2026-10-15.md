@@ -1963,14 +1963,20 @@ covered by the tests above remains out of the first implementation slice.
 - Current focused evidence: `test_cli_contract.py` passed 134 tests; combined
   monitor CLI/read-model passed 78; the full retained-session suite passed 82;
   architecture graph passed 4; CI workflow tests passed 7; pyright reports zero
-  errors; command inventory and `git diff --check` pass. The named
-  `monitor_frame_scale_v1` fixture covers three peers, 21 scopes per peer,
-  30 days per scope, indexed scope/day query plans, and bounded SELECT families.
-  Its local warmed p95 was 11.024 ms (test ceiling 250 ms). This is a local
-  fixture measurement, not a production workload guarantee.
+  errors; command inventory and `git diff --check` pass. A reduced
+  `monitor_frame_scale_smoke_v1` fixture covers three peers, 21 scopes per
+  peer, 30 days per scope, indexed scope/day query plans, and bounded SELECT
+  families. Its local warmed p95 was 11.024 ms (test ceiling 250 ms). It does
+  **not** satisfy the accepted `monitor_frame_scale_v1` workload (5,000
+  sessions, 50,000 deliveries, and at least 100,000 unrelated rows) or its
+  blocking 150 ms p95 target; that acceptance gate remains open.
 - Latest CLI/data/projection reviewers agree on the compatibility boundary,
   grouped dependency error propagation, and evidence validation. CI review found
-  no workflow blocker; branch protection must still require `ci-pass`, which is
-  configured outside this repository. No full-suite local run was attempted by
-  design; the updated hosted workflow must run against the pushed commit. Hosted
-  run `38740564214` covers commit `6794adde` only.
+  no workflow blocker. Hosted run `38753469854` passed for implementation
+  commit `d5d839e2`: Ubuntu full deterministic suite, Windows selected suite,
+  all six installed-package smoke cells, pyright, and `ci-pass`. A follow-up
+  commit only corrects the scale-fixture label/acceptance note and pins the
+  `selection_scope` CLI contract; it requires a final CI rerun. No full-suite
+  local run was attempted by design. The repo ruleset currently enforces
+  deletion and non-fast-forward protections only; it does not require `ci-pass`.
+  Making that check mandatory is a GitHub policy change outside this code diff.

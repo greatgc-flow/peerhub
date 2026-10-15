@@ -82,7 +82,7 @@ def test_required_scope_failure_propagates_only_to_dependent_selected_groups(tmp
     assert frame["groups"]["store"]["status"] == "OK"
 
 
-def test_monitor_frame_scale_v1_bounded_queries_indexes_and_p95(tmp_path):
+def test_monitor_frame_scale_smoke_v1_bounded_queries_indexes_and_p95(tmp_path):
     from math import ceil
     from time import perf_counter
     from datetime import date, timedelta
