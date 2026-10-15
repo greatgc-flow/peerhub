@@ -10,6 +10,11 @@ reported usage when its meaning is known, context evidence, and account quota
 evidence. Do not turn the dashboard into billing, budget planning, forecasting,
 or model-routing policy.
 
+The final ratified pre-TDD packet at the end of this document is the normative
+contract for the remaining grouped-monitoring work. Earlier review notes,
+implementation records, and roadmap text are historical context; where they
+conflict with that packet, the packet controls.
+
 The existing proposal covers session inventory/state, profile/model/effort
 binding, fresh/reuse counts, context evidence, account-pool quota evidence,
 recent confirmed calls, expiry/eligibility, and freshness/completeness. This
@@ -20,9 +25,10 @@ coverage rollups, and quota/model/context dependency drill-down remain planned.
 
 **Current-decision correction (2026-10-15):** older paragraphs in the Oct. 13
 proposal describe the absence of a normalized durable ledger. That was accurate
-for the proposal's then-current state, but is superseded here: TDD will extend
-the existing unique `bridge_evidence.kind=session_telemetry` receipt to schema
-v2 and build bounded projections from it. The single-receipt authority remains
+for the proposal's then-current state, but is superseded here: the existing
+unique `bridge_evidence.kind=session_telemetry` receipt already uses
+`schema_version=3`; the remaining monitoring work preserves that contract and
+builds bounded projections from it. The single-receipt authority remains
 unchanged; no parallel facts table is approved.
 
 **Implementation status (2026-10-15):** the delivered slice uses a versioned
@@ -38,8 +44,10 @@ labels, CI selection/concurrency, release SHA/tag binding, history depth, and
 release DAG contracts. The fixes were reviewed to approval; current cumulative
 usage is never differenced, public snapshots label scope/attribution, and the
 release matrix requires all eight current candidate JUnit files. Local focused
-tests and pyright passed. GitHub CI for this revision remains to be run after
-push; the prior Windows full-suite run remains historical evidence only.
+tests and pyright passed. The superseding GitHub Actions run
+[`38727946482`](https://github.com/greatgc-flow/peerhub/actions/runs/38727946482)
+passed on Ubuntu and Windows; its full-suite timings were 6m35s and 28m29s,
+respectively. The earlier run references below are historical evidence only.
 
 ## Peer review
 
@@ -126,7 +134,7 @@ implemented:
 | Requested fact | Current evidence | Exactness limit | Safe statement today |
 |---|---|---|---|
 | Current context occupancy and context-window size | Terminal `session_telemetry` receipts are written with null token/window/percentage values and `source=unknown` | No verified, attributable occupancy/window measurement is wired into the receipt. Record-position watermarks are not tokens. | Unknown; do not infer from billing usage. |
-| Total tokens used over a session or lifetime | Adapters parse some usage fields; results can be attached to response metadata. Bridge keeps a raw latest usage snapshot for native sessions and calculates deltas only under specific conditions. | Providers expose different field semantics; some counters are cumulative, some per-turn, some fields absent. Missing usage is not a zero. Current v1 receipts do not yet provide the proposed normalized schema-v2 usage contract or completeness projection. | Provider-reported usage may be shown for an individual attributable delivery after validation; no exact universal cumulative total. |
+| Total tokens used over a session or lifetime | Adapters parse some usage fields; results can be attached to response metadata. Bridge keeps a raw latest usage snapshot for native sessions and calculates deltas only under specific conditions. | Providers expose different field semantics; some counters are cumulative, some per-turn, some fields absent. Missing usage is not a zero. The original v1 proposal did not have the now-delivered schema-v3 receipt or the remaining coverage projections. | Provider-reported usage may be shown for an individual attributable delivery after validation; no exact universal cumulative total. |
 | Average tokens per turn | Same incomplete, mixed adapter reports | The denominator is unknown when some turns omit counters; cross-model/provider fields may differ. | No general average. A future bounded same-semantics sample may report coverage and a conditional average. |
 | Actual monetary/unit/average billed cost | No persisted authoritative billing amount, invoice linkage, contract tier, discount, or per-request billing evidence | CC documents a client-side estimate, and its Admin API can provide organization/time-bucketed billing evidence for eligible accounts; neither currently provides a reliable amount attributed to each PeerHub delivery across peers. Token counts alone cannot reconstruct actual charges. | Actual per-delivery billed cost is unknown. A CC estimate is a distinct possible metric and must be explicitly labeled, versioned, and scope-validated. |
 | Number of actual model inference turns inside a delivery | Bridge records confirmed deliveries/calls | A CLI delivery may include provider-internal tool/model loops that adapters do not consistently expose. One `session_call` is not necessarily one model inference. | Count confirmed Bridge calls, label them as calls/deliveries, not model turns. |
@@ -528,16 +536,27 @@ and retention assumptions before RED tests begin.
   `session_call` receipt with `clock_domain` (a Bridge process-instance UUID),
   `started_monotonic_ns`, and the sanitized immutable configured
   profile/model/effort binding for that generation. At first terminal commit,
-  persist the same `clock_domain` and `terminal_monotonic_ns` in terminal
-  evidence in the same fenced transaction. Derive
+  persist `clock_domain`, `terminal_monotonic_ns`, and derived integer
+  `elapsed_ns` in the append-only `terminal.detail.peerhub_timing` object in
+  the same fenced transaction. Start and terminal timing objects each use
+  sub-schema version 1; only terminal evidence contains `elapsed_ns`. It is
+  an integer and `latency_reason=null` for a valid pair; otherwise it is null
+  with `latency_reason` set to `missing_start`, `domain_mismatch`, `invalid_ticks`, or
+  `terminal_before_start`. Derive the display field
   `peerhub_started_to_terminal_elapsed_ms` only when both evidence rows belong
   to the same delivery, domains match, values are valid integers, and terminal
   ticks are not less than start ticks. Do not fall back to wall-clock subtraction
   on missing start, retry/recovery, process restart, or domain mismatch. Keep
   wall timestamps for ordering and UTC bucketing. The metric includes all work
   from confirmed Bridge STARTED to terminal receipt; it is not AI/provider
-  duration or an error diagnosis. Store sum/count and missing-start,
-  domain-mismatch, and invalid counts in the peer/day projections. Persist no
+  duration or an error diagnosis. Store integer `latency_sum_ns`/count and
+  missing-start, domain-mismatch, invalid-tick, and terminal-before-start
+  counts in the peer/day projections as disjoint categories. Latency-eligible
+  deliveries require a durable `started` event or a valid `session_call`
+  receipt; a terminal refusal or other request with neither is outside this
+  metric and is not a missing latency sample. `missing_start` means start was
+  confirmed by `started` evidence but its matching `session_call` timing
+  receipt is absent. Persist no
   binding cohorts or histogram yet; use the bounded latest-100 per-delivery
   sample, with its sample size and start-time binding, to inspect outliers.
   Python documents the monotonic clock as non-adjustable with an undefined
@@ -551,12 +570,19 @@ and retention assumptions before RED tests begin.
   telemetry coverage counters (`measured_count`, `absent_count`,
   `unsupported_count`, `unknown_count`, `missing_count`), separate delivery
   and telemetry coverage-start/high-water sequences and completeness flags,
-  `latency_sum_ms`, `latency_count`, `latency_missing_start_count`,
-  `latency_domain_mismatch_count`, `latency_invalid_count`, and
-  `semantics_version`. The denominator is terminal deliveries only. A
+  integer `latency_sum_ns`, `latency_count`, `latency_missing_start_count`,
+  `latency_domain_mismatch_count`, `latency_invalid_count`,
+  `latency_terminal_before_start_count`, and `semantics_version`. These four
+  reason counters are disjoint; invalid ticks exclude terminal-before-start.
+  Only terminal deliveries with durable `started` evidence or a valid
+  `session_call` enter the latency evidence population; never-started terminal
+  refusals are excluded, not classified as missing latency. The denominator for usage coverage remains terminal
+  deliveries only. A
   valid usage-coverage numerator requires an attached `session_telemetry`
-  receipt whose own `certainty='TERMINAL'`; absent, malformed, or mismatched
-  receipts classify as unknown/missing and never measured. Session-cumulative
+  receipt whose own `certainty='TERMINAL'`. A valid receipt without usage is
+  `ABSENT`; no attached receipt is `MISSING`; unsupported known schemas are
+  `UNSUPPORTED`; malformed or mismatched attached receipts are `UNKNOWN`.
+  None of these invalid/missing forms count as `MEASURED`. Session-cumulative
   usage remains non-additive regardless of this coverage classification.
   Existing refusal receipts are `STARTED` and excluded from the denominator.
   Remove the refusal-path `session_telemetry` write (retain refusal evidence
@@ -568,7 +594,8 @@ and retention assumptions before RED tests begin.
 - **Daily trend projection:** add rebuildable
   `bridge_monitor_delivery_day`, primary key
   `(stream_id, peer_id, terminal_day_utc)`, with terminal-delivery count, the
-  five disjoint telemetry-coverage counts, and the same latency sum/count/
+  five disjoint telemetry-coverage counts, and the same integer nanosecond
+  latency sum/count/
   missing/domain-mismatch/invalid counters. `terminal_day_utc` is the UTC
   epoch-day derived from immutable `terminal_at`. It reports terminal volume,
   evidence coverage, and PeerHub-observed elapsed time only, not provider
@@ -592,7 +619,8 @@ and retention assumptions before RED tests begin.
 - **Non-additive evidence:** session-cumulative usage, context samples, and
   pool quota stay point-in-time facts. Keep all accepted telemetry receipts;
   `bridge_session_monitor_stats.latest_telemetry_seq` points to the greatest
-  `(observed_at, evidence_seq)` for that session. Update the pointer in the
+  valid terminal receipt by `(observed_at, evidence_seq)` for that session.
+  Update the pointer in the
   same receipt transaction only when that tuple increases. Equal timestamps
   use the greater evidence sequence. A late receipt remains immutable history
   but cannot regress the pointer; a lower counter is a reset observation,
@@ -610,7 +638,7 @@ and retention assumptions before RED tests begin.
   own reads. Validate the final query plan against production-shaped stores;
   no N+1 reads or full-history scans are permitted. This is an acceptance
   target, not a claim that the current monitor already meets the budget.
-- **Initial frame caps:** 3 peers, 20 stream scopes, 100 session rows, 100
+- **Initial frame caps:** 3 peers, 20 stream scopes per peer, 100 session rows, 100
   latest delivery/receipt rows, and 30 daily buckets from the latest 30 UTC
   days. Each bounded list reads
   `LIMIT cap+1`; the extra row establishes `truncated` and exact `sample_size`
@@ -624,19 +652,20 @@ and retention assumptions before RED tests begin.
   watermark/range, coverage start, and a bounded reason enum. Backfill reads
   immutable sources in monotonic chunks; mark complete only when the scanned
   retained source range proves the watermark and no pruned gap exists.
-  Otherwise show incomplete/unknown. Repair is an explicit offline operation,
+  Otherwise show incomplete/unknown. Repair is an explicit maintenance operation,
   chunked and idempotent; construct replacement projections and publish them
   atomically. Monitor reads never backfill, repair, count the whole history,
   or call providers. `store` group integrity checks remain bounded; full
   integrity scans stay under explicit `diag integrity`. Require
   `EXPLAIN QUERY PLAN` to show indexed scope reads without full-history monitor
   scans, and warmed monitor-frame query/render p95 at or below 150 ms on the
-  existing synthetic
-  5,000-session / 50,000-delivery fixture. If SQLite misses either gate, revise
-  the projection/query plan before implementation; raise the query ceiling to
-  eight only with a benchmark-backed design amendment. This p95 is a
-  performance gate for monitor frame latency, not a per-provider or usage
-  metric; latency output remains average plus recent named samples only.
+  canonical fixture defined in the final packet. Treat p95 as a local
+  engineering acceptance target, not a GitHub-hosted time assertion. If the
+  local target or a deterministic gate fails, revise the projection/query
+  plan before GREEN; raise the query ceiling to eight only with a
+  benchmark-backed design amendment. This p95 is a performance metric, not a
+  per-provider or usage metric; latency output remains average plus recent
+  named samples only.
 
 These constraints are unanimous across CC, AG, and CX review rounds. The key
 resolution is that durable projections serve exactly attributable facts;
@@ -652,16 +681,19 @@ and response metadata as immutable API/replay snapshots, not as dashboard
 sources. Monitoring reads the typed receipt and writer-maintained projections;
 no new `bridge_telemetry_facts` table is added.
 
-Version the JSON detail contract (`schema_version=3`) and validate it in the
-Bridge writer. Preserve the existing session/context fields and add provider
-identity, source kind, adapter/CLI/schema versions, capture time, configured
-binding, metric scope, provider-native allowlisted counters, normalized
-counters/formula version, and explicit per-field evidence/coverage states.
-The configured model and provider-resolved model are distinct fields;
-`resolved_model` remains null unless the provider reports it. Schema v2
-receipts stay immutable and are interpreted according to their original
-shape; readers must branch by schema version rather than silently relabel the
-old `model` field.
+The delivered provider-usage slice versions the telemetry detail contract as
+`schema_version=3` and validates it in the Bridge writer. It preserves the
+existing session/context fields and adds provider identity, source kind,
+adapter/CLI/schema versions, capture time, configured binding, metric scope,
+provider-native allowlisted counters, normalized counters/formula version,
+and explicit per-field evidence/coverage states. The configured model and
+provider-resolved model are distinct fields; `resolved_model` remains null
+unless the provider reports it. Legacy v1/v2 telemetry receipts stay
+immutable and are interpreted according to their original shape; readers
+branch by schema version rather than silently relabeling the old `model`
+field. The remaining grouped-monitoring work does not bump this telemetry
+schema; its new `session_call.detail` timing contract is separately versioned
+as v2 in the final packet.
 When stream events are enabled, embed a bounded list of per-delivery safe
 numeric step summaries keyed by deterministic local `step_index`/step type;
 collapse repeated ACTIVE/DONE updates to one terminal step. Cap at 512 steps
@@ -924,11 +956,13 @@ provider CLIs or access the network. Add these contracts to existing USM-01–08
 - **USM-19a — Receipt schema/immutability:** extend the existing
   `session_telemetry` detail with schema v3 under the current unique
   delivery-receipt index; a repeated terminal callback cannot create another
-  receipt or mutate the first. No parallel provider-facts table or duplicate
-  evidence kind exists. Replay `result_json`/response metadata remains
-  immutable API output and is not queried as the monitor ledger. Migration
-  rollback preserves the prior user-version and all evidence if DDL/backfill
-  fails.
+  receipt or mutate the first. This schema-v3 requirement was delivered by
+  A4 and is retained here as history, not a new schema change in the grouped
+  monitor slice. The new `session_call.detail` v2 timing contract is separate.
+  No parallel provider-facts table or duplicate evidence kind exists. Replay
+  `result_json`/response metadata remains immutable API output and is not
+  queried as the monitor ledger. Migration rollback preserves the prior
+  user-version and all evidence if DDL/backfill fails.
 - **USM-20 — Improvement cohorts:** versions, provider, binding, and coverage
   differences remain visible and cannot masquerade as regressions.
 - **USM-21 — Bounded all-groups view:** large stores stay within page/window
@@ -1323,10 +1357,12 @@ Add the following RED contracts to the existing session-monitoring test plan
 before implementing the read model:
 
 - **USM-01 — Scope and completeness:** fixture with multiple peers, streams,
-  live/lost/tombstoned sessions, >20 scopes, missing projection rows, and legacy
+  live/lost/tombstoned sessions, >20 scopes for one peer, missing projection rows, and legacy
   incomplete projections; peer overview reports exact retained totals only
   when complete, otherwise `value=null` with `scope_cap`,
-  `legacy_incomplete`, or `projection_missing` reason. Validate disjoint group
+  `legacy_incomplete`, or `projection_missing` reason. With exactly 20 scopes
+  for a peer all totals remain eligible for exactness; 21 or more scopes for
+  one peer produces `scope_cap`. Validate disjoint group
   and frame status/exit-code precedence.
 - **USM-02 — Call/certainty semantics:** replay, forward certainty transitions,
   refusal, unresolved execution, and pre-start rejection; each delivery
@@ -1398,7 +1434,9 @@ until all three peers approve this exact amended packet.
   expected query count. Test `EXPLAIN QUERY PLAN`, row/byte caps, and absence
   of raw step blobs in summary reads against representative large history.
   Keep one immutable evidence authority; add only rebuildable projections
-  needed by named bounded queries. Do not use an unsupported wall-clock SLO.
+  needed by named bounded queries. Do not claim a portable hosted-runner
+  wall-clock SLO; use deterministic CI gates, with the local p95 acceptance
+  target defined in the final packet.
 - **Privacy and input validation:** test that no prompt/response/tool payload,
   vendor/session identifier, credential, adapter/config filesystem path, or
   request ID reaches telemetry or grouped fields. Keep the existing explicit
@@ -1441,7 +1479,10 @@ the minimum affected live cases, record skips as unverified, then run the
 complete local suite and CI. Do not enable new adapter defaults or persistent
 process reuse based only on monitoring tests.
 
-### Implementation progress (2026-10-15)
+### Historical implementation progress (recorded before this packet)
+
+The table below records the state before the final pre-TDD packet was ratified;
+its open-run and remaining-work notes are historical and superseded below.
 
 | Slice | Result | Verification and review |
 |---|---|---|
@@ -1449,13 +1490,14 @@ process reuse based only on monitoring tests.
 | 1 — AG stream parser contract | Commit `6fd3daff`: bounded allowlist parser, sanitized golden fixture, duplicate-key rejection, fail-closed ordering/state/size checks. | Parser, adjacent adapter, and architecture set: 57 passed; pyright: 0 errors. CX, CC, and AG unanimously approved the final diff. |
 | 2 — Telemetry receipt v2 scaffold | Commit `a2c7c748`: extends the existing unique `session_telemetry` receipt with version, provider/adapter provenance, sanitized binding, and explicit unknown usage/step coverage. Generic result usage is deliberately not promoted. | Targeted adapter/receipt/bridge set: 135 passed; retained-session/adapter subset: 79 passed; pyright: 0 errors. CX, CC, and AG approved. |
 | 3 — PH-T082 projection atomicity | Commit `7649cd1a`: terminal telemetry persistence fails and rolls back if its stats projection is missing; registry initialization reconstructs missing projection rows from durable evidence and leaves unprovable historical counts unknown. | Retained-session tests: 37 passed; pyright: 0 errors; architecture gate: 4 passed. CX, CC, and AG approved. |
-| 4 — A1–A4 receipt semantics and bounded rebuild | Commit `3d59c6ff`: schema-v3 configured/resolved model separation; shared provider-native usage normalization; terminal-delivery usage-coverage aggregate; and indexed per-scope historical projection rebuild. No extension-version runner or parallel telemetry ledger was added. | Tests-only RED preceded implementation. Focused Windows set: 107 passed; pyright: 0 errors; architecture/M2-M3 gates and 5k-session/50k-delivery query plan pass. CC and AG approved the final summary and A3 edge correction. CX unanimously approved the design and schema-v3 choice; full-diff review failed repeatedly with the Codex MCP adapter's `AuthRequired` OAuth error. Draft PR #103 CI run `38722958886` is in progress. |
+| 4 — A1–A4 receipt semantics and bounded rebuild | Commit `3d59c6ff`: schema-v3 configured/resolved model separation; shared provider-native usage normalization; terminal-delivery usage-coverage aggregate; and indexed per-scope historical projection rebuild. No extension-version runner or parallel telemetry ledger was added. | Tests-only RED preceded implementation. Focused Windows set: 107 passed; pyright: 0 errors; architecture/M2-M3 gates and 5k-session/50k-delivery registry-rebuild query plan pass. CC and AG approved the final summary and A3 edge correction. CX later approved the design and schema-v3 choice. The earlier run `38722958886` was cancelled; superseding CI run `38727946482` passed. |
 
 Slice 4 now persists allowlisted provider usage using a shared normalizer and
 reports terminal-delivery receipt coverage. Provider usage remains
 session-cumulative/unattributed where documented; step transport and context
 occupancy/window are still `UNKNOWN` until their adapter contracts are proven.
-Schema-v2 receipts remain immutable and readers must branch by schema version.
+Schema-v3 telemetry receipts remain immutable and readers validate their
+schema version.
 
 Remaining approved slices are: broad bounded monitor group reader/output and
 complete coverage projections (USM-01–08/14/19–24/35); group catalog,
@@ -1470,9 +1512,11 @@ the completed monitoring feature until these remaining slices are done.
 ## 2026-10-15 final pre-TDD ratification packet
 
 This packet supersedes earlier open wording in this document where it differs.
-CC, AG, and CX completed independent critique and follow-up rounds. No monitor
-group implementation has started. TDD may begin only from the contracts below;
-this is the last design checkpoint before writing RED tests.
+Earlier delivered slices cover the session-usage receipt and its current
+projections; the new grouped-monitor frame, selectable groups, preferences,
+delivery/day projections, and latency metric remain unimplemented. CC, AG, and
+CX completed independent critique and follow-up rounds and unanimously
+approved the amended contracts below. TDD may begin from this packet.
 
 ### Accepted scope and source relationships
 
@@ -1495,7 +1539,7 @@ this is the last design checkpoint before writing RED tests.
 - Complete session inventory is `peerhub session list/show` with cursor
   pagination. The monitor shows a latest-100 session sample with sample size,
   window, and truncation/coverage. It also shows an exact retained-history total by peer
-  when the complete set of at most 20 stream-scope projection rows is available.
+  when the complete set of at most 20 stream-scope projection rows per peer is available.
   Add only `retained_session_count` and `retained_complete` to the existing
   `bridge_session_monitor_scope` row, keyed `(stream_id, peer_id)`. Count every
   `bridge_session_history` row, including tombstoned rows. Increment once with
@@ -1508,7 +1552,7 @@ this is the last design checkpoint before writing RED tests.
   `complete=false` and `reason` is one of `scope_cap`, `legacy_incomplete`,
   or `projection_missing`. The lower-bound counts may remain internal; do not
   present them as the peer total. Do not add active/current/eligible gauges.
-  More than 20 scopes truncates the scope sample and makes the peer-wide total
+  More than 20 scopes for any peer truncates that peer's scope sample and makes its total
   incomplete. This minimal gauge was unanimously preferred over lifecycle
   counters; active-state counts are not provider eligibility.
 
@@ -1518,13 +1562,41 @@ this is the last design checkpoint before writing RED tests.
   terminal fields immutable), append-only `bridge_evidence`, session history,
   and quota observations. Keep the unique per-delivery `session_telemetry`
   receipt; add no raw-fact or contribution ledger.
+- Keep schema axes explicit: `session_telemetry.schema_version=3` remains
+  unchanged; its nested provider `usage.schema_version=1` remains unchanged.
+  Version the modified `session_call.detail` as schema 2 (legacy unversioned
+  detail is v1). Store start timing under
+  `session_call.detail.peerhub_timing={schema_version:1,clock_domain,started_monotonic_ns}`
+  and terminal timing under
+  `terminal.detail.peerhub_timing={schema_version:1,clock_domain,terminal_monotonic_ns,elapsed_ns,latency_reason}`.
+  Do not mutate the append-only start receipt with terminal values.
+  `clock_domain` is one process-instance UUID shared by the start and
+  terminal writers. Ticks are strict non-boolean integers in the nonnegative
+  signed-64-bit range. Persist `elapsed_ns` as the integer delta for a valid
+  pair, otherwise null with the four-value `latency_reason` enum above; render
+  milliseconds as `elapsed_ns / 1,000,000`. The call detail also snapshots
+  sanitized `profile`, `model`, and `effort` from the immutable accepted
+  session-generation binding; unavailable optional binding values are null,
+  not copied from current profile configuration.
+- A telemetry receipt is valid for coverage/latest-pointer purposes only when
+  its evidence row's `(stream_id, peer_id, delivery_id)` matches the durable
+  delivery, its kind is `session_telemetry`, its certainty is `TERMINAL`, its
+  supported schema and usage shape validate, and its handle/generation match
+  that delivery's immutable accepted session. An attached malformed,
+  mismatched, nonterminal, or unsupported receipt can never be `MEASURED`;
+  classify unsupported known versions as `UNSUPPORTED` and other attached
+  invalid receipts as `UNKNOWN`. A missing row remains `MISSING`.
 - Add `bridge_monitor_delivery_scope`, primary key `(stream_id, peer_id)`, with
   nonnegative current-state gauges `not_started_count`, `may_have_started_count`,
   `started_count`, `terminal_count`; terminal telemetry coverage counters
   `measured_count`, `absent_count`, `unsupported_count`, `unknown_count`, and
   `missing_count`; `delivery_coverage_start_seq`, `delivery_high_water_seq`,
   `delivery_complete`, `telemetry_coverage_start_seq`,
-  `telemetry_high_water_seq`, `telemetry_complete`, and `semantics_version`.
+  `telemetry_high_water_seq`, `telemetry_complete`, integer
+  `latency_sum_ns`, `latency_count`, `latency_missing_start_count`,
+  `latency_domain_mismatch_count`, `latency_invalid_count`,
+  `latency_terminal_before_start_count`, and
+  `semantics_version`.
   The certainty counters describe each delivery row's current state, not
   cumulative transition volume. On insert, increment `NOT_STARTED`; on a real
   forward certainty transition, decrement the old bucket and increment the
@@ -1540,14 +1612,18 @@ this is the last design checkpoint before writing RED tests.
   `refusal_detected`/`session_call` evidence; they do not create telemetry,
   because they contain no validated usage/context sample. Legacy STARTED
   refusal telemetry remains immutable but never counts as terminal coverage.
-  Repoint `latest_telemetry_seq` during migration to the greatest
-  `certainty='TERMINAL'` receipt by `(observed_at, evidence_seq)`, or null if
-  none exists. For new receipts, advance that pointer only when that tuple is
-  greater; keep late receipts immutable and do not regress the pointer.
+  Repoint `latest_telemetry_seq` during migration to the greatest valid
+  `certainty='TERMINAL'` receipt (using the identity/schema/payload rules
+  above) by `(observed_at, evidence_seq)`, or null if none exists. Invalid,
+  malformed, unsupported, or mismatched terminal receipts never advance it.
+  For new valid receipts, advance that pointer only when the tuple is greater;
+  keep late receipts immutable and do not regress the pointer.
 - Add `bridge_monitor_delivery_day`, primary key
   `(stream_id, peer_id, terminal_day_utc)`, with terminal count, the five
-  disjoint usage-coverage counters, latency sum/count and missing-reason
-  counters, source high-water, completeness, and semantics version. Derive
+  disjoint usage-coverage counters, integer `latency_sum_ns`/`latency_count`,
+  `latency_missing_start_count`, `latency_domain_mismatch_count`,
+  `latency_invalid_count`, `latency_terminal_before_start_count`, source
+  high-water, completeness, and semantics version. Derive
   `terminal_day_utc` from immutable `terminal_at` in UTC epoch days. Latency
   uses same-delivery monotonic call/terminal evidence; do not add provider
   success/error classification or token sums because no universal typed
@@ -1555,64 +1631,131 @@ this is the last design checkpoint before writing RED tests.
   non-additive.
 - Maintain delivery/scope/day projections atomically with existing fenced
   delivery transitions and receipt writes. Backfill by bounded monotonic
-  source-sequence chunks; use delivery and evidence sequence domains
-  separately. Migration rollback restores old schema version, evidence,
-  latest pointers, and projection rows. Completeness is `true` only when the
-  retained source range and no-delete guarantees prove coverage; else retain
-  useful counts but mark them incomplete. Repair is explicit, offline,
-  idempotent, chunked, and atomically publishes replacement projections.
+  source-sequence chunks inside one `BEGIN IMMEDIATE` transaction held from
+  source snapshot through replacement publication. This serializes concurrent
+  Bridge writers, makes concurrent repairs single-file, and ensures readers
+  observe the old or new projection, never a mixed set. If the lock cannot be
+  acquired within the existing SQLite busy policy, fail without changing the
+  old projection and allow an explicit retry. Use delivery and evidence
+  sequence domains separately. Migration rollback restores old schema
+  version, evidence, latest pointers, and projection rows. Completeness is
+  `true` only when the retained source range and no-delete guarantees prove
+  coverage; else retain useful counts but mark them incomplete. Repair is an
+  explicit operation, not ordinary monitor/open work, and uses the same lock,
+  bounded chunks, and atomic publication contract.
 - Every monitor frame shares one pinned read-only SQLite snapshot and a shared
   read model. Hard target: no more than six set-based `SELECT`s total across
   selected groups, not six per group. The six query families and caps,
-  and the `EXPLAIN`/p95 gate are defined above. The usage-coverage reader must
+  and the `EXPLAIN`/performance gates are defined above. The usage-coverage reader must
   consume `bridge_monitor_delivery_scope`, never aggregate every delivery on
-  each frame. If query plans scan full history or warmed p95 exceeds 150 ms on
-  the existing 5,000-session/50,000-delivery fixture, stop and amend this
-  design before implementation; raise the ceiling to eight only with measured
-  evidence.
+  each frame. Deterministic blocking gates are the six-SELECT ceiling, row
+  caps, and indexed plans with no full-history scan. Keep warmed p95 <=150 ms
+  as a blocking local engineering acceptance target on the named fixture
+  below, not a GitHub-hosted elapsed-time assertion. CI may report p95 as
+  informational evidence. If the local target or any deterministic gate is
+  missed, stop and amend the query/projection design before GREEN; raise the
+  query ceiling to eight only with measured evidence.
+
+### Canonical monitor performance fixture
+
+Name the benchmark fixture `monitor_frame_scale_v1` and use it for both
+performance and bounded-query tests: 3 peers × 20 stream scopes per peer;
+20 recent retained sessions per scope (1,200 recent rows total), plus 3,800
+tombstoned rows for 5,000 retained sessions total; 50,000 terminal deliveries
+distributed over those sessions/scopes; 30 UTC day buckets; 8 quota pools per
+peer; and at least 100,000 unrelated rows in the same store (at least 20,000
+each across deliveries, evidence, and observations). Keep the configured caps
+(3 peers, 20 scopes per peer, 100 sessions, 100 recent deliveries, 30 day buckets)
+active. Warm 20 monitor frames and record p95 plus machine, Python, and SQLite
+versions. This consolidates the Oct. 13 workload dimensions and the existing
+5,000-session/50,000-delivery registry-rebuild fixture; the latter alone is
+not evidence for monitor-reader performance.
+
+### GitHub Actions contract
+
+- Pull requests run the full deterministic Ubuntu suite and the six installed
+  package compatibility smoke cells. Windows runs the reviewed
+  `platform_sensitive` inventory for code/test changes and is skipped only for
+  prose-only documentation changes. Run the collection-time reverse check in
+  the full `ubuntu-full` job before its test run; it must prove the checked-in
+  module inventory exactly covers every collected module with tests marked
+  `platform_sensitive`. The Windows job runs the marked tests and verifies
+  every inventory module is present in JUnit with no skips. All new migration,
+  SQLite, clock, and concurrency boundary tests join that inventory in the
+  same RED slice.
+- Pushes to `main` run the full Windows deterministic suite. The scheduled
+  weekly run and explicit release-candidate dispatch run the full 2 OS × 4
+  Python matrix. Publish keeps its existing candidate-bound full matrix and
+  local-only live validation contract.
+- Publish one stable aggregate status that fails on any required job failure,
+  cancellation, missing expected job, or unverified expected lane, while
+  accepting only intentional docs-only Windows skips. PR runs cancel when
+  superseded; non-PR runs use unique run IDs so pushes and candidate dispatches
+  do not replace one another in the concurrency queue.
+- Keep live/quota-consuming tests out of GitHub Actions. Upload CI JUnit only
+  when useful for failure diagnosis, use short retention and overwrite-safe
+  reruns, and publish duration/skip summaries. Do not add xdist to the
+  reference gate without a separate measured pilot and shared-state audit.
 
 ### TDD execution packet
 
 Start RED in the order below, keeping provider/network probes out of the
-deterministic suite. Each test must fail against current code for the stated
-reason; peers do not run tests, and the owner verifies every patch.
+deterministic suite. Each new test must fail against current code for the
+stated reason. Peers independently review designs and diffs; the owner runs
+tests and verifies every patch.
 
-1. **Receipt and clock correctness:** extend
+0. **CI contracts:** update `tests/communication/package/test_ci_workflow.py`
+   and `tools/ci_platform.py` tests for the marker-to-inventory reverse check,
+   docs-only Windows skip, main full-suite lane, stable aggregate status,
+   non-PR unique concurrency, failure-only artifact retention/rerun behavior,
+   and explicit exclusion of live/quota tests. First prove each new contract
+   fails against the current workflow.
+1. **Refusal and receipt identity:** extend
    `tests/communication/bridge/test_retained_sessions.py` and
    `tests/communication/test_provider_refusal.py`. Prove a refusal writes no
    telemetry receipt and does not advance `latest_telemetry_seq`; legacy
    STARTED receipt pointers migrate to latest terminal receipt or null; pointer
    update is monotone by `(observed_at, seq)` including equal timestamps,
-   out-of-order arrival, duplicate receipt, counter decrease, and injected
-   rollback. A refusal receipt never makes a terminal delivery `MEASURED`.
-   Inject a process-instance clock domain and monotonic ticks; normal start and
+   out-of-order arrival, duplicate receipt, counter decrease, malformed and
+   mismatched terminal receipts, and injected rollback. Invalid receipts never
+   advance the pointer. Validate receipt scope, delivery, handle, generation, certainty,
+   version and payload shape. A refusal receipt never makes a terminal
+   delivery `MEASURED`.
+2. **Clock and immutable binding:** inject a process-instance clock domain and
+   monotonic ticks; normal start and
    terminal in one domain produce the exact elapsed milliseconds, while a
    different domain/restart, missing start, non-integer/negative ticks, and
-   terminal-before-start produce no duration and increment the distinct reason
-   count. Duplicate terminal callbacks do not alter a committed sample. The
-   stored sample includes the immutable configured profile/model/effort from
-   the generation at call start, never the current profile configuration.
-2. **Projection atomicity and migration:** add tests under
+   terminal-before-start produce no duration and increment their distinct
+   reason counters. Duplicate terminal callbacks do not alter a committed sample. The
+   `session_call` v2 detail and timing sub-object v1 validate strict fields.
+   The stored binding is captured at call start, never read from current
+   profile configuration. Keep `session_telemetry` v3 and nested usage v1
+   unchanged.
+3. **Projection atomicity and migration:** add tests under
    `tests/communication/diag/` for each certainty transition, idempotent
    duplicate, terminal coverage categories (all five disjoint), missing and
    mismatched receipts, UTC day boundaries, session retained count creation,
    grouped backfill completeness, deliberate gap/incomplete coverage, chunked
    rebuild idempotency, migration fault rollback, no evidence rewriting,
-   delivery-scope latency sum/count, UTC-day split, missing/domain-mismatch/
-   invalid counters, and composition-sensitive labeling. Test absent/zero
+   delivery-scope latency sum/count, UTC-day split, all four disjoint latency
+   reason counters (including terminal-before-start), and composition-sensitive
+   labeling. Prove concurrent
+   writers serialize behind `BEGIN IMMEDIATE`, concurrent repair is safe, and
+   lock failure/crash leaves the old projection intact. Test absent/zero
    separately; no provider error or AI-only latency is fabricated.
-3. **Bounded read model:** extend
+4. **Bounded read model:** extend
    `tests/communication/diag/test_diag_monitor_read_model.py` with the six
    shared SELECT budget, one pinned snapshot, set-based joins, cap+1 and
    sample-size/truncation behavior at every bounded list (monitor has no cursor
    protocol; session list/show cursor tests remain controls),
-   no provider calls, and stable per-metric completeness. Measure the warmed
-   monitor-frame p95 as a performance gate, not a usage percentile. Use the
-   existing 5,000-session/50,000-delivery fixture; assert `EXPLAIN QUERY PLAN`
-   uses the scope/session/delivery/evidence indexes and no monitor query scans
-   full history. Run warmed 20-frame p95 and record the result; require <=150ms
-   on the task environment or amend design with evidence before RED closes.
-4. **Group/config behavior:** add focused E2E cases in
+   no provider calls, and stable per-metric completeness. Use
+   `monitor_frame_scale_v1`; assert `EXPLAIN QUERY PLAN` uses the
+   scope/session/delivery/evidence indexes and no monitor query scans full
+   history. Six SELECTs, index/scan assertions, and row caps are deterministic
+   CI gates. Run the warmed 20-frame p95 locally, record the result and
+   environment, and require <=150ms before GREEN; CI may report it without a
+   wall-clock assertion.
+5. **Group/config behavior:** add focused E2E cases in
    `tests/communication/e2e/test_cli_monitor.py` for catalog ordering,
    selection/deduplication/`all`, invalid group rejection before DB/provider,
    exact defaults, workspace/global/package precedence, corrupt-file error
@@ -1621,14 +1764,14 @@ reason; peers do not run tests, and the owner verifies every patch.
    existing `--view`, JSON/NDJSON, cycle/interval, first frame, store selection,
    and quota refresh cadence as compatibility controls. Every watch frame uses the
    one shared read model and selected groups never change collection.
-5. **Field ownership and dependencies:** fixture-test profile source layer,
+6. **Field ownership and dependencies:** fixture-test profile source layer,
    configured vs resolved model, model/effort binding snapshot per generation,
    account-pool quota with no session allocation, context only from one
    compatible fresh sample, cumulative usage only as latest unattributed
    snapshot, and cost estimate null absent a delivery-scoped counter plus
    provider-resolved model. Every output field belongs to one group; summary
    repetition links to owner/coverage.
-6. **CLI/effect/privacy gates:** update
+7. **CLI/effect/privacy gates:** update
    `tools/command_inventory.py`,
    `tests/communication/e2e/cli_extension_effects.py`, JSON schema snapshots,
    and README/help snapshots. Prove monitor groups/defaults do not open/write
