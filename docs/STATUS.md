@@ -36,10 +36,10 @@ candidate-matched full G3 release gate, which also passed at the tagged commit.
 live evidence applies only to its recorded revision. The v0.16.0 release
 completed the gates in [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 
-**Release candidate: v0.16.1.** This candidate adds grouped monitoring for session, delivery, usage, context, runtime provenance, capacity, coverage, and store health. Monitoring uses a shared snapshot, bounds scope reads, and never invokes provider CLIs. Capacity preserves typed quota projections and provenance; unsupported context values remain unknown. Publication is pending the candidate CI, package, and live-provider gates. See the [CHANGELOG](../CHANGELOG.md) for user-facing notes.
+**Released on 2026-10-16.** [v0.16.1](https://github.com/greatgc-flow/peerhub/releases/tag/v0.16.1) adds grouped monitoring for session, delivery, usage, context, runtime provenance, capacity, coverage, and store health. Monitoring uses a shared snapshot, bounds scope reads, and never invokes provider CLIs. Capacity preserves typed quota projections and provenance; unsupported context values remain unknown. The candidate-matched G3 gate passed all 12 live cases on commit `ab3aef83f047f495c1a33e7848c6262d15e38e83`; sanitized provider details are recorded in [live evidence](implementation/live_evidence/2026-10-15.json). See the [CHANGELOG](../CHANGELOG.md) for user-facing notes.
 ## Remaining work
 
-| Track | Done / remaining after v0.16.0 | Design SSOT |
+| Track | Done / remaining after v0.16.1 | Design SSOT |
 |---|---|---|
 | Stuck streams | PRs 1-3 complete. Quota admission and automatic settlement are proposed for removal/deferment; audited `stream resolve` still requires final contract review. | [Proposed Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md#3-coherent-prerequisite-dag-and-implementation-slices) |
 | Monitoring v2 | Shared snapshot/schema, bounded session inspection, and observation/activity projections are implemented. Core record totals and per-stream counts still scan history; stores without observation projections use a compatibility full scan until their next writer initializes the projection. Representative-store latency measurements and any further bounded-history design remain open. | [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md) |
