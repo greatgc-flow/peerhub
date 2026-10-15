@@ -7,11 +7,11 @@ and `peerhub/config_data/model-defaults.toml`; historical snapshots under
 
 ## Supported surface
 
-| Peer | Binary / observed version (2026-10-13) | Input / output | Invocation |
+| Peer | Binary / locally observed version | Input / output | Invocation |
 |---|---|---|---|
-| `ag` | `agy.exe` 1.3.3 | `-p` argument / flat JSON | new |
-| `cc` | `claude.cmd` 2.1.296 | stdin / stream JSON | new |
-| `cx` | `codex.cmd` 0.162.1 | stdin / JSONL events | `exec`, `exec resume` |
+| `ag` | `agy.exe` 1.3.5 (local probe, 2026-10-15) | `-p` argument / flat JSON | new |
+| `cc` | `claude.cmd` 2.1.299 (local probe, 2026-10-15) | stdin / stream JSON | new |
+| `cx` | `codex.cmd` 0.162.1 (local probe, 2026-10-15) | stdin / JSONL events | `exec`, `exec resume` |
 
 Models and efforts for all providers are defined in the
 [model profile manifest](../model-profiles/model-profiles.json).
@@ -32,6 +32,10 @@ the selected binding on every call. Uncertain work blocks all selectors.
 
 Exact invocation and decoder details are in [ag.md](ag.md), [cc.md](cc.md), and
 [cx.md](cx.md).
+
+See the [Peer CLI option audit](../design/peer-cli-option-audit-2026-10-15.md)
+for locally checked optional flags, legacy findings, and options that need
+canaries before changing the production invocation.
 
 ## Verify and troubleshoot
 

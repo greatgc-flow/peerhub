@@ -5,7 +5,7 @@ This page documents the current production contract. Historical migration notes 
 
 ## Current contract
 
-- Executable: `claude.cmd` (observed version `2.1.296` on 2026-10-13)
+- Executable: `claude.cmd` (observed version `2.1.299` on 2026-10-15; local probe)
 - Transport: process pipe; the prompt is written to standard input
 - Output: stream JSON; `result` is canonical text, `is_error` marks vendor
   failure.

@@ -13,7 +13,7 @@ from tests.communication.fakes.runtime import NativeRuntimeTarget
 from tests.communication.harness.bridge import BridgeHarness
 from tests.communication.helpers import req
 
-pytestmark = [pytest.mark.integration, pytest.mark.bridge]
+pytestmark = [pytest.mark.integration, pytest.mark.bridge, pytest.mark.platform_sensitive]
 
 
 def add(h, key, **kw):
@@ -208,21 +208,23 @@ def test_fresh_projection_remains_bounded(tmp_path):
     assert details(h, result)["effective_mode"] == "fresh"
 
 
-@pytest.mark.parametrize("kind", ["cx", "ag"])
-def test_cumulative_usage_reports_delta_and_omits_decreased_counters(tmp_path, kind):
+@pytest.mark.parametrize("kind", ["cc", "cx", "ag"])
+def test_cumulative_usage_is_unattributed_and_never_differenced(tmp_path, kind):
     h = BridgeHarness(tmp_path / "ws")
     bseed(h)
     rt = NativeRuntimeTarget()
     rt.runtime_kind = kind
-    for key, raw, expected in [(None, {"input_tokens": 100, "output_tokens": 20}, {"input_tokens": 100, "output_tokens": 20}),
-                               ("second", {"input_tokens": 130, "output_tokens": 25}, {"input_tokens": 30, "output_tokens": 5}),
-                               ("third", {"input_tokens": 5, "output_tokens": 1}, None)]:
+    for key, raw in [(None, {"input_tokens": 100, "output_tokens": 20}),
+                     ("second", {"input_tokens": 130, "output_tokens": 25}),
+                     ("third", {"input_tokens": 5, "output_tokens": 1})]:
         if key:
             add(h, key)
         terminal(rt, raw)
         result = h.delivery_cycle("b", "s", rt)
         meta = json.loads(sql(h, "SELECT metadata_json FROM records WHERE record_id=?", (result.response_record_id,))[0][0])
-        assert meta.get("usage") == expected
+        assert meta.get("usage") == raw
+        assert meta["usage_scope"] == "session_cumulative"
+        assert meta["usage_attribution"] == "unattributed"
         assert json.loads(h.current_mapping("b", "s")["usage_json"]) == raw
 
 
@@ -255,7 +257,7 @@ def test_legacy_rows_migrate_with_null_native_columns_idempotently(tmp_path):
 
 @pytest.mark.parametrize("point", ["bridge.after_terminal_evidence_before_response_append",
                                    "bridge.after_terminal_evidence_before_offset_ack"])
-def test_terminal_recovery_keeps_usage_delta_and_watermark(tmp_path, point):
+def test_terminal_recovery_keeps_cumulative_usage_scope_and_watermark(tmp_path, point):
     crash = CrashInjector()
     h = BridgeHarness(tmp_path / "ws", fault_hook=crash)
     bseed(h)
@@ -274,13 +276,17 @@ def test_terminal_recovery_keeps_usage_delta_and_watermark(tmp_path, point):
     result = h.delivery_cycle("b", "s", rt)
     assert result.status == "recovered_terminal" and rt.calls == calls
     (metadata,) = sql(h, "SELECT metadata_json FROM records WHERE record_id=?", (result.response_record_id,))[0]
-    assert json.loads(metadata)["usage"] == {"input_tokens": 20}
+    assert json.loads(metadata)["usage"] == {"input_tokens": 120}
+    assert json.loads(metadata)["usage_scope"] == "session_cumulative"
+    assert json.loads(metadata)["usage_attribution"] == "unattributed"
     assert h.current_mapping("b", "s")["context_watermark"] == sql(h, "SELECT record_position FROM bridge_deliveries WHERE delivery_id=?", (result.delivery_id,))[0][0]
     add(h, "third")
     terminal(rt, {"input_tokens": 125})
     third = h.delivery_cycle("b", "s", rt)
     meta = json.loads(sql(h, "SELECT metadata_json FROM records WHERE record_id=?", (third.response_record_id,))[0][0])
-    assert meta["usage"] == {"input_tokens": 5}
+    assert meta["usage"] == {"input_tokens": 125}
+    assert meta["usage_scope"] == "session_cumulative"
+    assert meta["usage_attribution"] == "unattributed"
 
 
 def test_generic_contract_keeps_local_resume_and_exact_evidence(tmp_path):

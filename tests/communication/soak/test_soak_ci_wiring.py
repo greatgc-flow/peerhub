@@ -19,7 +19,7 @@ def test_soak_workflow_is_scheduled_non_blocking_and_uploads_evidence():
     assert triggers["schedule"][0]["cron"].split() and len(triggers["schedule"][0]["cron"].split()) == 5
     assert "push" not in triggers and "pull_request" not in triggers
     job = wf["jobs"]["soak"]
-    assert job["continue-on-error"] is True
+    assert job.get("continue-on-error") is not True
     assert job["env"]["PEERHUB_SOAK"] == "1" and "PEERHUB_SOAK_EVIDENCE_DIR" in job["env"]
     runs = " ".join(s.get("run", "") for s in job["steps"])
     assert "-m soak" in runs and "tests/communication/soak" in runs
@@ -35,7 +35,9 @@ def test_soak_is_g6_non_blocking_and_publish_does_not_depend_on_it():
     assert "soak" not in (WF / "publish.yml").read_text(encoding="utf-8").lower()
     publish = load("publish.yml")["jobs"]
     assert "verify" in publish and not publish["verify"].get("needs")
-    assert set(publish["publish"]["needs"]) == {"verify", "live-validation", "build", "release-evidence"}
+    assert set(publish["publish"]["needs"]) == {
+        "verify", "live-validation", "build", "matrix", "release-matrix", "release-evidence",
+    }
     for name in ("ci.yml", "publish.yml"):
         for job in load(name)["jobs"].values():
             assert "soak" not in str(job.get("needs", ""))

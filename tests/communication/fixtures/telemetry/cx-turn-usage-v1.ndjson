@@ -1,0 +1,2 @@
+{"type":"item.completed","item":{"type":"agent_message","text":"answer-fragment-sentinel"}}
+{"type":"turn.completed","thread_id":"cx-vendor-thread-sentinel","usage":{"input_tokens":18351,"cached_input_tokens":18176,"cache_write_input_tokens":0,"output_tokens":10,"reasoning_output_tokens":0}}

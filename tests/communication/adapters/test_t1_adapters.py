@@ -15,12 +15,13 @@ import pytest
 from peerhub.extensions.adapters import CliRuntimeTarget, Sanitizer, process, run_bounded
 from peerhub.extensions.adapters.base import SPECS
 from peerhub.extensions.bridge import PrespawnError, RuntimeTargetError
+from peerhub.extensions.ask import ask
 from tests.communication.adapters.conftest import FAKE, calls
 from tests.communication.bridge_helpers import bseed, delivery_rows, kinds, offset_row, responses, sql
 from tests.communication.control_helpers import ctl, running
 from tests.communication.harness.bridge import BridgeHarness
 
-pytestmark = [pytest.mark.integration, pytest.mark.bridge, pytest.mark.security]
+pytestmark = [pytest.mark.integration, pytest.mark.bridge, pytest.mark.security, pytest.mark.platform_sensitive]
 KINDS = ["cc", "cx", "ag"]
 SECRET = "Zq9-hunter2-s3cr3t-value"
 
@@ -60,7 +61,7 @@ def test_t1_success_events_and_invocation_shape(mk, kind):
     a = mk(kind, model="m-test", effort="low" if kind != "ag" else None)
     ev = drain(a.deliver(a.create_session(), rec(), []))
     assert [e[0] for e in ev] == ["started", "terminal"] and ev[1][1]["response"] == "OK"
-    assert set(ev[1][1]) <= {"response", "usage", "vendor_session"}
+    assert set(ev[1][1]) <= {"response", "usage", "vendor_session", "provider_telemetry"}
     (c,) = calls(mk.log)
     assert os.path.samefile(c["cwd"], mk.ws)
     assert "Reply with OK" in c["prompt"]
@@ -80,7 +81,18 @@ def test_t1_bridge_roundtrip_is_terminal_with_durable_response(tmp_path, mk, kin
     receipts = kinds(h, delivery_rows(h, r.record_id)[-1][0])
     assert receipts[-4:] == ["terminal", "session_telemetry", "response_appended", "offset_acked"]
     assert receipts.count("session_call") == receipts.count("session_telemetry") == 1
+    telemetry_rows = sql(h, "SELECT detail FROM bridge_evidence WHERE kind='session_telemetry'")
+    telemetry = json.loads(telemetry_rows[0][0])
+    assert telemetry["schema_version"] == 3
+    assert telemetry["provider_kind"] == kind and telemetry["adapter_version"] == "2"
+    assert telemetry["configured_binding"] == {"profile": None, "model": None, "effort": None}
     assert offset_row(h)[0] == r.position
+
+
+def test_t1_ask_keeps_internal_provider_telemetry_out_of_public_result(tmp_path, mk):
+    result = ask(tmp_path / "core.db", "b", "Reply with OK", runtime=mk("cc"), workspace=mk.ws)
+    assert result["status"] == "delivered"
+    assert "provider_telemetry" not in result
 
 
 def test_t1_prompt_is_passed_literally_without_shell(mk):

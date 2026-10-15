@@ -3,6 +3,8 @@ import sys
 
 import pytest
 
+pytestmark = pytest.mark.platform_sensitive
+
 from peerhub.extensions.adapters.process import BoundedProcess
 from peerhub.extensions.adapters import CliRuntimeTarget
 from tests.communication.adapters.conftest import FAKE

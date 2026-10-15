@@ -342,7 +342,7 @@ def workflow_problems(wf):
     if mx is None:
         bad.append("publish.yml needs a `matrix` job that proves every declared Python x OS cell for this candidate")
     else:
-        ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]["build"]["strategy"]["matrix"]
+        ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]["full-matrix"]["strategy"]["matrix"]
         declared = {"os": sorted(ci["os"]), "python-version": sorted(ci["python-version"])}
         got = mx.get("strategy", {}).get("matrix", {})
         if {"os": sorted(got.get("os", [])), "python-version": sorted(got.get("python-version", []))} != declared:
@@ -359,13 +359,18 @@ def workflow_problems(wf):
             bad.append("matrix job must fail closed")
         if "matrix" not in wf["jobs"]["release-evidence"]["needs"] or "junit/g4-matrix-" not in ev_run:
             bad.append("release-evidence must need the matrix job and read its per-cell JUnit files")
+    if ("release-matrix" not in wf["jobs"]["release-evidence"].get("needs", [])
+            or "release-matrix" not in wf["jobs"]["publish"].get("needs", [])
+            or "${#rc_junits[@]} -ne 8" not in ev_run or "g2-rc-matrix-" not in ev_run):
+        bad.append("release evidence and publish must require all eight release-candidate matrix cells")
     pub = wf["jobs"]["publish"]
     cond = str(pub.get("if", ""))
     if "github.event_name == 'release'" not in cond:
         bad.append("publish must require a release event")
     if any(f in cond for f in ("always()", "failure()", "cancelled()", "!cancelled()")):
         bad.append("publish must not override the implicit success() of its needs")
-    if "release-evidence" not in pub["needs"] or not set(j for j, _, _ in GATE_JOBS) | {"verify"} <= set(pub["needs"]):
+    if ("release-evidence" not in pub["needs"] or "release-matrix" not in pub["needs"]
+            or not set(j for j, _, _ in GATE_JOBS) | {"verify"} <= set(pub["needs"])):
         bad.append("publish must need every gate job and release-evidence")
     evj = wf["jobs"]["release-evidence"]
     if evj.get("continue-on-error"):

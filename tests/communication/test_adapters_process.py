@@ -22,6 +22,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytestmark = pytest.mark.platform_sensitive
+
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult
 from peerhub.extensions.bridge import RuntimeTargetError

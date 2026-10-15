@@ -13,7 +13,7 @@ import pytest
 from peerhub.extensions.adapters import CliRuntimeTarget, process
 from peerhub.extensions.bridge import RuntimeTargetError
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.platform_sensitive]
 
 
 def alive(pid):

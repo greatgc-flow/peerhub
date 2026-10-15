@@ -1,0 +1,1 @@
+{"type":"result","is_error":false,"session_id":"cc-vendor-session-sentinel","result":"answer-fragment-sentinel","usage":{"input_tokens":10418,"cache_read_input_tokens":8113,"cache_creation_input_tokens":100,"output_tokens":589}}

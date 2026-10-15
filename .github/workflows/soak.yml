@@ -18,7 +18,6 @@ jobs:
   soak:
     runs-on: ubuntu-latest
     timeout-minutes: 180
-    continue-on-error: true
     env:
       PEERHUB_SOAK: "1"
       PEERHUB_SOAK_SCALE: ${{ github.event.inputs.scale || 'moderate' }}

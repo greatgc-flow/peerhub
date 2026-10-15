@@ -5,7 +5,7 @@ This page documents the current production contract. Historical migration notes 
 
 ## Current contract
 
-- Executable: `codex.cmd` (observed version `0.162.1` on 2026-10-13)
+- Executable: `codex.cmd` (observed version `0.162.1` on 2026-10-15; local probe)
 - Transport: process pipe; the UTF-8 prompt is written to standard input (`-`)
 - Output: JSON Lines events; completed `agent_message` items form canonical
   text.

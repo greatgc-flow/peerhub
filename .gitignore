@@ -59,3 +59,7 @@ r[0-9]*_deadline_*/
 pytest-cache-files-*/
 tmp[a-z0-9]*/
 search_output.txt
+
+# Local test and read-only review artifacts
+junit/
+.peerhub-review-*.txt

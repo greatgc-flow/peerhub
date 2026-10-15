@@ -264,6 +264,63 @@ def monitor_effect(e, option):
     elif option == "--json": import json; assert "cycle" in json.loads(out.splitlines()[0])
 
 
+def monitor_management_effect(e, argv, *, needs_bridge=False):
+    import os
+    from pathlib import Path
+    from tests.communication.bridge_helpers import bseed
+    from tests.communication.harness.bridge import BridgeHarness
+
+    db = e.tmp / "monitor-management" / "core.db"
+    env_dir = e.tmp / "monitor-config-home"
+    with patch.dict(os.environ, {"PEERHUB_CONFIG_HOME": str(env_dir)}), \
+         patch("pathlib.Path.cwd", return_value=e.tmp):
+        if needs_bridge:
+            from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
+            harness = BridgeHarness(db.parent)
+            bseed(harness)
+            harness.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+        code, out, _ = e.run(db, *argv)
+        assert code == 0
+        if "--json" in argv:
+            payload = json.loads(out)
+            assert payload["status"] in ("OK", "PARTIAL")
+        if not needs_bridge:
+            assert not db.exists()
+
+
+def monitor_groups_effect(e, _option):
+    monitor_management_effect(e, ["monitor", "groups", "--json"])
+
+
+def monitor_defaults_show_effect(e, _option):
+    monitor_management_effect(e, ["monitor", "defaults", "show", "--json"])
+
+
+def monitor_defaults_set_effect(e, option):
+    args = ["monitor", "defaults", "set", "--group", "usage", "sessions", "--json"]
+    if option == "--global":
+        args.insert(3, "--global")
+    monitor_management_effect(e, args)
+
+
+def monitor_defaults_reset_effect(e, option):
+    args = ["monitor", "defaults", "reset", "--json"]
+    if option == "--global":
+        args.insert(3, "--global")
+    monitor_management_effect(e, args)
+
+
+def monitor_snapshot_effect(e, option):
+    monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True)
+
+
+def monitor_repair_effect(e, option):
+    args = ["monitor", "repair", "--json"]
+    if option == "--chunk-size":
+        args += ["--chunk-size", "10"]
+    monitor_management_effect(e, args, needs_bridge=True)
+
+
 def profile_effect(e, command, option):
     workspace = e.tmp / "profiles-workspace"
     workspace.mkdir(exist_ok=True)
@@ -348,6 +405,17 @@ EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refres
                for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
                for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--allow-agy-token-use", "--collect-every", "--view")})
+EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, ["monitor", "groups", "--json"]),
+               "monitor defaults show --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "show", "--json"]),
+               "monitor defaults set --global": lambda e: monitor_management_effect(e, ["monitor", "defaults", "set", "--global", "--group", "usage"]),
+               "monitor defaults set --group": lambda e: monitor_management_effect(e, ["monitor", "defaults", "set", "--global", "--group", "usage"]),
+               "monitor defaults set --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "set", "--global", "--group", "usage", "--json"]),
+               "monitor defaults reset --global": lambda e: monitor_management_effect(e, ["monitor", "defaults", "reset", "--global"]),
+               "monitor defaults reset --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "reset", "--global", "--json"]),
+               "monitor --snapshot": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
+               "monitor --group": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
+               "monitor repair --chunk-size": lambda e: monitor_management_effect(e, ["monitor", "repair", "--chunk-size", "1", "--json"], needs_bridge=True),
+               "monitor repair --json": lambda e: monitor_management_effect(e, ["monitor", "repair", "--json"], needs_bridge=True)})
 EFFECT.update({f"profile list {option}": (lambda e, option=option: profile_effect(e, "list", option))
                for option in ("--workspace", "--format")})
 EFFECT.update({"profile show profile": lambda e: profile_effect(e, "show", "profile"),

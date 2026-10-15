@@ -19,7 +19,7 @@ from tests.communication.harness.core import CoreHarness
 from tests.communication.harness.crash_workers import CRASH_EXIT, core_append_crash_worker, spawn_exitcode
 from tests.communication.helpers import req, seed
 
-pytestmark = [pytest.mark.fault, pytest.mark.sqlite]
+pytestmark = [pytest.mark.platform_sensitive, pytest.mark.fault, pytest.mark.sqlite]
 
 
 # --------------------------------------------------------------------------- independent oracles (raw SQL / hashlib only)

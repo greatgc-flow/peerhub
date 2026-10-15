@@ -23,6 +23,8 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 ## Active Design & Plans
 - [Pre-TDD Renewal (October 2026)](design/peerhub-pre-tdd-renewal-2026-10-14.md): Reconciled architecture and numbered RED contracts; no implementation authorized by this design stage.
 - [CLI, Monitoring, and Inspection Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md): MECE command boundaries, profile/session inspection, read-only guarantees, bounded snapshots, human/AI defaults, and PH-T095–105.
+- [Session Usage Monitoring and Telemetry Design](design/peerhub-session-usage-monitoring-review-2026-10-15.md): Peer-specific telemetry evidence, CX cross-review, unknowns, MECE monitor groups/defaults, the existing single-receipt schema-v2 decision, live/exception TDD plan, and USM-01–35 contracts.
+- [Peer CLI Option Audit](design/peer-cli-option-audit-2026-10-15.md): Installed CLI option evidence, legacy cross-check, paid canary results, apply/defer decisions, and required permission/session/streaming canaries.
 - [Deepthink Debate Ledger](design/peerhub-deepthink-debate-2026-10-14.md): Debate provenance and corrections; records the three scoped pre-TDD design GOs and remaining implementation/owner/empirical gates.
 - [Retained Session Contract](implementation/RETAINED_SESSIONS.md): Registry migration, retention, immutable replay, receipts and current ask output (PR1-3 committed).
 - [Canonical Session Sequence](design/analysis-session-reuse-as-is-2026-10-13.md#one-reconciled-pr-sequence): Existing sequence and implementation evidence; PR1-3 and health fixes are committed (`cfb28aba`). Proposed revisions remain candidates until pre-TDD closure.

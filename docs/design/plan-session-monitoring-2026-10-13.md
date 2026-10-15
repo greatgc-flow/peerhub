@@ -17,6 +17,14 @@ envelopes or authorize telemetry-driven switching. PR1, PR2, and PR3 are committ
 The proposed architecture for inspection, telemetry, and monitoring has been updated
 in the authoritative [Pre-TDD Renewal](peerhub-pre-tdd-renewal-2026-10-14.md) and
 [Debate Ledger](peerhub-deepthink-debate-2026-10-14.md).
+The 2026-10-15 [Session Usage Monitoring and Telemetry Design](peerhub-session-usage-monitoring-review-2026-10-15.md)
+extends the existing `session_telemetry` receipt with versioned provider usage,
+scope, provenance, and coverage fields while preserving PH-T091's single
+`bridge_evidence` receipt authority; its newer contract supersedes the narrow
+field list below for telemetry additions. The accompanying [Peer CLI Option
+Audit](peer-cli-option-audit-2026-10-15.md) records live canary results and
+candidate flags. The earlier session/monitor field proposal below remains
+historical context where the newer documents do not amend it.
 Proposed schema and interfaces below remain reference designs. All defaults are testable pending owner review.
 
 The [CLI/Monitoring Addendum](peerhub-cli-monitoring-inspection-2026-10-14.md)

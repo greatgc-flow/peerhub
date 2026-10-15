@@ -8,7 +8,7 @@ import pytest
 from peerhub.extensions.adapters import base
 from peerhub.extensions.bridge import RuntimeTargetError
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.platform_sensitive]
 
 CC = '{"type":"result","subtype":"success","is_error":false,"result":"OK","session_id":"opaque.A_1:-"}\n'
 CX = ('{"type":"thread.started","thread_id":"opaque.A_1:-"}\n'
@@ -128,14 +128,20 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypat
     expected = {"response": "OK", "vendor_session": {"id": "opaque.A_1:-", "source": source}}
     if kind in ("cx", "ag"):
         expected["usage"] = {"input_tokens": 200, "cached_input_tokens": 150, "output_tokens": 10}
-    assert first[-1] == ("terminal", expected)
+    actual = first[-1][1]
+    telemetry = actual.pop("provider_telemetry")
+    assert actual == expected
+    assert telemetry["schema_version"] == 1
+    assert telemetry["scope"] == "session_cumulative"
     assert invocations[-1][0] == ["fake.exe", *base.SPECS[kind].argv(None, None, "question")]
     assert adapter.can_resume is True and adapter.resumable is True
     assert base.SPECS[kind].can_resume is True
     assert adapter.resume_session(session) == "missing"
     outcome = adapter.resume_session(session, vendor_session_id=first[-1][1]["vendor_session"]["id"])
     assert outcome == "ok"
-    assert list(adapter.deliver(session, record, []))[-1] == ("terminal", expected)
+    resumed = list(adapter.deliver(session, record, []))[-1][1]
+    assert resumed.pop("provider_telemetry") == telemetry
+    assert resumed == expected
     assert invocations[-1][0] == ["fake.exe", *base.SPECS[kind].argv(
         None, None, "question", vendor_session_id="opaque.A_1:-")]
     assert invocations[-1][1]["stdin"] == (None if kind == "ag" else b"question")

@@ -1,6 +1,6 @@
 """Local-only live provider gate: runs the real claude/codex/agy canaries (spends provider quota).
 
-Never run from CI. Usage: python -m tools.live_gate --yes [--only live|slow|e2e|canary] [--peer cc|cx|ag] [--out DIR] [--allow-dirty]
+Never run from CI. Usage: python -m tools.live_gate --yes [--only live|slow|e2e|canary] [--peer cc|cx|ag] [--out DIR]
 Writes one JUnit file per stage (g3.xml, g3-slow.xml, g3-e2e.xml) and binds each to the candidate commit (tools.release_evidence
 stamp, gate G3), so the files can be attached to a release as the G3 evidence. A dirty working tree is refused: the stamped
 revision must describe the code that was tested. --only canary runs optional measurements separately,
@@ -29,7 +29,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--yes", action="store_true", help="acknowledge that this spends real provider quota")
     ap.add_argument("--only", choices=[s[0] for s in (*STAGES, CANARY_STAGE)], help="run a single stage")
     ap.add_argument("--peer", choices=("cc", "cx", "ag"), help="with --only live/canary: select one peer to reduce quota use")
-    ap.add_argument("--allow-dirty", action="store_true", help="stamp even though the working tree has uncommitted changes")
     ap.add_argument("--out", type=Path, default=ROOT / ".peerhub" / "work" / "live-gate", help="JUnit output directory")
     args = ap.parse_args(argv)
     if args.peer and args.only not in ("live", "canary"):
@@ -47,8 +46,8 @@ def main(argv: list[str] | None = None) -> int:
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     dirty = subprocess.check_output(["git", "status", "--porcelain", "--", ".", *(f":(exclude){p}" for p in EVIDENCE_PATHS)],
                                     cwd=ROOT, text=True).strip()
-    if dirty and not args.allow_dirty:
-        print("refusing: uncommitted changes would make the stamped revision untruthful (commit them or pass --allow-dirty)\n" + dirty,
+    if dirty:
+        print("refusing: uncommitted changes would make live evidence untruthful (commit them before running)\n" + dirty,
               file=sys.stderr)
         return 2
     args.out.mkdir(parents=True, exist_ok=True)

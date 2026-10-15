@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tools import live_gate
 
 
@@ -76,13 +78,32 @@ def test_failed_live_stage_does_not_spend_quota_on_later_stages(tmp_path, monkey
     assert not (tmp_path / "g3-e2e.xml").exists()
 
 
-def test_refuses_to_stamp_a_dirty_tree(capsys, monkeypatch, tmp_path):
+@pytest.mark.parametrize("mode_args", [
+    [],
+    ["--allow-dirty"],
+    ["--only", "canary"],
+    ["--allow-dirty", "--only", "canary"],
+])
+def test_dirty_tree_never_runs_or_stamps_g3(mode_args, capsys, monkeypatch, tmp_path):
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.setattr(live_gate.shutil, "which", lambda name: name)
     monkeypatch.setattr(live_gate.subprocess, "check_output", lambda cmd, **k: "deadbeef" if "rev-parse" in cmd else " M peerhub/x.py")
-    monkeypatch.setattr(live_gate.subprocess, "call", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not run")))
-    assert live_gate.main(["--yes", "--out", str(tmp_path)]) == 2
-    assert "uncommitted" in capsys.readouterr().err
+    calls = []
+    monkeypatch.setattr(live_gate.subprocess, "call", lambda *a, **k: calls.append(a) or 0)
+    import tools.release_evidence as re_mod
+    stamps = []
+    monkeypatch.setattr(re_mod, "stamp_junit", lambda *a, **k: stamps.append((a, k)))
+    argv = ["--yes", "--out", str(tmp_path), *mode_args]
+    try:
+        code = live_gate.main(argv)
+    except SystemExit as exc:  # argparse rejects the retired --allow-dirty option
+        code = exc.code
+    assert code == 2
+    assert calls == []
+    assert stamps == []
+    assert list(tmp_path.iterdir()) == []
+    err = capsys.readouterr().err
+    assert "uncommitted" in err or "unrecognized arguments" in err
 
 
 def test_stage_selections_are_disjoint_and_preserve_union():

@@ -15,7 +15,7 @@ from tests.communication.harness.bridge import BridgeHarness
 from tests.communication.harness.bridge_workers import crash_cycle_worker
 from tests.communication.helpers import req
 
-pytestmark = [pytest.mark.integration, pytest.mark.bridge]
+pytestmark = [pytest.mark.integration, pytest.mark.bridge, pytest.mark.platform_sensitive]
 MAY, ST, TERM, NS = "MAY_HAVE_STARTED", "STARTED", "TERMINAL", "NOT_STARTED"
 
 
