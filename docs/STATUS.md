@@ -1,6 +1,6 @@
 # PeerHub Development Status
 
-## Current source: v0.16.0
+## Current source: v0.16.1
 
 **Released on 2026-10-15.** [v0.16.0](https://github.com/greatgc-flow/peerhub/releases/tag/v0.16.0)
 is tagged at `5951d0f2a32aa85151f6733f286eea03281fec55`. Session reuse and
@@ -36,6 +36,7 @@ candidate-matched full G3 release gate, which also passed at the tagged commit.
 live evidence applies only to its recorded revision. The v0.16.0 release
 completed the gates in [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 
+**Release candidate: v0.16.1.** This candidate adds grouped monitoring for session, delivery, usage, context, runtime provenance, capacity, coverage, and store health. Monitoring uses a shared snapshot, bounds scope reads, and never invokes provider CLIs. Capacity preserves typed quota projections and provenance; unsupported context values remain unknown. Publication is pending the candidate CI, package, and live-provider gates. See the [CHANGELOG](../CHANGELOG.md) for user-facing notes.
 ## Remaining work
 
 | Track | Done / remaining after v0.16.0 | Design SSOT |

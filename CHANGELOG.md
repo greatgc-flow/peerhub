@@ -10,6 +10,21 @@ they do not claim new validation or publication evidence.
 
 No changes recorded yet.
 
+## [0.16.1] - 2026-10-16
+
+### Added
+
+- Grouped read-only monitoring for sessions, delivery execution, usage, context,
+  runtime provenance, capacity, coverage, and store health. Queries are bounded,
+  share a consistent snapshot, and do not invoke provider CLIs.
+- Capacity views include typed quota projections and source/pool provenance;
+  context remains unknown unless provider evidence proves its identity and freshness.
+
+### Fixed
+
+- Corrected scale-test inventory classification and provider usage normalization,
+  including timezone handling for quota reset dates.
+
 ## [0.16.0] - 2026-10-14
 
 ### Added
