@@ -1,6 +1,6 @@
 # Height-adaptive monitor detail rows (2026-10-16)
 
-**Status:** Reconciled design (Round 8 consensus); implementation awaits unanimous digest approval.  
+**Status:** DEFERRED by monitor-peers-view.  
 **Review base:** `c717ee0097c7a1d89fa8d72616207d0dd0db7588` on `fix/monitor-detail-expansion`.
 
 ## Scope and Intent

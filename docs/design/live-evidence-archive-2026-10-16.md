@@ -1,6 +1,6 @@
 # Live Evidence Archive Design — 2026-10-16
 
-**Status:** Deferred (Separate PR series following monitor detail expansion).  
+**Status:** DEFERRED by monitor-peers-view.  
 **Review base:** `c717ee0097c7a1d89fa8d72616207d0dd0db7588` on `fix/monitor-detail-expansion`.
 
 ## Scope and Intent

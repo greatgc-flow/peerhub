@@ -1,6 +1,6 @@
 # Monitor E2E Lineage and Updateability
 
-**Status:** Reconciled design (Round 8 consensus); implementation awaits unanimous digest approval.  
+**Status:** DEFERRED by monitor-peers-view.  
 **Review base:** `c717ee0097c7a1d89fa8d72616207d0dd0db7588` on `fix/monitor-detail-expansion`.  
 **Scope:** Telemetry capture, SQLite persistence, read-model evaluation, JSON machine contract, and presentation boundaries.
 
