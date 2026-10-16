@@ -17,3 +17,10 @@ peerhub/extensions/schemas/*.json -text
 /tests/communication/e2e/cli_extension_effects.py text eol=lf
 /tests/communication/e2e/test_cli_monitor.py text eol=lf
 /tests/communication/e2e/test_cli_view.py text eol=lf
+/docs/design/rel005-pytest-oracle-2026-10-16.md text eol=lf
+/.github/workflows/ci.yml text eol=lf
+/tools/ci_platform.py text eol=lf
+/tests/_rel005_oracle.py text eol=lf
+/tests/communication/package/test_rel005_oracle.py text eol=lf
+/tests/communication/package/test_rel_ci_dag.py text eol=lf
+/tests/communication/package/test_ci_workflow.py text eol=lf

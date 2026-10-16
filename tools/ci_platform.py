@@ -55,9 +55,9 @@ def verify_marker_inventory(inventory: Path, *, repo: Path | None = None) -> int
 
 
 def verify_ci_results(event: str, full_matrix: bool, windows_suite: str, results: dict[str, str]) -> None:
-    expected = {"full-matrix"} if event == "schedule" or full_matrix else {
+    expected = {"pytest-oracle-compat"} | ({"full-matrix"} if event == "schedule" or full_matrix else {
         "ubuntu-full", "compatibility-smoke", "windows-platform"
-    }
+    })
     missing = sorted(expected - results.keys())
     bad = {name: results.get(name, "missing") for name in expected if results.get(name) != "success"}
     if windows_suite == "skip" and event != "pull_request" and not (event == "schedule" or full_matrix):
@@ -102,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     aggregate.add_argument("--event", required=True)
     aggregate.add_argument("--run-full-matrix", choices=("true", "false"), default="false")
     aggregate.add_argument("--windows-suite", required=True)
-    for lane in ("ubuntu-full", "compatibility-smoke", "windows-platform", "full-matrix"):
+    for lane in ("ubuntu-full", "compatibility-smoke", "windows-platform", "full-matrix", "pytest-oracle-compat"):
         aggregate.add_argument(f"--{lane}-result", default="")
     args = parser.parse_args(argv)
     if args.command == "detect-windows-suite":
@@ -115,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
             verify_marker_inventory(args.inventory)
         else:
             results = {lane: getattr(args, lane.replace("-", "_") + "_result") for lane in
-                       ("ubuntu-full", "compatibility-smoke", "windows-platform", "full-matrix")}
+                       ("ubuntu-full", "compatibility-smoke", "windows-platform", "full-matrix", "pytest-oracle-compat")}
             verify_ci_results(args.event, args.run_full_matrix == "true", args.windows_suite,
                               {name: value for name, value in results.items() if value})
     except (OSError, ET.ParseError, ValueError) as exc:
