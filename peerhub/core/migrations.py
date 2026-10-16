@@ -140,10 +140,34 @@ def _guard_v3(conn: sqlite3.Connection) -> None:
         conn.execute(stmt)
 
 
-MIGRATIONS: list[Migration] = [Migration(1, "baseline_core_tables", _baseline),
-                               Migration(2, "records_no_replace_guard", _guard_v2),
-                               Migration(3, "records_no_rowid_replace_guard", _guard_v3)]
-CURRENT_VERSION: int = MIGRATIONS[-1].version
+@dataclass(frozen=True)
+class MigrationStep:
+    version: int
+    component: str
+    name: str
+    checksum: str
+    apply: Callable[[sqlite3.Connection], None]
+
+
+def _step_v4(conn: sqlite3.Connection) -> None:
+    """v4 schema bump: version gate to refuse older binaries."""
+    pass
+
+
+MIGRATION_REGISTRY: list[MigrationStep] = [
+    MigrationStep(1, "core", "baseline_core_tables", "c1a01", _baseline),
+    MigrationStep(2, "core", "records_no_replace_guard", "c2b02", _guard_v2),
+    MigrationStep(3, "core", "records_no_rowid_replace_guard", "c3c03", _guard_v3),
+    MigrationStep(4, "core", "schema_version_v4", "v4bump", _step_v4),
+]
+
+
+def get_migration_registry() -> list[MigrationStep]:
+    return list(MIGRATION_REGISTRY)
+
+
+MIGRATIONS: list[MigrationStep] = get_migration_registry()
+CURRENT_VERSION: int = MIGRATION_REGISTRY[-1].version
 assert CURRENT_VERSION == SUPPORTED_SCHEMA_VERSION, "bump schema_version.SUPPORTED_SCHEMA_VERSION together with MIGRATIONS"
 
 
@@ -185,16 +209,20 @@ def _version(conn: sqlite3.Connection) -> int:
     return conn.execute("PRAGMA user_version").fetchone()[0]
 
 
-def run_migrations(db_path: str | os.PathLike[str], migrations: list[Migration] | None = None,
-                   fault: Callable[[str], None] | None = None) -> list[int]:
+def run_migrations(db_path: str | os.PathLike[str], migrations: list[MigrationStep] | list[Migration] | None = None,
+                   fault: Callable[[str], None] | None = None,
+                   trace: Callable[[str], None] | None = None) -> list[int]:
     """Apply pending migrations once; returns the versions applied ([] when already current).
 
-    `fault(point)` is a test seam: points `migration.step` (after each step) and `migration.before_commit`.
+    `fault(point)` is a test seam: points `migration.step` (after each step), `migration.integrity_check`, and `migration.before_commit`.
+    `trace(stmt)` is a statement trace hook for verifying execution order.
     """
-    steps = sorted(MIGRATIONS if migrations is None else migrations, key=lambda m: m.version)
+    steps = sorted(get_migration_registry() if migrations is None else migrations, key=lambda m: m.version)
     latest = steps[-1].version
     conn = sqlite3.connect(str(db_path), timeout=30.0, isolation_level=None)
     try:
+        if trace is not None:
+            conn.set_trace_callback(trace)
         conn.execute("PRAGMA busy_timeout = 30000;")
 
         def check(v: int) -> None:
@@ -204,8 +232,9 @@ def run_migrations(db_path: str | os.PathLike[str], migrations: list[Migration] 
         check(_version(conn))  # reject a future schema BEFORE any persistent mutation (e.g. WAL conversion)
         if conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
             enable_wal(conn)
-        conn.execute("PRAGMA foreign_keys = ON;")  # must be set outside the transaction
+        conn.execute("PRAGMA foreign_keys = OFF;")  # must be set outside the transaction before BEGIN
         if _version(conn) == latest:
+            conn.execute("PRAGMA foreign_keys = ON;")
             return []
         conn.execute("BEGIN IMMEDIATE")
         try:
@@ -215,13 +244,16 @@ def run_migrations(db_path: str | os.PathLike[str], migrations: list[Migration] 
             for m in steps:
                 if m.version > current:
                     m.apply(conn)
-                    conn.execute(f"PRAGMA user_version = {int(m.version)}")
                     applied.append(m.version)
                     if fault is not None:
                         fault("migration.step")
+            if fault is not None:
+                fault("migration.integrity_check")
             violations = conn.execute("PRAGMA foreign_key_check").fetchall()
             if violations:
                 raise MigrationIntegrityError(f"foreign key violations after migration: {[tuple(v) for v in violations[:5]]}")
+            if applied:
+                conn.execute(f"PRAGMA user_version = {int(applied[-1])}")
             if fault is not None:
                 fault("migration.before_commit")
         except BaseException:
@@ -230,4 +262,8 @@ def run_migrations(db_path: str | os.PathLike[str], migrations: list[Migration] 
         conn.execute("COMMIT")
         return applied
     finally:
+        try:
+            conn.execute("PRAGMA foreign_keys = ON;")
+        except sqlite3.Error:
+            pass
         conn.close()

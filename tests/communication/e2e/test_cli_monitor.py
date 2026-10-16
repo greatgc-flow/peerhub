@@ -576,7 +576,7 @@ def test_redirected_snapshot_keeps_full_human_group_frame(tmp_path, capsys):
     assert all(group.upper() in output for group in
                ("overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"))
     assert "groups omitted" not in output.lower()
-    assert "No scope evidence" in output and "Schema 3" in output
+    assert "No scope evidence" in output and "Schema 4" in output
     assert "\x1b" not in output
     assert output.endswith("\n") and not output.endswith("\n\n")
 

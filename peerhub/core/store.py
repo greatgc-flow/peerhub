@@ -17,7 +17,8 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Callable, cast
 
-from .migrations import enable_wal, rollback_quietly, run_migrations
+from . import connection
+from .migrations import rollback_quietly, run_migrations
 from .read_only_probe import probe_table_roots
 from .schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from .models import (
@@ -209,13 +210,11 @@ class CoreStore:
     def read_uow(self):
         """Read-only unit of work: `mode=ro` + `query_only`; any write is rejected by SQLite itself."""
         self._check_restore_epoch()
-        conn = sqlite3.connect(Path(self.db_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=30.0)
+        conn = connection.create_connection(self.db_path, readonly=True, timeout_ms=self.busy_timeout_ms)
         try:
             with storage_errors():
                 conn.row_factory = sqlite3.Row
                 conn.isolation_level = None
-                conn.execute("PRAGMA query_only = ON;")
-                conn.execute("PRAGMA foreign_keys = ON;")
                 conn.execute("BEGIN")  # one read transaction = one committed snapshot for the whole UoW
                 conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()  # pins the snapshot now (WAL read mark)
                 yield conn
@@ -226,23 +225,11 @@ class CoreStore:
 
     def _get_connection(self) -> sqlite3.Connection:
         self._check_restore_epoch()
-        if self.readonly:
-            conn = sqlite3.connect(Path(self.db_path).resolve().as_uri() + "?mode=ro", uri=True,
-                                   timeout=self.busy_timeout_ms / 1000.0)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA query_only = ON;")
-            conn.execute("PRAGMA foreign_keys = ON;")
-            conn.execute(f"PRAGMA busy_timeout = {self.busy_timeout_ms};")
-            return conn
-        conn = sqlite3.connect(self.db_path, timeout=self.busy_timeout_ms / 1000.0)
+        conn = connection.create_connection(self.db_path, readonly=self.readonly, timeout_ms=self.busy_timeout_ms)
         try:
             with storage_errors():
                 conn.row_factory = sqlite3.Row
-                enable_wal(conn)
-                conn.execute("PRAGMA foreign_keys = ON;")
-                conn.execute("PRAGMA recursive_triggers = ON;")  # REPLACE deletes must fire the immutability trigger
-                conn.execute(f"PRAGMA busy_timeout = {self.busy_timeout_ms};")
-                if self.conn_init is not None:
+                if not self.readonly and self.conn_init is not None:
                     self.conn_init(conn)
         except BaseException:
             conn.close()
