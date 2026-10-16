@@ -551,3 +551,58 @@ def test_rework_5_narrow_view_uses_available_width_without_fixed_37_cap(peers_fr
     # And must stay within columns - 1 (<= 45)
     assert all(_width(line) <= 45 for line in peer_lines)
 
+
+def test_pr2_peers_footer_shows_model_facts_with_revision_and_sources(peers_frame):
+    """PR2.1: Peers footer line shows model facts with defaults_revision, observed_at, age, and sources."""
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    # Fixed clock: 2026-10-16 12:00:00 UTC (same day as observed_at 2026-10-16 => 0d ago)
+    peers_frame["read_at"] = 1792152000.0
+    rendered = render_grouped_frame(peers_frame, view="plain", width=140)
+
+    expected = (
+        "Model facts: rev 2026-10-16.1 · checked 2026-10-16 (0d ago) · "
+        "sources: codex debug models | agy models | claude: known ids"
+    )
+    assert expected in rendered
+
+
+def test_pr2_peers_footer_computes_age_with_fixed_clock(peers_frame):
+    """PR2.2: Age in days is computed from snapshot read time (N days ago)."""
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    # Fixed clock: 2026-10-18 12:00:00 UTC (2 days after 2026-10-16 => 2d ago)
+    peers_frame["read_at"] = 1792152000.0 + 86400.0 * 2
+    rendered = render_grouped_frame(peers_frame, view="plain", width=140)
+
+    assert "checked 2026-10-16 (2d ago)" in rendered
+
+
+def test_pr2_peers_footer_clips_within_columns_minus_1(peers_frame):
+    """PR2.3: Footer line is fitted to width by ordinary clipping and stays within columns-1."""
+    from peerhub.cli.monitor_view import _width, render_grouped_frame
+
+    # At width 40, entire line must stay within columns - 1 (<= 39)
+    rendered = render_grouped_frame(peers_frame, view="plain", width=40)
+    lines = rendered.splitlines()
+    footer_lines = [line for line in lines if "Model facts:" in line]
+    assert len(footer_lines) == 1
+    assert _width(footer_lines[0]) <= 39
+    assert footer_lines[0].endswith("…")
+
+
+def test_pr2_peers_footer_handles_missing_facts_as_unknown(peers_frame):
+    """PR2.4: Missing facts render as 'unknown', never invent or raise."""
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    # Snapshot without read_at and with explicit None metadata
+    peers_frame["read_at"] = None
+    peers_frame["groups"]["peers"]["data"]["defaults_revision"] = None
+    peers_frame["groups"]["peers"]["data"]["observed_at"] = None
+    rendered = render_grouped_frame(peers_frame, view="plain", width=140)
+
+    assert (
+        "Model facts: rev unknown · checked unknown · "
+        "sources: codex debug models | agy models | claude: known ids"
+    ) in rendered
+

@@ -260,6 +260,12 @@ tools/
 
 Milestones describe development progress, not runtime ownership. Frozen specifications, historical evidence and existing durable wire/storage identifiers retain their original names. See [the cleanup decisions and AG review](docs/implementation/STRUCTURE_CLEANUP.md).
 
+## Where model facts come from and how to refresh them
+
+Model facts shown by `monitor` come from `docs/model-profiles/model-profiles.json` and `peerhub/config_data/model-defaults.toml`.
+Run the `refresh-model-profiles` skill (or query installed CLIs per manifest instructions) to verify models, update `observed_at`/`observed_versions`, and bump the defaults revision.
+Observations are evidence, not policy: profile model and effort definitions require explicit review and approval.
+
 ## Doc map
 
 - [Documentation map](docs/index.md): Single documentation map and navigation index.

@@ -5,7 +5,7 @@ import math
 import re
 import unicodedata
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, cast
 
 from peerhub.cli.monitor_preferences import GROUPS
@@ -103,7 +103,7 @@ def _peer(item: dict[str, Any]) -> str:
 
 
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
-                 elapsed_seconds: float = 0.0) -> list[str]:
+                 elapsed_seconds: float = 0.0, read_at: float | None = None) -> list[str]:
     data = _obj(group.get("data"))
     if data == {} and group.get("data") is None:
         return ["data unavailable"]
@@ -225,6 +225,42 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             else:
                 rows.append(f"{pid:<4}quota: {q_wide} -> {p_wide}")
                 rows.append(f"    -> latest session: {s_wide} -> context: {c_wide}")
+
+        defaults_rev: object = data.get("defaults_revision")
+        observed_at: object = data.get("observed_at")
+        if "defaults_revision" not in data and "observed_at" not in data:
+            try:
+                from peerhub.extensions.adapters.profiles import packaged_defaults_meta
+                meta = packaged_defaults_meta()
+                defaults_rev = meta.get("defaults_revision")
+                observed_at = meta.get("observed_at")
+            except Exception:
+                pass
+
+        rev_str = f"rev {_clean(defaults_rev)}" if defaults_rev else "rev unknown"
+        if observed_at:
+            obs_clean = _clean(observed_at)
+            age_str = "(unknown)"
+            if read_at is not None:
+                try:
+                    read_date = datetime.fromtimestamp(read_at, timezone.utc).date()
+                    obs_date = date.fromisoformat(obs_clean)
+                    days = max(0, (read_date - obs_date).days)
+                    age_str = f"({days}d ago)"
+                except (ValueError, OSError, OverflowError):
+                    pass
+            obs_str = f"checked {obs_clean} {age_str}"
+        else:
+            obs_str = "checked unknown"
+
+        footer = (
+            f"Model facts: {rev_str} · {obs_str} · "
+            "sources: codex debug models | agy models | claude: known ids"
+        )
+        if width < 48:
+            rows.append(_fit(footer, max(0, width - 1), unicode))
+        else:
+            rows.append(_fit(footer, width, unicode))
 
     elif group_id == "execution":
         scopes = _items(data.get("scopes"))
@@ -488,7 +524,7 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
             lines.append(_fit(label, width, unicode))
         content_width = width - 4 if view == "rich" and unicode and width >= 32 else width - 2
         group_data = _group_lines(group_id, group, width=content_width, unicode=unicode,
-                                  elapsed_seconds=elapsed_seconds)
+                                  elapsed_seconds=elapsed_seconds, read_at=read_at)
         coverage = _obj(group.get("coverage"))
         if coverage.get("read") == "partial" and not any("partial" in line.lower() or "truncated" in line.lower()
                                                             for line in group_data):
@@ -581,7 +617,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         indent = "  " if width >= 4 else ""
         content_width = max(0, width - 1 - _width(indent))
         group_data = _group_lines(group_id, group, width=content_width, unicode=unicode,
-                                  elapsed_seconds=elapsed_seconds)
+                                  elapsed_seconds=elapsed_seconds, read_at=read_at)
         error_map = _obj(payload.get("errors"))
         error_value = error_map.get(group_id)
         if error_value is None:

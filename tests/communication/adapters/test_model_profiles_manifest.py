@@ -19,6 +19,7 @@ def test_manifest_is_valid_against_its_json_schema():
 
 def test_manifest_equals_the_packaged_toml_profile_by_profile():
     assert MANIFEST["revision"] == TOML["defaults_revision"]
+    assert MANIFEST["observed_at"] == TOML["observed_at"]
     packaged = {k: v for k, v in TOML["profiles"].items() if k != "*"}
     assert set(packaged) == set(MANIFEST["profiles"])
     for pid, want in MANIFEST["profiles"].items():
@@ -43,7 +44,8 @@ def test_manifest_update_targets_exist():
 
 
 def test_packaged_defaults_revision_and_expected_models():
-    assert TOML["defaults_revision"] == "2026-10-14.1"
+    assert TOML["defaults_revision"] == "2026-10-16.1"
+    assert TOML["observed_at"] == "2026-10-16"
     profiles = TOML["profiles"]
     assert len(profiles) == 9
     assert profiles["ag.standard"]["model"] == "gemini-3.8-flash-low"

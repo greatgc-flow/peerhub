@@ -125,3 +125,14 @@ def list_profiles(workspace: str | Path) -> list[dict[str, Any]]:
         profile_map = cast("dict[str, Any]", profiles)
         names.update(str(name) for name in profile_map)
     return [inspect_profile(name, workspace) for name in sorted(names)]
+
+
+def packaged_defaults_meta() -> dict[str, str]:
+    """Read release-maintained revision and observation metadata from packaged defaults."""
+    packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
+    with packaged.open("rb") as handle:
+        layer = tomllib.load(handle)
+    return {
+        "defaults_revision": str(layer.get("defaults_revision") or ""),
+        "observed_at": str(layer.get("observed_at") or ""),
+    }

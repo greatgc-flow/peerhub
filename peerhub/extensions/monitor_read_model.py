@@ -527,6 +527,8 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     "session": sess_data,
                     "context": ctx_data,
                 })
+            from peerhub.extensions.adapters.profiles import packaged_defaults_meta
+            defaults_meta = packaged_defaults_meta()
             output["peers"] = {
                 "status": "ERROR" if "sessions" in errors else "OK",
                 "data": {
@@ -535,6 +537,8 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     "truncated": truncated or peer_sample_truncated,
                     "session_sample_truncated": truncated,
                     "peer_sample_truncated": peer_sample_truncated,
+                    "defaults_revision": defaults_meta.get("defaults_revision"),
+                    "observed_at": defaults_meta.get("observed_at"),
                 },
             }
         if "store" in groups:
