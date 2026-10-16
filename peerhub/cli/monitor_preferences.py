@@ -8,19 +8,19 @@ import tomllib
 from pathlib import Path
 from typing import Any, cast
 
-GROUP_IDS = ("overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store")
-DEFAULT_GROUPS = ("overview", "execution", "sessions", "usage", "context", "capacity", "coverage")
 GROUPS: tuple[dict[str, Any], ...] = (
-    {"id": "overview", "order": 1, "collection_effect": "read_only"},
-    {"id": "execution", "order": 2, "collection_effect": "read_only"},
-    {"id": "sessions", "order": 3, "collection_effect": "read_only"},
-    {"id": "usage", "order": 4, "collection_effect": "read_only"},
-    {"id": "context", "order": 5, "collection_effect": "read_only"},
-    {"id": "capacity", "order": 6, "collection_effect": "read_only"},
-    {"id": "runtime", "order": 7, "collection_effect": "read_only"},
-    {"id": "coverage", "order": 8, "collection_effect": "read_only"},
-    {"id": "store", "order": 9, "collection_effect": "read_only"},
+    {"id": "overview", "order": 1, "description": "Cross-group peer summary and highest-priority state.", "collection_effect": "read_only"},
+    {"id": "execution", "order": 2, "description": "Bridge delivery certainty, session reuse, and measured delivery latency; not task success.", "collection_effect": "read_only"},
+    {"id": "sessions", "order": 3, "description": "Retained session lifecycle, fresh/reuse state, and configured profile/model/effort.", "collection_effect": "read_only"},
+    {"id": "usage", "order": 4, "description": "Provider-reported token usage and its reporting coverage.", "collection_effect": "read_only"},
+    {"id": "context", "order": 5, "description": "Runtime context occupancy evidence; unknown when providers do not report it.", "collection_effect": "read_only"},
+    {"id": "capacity", "order": 6, "description": "Quota pools, remaining capacity, freshness, and supported seven-day pace.", "collection_effect": "read_only"},
+    {"id": "runtime", "order": 7, "description": "Current profile provenance and adapter/runtime details.", "collection_effect": "read_only"},
+    {"id": "coverage", "order": 8, "description": "Data completeness, stale/unknown evidence, legacy gaps, and sampling limits.", "collection_effect": "read_only"},
+    {"id": "store", "order": 9, "description": "Database schema, size, projection, and storage integrity summary.", "collection_effect": "read_only"},
 )
+GROUP_IDS = tuple(str(item["id"]) for item in GROUPS)
+DEFAULT_GROUPS = ("overview", "execution", "sessions", "usage", "context", "capacity", "coverage")
 
 
 def _preference_paths(cwd: Path, env: dict[str, str]) -> tuple[Path, Path]:
@@ -95,9 +95,19 @@ def run_preferences(args: Any) -> int:
         error = preference["status"] != "OK"
         groups = [{**item, "default_selected": None if error else item["id"] in preference["selected_groups"]}
                   for item in GROUPS]
-        _emit({"schema_version": "2.0", "status": "ERROR" if error else "OK", "groups": groups,
-               "selection_scope": "grouped_views",
-               "preference": {key: preference[key] for key in ("status", "source", "reason")}}, args.json)
+        payload = {"schema_version": "2.0", "status": "ERROR" if error else "OK", "groups": groups,
+                   "selection_scope": "grouped_views",
+                   "preference": {key: preference[key] for key in ("status", "source", "reason")}}
+        if args.json:
+            _emit(payload, True)
+        else:
+            print("ID         DEFAULT  CONTENT")
+            for item in groups:
+                selected = "yes" if item["default_selected"] else "no" if item["default_selected"] is False else "unknown"
+                print(f"{item['id']:<10} {selected:<8} {item['description']}")
+            print(f"Defaults: {preference['source']} ({preference['status']})")
+            if error and preference.get("reason"):
+                print(f"Reason: {preference['reason']}")
         return int(error)
     if action != "defaults":
         return 2

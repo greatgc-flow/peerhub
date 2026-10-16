@@ -62,6 +62,32 @@ def test_scope_sample_cap_is_partial_coverage_not_query_error(tmp_path):
     assert frame["groups"]["execution"]["data"]["truncated"] is True
 
 
+def test_fourth_peer_is_detected_as_partial_in_execution_and_coverage(tmp_path):
+    from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
+    from tests.communication.harness.bridge import BridgeHarness
+    from tests.communication.bridge_helpers import bseed
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
+    harness = BridgeHarness(tmp_path / "workspace")
+    bseed(harness)
+    harness.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    with harness.cs.transaction() as conn:
+        columns = [str(row[1]) for row in conn.execute("PRAGMA table_info(bridge_monitor_delivery_scope)")]
+        base = list(conn.execute("SELECT * FROM bridge_monitor_delivery_scope WHERE stream_id='s' AND peer_id='b'").fetchone())
+        conn.execute("DELETE FROM bridge_monitor_delivery_scope")
+        placeholders = ",".join("?" for _ in columns)
+        for peer in ("a", "b", "c", "d"):
+            values = list(base)
+            values[0], values[1] = f"scope-{peer}", peer
+            conn.execute(f"INSERT INTO bridge_monitor_delivery_scope ({','.join(columns)}) VALUES ({placeholders})", values)
+
+    frame = render_monitor_frame(harness.db_path, ["execution", "coverage"])
+    for group in ("execution", "coverage"):
+        assert frame["groups"][group]["coverage"]["read"] == "partial"
+        assert frame["groups"][group]["data"]["truncated"] is True
+    assert {scope["peer_id"] for scope in frame["groups"]["execution"]["data"]["scopes"]} == {"a", "b", "c"}
+
+
 def test_required_scope_failure_propagates_only_to_dependent_selected_groups(tmp_path):
     from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
     from tests.communication.harness.bridge import BridgeHarness
