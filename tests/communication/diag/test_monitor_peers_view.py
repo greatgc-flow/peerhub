@@ -105,7 +105,9 @@ def peers_frame() -> dict[str, Any]:
                                 "percent": None,
                             },
                         },
-                    ]
+                    ],
+                    "defaults_revision": "2026-10-16.1",
+                    "observed_at": "2026-10-16",
                 },
             },
             "sessions": {
@@ -589,6 +591,30 @@ def test_pr2_peers_footer_clips_within_columns_minus_1(peers_frame):
     assert len(footer_lines) == 1
     assert _width(footer_lines[0]) <= 39
     assert footer_lines[0].endswith("…")
+
+    # At standard width 80, entire line must stay within columns - 1 (<= 79)
+    rendered_80 = render_grouped_frame(peers_frame, view="plain", width=80)
+    footer_80 = [line for line in rendered_80.splitlines() if "Model facts:" in line]
+    assert len(footer_80) == 1
+    assert _width(footer_80[0]) <= 79
+
+    # At standard width 120, entire line must stay within columns - 1 (<= 119)
+    rendered_120 = render_grouped_frame(peers_frame, view="plain", width=120)
+    footer_120 = [line for line in rendered_120.splitlines() if "Model facts:" in line]
+    assert len(footer_120) == 1
+    assert _width(footer_120[0]) <= 119
+
+
+def test_pr2_peers_footer_future_observed_at_renders_future(peers_frame):
+    """PR2.5: observed_at after read_at renders '(future)' not '0d ago'."""
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    # Fixed clock: 2026-10-10 UTC (observed_at 2026-10-16 is in the future)
+    peers_frame["read_at"] = 1791633600.0  # 2026-10-10 12:00:00 UTC
+    peers_frame["groups"]["peers"]["data"]["observed_at"] = "2026-10-16"
+    rendered = render_grouped_frame(peers_frame, view="plain", width=140)
+
+    assert "checked 2026-10-16 (future)" in rendered
 
 
 def test_pr2_peers_footer_handles_missing_facts_as_unknown(peers_frame):

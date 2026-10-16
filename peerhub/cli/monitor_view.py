@@ -228,14 +228,6 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
         defaults_rev: object = data.get("defaults_revision")
         observed_at: object = data.get("observed_at")
-        if "defaults_revision" not in data and "observed_at" not in data:
-            try:
-                from peerhub.extensions.adapters.profiles import packaged_defaults_meta
-                meta = packaged_defaults_meta()
-                defaults_rev = meta.get("defaults_revision")
-                observed_at = meta.get("observed_at")
-            except Exception:
-                pass
 
         rev_str = f"rev {_clean(defaults_rev)}" if defaults_rev else "rev unknown"
         if observed_at:
@@ -245,8 +237,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 try:
                     read_date = datetime.fromtimestamp(read_at, timezone.utc).date()
                     obs_date = date.fromisoformat(obs_clean)
-                    days = max(0, (read_date - obs_date).days)
-                    age_str = f"({days}d ago)"
+                    days = (read_date - obs_date).days
+                    age_str = "(future)" if days < 0 else f"({days}d ago)"
                 except (ValueError, OSError, OverflowError):
                     pass
             obs_str = f"checked {obs_clean} {age_str}"
@@ -257,10 +249,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             f"Model facts: {rev_str} · {obs_str} · "
             "sources: codex debug models | agy models | claude: known ids"
         )
-        if width < 48:
-            rows.append(_fit(footer, max(0, width - 1), unicode))
-        else:
-            rows.append(_fit(footer, width, unicode))
+        rows.append(_fit(footer, max(0, width - 1), unicode))
 
     elif group_id == "execution":
         scopes = _items(data.get("scopes"))
