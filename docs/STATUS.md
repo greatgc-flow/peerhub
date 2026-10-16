@@ -1,6 +1,6 @@
 # PeerHub Development Status
 
-## Current source: v0.18.1 (release candidate)
+## Current source: v0.18.2 (release candidate)
 
 v0.18.1 prepares the responsive terminal dashboard fix from PR #108. The view
 fits the available terminal height and width, surfaces the selected database

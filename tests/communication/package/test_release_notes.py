@@ -20,6 +20,6 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.18.1"
-    assert "Make the grouped TTY monitor adapt to terminal height and width" in body
-    assert "resize redraws reuse the cached snapshot" in body
+    assert __version__ == "0.18.2"
+    assert "Monitor peers group (default set)" in body
+    assert "Breaking - store schema" in body
