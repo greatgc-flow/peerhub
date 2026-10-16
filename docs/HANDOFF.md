@@ -1,8 +1,18 @@
 Reference notes for maintainers. Not an instruction file: open it only when needed.
-The release checkpoint below is historical; [STATUS](STATUS.md) records the
-published v0.16.0 release and the remaining work.
+The checkpoint below records verified state as of 2026-10-16; [STATUS](STATUS.md)
+tracks the source release and remaining work.
 
-## 0. Release checkpoint (2026-10-13)
+## 0. Current checkpoint (2026-10-16)
+
+- Source is v0.18.1 on `fix/monitor-detail-expansion`; installed `peerhub --version`
+  reports 0.18.1, and GitHub release `v0.18.1` is a draft.
+- The adaptive monitor-detail design is still under peer review; unanimity is
+  pending, so implementation has not started.
+- The worktree has edits to this handoff and the monitor design, plus untracked
+  `docs/history/cross-repo-handoff-audit-2026-10-16.md` and
+  `docs/implementation/live_evidence/2026-10-16.json`.
+
+## 1. Historical release checkpoint (2026-10-13)
 
 `release/v0.16.0` is a local candidate based on main `22404eeb`: stuck-streams
 PRs 1-3 (#95/#97/#98), model profile refresh (#96), and CI pushes narrowed to
@@ -62,3 +72,5 @@ for coverage, remaining checks and local results.
 - Delete a blocked/aborted release and its tag before retrying.
 
 Full verbatim history (checkpoints 2026-10-04 to 2026-10-11 and the owner's standing rules): [history/session-log-2026-10.md](history/session-log-2026-10.md).
+
+Cross-repository verification snapshot (2026-10-16): [SecondBrain and Engram handoff audit](history/cross-repo-handoff-audit-2026-10-16.md).
