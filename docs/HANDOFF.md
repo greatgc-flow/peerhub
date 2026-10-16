@@ -2,17 +2,16 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 The checkpoint below records verified state as of 2026-10-16; [STATUS](STATUS.md)
 tracks the source release and remaining work.
 
-## 0. Current checkpoint (2026-10-16)
+## 0. Current checkpoint (2026-10-17)
 
-- **Branch & commits:** `feat/model-facts-source` (rebased onto `origin/main` `d392fe4c`, 8 local commits, NOT pushed):
-  docs reconciliation; DB version gate v4 + central connection factory (`user_version=4`; older binaries refuse; extension DDL ownership/trigger verification/slices 2-5 intentionally deferred); monitor `peers` group (quota -> model -> session reuse -> context; unknown never guessed); model-fact source/rev/age footer + 2026-10-16 CLI observations (cc 2.1.301, cx 0.163.0, ag 1.4.0; gemini-4-argon-* available, not selected).
+- **Branch & commits:** v0.18.2 released; main=8274e9f5 (+ this docs PR); remote branches cleaned.
 - **Owner top rule:** so-very-simple.
-- **Design status:** `monitor-peers-view` is the active scope; `monitor-expand-details`, `monitor-e2e-lineage`, `live-evidence-archive`, `db-schema-v2` (beyond version gate) are DEFERRED.
-- **Hazards:** workspace `.peerhub` store is v0.16.0-era (`user_version 3`); running this source against it migrates it to v4 and the installed 0.16.0 CLI then refuses it — use a copy (`--db`) for dev; `core.db.v018-bak` keeps the old newer-schema store.
+- **Design status:** `monitor-peers-view` shipped in v0.18.2; `monitor-expand-details`, `monitor-e2e-lineage`, `live-evidence-archive`, `db-schema-v2` (beyond version gate) are DEFERRED.
+- **Hazards:** store hazard (.peerhub copy at user_version 3 vs source v4) — running source v4 against it migrates it to v4 and the installed 0.16.0 CLI then refuses it; use a copy (`--db`) for dev; `core.db.v018-bak` keeps the backup store.
 - **Known:** `test_rel_005` fails on Windows only (POSIX PTY smoke skipped).
 - **Peers:** one persistent stream per peer (`dev-cx`, `dev-cc`, `peers-pr1-ag`/`dev-ag`) with `*.effort` profiles; peers cannot run pytest reliably; cx writes no files.
-- **Next:** push + one PR after full-suite green; release prep (draft v0.17.0/v0.18.1 cleanup needs owner OK); optional follow-ups from the core audit: lazy imports, bounded delta reads, queue/provider timing split.
-- **Resume prompt:** Continue on branch `feat/model-facts-source`: run full tests `python -m pytest tests/communication/adapters tests/communication/diag tests/communication/e2e -q` and `pyright peerhub`, then prepare clean PR against origin/main.
+- **Next:** remaining optional follow-ups from the core audit: lazy imports, bounded delta reads, queue/provider timing split.
+- **Resume prompt:** Continue on main: address remaining optional follow-ups from the core audit (lazy imports, bounded delta reads, queue/provider timing split).
 
 
 

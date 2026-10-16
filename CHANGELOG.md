@@ -25,6 +25,8 @@ they do not claim new validation or publication evidence.
 
 ## [0.18.1] - 2026-10-16
 
+_Never published as a release; shipped in v0.18.2._
+
 ### Changed
 
 - Make the grouped TTY monitor adapt to terminal height and width, prioritize
@@ -46,6 +48,8 @@ they do not claim new validation or publication evidence.
   collection cadence are unchanged.
 
 ## [0.17.0] - 2026-10-16 (superseded candidate)
+
+_Never published as a release; shipped in v0.18.0._
 
 ### Changed
 
