@@ -5,6 +5,8 @@ docs/m1_spec/** -text
 peerhub/core/schemas/*.json -text
 peerhub/extensions/schemas/*.json -text
 
+/docs/design/monitor-expand-details-2026-10-16.md text eol=lf
+
 # Keep touched CLI, tests, and documentation files LF on Windows workstations.
 /CHANGELOG.md text eol=lf
 /docs/index.md text eol=lf
