@@ -178,7 +178,7 @@ def test_rel005_oracle_plugin_captures_supported_skip_lifecycle(tmp_path):
     base_env.pop("PYTEST_ADDOPTS", None)
     base_env["PYTHONPATH"] = os.pathsep.join((str(repo / "tests"), str(repo)))
     common = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:xdist",
-              "-p", "_rel005_oracle", "-c", str(repo / "pyproject.toml"), "-o", "addopts=",
+              "-p", "_rel005_oracle", "-o", "addopts=", "-o", "markers=live",
               "-m", "not live", "--rootdir", str(tmp_path), str(sample)]
     records: list[dict[str, Any]] = []
     for label, extra in (("collect", ["--collect-only"]), ("execute", [])):
