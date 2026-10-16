@@ -314,7 +314,8 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             else:
                 scope_rows = []
             selected_scope_rows = [row for row in scope_rows if int(row[22]) <= 3 and int(row[21]) <= 20]
-            scope_truncated_peers = {str(row[1]) for row in scope_rows if int(row[22]) <= 3 and int(row[21]) == 21}
+            scope_truncated_peers = {str(row[1]) for row in scope_rows
+                                     if (int(row[22]) == 4 or (int(row[22]) <= 3 and int(row[21]) == 21))}
             scope_truncated = bool(scope_truncated_peers)
             for row in selected_scope_rows:
                 scopes.append({"stream_id": str(row[0]), "peer_id": str(row[1]),

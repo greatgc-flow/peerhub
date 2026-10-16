@@ -20,8 +20,7 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.16.1"
-    assert "Grouped read-only monitoring" in body
-    assert "typed quota projections and source/pool provenance" in body
-    assert "Corrected scale-test inventory classification" in body
-    assert "provider usage normalization" in body
+    assert __version__ == "0.17.0"
+    assert "Breaking — monitor default output" in body
+    assert "peerhub monitor --legacy" in body
+    assert "Detect peers omitted by the bounded monitor scope sample" in body

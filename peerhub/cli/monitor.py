@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from peerhub.cli.support import agy_token_use, print_warnings
+from peerhub.cli.monitor_preferences import GROUP_IDS
 
 MONITOR_FRAME_SCHEMA = "1.1"
 
@@ -31,6 +32,8 @@ def register_monitor_parser(subparsers: Any) -> None:
                    help="Probe timeout")
     p.add_argument("--json", action="store_true",
                    help="Emit NDJSON frames")
+    p.add_argument("--legacy", action="store_true",
+                   help="Use the compatibility 1.1 dashboard instead of the grouped monitor")
     p.add_argument("--allow-agy-token-use", action="store_true",
                    help="Keep collecting after agy /usage consumed model tokens")
     p.add_argument("--view", choices=["auto", "rich", "plain"], default="auto",
@@ -39,8 +42,7 @@ def register_monitor_parser(subparsers: Any) -> None:
                    help="Collect only every Kth cycle (K>=1)")
     p.add_argument("--system-dir", dest="sys_dir", type=Path,
                    help="Explicit portable provider installation directory")
-    p.add_argument("--group", action="append", choices=("overview", "execution", "sessions", "usage", "context",
-                   "capacity", "runtime", "coverage", "store", "all"), default=None,
+    p.add_argument("--group", action="append", choices=(*GROUP_IDS, "all"), default=None,
                    help="Select monitor groups for a read-only snapshot or grouped watch")
     p.add_argument("--snapshot", action="store_true", help="Render one read-only grouped snapshot without refreshing providers")
 
@@ -56,8 +58,7 @@ def register_monitor_parser(subparsers: Any) -> None:
         action.add_argument("--global", dest="global_preferences", action="store_true",
                             help="Select the global configuration layer")
         if action_name == "set":
-            action.add_argument("--group", choices=("overview", "execution", "sessions", "usage", "context",
-                               "capacity", "runtime", "coverage", "store"), nargs="+", required=True)
+            action.add_argument("--group", choices=GROUP_IDS, nargs="+", required=True)
         action.add_argument("--json", action="store_true", help="Emit JSON")
     repair = actions.add_parser("repair", help="Rebuild monitor projections from durable PeerHub evidence")
     repair.add_argument("--chunk-size", type=int, default=500, help="Bounded delivery read chunk (1-5000)")
@@ -114,6 +115,8 @@ def _cycle_exit_code(report: Any, refresh_code: int) -> int:
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     validate_monitor_args(parser, args)
     if args.snapshot:
+        if getattr(args, "legacy", False):
+            parser.error("--legacy cannot be combined with --snapshot")
         provided_options = cast(set[str], getattr(args, "_provided_options", set[str]()))
         conflicts = provided_options & {
             "--interval-seconds", "--cycles", "--peers", "--timeout-seconds", "--collect-every",
@@ -122,7 +125,11 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
         if conflicts:
             parser.error("--snapshot cannot be combined with watch or collection options: " + ", ".join(sorted(conflicts)))
         return _run_monitor_snapshot(args, parser)
-    from peerhub.cli.monitor_preferences import GROUP_IDS, effective_preferences
+    if getattr(args, "legacy", False):
+        if args.group:
+            parser.error("--legacy cannot be combined with --group")
+        return _run_monitor_legacy(args)
+    from peerhub.cli.monitor_preferences import effective_preferences
     if args.group:
         requested = list(dict.fromkeys(args.group))
         if "all" in requested and len(requested) > 1:
@@ -138,10 +145,11 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
                   json.dumps(payload, ensure_ascii=True, indent=2))
             return 1
         selected = cast(list[str], preference["selected_groups"])
-    # Bare monitor keeps the established 1.1 dashboard contract. Explicit groups
-    # and persisted user preferences opt into the structurally grouped frames.
-    if args.group or preference["source"] in ("workspace", "global"):
-        return _run_monitor_grouped_watch(args, cast(list[str], selected), cast(dict[str, Any], preference))
+    return _run_monitor_grouped_watch(args, cast(list[str], selected), cast(dict[str, Any], preference))
+
+
+def _run_monitor_legacy(args: argparse.Namespace) -> int:
+    """Keep the schema-1.1 dashboard available for existing text/JSON consumers."""
     from peerhub.cli.store_select import report_missing_store
     if report_missing_store(args.db, json_output=args.json):
         return 5
@@ -267,9 +275,11 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     from peerhub.extensions.quota_capture import refresh_quota
     from peerhub.core.schema_version import SchemaVersionError
     from peerhub.cli.view import FrameOutput, use_color
+    from peerhub.cli.monitor_preferences import GROUPS
 
     output = FrameOutput(interactive=not args.json)
     color = (args.view == "rich" or (args.view == "auto" and output.live)) and use_color(output.live, os.environ)
+    descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
 
     def human_frame(payload: dict[str, Any]) -> str:
         heading = "\x1b[1;36m" if color else ""
@@ -282,7 +292,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
         for group_id, value in groups.items():
             group = cast(dict[str, Any], value) if isinstance(value, dict) else {}
-            label = f"{group_id.upper()} - {group.get('status', 'UNKNOWN')}"
+            label = f"{group_id.upper()} - {group.get('status', 'UNKNOWN')} - {descriptions.get(group_id, '')}"
             lines.extend(("", f"{heading}{label}{reset}" if heading else label))
             data = group.get("data")
             lines.append("  unavailable" if data is None else json.dumps(data, ensure_ascii=True, indent=2, sort_keys=True))
@@ -294,8 +304,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         except SchemaVersionError:
             payload = {"schema_version": "2.0", "status": "FAILED", "groups": {},
                        "errors": {"schema": "SchemaVersionError"}}
-        payload.update({"selected_groups": selected, "available_groups": ["overview", "execution", "sessions", "usage",
-                       "context", "capacity", "runtime", "coverage", "store"],
+        payload.update({"selected_groups": selected, "available_groups": list(GROUP_IDS),
                        "preference": {key: preference.get(key) for key in ("status", "source", "reason")},
                        "store_selection": {"path": str(args.db), "source": getattr(args, "db_source", "unknown")}})
         if args.json:

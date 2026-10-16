@@ -156,7 +156,7 @@ def assert_vt_view_effect(e, db, command):
     for style in ("plain", "rich"):
         for vt in (True, False):
             output = Output()
-            args = (["--cycles", "1"] if command == "monitor" else ["--live", "--cycles", "1"])
+            args = (["--legacy", "--cycles", "1"] if command == "monitor" else ["--live", "--cycles", "1"])
             with patch("sys.stdout", output), patch("peerhub.cli.view.enable_vt", lambda: vt):
                 assert e.run(db, command, "--view", style, *args)[0] == 0
             text = output.getvalue()
@@ -231,6 +231,13 @@ def monitor_effect(e, option):
         argv += [option]
     elif option == "--view":
         argv += [option, "rich"]
+    elif option == "--legacy":
+        argv = ["monitor", "--legacy", "--json", "--cycles", "1"]
+    if option != "--legacy":
+        # These option effects predate the grouped read model and concern the
+        # collection/dashboard loop itself. Keep the projection-independent
+        # 1.1 path explicit; grouped routing has separate contract tests.
+        argv.insert(1, "--legacy")
     sleeps = []
     fake_now = [0.0]
 
@@ -245,7 +252,7 @@ def monitor_effect(e, option):
          patch("peerhub.cli.monitor.sleep", fake_sleep):
         code, out, err = e.run(db, *argv)
         if option == "--view":
-            plain_code, plain, plain_err = e.run(db, "monitor", "--cycles", "1", "--view", "plain")
+            plain_code, plain, plain_err = e.run(db, "monitor", "--legacy", "--cycles", "1", "--view", "plain")
             assert_vt_view_effect(e, db, "monitor")
     if option == "--view":
         assert code == plain_code == 0 and "refresh:" in err and "refresh:" in plain_err
@@ -262,6 +269,9 @@ def monitor_effect(e, option):
     elif option == "--collect-every": assert len(captured) == 3
     elif option == "--allow-agy-token-use": assert code == 1 and err.count("tokens used") == 2
     elif option == "--json": import json; assert "cycle" in json.loads(out.splitlines()[0])
+    elif option == "--legacy":
+        import json
+        assert json.loads(out.splitlines()[0])["schema_version"] == "1.1"
 
 
 def monitor_management_effect(e, argv, *, needs_bridge=False):
@@ -404,7 +414,7 @@ EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
                for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
-               for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--allow-agy-token-use", "--collect-every", "--view")})
+               for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--allow-agy-token-use", "--collect-every", "--view", "--legacy")})
 EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, ["monitor", "groups", "--json"]),
                "monitor defaults show --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "show", "--json"]),
                "monitor defaults set --global": lambda e: monitor_management_effect(e, ["monitor", "defaults", "set", "--global", "--group", "usage"]),

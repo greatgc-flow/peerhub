@@ -10,6 +10,22 @@ they do not claim new validation or publication evidence.
 
 No changes recorded yet.
 
+## [0.17.0] - 2026-10-16
+
+### Changed
+
+- **Breaking — monitor default output:** bare `peerhub monitor` now watches the
+  selected grouped view in human and JSON modes, replacing the prior compact
+  schema 1.1 dashboard. Existing ungrouped dashboard consumers can use
+  `peerhub monitor --legacy`; explicit `--group` continues to select grouped
+  schema 2 output and cannot be combined with `--legacy`. See
+  `peerhub monitor groups` for the ordered group catalog and descriptions.
+
+### Fixed
+
+- Detect peers omitted by the bounded monitor scope sample and mark execution
+  and coverage as partial instead of reporting a complete sample.
+
 ## [0.16.1] - 2026-10-16
 
 ### Added
