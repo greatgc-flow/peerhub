@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sqlite3
 import sys
 from time import monotonic, sleep
@@ -16,9 +17,6 @@ from typing import Any, cast
 
 from peerhub.cli.support import agy_token_use, print_warnings
 from peerhub.cli.monitor_preferences import GROUP_IDS
-
-MONITOR_FRAME_SCHEMA = "1.1"
-
 
 def register_monitor_parser(subparsers: Any) -> None:
     p = subparsers.add_parser("monitor", help="Watch quota evidence and diagnostic dashboard")
@@ -31,9 +29,11 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--timeout-seconds", dest="timeout", type=float, default=15.0,
                    help="Probe timeout")
     p.add_argument("--json", action="store_true",
-                   help="Emit NDJSON frames")
-    p.add_argument("--legacy", action="store_true",
-                   help="Use the compatibility 1.1 dashboard instead of the grouped monitor")
+                   help="Emit machine-readable JSON (NDJSON for watch; one object for --snapshot)")
+    p.add_argument("--schema-version", choices=("1.1", "2.0"), default=None,
+                   help="JSON contract version (requires --json; default: 2.0)")
+    if _legacy_alias_available():
+        p.add_argument("--legacy", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--allow-agy-token-use", action="store_true",
                    help="Keep collecting after agy /usage consumed model tokens")
     p.add_argument("--view", choices=["auto", "rich", "plain"], default="auto",
@@ -74,49 +74,52 @@ def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namesp
         parser.error("--timeout-seconds must be a positive number")
     if args.collect_every < 1:
         parser.error("--collect-every must be >= 1")
+    legacy = bool(getattr(args, "legacy", False))
+    schema = getattr(args, "schema_version", None)
+    if schema is not None and not args.json:
+        parser.error("--schema-version requires --json")
+    effective_schema = schema or ("1.1" if legacy and args.json else "2.0")
+    if legacy and args.json and schema == "2.0":
+        parser.error("--legacy conflicts with --schema-version 2.0; remove --legacy or select schema 1.1")
+    if args.json and effective_schema == "1.1" and args.group:
+        parser.error("schema 1.1 cannot represent --group; use schema 2.0")
+    if args.json and effective_schema == "1.1" and args.snapshot:
+        parser.error("schema 1.1 cannot represent --snapshot; use schema 2.0")
 
 
-def _frame_drawer(format_frame: Any, view: str, *, color: bool, db_name: str, cycle: int, refresh: dict[str, Any], interval: float,
-                  collect_every: int, output: Any, store_path: str = "", store_source: str = "") -> Any:
-    unicode_ok = (sys.stdout.encoding or "").lower().startswith("utf")
+def _legacy_alias_available(version: str | None = None) -> bool:
+    from peerhub._version import __version__
 
-    def draw(rep: Any, next_in: float | None) -> None:
-        output.write(format_frame(rep, view, color=color, unicode=unicode_ok, width=output.width(), db_name=db_name, cycle=cycle,
-                           refresh=refresh, next_refresh_in=next_in, interval=interval, refresh_every=collect_every,
-                           store_path=store_path, store_source=store_source))
-
-    return draw
-
-
-def _tick(rep: Any, draw: Any, interval: float, collect_in: float, advance: Any) -> None:
-    """Between two cycles redraw once per second from the same snapshot (clock, ages and countdowns move; nothing is re-read)."""
-    start = monotonic()
-    while True:
-        left = interval - (monotonic() - start)
-        if left <= 0:
-            return
-        sleep(min(1.0, left))
-        elapsed = monotonic() - start
-        if elapsed >= interval:
-            return
-        if elapsed >= 1.0:
-            draw(advance(rep, rep.read_at + elapsed), max(0.0, collect_in - elapsed))
+    value = (version or __version__).split("+", 1)[0]
+    try:
+        major, minor, *_ = (int(part.split("-", 1)[0]) for part in value.split("."))
+    except ValueError:
+        return True
+    return (major, minor) < (0, 19)
 
 
-def _cycle_exit_code(report: Any, refresh_code: int) -> int:
-    """Return the most actionable failure from the completed diagnostic/refresh cycle."""
-    if report.status == "FAILED":
-        return 6 if (report.error or "").startswith("SchemaVersionError:") else 4
-    if report.status == "PARTIAL":
-        return 4
-    return refresh_code
+def _render_human_frame(payload: dict[str, Any], *, view: str, width: int, color: bool) -> str:
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
+    return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
+                                color=color, unicode=unicode_ok, width=width)
 
 
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     validate_monitor_args(parser, args)
+    legacy = bool(getattr(args, "legacy", False))
+    schema = getattr(args, "schema_version", None) or ("1.1" if legacy and args.json else "2.0")
+    if args.json and schema == "1.1":
+        if legacy:
+            print("warning: --legacy is deprecated; use --schema-version 1.1 (removed in 0.19.0)",
+                  file=sys.stderr, flush=True)
+        from peerhub.cli.monitor_schema11 import run_schema_11_watch
+        return run_schema_11_watch(args, sleep_fn=sleep, monotonic_fn=monotonic)
+    if legacy:
+        print("warning: --legacy is deprecated; the grouped visual dashboard is now the default "
+              "(removed in 0.19.0)", file=sys.stderr, flush=True)
     if args.snapshot:
-        if getattr(args, "legacy", False):
-            parser.error("--legacy cannot be combined with --snapshot")
         provided_options = cast(set[str], getattr(args, "_provided_options", set[str]()))
         conflicts = provided_options & {
             "--interval-seconds", "--cycles", "--peers", "--timeout-seconds", "--collect-every",
@@ -125,10 +128,6 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
         if conflicts:
             parser.error("--snapshot cannot be combined with watch or collection options: " + ", ".join(sorted(conflicts)))
         return _run_monitor_snapshot(args, parser)
-    if getattr(args, "legacy", False):
-        if args.group:
-            parser.error("--legacy cannot be combined with --group")
-        return _run_monitor_legacy(args)
     from peerhub.cli.monitor_preferences import effective_preferences
     if args.group:
         requested = list(dict.fromkeys(args.group))
@@ -142,128 +141,10 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
             payload = {"schema_version": "2.0", "status": "ERROR", "groups": {},
                        "preference": {key: preference.get(key) for key in ("status", "source", "reason")}}
             print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")) if args.json else
-                  json.dumps(payload, ensure_ascii=True, indent=2))
+                  f"PeerHub monitor defaults are invalid ({preference.get('reason') or 'unknown reason'}). Run 'peerhub monitor defaults show' to inspect them.")
             return 1
         selected = cast(list[str], preference["selected_groups"])
     return _run_monitor_grouped_watch(args, cast(list[str], selected), cast(dict[str, Any], preference))
-
-
-def _run_monitor_legacy(args: argparse.Namespace) -> int:
-    """Keep the schema-1.1 dashboard available for existing text/JSON consumers."""
-    from peerhub.cli.store_select import report_missing_store
-    if report_missing_store(args.db, json_output=args.json):
-        return 5
-    # Lazy imports: registering the parser must work when first-party extensions are blocked (Core-only path); the
-    # extension-backed pieces are only needed once the command actually runs.
-    from peerhub.cli.view import FrameOutput, advance_report, dashboard_data, format_frame, use_color
-    from peerhub.extensions.diag import ReadonlyDiag
-    from peerhub.extensions.quota_capture import refresh_quota
-
-    tty = sys.stdout.isatty()
-    view = ("rich" if tty else "plain") if args.view == "auto" else args.view
-    output = FrameOutput(interactive=not args.json)
-    color = view == "rich" and use_color(output.live, os.environ)
-    db_name = os.path.basename(str(args.db))
-    store_path = str(args.db)
-    store_source = getattr(args, "db_source", "unknown")
-    live, draw = False, None
-    total: int = args.cycles
-    done: int = 0
-    last_refresh_status_code: int = 0
-    next_deadline = monotonic() + args.interval
-
-    try:
-        # Show the last committed evidence immediately; provider latency must not hide the current state.
-        initial = ReadonlyDiag(args.db).render(["peers", "streams", "resource_pools", "observations", "activity"])
-        initial_refresh = {"status": "NOT_STARTED"}
-        if args.json:
-            print(json.dumps({
-                "schema_version": MONITOR_FRAME_SCHEMA, "cycle": 0, "phase": "initial", "refresh": initial_refresh,
-                "store_selection": {"path": store_path, "source": store_source}, "snapshot": dashboard_data(initial),
-            }, ensure_ascii=True, separators=(",", ":")), flush=True)
-        else:
-            live = output.live
-            draw = _frame_drawer(format_frame, view, color=color, db_name=db_name, cycle=0,
-                                 refresh=initial_refresh, interval=args.interval,
-                                 collect_every=args.collect_every, output=output,
-                                 store_path=store_path, store_source=store_source)
-            draw(initial, args.interval)
-        while True:
-            if report_missing_store(args.db, json_output=args.json):
-                return 5
-            is_refresh_cycle = (done % args.collect_every) == 0
-            refresh_info: dict[str, Any] = {}
-            if is_refresh_cycle:
-                result = refresh_quota(
-                    args.db,
-                    args.peers,
-                    sys_dir=getattr(args, "sys_dir", None),
-                    deadline_sec=args.timeout
-                )
-                last_refresh_status_code = 1 if result["status"] != "OK" else 0
-                refresh_info = {
-                    "status": result["status"],
-                    "warnings": result.get("warnings", []),
-                    "observations": len(result.get("observations", []))
-                }
-                if not args.json:
-                    print(f"refresh: {result['status']}", file=sys.stderr, flush=True)
-                    print_warnings(result)
-
-                if agy_token_use(result) and not args.allow_agy_token_use:
-                    print("error: agy /usage consumed model tokens; stopping watch mode so quota is not burned every interval "
-                          "(pass --allow-agy-token-use to continue)", file=sys.stderr, flush=True)
-                    return 1
-            else:
-                refresh_info = {"skipped": True}
-
-            diag = ReadonlyDiag(args.db)
-            rep = diag.render(["peers", "streams", "resource_pools", "observations", "activity"])
-
-            if args.json:
-                snapshot_dict = dashboard_data(rep)
-                frame = {
-                    "schema_version": MONITOR_FRAME_SCHEMA,
-                    "cycle": done,
-                    "phase": "complete",
-                    "refresh": refresh_info,
-                    "store_selection": {"path": store_path, "source": store_source},
-                    "snapshot": snapshot_dict,
-                }
-                print(json.dumps(frame, ensure_ascii=True, separators=(",", ":")), flush=True)
-            else:
-                live = output.live
-                draw = _frame_drawer(format_frame, view, color=color, db_name=db_name, cycle=done, refresh=refresh_info,
-                                     interval=args.interval, collect_every=args.collect_every, output=output,
-                                     store_path=store_path, store_source=store_source)
-                until_collect = args.collect_every - done % args.collect_every
-                draw(rep, until_collect * args.interval)
-
-            done += 1
-            if total > 0 and done >= total:
-                return _cycle_exit_code(rep, last_refresh_status_code)
-
-            if live and draw is not None:
-                until_collect = ((done - 1) // args.collect_every + 1) * args.collect_every - (done - 1)
-                remaining = max(0.0, next_deadline - monotonic())
-                if remaining:
-                    _tick(rep, draw, remaining, until_collect * args.interval, advance_report)
-            else:
-                remaining = next_deadline - monotonic()
-                if remaining > 0:
-                    sleep(remaining)
-            now = monotonic()
-            while next_deadline <= now:
-                next_deadline += args.interval
-
-    except KeyboardInterrupt:
-        return 0
-    except (FileNotFoundError, sqlite3.OperationalError):
-        if report_missing_store(args.db, json_output=args.json):
-            return 5
-        raise
-    finally:
-        output.close()
 
 
 def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], preference: dict[str, Any]) -> int:
@@ -275,30 +156,14 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     from peerhub.extensions.quota_capture import refresh_quota
     from peerhub.core.schema_version import SchemaVersionError
     from peerhub.cli.view import FrameOutput, use_color
-    from peerhub.cli.monitor_preferences import GROUPS
-
     output = FrameOutput(interactive=not args.json)
-    color = (args.view == "rich" or (args.view == "auto" and output.live)) and use_color(output.live, os.environ)
-    descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
-
-    def human_frame(payload: dict[str, Any]) -> str:
-        heading = "\x1b[1;36m" if color else ""
-        reset = "\x1b[0m" if color else ""
-        lines = [f"PeerHub monitor - {payload.get('status', 'UNKNOWN')}"]
-        pref = payload.get("preference")
-        if isinstance(pref, dict):
-            lines.append(f"Defaults: {cast(dict[str, Any], pref).get('source', 'unknown')}")
-        groups_obj: object = payload.get("groups")
-        groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
-        for group_id, value in groups.items():
-            group = cast(dict[str, Any], value) if isinstance(value, dict) else {}
-            label = f"{group_id.upper()} - {group.get('status', 'UNKNOWN')} - {descriptions.get(group_id, '')}"
-            lines.extend(("", f"{heading}{label}{reset}" if heading else label))
-            data = group.get("data")
-            lines.append("  unavailable" if data is None else json.dumps(data, ensure_ascii=True, indent=2, sort_keys=True))
-        return "\n".join(lines)
+    effective_view = ("rich" if output.live else "plain") if args.view == "auto" else args.view
+    color = effective_view == "rich" and use_color(output.live, os.environ)
+    last_payload: dict[str, Any] | None = None
+    last_frame_monotonic = 0.0
 
     def emit(cycle: int, phase: str, refresh: dict[str, Any]) -> int:
+        nonlocal last_payload, last_frame_monotonic
         try:
             payload: dict[str, Any] = render_monitor_frame(args.db, selected)
         except SchemaVersionError:
@@ -307,11 +172,13 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         payload.update({"selected_groups": selected, "available_groups": list(GROUP_IDS),
                        "preference": {key: preference.get(key) for key in ("status", "source", "reason")},
                        "store_selection": {"path": str(args.db), "source": getattr(args, "db_source", "unknown")}})
+        last_payload = payload
+        last_frame_monotonic = monotonic()
         if args.json:
             print(json.dumps({"schema_version": "2.0", "cycle": cycle, "phase": phase, "refresh": refresh,
                               "snapshot": payload}, ensure_ascii=True, separators=(",", ":")), flush=True)
         else:
-            output.write(human_frame(payload))
+            output.write(_render_human_frame(payload, view=effective_view, width=output.width(), color=color))
         groups_obj: object = payload.get("groups")
         groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
         if any(isinstance(v, dict) and cast(dict[str, Any], v).get("status") == "ERROR" for v in groups.values()):
@@ -353,7 +220,17 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
             if args.cycles > 0 and done >= args.cycles:
                 return code or last_refresh_code
             remaining = next_deadline - monotonic()
-            if remaining > 0:
+            if remaining > 0 and output.live:
+                while remaining > 0:
+                    sleep(min(1.0, remaining))
+                    remaining = next_deadline - monotonic()
+                    if remaining > 0 and last_payload is not None:
+                        display = dict(last_payload)
+                        display["next_refresh_in"] = remaining
+                        display["display_elapsed_seconds"] = max(0.0, monotonic() - last_frame_monotonic)
+                        output.write(_render_human_frame(display, view=effective_view,
+                                                         width=output.width(), color=color))
+            elif remaining > 0:
                 sleep(remaining)
             now = monotonic()
             while next_deadline <= now:
@@ -376,7 +253,8 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     if preference["status"] != "OK":
         payload = {"schema_version": "2.0", "status": "ERROR", "selected_groups": None,
                    "preference": {key: preference[key] for key in ("status", "source", "reason")}}
-        print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")) if args.json else json.dumps(payload, indent=2))
+        print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")) if args.json else
+              f"PeerHub monitor defaults are invalid ({preference.get('reason') or 'unknown reason'}). Run 'peerhub monitor defaults show' to inspect them.")
         return 1
     requested = args.group
     unique_requested = list(dict.fromkeys(requested or []))
@@ -418,27 +296,14 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
 
 
 def _print_grouped_snapshot(payload: dict[str, Any], view: str) -> None:
-    """Render a compact human-readable group outline; JSON remains the machine contract."""
+    """Render a human dashboard from one schema 2.0 snapshot."""
     from peerhub.cli.view import enable_vt, use_color
     tty = sys.stdout.isatty()
-    requested_rich = view == "rich" or (view == "auto" and tty)
-    rich = requested_rich and use_color(tty and enable_vt(), os.environ)
-    heading = "\x1b[1;36m" if rich else ""
-    reset = "\x1b[0m" if rich else ""
-    print(f"PeerHub monitor - {payload.get('status', 'UNKNOWN')}")
-    preference = payload.get("preference")
-    if isinstance(preference, dict):
-        print(f"Defaults: {cast(dict[str, Any], preference).get('source', 'unknown')}")
-    groups_obj: object = payload.get("groups")
-    groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
-    for group_id, value in groups.items():
-        group = cast(dict[str, Any], value) if isinstance(value, dict) else {}
-        print(f"\n{heading}{group_id.upper()} - {group.get('status', 'UNKNOWN')}{reset}")
-        data: object = group.get("data")
-        if data is None:
-            print("  unavailable")
-        else:
-            print(json.dumps(data, ensure_ascii=True, indent=2, sort_keys=True))
+    live = tty and enable_vt()
+    effective_view = ("rich" if live else "plain") if view == "auto" else view
+    color = effective_view == "rich" and use_color(live, os.environ)
+    print(_render_human_frame(payload, view=effective_view, width=shutil.get_terminal_size((100, 24)).columns,
+                              color=color), end="")
 
 
 def run_monitor_repair(args: argparse.Namespace) -> int:

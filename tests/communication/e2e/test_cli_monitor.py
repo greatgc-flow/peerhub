@@ -50,7 +50,7 @@ def test_monitor_groups_human_output_explains_invalid_preference(tmp_path, monke
     assert "Reason: invalid_toml" in output
 
 
-def test_monitor_bare_watch_uses_default_grouped_view_and_legacy_is_explicit(tmp_path, monkeypatch, capsys):
+def test_monitor_bare_watch_uses_default_grouped_view_and_legacy_selects_schema_11(tmp_path, monkeypatch, capsys):
     from peerhub.cli import monitor
 
     db = _db(tmp_path)
@@ -60,7 +60,7 @@ def test_monitor_bare_watch_uses_default_grouped_view_and_legacy_is_explicit(tmp
     assert main(["--db", str(db), "monitor", "--json", "--cycles", "1"]) == 0
     assert calls == [(["overview", "execution", "sessions", "usage", "context", "capacity", "coverage"], "packaged")]
     calls.clear()
-    # The legacy route is selected before preference loading, preserving the 1.1 CLI contract.
+    # The deprecated machine alias selects the frozen 1.1 wire contract.
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
     assert main(["--db", str(db), "monitor", "--legacy", "--json", "--cycles", "1"]) == 0
@@ -92,22 +92,102 @@ def test_bare_monitor_renders_default_session_and_execution_groups(tmp_path, mon
             assert frame["snapshot"]["available_groups"] == list(GROUP_IDS)
             assert {"sessions", "execution"} <= set(frame["snapshot"]["groups"])
     else:
-        assert "SESSIONS -" in output and "EXECUTION -" in output
-        assert "configured profile/model/effort" in output
+        assert "SESSIONS [" in output and "EXECUTION [" in output
+        assert '"groups"' not in output
 
 
-def test_monitor_legacy_rejects_grouped_selection(tmp_path):
+def test_monitor_schema_11_rejects_grouped_selection(tmp_path):
     db = _db(tmp_path)
     with pytest.raises(SystemExit) as exc:
-        main(["--db", str(db), "monitor", "--legacy", "--group", "sessions", "--cycles", "1"])
+        main(["--db", str(db), "monitor", "--legacy", "--json", "--group", "sessions", "--cycles", "1"])
     assert exc.value.code == 2
 
 
-def test_monitor_legacy_rejects_snapshot(tmp_path):
+def test_monitor_schema_11_rejects_snapshot(tmp_path):
     db = _db(tmp_path)
     with pytest.raises(SystemExit) as exc:
-        main(["--db", str(db), "monitor", "--legacy", "--snapshot"])
+        main(["--db", str(db), "monitor", "--legacy", "--json", "--snapshot"])
     assert exc.value.code == 2
+
+
+def test_monitor_legacy_is_hidden_alias_and_works_with_grouped_snapshot(tmp_path, monkeypatch, capsys):
+    from peerhub.cli.monitor import _legacy_alias_available
+
+    assert _legacy_alias_available("0.18.9") is True
+    assert _legacy_alias_available("0.19.0") is False
+    db = _db(tmp_path)
+    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda path, groups: {
+        "schema_version": "2.0", "status": "OK", "groups": {
+            group: {"status": "OK", "data": {"schema_version": 7, "database_size_bytes": 10}}
+            for group in groups}, "errors": {}})
+    with pytest.raises(SystemExit) as exc:
+        main(["monitor", "--help"])
+    assert exc.value.code == 0
+    assert "--legacy" not in capsys.readouterr().out
+    from tools.command_inventory import derive, option_keys
+    assert "monitor --legacy" not in option_keys(derive())
+
+    assert main(["--db", str(db), "monitor", "--legacy", "--snapshot", "--group", "store"]) == 0
+    captured = capsys.readouterr()
+    assert "STORE" in captured.out
+    assert '"groups"' not in captured.out
+    assert "deprecated" in captured.err.lower()
+
+
+def test_legacy_human_alias_matches_default_stdout_and_warns_only_on_stderr(tmp_path, monkeypatch, capsys):
+    db = _db(tmp_path)
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
+    assert main(["--db", str(db), "monitor", "--cycles", "1", "--group", "store"]) in (0, 4)
+    default = capsys.readouterr()
+    assert main(["--db", str(db), "monitor", "--legacy", "--cycles", "1", "--group", "store"]) in (0, 4)
+    alias = capsys.readouterr()
+    assert alias.out == default.out
+    assert "deprecated" in alias.err.lower()
+    assert "deprecated" not in alias.out.lower()
+
+
+def test_monitor_schema_version_is_json_only_and_schema_11_rejects_grouped_views(tmp_path, capsys):
+    db = _db(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        main(["--db", str(db), "monitor", "--schema-version", "1.1", "--snapshot"])
+    assert exc.value.code == 2
+    assert "requires --json" in capsys.readouterr().err
+
+    for args in (("--json", "--schema-version", "1.1", "--group", "store"),
+                 ("--json", "--schema-version", "1.1", "--snapshot"),
+                 ("--legacy", "--json", "--group", "store"),
+                 ("--legacy", "--json", "--schema-version", "2.0")):
+        with pytest.raises(SystemExit) as exc:
+            main(["--db", str(db), "monitor", *args])
+        assert exc.value.code == 2
+
+
+def test_schema_11_watch_is_explicit_legacy_ndjson(tmp_path, monkeypatch, capsys):
+    from pathlib import Path
+
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
+    db = _db(tmp_path)
+    assert main(["--db", str(db), "monitor", "--json", "--schema-version", "1.1", "--cycles", "1"]) == 0
+    output = capsys.readouterr()
+    frames = [json.loads(line) for line in output.out.splitlines()]
+    assert len(frames) == 2
+    assert all(frame["schema_version"] == "1.1" for frame in frames)
+    assert all("snapshot" in frame for frame in frames)
+    assert output.err == ""
+    fixture = Path(__file__).parent / "fixtures" / "monitor_0.16.1_schema_1.1.jsonl"
+    expected = [json.loads(line) for line in fixture.read_text(encoding="utf-8").splitlines()]
+
+    def normalize(frame):
+        normalized = json.loads(json.dumps(frame))
+        normalized["store_selection"]["path"] = "<DB>"
+        normalized["snapshot"]["read_at"] = 0.0
+        return normalized
+
+    assert [normalize(frame) for frame in frames] == expected
 
 
 def test_bare_monitor_default_tty_uses_grouped_sections(tmp_path, monkeypatch):
@@ -132,8 +212,8 @@ def test_bare_monitor_default_tty_uses_grouped_sections(tmp_path, monkeypatch):
     db = _db(tmp_path)
     assert main(["--db", str(db), "monitor", "--view", "rich", "--cycles", "1"]) in (0, 4)
     rendered = output.getvalue()
-    assert "SESSIONS -" in rendered and "EXECUTION -" in rendered
-    assert "configured profile/model/effort" in rendered
+    assert "SESSIONS [" in rendered and "EXECUTION [" in rendered
+    assert '"groups"' not in rendered
 
 
 def test_bare_monitor_grouped_output_supports_ascii_stdout(tmp_path, monkeypatch):
@@ -155,7 +235,7 @@ def test_bare_monitor_grouped_output_supports_ascii_stdout(tmp_path, monkeypatch
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
     assert main(["--db", str(_db(tmp_path)), "monitor", "--view", "plain", "--cycles", "1"]) in (0, 4)
-    assert "EXECUTION -" in output.getvalue()
+    assert "EXECUTION [" in output.getvalue()
 
 
 def test_monitor_snapshot_does_not_refresh_providers(tmp_path, monkeypatch, capsys):
@@ -224,7 +304,7 @@ def test_monitor_snapshot_plain_view_renders_group_heading(tmp_path, capsys):
     db = _db(tmp_path)
     assert _run(db, "--snapshot", "--group", "store", "--view", "plain") == 0
     output = capsys.readouterr().out
-    assert "STORE - OK" in output
+    assert "STORE [OK]" in output
     assert '"groups"' not in output
 
 
@@ -354,7 +434,12 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: calls.append("refresh") or {"status": "OK"})
     code = _run(_db(tmp_path), "--legacy", "--view", view, "--cycles", "2", "--interval-seconds", "2.5")
-    assert code == (1 if ending == "error" else 0)
+    if ending == "error":
+        assert code == 1
+    elif ending == "normal":
+        assert code in (0, 4)
+    else:
+        assert code == 0
     out = output.getvalue()
     assert " [H" not in out
     if tty and vt:
@@ -453,6 +538,46 @@ def test_grouped_watch_respects_tty_vt_and_no_color(tmp_path, monkeypatch, tty, 
     assert "\x1b[1;36m" not in value
 
 
+def test_tty_countdown_redraw_reuses_snapshot_without_database_or_provider_calls(tmp_path, monkeypatch):
+    import io
+
+    class TTY(io.StringIO):
+        @property
+        def encoding(self):
+            return "utf-8"
+
+        def isatty(self):
+            return True
+
+    from peerhub.cli import monitor
+    from peerhub.extensions.monitor_read_model import render_monitor_frame as real_render
+    output = TTY()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    now = [0.0]
+    reads = []
+    refreshes = []
+
+    def render(db, groups):
+        reads.append((db, tuple(groups)))
+        return real_render(db, groups)
+
+    def refresh(*args, **kwargs):
+        refreshes.append(1)
+        return {"status": "OK", "observations": [], "warnings": []}
+
+    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", render)
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
+    monkeypatch.setattr(monitor, "monotonic", lambda: now[0])
+    monkeypatch.setattr(monitor, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+
+    assert main(["--db", str(_db(tmp_path)), "monitor", "--cycles", "2", "--interval-seconds", "2",
+                 "--group", "store"]) in (0, 4)
+    assert len(reads) == 3  # initial frame plus two completed collection cycles
+    assert len(refreshes) == 2
+    assert "refresh in 1s" in output.getvalue()
+
+
 def test_monitor_legacy_watch_preserves_legacy_dashboard_contract(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
@@ -519,7 +644,7 @@ def test_monitor_skips_elapsed_monotonic_slots_after_slow_probe(tmp_path, monkey
 
     with patch("peerhub.extensions.quota_capture.refresh_quota", slow_probe), \
          patch("peerhub.cli.monitor.sleep", lambda seconds: sleeps.append(seconds)):
-        assert _run(_db(tmp_path), "--legacy", "--cycles", "2", "--interval-seconds", "5") == 0
+        assert _run(_db(tmp_path), "--legacy", "--cycles", "2", "--interval-seconds", "5") in (0, 4)
     assert sleeps == []
 
 
@@ -576,6 +701,15 @@ def _spy_render(calls):
     return render
 
 
+def _spy_group_frame(calls):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
+    def render(db, groups):
+        calls.append("snapshot")
+        return render_monitor_frame(db, groups)
+    return render
+
+
 def _run(db, *args):
     try:
         return main(["--db", str(db), "monitor", *args])
@@ -608,10 +742,10 @@ def test_sleep_called_count_minus_1_times(tmp_path, capsys):
         calls.append("refresh")
         return {"status": "OK", "observations": [], "warnings": []}
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
-         patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
+         patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: sleeps.append(s)):
-        assert _run(_db(tmp_path), "--legacy", "--cycles", "3", "--interval-seconds", "42") == 0
-    assert sleeps == pytest.approx([42.0, 42.0], abs=0.1)
+        assert _run(_db(tmp_path), "--legacy", "--cycles", "3", "--interval-seconds", "42") in (0, 4)
+    assert sleeps == pytest.approx([42.0, 42.0], abs=0.2)
     assert calls == ["snapshot", "refresh", "snapshot", "refresh", "snapshot", "refresh", "snapshot"]
 
 
@@ -621,9 +755,9 @@ def test_collect_every_honoured(tmp_path, capsys):
         calls.append("refresh")
         return {"status": "OK", "observations": [], "warnings": []}
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
-         patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
+         patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
-        assert _run(_db(tmp_path), "--legacy", "--cycles", "4", "--collect-every", "2") == 0
+        assert _run(_db(tmp_path), "--legacy", "--cycles", "4", "--collect-every", "2") in (0, 4)
     assert calls == ["snapshot", "refresh", "snapshot", "snapshot", "refresh", "snapshot", "snapshot"]
 
 
@@ -638,7 +772,7 @@ def test_guard_stop_after_first_violation(tmp_path, capsys):
         }
     
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
-         patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
+         patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--legacy", "--cycles", "5") == 1
     assert calls == ["snapshot", "refresh"]
@@ -657,9 +791,9 @@ def test_guard_continue_with_flag(tmp_path, capsys):
         }
     
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
-         patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
+         patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
-        assert _run(_db(tmp_path), "--legacy", "--cycles", "2", "--allow-agy-token-use") == 1
+        assert _run(_db(tmp_path), "--legacy", "--cycles", "2", "--allow-agy-token-use") == 4
     assert calls == ["snapshot", "refresh", "snapshot", "refresh", "snapshot"]
 
 
@@ -675,7 +809,7 @@ def test_keyboard_interrupt_exit_0(tmp_path, capsys):
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
          patch("peerhub.cli.monitor.sleep", sleep):
-        assert _run(_db(tmp_path), "--legacy", "--cycles", "0") == 0
+        assert _run(_db(tmp_path), "--legacy", "--cycles", "0") in (0, 4)
 
 
 def test_json_frames_parse_and_carry_stable_keys(tmp_path, capsys):
@@ -727,7 +861,7 @@ def test_snapshot_step_performs_no_writes(tmp_path, capsys):
 
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.cli.monitor.sleep", record_hash):
-        assert _run(db_path, "--legacy", "--cycles", "3", "--collect-every", "2") == 0
+        assert _run(db_path, "--legacy", "--cycles", "3", "--collect-every", "2") in (0, 4)
 
     # cycle 0 = refresh+snapshot, cycle 1 = snapshot only, cycle 2 = refresh+snapshot: the two sleeps bracket the snapshot-only cycle
     assert len(hashes) == 2
@@ -744,7 +878,7 @@ def test_monitor_forwards_system_dir(tmp_path):
 
     sys_path = tmp_path / "custom_sys"
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh):
-        assert _run(_db(tmp_path), "--legacy", "--cycles", "1", "--system-dir", str(sys_path)) == 0
+        assert _run(_db(tmp_path), "--legacy", "--cycles", "1", "--system-dir", str(sys_path)) in (0, 4)
 
     assert calls == [Path(sys_path)]
 

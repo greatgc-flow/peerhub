@@ -77,7 +77,7 @@ peerhub monitor --interval-seconds 60
 peerhub monitor --view plain --cycles 1
 
 # Keep the schema 1.1 quota/dashboard output for existing scripts.
-peerhub monitor --legacy --json --cycles 1
+peerhub monitor --json --schema-version 1.1 --cycles 1
 
 # Customize grouped watch and snapshot defaults (workspace by default).
 peerhub monitor defaults set --group overview execution sessions usage context capacity coverage
@@ -111,17 +111,18 @@ successfully. PeerHub does not currently classify semantic task success/error.
 Context occupancy may be unknown when the provider does not report it. `runtime`
 and `store` remain available with `--group` or `--snapshot --group`.
 
-The bare monitor watch now uses grouped output in both human and JSON modes.
-Human mode prints a heading and description for each selected group, followed
-by its indented JSON data. On a TTY, `--view rich` colors group headings and
-supported terminals redraw the selected groups in place. This replaces the old
-compact quota dashboard as the bare-command display. Existing consumers of the
-schema 1.1 dashboard can pass `--legacy`; `--legacy` cannot be combined with
-`--snapshot` or `--group`. An explicit `--group` continues to select grouped
-schema 2 output without `--legacy`. `monitor --snapshot` remains read-only and
-does not refresh providers.
+The bare `monitor` command shows a grouped human dashboard on a TTY and aligned
+plain sections when redirected. `--view rich` requests visual panels and meters;
+`--view plain` selects ASCII-safe output. Add repeatable `--group` options to
+watch one or more groups, or `--group all` to include all nine. `monitor groups`
+lists group IDs and meanings; `monitor defaults show|set|reset` inspects and
+changes the default selection. `monitor --snapshot` renders one read-only
+dashboard without refreshing providers. For automation, `--json` emits schema
+2.0 NDJSON frames for watch and one JSON object for snapshot. The frozen 0.16.1
+machine contract remains available as `--json --schema-version 1.1`; the hidden
+deprecated `--legacy` alias selects it through 0.18.x and is removed in 0.19.0.
 
-The `--legacy` monitor and `diag` dashboard show a threat summary, a stable pool
+The `diag` dashboard shows a threat summary, a stable pool
 table with usage, PACE in percentage points, reset countdown, conditional
 forecast and freshness, then credits, latest asks, probe health and one
 legend/controls line. PACE is measured usage minus elapsed window percentage;
