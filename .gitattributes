@@ -1,5 +1,19 @@
 # M1 spec package manifests/checksums hash these files byte-for-byte (LF; the 4 CSVs are stored CRLF) and the packaged schemas are byte copies
 # of docs/m1_spec/04_SCHEMAS: never let git rewrite line endings (windows runners default to core.autocrlf=true).
+/.gitattributes text eol=lf
 docs/m1_spec/** -text
 peerhub/core/schemas/*.json -text
 peerhub/extensions/schemas/*.json -text
+
+# Keep touched CLI, tests, and documentation files LF on Windows workstations.
+/CHANGELOG.md text eol=lf
+/docs/index.md text eol=lf
+/docs/STATUS.md text eol=lf
+/docs/design/monitor-terminal-responsive-2026-10-16.md text eol=lf
+/peerhub/cli/monitor.py text eol=lf
+/peerhub/cli/monitor_view.py text eol=lf
+/peerhub/cli/view.py text eol=lf
+/tests/communication/diag/test_monitor_view.py text eol=lf
+/tests/communication/e2e/cli_extension_effects.py text eol=lf
+/tests/communication/e2e/test_cli_monitor.py text eol=lf
+/tests/communication/e2e/test_cli_view.py text eol=lf

@@ -146,3 +146,151 @@ def test_colored_heading_keeps_ansi_after_width_fitting(frame):
     assert "\x1b[1;36m╭─ OVERVIEW" in rendered
     assert "OVERVIEW [OK]" in rendered
     assert "\x1b[0m" in rendered
+
+
+@pytest.mark.parametrize("width", [15, 20, 40, 80, 120, 200])
+@pytest.mark.parametrize("height", [1, 2, 3, 4, 5, 8, 24, 60])
+def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, width, height):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=width, height=height)
+
+    assert len(rendered.splitlines()) <= height - 1
+    assert all(len(line) <= width - 1 for line in rendered.splitlines())
+    if height == 2:
+        assert "+9" in rendered and "--group all" in rendered
+    elif height >= 3 and len(frame["selected_groups"]) > max(0, height - 3):
+        hidden = max(0, len(frame["selected_groups"]) - max(0, (height - 3) // 2))
+        assert f"+{hidden}" in rendered or f"{hidden} groups omitted" in rendered
+        assert "--group all" in rendered
+
+
+def test_height_budget_prioritizes_errors_and_preserves_catalog_order(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["groups"]["coverage"]["status"] = "ERROR"
+    frame["groups"]["execution"]["status"] = "PARTIAL"
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=7)
+    visible = rendered.upper()
+
+    assert visible.index("COVERAGE [ERROR]") < visible.index("EXECUTION [PARTIAL]")
+    assert "7 GROUPS OMITTED" in visible
+
+
+def test_full_severity_classes_keep_catalog_order_when_every_summary_fits(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    statuses = {"overview": "ERROR", "sessions": "UNAVAILABLE", "usage": "STALE",
+                "context": "PARTIAL", "runtime": "UNKNOWN", "execution": "OK",
+                "capacity": "OK", "coverage": "OK", "store": "OK"}
+    for group_id, status in statuses.items():
+        frame["groups"][group_id]["status"] = status
+
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=20)
+    headings = [line.split(" [", 1)[0] for line in rendered.splitlines() if " [" in line]
+
+    assert headings == [group.upper() for group in frame["selected_groups"]]
+
+
+def test_store_provenance_and_safe_read_error_are_visible(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["store_selection"] = {"path": "D:/users/alice/private/core.db", "source": "discovered"}
+    frame["errors"] = {"sessions": "OperationalError: secret-token SELECT * FROM private"}
+    frame["groups"]["sessions"]["status"] = "ERROR"
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=24)
+
+    assert "discovered" in rendered
+    assert "core.db" in rendered
+    assert "OperationalError" in rendered or "database read failed" in rendered.lower()
+    assert "secret-token" not in rendered and "SELECT *" not in rendered
+
+
+def test_narrow_store_header_retains_source_while_eliding_path(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["store_selection"] = {"path": "D:/a/very/long/location/core.db", "source": "workspace"}
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=40, height=24)
+
+    assert "workspace" in rendered
+    assert "D:/a/very/long/location/core.db" not in rendered
+
+
+def test_dependent_error_groups_show_safe_root_reason(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["groups"]["coverage"]["status"] = "ERROR"
+    frame["errors"] = {"execution": "OperationalError: SELECT secret from user"}
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=24)
+
+    assert "operationalerror: database read failed" in rendered.lower()
+    assert "SELECT secret" not in rendered
+
+
+def test_display_width_ignores_combining_and_joiner_and_sanitizes_bidi(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame, _width
+
+    rendered = render_grouped_frame(frame, view="plain", unicode=True, width=20, height=8)
+    assert _width("e\u0301") == 1
+    assert _width("👩\u200d💻") <= 4
+    assert "\u202e" not in rendered
+
+
+def test_cjk_combining_and_joined_emoji_fit_actual_viewport(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame, _width
+
+    frame["groups"]["overview"]["data"]["peers"][0]["display_name"] = "\u202e\u200b東京 cafe\u0301 👩\u200d💻\u0378"
+    rendered = render_grouped_frame(frame, view="rich", unicode=True, width=20, height=8)
+
+    assert all(_width(line) <= 19 for line in rendered.splitlines())
+    assert "\u202e" not in rendered
+    assert "�" in rendered
+
+
+def test_unicode_line_separators_cannot_inflate_physical_frame_height(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["groups"]["overview"]["data"]["peers"][0]["display_name"] = "A\u2028B\u2029C"
+    rendered = render_grouped_frame(frame, view="plain", unicode=True, width=80, height=8)
+    physical_lines = rendered.rstrip("\n").split("\n")
+
+    assert len(physical_lines) <= 7
+    assert "\u2028" not in rendered and "\u2029" not in rendered
+
+
+def test_refresh_warning_reason_is_bounded_and_sanitized(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["refresh_state"] = "REFRESH PARTIAL · 1 warnings"
+    frame["refresh_warnings"] = ["cx: probe_timeout: secret at D:/private/token"]
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=24)
+
+    assert "Warning: cx probe_timeout" in rendered
+    assert "secret" not in rendered and "D:/private/token" not in rendered
+
+    frame["refresh_warnings"] = ["secret-token: private value"]
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=24)
+    assert "secret-token" not in rendered
+
+    frame["refresh_warnings"] = [{"secret": "token"}]
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=24)
+    assert "probe_warning" in rendered and "secret" not in rendered
+
+
+def test_agy_stop_hint_is_available_in_frame_when_it_fits(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["refresh_state"] = "STOPPED · AGY TOKEN USE"
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=24)
+
+    assert "--allow-agy-token-use" in rendered
+
+
+def test_append_only_renderer_keeps_full_legacy_human_frame(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80)
+
+    assert len(rendered.splitlines()) > 20
+    assert all(group.upper() in rendered for group in frame["selected_groups"])
+    assert "D:/" not in rendered

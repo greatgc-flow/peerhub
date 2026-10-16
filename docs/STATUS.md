@@ -1,12 +1,17 @@
 # PeerHub Development Status
 
-## Current source: v0.18.0 (release candidate)
+## Current source: v0.18.0 (published)
 
 The tagged v0.17.0 candidate is superseded before publication. v0.18.0 keeps the
 grouped monitor contract, renders it as the default human dashboard, and moves
 machine output behind `--json` with explicit schema selection. The captured
 schema 1.1 contract remains available; its hidden `--legacy` alias is deprecated
 through 0.18.x and will be removed in 0.19.0. See the [human dashboard design](design/monitor-human-dashboard-redesign-2026-10-16.md).
+
+**Released on 2026-10-16.** The [v0.18.0 publication workflow](https://github.com/greatgc-flow/peerhub/actions/runs/38848746748)
+passed verification, live validation, all Ubuntu/Windows Python 3.11–3.14
+release-matrix jobs, release evidence, and PyPI publication. The published
+release includes `g3.xml`, `g3-e2e.xml`, and `g3-slow.xml` evidence assets.
 
 **Released on 2026-10-15.** [v0.16.0](https://github.com/greatgc-flow/peerhub/releases/tag/v0.16.0)
 is tagged at `5951d0f2a32aa85151f6733f286eea03281fec55`. Session reuse and

@@ -161,7 +161,8 @@ def assert_vt_view_effect(e, db, command):
         for vt in (True, False):
             output = Output()
             args = (["--legacy", "--cycles", "1"] if command == "monitor" else ["--live", "--cycles", "1"])
-            with patch("sys.stdout", output), patch("peerhub.cli.view.enable_vt", lambda: vt):
+            with patch("sys.stdout", output), patch("peerhub.cli.view.enable_vt", lambda: vt), \
+                    patch.dict("os.environ", {"TERM": "xterm"}):
                 assert e.run(db, command, "--view", style, *args)[0] in (0, 4)
             text = output.getvalue()
             if vt:

@@ -148,24 +148,102 @@ def test_resize_relayouts_grouped_frame_and_erases_shrunken_frame(monkeypatch):
         def isatty(self):
             return True
 
+        def fileno(self):
+            return 23
+
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
     monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setenv("TERM", "xterm")
     sizes = iter([os.terminal_size((120, 24)), os.terminal_size((80, 20))])
-    monkeypatch.setattr("peerhub.cli.view.shutil.get_terminal_size", lambda fallback: next(sizes))
+    monkeypatch.setattr("peerhub.cli.view.os.get_terminal_size", lambda fd: next(sizes))
     payload = {"status": "OK", "selected_groups": ["store"],
                "groups": {"store": {"status": "OK", "data": {"schema_version": 7,
                                                                   "database_size_bytes": 10}}}}
     sink = FrameOutput()
     try:
         for _ in range(2):
-            width = FrameOutput.width()
-            sink.write(render_grouped_frame(payload, view="rich", width=width))
+            width, height = FrameOutput.geometry()
+            sink.write(render_grouped_frame(payload, view="rich", width=width, height=height))
     finally:
         sink.close()
     assert "STORE [OK]" in output.getvalue()
     assert "\x1b[H" in output.getvalue() and "\x1b[K\x1b[J" in output.getvalue()
     assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
+
+
+def test_frame_output_uses_stable_geometry_when_stdout_is_not_a_tty(monkeypatch):
+    import io
+    from peerhub.cli.view import FrameOutput
+
+    class Pipe(io.StringIO):
+        def isatty(self):
+            return False
+
+        def fileno(self):
+            return 21
+
+    monkeypatch.setattr("sys.stdout", Pipe())
+    monkeypatch.setenv("COLUMNS", "15")
+    monkeypatch.setenv("LINES", "2")
+    monkeypatch.setattr("peerhub.cli.view.os.get_terminal_size",
+                        lambda _fd: pytest.fail("must not use another terminal's geometry"))
+
+    assert FrameOutput.geometry() == (100, 24)
+    assert FrameOutput.width() == 15  # retain the existing COLUMNS override for append-only output
+
+
+def test_frame_output_reads_live_geometry_instead_of_stale_size_environment(monkeypatch):
+    import io
+    import os
+    from peerhub.cli.view import FrameOutput
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return True
+
+        def fileno(self):
+            return 17
+
+    monkeypatch.setattr("sys.stdout", Output())
+    monkeypatch.setenv("COLUMNS", "20")
+    monkeypatch.setenv("LINES", "3")
+    monkeypatch.setattr("peerhub.cli.view.os.get_terminal_size",
+                        lambda fd: os.terminal_size((91, 27)))
+
+    assert FrameOutput.geometry() == (91, 27)
+
+
+def test_term_dumb_never_enables_vt(monkeypatch):
+    import io
+    from peerhub.cli.view import FrameOutput
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr("sys.stdout", Output())
+    monkeypatch.setenv("TERM", "dumb")
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: pytest.fail("VT must stay disabled"))
+    output = FrameOutput()
+    output.write("plain\n")
+    output.close()
+    assert not output.vt
+
+
+def test_term_dumb_tty_keeps_columns_override_for_append_width(monkeypatch):
+    import io
+    from peerhub.cli.view import FrameOutput
+
+    class TTY(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr("sys.stdout", TTY())
+    monkeypatch.setenv("TERM", "dumb")
+    monkeypatch.setenv("COLUMNS", "53")
+
+    assert FrameOutput.width() == 53
 
 
 def test_probe_errors_have_their_own_line_without_a_pool():

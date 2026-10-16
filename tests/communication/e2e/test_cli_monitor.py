@@ -1,6 +1,7 @@
 """Tests for peerhub monitor command."""
 
 import json
+import os
 from unittest.mock import patch
 
 import pytest
@@ -418,6 +419,7 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
     monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: vt)
+    monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setenv("NO_COLOR", "")
     clock = [0.0]
     monkeypatch.setattr(monitor, "monotonic", lambda: clock[0])
@@ -528,6 +530,7 @@ def test_grouped_watch_respects_tty_vt_and_no_color(tmp_path, monkeypatch, tty, 
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
     monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: vt)
+    monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setenv("NO_COLOR", "")
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
@@ -536,6 +539,93 @@ def test_grouped_watch_respects_tty_vt_and_no_color(tmp_path, monkeypatch, tty, 
     value = output.getvalue()
     assert ("\x1b[?25l" in value) is (tty and vt)
     assert "\x1b[1;36m" not in value
+
+
+def test_grouped_tty_shows_refreshing_before_provider_call(tmp_path, monkeypatch):
+    import io
+
+    class TTY(io.StringIO):
+        def isatty(self):
+            return True
+
+        @property
+        def encoding(self):
+            return "utf-8"
+
+    output = TTY()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
+
+    def refresh(*args, **kwargs):
+        assert "REFRESHING" in output.getvalue()
+        return {"status": "OK", "observations": [], "warnings": []}
+
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
+    assert _run(_db(tmp_path), "--group", "store", "--cycles", "1") in (0, 4)
+    assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
+
+
+def test_redirected_snapshot_keeps_full_human_group_frame(tmp_path, capsys):
+    db = _db(tmp_path)
+    code = main(["--db", str(db), "monitor", "--snapshot", "--group", "all"])
+    output = capsys.readouterr().out
+
+    assert code in (0, 4)
+    assert all(group.upper() in output for group in
+               ("overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"))
+    assert "groups omitted" not in output.lower()
+    assert "No scope evidence" in output and "Schema 3" in output
+    assert "\x1b" not in output
+    assert output.endswith("\n") and not output.endswith("\n\n")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX PTY smoke; Windows TTY behavior is covered by ConPTY/manual tests")
+def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
+    import fcntl
+    import pty
+    import struct
+    import subprocess
+    import sys
+    import termios
+    from pathlib import Path
+
+    db = _db(tmp_path)
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 8, 40, 0, 0))
+    env = os.environ.copy()
+    env.update({"TERM": "xterm", "NO_COLOR": "1", "COLUMNS": "120", "LINES": "60"})
+    root = Path(__file__).resolve().parents[3]
+    process = subprocess.Popen(
+        [sys.executable, "-m", "peerhub", "--db", str(db), "monitor", "--snapshot", "--group", "all"],
+        cwd=root, env=env, stdin=slave, stdout=slave, stderr=subprocess.PIPE,
+    )
+    os.close(slave)
+    output = bytearray()
+    try:
+        while True:
+            try:
+                chunk = os.read(master, 4096)
+            except OSError:
+                break  # PTY master reports EIO once the child closes its slave.
+            if not chunk:
+                break
+            output.extend(chunk)
+        assert process.wait(timeout=30) in (0, 4)
+    finally:
+        os.close(master)
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+    rendered = output.decode("utf-8", errors="replace")
+    lines = rendered.rstrip("\r\n").splitlines()
+    assert len(lines) <= 7
+    assert "7 groups omitted" in rendered
+    assert "--group all" in rendered
+    assert "COLUMNS" not in rendered
+    assert "\x1b" not in rendered
 
 
 def test_tty_countdown_redraw_reuses_snapshot_without_database_or_provider_calls(tmp_path, monkeypatch):
@@ -549,11 +639,27 @@ def test_tty_countdown_redraw_reuses_snapshot_without_database_or_provider_calls
         def isatty(self):
             return True
 
+        def fileno(self):
+            return 25
+
     from peerhub.cli import monitor
     from peerhub.extensions.monitor_read_model import render_monitor_frame as real_render
     output = TTY()
     monkeypatch.setattr("sys.stdout", output)
     monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setenv("TERM", "xterm")
+    import os
+    geometry_calls = []
+    sizes = iter([os.terminal_size((80, 24)), os.terminal_size((45, 8))] * 4)
+    real_get_terminal_size = os.get_terminal_size
+
+    def geometry(_fd):
+        if _fd == 25:
+            geometry_calls.append(1)
+            return next(sizes)
+        return real_get_terminal_size(_fd)
+
+    monkeypatch.setattr("peerhub.cli.view.os.get_terminal_size", geometry)
     now = [0.0]
     reads = []
     refreshes = []
@@ -576,6 +682,7 @@ def test_tty_countdown_redraw_reuses_snapshot_without_database_or_provider_calls
     assert len(reads) == 3  # initial frame plus two completed collection cycles
     assert len(refreshes) == 2
     assert "refresh in 1s" in output.getvalue()
+    assert len(geometry_calls) >= 4
 
 
 def test_monitor_legacy_watch_preserves_legacy_dashboard_contract(tmp_path, monkeypatch, capsys):
@@ -659,6 +766,7 @@ def test_render_exception_restores_cursor(tmp_path, monkeypatch):
     output = Output()
     monkeypatch.setattr("sys.stdout", output)
     monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", lambda *a, **kw: {"status": "OK"})
     original = view.format_frame
