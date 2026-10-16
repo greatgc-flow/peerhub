@@ -70,7 +70,7 @@ peerhub monitor groups --json
 peerhub monitor --snapshot
 peerhub monitor --snapshot --group sessions --group execution
 
-# Watch the seven default groups: overview, execution, sessions, usage,
+# Watch the eight default groups: overview, peers, execution, sessions, usage,
 # context, capacity, and coverage. Collection may call provider CLIs
 # (including agy /usage) and consume provider quota.
 peerhub monitor --interval-seconds 60
@@ -80,7 +80,7 @@ peerhub monitor --view plain --cycles 1
 peerhub monitor --json --schema-version 1.1 --cycles 1
 
 # Customize grouped watch and snapshot defaults (workspace by default).
-peerhub monitor defaults set --group overview execution sessions usage context capacity coverage
+peerhub monitor defaults set --group overview peers execution sessions usage context capacity coverage
 peerhub monitor defaults show
 
 # Review with a second provider using a declared profile.
@@ -101,20 +101,21 @@ Quota is collected separately from diagnostics. `diag --fresh` has been replaced
 
 `diag --live` repeatedly reads committed snapshots only. `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
-`monitor groups` lists all nine stable group IDs, their meaning, and whether each
+`monitor groups` lists all ten stable group IDs, their meaning, and whether each
 is selected by the effective defaults. The default monitor includes quota
 capacity (`capacity`), retained session state and configured binding (`sessions`),
-and Bridge delivery certainty (`execution`). Delivery certainty describes
-whether a request was not started, may have started, started, or reached a
-terminal delivery state; `terminal` does not mean the model answered the task
-successfully. PeerHub does not currently classify semantic task success/error.
-Context occupancy may be unknown when the provider does not report it. `runtime`
-and `store` remain available with `--group` or `--snapshot --group`.
+per-peer dependency chains (`peers`), and Bridge delivery certainty (`execution`).
+Delivery certainty describes whether a request was not started, may have
+started, started, or reached a terminal delivery state; `terminal` does not
+mean the model answered the task successfully. PeerHub does not currently
+classify semantic task success/error. Context occupancy may be unknown when
+the provider does not report it. `runtime` and `store` remain available with
+`--group` or `--snapshot --group`.
 
 The bare `monitor` command shows a grouped human dashboard on a TTY and aligned
 plain sections when redirected. `--view rich` requests visual panels and meters;
 `--view plain` selects ASCII-safe output. Add repeatable `--group` options to
-watch one or more groups, or `--group all` to include all nine. `monitor groups`
+watch one or more groups, or `--group all` to include all ten. `monitor groups`
 lists group IDs and meanings; `monitor defaults show|set|reset` inspects and
 changes the default selection. `monitor --snapshot` renders one read-only
 dashboard without refreshing providers. For automation, `--json` emits schema

@@ -197,13 +197,15 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 trace_callback(statement)
         conn.set_trace_callback(trace)
         peers: list[dict[str, Any]] = []
+        peer_sample_truncated = False
         try:
             rows = (conn.execute("SELECT peer_id,display_name,adapter_ref FROM peers ORDER BY peer_id LIMIT 4").fetchall()
-                    if "overview" in groups else [])
-            peers = [{"peer_id": str(row[0]), "display_name": row[1], "adapter_ref": row[2]} for row in rows]
+                    if bool(set(groups) & {"overview", "peers"}) else [])
+            peer_sample_truncated = len(rows) > 3
+            peers = [{"peer_id": str(row[0]), "display_name": row[1], "adapter_ref": row[2]} for row in rows[:3]]
             if "overview" in groups:
-                output["overview"] = {"status": "OK", "data": {"peers": peers[:3], "sample_size": min(len(peers), 3),
-                                                                     "truncated": len(peers) > 3}}
+                output["overview"] = {"status": "OK", "data": {"peers": peers, "sample_size": len(peers),
+                                                                     "truncated": peer_sample_truncated}}
         except sqlite3.Error as exc:
             errors["overview"] = type(exc).__name__
             if "overview" in groups:
@@ -211,10 +213,10 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         sessions: list[dict[str, Any]] = []
         truncated = False
         try:
-            needs_sessions = bool(set(groups) & {"overview", "sessions", "usage", "context", "runtime"})
+            needs_sessions = bool(set(groups) & {"overview", "sessions", "usage", "context", "runtime", "peers"})
             rows = conn.execute(
                 "SELECT h.session_handle,h.stream_id,h.peer_id,h.session_generation,h.runtime_kind,h.state,h.resumable,"
-                "h.last_seen,h.created_at,h.tombstoned_at,s.binding_json,s.latest_telemetry_seq,e.detail "
+                "h.last_seen,h.created_at,h.tombstoned_at,s.binding_json,s.latest_telemetry_seq,s.reuse_count,s.fresh_count,e.detail "
                 "FROM (SELECT rowid,session_handle,stream_id,peer_id,session_generation,runtime_kind,state,resumable,last_seen,created_at,tombstoned_at "
                 "FROM bridge_session_history ORDER BY rowid DESC LIMIT 101) h "
                 "LEFT JOIN bridge_session_monitor_stats s ON s.session_handle=h.session_handle "
@@ -226,10 +228,13 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 binding = _safe_object(row["binding_json"])
                 telemetry = _public_telemetry(row["detail"], handle=str(row["session_handle"]),
                                                generation=int(row["session_generation"]), provider=str(row["runtime_kind"]))
+                rc, fc = row["reuse_count"], row["fresh_count"]
+                exec_mode = ("reused" if rc and rc > 0 else "fresh" if fc and fc > 0 else None)
                 sessions.append({"handle": str(row["session_handle"]), "stream_id": str(row["stream_id"]),
                                  "peer_id": str(row["peer_id"]), "generation": int(row["session_generation"]),
                                  "provider": str(row["runtime_kind"]), "state": str(row["state"]),
-                                 "resumable": bool(row["resumable"]), "last_seen": float(row["last_seen"]),
+                                 "resumable": bool(row["resumable"]), "execution_mode": exec_mode,
+                                 "last_seen": float(row["last_seen"]),
                                  "created_at": float(row["created_at"]), "tombstoned_at": row["tombstoned_at"],
                                  "configured_binding": {key: _public_binding_value(binding.get(key)) for key in ("profile", "model", "effort")},
                                  "telemetry": telemetry})
@@ -374,7 +379,8 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             }
             if len(scope_rows) > 0 and max((int(row[22]) for row in scope_rows), default=0) > 3:
                 sessions_data["peer_sample_truncated"] = True
-        if "capacity" in groups:
+        observations: list[dict[str, Any]] = []
+        if bool(set(groups) & {"capacity", "peers"}):
             try:
                 rows = conn.execute(
                     "SELECT o.capture_seq,o.observation_id,o.subject_ref,o.resource_pool_ref,o.kind,o.source,o.state,"
@@ -383,7 +389,6 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref "
                     "WHERE r.kind IN ('quota','rate_limit') ORDER BY o.subject_ref,r.pool_key LIMIT 101"
                 ).fetchall()
-                observations: list[dict[str, Any]] = []
                 for row in rows[:100]:
                     try:
                         observation, capture_seq = row_to_observation(row)
@@ -437,11 +442,101 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         "skew_seconds": freshness.skew_seconds,
                         "measurements": measurements,
                     })
-                output["capacity"] = {"status": "OK", "data": {"observations": observations,
-                    "sample_size": min(len(rows), 100), "truncated": len(rows) > 100}}
+                if "capacity" in groups:
+                    output["capacity"] = {"status": "OK", "data": {"observations": observations,
+                        "sample_size": min(len(rows), 100), "truncated": len(rows) > 100}}
             except sqlite3.Error as exc:
                 errors["capacity"] = type(exc).__name__
-                output["capacity"] = {"status": "ERROR", "data": None}
+                if "capacity" in groups:
+                    output["capacity"] = {"status": "ERROR", "data": None}
+        if "peers" in groups:
+            config_workspace = _monitor_workspace(db_path, workspace)
+            peer_records: list[dict[str, Any]] = []
+            for p in peers:
+                pid = p["peer_id"]
+                peer_sessions = [s for s in sessions if s["peer_id"] == pid]
+                s_item = max(
+                    peer_sessions,
+                    key=lambda s: (float(s.get("last_seen") or 0.0), int(s.get("generation") or 0)),
+                    default=None,
+                )
+                peer_observations = [o for o in observations if o["peer_id"] == pid]
+                o_item = peer_observations[0] if peer_observations else None
+                q_data: dict[str, Any] | None = None
+                if o_item is not None:
+                    raw_m: object = o_item.get("measurements")
+                    q_m: dict[str, Any] = cast(dict[str, Any], raw_m) if isinstance(raw_m, dict) else {}
+                    raw_rem: object = q_m.get("remaining_fraction")
+                    rem: float | None = (
+                        float(raw_rem) if isinstance(raw_rem, (int, float)) and not isinstance(raw_rem, bool)
+                        and math.isfinite(float(raw_rem)) and 0 <= float(raw_rem) <= 1 else None
+                    )
+                    q_data = {
+                        "pool_ref": o_item.get("pool_ref") or o_item.get("pool_kind"),
+                        "remaining_fraction": rem,
+                        "percent": round(rem * 100) if rem is not None else None,
+                        "state": o_item.get("state"),
+                        "source": o_item.get("source"),
+                        "age_seconds": o_item.get("age_seconds"),
+                    }
+                prof_data: dict[str, Any] | None = None
+                if s_item is not None:
+                    raw_binding: object = s_item.get("configured_binding")
+                    binding: dict[str, Any] = cast(dict[str, Any], raw_binding) if isinstance(raw_binding, dict) else {}
+                    prof_name = binding.get("profile")
+                    recorded_model: object = binding.get("model")
+                    prof_source = "unknown"
+                    if isinstance(prof_name, str):
+                        cp = _current_profile(prof_name, config_workspace)
+                        raw_fields: object = cp.get("fields")
+                        fields: dict[str, Any] = cast(dict[str, Any], raw_fields) if isinstance(raw_fields, dict) else {}
+                        raw_model: object = fields.get("model")
+                        model_field: dict[str, Any] = cast(dict[str, Any], raw_model) if isinstance(raw_model, dict) else {}
+                        current_model: object = model_field.get("value")
+                        model_source: object = model_field.get("source")
+                        if model_source and recorded_model is not None and recorded_model == current_model:
+                            prof_source = str(model_source)
+                    prof_data = {
+                        "profile": prof_name,
+                        "model": binding.get("model"),
+                        "source": prof_source,
+                    }
+                sess_data: dict[str, Any] | None = None
+                if s_item is not None:
+                    sess_data = {
+                        "generation": s_item.get("generation"),
+                        "execution_mode": s_item.get("execution_mode"),
+                        "resumable": s_item.get("resumable"),
+                    }
+                ctx_data: dict[str, Any] | None = None
+                if s_item is not None:
+                    raw_tel: object = s_item.get("telemetry")
+                    tel: dict[str, Any] = cast(dict[str, Any], raw_tel) if isinstance(raw_tel, dict) else {}
+                    raw_ctx: object = tel.get("context")
+                    tel_ctx: dict[str, Any] = cast(dict[str, Any], raw_ctx) if isinstance(raw_ctx, dict) else {}
+                    if isinstance(raw_ctx, dict):
+                        ctx_data = {
+                            "percent": tel_ctx.get("percent"),
+                            "occupancy_tokens": tel_ctx.get("occupancy_tokens"),
+                            "state": tel_ctx.get("state"),
+                        }
+                peer_records.append({
+                    "peer_id": pid,
+                    "quota": q_data,
+                    "profile": prof_data,
+                    "session": sess_data,
+                    "context": ctx_data,
+                })
+            output["peers"] = {
+                "status": "ERROR" if "sessions" in errors else "OK",
+                "data": {
+                    "peers": peer_records,
+                    "sample_size": len(peer_records),
+                    "truncated": truncated or peer_sample_truncated,
+                    "session_sample_truncated": truncated,
+                    "peer_sample_truncated": peer_sample_truncated,
+                },
+            }
         if "store" in groups:
             try:
                 output["store"] = {"status": "OK", "data": {"schema_version": schema,
@@ -455,7 +550,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             overview_data["session_sample_size"] = len(sessions)
             overview_data["session_sample_truncated"] = truncated
         if "sessions" in errors or ("execution" in errors and errors["execution"] != "truncated"):
-            for dependent in ("overview", "sessions", "usage", "context", "runtime"):
+            for dependent in ("overview", "peers", "sessions", "usage", "context", "runtime"):
                 if dependent in groups and isinstance(output.get(dependent), dict):
                     cast(dict[str, Any], output[dependent])["status"] = "ERROR"
         for _group_id, raw_group in output.items():
