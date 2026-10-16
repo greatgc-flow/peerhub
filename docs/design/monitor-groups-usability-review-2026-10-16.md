@@ -43,4 +43,6 @@ Implementation keeps the existing schema-v2 grouped payload, current seven defau
 
 ## Validation
 
-The focused monitor CLI and read-model suites are required after implementation. The full suite is run if focused checks pass and the working time permits. Provider live calls are not required for this read-only grouping and bounded-query correction; the watch tests stub quota refresh to prove routing/cadence without consuming peer quota.
+The focused monitor CLI and read-model suites are required after implementation; the hosted full suite must pass before merge. Provider live calls are not needed for the read-only grouping and bounded-query correction; watch tests stub quota refresh to verify routing/cadence without spending peer quota. The complete live G3 gate is still required for release.
+
+The CLI contract inventory must also contain a behavioral proof for `monitor --legacy`, and the package release-notes test must bind `peerhub._version.__version__` to the matching changelog section. Collection/cadence option proofs use `--legacy` where they test the prior dashboard/refresh loop; default grouped routing is covered by the dedicated grouped watch tests.
