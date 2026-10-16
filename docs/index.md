@@ -5,7 +5,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 ## Core & Everyday Guides
 - [README.md](../README.md): Quick start, installation (`pipx`/`uv`/`pip`), core usage, and everyday operational commands.
 - [Common Tasks](../README.md#common-tasks): Worked recipes for default retained-session continuation, blocked stream recovery, offline diagnostics, and package lifecycle.
-- [STATUS.md](STATUS.md): Current source (v0.17.0 release candidate), remaining work, and historical evolution log.
+- [STATUS.md](STATUS.md): Current source (v0.18.0 release candidate), remaining work, and historical evolution log.
 - [CONTRIBUTING.md](../CONTRIBUTING.md): Developer environment setup, deterministic testing, release gates, and incident lessons.
 
 ## Architecture & Specifications
@@ -25,6 +25,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [CLI, Monitoring, and Inspection Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md): MECE command boundaries, profile/session inspection, read-only guarantees, bounded snapshots, human/AI defaults, and PH-T095–105.
 - [Session Usage Monitoring and Telemetry Design](design/peerhub-session-usage-monitoring-review-2026-10-15.md): Peer-specific telemetry evidence, CX cross-review, unknowns, MECE monitor groups/defaults, the existing single-receipt schema-v2 decision, live/exception TDD plan, and USM-01–35 contracts.
 - [Monitor Group Usability Review](design/monitor-groups-usability-review-2026-10-16.md): Unanimous peer decision, group discovery, default/legacy contract, delivery certainty semantics, bounded sampling bug, and TDD acceptance plan.
+- [Human-First Monitor Dashboard Redesign](design/monitor-human-dashboard-redesign-2026-10-16.md): Revised unanimous CC/CX/AG decision; visual grouped TTY default, aligned pipe output, JSON/schema compatibility, group selection, alias sunset, and RED-first contracts.
 - [Peer CLI Option Audit](design/peer-cli-option-audit-2026-10-15.md): Installed CLI option evidence, legacy cross-check, paid canary results, apply/defer decisions, and required permission/session/streaming canaries.
 - [Deepthink Debate Ledger](design/peerhub-deepthink-debate-2026-10-14.md): Debate provenance and corrections; records the three scoped pre-TDD design GOs and remaining implementation/owner/empirical gates.
 - [Retained Session Contract](implementation/RETAINED_SESSIONS.md): Registry migration, retention, immutable replay, receipts and current ask output (PR1-3 committed).

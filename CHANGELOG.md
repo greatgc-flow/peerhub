@@ -8,9 +8,20 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
-No changes recorded yet.
+## [0.18.0] - 2026-10-16
 
-## [0.17.0] - 2026-10-16
+### Changed
+
+- **Breaking — monitor output defaults:** bare `peerhub monitor` now renders a group-aware
+  visual dashboard on TTYs and aligned plain sections when redirected. JSON is
+  explicitly machine-oriented (`--json`, schema 2.0 by default); the captured
+  schema 1.1 contract remains available with `--schema-version 1.1`. The hidden
+  `--legacy` alias is deprecated through 0.18.x and will be removed in 0.19.0.
+  Existing schema 1.1 scripts should use `--json --schema-version 1.1` explicitly.
+- Monitor group selection, catalog, defaults, snapshot behavior, and provider
+  collection cadence are unchanged.
+
+## [0.17.0] - 2026-10-16 (superseded candidate)
 
 ### Changed
 

@@ -1036,20 +1036,20 @@
           "takes_value": false
         },
         {
-          "default": false,
-          "dest": "legacy",
-          "flags": [
-            "--legacy"
-          ],
-          "positional": false,
-          "required": false,
-          "takes_value": false
-        },
-        {
           "default": "['cx', 'cc', 'ag']",
           "dest": "peers",
           "flags": [
             "--peers"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "schema_version",
+          "flags": [
+            "--schema-version"
           ],
           "positional": false,
           "required": false,

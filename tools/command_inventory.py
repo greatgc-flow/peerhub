@@ -23,6 +23,8 @@ def _options(parser: argparse.ArgumentParser) -> list[dict[str, Any]]:
     for a in parser._actions:  # noqa: SLF001 - argparse exposes no public walker
         if isinstance(a, (argparse._HelpAction, argparse._SubParsersAction)):  # noqa: SLF001
             continue
+        if a.help == argparse.SUPPRESS:
+            continue
         positional = not a.option_strings
         out.append({"flags": [a.dest] if positional else list(a.option_strings), "dest": a.dest, "positional": positional,
                     "required": bool(a.required) if not positional else a.nargs not in ("?", "*"),

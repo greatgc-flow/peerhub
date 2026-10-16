@@ -1,5 +1,11 @@
 # Monitor group usability and bounded sampling review (2026-10-16)
 
+> **Historical decision, superseded for human rendering.** The initial review below
+> approved colored headings with indented JSON as the grouped human view. Real CLI
+> inspection showed this was not a visual dashboard. The current unanimous decision,
+> including the corrected renderer, CLI contracts, compatibility policy, and RED-first
+> plan, is in [Human-First Monitor Dashboard Redesign](monitor-human-dashboard-redesign-2026-10-16.md).
+
 ## Decision
 
 The peer review converged on the following user contract:

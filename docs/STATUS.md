@@ -1,11 +1,12 @@
 # PeerHub Development Status
 
-## Current source: v0.17.0 (release candidate)
+## Current source: v0.18.0 (release candidate)
 
-The 0.17.0 candidate changes bare `peerhub monitor` to grouped output and keeps
-the prior schema 1.1 dashboard behind `--legacy`. This is a breaking CLI output
-change; publication is pending hosted CI and release-gate evidence. See the
-[monitor group review](design/monitor-groups-usability-review-2026-10-16.md).
+The tagged v0.17.0 candidate is superseded before publication. v0.18.0 keeps the
+grouped monitor contract, renders it as the default human dashboard, and moves
+machine output behind `--json` with explicit schema selection. The captured
+schema 1.1 contract remains available; its hidden `--legacy` alias is deprecated
+through 0.18.x and will be removed in 0.19.0. See the [human dashboard design](design/monitor-human-dashboard-redesign-2026-10-16.md).
 
 **Released on 2026-10-15.** [v0.16.0](https://github.com/greatgc-flow/peerhub/releases/tag/v0.16.0)
 is tagged at `5951d0f2a32aa85151f6733f286eea03281fec55`. Session reuse and

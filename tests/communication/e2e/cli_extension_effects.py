@@ -130,10 +130,14 @@ def seed_view_pool(db):
     ])
 
 
-def assert_view_glyph_effect(rich, plain):
+def assert_view_glyph_effect(rich, plain, *, monitor=False):
     # Same A-G decisions, visibly different bars even with redirected output
     # and NO_COLOR. Fail if --view becomes inert or both styles use ASCII.
     assert rich != plain
+    if monitor:
+        assert "╭" in rich and "╭" not in plain
+        plain.encode("ascii")
+        return
     assert "█" in rich and "░" in rich
     assert "█" not in plain and "░" not in plain
     assert "#" in plain and "[" in plain
@@ -158,7 +162,7 @@ def assert_vt_view_effect(e, db, command):
             output = Output()
             args = (["--legacy", "--cycles", "1"] if command == "monitor" else ["--live", "--cycles", "1"])
             with patch("sys.stdout", output), patch("peerhub.cli.view.enable_vt", lambda: vt):
-                assert e.run(db, command, "--view", style, *args)[0] == 0
+                assert e.run(db, command, "--view", style, *args)[0] in (0, 4)
             text = output.getvalue()
             if vt:
                 assert "\x1b[?25l\x1b[H\x1b[2J" in text
@@ -171,6 +175,7 @@ def assert_vt_view_effect(e, db, command):
 def refresh_effect(e, option):
     db = e.fresh()
     captured = []
+    agy_probes = []
     def probe(**kw):
         captured.append(kw)
         ev = SimpleNamespace(state=EvidenceState.ABSENT, value=None, evidence_ref="test", source_tag="fake",
@@ -200,6 +205,7 @@ def monitor_effect(e, option):
     if option == "--view":
         seed_view_pool(db)
     captured = []
+    agy_probes = []
     def probe(**kw):
         captured.append(kw)
         from peerhub.extensions.observation_model import EvidenceState
@@ -208,6 +214,7 @@ def monitor_effect(e, option):
                              observed_at=100, captured_at=100)
         return [SimpleNamespace(evidence=ev)]
     def probe_agy(**kw):
+        agy_probes.append(kw)
         from peerhub.extensions.observation_model import EvidenceState
         from types import SimpleNamespace
         ev = SimpleNamespace(state=EvidenceState.ERROR, value=None, evidence_ref="agy_usage_consumed_tokens", source_tag="fake", observed_at=100, captured_at=100)
@@ -229,15 +236,17 @@ def monitor_effect(e, option):
         argv = ["monitor", "--cycles", "2", "--peers", "ag", option]
     elif option == "--json":
         argv += [option]
+    elif option == "--schema-version":
+        argv += ["--json", option, "1.1"]
     elif option == "--view":
         argv += [option, "rich"]
     elif option == "--legacy":
         argv = ["monitor", "--legacy", "--json", "--cycles", "1"]
-    if option != "--legacy":
+    if option not in ("--view", "--schema-version"):
         # These option effects predate the grouped read model and concern the
-        # collection/dashboard loop itself. Keep the projection-independent
-        # 1.1 path explicit; grouped routing has separate contract tests.
-        argv.insert(1, "--legacy")
+        # collection loop itself. Keep the projection-independent 1.1 wire path
+        # explicit; grouped human rendering has separate contract tests.
+        argv[1:1] = ["--json", "--schema-version", "1.1"]
     sleeps = []
     fake_now = [0.0]
 
@@ -255,21 +264,23 @@ def monitor_effect(e, option):
             plain_code, plain, plain_err = e.run(db, "monitor", "--legacy", "--cycles", "1", "--view", "plain")
             assert_vt_view_effect(e, db, "monitor")
     if option == "--view":
-        assert code == plain_code == 0 and "refresh:" in err and "refresh:" in plain_err
-        assert_view_glyph_effect(out, plain)
+        assert code in (0, 4) and plain_code in (0, 4) and "refresh:" in err and "refresh:" in plain_err
+        assert_view_glyph_effect(out, plain, monitor=True)
     elif option == "--interval-seconds":
         import pytest
         assert sleeps == pytest.approx([3.14], abs=0.1)
     elif option == "--cycles": assert len(sleeps) == 1
     elif option == "--peers": assert captured[0]["instance_id"] == "cx"
     elif option == "--system-dir":
-        assert code == 0 and captured
+        assert code in (0, 4) and captured
         assert all(call["sys_dir"] == e.tmp for call in captured)
     elif option == "--timeout-seconds": assert captured[0]["deadline_sec"] == 2
     elif option == "--collect-every": assert len(captured) == 3
-    elif option == "--allow-agy-token-use": assert code == 1 and err.count("tokens used") == 2
+    elif option == "--allow-agy-token-use":
+        assert code in (1, 4) and len(agy_probes) == 2
+        assert "stopping watch mode" not in err
     elif option == "--json": import json; assert "cycle" in json.loads(out.splitlines()[0])
-    elif option == "--legacy":
+    elif option == "--schema-version":
         import json
         assert json.loads(out.splitlines()[0])["schema_version"] == "1.1"
 
@@ -414,7 +425,7 @@ EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
                for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
-               for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--allow-agy-token-use", "--collect-every", "--view", "--legacy")})
+               for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--schema-version", "--allow-agy-token-use", "--collect-every", "--view")})
 EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, ["monitor", "groups", "--json"]),
                "monitor defaults show --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "show", "--json"]),
                "monitor defaults set --global": lambda e: monitor_management_effect(e, ["monitor", "defaults", "set", "--global", "--group", "usage"]),

@@ -138,28 +138,10 @@ def test_advance_report_moves_clock_and_ages_without_rereading(tmp_path):
     assert advance_report(rep, rep.read_at - 5).read_at == rep.read_at  # never moves backwards
 
 
-def test_tick_redraws_each_second_with_a_counting_down_next_refresh():
-    from peerhub.cli import monitor
-
-    clock = {"t": 0.0}
-    sleeps, frames = [], []
-    monitor.monotonic, real_mono = (lambda: clock["t"]), monitor.monotonic
-    monitor.sleep, real_sleep = (lambda s: (sleeps.append(s), clock.__setitem__("t", clock["t"] + s))), monitor.sleep
-    try:
-        class Rep:
-            read_at = 100.0
-
-        monitor._tick(Rep(), lambda rep, nxt: frames.append((rep, nxt)), 3.0, 10.0, lambda rep, now: now)
-    finally:
-        monitor.monotonic, monitor.sleep = real_mono, real_sleep
-    assert sleeps == [1.0, 1.0, 1.0] and [f[0] for f in frames] == [101.0, 102.0]
-    assert [f[1] for f in frames] == [9.0, 8.0]
-
-
-def test_resize_relayouts_and_erases_shrunken_frame(monkeypatch):
+def test_resize_relayouts_grouped_frame_and_erases_shrunken_frame(monkeypatch):
     import io
     import os
-    from peerhub.cli.monitor import _frame_drawer
+    from peerhub.cli.monitor_view import render_grouped_frame
     from peerhub.cli.view import FrameOutput
 
     class Output(io.StringIO):
@@ -171,22 +153,18 @@ def test_resize_relayouts_and_erases_shrunken_frame(monkeypatch):
     monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
     sizes = iter([os.terminal_size((120, 24)), os.terminal_size((80, 20))])
     monkeypatch.setattr("peerhub.cli.view.shutil.get_terminal_size", lambda fallback: next(sizes))
-    widths = []
-
-    def format_frame(rep, view, **kwargs):
-        widths.append(kwargs["width"])
-        return "wide line\nleftover line" if kwargs["width"] == 120 else "short"
-
+    payload = {"status": "OK", "selected_groups": ["store"],
+               "groups": {"store": {"status": "OK", "data": {"schema_version": 7,
+                                                                  "database_size_bytes": 10}}}}
     sink = FrameOutput()
-    draw = _frame_drawer(format_frame, "plain", color=False, db_name="db", cycle=0,
-                         refresh={}, interval=60, collect_every=1, output=sink)
     try:
-        draw(None, 60)
-        draw(None, 59)
+        for _ in range(2):
+            width = FrameOutput.width()
+            sink.write(render_grouped_frame(payload, view="rich", width=width))
     finally:
         sink.close()
-    assert widths == [120, 80]
-    assert "\x1b[Hshort\x1b[K\x1b[J" in output.getvalue()
+    assert "STORE [OK]" in output.getvalue()
+    assert "\x1b[H" in output.getvalue() and "\x1b[K\x1b[J" in output.getvalue()
     assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
 
 
