@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import textwrap
+import uuid
 
 import pytest
 import yaml
@@ -125,15 +126,19 @@ def _no_provider_env(tmp_path):
     """), encoding="utf-8")
     secret = re.compile(r"(KEY|TOKEN|SECRET|ANTHROPIC|OPENAI|GOOGLE|GEMINI|CLAUDE|CODEX|AGY|PASSWORD|CREDENTIAL)", re.I)
     env = {k: v for k, v in pkg_env.clean_env().items() if not secret.search(k)}
+    for key in ("PYTEST_ADDOPTS", "PEERHUB_LIVE", "PEERHUB_SOAK", "PEERHUB_SOAK_SCALE", "PEERHUB_SOAK_EVIDENCE_DIR"):
+        env.pop(key, None)
     sysroot = os.environ.get("SystemRoot", "")
     env["PATH"] = os.pathsep.join(
         [os.path.dirname(sys.executable)] + ([os.path.join(sysroot, "System32"), sysroot] if os.name == "nt" else ["/usr/bin", "/bin"]))
-    env["PYTHONPATH"] = str(site)
+    env["PYTHONPATH"] = os.pathsep.join((str(site), str(REPO / "tests")))
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env
 
 
 def test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or_network(tmp_path):
+    from _rel005_oracle import validate_pair
+
     env = _no_provider_env(tmp_path)
     probe = pkg_env.run([sys.executable, "-c", textwrap.dedent("""
         import shutil, socket, sys
@@ -146,14 +151,29 @@ def test_rel_005_deterministic_suite_passes_without_provider_clis_credentials_or
         print(found, net)
     """) % (PROVIDER_CLIS,)], cwd=REPO, env=env)
     assert probe.stdout.strip() == "[] blocked", probe.stdout + probe.stderr  # the sandbox itself is real
-    targets = ["tests/communication/architecture", "tests/communication/e2e", "tests/communication/fault/test_flt_bridge.py"]
-    # oracle: how many tests exist there, counted by an ordinary collection in the developer environment
-    col = pkg_env.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", *targets], cwd=REPO)
-    expected = int(re.search(r"(\d+) tests? collected", col.stdout).group(1))
-    assert expected >= 30
-    r = pkg_env.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *targets], cwd=REPO, env=env, timeout=900)
-    assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-1500:]
-    assert re.search(rf"\b{expected} passed\b", r.stdout) and not re.search(r"\b(failed|error|skipped)\b", r.stdout), r.stdout[-500:]
+    targets = ["tests/communication/architecture", "tests/communication/e2e",
+               "tests/communication/fault/test_flt_bridge.py"]
+    marker_expression = "not slow and not e2e and not live and not canary and not soak"
+    common = [sys.executable, "-m", "pytest", "-q", "-ra", "-p", "no:cacheprovider", "-p", "no:xdist",
+              "-p", "_rel005_oracle", "-c", str(REPO / "pyproject.toml"), "--rootdir", str(REPO),
+              "-o", "addopts=", "-m", marker_expression, *targets]
+    report_dir = tmp_path / "rel005-oracle"
+    collect_file, execution_file = report_dir / "collection.json", report_dir / "execution.json"
+    collect_nonce, execution_nonce = uuid.uuid4().hex, uuid.uuid4().hex
+    collect_cmd = [*common, "--collect-only", "--rel005-report", str(collect_file),
+                   "--rel005-nonce", collect_nonce]
+    collect = pkg_env.run(collect_cmd, cwd=REPO, env=env)
+    assert collect_file.is_file(), collect.stdout[-1000:] + collect.stderr[-1000:]
+    execution_cmd = [*common, "--rel005-report", str(execution_file), "--rel005-nonce", execution_nonce]
+    execution = pkg_env.run(execution_cmd, cwd=REPO, env=env, timeout=900)
+    assert execution_file.is_file(), execution.stdout[-1500:] + execution.stderr[-1500:]
+    import json
+    validate_pair(json.loads(collect_file.read_text(encoding="utf-8")),
+                  json.loads(execution_file.read_text(encoding="utf-8")),
+                  expected_nonce=(collect_nonce, execution_nonce),
+                  platform="windows" if os.name == "nt" else "posix",
+                  collect_returncode=collect.returncode, execution_returncode=execution.returncode)
+    assert len(json.loads(collect_file.read_text(encoding="utf-8"))["item_nodeids"]) >= 30
 
 
 def test_rel_005_live_and_soak_tests_are_deselected_by_the_default_command(tmp_path):

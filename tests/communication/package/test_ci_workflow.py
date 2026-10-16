@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[3]
 def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     wf = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
     jobs = wf["jobs"]
-    assert {"ubuntu-full", "windows-platform", "compatibility-smoke", "full-matrix", "ci-pass"} <= set(jobs)
+    assert {"ubuntu-full", "windows-platform", "compatibility-smoke", "pytest-oracle-compat", "full-matrix", "ci-pass"} <= set(jobs)
     triggers = wf.get("on", wf.get(True, {}))
     assert "schedule" in triggers and "workflow_dispatch" in triggers
     matrix = jobs["full-matrix"]["strategy"]["matrix"]
@@ -28,6 +28,14 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     assert {(cell["os"], cell["python-version"]) for cell in smoke} == {
         (os_name, py) for os_name in ("ubuntu-latest", "windows-latest") for py in ("3.12", "3.13", "3.14")
     }
+    oracle = jobs["pytest-oracle-compat"]
+    assert "if" not in oracle
+    assert oracle["strategy"]["matrix"] == {"pytest-version": ["8.0.0", "9.1.1"]}
+    oracle_setup = next(step for step in oracle["steps"]
+                        if step.get("uses", "").startswith("actions/setup-python@"))
+    assert oracle_setup["with"]["python-version"] == "3.11"
+    oracle_runs = "\n".join(step.get("run", "") for step in oracle["steps"])
+    assert "pytest==" in oracle_runs and "test_rel005_oracle.py" in oracle_runs
     windows_run = "\n".join(step.get("run", "") for step in jobs["windows-platform"]["steps"])
     assert "-m platform_sensitive" in windows_run and "verify-junit" in windows_run
     windows_steps = jobs["windows-platform"]["steps"]
@@ -43,8 +51,11 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     assert "refs/heads/main" in jobs["windows-platform"]["if"]
     assert "always()" in jobs["ci-pass"]["if"]
     assert set(jobs["ci-pass"]["needs"]) == {
-        "ubuntu-full", "windows-platform", "compatibility-smoke", "full-matrix"
+        "ubuntu-full", "windows-platform", "compatibility-smoke", "pytest-oracle-compat", "full-matrix"
     }
+    aggregate_run = "\n".join(step.get("run", "") for step in jobs["ci-pass"]["steps"])
+    aggregate_env = next(step["env"] for step in jobs["ci-pass"]["steps"] if step.get("name") == "Verify required CI lanes")
+    assert "pytest-oracle-compat" in aggregate_run and "PYTEST_ORACLE_RESULT" in aggregate_env
     assert "github.run_id" in wf["concurrency"]["group"]
     assert wf["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
     for job_name in ("ubuntu-full", "windows-platform", "full-matrix"):
@@ -99,7 +110,7 @@ def test_platform_marker_inventory_is_exact_and_fails_closed(monkeypatch, tmp_pa
 
 def test_aggregate_ci_result_requires_expected_lanes_and_accepts_only_intentional_doc_skip():
     quick = {"ubuntu-full": "success", "windows-platform": "success",
-             "compatibility-smoke": "success", "full-matrix": "skipped"}
+             "compatibility-smoke": "success", "pytest-oracle-compat": "success", "full-matrix": "skipped"}
     ci_platform.verify_ci_results("pull_request", False, "targeted", quick)
     ci_platform.verify_ci_results("pull_request", False, "skip", quick)
     with pytest.raises(ValueError, match="unexpected Windows skip"):
@@ -108,10 +119,16 @@ def test_aggregate_ci_result_requires_expected_lanes_and_accepts_only_intentiona
         with pytest.raises(ValueError):
             ci_platform.verify_ci_results("pull_request", False, "targeted",
                                           {**quick, "windows-platform": status})
+        with pytest.raises(ValueError):
+            ci_platform.verify_ci_results("pull_request", False, "targeted",
+                                          {**quick, "pytest-oracle-compat": status})
     ci_platform.verify_ci_results("schedule", False, "skip",
                                   {**quick, "full-matrix": "success"})
     with pytest.raises(ValueError, match="full-matrix"):
         ci_platform.verify_ci_results("workflow_dispatch", True, "skip", quick)
+    with pytest.raises(ValueError, match="pytest-oracle-compat"):
+        ci_platform.verify_ci_results("schedule", False, "skip",
+                                      {**quick, "full-matrix": "success", "pytest-oracle-compat": "failure"})
 
 
 def test_windows_inventory_guard_rejects_skips_and_missing_modules(tmp_path):
