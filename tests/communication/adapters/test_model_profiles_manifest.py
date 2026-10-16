@@ -86,3 +86,16 @@ def test_retired_pro_profiles_raise_unknown_profile_error(tmp_path, kind, pid):
     with pytest.raises(ValueError, match="unknown model profile"):
         resolve_profile(kind, pid, tmp_path)
 
+
+def test_manifest_every_profile_has_source_matching_sources_keys():
+    for pid, profile in MANIFEST["profiles"].items():
+        peer = pid.split(".", 1)[0]
+        assert peer in MANIFEST["sources"]
+        src = profile.get("source")
+        assert isinstance(src, str) and src.strip(), f"{pid} missing non-empty source"
+        if peer == "cc":
+            assert src.startswith("known-id:"), f"{pid} source should start with known-id:"
+        else:
+            assert src.startswith("cli:"), f"{pid} source should start with cli:"
+
+

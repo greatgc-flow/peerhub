@@ -207,12 +207,12 @@ def test_2_renderer_prints_one_block_per_peer_with_4_links(peers_frame):
 
     # cc block: quota -> profile/model [ws] -> latest session -> context
     assert "cc" in rendered
-    assert re.search(r"cc\s+quota:\s*5h:\s*82%.*->\s*cc\.effort/claude-sonnet-5-5\s*\[workspace\]", rendered)
+    assert re.search(r"cc\s+quota:\s*82%\s*\(5h\).*->\s*cc\.effort/claude-sonnet-5-5\s*\[workspace\]", rendered)
     assert re.search(r"->\s*latest session:\s*reused\s+gen\s+1\s*->\s*context:\s*unknown", rendered)
 
     # cx block: quota -> profile/model [glob] -> latest session -> context
     assert "cx" in rendered
-    assert re.search(r"cx\s+quota:\s*1d:\s*65%.*->\s*cx\.effort/gpt-6.1-sol\s*\[global\]", rendered)
+    assert re.search(r"cx\s+quota:\s*65%\s*\(1d\).*->\s*cx\.effort/gpt-6.1-sol\s*\[global\]", rendered)
     assert re.search(r"->\s*latest session:\s*fresh\s+gen\s+0\s*->\s*context:\s*45k\s*\(22%\)", rendered)
 
     # ag block: quota unknown (doc does not establish unlim) -> profile/model [pkg] -> latest session none -> context unknown
@@ -631,4 +631,62 @@ def test_pr2_peers_footer_handles_missing_facts_as_unknown(peers_frame):
         "Model facts: rev unknown · checked unknown · "
         "sources: codex debug models | agy models | claude: known ids"
     ) in rendered
+
+
+def test_read_model_peers_chooses_lowest_remaining_measured_quota_skipping_error(tmp_path):
+    """DB-fixture test: old ERROR row sorted first + fresh MEASURED rows => expects lowest measured (17% (3P-5H)); stale-only => STALE."""
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.cli.monitor_view import render_grouped_frame
+    from peerhub.extensions.observation_model import epoch_to_iso
+    from tests.communication.fakes.observation import FakeObservationSource, measured, unknown
+    from tests.communication.harness.observation import T0, ObservationHarness
+
+    harness = ObservationHarness(tmp_path / "workspace")
+    harness.create_peer({"peer_id": "ag", "display_name": "Antigravity"})
+    harness.create_peer({"peer_id": "cc", "display_name": "Claude"})
+
+    def _pool(pool_id: str, provider: str) -> dict:
+        return {"schema_version": "1.0", "resource_pool_id": pool_id,
+                "provider": provider, "kind": "QUOTA", "metadata": {}}
+
+    # Peer cc:
+    # Stale-only observation (captured at T0, will be 5 days old when read)
+    harness.register_pool(_pool("quota:cc:5h", "anthropic"))
+    harness.capture("cc", "quota", FakeObservationSource(measured({"remaining_fraction": 0.50}, observed_at=epoch_to_iso(T0))), resource_pool_ref="quota:cc:5h")
+
+    # Advance clock by 5 days (beyond quota TTL)
+    harness.clock.advance(86400 * 5)
+    t_fresh = harness.clock.now()
+
+    # Peer ag:
+    # 1. Old ERROR/UNKNOWN row with pool_key that sorts first alphabetically
+    harness.register_pool(_pool("quota:ag:00-error", "google"))
+    harness.capture("ag", "quota", FakeObservationSource(unknown({"error": "stale probe failure"}, observed_at=epoch_to_iso(t_fresh - 300))), resource_pool_ref="quota:ag:00-error")
+    # 2. Fresh MEASURED row with 17% remaining
+    harness.register_pool(_pool("quota:ag:3P-5H", "google"))
+    harness.capture("ag", "quota", FakeObservationSource(measured({"remaining_fraction": 0.17}, observed_at=epoch_to_iso(t_fresh))), resource_pool_ref="quota:ag:3P-5H")
+    # 3. Fresh MEASURED row with 85% remaining
+    harness.register_pool(_pool("quota:ag:G-5H", "google"))
+    harness.capture("ag", "quota", FakeObservationSource(measured({"remaining_fraction": 0.85}, observed_at=epoch_to_iso(t_fresh))), resource_pool_ref="quota:ag:G-5H")
+
+    frame = render_monitor_frame(harness.db_path, ["peers"], read_at=t_fresh + 10, workspace=harness.workspace)
+    assert frame["status"] in ("OK", "PARTIAL")
+    peer_items = frame["groups"]["peers"]["data"]["peers"]
+
+    ag_entry = next((p for p in peer_items if p["peer_id"] == "ag"), None)
+    assert ag_entry is not None
+    assert ag_entry["quota"] is not None
+    assert ag_entry["quota"]["state"] == "MEASURED"
+    assert ag_entry["quota"]["percent"] == 17
+    assert ag_entry["quota"]["pool_ref"] == "quota:ag:3P-5H"
+
+    cc_entry = next((p for p in peer_items if p["peer_id"] == "cc"), None)
+    assert cc_entry is not None
+    assert cc_entry["quota"] is not None
+    assert cc_entry["quota"]["state"] == "STALE"
+
+    rendered = render_grouped_frame(frame, view="plain", width=80)
+    assert "ag  quota: 17% (3P-5H)" in rendered
+    assert "cc  quota: STALE" in rendered
+
 

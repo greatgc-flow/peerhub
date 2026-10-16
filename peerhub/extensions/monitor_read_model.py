@@ -461,23 +461,52 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     default=None,
                 )
                 peer_observations = [o for o in observations if o["peer_id"] == pid]
-                o_item = peer_observations[0] if peer_observations else None
                 q_data: dict[str, Any] | None = None
-                if o_item is not None:
-                    raw_m: object = o_item.get("measurements")
+                measured_candidates: list[tuple[float, dict[str, Any]]] = []
+                stale_candidates: list[dict[str, Any]] = []
+                for o in peer_observations:
+                    raw_m: object = o.get("measurements")
                     q_m: dict[str, Any] = cast(dict[str, Any], raw_m) if isinstance(raw_m, dict) else {}
                     raw_rem: object = q_m.get("remaining_fraction")
-                    rem: float | None = (
-                        float(raw_rem) if isinstance(raw_rem, (int, float)) and not isinstance(raw_rem, bool)
-                        and math.isfinite(float(raw_rem)) and 0 <= float(raw_rem) <= 1 else None
+                    is_valid_rem = (
+                        isinstance(raw_rem, (int, float)) and not isinstance(raw_rem, bool)
+                        and math.isfinite(float(raw_rem)) and 0.0 <= float(raw_rem) <= 1.0
                     )
+                    state = o.get("state")
+                    if state == "MEASURED" and is_valid_rem:
+                        measured_candidates.append((float(cast(float, raw_rem)), o))
+                    elif state == "STALE":
+                        stale_candidates.append(o)
+
+                if measured_candidates:
+                    lowest_rem, best_obs = min(measured_candidates, key=lambda x: (x[0], str(x[1].get("pool_ref") or "")))
                     q_data = {
-                        "pool_ref": o_item.get("pool_ref") or o_item.get("pool_kind"),
-                        "remaining_fraction": rem,
-                        "percent": round(rem * 100) if rem is not None else None,
-                        "state": o_item.get("state"),
-                        "source": o_item.get("source"),
-                        "age_seconds": o_item.get("age_seconds"),
+                        "pool_ref": best_obs.get("pool_ref") or best_obs.get("pool_kind"),
+                        "remaining_fraction": lowest_rem,
+                        "percent": round(lowest_rem * 100),
+                        "state": "MEASURED",
+                        "source": best_obs.get("source"),
+                        "age_seconds": best_obs.get("age_seconds"),
+                    }
+                elif stale_candidates:
+                    stale_obs = stale_candidates[0]
+                    q_data = {
+                        "pool_ref": stale_obs.get("pool_ref") or stale_obs.get("pool_kind"),
+                        "remaining_fraction": None,
+                        "percent": None,
+                        "state": "STALE",
+                        "source": stale_obs.get("source"),
+                        "age_seconds": stale_obs.get("age_seconds"),
+                    }
+                elif peer_observations:
+                    first_obs = peer_observations[0]
+                    q_data = {
+                        "pool_ref": first_obs.get("pool_ref") or first_obs.get("pool_kind"),
+                        "remaining_fraction": None,
+                        "percent": None,
+                        "state": first_obs.get("state") or "UNKNOWN",
+                        "source": first_obs.get("source"),
+                        "age_seconds": first_obs.get("age_seconds"),
                     }
                 prof_data: dict[str, Any] | None = None
                 if s_item is not None:

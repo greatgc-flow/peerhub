@@ -153,9 +153,9 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 else:
                     age_val = max(0.0, (q_age or 0.0) + elapsed_seconds)
                     age_str = f" ({int(age_val // 60)}m ago)" if q_age is not None and age_val >= 60 else ""
-                    pool_prefix = f"{q_pool}: " if q_pool else ""
-                    q_wide = f"{pool_prefix}{q_pct:.0f}%{age_str}"
-                    q_narr = f"{q_pct:.0f}%"
+                    pool_str = f" ({q_pool})" if q_pool else ""
+                    q_wide = f"{q_pct:.0f}%{pool_str}{age_str}"
+                    q_narr = f"{q_pct:.0f}%{pool_str}"
 
             if p_obj is None:
                 p_wide = "unknown [unknown]"
