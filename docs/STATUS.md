@@ -1,6 +1,14 @@
 # PeerHub Development Status
 
-## Current source: v0.18.0 (published)
+## Current source: v0.18.1 (release candidate)
+
+v0.18.1 prepares the responsive terminal dashboard fix from PR #108. The view
+fits the available terminal height and width, surfaces the selected database
+and bounded read-error context, and redraws on resize from the cached snapshot.
+The code is merged to `main`; publication awaits the standard G3 evidence and
+release workflow.
+
+## Latest published release: v0.18.0
 
 The tagged v0.17.0 candidate is superseded before publication. v0.18.0 keeps the
 grouped monitor contract, renders it as the default human dashboard, and moves
