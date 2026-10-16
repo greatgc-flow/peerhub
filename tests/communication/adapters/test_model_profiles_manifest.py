@@ -19,6 +19,7 @@ def test_manifest_is_valid_against_its_json_schema():
 
 def test_manifest_equals_the_packaged_toml_profile_by_profile():
     assert MANIFEST["revision"] == TOML["defaults_revision"]
+    assert MANIFEST["observed_at"] == TOML["observed_at"]
     packaged = {k: v for k, v in TOML["profiles"].items() if k != "*"}
     assert set(packaged) == set(MANIFEST["profiles"])
     for pid, want in MANIFEST["profiles"].items():
@@ -43,7 +44,8 @@ def test_manifest_update_targets_exist():
 
 
 def test_packaged_defaults_revision_and_expected_models():
-    assert TOML["defaults_revision"] == "2026-10-14.1"
+    assert TOML["defaults_revision"] == "2026-10-16.1"
+    assert TOML["observed_at"] == "2026-10-16"
     profiles = TOML["profiles"]
     assert len(profiles) == 9
     assert profiles["ag.standard"]["model"] == "gemini-3.8-flash-low"
@@ -83,4 +85,40 @@ def test_retired_pro_profiles_raise_unknown_profile_error(tmp_path, kind, pid):
     from peerhub.extensions.adapters.profiles import resolve_profile
     with pytest.raises(ValueError, match="unknown model profile"):
         resolve_profile(kind, pid, tmp_path)
+
+
+def expected_profile_source(manifest: dict, pid: str) -> str:
+    peer = pid.split(".", 1)[0]
+    observed_at = manifest["observed_at"]
+    if peer == "cc":
+        return f"known-id:claude --help aliases@{manifest['observed_versions']['cc']} {observed_at}"
+    return f"cli:{manifest['sources'][peer]['command']}@{manifest['observed_versions'][peer]} {observed_at}"
+
+
+def test_manifest_every_profile_has_source_matching_sources_keys():
+    for pid, profile in MANIFEST["profiles"].items():
+        peer = pid.split(".", 1)[0]
+        assert peer in MANIFEST["sources"]
+        want = expected_profile_source(MANIFEST, pid)
+        assert profile.get("source") == want, f"{pid} source mismatch: got {profile.get('source')!r}, want {want!r}"
+
+
+def test_profile_source_comparison_rejects_mutated_source():
+    bad_manifest = {
+        "observed_at": "2026-10-16",
+        "observed_versions": {"ag": "1.4.0", "cc": "2.1.301", "cx": "0.163.0"},
+        "sources": {
+            "cx": {"command": "codex debug models"},
+            "ag": {"command": "agy.exe models"},
+            "cc": {"command": None},
+        },
+        "profiles": {
+            "cx.standard": {"source": "cli:agy.exe models@WRONG invalid-date"},
+        },
+    }
+    want = expected_profile_source(bad_manifest, "cx.standard")
+    with pytest.raises(AssertionError):
+        assert bad_manifest["profiles"]["cx.standard"]["source"] == want
+
+
 

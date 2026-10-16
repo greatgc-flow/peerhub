@@ -17,7 +17,7 @@ def test_monitor_groups_is_read_only_and_does_not_require_a_store(tmp_path, monk
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "2.0"
     assert [group["id"] for group in payload["groups"]] == [
-        "overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
+        "overview", "peers", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
     ]
     assert all(group.get("description") for group in payload["groups"])
     assert payload["selection_scope"] == "grouped_views"
@@ -59,7 +59,7 @@ def test_monitor_bare_watch_uses_default_grouped_view_and_legacy_selects_schema_
     monkeypatch.setattr(monitor, "_run_monitor_grouped_watch",
                         lambda args, selected, preference: calls.append((selected, preference["source"])) or 0)
     assert main(["--db", str(db), "monitor", "--json", "--cycles", "1"]) == 0
-    assert calls == [(["overview", "execution", "sessions", "usage", "context", "capacity", "coverage"], "packaged")]
+    assert calls == [(["overview", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage"], "packaged")]
     calls.clear()
     # The deprecated machine alias selects the frozen 1.1 wire contract.
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
@@ -88,7 +88,7 @@ def test_bare_monitor_renders_default_session_and_execution_groups(tmp_path, mon
         for frame in frames:
             from peerhub.cli.monitor_preferences import GROUP_IDS
             assert frame["snapshot"]["selected_groups"] == [
-                "overview", "execution", "sessions", "usage", "context", "capacity", "coverage"
+                "overview", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage"
             ]
             assert frame["snapshot"]["available_groups"] == list(GROUP_IDS)
             assert {"sessions", "execution"} <= set(frame["snapshot"]["groups"])
@@ -297,7 +297,7 @@ def test_monitor_snapshot_group_all_deduplicates(tmp_path, capsys):
     db = _db(tmp_path)
     assert _run(db, "--snapshot", "--group", "all", "--group", "all", "--json") in (0, 4)
     assert json.loads(capsys.readouterr().out)["selected_groups"] == [
-        "overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
+        "overview", "peers", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
     ]
 
 
@@ -576,7 +576,7 @@ def test_redirected_snapshot_keeps_full_human_group_frame(tmp_path, capsys):
     assert all(group.upper() in output for group in
                ("overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"))
     assert "groups omitted" not in output.lower()
-    assert "No scope evidence" in output and "Schema 3" in output
+    assert "No scope evidence" in output and "Schema 4" in output
     assert "\x1b" not in output
     assert output.endswith("\n") and not output.endswith("\n\n")
 
@@ -622,7 +622,7 @@ def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
     rendered = output.decode("utf-8", errors="replace")
     lines = rendered.rstrip("\r\n").splitlines()
     assert len(lines) <= 7
-    assert "7 groups omitted" in rendered
+    assert "8 groups omitted" in rendered
     assert "--group all" in rendered
     assert "COLUMNS" not in rendered
     assert "\x1b" not in rendered

@@ -8,6 +8,21 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.18.2] - 2026-10-17
+
+### Added
+
+- Monitor peers group (default set): per peer quota -> profile/model [config layer] -> latest session (fresh/reused, generation) -> context; unknown stays unknown, stale quota is shown as STALE, no model-specific quota-pool inference, sample truncation disclosed.
+- Model-fact provenance: footer with revision, checked date/age and source commands; per-profile source in docs/model-profiles/model-profiles.json; 2026-10-16 CLI observations (cc 2.1.301, codex 0.163.0, agy 1.4.0). Profiles unchanged; agy gemini-4-argon-* noted as available, not selected.
+
+### Changed
+
+- **Breaking - store schema:** schema version 4. Stores written by this version cannot be opened by earlier releases (they refuse with their existing future-schema error); back up .peerhub/core.db before first use. Core runtime connections come from one factory (WAL, busy_timeout, foreign_keys, recursive_triggers).
+
+### Notes
+
+- Extension DDL ownership, trigger-definition verification and the rest of the schema-v2 proposal are intentionally deferred (see docs/design/monitor-peers-view-2026-10-16.md).
+
 ## [0.18.1] - 2026-10-16
 
 ### Changed

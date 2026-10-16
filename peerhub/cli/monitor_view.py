@@ -5,7 +5,7 @@ import math
 import re
 import unicodedata
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, cast
 
 from peerhub.cli.monitor_preferences import GROUPS
@@ -103,7 +103,7 @@ def _peer(item: dict[str, Any]) -> str:
 
 
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
-                 elapsed_seconds: float = 0.0) -> list[str]:
+                 elapsed_seconds: float = 0.0, read_at: float | None = None) -> list[str]:
     data = _obj(group.get("data"))
     if data == {} and group.get("data") is None:
         return ["data unavailable"]
@@ -119,6 +119,137 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             rows.append(f"Peers: {_count(data.get('sample_size'))} registered")
         if data.get("truncated") or data.get("session_sample_truncated") or data.get("peer_sample_truncated"):
             rows.append("Coverage: partial · sample truncated")
+
+    elif group_id == "peers":
+        peer_items = _items(data.get("peers"))
+        if not peer_items:
+            rows.append("No peer evidence")
+        for item in peer_items:
+            pid = _clean(item.get("peer_id") or "?")
+            q_obj = _obj(item.get("quota")) if isinstance(item.get("quota"), Mapping) else None
+            p_obj = _obj(item.get("profile")) if isinstance(item.get("profile"), Mapping) else None
+            s_obj = _obj(item.get("session")) if isinstance(item.get("session"), Mapping) else None
+            c_obj = _obj(item.get("context")) if isinstance(item.get("context"), Mapping) else None
+
+            if q_obj is None:
+                q_wide = "unknown"
+                q_narr = "unk"
+            else:
+                q_state = _clean(q_obj.get("state") or "").upper()
+                q_pool = _clean(q_obj.get("pool_ref") or "")
+                if ":" in q_pool:
+                    q_pool = q_pool.split(":")[-1]
+                q_pct = _number(q_obj.get("percent"))
+                if q_pct is None and _number(q_obj.get("remaining_fraction")) is not None:
+                    q_pct = float(cast(float, _number(q_obj.get("remaining_fraction")))) * 100
+                q_age = _number(q_obj.get("age_seconds"))
+
+                if q_state == "STALE":
+                    q_wide = "STALE"
+                    q_narr = "STALE"
+                elif q_state != "MEASURED" or q_pct is None:
+                    q_wide = "unknown"
+                    q_narr = "unk"
+                else:
+                    age_val = max(0.0, (q_age or 0.0) + elapsed_seconds)
+                    age_str = f" ({int(age_val // 60)}m ago)" if q_age is not None and age_val >= 60 else ""
+                    pool_str = f" ({q_pool})" if q_pool else ""
+                    q_wide = f"{q_pct:.0f}%{pool_str}{age_str}"
+                    q_narr = f"{q_pct:.0f}%{pool_str}"
+
+            if p_obj is None:
+                p_wide = "unknown [unknown]"
+                p_narr = "unk [unk]"
+            else:
+                p_name = _clean(p_obj.get("name") or "")
+                if not p_name:
+                    prof = _clean(p_obj.get("profile") or "unknown")
+                    mod = _clean(p_obj.get("model") or "")
+                    p_name = f"{prof}/{mod}" if mod else prof
+                layer = _clean(p_obj.get("source") or p_obj.get("config_layer") or "unknown")
+                layer_map = {"workspace": "ws", "global": "glob", "packaged": "pkg"}
+                p_wide = f"{p_name} [{layer}]"
+                p_narr = f"{p_name} [{layer_map.get(layer, layer[:4])}]"
+
+            if s_obj is None and item.get("session") is None:
+                if data.get("session_sample_truncated") or data.get("truncated"):
+                    s_wide = "sample truncated"
+                    s_narr = "sample truncated"
+                else:
+                    s_wide = "none"
+                    s_narr = "none"
+            elif s_obj is None:
+                s_wide = "unknown"
+                s_narr = "unk"
+            else:
+                mode = _clean(s_obj.get("execution_mode") or s_obj.get("mode") or "").lower()
+                gen = s_obj.get("generation")
+                if mode in ("reuse", "reused"):
+                    mode_label = "reused"
+                elif mode == "fresh":
+                    mode_label = "fresh"
+                else:
+                    mode_label = "unknown"
+                if mode_label == "unknown" and gen is None:
+                    s_wide = "unknown"
+                    s_narr = "unk"
+                else:
+                    gen_part = f"gen {_count(gen)}" if gen is not None else "gen unknown"
+                    s_wide = f"{mode_label} {gen_part}"
+                    s_narr = s_wide
+
+            if c_obj is None:
+                c_wide = "unknown"
+                c_narr = "unk"
+            else:
+                c_state = _clean(c_obj.get("state") or "").upper()
+                c_pct = _number(c_obj.get("percent"))
+                c_tok = c_obj.get("tokens") or c_obj.get("occupancy_tokens")
+                if isinstance(c_tok, (int, float)) and c_tok >= 1000:
+                    tok_str = f"{int(c_tok) // 1000}k"
+                elif c_tok is not None:
+                    tok_str = _clean(c_tok)
+                else:
+                    tok_str = ""
+
+                if c_state == "MEASURED" and c_pct is not None:
+                    pct_str = f"({c_pct:.0f}%)" if tok_str else f"{c_pct:.0f}%"
+                    c_wide = f"{tok_str} {pct_str}".strip()
+                    c_narr = f"{tok_str} {pct_str}".strip()
+                else:
+                    c_wide = "unknown"
+                    c_narr = "unk"
+
+            if width < 48:
+                rows.append(_fit(f"{pid}: quota {q_narr} | {p_narr} | {s_narr} | ctx: {c_narr}", max(0, width - 1), unicode))
+            else:
+                rows.append(f"{pid:<4}quota: {q_wide} -> {p_wide}")
+                rows.append(f"    -> latest session: {s_wide} -> context: {c_wide}")
+
+        defaults_rev: object = data.get("defaults_revision")
+        observed_at: object = data.get("observed_at")
+
+        rev_str = f"rev {_clean(defaults_rev)}" if defaults_rev else "rev unknown"
+        if observed_at:
+            obs_clean = _clean(observed_at)
+            age_str = "(unknown)"
+            if read_at is not None:
+                try:
+                    read_date = datetime.fromtimestamp(read_at, timezone.utc).date()
+                    obs_date = date.fromisoformat(obs_clean)
+                    days = (read_date - obs_date).days
+                    age_str = "(future)" if days < 0 else f"({days}d ago)"
+                except (ValueError, OSError, OverflowError):
+                    pass
+            obs_str = f"checked {obs_clean} {age_str}"
+        else:
+            obs_str = "checked unknown"
+
+        footer = (
+            f"Model facts: {rev_str} · {obs_str} · "
+            "sources: codex debug models | agy models | claude: known ids"
+        )
+        rows.append(_fit(footer, max(0, width - 1), unicode))
 
     elif group_id == "execution":
         scopes = _items(data.get("scopes"))
@@ -382,7 +513,7 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
             lines.append(_fit(label, width, unicode))
         content_width = width - 4 if view == "rich" and unicode and width >= 32 else width - 2
         group_data = _group_lines(group_id, group, width=content_width, unicode=unicode,
-                                  elapsed_seconds=elapsed_seconds)
+                                  elapsed_seconds=elapsed_seconds, read_at=read_at)
         coverage = _obj(group.get("coverage"))
         if coverage.get("read") == "partial" and not any("partial" in line.lower() or "truncated" in line.lower()
                                                             for line in group_data):
@@ -475,12 +606,13 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         indent = "  " if width >= 4 else ""
         content_width = max(0, width - 1 - _width(indent))
         group_data = _group_lines(group_id, group, width=content_width, unicode=unicode,
-                                  elapsed_seconds=elapsed_seconds)
+                                  elapsed_seconds=elapsed_seconds, read_at=read_at)
         error_map = _obj(payload.get("errors"))
         error_value = error_map.get(group_id)
         if error_value is None:
             dependencies = {
-                "overview": ("sessions", "execution"), "sessions": ("sessions", "execution"),
+                "overview": ("sessions", "execution"), "peers": ("sessions", "capacity"),
+                "sessions": ("sessions", "execution"),
                 "usage": ("sessions", "execution"), "context": ("sessions", "execution"),
                 "runtime": ("sessions", "execution"), "execution": ("execution",),
                 "coverage": ("execution",), "capacity": ("capacity",), "store": ("store",),

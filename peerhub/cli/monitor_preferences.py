@@ -10,17 +10,18 @@ from typing import Any, cast
 
 GROUPS: tuple[dict[str, Any], ...] = (
     {"id": "overview", "order": 1, "description": "Cross-group peer summary and highest-priority state.", "collection_effect": "read_only"},
-    {"id": "execution", "order": 2, "description": "Bridge delivery certainty, session reuse, and measured delivery latency; not task success.", "collection_effect": "read_only"},
-    {"id": "sessions", "order": 3, "description": "Retained session lifecycle, fresh/reuse state, and configured profile/model/effort.", "collection_effect": "read_only"},
-    {"id": "usage", "order": 4, "description": "Provider-reported token usage and its reporting coverage.", "collection_effect": "read_only"},
-    {"id": "context", "order": 5, "description": "Runtime context occupancy evidence; unknown when providers do not report it.", "collection_effect": "read_only"},
-    {"id": "capacity", "order": 6, "description": "Quota pools, remaining capacity, freshness, and supported seven-day pace.", "collection_effect": "read_only"},
-    {"id": "runtime", "order": 7, "description": "Current profile provenance and adapter/runtime details.", "collection_effect": "read_only"},
-    {"id": "coverage", "order": 8, "description": "Data completeness, stale/unknown evidence, legacy gaps, and sampling limits.", "collection_effect": "read_only"},
-    {"id": "store", "order": 9, "description": "Database schema, size, projection, and storage integrity summary.", "collection_effect": "read_only"},
+    {"id": "peers", "order": 2, "description": "Per-peer dependency chain: quota, profile, session reuse, and context.", "collection_effect": "read_only"},
+    {"id": "execution", "order": 3, "description": "Bridge delivery certainty, session reuse, and measured delivery latency; not task success.", "collection_effect": "read_only"},
+    {"id": "sessions", "order": 4, "description": "Retained session lifecycle, fresh/reuse state, and configured profile/model/effort.", "collection_effect": "read_only"},
+    {"id": "usage", "order": 5, "description": "Provider-reported token usage and its reporting coverage.", "collection_effect": "read_only"},
+    {"id": "context", "order": 6, "description": "Runtime context occupancy evidence; unknown when providers do not report it.", "collection_effect": "read_only"},
+    {"id": "capacity", "order": 7, "description": "Quota pools, remaining capacity, freshness, and supported seven-day pace.", "collection_effect": "read_only"},
+    {"id": "runtime", "order": 8, "description": "Current profile provenance and adapter/runtime details.", "collection_effect": "read_only"},
+    {"id": "coverage", "order": 9, "description": "Data completeness, stale/unknown evidence, legacy gaps, and sampling limits.", "collection_effect": "read_only"},
+    {"id": "store", "order": 10, "description": "Database schema, size, projection, and storage integrity summary.", "collection_effect": "read_only"},
 )
 GROUP_IDS = tuple(str(item["id"]) for item in GROUPS)
-DEFAULT_GROUPS = ("overview", "execution", "sessions", "usage", "context", "capacity", "coverage")
+DEFAULT_GROUPS = ("overview", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage")
 
 
 def _preference_paths(cwd: Path, env: dict[str, str]) -> tuple[Path, Path]:

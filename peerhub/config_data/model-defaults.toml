@@ -7,7 +7,8 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-10-14.1"
+defaults_revision = "2026-10-16.1"
+observed_at = "2026-10-16"
 
 [profiles."cx.standard"]
 selection_mode = "pinned"

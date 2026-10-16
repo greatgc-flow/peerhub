@@ -133,8 +133,8 @@ def test_records_guard_is_migration_v2_and_old_store_upgrades(tmp_path):
         ins(c, "peers", dict(peer_id="a", created_at="t"))
         ins(c, "streams", dict(stream_id="s", state="OPEN", created_at="t"))
         ins(c, "records", REC)
-    assert run_migrations(db) == [2, 3]
-    assert run_migrations(db) == []  # idempotent
+    assert run_migrations(db, MIGRATIONS[:3]) == [2, 3]
+    assert run_migrations(db, MIGRATIONS[:3]) == []  # idempotent
     assert _version(db) == 3  # independent literal
     assert {"records_no_replace", "records_no_rowid_replace"} <= _triggers(db)
     before = digest(db)
@@ -155,7 +155,7 @@ def test_migration_v2_is_atomic(tmp_path):
     with pytest.raises(RuntimeError):
         run_migrations(db, fault=boom)
     assert _version(db) == 1 and "records_no_replace" not in _triggers(db)
-    assert run_migrations(db) == [2, 3]
+    assert run_migrations(db, MIGRATIONS[:3]) == [2, 3]
 
 
 def test_v2_store_upgrades_to_v3_atomically(tmp_path):
@@ -170,7 +170,7 @@ def test_v2_store_upgrades_to_v3_atomically(tmp_path):
     with pytest.raises(RuntimeError):
         run_migrations(db, fault=boom)
     assert _version(db) == 2 and "records_no_rowid_replace" not in _triggers(db)
-    assert run_migrations(db) == [3] and run_migrations(db) == [] and _version(db) == 3
+    assert run_migrations(db, MIGRATIONS[:3]) == [3] and run_migrations(db, MIGRATIONS[:3]) == [] and _version(db) == 3
     with closing(raw(db)) as c:
         ins(c, "peers", dict(peer_id="a", created_at="t"))
         ins(c, "streams", dict(stream_id="s", state="OPEN", created_at="t"))
