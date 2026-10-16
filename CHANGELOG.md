@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-10-16
+
 ### Changed
 
 - Make the grouped TTY monitor adapt to terminal height and width, prioritize
