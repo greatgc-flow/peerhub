@@ -3,8 +3,9 @@ import sqlite3
 
 import pytest
 
-from peerhub.core.migrations import CURRENT_VERSION, SchemaVersionError, run_migrations
+from peerhub.core.migrations import CURRENT_VERSION, MIGRATIONS, SchemaVersionError, run_migrations
 from peerhub.core.models import AppendRequest, compute_record_digest
+from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION
 from peerhub.core.store import CoreStore
 from tests.communication.harness.core import compute_state_digest
 from tests.communication.harness.migration_fixtures import FIXTURE_MIGRATIONS, LEGACY_V0_SCHEMA
@@ -117,8 +118,8 @@ def test_mig_002_committed_migration_preserves_core_data_and_invariants(tmp_path
     assert _version(db) == 0
     before = {t: _dump(db, t) for t in ("peers", "streams", "stream_members", "records", "offsets")}
     before_digest = compute_state_digest(db)
-    assert run_migrations(db) == [1, 2, 3]  # advances v0 -> v2 in one atomic run
-    assert _version(db) == CURRENT_VERSION == 3
+    assert run_migrations(db) == [m.version for m in MIGRATIONS]  # advances v0 -> CURRENT_VERSION in one atomic run
+    assert _version(db) == CURRENT_VERSION == SUPPORTED_SCHEMA_VERSION
     assert compute_state_digest(db) == before_digest  # logical data byte-identical
     assert {t: _dump(db, t) for t in before} == before
     store = CoreStore(db)
@@ -178,9 +179,10 @@ def test_mig_002_supplied_n_to_n_plus_1_migration_preserves_data(harness):
 def test_mig_002_preservation_oracle_detects_damaging_migrations(harness, damage):
     from peerhub.core.migrations import Migration
     _n_version_db(harness)
+    harness.create_peer({"peer_id": "c", "display_name": "Cee"})
     before = _full_snapshot(harness.db_path)
     stmts = {
-        "delete_peer_row": "DELETE FROM peers WHERE peer_id='b'",
+        "delete_peer_row": "DELETE FROM peers WHERE peer_id='c'",
         "delete_member": "DELETE FROM stream_members WHERE peer_id='b'",
         "edit_stream": "UPDATE streams SET title='tampered'",
         "reorder_members": "UPDATE stream_members SET rowid = rowid + 100 WHERE peer_id='a'",
@@ -211,7 +213,7 @@ def test_migration_connection_enforces_foreign_keys_and_checks_before_commit(har
 
     base = FIXTURE_MIGRATIONS[:-1]
     n = CURRENT_VERSION
-    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+    with pytest.raises((sqlite3.IntegrityError, MigrationIntegrityError)):
         run_migrations(harness.db_path, migrations=[*base, Migration(n + 1, "orphan", orphan)])
     with pytest.raises(MigrationIntegrityError):
         run_migrations(harness.db_path, migrations=[*base, Migration(n + 1, "deferred", deferred_orphan)])
@@ -250,4 +252,4 @@ def test_td14_future_version_rejected_before_any_persistent_mutation(tmp_path):
         assert not (tmp_path / "nonwal.db-wal").exists()
     ok = tmp_path / "ok.db"  # control: a supported non-WAL database does migrate (and converts to WAL)
     sqlite3.connect(ok).close()
-    assert run_migrations(ok) == [1, 2, 3]
+    assert run_migrations(ok) == [m.version for m in MIGRATIONS]

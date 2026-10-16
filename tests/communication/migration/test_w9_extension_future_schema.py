@@ -8,7 +8,7 @@ import pytest
 from peerhub.extensions.bridge import Bridge
 from peerhub.extensions.bridge_claims import ClaimStore
 from peerhub.extensions.observation import ObservationStore
-from peerhub.core.schema_version import SchemaVersionError
+from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError
 from peerhub.core.store import CoreStore
 
 pytestmark = [pytest.mark.migration, pytest.mark.cutover]
@@ -44,11 +44,11 @@ def test_extension_store_refuses_future_schema_without_any_write(tmp_path, kind)
     db.parent.mkdir()
     table, opener = _make(kind, db)
     with closing(sqlite3.connect(db)) as c:  # positive control: the unstamped store reopens fine and owns triggers
-        assert c.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert c.execute("PRAGMA user_version").fetchone()[0] == SUPPORTED_SCHEMA_VERSION
     opener()
     _stamp(db, table)
     before = _tree(db.parent)
-    with pytest.raises(SchemaVersionError, match=r"999.*newer than supported 3.*nothing was changed"):
+    with pytest.raises(SchemaVersionError, match=rf"999.*newer than supported {SUPPORTED_SCHEMA_VERSION}.*nothing was changed"):
         opener()
     assert _tree(db.parent) == before
     with closing(sqlite3.connect(db)) as c:

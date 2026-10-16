@@ -4,29 +4,15 @@ tracks the source release and remaining work.
 
 ## 0. Current checkpoint (2026-10-16)
 
-- **Unanimous Consensus & Document Digests:**
-  - Round 10 unanimous CC/CX/AG approval of monitor specifications, and Round 5 unanimous APPROVE-DB of `db-schema-v2`:
-    - `db-schema-v2-2026-10-16.md`: `55604DF8807DC2EBC7C482C9A97203C9D8D4CDF1BE0FB1C55EE4B2602292BE04`
-    - `live-evidence-archive-2026-10-16.md`: `5836FE148FD92373BD6FC1B5179638B5796288C7C455260E93FA89B1882923A0` (deferred)
-    - `monitor-e2e-lineage-2026-10-16.md`: `10F04DC69312D4AAEC4203CAC1761A27D9DBA50CB416A5506C6F0AB510244047`
-    - `monitor-expand-details-2026-10-16.md`: `A1BA27EDFEA28EFA967D09A2DDCE105249DAFE27AD116F4B7080A35790A24CDA`
-    - `monitor-groups-usability-review-2026-10-16.md`: `9DDCFBA41AE742531BA6F07C5289462A14C670706FAC62EA60517637B4FA226F`
-    - `monitor-human-dashboard-redesign-2026-10-16.md`: `F6BB519D206DE3ECE5EE6294FB8E29DEF34D938C94434094CB13FBCADF69882E`
-    - `monitor-terminal-responsive-2026-10-16.md`: `315E195BD797E2D71C0F83E73CC33FBEA34200F57B80A9E2DDED5B51101DB03B`
-    - `post-0160-traceability-2026-10-16.md`: `99E510C9FE3313772C582B72018B41BC340F7D8E1F966FBCD16DE5FBCC94736B`
-- **Base State:** HEAD `c717ee00`, `origin/main` `d392fe4c`; no source changes yet.
-- **Owner Decisions (2026-10-16):**
-  - Monitor: improve monitor (keep grouped default via `effective_preferences()`).
-  - Database: reconstruct as Schema v2 (in-place single-transaction migration, `PRAGMA user_version = 4` gate, verified backup first).
-  - Workspace: holds only `peerhub` (extra worktrees, temp files, AG scratch, and engram session directories removed).
-  - Compatibility & Downgrade Hazard: workspace `.peerhub` holds a v0.16.0-era store; newer-schema store preserved as `core.db.v018-bak`. Installed CLI is 0.16.0 wheel, while source tree is 0.18.1 (active downgrade hazard).
-- **Execution Order & Collaboration:**
-  - Order: DB v2 slices first (CX/AG), then monitor PR1 -> PR3, archive later.
-  - Reviews: CC reviews only; use `*.effort` profiles (`cc.effort`, `cx.effort`, `ag.effort`).
-  - Streams: `debate-monitor-2026-10-16-{cc,cx,ag}`, `db-audit-2026-10-16-{cc,cx,ag}`.
-- **Open Items:**
-  - Draft releases v0.17.0 and v0.18.1.
-  - Remote branches cleanup (`docs/release-evidence-0.16.1`, `feat/peerhub-monitoring-20261015`, `release/0.16.1` are merged by PR).
+- **Branch & commits:** `feat/model-facts-source` (rebased onto `origin/main` `d392fe4c`, 8 local commits, NOT pushed):
+  docs reconciliation; DB version gate v4 + central connection factory (`user_version=4`; older binaries refuse; extension DDL ownership/trigger verification/slices 2-5 intentionally deferred); monitor `peers` group (quota -> model -> session reuse -> context; unknown never guessed); model-fact source/rev/age footer + 2026-10-16 CLI observations (cc 2.1.301, cx 0.163.0, ag 1.4.0; gemini-4-argon-* available, not selected).
+- **Owner top rule:** so-very-simple.
+- **Design status:** `monitor-peers-view` is the active scope; `monitor-expand-details`, `monitor-e2e-lineage`, `live-evidence-archive`, `db-schema-v2` (beyond version gate) are DEFERRED.
+- **Hazards:** workspace `.peerhub` store is v0.16.0-era (`user_version 3`); running this source against it migrates it to v4 and the installed 0.16.0 CLI then refuses it — use a copy (`--db`) for dev; `core.db.v018-bak` keeps the old newer-schema store.
+- **Known:** `test_rel_005` fails on Windows only (POSIX PTY smoke skipped).
+- **Peers:** one persistent stream per peer (`dev-cx`, `dev-cc`, `peers-pr1-ag`/`dev-ag`) with `*.effort` profiles; peers cannot run pytest reliably; cx writes no files.
+- **Next:** push + one PR after full-suite green; release prep (draft v0.17.0/v0.18.1 cleanup needs owner OK); optional follow-ups from the core audit: lazy imports, bounded delta reads, queue/provider timing split.
+- **Resume prompt:** Continue on branch `feat/model-facts-source`: run full tests `python -m pytest tests/communication/adapters tests/communication/diag tests/communication/e2e -q` and `pyright peerhub`, then prepare clean PR against origin/main.
 
 
 
