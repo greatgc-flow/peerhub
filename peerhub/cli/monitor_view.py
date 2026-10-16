@@ -10,8 +10,10 @@ from typing import Any, cast
 
 from peerhub.cli.monitor_preferences import GROUPS
 
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
+         *[chr(code) for code in range(0x2066, 0x206A)]}
 
 
 def _obj(value: object) -> dict[str, Any]:
@@ -26,11 +28,17 @@ def _items(value: object) -> list[dict[str, Any]]:
 
 
 def _clean(value: object) -> str:
-    return _CONTROL.sub("", str(value)).replace("\n", " ").strip()
+    text = str(value).replace("\r\n", " ").replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    text = _CONTROL.sub("�", text)
+    return "".join("�" if char in _BIDI or unicodedata.category(char) in {"Cf", "Cn", "Cs", "Zl", "Zp"}
+                   and char != "\u200d" else char
+                   for char in text).strip()
 
 
 def _width(text: str) -> int:
-    return sum(2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+    return sum(0 if unicodedata.combining(char) or char == "\u200d"
+               or "\ufe00" <= char <= "\ufe0f" or "\U000e0100" <= char <= "\U000e01ef"
+               else 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
                for char in _ANSI.sub("", text))
 
 
@@ -253,6 +261,69 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     return rows or ["No data"]
 
 
+def _safe_error_reason(value: object) -> str:
+    """Expose a bounded exception class only; never print raw exception text."""
+    raw = _clean(value)
+    code = raw.split(":", 1)[0].strip().split(".")[-1]
+    allowed = {"OperationalError", "DatabaseError", "DataError", "IntegrityError", "ProgrammingError",
+               "InterfaceError", "SchemaVersionError", "PermissionError", "FileNotFoundError", "OSError"}
+    return f"{code}: database read failed" if code in allowed else "database read failed"
+
+
+def _safe_refresh_warning_labels(value: object) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    warnings = cast(Sequence[Any], value)
+    labels: list[str] = []
+    safe_reasons = {"probe_warning", "probe_timeout", "claude_usage_timeout", "gemini_usage_timeout",
+                    "codex_usage_timeout", "provider_probe_error", "provider_probe_unavailable",
+                    "auth_error", "quota_exhausted", "invalid_model", "usage_limit", "timeout",
+                    "unavailable", "error"}
+    for item in warnings[:3]:
+        if not isinstance(item, str):
+            labels.append("probe_warning")
+            continue
+        parts = [_clean(part).strip() for part in item.split(":")]
+        peer = parts[0].lower() if parts and parts[0].lower() in {"cc", "cx", "ag"} else ""
+        reason = parts[1] if peer and len(parts) > 1 else (parts[0] if parts else "")
+        code = reason.lower() if reason.lower() in safe_reasons else "probe_warning"
+        labels.append(f"{peer} {code}".strip())
+    if len(warnings) > 3:
+        labels.append(f"+{len(warnings) - 3} warnings")
+    return labels
+
+
+def _priority(group: dict[str, Any]) -> int:
+    status = str(group.get("status") or "UNKNOWN").upper()
+    if status in {"ERROR", "FAILED"}:
+        return 0
+    if status in {"UNAVAILABLE", "NOT_AVAILABLE"}:
+        return 1
+    if status in {"STALE", "PARTIAL", "UNKNOWN"}:
+        return 2
+    if _group_has_uncertain_measurement(_obj(group.get("data")), depth=0):
+        return 2
+    if status == "OK":
+        return 3
+    return 2
+
+
+def _group_has_uncertain_measurement(value: object, *, depth: int) -> bool:
+    if depth >= 4:
+        return False
+    if isinstance(value, Mapping):
+        for key, child in list(cast(Mapping[str, Any], value).items())[:100]:
+            if str(key).lower() in {"status", "state"} and isinstance(child, str):
+                if child.upper() in {"ERROR", "FAILED", "UNAVAILABLE", "STALE", "PARTIAL", "UNKNOWN"}:
+                    return True
+            if _group_has_uncertain_measurement(child, depth=depth + 1):
+                return True
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return any(_group_has_uncertain_measurement(item, depth=depth + 1)
+                   for item in cast(Sequence[Any], value)[:100])
+    return False
+
+
 def _fallback_rows(data: dict[str, Any], prefix: str = "", depth: int = 0) -> list[str]:
     if depth >= 2:
         return []
@@ -270,9 +341,9 @@ def _fallback_rows(data: dict[str, Any], prefix: str = "", depth: int = 0) -> li
     return rows or ["No data"]
 
 
-def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
-                         unicode: bool = True, width: int = 100) -> str:
-    """Render one schema-2 frame without querying providers or serializing raw JSON."""
+def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
+                            unicode: bool, width: int) -> str:
+    """Keep the append-only pipe/plain layout stable; it is not a TTY viewport."""
     width = max(20, width)
     selected = payload.get("selected_groups")
     group_ids = [str(group_id) for group_id in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
@@ -324,6 +395,141 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
                 lines.append("  " + fitted)
         if view == "rich" and unicode and width >= 32:
             lines.append("╰" + "─" * (width - 2) + "╯")
+    if not unicode:
+        lines = [line.encode("ascii", errors="replace").decode("ascii") for line in lines]
+    return "\n".join(lines) + "\n"
+
+
+def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
+                         unicode: bool = True, width: int = 100, height: int | None = None) -> str:
+    """Render a cached schema-2 frame; height enables bounded interactive layout."""
+    if height is None:
+        return _render_unbounded_frame(payload, view=view, color=color, unicode=unicode, width=width)
+    width = max(1, width)
+    height = max(1, height)
+    selected = payload.get("selected_groups")
+    group_ids = [str(group_id) for group_id in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
+    groups = _obj(payload.get("groups"))
+    if not group_ids:
+        group_ids = [str(group_id) for group_id in groups.keys()]
+    if height <= 1:
+        return ""
+    if height == 2:
+        if width <= 1:
+            return ""
+        return _fit(f"+{len(group_ids)} --group all", width - 1, unicode) + "\n"
+    status_label = _clean(payload.get("status") or "UNKNOWN")
+    groups = _obj(payload.get("groups"))
+    statuses = [str(_obj(groups.get(group_id)).get("status") or "UNKNOWN").upper() for group_id in group_ids]
+    errors = sum(status in {"ERROR", "FAILED"} for status in statuses)
+    partial = sum(status in {"PARTIAL", "STALE", "UNKNOWN", "UNAVAILABLE"} for status in statuses)
+    refresh_state = _clean(payload.get("refresh_state") or "").upper()
+    title = f"PeerHub Monitor | {status_label}"
+    if errors or partial:
+        title += f" | {errors} err · {partial} partial"
+    if refresh_state:
+        title += f" | {refresh_state}"
+    read_at = _number(payload.get("read_at"))
+    next_refresh = _number(payload.get("next_refresh_in"))
+    elapsed_seconds = _number(payload.get("display_elapsed_seconds")) or 0.0
+    if width < 48:
+        title = f"Monitor {status_label}"
+        if errors or partial:
+            title += f" E{errors}/P{partial}"
+        if refresh_state:
+            title += f" {refresh_state}"
+    if next_refresh is not None:
+        title += f" | refresh in {max(0, math.ceil(next_refresh))}s"
+    if width >= 120 and read_at is not None:
+        try:
+            title += " | " + datetime.fromtimestamp(read_at, timezone.utc).strftime("%H:%M:%SZ")
+        except (OverflowError, OSError, ValueError):
+            pass
+    store = _obj(payload.get("store_selection"))
+    db_path = _clean(store.get("path") or "")
+    db_source = _clean(store.get("source") or "")
+    show_db_path = width >= 64 and height > 6 and bool(db_path)
+    if db_source and not show_db_path:
+        if width <= 24:
+            title = f"{status_label} DB:{db_source}"
+        else:
+            title = f"{title} DB:{db_source}" if width < 48 else f"{title} · DB:{db_source}"
+    lines = [_fit(title, width - 1, unicode)]
+    if show_db_path:
+        lines.append(_fit(f"DB [{db_source}]: {db_path}", width - 1, unicode))
+    descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
+    blocks: list[tuple[int, int, str, list[str]]] = []
+    for order, group_id in enumerate(group_ids):
+        group = _obj(groups.get(group_id))
+        status = _clean(group.get("status") or "UNKNOWN").upper()
+        label = f"{group_id.upper()} [{status}]"
+        if group_id not in descriptions:
+            label += " [unrecognized group]"
+        if view == "rich" and unicode and width >= 48:
+            border = "─" * max(0, width - _width(label) - 6)
+            heading = _fit(f"╭─ {label} {border}╮", width - 1, unicode)
+            if color:
+                heading = f"\x1b[1;36m{heading}\x1b[0m"
+        else:
+            heading = _fit(label, width - 1, unicode)
+        indent = "  " if width >= 4 else ""
+        content_width = max(0, width - 1 - _width(indent))
+        group_data = _group_lines(group_id, group, width=content_width, unicode=unicode,
+                                  elapsed_seconds=elapsed_seconds)
+        error_map = _obj(payload.get("errors"))
+        error_value = error_map.get(group_id)
+        if error_value is None:
+            dependencies = {
+                "overview": ("sessions", "execution"), "sessions": ("sessions", "execution"),
+                "usage": ("sessions", "execution"), "context": ("sessions", "execution"),
+                "runtime": ("sessions", "execution"), "execution": ("execution",),
+                "coverage": ("execution",), "capacity": ("capacity",), "store": ("store",),
+            }
+            error_value = next((error_map[key] for key in dependencies.get(group_id, (group_id,))
+                                if key in error_map), None)
+        if status in {"ERROR", "FAILED"}:
+            group_data.insert(0, _safe_error_reason(error_value))
+        coverage = _obj(group.get("coverage"))
+        if coverage.get("read") == "partial" and not any("partial" in line.lower() or "truncated" in line.lower()
+                                                            for line in group_data):
+            group_data.append(f"Coverage: partial · {_clean(coverage.get('reason') or 'incomplete evidence')}")
+        summary = _fit(group_data.pop(0) if group_data else "No data", content_width, unicode)
+        blocks.append((_priority(group), order, heading, [summary, *group_data]))
+    # Severity controls which summaries survive a short viewport; catalog order is stable.
+    ranked = sorted(blocks, key=lambda item: (item[0], item[1]))
+    budget = max(0, height - 1 - len(lines))
+    all_summaries_fit = len(ranked) * 2 <= budget
+    visible_count = len(ranked) if all_summaries_fit else max(0, (budget - 1) // 2)
+    visible = (blocks if all_summaries_fit else ranked[:visible_count])
+    hidden = len(ranked) - len(visible)
+    for _priority_value, _order, heading, rows in visible:
+        lines.append(heading)
+        indent = "  " if width >= 4 else ""
+        lines.append(indent + rows[0])
+    if hidden:
+        if width >= 64:
+            overflow = f"{hidden} groups omitted · peerhub monitor --snapshot --group all"
+        elif width >= 32:
+            overflow = f"{hidden} groups omitted · --group all"
+        else:
+            overflow = f"+{hidden} --group all"
+        lines.append(_fit(overflow, width - 1, unicode))
+    if payload.get("refresh_state") == "STOPPED · AGY TOKEN USE" and len(lines) < height - 1:
+        lines.append(_fit("Next: --allow-agy-token-use to continue", width - 1, unicode))
+    for warning in _safe_refresh_warning_labels(payload.get("refresh_warnings")):
+        if len(lines) >= height - 1:
+            break
+        lines.append(_fit(f"Warning: {warning}", width - 1, unicode))
+    # Extra rows reveal detail without changing selected summaries or their order.
+    for _priority_value, _order, _heading, rows in visible:
+        for detail in rows[1:]:
+            if len(lines) >= height - 1:
+                break
+            detail_indent = "  " if width >= 4 else ""
+            lines.append(_fit(f"{detail_indent}{detail}", width - 1, unicode))
+        if len(lines) >= height - 1:
+            break
+    lines = lines[:height - 1]
     # Force ASCII on request even if data contains provider-controlled Unicode.
     if not unicode:
         lines = [line.encode("ascii", errors="replace").decode("ascii") for line in lines]

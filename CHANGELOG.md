@@ -8,6 +8,13 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Make the grouped TTY monitor adapt to terminal height and width, prioritize
+  important group summaries, and show the selected database/source plus safe
+  read-error context. Refresh warnings and token-use stops are visible in the
+  frame; resize redraws reuse the cached snapshot.
+
 ## [0.18.0] - 2026-10-16
 
 ### Changed

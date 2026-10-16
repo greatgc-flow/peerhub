@@ -8,7 +8,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import sqlite3
 import sys
 from time import monotonic, sleep
@@ -98,12 +97,13 @@ def _legacy_alias_available(version: str | None = None) -> bool:
     return (major, minor) < (0, 19)
 
 
-def _render_human_frame(payload: dict[str, Any], *, view: str, width: int, color: bool) -> str:
+def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
+                        height: int | None, color: bool) -> str:
     from peerhub.cli.monitor_view import render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
     return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
-                                color=color, unicode=unicode_ok, width=width)
+                                color=color, unicode=unicode_ok, width=width, height=height)
 
 
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -172,13 +172,22 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         payload.update({"selected_groups": selected, "available_groups": list(GROUP_IDS),
                        "preference": {key: preference.get(key) for key in ("status", "source", "reason")},
                        "store_selection": {"path": str(args.db), "source": getattr(args, "db_source", "unknown")}})
+        if output.live and refresh.get("status") not in (None, "NOT_STARTED"):
+            warnings = refresh.get("warnings", [])
+            warning_count = len(cast(list[Any], warnings)) if isinstance(warnings, list) else 0
+            payload["refresh_state"] = (f"REFRESH {refresh['status']}"
+                                         + (f" · {warning_count} warnings" if warning_count else ""))
+            if warning_count:
+                payload["refresh_warnings"] = warnings
         last_payload = payload
         last_frame_monotonic = monotonic()
         if args.json:
             print(json.dumps({"schema_version": "2.0", "cycle": cycle, "phase": phase, "refresh": refresh,
                               "snapshot": payload}, ensure_ascii=True, separators=(",", ":")), flush=True)
         else:
-            output.write(_render_human_frame(payload, view=effective_view, width=output.width(), color=color))
+            width, height = output.geometry() if output.live else (output.width(), 24)
+            output.write(_render_human_frame(payload, view=effective_view, width=width,
+                                             height=height if output.live else None, color=color))
         groups_obj: object = payload.get("groups")
         groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
         if any(isinstance(v, dict) and cast(dict[str, Any], v).get("status") == "ERROR" for v in groups.values()):
@@ -199,17 +208,32 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                 return 5
             refresh: dict[str, Any]
             if done % args.collect_every == 0:
+                if output.live and last_payload is not None:
+                    display = dict(last_payload)
+                    display["refresh_state"] = "REFRESHING"
+                    display["next_refresh_in"] = 0
+                    width, height = output.geometry()
+                    output.write(_render_human_frame(display, view=effective_view, width=width,
+                                                     height=height, color=color))
                 result = refresh_quota(args.db, args.peers, sys_dir=getattr(args, "sys_dir", None),
                                        deadline_sec=args.timeout)
                 last_refresh_code = 1 if result["status"] != "OK" else 0
                 refresh = {"status": result["status"], "warnings": result.get("warnings", []),
                            "observations": len(result.get("observations", []))}
-                if not args.json:
+                if not args.json and not output.live:
                     print(f"refresh: {result['status']}", file=sys.stderr, flush=True)
                     print_warnings(result)
                 if agy_token_use(result) and not args.allow_agy_token_use:
-                    print("error: agy /usage consumed model tokens; stopping watch mode so quota is not burned every interval "
-                          "(pass --allow-agy-token-use to continue)", file=sys.stderr, flush=True)
+                    message = ("error: agy /usage consumed model tokens; stopping watch mode so quota is not burned every interval "
+                               "(pass --allow-agy-token-use to continue)")
+                    if output.live and last_payload is not None:
+                        display = dict(last_payload)
+                        display["refresh_state"] = "STOPPED · AGY TOKEN USE"
+                        width, height = output.geometry()
+                        output.write(_render_human_frame(display, view=effective_view, width=width,
+                                                         height=height, color=color))
+                    else:
+                        print(message, file=sys.stderr, flush=True)
                     return 1
             else:
                 refresh = {"skipped": True}
@@ -228,8 +252,10 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                         display = dict(last_payload)
                         display["next_refresh_in"] = remaining
                         display["display_elapsed_seconds"] = max(0.0, monotonic() - last_frame_monotonic)
+                        display["refresh_state"] = "REFRESH OK" if last_refresh_code == 0 else "REFRESH WARN"
+                        width, height = output.geometry()
                         output.write(_render_human_frame(display, view=effective_view,
-                                                         width=output.width(), color=color))
+                                                         width=width, height=height, color=color))
             elif remaining > 0:
                 sleep(remaining)
             now = monotonic()
@@ -297,13 +323,19 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
 
 def _print_grouped_snapshot(payload: dict[str, Any], view: str) -> None:
     """Render a human dashboard from one schema 2.0 snapshot."""
-    from peerhub.cli.view import enable_vt, use_color
+    from peerhub.cli.view import FrameOutput, use_color
     tty = sys.stdout.isatty()
-    live = tty and enable_vt()
-    effective_view = ("rich" if live else "plain") if view == "auto" else view
-    color = effective_view == "rich" and use_color(live, os.environ)
-    print(_render_human_frame(payload, view=effective_view, width=shutil.get_terminal_size((100, 24)).columns,
-                              color=color), end="")
+    output = FrameOutput(interactive=tty, overwrite=False)
+    try:
+        effective_view = ("rich" if output.vt else "plain") if view == "auto" else view
+        color = effective_view == "rich" and use_color(output.vt, os.environ)
+        width, height = output.geometry() if output.vt else (output.width(), 24)
+        frame = _render_human_frame(payload, view=effective_view, width=width,
+                                    height=height if output.vt else None, color=color)
+        sys.stdout.write(frame)
+        sys.stdout.flush()
+    finally:
+        output.close()
 
 
 def run_monitor_repair(args: argparse.Namespace) -> int:

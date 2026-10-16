@@ -42,11 +42,48 @@ def enable_vt() -> bool:
         return False
 
 
+def _console_mode() -> int | None:
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.GetStdHandle.argtypes = [wintypes.DWORD]
+        kernel.GetStdHandle.restype = wintypes.HANDLE
+        kernel.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel.GetConsoleMode.restype = wintypes.BOOL
+        mode = wintypes.DWORD()
+        return int(mode.value) if kernel.GetConsoleMode(kernel.GetStdHandle(-11), ctypes.byref(mode)) else None
+    except (AttributeError, OSError):
+        return None
+
+
+def _restore_console_mode(mode: int | None) -> None:
+    if mode is None or os.name != "nt":
+        return
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.GetStdHandle.argtypes = [wintypes.DWORD]
+        kernel.GetStdHandle.restype = wintypes.HANDLE
+        kernel.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.SetConsoleMode.restype = wintypes.BOOL
+        kernel.SetConsoleMode(kernel.GetStdHandle(-11), mode)
+    except (AttributeError, OSError):
+        pass
+
+
 class FrameOutput:
     """Overwrite VT terminals and append elsewhere, with exception-safe cleanup."""
 
     def __init__(self, interactive: bool = True, *, overwrite: bool = True) -> None:
-        self.vt = interactive and sys.stdout.isatty() and enable_vt()
+        self.original_console_mode = _console_mode() if interactive and os.name == "nt" else None
+        self.vt = (interactive and sys.stdout.isatty()
+                   and os.environ.get("TERM", "").lower() != "dumb" and enable_vt())
         self.live = self.vt and overwrite
         self.started = False
 
@@ -54,21 +91,45 @@ class FrameOutput:
         if self.live:
             if not self.started:
                 self.started = True
-                print("\x1b[?25l\x1b[H\x1b[2J", end="")
+                prefix = "\x1b[?25l\x1b[H\x1b[2J"
             else:
-                print("\x1b[H", end="")
-            # Erase each old line's tail, then all remaining lines on shrink.
-            print("\x1b[K\r\n".join(frame.splitlines()) + "\x1b[K\x1b[J", end="", flush=True)
+                prefix = "\x1b[H"
+            # Buffer one complete frame so resize/redraw cannot expose half a panel.
+            body = "\x1b[K\r\n".join(frame.splitlines()) + "\x1b[K\x1b[J"
+            sys.stdout.write(prefix + body)
+            sys.stdout.flush()
         else:
             print(frame, flush=True)
 
     def close(self) -> None:
-        if self.started:
-            print("\x1b[0m\x1b[?25h", end="", flush=True)
+        try:
+            if self.started:
+                sys.stdout.write("\x1b[0m\x1b[?25h")
+                sys.stdout.flush()
+                self.started = False
+        finally:
+            _restore_console_mode(self.original_console_mode)
 
     @staticmethod
     def width() -> int:
+        """Keep the append-mode width policy, including an explicit COLUMNS override."""
         return shutil.get_terminal_size((100, 24)).columns
+
+    @staticmethod
+    def geometry() -> tuple[int, int]:
+        """Read live TTY dimensions without honoring stale COLUMNS/LINES overrides."""
+        try:
+            if not sys.stdout.isatty():
+                return 100, 24
+        except (AttributeError, OSError):
+            return 100, 24
+        try:
+            size = os.get_terminal_size(sys.stdout.fileno())
+            if size.columns > 0 and size.lines > 0:
+                return size.columns, size.lines
+        except (AttributeError, OSError, ValueError):
+            return 100, 24
+        return 100, 24
 
 
 def _safe_text(value: object) -> str:
