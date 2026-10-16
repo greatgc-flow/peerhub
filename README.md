@@ -108,7 +108,7 @@ per-peer dependency chains (`peers`), and Bridge delivery certainty (`execution`
 Delivery certainty describes whether a request was not started, may have
 started, started, or reached a terminal delivery state; `terminal` does not
 mean the model answered the task successfully. PeerHub does not currently
-classify semantic task success/error. Context occupancy intentionally stays 'unknown' because no provider CLI reports validated runtime occupancy (cx 'debug models' exposes a context window but runtime occupancy is not reported by the CLIs). `runtime` and `store` remain available with
+classify semantic task success/error. Context occupancy intentionally stays 'unknown' because it is not validated by PeerHub (the CLIs do not report it in a form PeerHub accepts; cx 'debug models' exposes a context window but runtime occupancy is not reported in an accepted form). `runtime` and `store` remain available with
 `--group` or `--snapshot --group`.
 
 The bare `monitor` command shows a grouped human dashboard on a TTY and aligned

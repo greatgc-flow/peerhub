@@ -87,15 +87,38 @@ def test_retired_pro_profiles_raise_unknown_profile_error(tmp_path, kind, pid):
         resolve_profile(kind, pid, tmp_path)
 
 
+def expected_profile_source(manifest: dict, pid: str) -> str:
+    peer = pid.split(".", 1)[0]
+    observed_at = manifest["observed_at"]
+    if peer == "cc":
+        return f"known-id:claude --help aliases@{manifest['observed_versions']['cc']} {observed_at}"
+    return f"cli:{manifest['sources'][peer]['command']}@{manifest['observed_versions'][peer]} {observed_at}"
+
+
 def test_manifest_every_profile_has_source_matching_sources_keys():
     for pid, profile in MANIFEST["profiles"].items():
         peer = pid.split(".", 1)[0]
         assert peer in MANIFEST["sources"]
-        src = profile.get("source")
-        assert isinstance(src, str) and src.strip(), f"{pid} missing non-empty source"
-        if peer == "cc":
-            assert src.startswith("known-id:"), f"{pid} source should start with known-id:"
-        else:
-            assert src.startswith("cli:"), f"{pid} source should start with cli:"
+        want = expected_profile_source(MANIFEST, pid)
+        assert profile.get("source") == want, f"{pid} source mismatch: got {profile.get('source')!r}, want {want!r}"
+
+
+def test_profile_source_comparison_rejects_mutated_source():
+    bad_manifest = {
+        "observed_at": "2026-10-16",
+        "observed_versions": {"ag": "1.4.0", "cc": "2.1.301", "cx": "0.163.0"},
+        "sources": {
+            "cx": {"command": "codex debug models"},
+            "ag": {"command": "agy.exe models"},
+            "cc": {"command": None},
+        },
+        "profiles": {
+            "cx.standard": {"source": "cli:agy.exe models@WRONG invalid-date"},
+        },
+    }
+    want = expected_profile_source(bad_manifest, "cx.standard")
+    with pytest.raises(AssertionError):
+        assert bad_manifest["profiles"]["cx.standard"]["source"] == want
+
 
 
