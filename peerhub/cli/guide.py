@@ -74,6 +74,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "",
         "Discovery & Inspection Commands:",
         "  peerhub monitor              # live dashboard: quota, session lineage, facts",
+        "  peerhub monitor --expand     # inspect all loaded detail rows (or with --snapshot)",
         "  peerhub diag                 # read-only diagnostics across all peers",
         "  peerhub profile list         # inspect resolved configuration layers",
         "  peerhub session list         # list retained sessions and runtime state",

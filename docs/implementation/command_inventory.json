@@ -1010,6 +1010,16 @@
           "takes_value": true
         },
         {
+          "default": false,
+          "dest": "expand",
+          "flags": [
+            "--expand"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": null,
           "dest": "group",
           "flags": [

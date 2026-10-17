@@ -100,6 +100,7 @@ def test_guide_contains_required_sections_and_guidance(capsys):
     assert "foreground/background-with-exit-notification" in out
     # Discovery commands
     assert "peerhub monitor" in out
+    assert "peerhub monitor --expand" in out
     assert "peerhub diag" in out
     assert "session list" in out
     assert "context usage" not in out

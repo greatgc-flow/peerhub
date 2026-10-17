@@ -103,7 +103,8 @@ def _peer(item: dict[str, Any]) -> str:
 
 
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
-                 elapsed_seconds: float = 0.0, read_at: float | None = None) -> list[str]:
+                 elapsed_seconds: float = 0.0, read_at: float | None = None,
+                 expand: bool = False) -> list[str]:
     data = _obj(group.get("data"))
     if data == {} and group.get("data") is None:
         return ["data unavailable"]
@@ -314,14 +315,17 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     elif group_id == "sessions":
         sessions = _items(data.get("items"))
         if sessions:
-            for session in sessions[:2]:
+            limit = len(sessions) if expand else min(2, len(sessions))
+            for session in sessions[:limit]:
                 binding = _obj(session.get("configured_binding"))
                 profile = _clean(binding.get("profile") or "profile unknown")
                 model = _clean(binding.get("model") or "model unknown")
                 effort = _clean(binding.get("effort") or "effort unknown")
                 resume = "resumable" if session.get("resumable") else "not resumable"
-                rows.append(f"{_peer(session)} {_clean(session.get('state') or 'UNKNOWN')}{sep}gen {_count(session.get('generation'))}{sep}{profile} / {model} ({effort}){sep}{resume}")
-            if len(sessions) > 2:
+                handle = _clean(session.get("handle") or "")
+                handle_part = f"{sep}{handle}" if expand and handle else ""
+                rows.append(f"{_peer(session)} {_clean(session.get('state') or 'UNKNOWN')}{handle_part}{sep}gen {_count(session.get('generation'))}{sep}{profile} / {model} ({effort}){sep}{resume}")
+            if not expand and len(sessions) > 2:
                 rows.append(f"+{len(sessions) - 2} sessions not shown")
         else:
             rows.append(f"Retained sessions: {_count(data.get('sample_size', 0))}")
@@ -332,13 +336,14 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     elif group_id == "usage":
         sessions = _items(data.get("sessions"))
         if sessions:
-            for session in sessions[:2]:
+            limit = len(sessions) if expand else min(2, len(sessions))
+            for session in sessions[:limit]:
                 telemetry = _obj(session.get("telemetry"))
                 normalized = _obj(telemetry.get("normalized"))
                 reported = _obj(telemetry.get("reported"))
                 tokens = normalized.get("provider_total_tokens", reported.get("total_tokens"))
                 rows.append(f"{_peer(session)} provider-reported tokens: {_count(tokens)}")
-            if len(sessions) > 2:
+            if not expand and len(sessions) > 2:
                 rows.append(f"+{len(sessions) - 2} sessions not shown")
         else:
             rows.append("Provider-reported usage: unknown")
@@ -350,7 +355,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     elif group_id == "context":
         sessions = _items(data.get("sessions"))
         if sessions:
-            for session in sessions[:2]:
+            limit = len(sessions) if expand else min(2, len(sessions))
+            for session in sessions[:limit]:
                 context = _obj(session.get("context"))
                 percent = _number(context.get("percent"))
                 state = _clean(context.get("state") or "UNKNOWN").upper()
@@ -359,7 +365,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     rows.append(f"{_peer(session)} {percent:.0f}% {_bar(percent / 100, cells, unicode)}{sep}{state}")
                 else:
                     rows.append(f"{_peer(session)} UNKNOWN{sep}{_clean(context.get('reason') or 'context occupancy unreported')}")
-            if len(sessions) > 2:
+            if not expand and len(sessions) > 2:
                 rows.append(f"+{len(sessions) - 2} sessions not shown")
         else:
             rows.append("Runtime context occupancy: unknown")
@@ -367,7 +373,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     elif group_id == "capacity":
         observations = _items(data.get("observations"))
         if observations:
-            for item in observations[:2]:
+            limit = len(observations) if expand else min(2, len(observations))
+            for item in observations[:limit]:
                 measurements = _obj(item.get("measurements"))
                 remaining = _number(measurements.get("remaining_fraction"))
                 pool = _clean(item.get("pool_ref") or item.get("pool_kind") or "quota pool")
@@ -392,7 +399,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 age_text = f"{sep}age {max(0.0, age + elapsed_seconds):.0f}s" if age is not None else ""
                 projection_text = f"{sep}{projection_state}{eta_text}"
                 rows.append(f"{_peer(item)} {pool}: {detail}{sep}{state}{projection_text}{pace_text}{age_text}")
-            if len(observations) > 2:
+            if not expand and len(observations) > 2:
                 rows.append(f"+{len(observations) - 2} quota observations not shown")
         else:
             rows.append("Quota capacity: no observations")
@@ -403,11 +410,12 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     elif group_id == "runtime":
         sessions = _items(data.get("sessions"))
         if sessions:
-            for session in sessions[:2]:
+            limit = len(sessions) if expand else min(2, len(sessions))
+            for session in sessions[:limit]:
                 binding = _obj(session.get("configured_binding"))
                 current = _obj(session.get("current_profile"))
                 rows.append(f"{_peer(session)} profile {_clean(binding.get('profile') or 'unknown')}{sep}current {_clean(current.get('source') or 'unknown')} / {_clean(current.get('status') or 'UNKNOWN')}")
-            if len(sessions) > 2:
+            if not expand and len(sessions) > 2:
                 rows.append(f"+{len(sessions) - 2} runtime sessions not shown")
         else:
             rows.append("Runtime profile provenance: no sessions")
@@ -511,9 +519,10 @@ def _fallback_rows(data: dict[str, Any], prefix: str = "", depth: int = 0) -> li
 
 
 def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
-                            unicode: bool, width: int) -> str:
+                            unicode: bool, width: int, expand: bool = False) -> str:
     """Keep the append-only pipe/plain layout stable; it is not a TTY viewport."""
-    width = max(20, width)
+    target_width = width - 1 if expand else width
+    target_width = max(20, target_width)
     selected = payload.get("selected_groups")
     group_ids = [str(group_id) for group_id in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
     groups = _obj(payload.get("groups"))
@@ -524,7 +533,7 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
     read_at = _number(payload.get("read_at"))
     next_refresh = _number(payload.get("next_refresh_in"))
     elapsed_seconds = _number(payload.get("display_elapsed_seconds")) or 0.0
-    if width < 48:
+    if target_width < 48:
         title = f"Monitor {status_label}"
     elif read_at is not None:
         try:
@@ -533,7 +542,7 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
             title += " | time unknown"
     if next_refresh is not None:
         title += f" | refresh in {max(0, math.ceil(next_refresh))}s"
-    lines = [_fit(title, width, unicode)]
+    lines = [_fit(title, target_width, unicode)]
     descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
     for group_id in group_ids:
         group = _obj(groups.get(group_id))
@@ -541,39 +550,40 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
         label = f"{group_id.upper()} [{status}]"
         if group_id not in descriptions:
             label += " [unrecognized group]"
-        if view == "rich" and unicode and width >= 32:
-            border = "─" * max(0, width - _width(label) - 5)
-            heading = _fit(f"╭─ {label} {border}╮", width, unicode)
+        if view == "rich" and unicode and target_width >= 32:
+            border = "─" * max(0, target_width - _width(label) - 5)
+            heading = _fit(f"╭─ {label} {border}╮", target_width, unicode)
             if color:
                 heading = f"\x1b[1;36m{heading}\x1b[0m"
             lines.append(heading)
         else:
-            lines.append(_fit(label, width, unicode))
-        content_width = width - 4 if view == "rich" and unicode and width >= 32 else width - 2
+            lines.append(_fit(label, target_width, unicode))
+        content_width = target_width - 4 if view == "rich" and unicode and target_width >= 32 else target_width - 2
         group_data = _group_lines(group_id, group, width=content_width, unicode=unicode,
-                                  elapsed_seconds=elapsed_seconds, read_at=read_at)
+                                  elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand)
         coverage = _obj(group.get("coverage"))
         if coverage.get("read") == "partial" and not any("partial" in line.lower() or "truncated" in line.lower()
                                                             for line in group_data):
             group_data.append(f"Coverage: partial {'·' if unicode else '|'} {_clean(coverage.get('reason') or 'incomplete evidence')}")
         for content in group_data:
             fitted = _fit(content, content_width, unicode)
-            if view == "rich" and unicode and width >= 32:
+            if view == "rich" and unicode and target_width >= 32:
                 lines.append("│ " + fitted.ljust(content_width) + " │")
             else:
                 lines.append("  " + fitted)
-        if view == "rich" and unicode and width >= 32:
-            lines.append("╰" + "─" * (width - 2) + "╯")
+        if view == "rich" and unicode and target_width >= 32:
+            lines.append("╰" + "─" * (target_width - 2) + "╯")
     if not unicode:
         lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
     return "\n".join(lines) + "\n"
 
 
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
-                         unicode: bool = True, width: int = 100, height: int | None = None) -> str:
+                         unicode: bool = True, width: int = 100, height: int | None = None,
+                         expand: bool = False) -> str:
     """Render a cached schema-2 frame; height enables bounded interactive layout."""
     if height is None:
-        return _render_unbounded_frame(payload, view=view, color=color, unicode=unicode, width=width)
+        return _render_unbounded_frame(payload, view=view, color=color, unicode=unicode, width=width, expand=expand)
     width = max(1, width)
     height = max(1, height)
     selected = payload.get("selected_groups")
@@ -644,7 +654,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         indent = "  " if width >= 4 else ""
         content_width = max(0, width - 1 - _width(indent))
         group_data = _group_lines(group_id, group, width=content_width, unicode=unicode,
-                                  elapsed_seconds=elapsed_seconds, read_at=read_at)
+                                  elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand)
         error_map = _obj(payload.get("errors"))
         error_value = error_map.get(group_id)
         if error_value is None:

@@ -1,6 +1,6 @@
 # Height-adaptive monitor detail rows (2026-10-16)
 
-**Status:** DEFERRED by monitor-peers-view.  
+**Status:** Slice 1 implemented (`peerhub monitor --expand`: human output, all loaded detail rows rendered, stable session handle included, DB query cap 100 with truncation disclosure, snapshot unconstrained).  
 **Review base:** `c717ee0097c7a1d89fa8d72616207d0dd0db7588` on `fix/monitor-detail-expansion`.
 
 ## Scope and Intent

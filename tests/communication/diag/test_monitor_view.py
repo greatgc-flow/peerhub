@@ -313,3 +313,62 @@ def test_plain_ascii_monitor_replaces_middle_dot_cleanly_without_question_marks(
         assert " ? " not in line
 
 
+def test_expand_renders_all_loaded_detail_rows_and_session_handle(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame, _width
+
+    # Add 4 sessions so total is 4 (exceeding 2-row cap)
+    frame["groups"]["sessions"]["data"]["items"] = [
+        {"peer_id": "cx", "state": "ACTIVE", "generation": i, "resumable": True, "handle": f"sess_test_{i}",
+         "configured_binding": {"profile": "cx.standard", "model": "gpt-test", "effort": "medium"}}
+        for i in range(1, 5)
+    ]
+    frame["groups"]["usage"]["data"]["sessions"] = [
+        {"peer_id": "cx", "telemetry": {"normalized": {"provider_total_tokens": 100 * i}}}
+        for i in range(1, 5)
+    ]
+    frame["groups"]["context"]["data"]["sessions"] = [
+        {"peer_id": "cx", "context": {"percent": 10.0 * i, "state": "MEASURED", "reason": None}}
+        for i in range(1, 5)
+    ]
+    frame["groups"]["capacity"]["data"]["observations"] = [
+        {"peer_id": "cx", "pool_ref": f"quota:cx:{i}h", "state": "MEASURED",
+         "measurements": {"remaining_fraction": 0.2 * i},
+         "projection": {"state": "safe", "pace_pt": 5.0}, "age_seconds": 10.0}
+        for i in range(1, 5)
+    ]
+    frame["groups"]["runtime"]["data"]["sessions"] = [
+        {"peer_id": "cx", "configured_binding": {"profile": "cx.standard"},
+         "current_profile": {"source": "workspace", "status": "OK"}}
+        for i in range(1, 5)
+    ]
+
+    # Default (expand=False): 2-row cap + "+N not shown"
+    default_rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80)
+    assert "+2 sessions not shown" in default_rendered
+    assert "+2 quota observations not shown" in default_rendered
+    assert "+2 runtime sessions not shown" in default_rendered
+    assert "sess_test_1" not in default_rendered
+
+    # Expanded (expand=True): ALL 4 rows rendered, no "+N not shown", session handle present
+    expanded_rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, expand=True)
+    assert "not shown" not in expanded_rendered
+    assert "sess_test_1" in expanded_rendered
+    assert "sess_test_4" in expanded_rendered
+    # Widths must be <= width - 1 (79 columns)
+    for line in expanded_rendered.splitlines():
+        assert _width(line) <= 79, f"Line exceeds width - 1: {line}"
+
+
+def test_default_output_byte_identical_when_expand_is_false(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    out_implicit = render_grouped_frame(frame, view="plain", unicode=False, width=80)
+    out_explicit = render_grouped_frame(frame, view="plain", unicode=False, width=80, expand=False)
+    assert out_implicit == out_explicit
+
+    out_implicit_rich = render_grouped_frame(frame, view="rich", unicode=True, width=100)
+    out_explicit_rich = render_grouped_frame(frame, view="rich", unicode=True, width=100, expand=False)
+    assert out_implicit_rich == out_explicit_rich
+
+
+

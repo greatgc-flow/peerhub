@@ -44,6 +44,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--group", action="append", choices=(*GROUP_IDS, "all"), default=None,
                    help="Select monitor groups for a read-only snapshot or grouped watch")
     p.add_argument("--snapshot", action="store_true", help="Render one read-only grouped snapshot without refreshing providers")
+    p.add_argument("--expand", action="store_true", help="Render all loaded detail rows instead of capping at 2 rows")
 
     actions = p.add_subparsers(dest="monitor_action")
     groups = actions.add_parser("groups", help="List monitor groups and default selection")
@@ -73,6 +74,8 @@ def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namesp
         parser.error("--timeout-seconds must be a positive number")
     if args.collect_every < 1:
         parser.error("--collect-every must be >= 1")
+    if getattr(args, "expand", False) and args.json:
+        parser.error("--expand applies to human dashboard output and cannot be combined with --json")
     legacy = bool(getattr(args, "legacy", False))
     schema = getattr(args, "schema_version", None)
     if schema is not None and not args.json:
@@ -98,12 +101,13 @@ def _legacy_alias_available(version: str | None = None) -> bool:
 
 
 def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
-                        height: int | None, color: bool) -> str:
+                        height: int | None, color: bool, expand: bool = False) -> str:
     from peerhub.cli.monitor_view import render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
     return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
-                                color=color, unicode=unicode_ok, width=width, height=height)
+                                color=color, unicode=unicode_ok, width=width, height=height,
+                                expand=expand)
 
 
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -159,6 +163,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     output = FrameOutput(interactive=not args.json)
     effective_view = ("rich" if output.live else "plain") if args.view == "auto" else args.view
     color = effective_view == "rich" and use_color(output.live, os.environ)
+    expand = bool(getattr(args, "expand", False))
     last_payload: dict[str, Any] | None = None
     last_frame_monotonic = 0.0
 
@@ -187,7 +192,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         else:
             width, height = output.geometry() if output.live else (output.width(), 24)
             output.write(_render_human_frame(payload, view=effective_view, width=width,
-                                             height=height if output.live else None, color=color))
+                                             height=height if output.live else None, color=color,
+                                             expand=expand))
         groups_obj: object = payload.get("groups")
         groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
         if any(isinstance(v, dict) and cast(dict[str, Any], v).get("status") == "ERROR" for v in groups.values()):
@@ -214,7 +220,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                     display["next_refresh_in"] = 0
                     width, height = output.geometry()
                     output.write(_render_human_frame(display, view=effective_view, width=width,
-                                                     height=height, color=color))
+                                                     height=height, color=color, expand=expand))
                 result = refresh_quota(args.db, args.peers, sys_dir=getattr(args, "sys_dir", None),
                                        deadline_sec=args.timeout)
                 last_refresh_code = 1 if result["status"] != "OK" else 0
@@ -231,7 +237,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                         display["refresh_state"] = "STOPPED · AGY TOKEN USE"
                         width, height = output.geometry()
                         output.write(_render_human_frame(display, view=effective_view, width=width,
-                                                         height=height, color=color))
+                                                         height=height, color=color, expand=expand))
                     else:
                         print(message, file=sys.stderr, flush=True)
                     return 1
@@ -255,7 +261,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                         display["refresh_state"] = "REFRESH OK" if last_refresh_code == 0 else "REFRESH WARN"
                         width, height = output.geometry()
                         output.write(_render_human_frame(display, view=effective_view,
-                                                         width=width, height=height, color=color))
+                                                         width=width, height=height, color=color,
+                                                         expand=expand))
             elif remaining > 0:
                 sleep(remaining)
             now = monotonic()
@@ -293,6 +300,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
         return 5
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from peerhub.core.schema_version import SchemaVersionError
+    expand = bool(getattr(args, "expand", False))
     try:
         payload = render_monitor_frame(args.db, selected)
     except SchemaVersionError:
@@ -301,7 +309,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
         if args.json:
             print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
         else:
-            _print_grouped_snapshot(payload, args.view)
+            _print_grouped_snapshot(payload, args.view, expand=expand)
         return 6
     payload["selected_groups"] = selected
     payload["available_groups"] = list(GROUP_IDS)
@@ -310,7 +318,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     if args.json:
         print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
     else:
-        _print_grouped_snapshot(payload, args.view)
+        _print_grouped_snapshot(payload, args.view, expand=expand)
     groups_obj: object = payload.get("groups")
     groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
     group_errors = False
@@ -321,7 +329,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     return 4 if group_errors or payload["status"] == "FAILED" else 0
 
 
-def _print_grouped_snapshot(payload: dict[str, Any], view: str) -> None:
+def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = False) -> None:
     """Render a human dashboard from one schema 2.0 snapshot."""
     from peerhub.cli.view import FrameOutput, use_color
     tty = sys.stdout.isatty()
@@ -330,8 +338,9 @@ def _print_grouped_snapshot(payload: dict[str, Any], view: str) -> None:
         effective_view = ("rich" if output.vt else "plain") if view == "auto" else view
         color = effective_view == "rich" and use_color(output.vt, os.environ)
         width, height = output.geometry() if output.vt else (output.width(), 24)
+        effective_height = None if expand else (height if output.vt else None)
         frame = _render_human_frame(payload, view=effective_view, width=width,
-                                    height=height if output.vt else None, color=color)
+                                    height=effective_height, color=color, expand=expand)
         sys.stdout.write(frame)
         sys.stdout.flush()
     finally:
