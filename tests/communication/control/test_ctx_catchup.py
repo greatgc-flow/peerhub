@@ -1,11 +1,12 @@
-"""Wave 4 CTX-001..003: bounded catch-up projection (TD-12/TD-22) and context/session loss recovery."""
+"""Wave 4 CTX-001..004: bounded catch-up projection (TD-12/TD-22) and context/session loss recovery."""
 import json
+from typing import Any, Mapping
 
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from peerhub.extensions.bridge import ContextLostError, PrespawnError, SessionDeltaOverflowError, _PersistedRecord
-from peerhub.extensions.catchup import CatchUpBudget, build_catch_up, project_catch_up
+from peerhub.extensions.bridge import Bridge, ContextLostError, NOT_STARTED, PrespawnError, SessionDeltaOverflowError, _PersistedRecord
+from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, build_catch_up, project_catch_up
 from tests.communication.control_helpers import bseed, ctl, delivery_rows, item_json, mem_records, msg, offset_row, payload_bytes, records, responses, sql
 from tests.communication.fakes import CrashInjected, CrashInjector, FakeRuntimeTarget
 from tests.communication.harness.bridge import BridgeHarness
@@ -320,17 +321,74 @@ def test_bridge_default_budget_fits_windows_inline_history_and_explicit_budget_w
     assert h.new_bridge("unlimited", catch_up_budget=unlimited_bytes).catch_up_budget is unlimited_bytes
 
 
+def _old_unseen_redirects(bridge: Any, peer: str, stream: str, rec: Any) -> list[Any]:
+    """Pre-patch unpaged oracle: single 2**31-1 fetch."""
+    with bridge.claims.transaction() as conn:
+        last = conn.execute("SELECT COALESCE(MAX(record_position),0) FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND certainty != ?",
+                            (stream, peer, NOT_STARTED)).fetchone()[0]
+        done = {r[0] for r in conn.execute("SELECT record_id FROM bridge_controls WHERE stream_id=? AND peer_id=? AND outcome='done'",
+                                           (stream, peer))}
+    cands = bridge.store.read_records(stream, last, 2**31 - 1)
+    return [r for r in cands if r.position < rec.position and r.kind == "control.redirect" and r.author_peer_id != peer
+            and (not r.targets or peer in r.targets) and r.record_id not in done]
+
+
+def _old_native_delta(bridge: Any, mapping: Mapping[str, Any], rec: Any) -> CatchUpProjection:
+    """Pre-patch unpaged oracle: single 2**31-1 fetch."""
+    peer, stream = mapping["peer_id"], mapping["stream_id"]
+    records = bridge.store.read_records(stream, mapping["context_watermark"], 2**31 - 1)
+    candidates = (r for r in records if r.position < rec.position
+                  and (r.kind != "control.redirect" or (not r.targets or peer in r.targets)))
+    return project_catch_up(candidates, CatchUpBudget(max_bytes=bridge.catch_up_budget.max_bytes,
+                                          max_tokens=bridge.catch_up_budget.max_tokens,
+                                          token_estimator=bridge.catch_up_budget.token_estimator),
+                            after_position=mapping["context_watermark"], before_position=rec.position)
+
+
+def _old_local_history_delta(bridge: Any, mapping: Mapping[str, Any], rec: Any) -> CatchUpProjection | None:
+    """Pre-patch unpaged oracle: single 2**31-1 fetch."""
+    stream, peer, gen = mapping["stream_id"], mapping["peer_id"], mapping["session_generation"]
+    with bridge.claims.transaction() as conn:
+        after = conn.execute("SELECT MAX(record_position) FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? AND external_session_id=? AND certainty='TERMINAL'",
+                             (stream, peer, gen, mapping["external_session_id"])).fetchone()[0]
+        if after is None or not conn.execute("SELECT 1 FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation!=? AND record_position>? AND record_position<? AND certainty!='NOT_STARTED' LIMIT 1",
+                                             (stream, peer, gen, after, rec.position)).fetchone():
+            return None
+        represented = {r[0] for r in conn.execute("SELECT response_record_id FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? AND external_session_id=? AND certainty='TERMINAL'",
+                                                 (stream, peer, gen, mapping["external_session_id"])) if r[0] is not None}
+    candidates = (r for r in bridge.store.read_records(stream, after, 2**31-1) if r.position < rec.position
+                  and r.record_id not in represented and (r.kind != "control.redirect" or not r.targets or peer in r.targets))
+    return project_catch_up(candidates, CatchUpBudget(max_bytes=bridge.catch_up_budget.max_bytes,
+                            max_tokens=bridge.catch_up_budget.max_tokens, token_estimator=bridge.catch_up_budget.token_estimator),
+                            after_position=after, before_position=rec.position)
+
+
+def _insert_test_delivery(h: Any, stream: str, peer: str, gen: int, ext_sess: str, rec_id: str, rec_pos: int, certainty: str = "TERMINAL") -> None:
+    with h.bridge.claims.transaction() as conn:
+        seq = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM bridge_deliveries").fetchone()[0]
+        did = f"del_{stream}_{peer}_{rec_pos}_{seq}"
+        conn.execute(
+            "INSERT INTO bridge_deliveries (delivery_id, seq, stream_id, peer_id, record_id, record_position, attempt, certainty, claim_generation, external_session_id, session_generation) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1, 'NOT_STARTED', 0, ?, ?)",
+            (did, seq, stream, peer, rec_id, rec_pos, ext_sess, gen),
+        )
+        if certainty in ("STARTED", "TERMINAL"):
+            conn.execute("UPDATE bridge_deliveries SET certainty='STARTED' WHERE delivery_id=?", (did,))
+        if certainty == "TERMINAL":
+            conn.execute("UPDATE bridge_deliveries SET certainty='TERMINAL' WHERE delivery_id=?", (did,))
+
+
 # ------------------------------------------------------------------ CTX-004: bounded delta reads
 @pytest.mark.catalog_id("CTX-004")
 @pytest.mark.property
 @settings(max_examples=40, deadline=None)
 @given(
-    n=st.integers(1, 25),
-    watermark=st.integers(0, 20),
-    gap=st.integers(1, 10),
+    n=st.integers(3, 25),
+    watermark=st.integers(0, 15),
+    pos_offset=st.integers(-4, 4),
     page=st.sampled_from([1, 2, 3, 7, 50]),
 )
-def test_ctx_004_paged_delta_projection_matches_unpaged_exactly(n, watermark, gap, page):
+def test_ctx_004_paged_delta_projection_matches_unpaged_exactly(n, watermark, pos_offset, page):
     import tempfile
     from pathlib import Path
     with tempfile.TemporaryDirectory() as td:
@@ -344,38 +402,104 @@ def test_ctx_004_paged_delta_projection_matches_unpaged_exactly(n, watermark, ga
             else:
                 msg(h, f"m{i}")
         head = h.store.stream_head("s")
-        current_pos = head + gap
+        wm = min(watermark, max(0, head - 2))
+        # Generates interior boundary (current_pos <= head), at-head (== head), or exterior boundary (> head)
+        current_pos = max(wm + 1, min(head + 5, head + pos_offset))
         cur = _PersistedRecord("cur", current_pos)
-        wm = min(watermark, head)
+
+        # 1. Native delta: paged vs actual old unpaged oracle
         mapping = {
             "peer_id": "b",
             "stream_id": "s",
             "context_watermark": wm,
         }
         paged = h.bridge._native_delta(mapping, cur, page=page)
-        unpaged = h.bridge._native_delta(mapping, cur, page=100_000)
+        old_native = _old_native_delta(h.bridge, mapping, cur)
 
-        # Invariant: paged == unpaged projection
-        assert [r.record_id for r in paged.records] == [r.record_id for r in unpaged.records]
-        assert [r.position for r in paged.records] == [r.position for r in unpaged.records]
-        assert paged.boundary() == unpaged.boundary()
-        assert paged.truncated == unpaged.truncated
-        assert paged.omitted_count == unpaged.omitted_count
-        assert paged.used_bytes == unpaged.used_bytes
+        assert [r.record_id for r in paged.records] == [r.record_id for r in old_native.records]
+        assert [r.position for r in paged.records] == [r.position for r in old_native.records]
+        assert paged.boundary() == old_native.boundary()
+        assert paged.truncated == old_native.truncated
+        assert paged.omitted_count == old_native.omitted_count
+        assert paged.used_bytes == old_native.used_bytes
 
-        # Strictly increasing ordering and bounded before current record
+        # Strictly increasing ordering and bounded strictly before current record
         pos = [r.position for r in paged.records]
         assert pos == sorted(set(pos))
         if pos:
             assert pos[-1] < current_pos
             assert pos[0] > wm
 
-        # Invariant for unseen redirects: paged == unpaged, all stop before current record
+        # 2. Unseen redirects: paged vs actual old unpaged oracle
         red_paged = h.bridge._unseen_redirects("b", "s", cur, page=page)
-        red_unpaged = h.bridge._unseen_redirects("b", "s", cur, page=100_000)
-        assert [r.record_id for r in red_paged] == [r.record_id for r in red_unpaged]
+        red_old = _old_unseen_redirects(h.bridge, "b", "s", cur)
+        assert [r.record_id for r in red_paged] == [r.record_id for r in red_old]
         for r in red_paged:
             assert r.position < current_pos
+
+        # 3. Local history delta: paged vs actual old unpaged oracle
+        _insert_test_delivery(h, "s", "b", 1, "ext-local", "del_seed", 1, certainty="TERMINAL")
+        if head > 2:
+            _insert_test_delivery(h, "s", "b", 2, "ext-other", "del_interv", 2, certainty="TERMINAL")
+        local_mapping = {
+            "peer_id": "b",
+            "stream_id": "s",
+            "session_generation": 1,
+            "external_session_id": "ext-local",
+        }
+        local_paged = h.bridge._local_history_delta(local_mapping, cur, page=page)
+        local_old = _old_local_history_delta(h.bridge, local_mapping, cur)
+        if local_old is None:
+            assert local_paged is None
+        else:
+            assert local_paged is not None
+            assert [r.record_id for r in local_paged.records] == [r.record_id for r in local_old.records]
+            assert [r.position for r in local_paged.records] == [r.position for r in local_old.records]
+            assert local_paged.boundary() == local_old.boundary()
+            assert local_paged.truncated == local_old.truncated
+            assert local_paged.omitted_count == local_old.omitted_count
+
+
+@pytest.mark.catalog_id("CTX-004")
+def test_ctx_004_exact_session_overflow_rejection_and_automatic_fresh_fallback(tmp_path):
+    """Exercise exact-session overflow rejection (SessionDeltaOverflowError) and automatic fresh fallback."""
+    h = BridgeHarness(tmp_path / "ws", catch_up_budget=CatchUpBudget(max_records=5, max_bytes=100))
+    bseed(h, n=1)
+    rt = FakeRuntimeTarget(native=True)
+
+    # Initial delivery creates an active native session generation 1
+    res1 = h.delivery_cycle("b", "s", rt)
+    assert res1.status == "delivered" and res1.session_generation == 1
+    m1 = h.current_mapping("b", "s")
+    assert m1 is not None and m1["vendor_session_id"] is not None
+    handle = m1["session_handle"]
+
+    # Append intervening messages that exceed the 100-byte budget
+    for i in range(10):
+        msg(h, f"overflow_msg_{i}", body={"text": "overflow content " * 10})
+    head = h.store.stream_head("s")
+
+    # 1. Exact-session overflow rejection: requesting the exact handle raises SessionDeltaOverflowError
+    h.clock.advance(60)
+    token = h.acquire_claim("b", "s", "exact-tester")
+    cur = _PersistedRecord("cur", head + 1)
+    with pytest.raises(SessionDeltaOverflowError, match="exceeds its context budget"):
+        h.bridge._validate_exact(token, rt, handle, cur)
+
+    with pytest.raises(SessionDeltaOverflowError, match="exceeds its context budget"):
+        h.bridge.validate_selector_before_append(token, rt, f"sess:{handle}")
+
+    # 2. Automatic fresh fallback: delivery_cycle identifies delta_too_large and starts fresh generation 2
+    h.clock.advance(60)
+    # Fast forward offset of 'b' to head - 1 so 'b' delivers the newest record
+    with h.store.transaction() as conn:
+        conn.execute("UPDATE offsets SET read_through_position=? WHERE peer_id=? AND stream_id=?", (head - 1, "b", "s"))
+
+    res2 = h.delivery_cycle("b", "s", rt)
+    assert res2.status == "delivered"
+    assert res2.session_generation == 2
+    assert rt.catch_up_meta[-1]["mode"] == "fresh_generation"
+    assert rt.catch_up_meta[-1]["session_generation"] == 2
 
 
 @pytest.mark.catalog_id("CTX-004")

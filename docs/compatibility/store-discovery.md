@@ -4,10 +4,10 @@
 
 Store selection follows strict deterministic precedence:
 1. `PEERHUB_DB` environment variable (when environment lookup is permitted).
-2. Explicit CLI flag (`--db PATH`).
-3. Discovered workspace store: searches `.peerhub/core.db` in `<cwd>`, then ascending each parent directory.
-4. Workspace root store (when `--workspace` is supplied): `<workspace>/.peerhub/core.db`.
-5. Default path (`.peerhub/core.db`).
+2. Explicit CLI flag (`--db PATH`, or when discovery is disabled).
+3. Conditional store discovery:
+   - **When `workspace_root` is specified** (e.g. `ask --workspace DIR`): discovery searches that workspace root *exclusively* (`<workspace_root>/.peerhub/core.db`). If present, source is `discovered`; if absent, source is `workspace-default` (`<workspace_root>/.peerhub/core.db`). It never walks `<cwd>` or parent directories.
+   - **When `workspace_root` is omitted**: discovery searches `.peerhub/core.db` in `<cwd>`, then ascending each parent directory. If found, source is `discovered`; if no candidate is found, source is `default` (`.peerhub/core.db`).
 
 ## Breaking Changes & History
 
