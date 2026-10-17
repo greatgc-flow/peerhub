@@ -1,6 +1,8 @@
 # Database Migrations Workflow
 
-PeerHub currently runs a bespoke SQLite migration engine from `peerhub/persistence/sqlite.py`. A consolidated Alembic baseline now describes the same schema, but switching the runtime to Alembic is a separate cutover increment.
+> **Current Architecture Note (v0.11+ / v0.19+):** The active PeerHub runtime store (`.peerhub/core.db`) is managed by `CoreStore` in `peerhub/core/store.py` and `peerhub/core/schema_version.py` (`SUPPORTED_SCHEMA_VERSION = 4`), not by the legacy v0 `peerhub/persistence/` engine or Alembic described below. Older stores are upgraded in place by `CoreStore`, and stores written by a newer schema version fail closed with `SchemaVersionError` (exit code `6`). Back up `.peerhub/core.db` before upgrading. The remainder of this document is retained as historical documentation for the archived v0 migration experiment.
+
+PeerHub v0 ran a bespoke SQLite migration engine from `peerhub/persistence/sqlite.py`. A consolidated Alembic baseline described that historical v0 schema, and switching the v0 runtime to Alembic was placed on hold.
 
 The Alembic config/environment lives at `tools/migrations/` (moved out of the repo root per `docs/history/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md` section 5.2): it is a **development-only historical experiment on hold**, not a runtime dependency, and every invocation requires an explicit `-x db=<path>` target -- it never infers `.peerhub/peerhub.sqlite3` from the current directory.
 

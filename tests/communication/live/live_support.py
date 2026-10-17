@@ -100,7 +100,7 @@ def make_adapter(kind: str, workspace: Path, timeout_s: float = 240.0):
     from peerhub.extensions.adapters import CliRuntimeTarget
 
     prof = lowest_profile(kind)
-    return CliRuntimeTarget(kind, workspace, model=prof["model"], effort=prof["effort"], timeout_s=timeout_s), prof
+    return CliRuntimeTarget(kind, workspace, model=prof["model"], effort=prof["effort"], timeout_s=timeout_s, writable=(kind == "ag")), prof
 
 
 def discovery(kind: str) -> dict:

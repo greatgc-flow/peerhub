@@ -49,8 +49,20 @@ HEX_DIGEST_REGEX = re.compile(r"^[0-9a-f]{64}$")
 class ArtifactStore:
     """Content-Addressable Storage (CAS) for immutable M2.1 artifacts."""
 
+    @staticmethod
+    def _win_long(path: Path) -> Path:
+        s = str(path)
+        if sys.platform == "win32" and not s.startswith("\\\\?\\"):
+            if s.startswith("\\\\"):
+                return Path("\\\\?\\UNC\\" + s[2:])
+            return Path("\\\\?\\" + s)
+        return path
+
     def __init__(self, root: Path | str) -> None:
-        self.root = Path(root).resolve()
+        resolved = Path(root).resolve()
+        if sys.platform == "win32" and len(str(resolved)) >= 180:
+            resolved = self._win_long(resolved)
+        self.root = resolved
         self.tmp_dir = self.root / ".tmp"
 
     def validate_digest(self, digest: str | Any) -> bool:
@@ -85,7 +97,10 @@ class ArtifactStore:
 
         # Defense-in-depth: Ensure resolved target is strictly within self.root
         try:
-            target.resolve().relative_to(self.root)
+            resolved_target = target.resolve()
+            if str(self.root).startswith("\\\\?\\"):
+                resolved_target = self._win_long(resolved_target)
+            resolved_target.relative_to(self.root)
         except ValueError as e:
             raise SecurityBoundaryError(f"Resolved path escapes artifact root: {digest!r}") from e
 

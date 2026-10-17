@@ -369,3 +369,75 @@ def test_scenario_success_has_no_guidance(tmp_path, monkeypatch, capsys):
     assert "guidance" not in data
 
 
+def test_bare_peerhub_prints_guide_and_missing_store_guidance(tmp_path, capsys):
+    """#121: bare peerhub runs guide (exit 0); missing store prints path, source, quoted --db example, and Learn."""
+    from peerhub.cli.app import main
+
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    assert "PeerHub Quick Reference & Best Practices" in out
+
+    missing_db = tmp_path / "dir with spaces" / "missing.db"
+    assert main(["--db", str(missing_db), "peer", "list"]) == 5
+    err = capsys.readouterr().err
+    assert str(missing_db) in err
+    assert "(source: explicit)" in err
+    assert f'peerhub --db "{missing_db}" peer register --peer local --name local' in err
+    assert "Learn: peerhub guide" in err
+
+
+def test_scenario_stream_peer_mismatch_and_launch_failed(tmp_path, monkeypatch, capsys):
+    """#125 and #120: reusing an ask stream across different peers fails closed with ask_stream_peer_mismatch; missing binary maps to ask_launch_failed."""
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+    from peerhub.extensions.adapters import CliRuntimeTarget
+    from tests.communication.fakes import FakeRuntimeTarget
+
+    db = tmp_path / "core.db"
+    rt = FakeRuntimeTarget()
+    rt.script_deliver(("started", "exec-1"), ("terminal", {"response": "ok"}))
+    real_ask = ask_mod.ask
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: real_ask(*a, **kw, runtime=rt))
+
+    # Establish stream "shared-task" with peer cx
+    assert main(["--db", str(db), "ask", "cx", "step 1", "--stream", "shared-task", "--json"]) == 0
+    capsys.readouterr()
+
+    # Attempt to reuse "shared-task" with peer cc -> ask_stream_peer_mismatch (exit 2)
+    assert main(["--db", str(db), "ask", "cc", "step 2", "--stream", "shared-task", "--json"]) == 2
+    mismatch = json.loads(capsys.readouterr().out)
+    assert mismatch["status"] == "error"
+    assert mismatch["error"]["code"] == "stream_peer_mismatch"
+    assert mismatch["guidance"]["code"] == "ask_stream_peer_mismatch"
+
+    # Launch failure (#120) -> ask_launch_failed
+    ws = tmp_path / "ws_launch"
+    ws.mkdir()
+    bad_target = CliRuntimeTarget("cx", ws, command=["nonexistent-provider-binary-xyz123"])
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: real_ask(*a, **kw, runtime=bad_target))
+    assert main(["--db", str(db), "ask", "cx", "hello", "--stream", "launch-fail", "--json"]) == 1
+    launch_data = json.loads(capsys.readouterr().out)
+    assert launch_data["status"] == "failed_not_started"
+    assert launch_data["guidance"]["code"] == "ask_launch_failed"
+
+
+def test_tool_only_turn_empty_response_propagated(tmp_path):
+    """#126: empty terminal response sets empty_response=True and task_effects='unverified' in ask() result."""
+    from peerhub.extensions.ask import ask
+    from tests.communication.fakes import FakeRuntimeTarget
+
+    db = tmp_path / "core.db"
+    rt = FakeRuntimeTarget()
+    rt.script_deliver(
+        ("started", "exec-empty"),
+        ("terminal", {"response": "", "empty_response": True, "task_effects": "unverified"}),
+    )
+    res = ask(db, "cx", "stage files", runtime=rt)
+    assert res["status"] == "delivered"
+    assert res["certainty"] == "TERMINAL"
+    assert res["response"] == ""
+    assert res["empty_response"] is True
+    assert res["task_effects"] == "unverified"
+
+
+

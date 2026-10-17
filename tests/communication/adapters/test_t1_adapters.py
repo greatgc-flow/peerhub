@@ -328,7 +328,7 @@ def test_t1_oversize_prompt_and_missing_workspace_are_prespawn(mk, tmp_path):
     a = mk("ag")
     with pytest.raises(PrespawnError, match="inline limit"):
         drain(a.deliver("s", rec("x" * 1_000_001), []))
-    gone = CliRuntimeTarget("ag", tmp_path / "gone", command=[sys.executable, FAKE])
+    gone = CliRuntimeTarget("ag", tmp_path / "gone", command=[sys.executable, FAKE], writable=True)
     with pytest.raises(PrespawnError, match="workspace"):
         drain(gone.deliver("s", rec(), []))
     assert calls(mk.log) == []
@@ -373,3 +373,47 @@ def test_leading_dash_prompt_is_data_for_every_provider():
             assert spec.stdin_prompt
             if prompt != "-":
                 assert prompt not in spec.argv(None, None, prompt)
+
+
+def test_decode_stderr_utf8_then_fallback_cp949():
+    """#120: decode_stderr preserves UTF-8 and falls back to locale encoding without U+FFFD loss."""
+    from peerhub.extensions.adapters.process import decode_stderr
+
+    utf8_bytes = "정상 UTF-8 메시지".encode("utf-8")
+    assert decode_stderr(utf8_bytes, fallback_encoding="cp949") == "정상 UTF-8 메시지"
+
+    cp949_bytes = "지정된 파일을 찾을 수 없습니다.".encode("cp949")
+    decoded = decode_stderr(cp949_bytes, fallback_encoding="cp949")
+    assert decoded == "지정된 파일을 찾을 수 없습니다."
+    assert "\ufffd" not in decoded
+
+
+def test_ag_fail_closed_without_writable(mk):
+    """#140: ag without writable=True fails closed with PrespawnError before spawning."""
+    a = mk("ag", writable=False)
+    with pytest.raises(PrespawnError, match="ag execution requires --writable"):
+        drain(a.deliver("s", rec("hello"), []))
+    assert calls(mk.log) == []
+
+
+def test_cx_tool_only_turn_and_narration_segregation():
+    """#126 and #127: cx tool-only turn returns empty response without error, and pre-tool narration is segregated."""
+    from peerhub.extensions.adapters.base import IncrementalEventParser
+
+    # Tool-only turn (#126)
+    p_tool = IncrementalEventParser("cx")
+    p_tool.feed(b'{"type":"thread.started","thread_id":"th-tool-only"}\n')
+    p_tool.feed(b'{"type":"item.completed","item":{"type":"command_execution","command":"git add -A"}}\n')
+    p_tool.feed(b'{"type":"turn.completed","usage":{"input_tokens":50,"output_tokens":5}}\n')
+    p_tool.close()
+    assert p_tool.parse() == ""
+
+    # Pre-tool narration followed by tool call and final post-tool answer (#127)
+    p_seg = IncrementalEventParser("cx")
+    p_seg.feed(b'{"type":"item.completed","item":{"type":"agent_message","text":"Let me inspect the files first."}}\n')
+    p_seg.feed(b'{"type":"item.completed","item":{"type":"command_execution","command":"git status"}}\n')
+    p_seg.feed(b'{"type":"item.completed","item":{"type":"agent_message","text":"Final answeronly"}}\n')
+    p_seg.feed(b'{"type":"turn.completed","usage":{"input_tokens":80,"output_tokens":10}}\n')
+    p_seg.close()
+    assert p_seg.parse() == "Final answeronly"
+

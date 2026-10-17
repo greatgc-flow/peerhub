@@ -48,6 +48,16 @@ def test_resume_preserves_writable_mode_per_peer(writable):
         assert "--mode" not in ag
 
 
+def test_ag_without_writable_fails_closed_before_store_creation(tmp_path):
+    """#140: native ag without writable=True fails closed pre-spawn without creating CoreStore or appending records."""
+    from peerhub.extensions.adapters.base import PrespawnError
+
+    db = tmp_path / "uncreated" / "core.db"
+    with pytest.raises(PrespawnError, match="ag execution requires --writable"):
+        ask(db, "ag", "hello", writable=False)
+    assert not db.exists()
+
+
 @pytest.mark.canary
 @pytest.mark.parametrize("peer", ["cc", "ag"])
 def test_read_only_live_canary_sentinel(peer):
@@ -55,7 +65,7 @@ def test_read_only_live_canary_sentinel(peer):
 
     cx guarantees read-only sandbox via -s read-only / -c sandbox_mode="read-only".
     cc enforces read-only in headless stream-json mode by withholding --permission-mode acceptEdits.
-    ag does not enforce a read-only boundary: headless agy allows tool writes without --mode accept-edits (known limitation).
+    ag fails closed pre-spawn without --writable (#140).
     """
     import json
     import os
@@ -87,6 +97,12 @@ def test_read_only_live_canary_sentinel(peer):
                 "--workspace", str(workspace), "--stream", f"ro-canary-{peer}", "--request-id", f"ro-fresh-{uuid.uuid4().hex}",
                 "--profile", f"{peer}.standard", "--timeout-seconds", "120", "--json"]
         run1 = subprocess.run(cmd1, cwd=workspace, env=env, capture_output=True, text=True, timeout=180)
+        if peer == "ag":
+            assert run1.returncode != 0
+            res1 = json.loads(run1.stdout)
+            assert res1["status"] == "error"
+            assert not sentinel1.exists()
+            return
         assert run1.returncode == 0, run1.stdout + run1.stderr
         res1 = json.loads(run1.stdout)
         assert res1["status"] == "delivered" and res1["certainty"] == "TERMINAL"
@@ -102,13 +118,10 @@ def test_read_only_live_canary_sentinel(peer):
         assert res2["status"] == "delivered" and res2["certainty"] == "TERMINAL"
         assert res2.get("effective_mode") == "resumed"
 
-        # Record real result: ag does not enforce read-only boundary (known limitation)
-        if peer == "ag" and (sentinel1.exists() or sentinel2.exists()):
-            pytest.xfail("known limitation: ag provider does not enforce read-only boundary; headless agy executes writes without --mode accept-edits")
-
         assert not sentinel1.exists(), f"fresh read-only ask to {peer} created sentinel file"
         assert not sentinel2.exists(), f"resumed read-only ask to {peer} created sentinel file"
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
+
 
 

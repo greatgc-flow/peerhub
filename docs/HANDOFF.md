@@ -3,15 +3,18 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-18) — Issue Resolution Design Ratified & Slice S1 Authorized
+## 0. Current checkpoint (2026-10-18) — Slices S1–S4 Implemented, Verified Offline & Deployed Locally
 
-- **Authorization & Consensus:** Available-peer consensus achieved (`ag.effort` + `cx.effort` unanimous agreement on S1-S4 including #147). No CC wait (CC quota exhausted until 02:20 KST). Root authorized implementation of Slice S1.
-- **Branch & State:** Working on branch `fix/issue-resolution-020` (incorporating S2-A `f3431ac6`).
+- **Authorization & Execution:** Slices S1, S2, S3, and S4 (#117, #118, #120, #121, #123, #125, #126, #127, #130, #134–#136, #140, #146, #147, #148, #149) implemented and verified across the offline test suite on branch `fix/issue-resolution-020`, pushed to `origin/fix/issue-resolution-020`, and installed into `C:\AI\_sys\env\venv`. Only `#145` (`peerhub readiness`) remains deferred.
+- **Branch & State:** Branch `fix/issue-resolution-020` pushed to `origin` and locally installed in `C:\AI\_sys\env\venv`.
 - **Design SSOT:** [docs/design/issue-resolution-2026-10-18.md](design/issue-resolution-2026-10-18.md). Authoritative release status in [STATUS.md](STATUS.md).
-- **Scope Slice S1:** #140 native ag fail-closed without writable (pre-spawn error, cached replay survives), #125 single-peer ask stream fencing via `prompt_guard`, #126 factual tool completion envelope (`empty_response: true`, `task_effects: "unverified"`), #127 structured terminal error preservation.
-- **Discipline:** Implementation stays uncommitted for root review; no pushes, PRs, releases, or live provider calls.
-- **Next action:** Implement Slice S1 contracts, deterministic unit/integration tests, and verify locally.
-- **Resume prompt:** Run deterministic pytest on Slice S1 test additions, then proceed to Slice S2 upon root sign-off.
+- **Delivered Scope (S1–S4):**
+  - **S1:** `#140` native `ag` fail-closed pre-spawn without `--writable` (cached replay preserved), `#125` single-peer ask stream fencing (`StreamPeerMismatchError`), `#126` factual tool-only turn completion (`empty_response: true`, `task_effects: "unverified"`), `#127` terminal error summary preservation & `cx` pre-tool narration segregation, `#149` `gemini-argon-wtu-weekly` -> `A-7D` quota pool mapping.
+  - **S2:** `#117` recovery guidance wording, `#121` bare `peerhub` -> `peerhub guide` (exit 0) and improved missing-store guidance with source + quoted `--db` command, `#120` UTF-8-first with locale fallback (`decode_stderr`) and `ask_launch_failed` guidance.
+  - **S3:** `#146` contiguous `CAPACITY` rendering in `monitor_view.py`, consistent bar fill direction, and `reset` duration separated from `ETA`; `#147` `USAGE` token display fallback (`provider_input_tokens + output_tokens`) + cache hit % when `provider_total_tokens` is `None`.
+  - **S4:** `#118, #123, #130, #134–#136, #148` documentation and `peerhub guide` alignment.
+- **Next action (after `cx` 03:50 KST and `cc` 06:20 KST quota reset):** Run cross-peer review on `fix/issue-resolution-020`, merge PR to `main`, run `python -m tools.live_gate --yes` for v0.20.0 release, and close `#145` if desired.
+- **Resume prompt:** `C:\AI\workspace\peerhub의 fix/issue-resolution-020 브랜치(docs/HANDOFF.md 및 docs/STATUS.md 참조)를 확인하고, cx/cc 쿼터 리셋 상태를 점검한 뒤 main 병합 및 live_gate(v0.20.0 배포)와 남은 #145 이슈를 마무리해줘.`
 
 ### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)
 

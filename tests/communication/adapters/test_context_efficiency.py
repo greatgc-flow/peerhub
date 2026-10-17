@@ -30,7 +30,7 @@ def test_literal_usage_is_normalized_and_carried_in_terminal(kind, stdout, expec
     result = base.ProcessResult(123, 0, stdout.encode(), b"", False, False, 0.1)
     process = SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
     monkeypatch.setattr(base, "BoundedProcess", lambda *a, **kw: process)
-    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"])
+    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], writable=(kind == "ag"))
     events = list(adapter.deliver("session", SimpleNamespace(body="question"), []))
     assert events[-1][0] == "terminal"
     assert events[-1][1]["response"] == "OK"

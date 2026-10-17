@@ -123,7 +123,7 @@ def test_aborted_zero_exit_never_yields_terminal(tmp_path, monkeypatch):
     result = process.ProcessResult(123, 0, b'{"response":"OK"}', b"", False, False, 0.1, aborted=True)
     runner = SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
     monkeypatch.setattr(base, "BoundedProcess", lambda *args, **kwargs: runner)
-    adapter = CliRuntimeTarget("ag", tmp_path, command=["fake.exe"])
+    adapter = CliRuntimeTarget("ag", tmp_path, command=["fake.exe"], writable=True)
     delivery = adapter.deliver("session", SimpleNamespace(body="question"), [])
     assert next(delivery)[0] == "started"
     with pytest.raises(RuntimeTargetError, match="aborted"):

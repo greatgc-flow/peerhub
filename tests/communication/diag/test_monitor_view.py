@@ -435,4 +435,40 @@ def test_warning_and_next_stop_overhead_accounted_for_without_clipping_quota(fra
     assert len(rendered.splitlines()) <= 14
 
 
+def test_capacity_rows_stay_contiguous_under_capacity_heading_and_usage_fallback(frame):
+    """#146 and #147: all CAPACITY rows render inside CAPACITY [OK] (before RUNTIME/STORE), bar fills with remaining %, and USAGE computes input+output fallback when provider_total_tokens is None."""
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["groups"]["capacity"]["data"]["observations"] = [
+        {"peer_id": "cx", "pool_ref": "quota:cx:5h", "state": "MEASURED",
+         "measurements": {"remaining_fraction": 1.0, "reset_in_seconds": 7500},
+         "projection": {"state": "on_pace", "pace_pt": -2.0}, "age_seconds": 10.0},
+        {"peer_id": "ag", "pool_ref": "quota:ag:g-5h", "state": "MEASURED",
+         "measurements": {"remaining_fraction": 0.0, "reset_in_seconds": 1800},
+         "projection": {"state": "exhausted", "pace_pt": 20.0}, "age_seconds": 10.0},
+    ]
+    frame["groups"]["usage"]["data"]["sessions"] = [
+        {"peer_id": "cx", "telemetry": {"normalized": {
+            "provider_input_tokens": 1000, "cached_input_tokens": 800, "output_tokens": 250, "provider_total_tokens": None}}},
+    ]
+
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=28)
+    cap_idx = rendered.index("CAPACITY [OK]")
+    first_pool_idx = rendered.index("quota:cx:5h")
+    second_pool_idx = rendered.index("quota:ag:g-5h")
+    runtime_idx = rendered.index("RUNTIME [OK]")
+    store_idx = rendered.index("STORE [OK]")
+
+    # Contiguous inside CAPACITY before RUNTIME and STORE
+    assert cap_idx < first_pool_idx < second_pool_idx < runtime_idx < store_idx
+    # 100% remaining has full # bar; 0% remaining has empty . bar
+    assert "100% remaining ########" in rendered
+    assert "0% remaining ........" in rendered
+    assert "reset 2h05m" in rendered
+    assert "reset 30m" in rendered
+    # USAGE fallback total tokens (1000 + 250 = 1,250) and cache 80%
+    assert "cx provider-reported tokens: 1,250 | cache 80%" in rendered
+
+
+
 

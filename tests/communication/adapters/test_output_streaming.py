@@ -27,7 +27,7 @@ def test_vendor_output_is_text_and_secret_redacted(tmp_path, kind):
     seen = []
     runtime = CliRuntimeTarget(kind, tmp_path, command=[sys.executable, FAKE],
                                env_extra={"FAKE_KIND": kind, "FAKE_MODE": "secret_echo", "FAKE_SECRET": "test-secret-abcdef"},
-                               extra_secrets=["test-secret-abcdef"], on_output=seen.append)
+                               extra_secrets=["test-secret-abcdef"], on_output=seen.append, writable=(kind == "ag"))
     events = list(runtime.deliver(runtime.create_session(), SimpleNamespace(body="question"), []))
     assert [e[0] for e in events] == ["started", "terminal"]
     assert seen and all("test-secret-abcdef" not in s for s in seen)

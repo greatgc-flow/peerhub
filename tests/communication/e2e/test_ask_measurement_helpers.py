@@ -15,8 +15,10 @@ def test_args_keep_standard_profile_and_explicit_session_binding(tmp_path):
     assert args[args.index("--stream") + 1] == "live-measurement"
     assert args[args.index("--request-id") + 1] == "turn-2"
     assert "--resume" not in args and "--writable" in args
-    plain = ask_args("ag", tmp_path, "OK", "basic")
-    assert "--resume" not in plain and "--writable" not in plain
+    ag_plain = ask_args("ag", tmp_path, "OK", "basic")
+    assert "--resume" not in ag_plain and "--writable" in ag_plain
+    cx_plain = ask_args("cx", tmp_path, "OK", "basic")
+    assert "--resume" not in cx_plain and "--writable" not in cx_plain
 
 
 @pytest.mark.parametrize("usage", [None, {}, {"input_tokens": True, "output_tokens": 1},

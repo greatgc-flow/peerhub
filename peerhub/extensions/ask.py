@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.peer_kinds import ALIASES  # noqa: F401  (re-exported for existing importers)
@@ -27,6 +27,11 @@ class LegacySelectorUnsupported(ValueError):
     code = "legacy_selector_unsupported"
 
 
+class StreamPeerMismatchError(ValueError):
+    """An established ask stream cannot be retargeted to a different peer (#125)."""
+    code = "stream_peer_mismatch"
+
+
 def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> dict[str, Any]:
     stored = json.loads(delivery["result_json"])
     refused = stored.get("task_outcome") == "NOT_EXECUTED"
@@ -37,10 +42,11 @@ def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> di
     # The private terminal payload may contain vendor/runner identity. Only the
     # final public envelope and allowlisted delivery fields cross the API boundary.
     result.update({key: stored[key] for key in ("response", "session", "error", "task_outcome", "reason", "refusal_reason",
-                  "reset_time", "resets_at", "message", "output_truncated", "display_truncated") if key in stored})
+                  "reset_time", "resets_at", "message", "output_truncated", "display_truncated",
+                  "empty_response", "task_effects") if key in stored})
     for _kind, detail in conn.execute("SELECT kind,detail FROM bridge_evidence WHERE delivery_id=? AND kind IN ('terminal','refusal_detected') ORDER BY seq", (delivery["delivery_id"],)):
         data = json.loads(detail)
-        for key in ("effective_mode", "fallback_reason", "injected_record_ids", "output_truncated", "display_truncated", "reason", "refusal_reason", "reset_time", "resets_at", "message"):
+        for key in ("effective_mode", "fallback_reason", "injected_record_ids", "output_truncated", "display_truncated", "reason", "refusal_reason", "reset_time", "resets_at", "message", "empty_response", "task_effects"):
             if key in data:
                 result[key] = data[key]
     row = conn.execute("SELECT body_json,metadata_json FROM records WHERE record_id=?", (delivery["response_record_id"],)).fetchone()
@@ -49,9 +55,12 @@ def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> di
         metadata = json.loads(row[1])
         # Provider usage stays distinct from session context occupancy; metadata carries its scope.
         result.pop("usage", None)
-        for key in ("usage", "usage_scope", "usage_attribution", "display_truncated", "output_truncated"):
+        for key in ("usage", "usage_scope", "usage_attribution", "display_truncated", "output_truncated", "empty_response", "task_effects"):
             if key in metadata:
                 result[key] = metadata[key]
+    if delivery["certainty"] == "TERMINAL" and isinstance(result.get("response"), str) and not result["response"].strip():
+        result["empty_response"] = True
+        result["task_effects"] = "unverified"
     return result
 
 
@@ -132,6 +141,9 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                         replay = _read_delivery_result(conn, settled)
                         replay.update(request_id=rid, stream_id=sid, peer_id=peer_id, requested_record_id=previous["record_id"])
                         return replay
+    validate_policy: Callable[[], None] | None = getattr(target, "validate_execution_policy", None)
+    if callable(validate_policy):
+        validate_policy()
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     store = CoreStore(db_path)
     peer = store.get_peer(peer_id)
@@ -160,6 +172,28 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             if scope["stream_id"] != token.stream_id:
                 raise ClaimScopeError("prompt and delivery claim must share a Stream")
             claims.check(conn, token)
+            for row_targets_json, row_meta_json, row_key in conn.execute(
+                "SELECT targets_json, metadata_json, idempotency_key FROM records WHERE stream_id=? AND kind='prompt'",
+                (sid,),
+            ):
+                if not (isinstance(row_key, str) and row_key.startswith("ask:")):
+                    continue
+                try:
+                    row_meta: Any = json.loads(row_meta_json or "{}")
+                    row_targets: Any = json.loads(row_targets_json or "[]")
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(row_meta, dict) or ("runtime_kind" not in row_meta and "binding" not in row_meta):
+                    continue
+                if not isinstance(row_targets, list):
+                    continue
+                targets_list = cast(list[Any], row_targets)
+                if len(targets_list) == 1 and targets_list[0] != peer_id:
+                    bound_peer = str(targets_list[0])
+                    raise StreamPeerMismatchError(
+                        f"stream {sid!r} is already bound to ask target peer {bound_peer!r}; "
+                        f"cannot target peer {peer_id!r} on the same ask stream (use a distinct --stream)"
+                    )
         if previous is None:
             bridge.validate_selector_before_append(token, target, selector)
         rec = store.append_record(stream_id=sid, author_peer_id=author, kind="prompt", body=prompt,
@@ -199,9 +233,12 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                       requested_record_id=rec.record_id, response=json.loads(row[0]) if row else None)
         if row:
             metadata = json.loads(row[1])
-            for key in ("usage", "usage_scope", "usage_attribution", "display_truncated", "output_truncated"):
+            for key in ("usage", "usage_scope", "usage_attribution", "display_truncated", "output_truncated", "empty_response", "task_effects"):
                 if key in metadata:
                     result[key] = metadata[key]
+        if result.get("certainty") == "TERMINAL" and isinstance(result.get("response"), str) and not result["response"].strip():
+            result["empty_response"] = True
+            result["task_effects"] = "unverified"
         # A conversation may have earlier pending work. Report its progress without claiming this prompt completed.
         if result.get("record_id") != rec.record_id:
             result["processed_status"] = result["status"]

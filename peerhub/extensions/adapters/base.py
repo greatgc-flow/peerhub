@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence, cast
 
 from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_S, BoundedProcess, ProcessResult,
-                                                 SpawnFailure, check_argv, run_bounded)
+                                                 SpawnFailure, check_argv, decode_stderr, run_bounded)
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets
 from peerhub.extensions.bridge import PrespawnError, RuntimeEvent, RuntimeTargetError
 
@@ -153,34 +153,13 @@ def classify_refusal_text(text: str) -> dict[str, Any] | None:
 
 
 def _ag_read_only_refusal(res: ProcessResult, saw_stdout: bool, writable: bool) -> dict[str, Any] | None:
-    """Settle recognized read-only refusals; Agy emits JSON only on completion.
+    """Agy does not enforce a read-only sandbox when --mode accept-edits is omitted (#140).
 
-    Empty stdout cannot exclude prior tool work. Writable invocations need
-    explicit pre-execution evidence, which Agy does not currently provide.
+    Empty stdout and writable=False cannot prove zero tool effects once an agy
+    process has started; only pre-spawn failures are NOT_STARTED / NOT_EXECUTED.
     """
-    if writable or saw_stdout or res.output_truncated or res.returncode not in (1, 3):
-        return None
-    lines = [line.strip() for line in res.stderr.decode("utf-8", "replace").splitlines() if line.strip()]
-    if not lines or not re.match(r"error:\s*", lines[0], re.IGNORECASE):
-        return None
-    if any(not line.startswith("AGY_ERROR: ") for line in lines[1:]):
-        return None
-    refusal = classify_refusal_text(lines[0])
-    if refusal is None:
-        return None
-    for line in lines[1:]:
-        try:
-            detail: object = json.loads(line.removeprefix("AGY_ERROR: "))
-        except ValueError:
-            return None
-        if not isinstance(detail, dict):
-            return None
-        short_error = cast("dict[str, Any]", detail).get("short_error")
-        companion = classify_refusal_text(short_error) if isinstance(short_error, str) else None
-        if companion is None or companion["reason"] != refusal["reason"]:
-            return None
-    expected_exit = {"quota_exhausted": 3, "invalid_model": 1, "auth_failure": 1}
-    return refusal if expected_exit.get(refusal["reason"]) == res.returncode else None
+    del res, saw_stdout, writable
+    return None
 
 
 class IncrementalEventParser:
@@ -217,6 +196,10 @@ class IncrementalEventParser:
         self._cx_tail_bytes: int = 0
         self.cx_turn_completed: dict[str, Any] | None = None
         self.cx_last_message_has_turn_completed = False
+        self._cx_has_completed_item = False
+        self._cx_last_item_has_turn_completed = False
+        self._cx_post_tool_messages: list[str] = []
+        self._cx_saw_tool_since_last_msg = False
         self.cx_errors: deque[str] = deque(maxlen=10)
         self._cx_tail_started = False
 
@@ -232,6 +215,7 @@ class IncrementalEventParser:
         self.has_tool_calls = False
         self.refusal_event: dict[str, Any] | None = None
         self.refusal_evidence_incomplete = False
+        self.terminal_error_summary: str | None = None
         self.has_success = False
         self.saw_stdout = False
 
@@ -429,6 +413,16 @@ class IncrementalEventParser:
                             self.has_tool_calls = True
                 elif not (event.get("type") == "user" and isinstance(content, str)):
                     self.refusal_evidence_incomplete = True
+            if event.get("type") == "assistant" and isinstance(event.get("error"), str) and event.get("error"):
+                err_code = str(event["error"])
+                msg_texts: list[str] = []
+                if isinstance(message, dict) and isinstance(cast("dict[str, Any]", message).get("content"), list):
+                    for blk in cast("list[Any]", cast("dict[str, Any]", message)["content"]):
+                        if isinstance(blk, dict) and cast("dict[str, Any]", blk).get("type") == "text":
+                            txt = cast("dict[str, Any]", blk).get("text")
+                            if isinstance(txt, str) and txt.strip():
+                                msg_texts.append(txt.strip())
+                self.terminal_error_summary = f"{err_code}: {' '.join(msg_texts)}" if msg_texts else err_code
             if event.get("type") == "stream_event":
                 partial = event.get("event")
                 if not isinstance(partial, dict):
@@ -461,6 +455,8 @@ class IncrementalEventParser:
                     candidates.extend(cast("list[Any]", errors))
                 for candidate in candidates:
                     if isinstance(candidate, str):
+                        if candidate.strip():
+                            self.terminal_error_summary = candidate.strip()
                         r = classify_refusal_text(candidate)
                         if r is not None and self.refusal_event is None:
                             self.refusal_event = r
@@ -485,6 +481,8 @@ class IncrementalEventParser:
                 elif cast("dict[str, Any]", item).get("type") not in ("agent_message", "reasoning", "error"):
                     # Unknown future items cannot establish absence of execution.
                     self.has_tool_calls = True
+                    self._cx_saw_tool_since_last_msg = True
+                    self._cx_post_tool_messages.clear()
             if "thread_id" in event:
                 tid = _session_id(event.get("thread_id"))
                 if tid is not None:
@@ -502,20 +500,31 @@ class IncrementalEventParser:
                 if not msg and isinstance(event.get("error"), dict):
                     msg = cast("dict[str, Any]", event["error"]).get("message")
                 if isinstance(msg, str):
+                    if msg.strip():
+                        self.terminal_error_summary = msg.strip()
                     r = classify_refusal_text(msg)
                     if r is not None and not self.has_tool_calls and not self.refusal_event:
                         self.refusal_event = r
             elif ev_type == "item.completed":
                 item = event.get("item")
                 if isinstance(item, dict):
+                    self._cx_has_completed_item = True
+                    self._cx_last_item_has_turn_completed = False
                     item_dict = cast("dict[str, Any]", item)
                     if item_dict.get("type") == "agent_message" and isinstance(item_dict.get("text"), str):
-                        self._add_cx_agent_message(cast(str, item_dict["text"]))
+                        text_val = cast(str, item_dict["text"])
+                        self._add_cx_agent_message(text_val)
                         self.cx_last_message_has_turn_completed = False
+                        if self._cx_saw_tool_since_last_msg:
+                            self._cx_post_tool_messages = [text_val]
+                            self._cx_saw_tool_since_last_msg = False
+                        elif self.has_tool_calls:
+                            self._cx_post_tool_messages.append(text_val)
             elif ev_type == "turn.completed":
                 self.has_success = True
                 self.cx_turn_completed = event
                 self.cx_last_message_has_turn_completed = True
+                self._cx_last_item_has_turn_completed = True
         elif self.kind == "ag":
             if event.get("tool_calls") or event.get("tool_use"):
                 self.has_tool_calls = True
@@ -539,6 +548,9 @@ class IncrementalEventParser:
                 self.ag_results.append(event)
             if event.get("is_error") in (True,) or event.get("error") not in (None, False, "", {}):
                 self.ag_errors.append("error")
+                err_val = event.get("error") or event.get("message")
+                if isinstance(err_val, str) and err_val.strip():
+                    self.terminal_error_summary = err_val.strip()
 
     def parse(self) -> str:
         if self.parser_failed:
@@ -560,9 +572,15 @@ class IncrementalEventParser:
             if self.cx_errors:
                 raise ValueError(f"cx reported {self.cx_errors[-1]}")
             if not self.cx_agent_messages:
+                if self._cx_has_completed_item and self._cx_last_item_has_turn_completed:
+                    return ""
                 raise ValueError("no agent_message in cx output")
             if not self.cx_last_message_has_turn_completed:
+                if self._cx_has_completed_item and self._cx_last_item_has_turn_completed:
+                    return ""
                 raise ValueError("cx output has no turn.completed after the last agent_message (incomplete)")
+            if self.has_tool_calls and not self.truncated and self._cx_post_tool_messages:
+                return "\n".join(self._cx_post_tool_messages)
             return "\n".join(self.cx_agent_messages)
         elif self.kind == "ag":
             if self._ag_invalid_top_level:
@@ -701,14 +719,34 @@ class CxSpec(ProviderSpec):
         for e in events:
             if e.get("type") in ("turn.failed", "error"):
                 raise ValueError(f"cx reported {e.get('type')}")
+        completed_items = [i for i, e in enumerate(events) if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)]
         msgs = [e["item"]["text"] for e in events if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
                 and e["item"].get("type") == "agent_message" and isinstance(e["item"].get("text"), str)]
         if not msgs:
+            if completed_items and any(e.get("type") == "turn.completed" for e in events[completed_items[-1] + 1:]):
+                return ""
             raise ValueError("no agent_message in cx output")
         last_msg = max(i for i, e in enumerate(events) if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
                        and e["item"].get("type") == "agent_message")
         if not any(e.get("type") == "turn.completed" for e in events[last_msg + 1:]):
+            if completed_items and any(e.get("type") == "turn.completed" for e in events[completed_items[-1] + 1:]):
+                return ""
             raise ValueError("cx output has no turn.completed after the last agent_message (incomplete)")
+        tool_indices = [
+            i for i, e in enumerate(events)
+            if e.get("type") in ("item.started", "item.updated", "item.completed")
+            and isinstance(e.get("item"), dict)
+            and e["item"].get("type") not in ("agent_message", "reasoning", "error")
+        ]
+        if tool_indices:
+            last_tool = max(tool_indices)
+            post_tool_msgs = [
+                e["item"]["text"] for i, e in enumerate(events)
+                if i > last_tool and e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
+                and e["item"].get("type") == "agent_message" and isinstance(e["item"].get("text"), str)
+            ]
+            if post_tool_msgs:
+                return "\n".join(post_tool_msgs)
         return "\n".join(msgs)
 
     def parse_session_id(self, stdout: str) -> str | None:
@@ -870,7 +908,15 @@ class CliRuntimeTarget:
 
     @staticmethod
     def _text(b: bytes, san: Sanitizer, limit: int = EXCERPT_CHARS) -> str:
-        return san.clean(b.decode("utf-8", "replace"), limit)
+        return san.clean(decode_stderr(b), limit)
+
+    def validate_execution_policy(self) -> None:
+        """Fail closed before execution when the provider CLI cannot enforce the requested write policy (#140)."""
+        if self.runtime_kind == "ag" and not self._writable:
+            raise PrespawnError(
+                "ag execution requires --writable: agy CLI does not enforce a read-only sandbox when "
+                "--mode accept-edits is omitted"
+            )
 
     # ---- discovery (LIVE-004/005): never spends model tokens
     def discover(self, timeout_s: float = 20.0) -> dict[str, Any]:
@@ -980,6 +1026,7 @@ class CliRuntimeTarget:
         prompt = self._prompt(record, catch_up)
         san = self._san.with_prompt(prompt)
         # ---- genuine pre-spawn failures: nothing was created
+        self.validate_execution_policy()
         n_bytes, limit = len(prompt.encode("utf-8")), min(MAX_PROMPT_BYTES, self._spec.max_prompt_bytes)
         if n_bytes > limit:
             raise PrespawnError(f"prompt is {n_bytes} bytes, exceeding the {self.runtime_kind} inline limit of {limit} bytes "
@@ -1174,7 +1221,12 @@ class CliRuntimeTarget:
             return
 
         if res.returncode != 0:
-            raise RuntimeTargetError(f"{self.runtime_kind} exited {res.returncode}: " + self._text(res.stderr or res.stdout, san),
+            excerpt = self._text(res.stderr or res.stdout, san)
+            if parser.terminal_error_summary:
+                term_err = san.clean(parser.terminal_error_summary, 200)
+                if term_err and term_err not in excerpt:
+                    excerpt = san.clean(f"{term_err} | {excerpt}" if excerpt else term_err, EXCERPT_CHARS)
+            raise RuntimeTargetError(f"{self.runtime_kind} exited {res.returncode}: " + excerpt,
                                      termination_confirmed=res.termination_confirmed)
         try:
             if res.stdout_truncated or parser.truncated:
@@ -1186,8 +1238,17 @@ class CliRuntimeTarget:
             else:
                 text = self._spec.parse(res.stdout.decode("utf-8", "replace"))
         except ValueError as e:
-            raise RuntimeTargetError(san.clean(f"unparseable {self.runtime_kind} output: {e}", EXCERPT_CHARS)) from e
-        payload: dict[str, Any] = {"response": self._san.clean(text)}  # secrets redacted; the prompt may legitimately be quoted
+            err_msg = str(e)
+            if parser.terminal_error_summary:
+                term_err = san.clean(parser.terminal_error_summary, 200)
+                if term_err and term_err not in err_msg:
+                    err_msg = f"{err_msg} ({term_err})"
+            raise RuntimeTargetError(san.clean(f"unparseable {self.runtime_kind} output: {err_msg}", EXCERPT_CHARS)) from e
+        cleaned_response = self._san.clean(text)
+        payload: dict[str, Any] = {"response": cleaned_response}  # secrets redacted; the prompt may legitimately be quoted
+        if not cleaned_response.strip():
+            payload["empty_response"] = True
+            payload["task_effects"] = "unverified"
         if res.output_truncated or parser.truncated:
             payload["output_truncated"] = True
             if res.stdout_truncated or parser.truncated:

@@ -64,7 +64,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_blocked_uncertain": GuidanceEntry(
         code="ask_blocked_uncertain",
         meaning="New request on this stream is blocked because an earlier record on the stream ended in an uncertain state.",
-        why="Stream ordering and exactly-once execution require resolving or abandoning uncertain prior work before appending new turns.",
+        why="Stream ordering and exactly-once execution require resolving or abandoning uncertain prior work before appending new turns. Re-issuing the exact same in-flight request with its original --request-id, prompt, and binding inspects recovery status without creating a duplicate turn.",
         recover=[
             {
                 "argv": ["peerhub", "diag", "health", "--stream", "STREAM_ID"],
@@ -78,7 +78,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_claim_held": GuidanceEntry(
         code="ask_claim_held",
         meaning="A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream.",
-        why="Only one caller can execute an ask turn per peer and stream at a time to prevent concurrent dispatch races.",
+        why="Only one caller can execute an ask turn per peer and stream at a time to prevent concurrent dispatch races. Wait for the active turn to finish, or use a distinct --stream for genuinely separate parallel work.",
         recover=[
             {
                 "argv": ["peerhub", "diag", "health", "--stream", "STREAM_ID"],
@@ -122,10 +122,38 @@ REGISTRY: dict[str, GuidanceEntry] = {
         avoid="Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue.",
         docs="docs/history/from-engram-repo/protocol-docs/ops/automatic-profile-routing-2026-06-20.md",
     ),
+    "ask_launch_failed": GuidanceEntry(
+        code="ask_launch_failed",
+        meaning="Provider CLI executable could not be found or failed to spawn before execution started.",
+        why="The configured provider binary (codex, claude, or agy) is missing from PATH or the OS rejected process creation before any turn started.",
+        recover=[
+            {
+                "argv": ["peerhub", "diag", "health"],
+                "purpose": "Inspect peer adapter availability and PATH configuration",
+                "prereqs": "Ensure the provider CLI is installed and on PATH.",
+            },
+        ],
+        avoid="Do not loop retries or pass --fresh until the provider CLI executable is installed and reachable on PATH.",
+        docs="docs/remote-ask.md",
+    ),
+    "ask_stream_peer_mismatch": GuidanceEntry(
+        code="ask_stream_peer_mismatch",
+        meaning="The target stream is already bound to a different ask target peer.",
+        why="Each ask stream maintains ordered single-peer session continuity and cannot be retargeted to another peer mid-stream.",
+        recover=[
+            {
+                "argv": ["peerhub", "stream", "list"],
+                "purpose": "Inspect existing streams and select or create a stream for this peer",
+                "prereqs": "Use a distinct --stream per target peer.",
+            },
+        ],
+        avoid="Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding.",
+        docs="docs/remote-ask.md",
+    ),
     "ask_delivery_failed": GuidanceEntry(
         code="ask_delivery_failed",
         meaning="Adapter invocation failed before execution started or failed critically during delivery.",
-        why="The adapter process failed to launch, returned a fatal prespawn error, or encountered runtime process failure.",
+        why="The adapter rejected pre-spawn execution policy (e.g. ag without --writable), failed pre-spawn validation, or encountered a storage/delivery error.",
         recover=[
             {
                 "argv": ["peerhub", "diag", "health"],
@@ -133,7 +161,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
                 "prereqs": "None.",
             },
         ],
-        avoid="Do not loop blind retries or pass --fresh without verifying adapter availability.",
+        avoid="Do not loop blind retries or pass --fresh without verifying adapter flags and availability.",
         docs="docs/remote-ask.md",
     ),
     "ask_unexpected_failure": GuidanceEntry(
@@ -159,6 +187,8 @@ ALIASES: dict[str, str] = {
     "claim_held": "ask_claim_held",
     "selector_error": "ask_selector_error",
     "refusal": "ask_refusal",
+    "launch_failed": "ask_launch_failed",
+    "stream_peer_mismatch": "ask_stream_peer_mismatch",
     "delivery_failed": "ask_delivery_failed",
     "unexpected_failure": "ask_unexpected_failure",
 }
@@ -170,29 +200,42 @@ def get_guidance(code: str) -> GuidanceEntry | None:
     return REGISTRY.get(canonical)
 
 
+def _is_launch_failure_text(text: object) -> bool:
+    if not isinstance(text, str):
+        return False
+    low = text.lower()
+    return "executable not found" in low or "cannot spawn" in low
+
+
 def select_guidance_code(
     *,
     status: str | None = None,
     processed_status: str | None = None,
     certainty: str | None = None,
     reason: str | None = None,
+    detail_error: object = None,
     exception: BaseException | None = None,
 ) -> str:
     """Select guidance code using composite context (not error.code or message text)."""
     if exception is not None:
         from peerhub.extensions.bridge_claims import ClaimHeldError
         from peerhub.extensions.bridge import (
+            PrespawnError,
             SessionBridgeError,
             ConflictingSessionFlagsError,
             InvalidSessionHandleSyntaxError,
         )
-        from peerhub.extensions.ask import LegacySelectorUnsupported
+        from peerhub.extensions.ask import LegacySelectorUnsupported, StreamPeerMismatchError
         from peerhub.core.store import StorageReadOnlyError, StorageFullError, StorageCorruptError
 
         if isinstance(exception, ClaimHeldError):
             return "ask_claim_held"
+        if isinstance(exception, StreamPeerMismatchError):
+            return "ask_stream_peer_mismatch"
         if isinstance(exception, (SessionBridgeError, LegacySelectorUnsupported, ConflictingSessionFlagsError, InvalidSessionHandleSyntaxError)):
             return "ask_selector_error"
+        if isinstance(exception, PrespawnError):
+            return "ask_launch_failed" if _is_launch_failure_text(str(exception)) else "ask_delivery_failed"
         if isinstance(exception, (StorageReadOnlyError, StorageFullError, StorageCorruptError)):
             return "ask_delivery_failed"
         if isinstance(exception, ValueError) and "session" in type(exception).__name__.lower():
@@ -212,6 +255,8 @@ def select_guidance_code(
     if status == "session_unavailable":
         return "ask_selector_error"
     if status == "failed_not_started":
+        if _is_launch_failure_text(detail_error):
+            return "ask_launch_failed"
         return "ask_delivery_failed"
     return "ask_unexpected_failure"
 
