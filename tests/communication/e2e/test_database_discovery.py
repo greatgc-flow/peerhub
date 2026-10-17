@@ -93,3 +93,108 @@ def test_explicit_env_and_workspace_selection_preserved(polluted_subfolder_works
     discovered = select_store(DEFAULT_DB_PATH, env={}, cwd=ws)
     assert discovered.source == "discovered"
     assert discovered.path == str(cwd_store)
+
+
+import json
+import sqlite3
+from peerhub.cli.app import main
+
+
+def test_legacy_store_present_emits_hint_line(polluted_subfolder_workspace, monkeypatch, capsys):
+    ws, sub_store = polluted_subfolder_workspace
+    monkeypatch.chdir(ws)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+
+    code = main(["peer", "list"])
+    assert code == 5
+    out, err = capsys.readouterr()
+    expected_hint = (
+        f'Ignored legacy store: {sub_store.resolve()} (no longer auto-discovered). '
+        f'Use --db "{sub_store.resolve()}" to keep using it; stores of other schema versions are refused as usual.'
+    )
+    assert expected_hint in err
+    assert f"database not found: {DEFAULT_DB_PATH}" in err
+
+    # With JSON format, exit code 5 and JSON payload remain unchanged while stderr retains the hint
+    code_json = main(["peer", "list", "--format", "json"])
+    assert code_json == 5
+    out_json, err_json = capsys.readouterr()
+    payload = json.loads(out_json)
+    assert payload["status"] == "UNAVAILABLE"
+    assert "database not found" in payload["error"]
+    assert expected_hint in err_json
+
+
+def test_legacy_store_flat_filename_emits_hint_line(tmp_path, monkeypatch, capsys):
+    flat_store = tmp_path / "peerhub" / "core.db"
+    seed(flat_store)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+
+    code = main(["peer", "list"])
+    assert code == 5
+    _, err = capsys.readouterr()
+    expected_hint = (
+        f'Ignored legacy store: {flat_store.resolve()} (no longer auto-discovered). '
+        f'Use --db "{flat_store.resolve()}" to keep using it; stores of other schema versions are refused as usual.'
+    )
+    assert expected_hint in err
+
+
+def test_legacy_store_absent_emits_no_hint_line(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+
+    code = main(["peer", "list"])
+    assert code == 5
+    _, err = capsys.readouterr()
+    assert "Ignored legacy store:" not in err
+    assert f"database not found: {DEFAULT_DB_PATH}" in err
+
+
+def test_source_package_dir_without_store_file_emits_no_hint_line(tmp_path, monkeypatch, capsys):
+    # Source package dir with Python code but no store file
+    pkg_dir = tmp_path / "peerhub"
+    pkg_dir.mkdir()
+    (pkg_dir / "__init__.py").write_text("# package\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+
+    code = main(["peer", "list"])
+    assert code == 5
+    _, err = capsys.readouterr()
+    assert "Ignored legacy store:" not in err
+    assert f"database not found: {DEFAULT_DB_PATH}" in err
+
+
+def test_explicit_db_to_legacy_store_works_and_preserves_schema_gate(polluted_subfolder_workspace, monkeypatch, capsys):
+    ws, sub_store = polluted_subfolder_workspace
+    monkeypatch.chdir(ws)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+
+    # Explicit --db to legacy store works
+    code = main(["--db", str(sub_store), "peer", "list"])
+    assert code == 0
+    out, err = capsys.readouterr()
+    assert "existing" in out
+    assert "Ignored legacy store:" not in err
+
+    # Other schema version is refused as usual (schema gate unchanged)
+    with sqlite3.connect(sub_store) as conn:
+        conn.execute("PRAGMA user_version = 999")
+    code_schema_err = main(["--db", str(sub_store), "peer", "list"])
+    assert code_schema_err == 6
+    _, err_schema = capsys.readouterr()
+    assert "SCHEMA VERSION ERROR" in err_schema
+
+
+def test_explicit_missing_db_with_legacy_store_present_emits_no_hint_line(polluted_subfolder_workspace, monkeypatch, capsys):
+    ws, _ = polluted_subfolder_workspace
+    monkeypatch.chdir(ws)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+
+    code = main(["--db", "nonexistent.db", "peer", "list"])
+    assert code == 5
+    _, err = capsys.readouterr()
+    assert "database not found: nonexistent.db" in err
+    assert "Ignored legacy store:" not in err

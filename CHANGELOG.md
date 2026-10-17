@@ -19,7 +19,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
-- **Breaking / Changed — Store discovery:** Removed implicit `<cwd>/peerhub` subfolder walk during store discovery (owner-approved O-1 in October 2026 audit). Store discovery now searches `.peerhub/core.db` in the current directory and parent directories only. Explicit `--db PATH`, `PEERHUB_DB`, and `--workspace` selection are unchanged.
+- **Breaking / Changed — Store discovery:** Removed implicit `<cwd>/peerhub` subfolder walk during store discovery (owner-approved O-1 in October 2026 audit). Store discovery now searches `.peerhub/core.db` in the current directory and parent directories only. Explicit `--db PATH`, `PEERHUB_DB`, and `--workspace` selection are unchanged. When no store is selected and a legacy `<cwd>/peerhub` store exists, missing-store error emits a hint to use `--db` pointing to it; stores of other schema versions remain refused as usual.
 
 ## [0.18.2] - 2026-10-17
 

@@ -15,3 +15,4 @@ Store selection follows strict deterministic precedence:
 - **Removed implicit `<cwd>/peerhub` subfolder lookup**: Store discovery previously walked into `<cwd>/peerhub/.peerhub/core.db`. This broke root-rename resilience and caused workspace store pollution when running from workspace root.
 - Owner approval: October 12, 2026 audit (O-1).
 - Discovered stores now require `.peerhub/core.db` in the repository/workspace root, or explicit `--db PATH` / `PEERHUB_DB`.
+- **Legacy store hint**: When no store is selected and a legacy `<cwd>/peerhub` store exists, missing-store error notes the ignored legacy store with explicit `--db` instructions while continuing to enforce schema gates.
