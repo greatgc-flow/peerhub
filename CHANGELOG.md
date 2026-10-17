@@ -17,13 +17,14 @@ they do not claim new validation or publication evidence.
 - Monitor model facts drift line (`Facts: needs_recheck (...) - refresh-model-profiles`) and detailed JSON output without extra probes (S4).
 - Offline `peerhub guide` subcommand (<=60 lines, ~900 tokens) providing `.standard`-first profile table, session reuse examples, delivery safety guidance, discovery commands, and drift recovery (S5).
 - Bounded delta reads in Session Bridge for native, local history, and redirect-candidate delta queries, paging reads and stopping before the current record.
+- Compact Safety section in `peerhub guide` detailing per-peer write boundaries (cx sandbox enforced, cc enforced, ag NOT enforced per issue #140), uncertain/pending_earlier_record recovery rules, core.db store hazards, cost side effects, and secrets persistence.
+- Knowledge Placement Policy in `docs/knowledge-placement.md` (13-point policy) governing installed-release essentials, evidence-dependent lessons, and safety guidance placement; linked in `CONTRIBUTING.md` and `.github/PULL_REQUEST_TEMPLATE.md`.
+- Efficiency section in `peerhub guide` (<=3 lines) covering role-based stream reuse, `.standard`-first economical baseline, and `--query-file`/`--json` transport choices.
+- Guide impact policy in `CONTRIBUTING.md`, PR verification checklist in `.github/PULL_REQUEST_TEMPLATE.md`, and `guide-impact` issue label for tracking safety-fact updates across PRs.
 
 ### Changed
 
 - **Breaking / Changed — Store discovery:** Removed implicit `<cwd>/peerhub` subfolder walk during store discovery (owner-approved O-1 in October 2026 audit). Store discovery now searches `.peerhub/core.db` in the current directory and parent directories only. Explicit `--db PATH`, `PEERHUB_DB`, and `--workspace` selection are unchanged. When no store is selected and a legacy `<cwd>/peerhub` store exists, missing-store error emits a hint to use `--db` pointing to it; stores of other schema versions remain refused as usual.
-
-### Changed
-
 - Default monitor viewport prioritization: `capacity` and `peers` now rank ahead of other low-priority groups in short viewports (default behaviour change), dropping other groups before clipping quota rows. All loaded quota observations (`capacity` and peers quota) are always visible by default across all pools and windows without `--expand`. When a detail loop stops early due to viewport height, one line `+N rows hidden by terminal height` is emitted with reserved space.
 - Documentation diet: archived obsolete 10,368-line call map (`peerhub-production-call-map-R1.json`) and 4 historical debate documents (4,777 lines across session monitoring/reuse/usage review) to Git history, backed by a comprehensive archival ledger (`docs/history/ledger-2026-10-17.md`) preserving retrieval commands, SHA-256 hashes, and accepted/rejected/deferred decisions. Shrunk `docs/design/README.md` to active/deferred/history links and unified status ownership under `docs/STATUS.md`.
 

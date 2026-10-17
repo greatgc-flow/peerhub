@@ -75,6 +75,10 @@ history: `fix(cli): correct adapter detection`, `docs: clarify setup`, or
 `feat(governance): add a workflow`. Open a focused pull request to `main` that
 explains the change and the checks you ran.
 
+## Guide impact
+
+Any change or fix that alters a safety/caution fact (peer write boundaries, retry/uncertain handling, store/upgrade hazards, cost side effects, secrets) MUST update the guide Safety section (and docs) in the same PR. All guidance updates and placement decisions must adhere to the [Knowledge Placement Policy](docs/knowledge-placement.md).
+
 ## Reporting issues and requesting features
 
 Use the GitHub bug-report or feature-request templates when applicable. They
@@ -82,6 +86,7 @@ collect the reproduction and environment details needed to work on an issue.
 Include lessons/feedback from using the docs or CLI: what was confusing, what
 you tried, and the wording or behavior that would have helped. See the
 [development/operation closed loop](docs/m1_spec/USAGE_GUIDE.md#developmentoperation-closed-loop).
+When filing or triaging an issue that alters a safety or caution fact (peer write boundaries, retry/uncertain handling, store/upgrade hazards, cost side effects, secrets), apply the `guide-impact` label (color `#d93f0b`, "Alters safety or caution facts that must be reflected in peerhub guide and docs") to track required updates to `peerhub guide` and documentation.
 
 ## Decisions and lessons
 
