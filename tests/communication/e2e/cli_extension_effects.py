@@ -436,6 +436,7 @@ EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, [
                "monitor defaults reset --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "reset", "--global", "--json"]),
                "monitor --snapshot": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
                "monitor --group": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
+               "monitor --expand": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--expand", "--group", "usage", "--view", "plain"], needs_bridge=True),
                "monitor repair --chunk-size": lambda e: monitor_management_effect(e, ["monitor", "repair", "--chunk-size", "1", "--json"], needs_bridge=True),
                "monitor repair --json": lambda e: monitor_management_effect(e, ["monitor", "repair", "--json"], needs_bridge=True)})
 EFFECT.update({f"profile list {option}": (lambda e, option=option: profile_effect(e, "list", option))
