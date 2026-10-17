@@ -2,14 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current release: v0.18.2 (published 2026-10-16T16:17:37Z, tag v0.18.2, target 8274e9f5; live gate G3 6+3+3 passed bound to 8274e9f5; PR #111)
+## Current source: v0.19.0 (release candidate)
 
-Benchmark v0.16.0 vs v0.18.2 (live, MECE; cc/cx/ag unanimous): `docs/benchmarks/v0.16.0-vs-v0.18.2-2026-10-17.md`.
-
-v0.18.2 adds the monitor peers group (linking quota, profile/model, session
-reuse, and context), model-fact provenance reporting, and SQLite store schema
-version gate 4 (central connection factory). It also incorporates the responsive
-terminal dashboard fix from PR #108.
+v0.19.0 removes implicit store discovery under `<cwd>/peerhub`, reprioritizes bare monitor output to keep quota always visible, adds `peerhub monitor --expand`, introduces the offline `peerhub guide` subcommand, multi-pool quota accounting and drift tracking, fixes Codex session resume write access, and adds bounded delta reads in Session Bridge.
 
 ### Release attempts
 
@@ -19,8 +14,18 @@ terminal dashboard fix from PR #108.
 | **v0.18.0** | `dc510f4f` | PR #107 | Published | Published 2026-10-16 |
 | **v0.18.1** draft + tag | `75677b07` | PR #109 | NEVER PUBLISHED | Content shipped in v0.18.2 |
 | **v0.18.2** | `8274e9f5` | PR #111 | Published | Published 2026-10-16T16:17:37Z |
+| **v0.19.0** candidate | branch `release/0.19.0` | | In preparation | Prepared 2026-10-17 |
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
+
+## Latest published release: v0.18.2 (published 2026-10-16T16:17:37Z, tag v0.18.2, target 8274e9f5; live gate G3 6+3+3 passed bound to 8274e9f5; PR #111)
+
+Benchmark v0.16.0 vs v0.18.2 (live, MECE; cc/cx/ag unanimous): `docs/benchmarks/v0.16.0-vs-v0.18.2-2026-10-17.md`.
+
+v0.18.2 adds the monitor peers group (linking quota, profile/model, session
+reuse, and context), model-fact provenance reporting, and SQLite store schema
+version gate 4 (central connection factory). It also incorporates the responsive
+terminal dashboard fix from PR #108.
 
 ## Prior published release: v0.18.0
 
@@ -28,7 +33,7 @@ The tagged v0.17.0 candidate is superseded before publication. v0.18.0 keeps the
 grouped monitor contract, renders it as the default human dashboard, and moves
 machine output behind `--json` with explicit schema selection. The captured
 schema 1.1 contract remains available; its hidden `--legacy` alias is deprecated
-through 0.18.x and will be removed in 0.19.0. See the [human dashboard design](design/monitor-human-dashboard-redesign-2026-10-16.md).
+through 0.19.x and will be removed in 0.20.0. See the [human dashboard design](design/monitor-human-dashboard-redesign-2026-10-16.md).
 
 **Released on 2026-10-16.** The [v0.18.0 publication workflow](https://github.com/greatgc-flow/peerhub/actions/runs/38848746748)
 passed verification, live validation, all Ubuntu/Windows Python 3.11–3.14
