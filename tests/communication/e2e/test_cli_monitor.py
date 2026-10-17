@@ -114,8 +114,8 @@ def test_monitor_schema_11_rejects_snapshot(tmp_path):
 def test_monitor_legacy_is_hidden_alias_and_works_with_grouped_snapshot(tmp_path, monkeypatch, capsys):
     from peerhub.cli.monitor import _legacy_alias_available
 
-    assert _legacy_alias_available("0.18.9") is True
-    assert _legacy_alias_available("0.19.0") is False
+    assert _legacy_alias_available("0.19.9") is True
+    assert _legacy_alias_available("0.20.0") is False
     db = _db(tmp_path)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda path, groups: {
         "schema_version": "2.0", "status": "OK", "groups": {

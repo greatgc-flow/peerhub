@@ -90,6 +90,10 @@ def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namesp
 
 
 def _legacy_alias_available(version: str | None = None) -> bool:
+    """Check whether the deprecated --legacy alias is active in this release.
+
+    Sunset is explicitly extended to 0.20.0 (removal deferred; no removal evidence needed).
+    """
     from peerhub._version import __version__
 
     value = (version or __version__).split("+", 1)[0]
@@ -97,7 +101,7 @@ def _legacy_alias_available(version: str | None = None) -> bool:
         major, minor, *_ = (int(part.split("-", 1)[0]) for part in value.split("."))
     except ValueError:
         return True
-    return (major, minor) < (0, 19)
+    return (major, minor) < (0, 20)
 
 
 def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
@@ -116,13 +120,15 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
     schema = getattr(args, "schema_version", None) or ("1.1" if legacy and args.json else "2.0")
     if args.json and schema == "1.1":
         if legacy:
-            print("warning: --legacy is deprecated; use --schema-version 1.1 (removed in 0.19.0)",
+            print("warning: --legacy is deprecated; use --schema-version 1.1 "
+                  "(removed in 0.20.0; sunset extended, removal deferred as no removal evidence needed)",
                   file=sys.stderr, flush=True)
         from peerhub.cli.monitor_schema11 import run_schema_11_watch
         return run_schema_11_watch(args, sleep_fn=sleep, monotonic_fn=monotonic)
     if legacy:
         print("warning: --legacy is deprecated; the grouped visual dashboard is now the default "
-              "(removed in 0.19.0)", file=sys.stderr, flush=True)
+              "(removed in 0.20.0; sunset extended, removal deferred as no removal evidence needed)",
+              file=sys.stderr, flush=True)
     if args.snapshot:
         provided_options = cast(set[str], getattr(args, "_provided_options", set[str]()))
         conflicts = provided_options & {

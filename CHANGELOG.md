@@ -6,32 +6,40 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
-## [Unreleased]
+## [0.19.0] - 2026-10-17
+
+### Breaking
+
+- **Implicit `./peerhub` store discovery removed:** Removed implicit `<cwd>/peerhub` subfolder walk during store discovery (owner-approved O-1 in October 2026 audit). Store discovery now searches `.peerhub/core.db` in the current directory and parent directories only. Explicit `--db PATH`, `PEERHUB_DB`, and `--workspace` selection are unchanged. When no store is selected and a legacy `<cwd>/peerhub` store exists, missing-store error emits a hint to use `--db` pointing to it; stores of other schema versions remain refused as usual.
+- **Bare monitor changes:** Default monitor viewport prioritization now ranks `capacity` and `peers` ahead of other low-priority groups in short viewports (default behaviour change), dropping other groups before clipping quota rows. Loaded quota rows (`capacity` and peers quota) are shown in full by default across all pools and windows without `--expand`; in short terminals rows beyond the viewport are disclosed as `+N rows hidden by terminal height` (distinguishing loaded data from displayed rows). When a detail loop stops early due to viewport height, one line `+N rows hidden by terminal height` is emitted with reserved space.
 
 ### Added
 
-- `peerhub monitor --expand`: human dashboard option (supporting watch and `--snapshot`) rendering all loaded rows of detail groups (`sessions`, `usage`, `context`, `runtime`) instead of capping at 2 rows (quota is always fully shown; --expand applies to other groups). Expanded session rows include the stable session handle. Bounded by existing DB read caps (100) with truncation disclosure; rejects `--expand` with `--json` (Slice 1).
-- Model pools and observed versions metadata in `docs/model-profiles/model-profiles.json` and packaged `model-defaults.toml` with cross-artifact parity verification (S1).
-- Multi-pool selection in monitor peers view selecting minimum remaining quota across fresh measured pools for mapped profile models; explicit `incomplete` and `account-wide`/`unmapped` status handling (S2).
+- `peerhub monitor --expand`: human dashboard option (supporting watch and `--snapshot`) rendering all loaded rows of detail groups (`sessions`, `usage`, `context`, `runtime`) instead of capping at 2 rows (quota is always fully shown; `--expand` applies to other groups). Expanded session rows include the stable session handle. Bounded by existing DB read caps (100) with truncation disclosure; rejects `--expand` with `--json` (Slice 1).
+- Quota displayed by default: loaded quota rows (`capacity` and peers quota) are shown in full by default across all pools and windows without `--expand`; in short terminals rows beyond the viewport are disclosed as `+N rows hidden by terminal height` (distinguishing loaded data from displayed rows).
+- Peers pools: model pools and observed versions metadata in `docs/model-profiles/model-profiles.json` and packaged `model-defaults.toml` with cross-artifact parity verification (S1); multi-pool selection in monitor peers view selecting minimum remaining quota across fresh measured pools for mapped profile models; explicit `incomplete` and `account-wide`/`unmapped` status handling (S2).
 - Drift report persistence inside quota observation payload, retaining unknown bucket IDs and comparing installed CLI versions against packaged baselines (S3).
 - Monitor model facts drift line (`Facts: needs_recheck (...) - refresh-model-profiles`) and detailed JSON output without extra probes (S4).
 - Offline `peerhub guide` subcommand (<=60 lines, ~900 tokens) providing `.standard`-first profile table, session reuse examples, delivery safety guidance, discovery commands, and drift recovery (S5).
-- Bounded delta reads in Session Bridge for native, local history, and redirect-candidate delta queries, paging reads and stopping before the current record.
 - Compact Safety section in `peerhub guide` detailing per-peer write boundaries (cx sandbox enforced, cc enforced, ag NOT enforced per issue #140), uncertain/pending_earlier_record recovery rules, core.db store hazards, cost side effects, and secrets persistence.
 - Knowledge Placement Policy in `docs/knowledge-placement.md` (13-point policy) governing installed-release essentials, evidence-dependent lessons, and safety guidance placement; linked in `CONTRIBUTING.md` and `.github/PULL_REQUEST_TEMPLATE.md`.
 - Efficiency section in `peerhub guide` (<=3 lines) covering role-based stream reuse, `.standard`-first economical baseline, and `--query-file`/`--json` transport choices.
 - Report Issues section in `peerhub guide` (<=3 lines) detailing repository issue submission, `gh issue list --search` triage, environment details, and privacy redaction.
 - Guide impact policy in `CONTRIBUTING.md`, PR verification checklist in `.github/PULL_REQUEST_TEMPLATE.md`, and `guide-impact` issue label for tracking safety-fact updates across PRs.
+- Bounded delta reads in Session Bridge for native, local history, and redirect-candidate delta queries, paging reads and stopping before the current record.
 
 ### Changed
 
-- **Breaking / Changed — Store discovery:** Removed implicit `<cwd>/peerhub` subfolder walk during store discovery (owner-approved O-1 in October 2026 audit). Store discovery now searches `.peerhub/core.db` in the current directory and parent directories only. Explicit `--db PATH`, `PEERHUB_DB`, and `--workspace` selection are unchanged. When no store is selected and a legacy `<cwd>/peerhub` store exists, missing-store error emits a hint to use `--db` pointing to it; stores of other schema versions remain refused as usual.
-- Default monitor viewport prioritization: `capacity` and `peers` now rank ahead of other low-priority groups in short viewports (default behaviour change), dropping other groups before clipping quota rows. All loaded quota observations (`capacity` and peers quota) are always visible by default across all pools and windows without `--expand`. When a detail loop stops early due to viewport height, one line `+N rows hidden by terminal height` is emitted with reserved space.
 - Documentation diet: archived obsolete 10,368-line call map (`peerhub-production-call-map-R1.json`) and 4 historical debate documents (4,777 lines across session monitoring/reuse/usage review) to Git history, backed by a comprehensive archival ledger (`docs/history/ledger-2026-10-17.md`) preserving retrieval commands, SHA-256 hashes, and accepted/rejected/deferred decisions. Shrunk `docs/design/README.md` to active/deferred/history links and unified status ownership under `docs/STATUS.md`.
+- Monitor `--legacy` sunset extended to 0.20.0: explicitly extended the sunset of the hidden deprecated `--legacy` alias (and frozen schema 1.1 watch) through 0.19.x to 0.20.0; removal deferred as no removal evidence is needed and existing callers remain supported.
 
 ### Fixed
 
 - Preserved write access on resumed Codex (`cx`) sessions when `--writable` is enabled by passing `-c sandbox_mode="workspace-write"` on `exec resume` (resumed sessions previously defaulted to read-only sandbox mode, dropping write permissions even when the session was created writable). Safe read-only (`-c sandbox_mode="read-only"`) is maintained when `--writable` is not set. Scoped guaranteed read-only sandbox enforcement to `cx` only; documented `cc` read-only enforcement via headless permission denial and `ag` read-only as provider-controlled without sandbox enforcement (known limitation: headless `agy` does not enforce a read-only boundary when `--mode accept-edits` is omitted). Added opt-in live canary tests for read-only sentinel creation.
+- ASCII and plain monitor separators: replaced Unicode middle dot (`·`) with ASCII pipe (`|`) in `--view plain` and non-Unicode outputs, avoiding `?` replacement artifacts in ASCII terminal environments (#114).
+- Redirected `--format auto` JSON: `--format auto` emits JSON when standard output is not a TTY (redirected or piped) (#114).
+- Missing-store JSON error parity: core read commands emit structured JSON (`{"status": "UNAVAILABLE", ...}`) when a database is not found and JSON output is requested (or under redirected `--format auto`), matching the machine error contract (#114).
+
 
 
 ## [0.18.2] - 2026-10-17

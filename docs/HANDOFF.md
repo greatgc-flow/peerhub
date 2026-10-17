@@ -5,14 +5,14 @@ and coordination checkpoints.
 
 ## 0. Current checkpoint (2026-10-17)
 
-- **Branch & commits:** v0.18.2 released; main=8274e9f5 (+ this docs PR); remote branches cleaned.
+- **Branch & commits:** branch `release/0.19.0` prepared for v0.19.0 candidate from `origin/main` (`7158909a`); remote branch pushed, awaiting owner live gate G3 and PR/publish workflow.
 - **Owner top rule:** so-very-simple.
-- **Design status:** `monitor-peers-view` shipped in v0.18.2; `monitor-expand-details`, `monitor-e2e-lineage`, `live-evidence-archive`, `db-schema-v2` (beyond version gate) are DEFERRED.
+- **Design status:** v0.19.0 candidate incorporates store discovery cleanup (removed implicit `<cwd>/peerhub` subfolder walk), bare monitor prioritization (capacity/peers always visible), `monitor --expand`, offline `peerhub guide` subcommand (safety, efficiency, report issues), model-facts drift line, multi-pool quota accounting, cx resume `--writable` fix, and bounded delta reads.
 - **Hazards:** store hazard (.peerhub copy at user_version 3 vs source v4) — running source v4 against it migrates it to v4 and the installed 0.16.0 CLI then refuses it; use a copy (`--db`) for dev; `core.db.v018-bak` keeps the backup store.
-- **Known:** `test_rel_005` fails on Windows only (POSIX PTY smoke skipped).
+- **Known:** `test_rel_005` POSIX PTY smoke skipped on Windows (ConPTY/manual test coverage).
 - **Peers:** one persistent stream per peer (`dev-cx`, `dev-cc`, `peers-pr1-ag`/`dev-ag`) with `*.effort` profiles; peers cannot run pytest reliably; cx writes no files.
-- **Next:** remaining optional follow-ups from the core audit: lazy imports, bounded delta reads, queue/provider timing split.
-- **Resume prompt:** Continue on main: address remaining optional follow-ups from the core audit (lazy imports, bounded delta reads, queue/provider timing split).
+- **Next:** owner runs live gate G3 (local), reviews PR, merges and triggers publication workflow.
+- **Resume prompt:** Run local live gate G3 for v0.19.0 candidate, then proceed with GitHub release PR and publish workflow.
 
 
 
