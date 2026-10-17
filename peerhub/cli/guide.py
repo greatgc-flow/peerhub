@@ -61,6 +61,7 @@ def render_guide(workspace: Path | None = None) -> str:
         '  peerhub ask cc "Explain the architecture" --profile cc.standard --stream arch-review --request-id req-001',
         '  peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002',
         "  (Subsequent asks on the same stream reuse the warm session automatically)",
+        "  (--writable preserves workspace-write on resume; default is safe read-only)",
         "",
         "Long Asks:",
         "  'peerhub ask' blocks until the peer finishes and then prints reply + 'session:' line,",

@@ -114,6 +114,26 @@ def test_writable_ask_creates_sentinel(peer):
         shutil.rmtree(workspace, ignore_errors=True)
 
 
+def test_resumed_writable_creates_second_sentinel(peer):
+    token1 = uuid.uuid4().hex
+    token2 = uuid.uuid4().hex
+    workspace = ROOT / "build" / "test_work" / f"canary-resume-{uuid.uuid4().hex}"
+    workspace.mkdir(parents=True, exist_ok=True)
+    try:
+        sentinel1 = workspace / "sentinel1.txt"
+        sentinel2 = workspace / "sentinel2.txt"
+        assert not sentinel1.exists() and not sentinel2.exists()
+        first = _ask(peer, workspace, f"Create sentinel1.txt in the current workspace containing exactly {token1}. "
+                     "Do not edit any other file. Reply with OK only.", "sentinel-fresh", writable=True)
+        assert sentinel1.is_file() and sentinel1.read_text(encoding="utf-8").strip() == token1
+        second = _ask(peer, workspace, f"Create sentinel2.txt in the current workspace containing exactly {token2}. "
+                      "Do not edit any other file. Reply with OK only.", "sentinel-resume", writable=True)
+        assert second["session"]["mode"] == "resumed"
+        assert sentinel2.is_file() and sentinel2.read_text(encoding="utf-8").strip() == token2
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
 def test_cancel_running_ask(tmp_path, peer, monkeypatch, capsys):
     # Invoke the public CLI in-process so its actual runtime can receive durable Bridge control.
     # There is no public CLI cancel command. Only construction is observed; provider delivery is real.

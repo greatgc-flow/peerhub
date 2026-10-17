@@ -23,3 +23,23 @@ def test_writable_opens_write_access_for_each_peer():
 def test_writable_cannot_be_combined_with_an_explicit_runtime(tmp_path):
     with pytest.raises(ValueError, match="writable"):
         ask(tmp_path / "core.db", "cx", "hi", runtime=object(), writable=True)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("writable", [False, True])
+def test_resume_preserves_writable_mode_per_peer(writable):
+    cx = SPECS["cx"].argv(None, None, "p", writable, vendor_session_id="thread-123")
+    assert "-s" not in cx
+    assert cx[cx.index("-c") + 1] == f'sandbox_mode="{"workspace-write" if writable else "read-only"}"'
+
+    cc = SPECS["cc"].argv(None, None, "p", writable, vendor_session_id="session-123")
+    if writable:
+        assert cc[cc.index("--permission-mode") + 1] == "acceptEdits"
+    else:
+        assert "--permission-mode" not in cc
+
+    ag = SPECS["ag"].argv(None, None, "p", writable, vendor_session_id="conv-123")
+    if writable:
+        assert ag[ag.index("--mode") + 1] == "accept-edits"
+    else:
+        assert "--mode" not in ag
+

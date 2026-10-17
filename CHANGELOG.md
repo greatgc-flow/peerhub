@@ -22,6 +22,11 @@ they do not claim new validation or publication evidence.
 - Default monitor viewport prioritization: `capacity` and `peers` now rank ahead of other low-priority groups in short viewports (default behaviour change), dropping other groups before clipping quota rows. All loaded quota observations (`capacity` and peers quota) are always visible by default across all pools and windows without `--expand`. When a detail loop stops early due to viewport height, one line `+N rows hidden by terminal height` is emitted with reserved space.
 - Documentation diet: archived obsolete 10,368-line call map (`peerhub-production-call-map-R1.json`) and 4 historical debate documents (4,777 lines across session monitoring/reuse/usage review) to Git history, backed by a comprehensive archival ledger (`docs/history/ledger-2026-10-17.md`) preserving retrieval commands, SHA-256 hashes, and accepted/rejected/deferred decisions. Shrunk `docs/design/README.md` to active/deferred/history links and unified status ownership under `docs/STATUS.md`.
 
+### Fixed
+
+- Preserved write access on resumed Codex (`cx`) sessions when `--writable` is enabled by passing `-c sandbox_mode="workspace-write"` on `exec resume` (resumed sessions previously defaulted to read-only sandbox mode, dropping write permissions even when the session was created writable). Safe read-only (`-c sandbox_mode="read-only"`) is maintained when `--writable` is not set.
+
+
 ## [0.18.2] - 2026-10-17
 
 ### Added
