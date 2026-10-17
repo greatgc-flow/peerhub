@@ -691,13 +691,17 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     visible = (list(blocks) if all_summaries_fit else list(ranked[:visible_count]))
     hidden = len(ranked) - len(visible)
 
+    refresh_clean = str(payload.get("refresh_state") or "")
+    warning_labels = _safe_refresh_warning_labels(payload.get("refresh_warnings"))
+    extra_overhead = (1 if refresh_clean == "STOPPED · AGY TOKEN USE" else 0) + len(warning_labels)
+
     # When terminal height is limited, drop other groups before clipping quota.
     cap_block = next((b for b in blocks if b[4] == "capacity"), None)
     if cap_block is not None and cap_block in visible:
         cap_detail_rows = cap_block[3][1:]
         needed_details = len(cap_detail_rows)
         if needed_details > 0:
-            lines_used = len(lines) + len(visible) * 2 + (1 if hidden else 0)
+            lines_used = len(lines) + len(visible) * 2 + (1 if hidden else 0) + extra_overhead
             remaining_for_details = max(0, height - 1 - lines_used)
             while remaining_for_details < needed_details:
                 droppable = [b for b in visible if b[4] != "capacity"]
@@ -708,7 +712,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
                 to_drop = droppable_sorted[0]
                 visible.remove(to_drop)
                 hidden = len(blocks) - len(visible)
-                lines_used = len(lines) + len(visible) * 2 + (1 if hidden else 0)
+                lines_used = len(lines) + len(visible) * 2 + (1 if hidden else 0) + extra_overhead
                 remaining_for_details = max(0, height - 1 - lines_used)
             visible = sorted(visible, key=lambda item: item[1])
 
@@ -725,32 +729,42 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         else:
             overflow = f"+{hidden} --group all"
         lines.append(_fit(overflow, width - 1, unicode))
-    refresh_clean = str(payload.get("refresh_state") or "")
     if refresh_clean == "STOPPED · AGY TOKEN USE" and len(lines) < height - 1:
         lines.append(_fit("Next: --allow-agy-token-use to continue", width - 1, unicode))
-    for warning in _safe_refresh_warning_labels(payload.get("refresh_warnings")):
+    for warning in warning_labels:
         if len(lines) >= height - 1:
             break
         lines.append(_fit(f"Warning: {warning}", width - 1, unicode))
+
+    def _emit_details(details: list[str]) -> bool:
+        if not details:
+            return True
+        space_left = max(0, height - 1 - len(lines))
+        detail_indent = "  " if width >= 4 else ""
+        if len(details) <= space_left:
+            for item in details:
+                lines.append(_fit(f"{detail_indent}{item}", width - 1, unicode))
+            return True
+        if space_left <= 0:
+            return False
+        can_show = max(0, space_left - 1)
+        for item in details[:can_show]:
+            lines.append(_fit(f"{detail_indent}{item}", width - 1, unicode))
+        hidden_count = len(details) - can_show
+        lines.append(_fit(f"{detail_indent}+{hidden_count} rows hidden by terminal height", width - 1, unicode))
+        return False
+
     # Extra rows reveal detail without changing selected summaries or their order.
     # Prioritize quota details so quota rows are not clipped by other groups.
     if cap_block is not None and cap_block in visible:
-        for detail in cap_block[3][1:]:
-            if len(lines) >= height - 1:
-                break
-            detail_indent = "  " if width >= 4 else ""
-            lines.append(_fit(f"{detail_indent}{detail}", width - 1, unicode))
+        _emit_details(cap_block[3][1:])
+    other_details: list[str] = []
     for item in visible:
         if item[4] == "capacity":
             continue
-        rows = item[3]
-        for detail in rows[1:]:
-            if len(lines) >= height - 1:
-                break
-            detail_indent = "  " if width >= 4 else ""
-            lines.append(_fit(f"{detail_indent}{detail}", width - 1, unicode))
-        if len(lines) >= height - 1:
-            break
+        other_details.extend(item[3][1:])
+    if other_details and len(lines) < height - 1:
+        _emit_details(other_details)
     lines = lines[:height - 1]
     # Force ASCII on request even if data contains provider-controlled Unicode.
     if not unicode:

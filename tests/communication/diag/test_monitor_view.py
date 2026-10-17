@@ -393,4 +393,46 @@ def test_default_output_byte_identical_when_expand_is_false(frame):
     assert out_implicit_rich == out_explicit_rich
 
 
+def test_detail_loop_stopping_early_emits_hidden_by_terminal_height(frame):
+    """When a detail loop stops early due to viewport height, emit '+N rows hidden by terminal height'."""
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["selected_groups"] = ["capacity"]
+    frame["groups"]["capacity"]["data"]["observations"] = [
+        {"peer_id": "cx", "pool_ref": f"quota:cx:{i}h", "state": "MEASURED",
+         "measurements": {"remaining_fraction": 0.1 * i},
+         "projection": {"state": "safe", "pace_pt": 5.0}, "age_seconds": 10.0}
+        for i in range(1, 7)
+    ]
+    # Height 6: 1 title + 1 heading + 1 summary + 1 detail row + 1 hidden line = 5 lines (<= height - 1)
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=6)
+    assert "+4 rows hidden by terminal height" in rendered
+    assert "quota:cx:1h" in rendered
+    assert "quota:cx:2h" in rendered
+    assert "quota:cx:3h" not in rendered
+    assert len(rendered.splitlines()) <= 5
+
+
+def test_warning_and_next_stop_overhead_accounted_for_without_clipping_quota(frame):
+    """lines_used accounts for warning and Next: stop lines so quota is not clipped while other groups are dropped."""
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["groups"]["capacity"]["data"]["observations"] = [
+        {"peer_id": "cx", "pool_ref": f"quota:cx:{i}h", "state": "MEASURED",
+         "measurements": {"remaining_fraction": 0.2 * i},
+         "projection": {"state": "safe", "pace_pt": 5.0}, "age_seconds": 10.0}
+        for i in range(1, 5)
+    ]
+    frame["refresh_state"] = "STOPPED · AGY TOKEN USE"
+    frame["refresh_warnings"] = ["cx: probe_timeout"]
+    # With overhead (title + next + warning = 3 lines), height 15 needs other groups dropped to fit all 4 quota rows
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=15)
+    assert "--allow-agy-token-use" in rendered
+    assert "Warning: cx probe_timeout" in rendered
+    # Quota rows must not be clipped
+    for i in range(1, 5):
+        assert f"quota:cx:{i}h" in rendered, f"quota:cx:{i}h was clipped"
+    assert len(rendered.splitlines()) <= 14
+
+
 

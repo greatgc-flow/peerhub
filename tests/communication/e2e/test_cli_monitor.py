@@ -1178,3 +1178,13 @@ def test_monitor_expand_snapshot_human_renders_all_rows(tmp_path, capsys):
     assert "sess_0001" in out
     assert "sess_0004" in out
 
+
+def test_monitor_expand_help_wording(capsys):
+    """--expand help wording states quota is always fully shown and --expand applies to other groups."""
+    with pytest.raises(SystemExit):
+        main(["monitor", "--help"])
+    out = capsys.readouterr().out
+    assert "--expand" in out
+    clean_out = " ".join(out.split())
+    assert "quota is always fully shown; --expand applies to other groups" in clean_out
+

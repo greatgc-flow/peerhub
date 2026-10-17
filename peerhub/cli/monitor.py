@@ -44,7 +44,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--group", action="append", choices=(*GROUP_IDS, "all"), default=None,
                    help="Select monitor groups for a read-only snapshot or grouped watch")
     p.add_argument("--snapshot", action="store_true", help="Render one read-only grouped snapshot without refreshing providers")
-    p.add_argument("--expand", action="store_true", help="Render all loaded detail rows instead of capping at 2 rows")
+    p.add_argument("--expand", action="store_true", help="Render all loaded detail rows instead of capping at 2 rows (quota is always fully shown; --expand applies to other groups)")
 
     actions = p.add_subparsers(dest="monitor_action")
     groups = actions.add_parser("groups", help="List monitor groups and default selection")
