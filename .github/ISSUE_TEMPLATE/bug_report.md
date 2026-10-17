@@ -6,6 +6,8 @@ labels: bug
 assignees: ''
 ---
 
+<!-- If this issue alters safety or caution facts (write boundaries, retry rules, store hazards, costs, secrets), apply the `guide-impact` label. -->
+
 ## What happened?
 
 <!-- Briefly describe the problem. -->

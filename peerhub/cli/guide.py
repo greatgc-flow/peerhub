@@ -1,8 +1,13 @@
 """PeerHub Quick Reference and Best Practices Guide (S5).
 
-Static prose and generated profile table providing a concise (<60 lines, ~900 tokens)
-reference for session reuse, delivery safety, discovery, and drift recovery.
+Static prose and generated profile table providing a concise (<=60 lines, words * 1.3 <= 900 tokens)
+reference for session reuse, efficiency, safety, discovery, drift recovery, and issue reporting.
 Works without store or provider access.
+
+Token-count method:
+The guide output is capped at <=60 lines and an estimated token budget of words * 1.3 <= 900 tokens.
+The budget is asserted by evaluating whitespace-delimited word count with standard ~1.3 tokens/word
+heuristics (int(len(out.split()) * 1.3) <= 900).
 """
 from __future__ import annotations
 
@@ -61,8 +66,11 @@ def render_guide(workspace: Path | None = None) -> str:
         '  peerhub ask cc "Explain the architecture" --profile cc.standard --stream arch-review --request-id req-001',
         '  peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002',
         "  (Subsequent asks on the same stream reuse the warm session automatically)",
-        "  (--writable preserves workspace-write on resume; cx enforces read-only sandbox by default;",
-        "   cc/ag read-only is provider-controlled without a peerhub-enforced sandbox flag)",
+        "",
+        "Efficiency:",
+        "  Reuse: keep one --stream per role with compatible peer/store/binding.",
+        "  Profiles: start with *.standard as an economical baseline (not guaranteed cheapest/fastest).",
+        "  Transport: --query-file and --json select transport/parsing format (no inherent token saving).",
         "",
         "Long Asks:",
         "  'peerhub ask' blocks until the peer finishes and then prints reply + 'session:' line,",
@@ -70,9 +78,16 @@ def render_guide(workspace: Path | None = None) -> str:
         "  never detach it and poll output files; use --timeout-seconds/--silence-timeout-seconds;",
         "  uncertain/timeout => diag before retry.",
         "",
-        "Delivery Safety & Uncertainty:",
-        "  Never blindly retry when execution or delivery is uncertain (timeout, disconnect).",
-        "  Check 'peerhub monitor' or 'peerhub diag' before dispatching a fresh attempt.",
+        "Safety:",
+        "  Writes: cx sandbox enforced; cc enforced; ag NOT enforced (see issue #140);",
+        "    when edits are intended, pass --writable on every turn, including resumed turns.",
+        "  Uncertain / pending_earlier_record: stop that stream, 'peerhub diag health' to check effects;",
+        "    never blind-retry original prompt under a new request-id, with --fresh, or delete claims;",
+        "    continue genuinely new work on a new stream with a summary.",
+        "  Store hazards: back up core.db before upgrading; new schema not openable by",
+        "    old versions; don't run dev builds on the real store.",
+        "  Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only).",
+        "  Secrets: prompts/streams persist in local store; no tokens/passwords.",
         "",
         "Discovery & Inspection Commands:",
         "  peerhub monitor              # live dashboard: all quota pools, session lineage, facts",
@@ -86,5 +101,10 @@ def render_guide(workspace: Path | None = None) -> str:
         "  'peerhub observation refresh' only re-measures provider quotas.",
         "  'Facts: needs_recheck' clears only by running the refresh-model-profiles skill",
         "  from a repo checkout or upgrading to a release with new packaged facts.",
+        "",
+        "Report Issues:",
+        "  File at github.com/greatgc-flow/peerhub/issues after checking 'gh issue list -R greatgc-flow/peerhub --search KEYWORD'.",
+        "  Include peerhub --version, OS, exact command, status/exit code, and workaround (no secrets/private paths).",
     ])
     return "\n".join(lines)
+
