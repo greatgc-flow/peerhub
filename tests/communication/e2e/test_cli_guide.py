@@ -92,6 +92,12 @@ def test_guide_contains_required_sections_and_guidance(capsys):
     assert "--request-id req-001" in out and "--request-id req-002" in out
     # Uncertain delivery / no blind retry guidance
     assert "blind retry" in out.lower() or "uncertain" in out.lower()
+    # Long asks section guidance
+    assert "long asks" in out.lower()
+    assert "blocks until the peer finishes" in out
+    assert "session:" in out
+    assert "--timeout-seconds" in out and "--silence-timeout-seconds" in out
+    assert "foreground/background-with-exit-notification" in out
     # Discovery commands
     assert "peerhub monitor" in out
     assert "peerhub diag" in out
