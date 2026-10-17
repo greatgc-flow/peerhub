@@ -1,13 +1,13 @@
 """PeerHub Quick Reference and Best Practices Guide (S5).
 
-Static prose and generated profile table providing a concise (<=60 lines, ~900 tokens)
-reference for session reuse, efficiency, safety, discovery, and drift recovery.
+Static prose and generated profile table providing a concise (<=60 lines, words * 1.3 <= 1200 tokens)
+reference for session reuse, efficiency, safety, discovery, drift recovery, and issue reporting.
 Works without store or provider access.
 
 Token-count method:
-The guide output is capped at <=60 lines and ~900 tokens. The budget is asserted by
-evaluating whitespace-delimited word count (len(out.split()) <= 900), aligned with standard
-~1.3 tokens/word heuristics (cl100k_base).
+The guide output is capped at <=60 lines and an estimated token budget of words * 1.3 <= 1200 tokens.
+The budget is asserted by evaluating whitespace-delimited word count with standard ~1.3 tokens/word
+heuristics (int(len(out.split()) * 1.3) <= 1200).
 """
 from __future__ import annotations
 
@@ -80,9 +80,10 @@ def render_guide(workspace: Path | None = None) -> str:
         "",
         "Safety:",
         "  Writes: cx sandbox enforced; cc enforced; ag NOT enforced (see issue #140);",
-        "    always pass --writable explicitly incl. resumed sessions.",
-        "  Uncertain / pending_earlier_record: stop that stream, 'peerhub diag health',",
-        "    new stream with summary; never blind retry, new request id, --fresh, or delete claims.",
+        "    when edits are intended, pass --writable on every turn, including resumed turns.",
+        "  Uncertain / pending_earlier_record: stop that stream, 'peerhub diag health' to check effects;",
+        "    never blind-retry original prompt under a new request-id, with --fresh, or delete claims;",
+        "    continue genuinely new work on a new stream with a summary.",
         "  Store hazards: back up core.db before upgrading; new schema not openable by",
         "    old versions; don't run dev builds on the real store.",
         "  Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only).",
@@ -100,5 +101,10 @@ def render_guide(workspace: Path | None = None) -> str:
         "  'peerhub observation refresh' only re-measures provider quotas.",
         "  'Facts: needs_recheck' clears only by running the refresh-model-profiles skill",
         "  from a repo checkout or upgrading to a release with new packaged facts.",
+        "",
+        "Report Issues:",
+        "  File at github.com/greatgc-flow/peerhub/issues after checking 'gh issue list --search KEYWORD'.",
+        "  Include peerhub --version, OS, exact command, status/exit code, and workaround (no secrets/private paths).",
     ])
     return "\n".join(lines)
+

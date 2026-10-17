@@ -20,6 +20,7 @@ they do not claim new validation or publication evidence.
 - Compact Safety section in `peerhub guide` detailing per-peer write boundaries (cx sandbox enforced, cc enforced, ag NOT enforced per issue #140), uncertain/pending_earlier_record recovery rules, core.db store hazards, cost side effects, and secrets persistence.
 - Knowledge Placement Policy in `docs/knowledge-placement.md` (13-point policy) governing installed-release essentials, evidence-dependent lessons, and safety guidance placement; linked in `CONTRIBUTING.md` and `.github/PULL_REQUEST_TEMPLATE.md`.
 - Efficiency section in `peerhub guide` (<=3 lines) covering role-based stream reuse, `.standard`-first economical baseline, and `--query-file`/`--json` transport choices.
+- Report Issues section in `peerhub guide` (<=3 lines) detailing repository issue submission, `gh issue list --search` triage, environment details, and privacy redaction.
 - Guide impact policy in `CONTRIBUTING.md`, PR verification checklist in `.github/PULL_REQUEST_TEMPLATE.md`, and `guide-impact` issue label for tracking safety-fact updates across PRs.
 
 ### Changed
