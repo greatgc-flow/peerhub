@@ -8,6 +8,14 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- Model pools and observed versions metadata in `docs/model-profiles/model-profiles.json` and packaged `model-defaults.toml` with cross-artifact parity verification (S1).
+- Multi-pool selection in monitor peers view selecting minimum remaining quota across fresh measured pools for mapped profile models; explicit `incomplete` and `account-wide`/`unmapped` status handling (S2).
+- Drift report persistence inside quota observation payload, retaining unknown bucket IDs and comparing installed CLI versions against packaged baselines (S3).
+- Monitor model facts drift line (`Facts: needs_recheck (...) - refresh-model-profiles`) and detailed JSON output without extra probes (S4).
+- Offline `peerhub guide` subcommand (<=60 lines, ~900 tokens) providing `.standard`-first profile table, session reuse examples, delivery safety guidance, discovery commands, and drift recovery (S5).
+
 ## [0.18.2] - 2026-10-17
 
 ### Added

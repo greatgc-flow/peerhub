@@ -178,6 +178,12 @@ class ObservationStore:
         finally:
             conn.close()
 
+    @contextmanager
+    def read_tx(self):
+        """Read-only connection context for non-mutating readers."""
+        with self._read() as conn:
+            yield conn
+
     def _init_schema(self) -> None:
         with self._tx() as conn:
             had_rollups = conn.execute(

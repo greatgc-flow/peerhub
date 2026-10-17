@@ -294,6 +294,9 @@ def _real_command(peer: str, sys_dir: Optional[Path] = None) -> Optional[list[st
     return [raw_bin]
 
 
+real_command = _real_command
+
+
 def _cleanup_probe(proc: subprocess.Popen[str]) -> None:
     try:
         kill_process_tree(proc)
@@ -379,7 +382,6 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
                 return {}
             if (
                 not isinstance(bucket_id, str)
-                or bucket_id not in known_ids
                 or not _valid_fraction(remaining)
                 or not isinstance(reset_time, str)
             ):
@@ -976,6 +978,7 @@ def poll_agy_usage(
         source_tag = "agy_statusline"
         evidence_ref = EvidenceRef("probe:ag:statusline")
         
+    unknown_buckets = [b for b in quota_dict_typed.keys() if b not in _AG_QUOTA_LABELS]
     results: list[UsageObserved] = []
     for key, label in _AG_QUOTA_LABELS.items():
         q_raw = quota_dict_typed.get(key)
@@ -1033,12 +1036,16 @@ def poll_agy_usage(
             value=measurement,
         )
         
+        obs_extra: dict[str, Any] = {}
+        if unknown_buckets:
+            obs_extra["unknown_pools"] = unknown_buckets
         results.append(
             UsageObserved(
                 observation_id=ids.new_id("usage-observation"),
                 instance_id=instance_id,
                 profile_id=profile_id,
                 evidence=evidence,
+                extra=obs_extra,
             )
         )
         

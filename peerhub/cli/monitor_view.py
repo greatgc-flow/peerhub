@@ -146,7 +146,12 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     q_pct = float(cast(float, _number(q_obj.get("remaining_fraction")))) * 100
                 q_age = _number(q_obj.get("age_seconds"))
 
-                if q_state == "STALE":
+                q_scope = _clean(q_obj.get("scope") or "")
+
+                if q_state == "INCOMPLETE" or q_pool == "incomplete":
+                    q_wide = "incomplete"
+                    q_narr = "incomplete"
+                elif q_state == "STALE":
                     q_wide = "STALE"
                     q_narr = "STALE"
                 elif q_state != "MEASURED" or q_pct is None:
@@ -155,7 +160,11 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 else:
                     age_val = max(0.0, (q_age or 0.0) + elapsed_seconds)
                     age_str = f" ({int(age_val // 60)}m ago)" if q_age is not None and age_val >= 60 else ""
-                    pool_str = f" ({q_pool})" if q_pool else ""
+                    if q_scope in ("unmapped", "account-wide"):
+                        pool_label = f"{q_pool} unmapped" if q_pool else "unmapped"
+                    else:
+                        pool_label = q_pool
+                    pool_str = f" ({pool_label})" if pool_label else ""
                     q_wide = f"{q_pct:.0f}%{pool_str}{age_str}"
                     q_narr = f"{q_pct:.0f}%{pool_str}"
 
@@ -252,6 +261,33 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             "sources: codex debug models | agy models | claude: known ids"
         )
         rows.append(_fit(footer, max(0, width - 1), unicode))
+
+        facts_rep: object = data.get("facts_report")
+        if isinstance(facts_rep, dict):
+            rep_dict = cast(dict[str, Any], facts_rep)
+            status = _clean(rep_dict.get("status") or "")
+            reasons_raw = rep_dict.get("reasons")
+            reasons = [str(r) for r in cast(list[object], reasons_raw)] if isinstance(reasons_raw, list) else []
+            if status == "needs_recheck":
+                raw_unk: object = rep_dict.get("unknown_pools")
+                unk_pools: list[str] = [str(p) for p in cast(list[object], raw_unk)] if isinstance(raw_unk, list) else []
+                display_reasons: list[str] = []
+                for r in reasons:
+                    if r == "ag: unknown_pool" and unk_pools:
+                        display_reasons.append(f"ag: unknown_pool: {', '.join(unk_pools)}")
+                    else:
+                        display_reasons.append(r)
+                reason_str = f" ({', '.join(display_reasons)})" if display_reasons else ""
+                facts_line = f"Facts: needs_recheck{reason_str} - refresh-model-profiles"
+            elif status == "ok":
+                chk_date = str(rep_dict.get("checked_at") or "")
+                chk_date_str = f" (checked {chk_date[:10]})" if chk_date else ""
+                facts_line = f"Facts: ok{chk_date_str}"
+            elif status == "unverified":
+                facts_line = "Facts: unverified"
+            else:
+                facts_line = f"Facts: {status}" if status else "Facts: unknown"
+            rows.append(_fit(facts_line, max(0, width - 1), unicode))
 
     elif group_id == "execution":
         scopes = _items(data.get("scopes"))

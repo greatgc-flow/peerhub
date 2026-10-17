@@ -252,6 +252,10 @@
       ]
     },
     {
+      "command": "guide",
+      "options": []
+    },
+    {
       "command": "monitor defaults reset",
       "options": [
         {

@@ -45,6 +45,14 @@ On an existing Stream, advance to the position you actually read and pass the
 revision returned by `offset get`; the revision is a compare-and-swap guard.
 Keep the same body, timestamp, and idempotency key when retrying an append.
 
+## Quick reference & guide
+
+Run `peerhub guide` for a concise, offline reference covering profile tables (.standard first), two-asks session reuse, delivery safety, discovery commands, and drift recovery:
+
+```powershell
+peerhub guide
+```
+
 ## Everyday commands
 
 ```powershell

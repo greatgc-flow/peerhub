@@ -74,5 +74,6 @@ def test_runtime_group_separates_saved_session_facts_from_current_profile(tmp_pa
             "selection_mode": {"value": "pinned", "source": "workspace"},
             "model": {"value": "claude-opus-5-5", "source": "workspace"},
             "effort": {"value": "xhigh", "source": "workspace"},
+            "pools": {"value": ["C-5H", "C-7D"], "source": "packaged"},
         },
     }

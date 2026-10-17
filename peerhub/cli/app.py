@@ -269,6 +269,9 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
     d_integrity.epilog = "example: peerhub diag integrity"
 
+    guide_parser = subparsers.add_parser("guide", help="Quick reference, profile tables, and best practices")
+    guide_parser.description = "Print the quick reference guide, model profile table, and operational best practices."
+
     return parser
 
 
@@ -893,6 +896,10 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             return _run_light_command(args, parser)
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
             return _run_diag_cli(args, parser)
+        if args.subcommand == "guide":
+            from peerhub.cli.guide import render_guide
+            print(render_guide())
+            return 0
         core_read = ((args.subcommand, args.action) in {
             ("peer", "get"), ("peer", "list"), ("stream", "show"), ("stream", "list"),
             ("record", "read"), ("offset", "get")
