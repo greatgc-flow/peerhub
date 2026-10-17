@@ -22,7 +22,8 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
     """Emit the captured 0.16.1 JSON frame contract; this adapter has no human renderer."""
     if not args.json:
         raise ValueError("schema 1.1 is a JSON-only compatibility contract")
-    if report_missing_store(args.db, json_output=True):
+    is_explicit = getattr(args, "db_source", None) in ("explicit", "env")
+    if report_missing_store(args.db, json_output=True, selected=is_explicit):
         return 5
 
     from peerhub.cli.view import dashboard_data
@@ -46,7 +47,7 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
         last_refresh_status_code = 0
         next_deadline = monotonic_fn() + args.interval
         while True:
-            if report_missing_store(args.db, json_output=True):
+            if report_missing_store(args.db, json_output=True, selected=is_explicit):
                 return 5
             if done % args.collect_every == 0:
                 result = refresh_quota(args.db, args.peers, sys_dir=getattr(args, "sys_dir", None),
@@ -81,6 +82,6 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
     except KeyboardInterrupt:
         return 0
     except (FileNotFoundError, sqlite3.OperationalError):
-        if report_missing_store(args.db, json_output=True):
+        if report_missing_store(args.db, json_output=True, selected=is_explicit):
             return 5
         raise

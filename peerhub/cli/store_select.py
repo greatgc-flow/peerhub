@@ -1,7 +1,7 @@
 """Which database file a CLI call uses, and why.
 
 Order: PEERHUB_DB (when allowed) > explicit --db > a discovered workspace store > the default path.
-Discovery looks for `.peerhub/core.db` in the current directory, `<cwd>/peerhub`, then every parent.
+Discovery looks for `.peerhub/core.db` in the current directory, then every parent.
 """
 
 from __future__ import annotations
@@ -16,16 +16,45 @@ from typing import Mapping
 DEFAULT_DB_PATH = ".peerhub/core.db"
 
 
-def report_missing_store(path: str | Path, *, json_output: bool = False) -> bool:
+def find_legacy_store(cwd: Path | None = None) -> Path | None:
+    """Detect an existing legacy store under <cwd>/peerhub if present."""
+    base = (cwd or Path.cwd()).resolve()
+    for candidate in (
+        base / "peerhub" / "core.db",
+        base / "peerhub" / DEFAULT_DB_PATH,
+    ):
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def report_missing_store(
+    path: str | Path,
+    *,
+    json_output: bool = False,
+    cwd: Path | None = None,
+    selected: bool | None = None,
+) -> bool:
     """Refuse absent stores before opening storage or invoking any provider."""
     if Path(path).is_file():
         return False
     message = f"database not found: {path}"
     print(message, file=sys.stderr)
     print(f"Create one explicitly: peerhub --db {path} peer register --peer <id> --name <name>", file=sys.stderr)
+    is_selected = selected if selected is not None else (Path(path) != Path(DEFAULT_DB_PATH))
+    if not is_selected:
+        legacy = find_legacy_store(cwd)
+        if legacy is not None:
+            legacy_path = str(legacy.resolve())
+            print(
+                f'Ignored legacy store: {legacy_path} (no longer auto-discovered). '
+                f'Use --db "{legacy_path}" to keep using it; stores of other schema versions are refused as usual.',
+                file=sys.stderr,
+            )
     if json_output:
         print(json.dumps({"status": "UNAVAILABLE", "error": message}, ensure_ascii=True))
     return True
+
 
 
 @dataclass(frozen=True)
@@ -45,7 +74,7 @@ def select_store(configured_path: str, *, use_env: bool = True, discover: bool =
         roots = [workspace_root.resolve()]
     else:
         current = (cwd or Path.cwd()).resolve()
-        roots = [current, current / "peerhub", *current.parents]
+        roots = [current, *current.parents]
     for root in roots:
         candidate = root / DEFAULT_DB_PATH
         if candidate.is_file():

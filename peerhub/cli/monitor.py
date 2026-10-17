@@ -154,7 +154,8 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], preference: dict[str, Any]) -> int:
     """Emit selected grouped snapshots while retaining quota refresh cadence and safety stops."""
     from peerhub.cli.store_select import report_missing_store
-    if report_missing_store(args.db, json_output=args.json):
+    is_explicit = getattr(args, "db_source", None) in ("explicit", "env")
+    if report_missing_store(args.db, json_output=args.json, selected=is_explicit):
         return 5
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from peerhub.extensions.quota_capture import refresh_quota
@@ -210,7 +211,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         last_refresh_code = 0
         next_deadline = monotonic() + args.interval
         while True:
-            if report_missing_store(args.db, json_output=args.json):
+            if report_missing_store(args.db, json_output=args.json, selected=is_explicit):
                 return 5
             refresh: dict[str, Any]
             if done % args.collect_every == 0:
@@ -271,7 +272,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     except KeyboardInterrupt:
         return 0
     except (FileNotFoundError, sqlite3.OperationalError):
-        if report_missing_store(args.db, json_output=args.json):
+        if report_missing_store(args.db, json_output=args.json, selected=is_explicit):
             return 5
         raise
     finally:
@@ -296,7 +297,8 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     selected: list[str] = (list(GROUP_IDS) if unique_requested == ["all"] else
                            sorted(set(cast(list[str], unique_requested)), key=GROUP_IDS.index) if unique_requested else
                            cast(list[str], preference["selected_groups"]))
-    if report_missing_store(args.db, json_output=args.json):
+    is_explicit = getattr(args, "db_source", None) in ("explicit", "env")
+    if report_missing_store(args.db, json_output=args.json, selected=is_explicit):
         return 5
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from peerhub.core.schema_version import SchemaVersionError
@@ -349,7 +351,8 @@ def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = F
 
 def run_monitor_repair(args: argparse.Namespace) -> int:
     from peerhub.cli.store_select import report_missing_store
-    if report_missing_store(args.db, json_output=args.json):
+    is_explicit = getattr(args, "db_source", None) in ("explicit", "env")
+    if report_missing_store(args.db, json_output=args.json, selected=is_explicit):
         return 5
     from peerhub.extensions.session_receipts import rebuild_delivery_projections
     try:
