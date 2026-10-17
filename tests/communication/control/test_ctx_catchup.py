@@ -4,7 +4,7 @@ import json
 import pytest
 from hypothesis import given, settings, strategies as st
 
-from peerhub.extensions.bridge import ContextLostError, PrespawnError
+from peerhub.extensions.bridge import ContextLostError, PrespawnError, SessionDeltaOverflowError, _PersistedRecord
 from peerhub.extensions.catchup import CatchUpBudget, build_catch_up, project_catch_up
 from tests.communication.control_helpers import bseed, ctl, delivery_rows, item_json, mem_records, msg, offset_row, payload_bytes, records, responses, sql
 from tests.communication.fakes import CrashInjected, CrashInjector, FakeRuntimeTarget
@@ -318,3 +318,120 @@ def test_bridge_default_budget_fits_windows_inline_history_and_explicit_budget_w
     assert h.new_bridge("explicit", catch_up_limit=7, catch_up_budget=explicit).catch_up_budget is explicit
     unlimited_bytes = CatchUpBudget(max_records=7)
     assert h.new_bridge("unlimited", catch_up_budget=unlimited_bytes).catch_up_budget is unlimited_bytes
+
+
+# ------------------------------------------------------------------ CTX-004: bounded delta reads
+@pytest.mark.catalog_id("CTX-004")
+@pytest.mark.property
+@settings(max_examples=40, deadline=None)
+@given(
+    n=st.integers(1, 25),
+    watermark=st.integers(0, 20),
+    gap=st.integers(1, 10),
+    page=st.sampled_from([1, 2, 3, 7, 50]),
+)
+def test_ctx_004_paged_delta_projection_matches_unpaged_exactly(n, watermark, gap, page):
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as td:
+        h = BridgeHarness(Path(td) / "ws", catch_up_budget=CatchUpBudget(max_records=15, max_bytes=5000))
+        bseed(h, n=1)
+        for i in range(1, n + 1):
+            if i % 3 == 0:
+                ctl(h, "control.redirect", f"rd{i}", body={"goal": "g", "instruction": f"r{i}"}, targets=["b"])
+            elif i % 5 == 0:
+                ctl(h, "control.redirect", f"rd_other{i}", body={"goal": "g", "instruction": f"r{i}"}, targets=["other"])
+            else:
+                msg(h, f"m{i}")
+        head = h.store.stream_head("s")
+        current_pos = head + gap
+        cur = _PersistedRecord("cur", current_pos)
+        wm = min(watermark, head)
+        mapping = {
+            "peer_id": "b",
+            "stream_id": "s",
+            "context_watermark": wm,
+        }
+        paged = h.bridge._native_delta(mapping, cur, page=page)
+        unpaged = h.bridge._native_delta(mapping, cur, page=100_000)
+
+        # Invariant: paged == unpaged projection
+        assert [r.record_id for r in paged.records] == [r.record_id for r in unpaged.records]
+        assert [r.position for r in paged.records] == [r.position for r in unpaged.records]
+        assert paged.boundary() == unpaged.boundary()
+        assert paged.truncated == unpaged.truncated
+        assert paged.omitted_count == unpaged.omitted_count
+        assert paged.used_bytes == unpaged.used_bytes
+
+        # Strictly increasing ordering and bounded before current record
+        pos = [r.position for r in paged.records]
+        assert pos == sorted(set(pos))
+        if pos:
+            assert pos[-1] < current_pos
+            assert pos[0] > wm
+
+        # Invariant for unseen redirects: paged == unpaged, all stop before current record
+        red_paged = h.bridge._unseen_redirects("b", "s", cur, page=page)
+        red_unpaged = h.bridge._unseen_redirects("b", "s", cur, page=100_000)
+        assert [r.record_id for r in red_paged] == [r.record_id for r in red_unpaged]
+        for r in red_paged:
+            assert r.position < current_pos
+
+
+@pytest.mark.catalog_id("CTX-004")
+def test_ctx_004_delta_reads_bounded_over_20k_records(tmp_path):
+    h = BridgeHarness(tmp_path / "ws", catch_up_budget=CatchUpBudget(max_records=50, max_bytes=24_000))
+    bseed(h, n=1)
+    # Insert >20,000 records in a single transaction
+    total = 20_500
+    with h.store.transaction() as conn:
+        digest = "sha256:" + "0" * 64
+        rows = [
+            (f"bulk_{i}", "s", i + 2, "a", "prompt", "{}", "[]", None, "[]", "{}", f"k_{i}", digest, "2026-10-17T00:00:00Z", "2026-10-17T00:00:00Z")
+            for i in range(1, total + 1)
+        ]
+        conn.executemany(
+            "INSERT INTO records (record_id, stream_id, position, author_peer_id, kind, body_json, targets_json, reply_to, refs_json, metadata_json, idempotency_key, payload_digest, created_at, appended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+    head = h.store.stream_head("s")
+    assert head >= 20_500
+
+    # Spy on read_records calls
+    calls: list[tuple[int, int]] = []
+    real_read = h.store.read_records
+
+    def spy_read(stream_id: str, after_position: int = 0, limit: int = 100):
+        calls.append((after_position, limit))
+        return real_read(stream_id, after_position, limit)
+
+    h.store.read_records = spy_read
+
+    watermark = 20_000
+    current_pos = 20_501
+    cur = _PersistedRecord("cur", current_pos)
+    mapping = {
+        "peer_id": "b",
+        "stream_id": "s",
+        "context_watermark": watermark,
+    }
+
+    # Bounded delta read: motivation = memory/stream size (no claim of constant time)
+    proj = h.bridge._native_delta(mapping, cur)
+    assert calls, "store.read_records must have been called"
+    # Verify every call limit is bounded to page size (<= 200) and stops before current record
+    for after_pos, limit in calls:
+        assert limit <= 200, f"limit was {limit}, expected <= 200"
+        assert after_pos < current_pos, f"after_pos {after_pos} must be before current_pos {current_pos}"
+
+    # Verify projection results: suffix within budget
+    assert proj.used_bytes <= 24_000
+    assert proj.boundary()["before_position"] == current_pos
+    assert proj.boundary()["after_position"] == watermark
+    assert all(watermark < r.position < current_pos for r in proj.records)
+
+    # Overflow / all-or-nothing reuse check
+    small_bridge = h.new_bridge("small", catch_up_budget=CatchUpBudget(max_bytes=100))
+    overflow_proj = small_bridge._native_delta(mapping, cur)
+    assert overflow_proj.truncated is True
+

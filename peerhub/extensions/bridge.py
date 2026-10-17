@@ -23,7 +23,7 @@ import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterable, Mapping, Protocol, cast
+from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, cast
 
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, StaleClaimError
 from peerhub.extensions import bridge_registry, session_receipts
@@ -901,15 +901,28 @@ class Bridge:
                 return json.loads(e["detail"]).get("reason", "missing")
         return "missing"
 
-    def _unseen_redirects(self, peer: str, stream: str, rec: Record) -> list[Any]:
+    def _iter_records(self, stream: str, after_position: int, before_position: int, *, page: int = 200) -> Iterator[Record]:
+        cursor = after_position
+        while cursor < before_position:
+            limit = min(page, before_position - cursor)
+            batch = self.store.read_records(stream, cursor, limit)
+            if not batch:
+                return
+            for r in batch:
+                if r.position >= before_position:
+                    return
+                yield r
+            cursor = batch[-1].position
+
+    def _unseen_redirects(self, peer: str, stream: str, rec: Record | _PersistedRecord, *, page: int = 200) -> list[Any]:
         """control.redirect Records addressed to this peer that the resumed session has not seen and no steer delivered."""
         with self.claims.transaction() as conn:
             last = conn.execute("SELECT COALESCE(MAX(record_position),0) FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND certainty != ?",
                                 (stream, peer, NOT_STARTED)).fetchone()[0]
             done = {r[0] for r in conn.execute("SELECT record_id FROM bridge_controls WHERE stream_id=? AND peer_id=? AND outcome='done'",
                                                (stream, peer))}
-        cands = self.store.read_records(stream, last, 2**31 - 1)
-        return [r for r in cands if r.position < rec.position and r.kind == "control.redirect" and r.author_peer_id != peer
+        return [r for r in self._iter_records(stream, last, rec.position, page=page)
+                if r.kind == "control.redirect" and r.author_peer_id != peer
                 and (not r.targets or peer in r.targets) and r.record_id not in done]
 
     def _mark_lost(self, token: ClaimToken, reason: str) -> None:
@@ -941,18 +954,17 @@ class Bridge:
                                 (stream, peer, gen, NOT_STARTED)).fetchone()
         return seen is None
 
-    def _native_delta(self, mapping: Mapping[str, Any], rec: Record | _PersistedRecord) -> CatchUpProjection:
+    def _native_delta(self, mapping: Mapping[str, Any], rec: Record | _PersistedRecord, *, page: int = 200) -> CatchUpProjection:
         peer, stream = mapping["peer_id"], mapping["stream_id"]
-        records = self.store.read_records(stream, mapping["context_watermark"], 2**31 - 1)
-        candidates = (r for r in records if r.position < rec.position
-                      and (r.kind != "control.redirect" or (not r.targets or peer in r.targets)))
+        candidates = (r for r in self._iter_records(stream, mapping["context_watermark"], rec.position, page=page)
+                      if (r.kind != "control.redirect" or (not r.targets or peer in r.targets)))
         # Native continuity is all-or-nothing; count limits belong to fresh bootstrap only.
         return project_catch_up(candidates, CatchUpBudget(max_bytes=self.catch_up_budget.max_bytes,
                                               max_tokens=self.catch_up_budget.max_tokens,
                                               token_estimator=self.catch_up_budget.token_estimator),
                                 after_position=mapping["context_watermark"], before_position=rec.position)
 
-    def _local_history_delta(self, mapping: Mapping[str, Any], rec: Record | _PersistedRecord) -> CatchUpProjection | None:
+    def _local_history_delta(self, mapping: Mapping[str, Any], rec: Record | _PersistedRecord, *, page: int = 200) -> CatchUpProjection | None:
         """Older local sessions use exact delivery evidence, not a native watermark.
 
         Preserve the ordinary local-session redirect contract. When another
@@ -968,8 +980,8 @@ class Bridge:
                 return None
             represented = {r[0] for r in conn.execute("SELECT response_record_id FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? AND external_session_id=? AND certainty='TERMINAL'",
                                                      (stream, peer, gen, mapping["external_session_id"])) if r[0] is not None}
-        candidates = (r for r in self.store.read_records(stream, after, 2**31-1) if r.position < rec.position
-                      and r.record_id not in represented and (r.kind != "control.redirect" or not r.targets or peer in r.targets))
+        candidates = (r for r in self._iter_records(stream, after, rec.position, page=page)
+                      if r.record_id not in represented and (r.kind != "control.redirect" or not r.targets or peer in r.targets))
         return project_catch_up(candidates, CatchUpBudget(max_bytes=self.catch_up_budget.max_bytes,
                                 max_tokens=self.catch_up_budget.max_tokens, token_estimator=self.catch_up_budget.token_estimator),
                                 after_position=after, before_position=rec.position)
