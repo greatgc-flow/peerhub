@@ -24,7 +24,8 @@ def get_git_tags(repo_root: Path) -> set[str]:
 
 def get_changelog_versions(changelog_path: Path) -> list[str]:
     text = changelog_path.read_text(encoding="utf-8")
-    return re.findall(r"^## \[([^\]]+)\]", text, re.MULTILINE)
+    # Headings tagged "(superseded ...)" were never published; they need no tag.
+    return re.findall(r"^## \[([^\]]+)\](?!.*\(superseded)", text, re.MULTILINE)
 
 
 def lint_changelog_tags(repo_root: Path | None = None) -> list[str]:

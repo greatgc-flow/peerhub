@@ -23,7 +23,7 @@ they do not claim new validation or publication evidence.
 
 - Extension DDL ownership, trigger-definition verification and the rest of the schema-v2 proposal are intentionally deferred (see docs/design/monitor-peers-view-2026-10-16.md).
 
-## [0.18.1] - 2026-10-16
+## [0.18.1] - 2026-10-16 (superseded candidate)
 
 _Never published as a release; shipped in v0.18.2._
 
