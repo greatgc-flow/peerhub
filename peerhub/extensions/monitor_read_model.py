@@ -381,6 +381,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             if len(scope_rows) > 0 and max((int(row[22]) for row in scope_rows), default=0) > 3:
                 sessions_data["peer_sample_truncated"] = True
         observations: list[dict[str, Any]] = []
+        latest_facts_report: dict[str, Any] | None = None
         if bool(set(groups) & {"capacity", "peers"}):
             try:
                 rows = conn.execute(
@@ -395,6 +396,10 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         observation, capture_seq = row_to_observation(row)
                     except ObservationCorruptError as exc:
                         raise sqlite3.DataError(f"invalid quota observation at capture_seq={row['capture_seq']}") from exc
+                    if latest_facts_report is None and "facts_report" in observation.payload:
+                        raw_f: object = observation.payload.get("facts_report")
+                        if isinstance(raw_f, dict):
+                            latest_facts_report = cast(dict[str, Any], raw_f)
                     freshness = evaluate_observation(observation, capture_seq, round(now * 1_000_000), FreshnessPolicy())
                     observed_at = observation.observed_at
                     try:
@@ -442,7 +447,6 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         "freshness_basis": freshness.basis,
                         "skew_seconds": freshness.skew_seconds,
                         "measurements": measurements,
-                        "payload": observation.payload,
                     })
                 if "capacity" in groups:
                     output["capacity"] = {"status": "OK", "data": {"observations": observations,
@@ -624,15 +628,6 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 })
             from peerhub.extensions.adapters.profiles import packaged_defaults_meta
             defaults_meta = packaged_defaults_meta()
-            latest_facts_report: dict[str, Any] | None = None
-            for o in observations:
-                p_load: object = o.get("payload")
-                if isinstance(p_load, dict) and "facts_report" in p_load:
-                    p_dict = cast(dict[str, Any], p_load)
-                    raw_rep: object = p_dict.get("facts_report")
-                    if isinstance(raw_rep, dict):
-                        latest_facts_report = cast(dict[str, Any], raw_rep)
-                        break
             if latest_facts_report is None:
                 try:
                     f_row = conn.execute(

@@ -41,24 +41,40 @@ def _probe_cli_version(kind: str, sys_dir: Path | None) -> str | None:
         return None
 
 
+def _packaged_observed_versions() -> dict[str, str]:
+    import importlib.resources as resources
+    import tomllib
+    try:
+        packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
+        with packaged.open("rb") as handle:
+            layer = tomllib.load(handle)
+        return dict(layer.get("observed_versions") or {})
+    except Exception:
+        return {}
+
+
 def _read_latest_facts_report(db_path: str | Path) -> dict[str, Any] | None:
     import sqlite3
     import json
+    conn = None
     try:
-        with sqlite3.connect(db_path) as conn:
-            row = conn.execute(
-                "SELECT payload_json FROM observations "
-                "WHERE kind='quota' AND payload_json LIKE '%facts_report%' "
-                "ORDER BY capture_seq DESC LIMIT 1"
-            ).fetchone()
-            if row and row[0]:
-                data_obj: object = json.loads(row[0])
-                if isinstance(data_obj, dict):
-                    rep_obj: object = cast(dict[str, Any], data_obj).get("facts_report")
-                    if isinstance(rep_obj, dict):
-                        return cast(dict[str, Any], rep_obj)
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT payload_json FROM observations "
+            "WHERE kind='quota' AND payload_json LIKE '%facts_report%' "
+            "ORDER BY capture_seq DESC LIMIT 1"
+        ).fetchone()
+        if row and row[0]:
+            data_obj: object = json.loads(row[0])
+            if isinstance(data_obj, dict):
+                rep_obj: object = cast(dict[str, Any], data_obj).get("facts_report")
+                if isinstance(rep_obj, dict):
+                    return cast(dict[str, Any], rep_obj)
     except (sqlite3.Error, ValueError, TypeError):
         pass
+    finally:
+        if conn is not None:
+            conn.close()
     return None
 
 
@@ -79,10 +95,9 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
         from peerhub.extensions.quota_probes import poll_agy_usage, poll_claude_usage, poll_codex_usage
         pollers = {"cx": poll_codex_usage, "cc": poll_claude_usage, "ag": poll_agy_usage}
 
-    from peerhub.extensions.adapters.profiles import packaged_defaults_meta
-    meta = packaged_defaults_meta()
-    observed_versions: dict[str, str] = meta.get("observed_versions") or {}
+    store = ObservationStore(db_path, require_existing=True)
 
+    observed_versions = _packaged_observed_versions()
     prior_report = _read_latest_facts_report(db_path)
     prior_checks: dict[str, str] = prior_report.get("checks", {}) if isinstance(prior_report, dict) else {}
     prior_reasons: list[str] = prior_report.get("reasons", []) if isinstance(prior_report, dict) else []
@@ -100,8 +115,6 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             probed_versions[peer] = v_fn(peer)
         except Exception:
             probed_versions[peer] = None
-
-    store = ObservationStore(db_path, require_existing=True)
     pending_obs: list[tuple[str, str | None, str, EvidenceState, dict[str, Any], str, str, bool]] = []
     warnings: list[str] = []
 
