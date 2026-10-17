@@ -91,10 +91,10 @@ def _size(value: object) -> str:
     return "unknown size"
 
 
-def _coverage(data: dict[str, Any]) -> str:
+def _coverage(data: dict[str, Any], unicode: bool = True) -> str:
     coverage = _obj(data.get("coverage"))
     if coverage.get("truncated") or data.get("truncated"):
-        return "partial · sample truncated"
+        return f"partial {'·' if unicode else '|'} sample truncated"
     return ""
 
 
@@ -108,6 +108,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     if data == {} and group.get("data") is None:
         return ["data unavailable"]
     rows: list[str] = []
+    sep = " · " if unicode else " | "
+    dot = "·" if unicode else "|"
 
     if group_id == "overview":
         peers = _items(data.get("peers"))
@@ -118,7 +120,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
         else:
             rows.append(f"Peers: {_count(data.get('sample_size'))} registered")
         if data.get("truncated") or data.get("session_sample_truncated") or data.get("peer_sample_truncated"):
-            rows.append("Coverage: partial · sample truncated")
+            rows.append(f"Coverage: partial {dot} sample truncated")
 
     elif group_id == "peers":
         peer_items = _items(data.get("peers"))
@@ -255,7 +257,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             obs_str = "checked unknown"
 
         footer = (
-            f"Model facts: {rev_str} · {obs_str} · "
+            f"Model facts: {rev_str}{sep}{obs_str}{sep}"
             "sources: codex debug models | agy models | claude: known ids"
         )
         rows.append(_fit(footer, max(0, width - 1), unicode))
@@ -301,11 +303,11 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             rows.append("Delivery certainty: " + ", ".join(f"{key.replace('_', ' ')} {_count(value)}"
                          for key, value in totals.items()))
             avg = latency_ns / latency_count / 1_000_000_000 if latency_count else None
-            rows.append(f"Measured delivery latency: {avg:.2f}s avg · {latency_count} samples" if avg is not None
+            rows.append(f"Measured delivery latency: {avg:.2f}s avg{sep}{latency_count} samples" if avg is not None
                         else "Measured delivery latency: unknown")
         else:
             rows.append("No delivery evidence")
-        note = _coverage(data)
+        note = _coverage(data, unicode)
         if note:
             rows.append(f"Coverage: {note}")
 
@@ -318,12 +320,12 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 model = _clean(binding.get("model") or "model unknown")
                 effort = _clean(binding.get("effort") or "effort unknown")
                 resume = "resumable" if session.get("resumable") else "not resumable"
-                rows.append(f"{_peer(session)} {_clean(session.get('state') or 'UNKNOWN')} · gen {_count(session.get('generation'))} · {profile} / {model} ({effort}) · {resume}")
+                rows.append(f"{_peer(session)} {_clean(session.get('state') or 'UNKNOWN')}{sep}gen {_count(session.get('generation'))}{sep}{profile} / {model} ({effort}){sep}{resume}")
             if len(sessions) > 2:
                 rows.append(f"+{len(sessions) - 2} sessions not shown")
         else:
             rows.append(f"Retained sessions: {_count(data.get('sample_size', 0))}")
-        note = _coverage(data)
+        note = _coverage(data, unicode)
         if note:
             rows.append(f"Coverage: {note}")
 
@@ -354,9 +356,9 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 state = _clean(context.get("state") or "UNKNOWN").upper()
                 if percent is not None and 0 <= percent <= 100:
                     cells = max(3, min(12, width // 12))
-                    rows.append(f"{_peer(session)} {percent:.0f}% {_bar(percent / 100, cells, unicode)} · {state}")
+                    rows.append(f"{_peer(session)} {percent:.0f}% {_bar(percent / 100, cells, unicode)}{sep}{state}")
                 else:
-                    rows.append(f"{_peer(session)} UNKNOWN · {_clean(context.get('reason') or 'context occupancy unreported')}")
+                    rows.append(f"{_peer(session)} UNKNOWN{sep}{_clean(context.get('reason') or 'context occupancy unreported')}")
             if len(sessions) > 2:
                 rows.append(f"+{len(sessions) - 2} sessions not shown")
         else:
@@ -378,23 +380,23 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     detail = f"{remaining * 100:.0f}% remaining {_bar(1 - remaining, cells, unicode)}"
                 else:
                     detail = "remaining unknown"
-                pace_text = f" · pace {pace:+.1f}pp" if pace is not None else ""
+                pace_text = f"{sep}pace {pace:+.1f}pp" if pace is not None else ""
                 projection_state = _clean(projection.get("state") or "unknown").upper()
                 exhaustion = _number(projection.get("exhaustion_at"))
                 eta_text = ""
                 if exhaustion is not None:
                     try:
-                        eta_text = " · ETA " + datetime.fromtimestamp(exhaustion, timezone.utc).strftime("%m-%d %H:%MZ")
+                        eta_text = f"{sep}ETA " + datetime.fromtimestamp(exhaustion, timezone.utc).strftime("%m-%d %H:%MZ")
                     except (OverflowError, OSError, ValueError):
-                        eta_text = " · ETA unknown"
-                age_text = f" · age {max(0.0, age + elapsed_seconds):.0f}s" if age is not None else ""
-                projection_text = f" · {projection_state}{eta_text}"
-                rows.append(f"{_peer(item)} {pool}: {detail} · {state}{projection_text}{pace_text}{age_text}")
+                        eta_text = f"{sep}ETA unknown"
+                age_text = f"{sep}age {max(0.0, age + elapsed_seconds):.0f}s" if age is not None else ""
+                projection_text = f"{sep}{projection_state}{eta_text}"
+                rows.append(f"{_peer(item)} {pool}: {detail}{sep}{state}{projection_text}{pace_text}{age_text}")
             if len(observations) > 2:
                 rows.append(f"+{len(observations) - 2} quota observations not shown")
         else:
             rows.append("Quota capacity: no observations")
-        note = _coverage(data)
+        note = _coverage(data, unicode)
         if note:
             rows.append(f"Coverage: {note}")
 
@@ -404,7 +406,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             for session in sessions[:2]:
                 binding = _obj(session.get("configured_binding"))
                 current = _obj(session.get("current_profile"))
-                rows.append(f"{_peer(session)} profile {_clean(binding.get('profile') or 'unknown')} · current {_clean(current.get('source') or 'unknown')} / {_clean(current.get('status') or 'UNKNOWN')}")
+                rows.append(f"{_peer(session)} profile {_clean(binding.get('profile') or 'unknown')}{sep}current {_clean(current.get('source') or 'unknown')} / {_clean(current.get('status') or 'UNKNOWN')}")
             if len(sessions) > 2:
                 rows.append(f"+{len(sessions) - 2} runtime sessions not shown")
         else:
@@ -416,10 +418,10 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                        and _obj(scope.get("usage_coverage")).get("complete") is True)
         rows.append(f"Scopes complete: {complete}/{len(scopes)}" if scopes else "No scope evidence")
         if data.get("truncated"):
-            rows.append("Coverage: partial · sample truncated")
+            rows.append(f"Coverage: partial {dot} sample truncated")
 
     elif group_id == "store":
-        rows.append(f"Schema {_count(data.get('schema_version'))} · database {_size(data.get('database_size_bytes'))}")
+        rows.append(f"Schema {_count(data.get('schema_version'))}{sep}database {_size(data.get('database_size_bytes'))}")
 
     else:
         # Keep future fields visible without exposing a JSON-shaped dump.
@@ -553,7 +555,7 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
         coverage = _obj(group.get("coverage"))
         if coverage.get("read") == "partial" and not any("partial" in line.lower() or "truncated" in line.lower()
                                                             for line in group_data):
-            group_data.append(f"Coverage: partial · {_clean(coverage.get('reason') or 'incomplete evidence')}")
+            group_data.append(f"Coverage: partial {'·' if unicode else '|'} {_clean(coverage.get('reason') or 'incomplete evidence')}")
         for content in group_data:
             fitted = _fit(content, content_width, unicode)
             if view == "rich" and unicode and width >= 32:
@@ -563,7 +565,7 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
         if view == "rich" and unicode and width >= 32:
             lines.append("╰" + "─" * (width - 2) + "╯")
     if not unicode:
-        lines = [line.encode("ascii", errors="replace").decode("ascii") for line in lines]
+        lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
     return "\n".join(lines) + "\n"
 
 
@@ -593,7 +595,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     refresh_state = _clean(payload.get("refresh_state") or "").upper()
     title = f"PeerHub Monitor | {status_label}"
     if errors or partial:
-        title += f" | {errors} err · {partial} partial"
+        title += f" | {errors} err {'·' if unicode else '|'} {partial} partial"
     if refresh_state:
         title += f" | {refresh_state}"
     read_at = _number(payload.get("read_at"))
@@ -620,7 +622,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         if width <= 24:
             title = f"{status_label} DB:{db_source}"
         else:
-            title = f"{title} DB:{db_source}" if width < 48 else f"{title} · DB:{db_source}"
+            title = f"{title} DB:{db_source}" if width < 48 else f"{title}{' · ' if unicode else ' | '}DB:{db_source}"
     lines = [_fit(title, width - 1, unicode)]
     if show_db_path:
         lines.append(_fit(f"DB [{db_source}]: {db_path}", width - 1, unicode))
@@ -660,7 +662,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         coverage = _obj(group.get("coverage"))
         if coverage.get("read") == "partial" and not any("partial" in line.lower() or "truncated" in line.lower()
                                                             for line in group_data):
-            group_data.append(f"Coverage: partial · {_clean(coverage.get('reason') or 'incomplete evidence')}")
+            group_data.append(f"Coverage: partial {'·' if unicode else '|'} {_clean(coverage.get('reason') or 'incomplete evidence')}")
         summary = _fit(group_data.pop(0) if group_data else "No data", content_width, unicode)
         blocks.append((_priority(group), order, heading, [summary, *group_data]))
     # Severity controls which summaries survive a short viewport; catalog order is stable.
@@ -675,14 +677,16 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         indent = "  " if width >= 4 else ""
         lines.append(indent + rows[0])
     if hidden:
+        sep = " · " if unicode else " | "
         if width >= 64:
-            overflow = f"{hidden} groups omitted · peerhub monitor --snapshot --group all"
+            overflow = f"{hidden} groups omitted{sep}peerhub monitor --snapshot --group all"
         elif width >= 32:
-            overflow = f"{hidden} groups omitted · --group all"
+            overflow = f"{hidden} groups omitted{sep}--group all"
         else:
             overflow = f"+{hidden} --group all"
         lines.append(_fit(overflow, width - 1, unicode))
-    if payload.get("refresh_state") == "STOPPED · AGY TOKEN USE" and len(lines) < height - 1:
+    refresh_clean = str(payload.get("refresh_state") or "")
+    if refresh_clean == "STOPPED · AGY TOKEN USE" and len(lines) < height - 1:
         lines.append(_fit("Next: --allow-agy-token-use to continue", width - 1, unicode))
     for warning in _safe_refresh_warning_labels(payload.get("refresh_warnings")):
         if len(lines) >= height - 1:
@@ -700,5 +704,5 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     lines = lines[:height - 1]
     # Force ASCII on request even if data contains provider-controlled Unicode.
     if not unicode:
-        lines = [line.encode("ascii", errors="replace").decode("ascii") for line in lines]
+        lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
     return "\n".join(lines) + "\n"
