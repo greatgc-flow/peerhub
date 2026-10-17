@@ -267,10 +267,22 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             reasons_raw = rep_dict.get("reasons")
             reasons = [str(r) for r in cast(list[object], reasons_raw)] if isinstance(reasons_raw, list) else []
             if status == "needs_recheck":
-                reason_str = f" ({', '.join(reasons)})" if reasons else ""
+                raw_unk: object = rep_dict.get("unknown_pools")
+                unk_pools: list[str] = [str(p) for p in cast(list[object], raw_unk)] if isinstance(raw_unk, list) else []
+                display_reasons: list[str] = []
+                for r in reasons:
+                    if r == "ag: unknown_pool" and unk_pools:
+                        display_reasons.append(f"ag: unknown_pool: {', '.join(unk_pools)}")
+                    else:
+                        display_reasons.append(r)
+                reason_str = f" ({', '.join(display_reasons)})" if display_reasons else ""
                 facts_line = f"Facts: needs_recheck{reason_str} - refresh-model-profiles"
             elif status == "ok":
-                facts_line = "Facts: ok"
+                chk_date = str(rep_dict.get("checked_at") or "")
+                chk_date_str = f" (checked {chk_date[:10]})" if chk_date else ""
+                facts_line = f"Facts: ok{chk_date_str}"
+            elif status == "unverified":
+                facts_line = "Facts: unverified"
             else:
                 facts_line = f"Facts: {status}" if status else "Facts: unknown"
             rows.append(_fit(facts_line, max(0, width - 1), unicode))

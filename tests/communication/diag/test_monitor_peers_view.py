@@ -939,7 +939,61 @@ def test_peers_view_footer_shows_facts_ok_when_clean(tmp_path):
     assert frame["groups"]["peers"]["data"]["facts_report"]["status"] == "ok"
 
     rendered = render_grouped_frame(frame, view="plain", width=80)
-    assert "Facts: ok" in rendered
+    assert f"Facts: ok (checked {now_iso[:10]})" in rendered
+
+
+def test_peers_view_footer_shows_facts_unverified_and_unknown_pools(tmp_path):
+    """S4/CC review: Monitor prints Facts: unverified when status unverified, and displays unknown pools."""
+    from tests.communication.bridge_helpers import bseed
+    from tests.communication.harness.bridge import BridgeHarness
+    from peerhub.extensions.observation import ObservationStore
+    from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
+    from tests.communication.fakes.observation import FakeObservationSource, measured
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    harness = BridgeHarness(tmp_path / "workspace")
+    bseed(harness, peers=("a", "ag"), stream="s")
+    obs = ObservationStore(harness.db_path, clock=harness.clock.now)
+
+    def _pool(pool_id: str, provider: str) -> dict:
+        return {"schema_version": "1.0", "resource_pool_id": pool_id,
+                "provider": provider, "kind": "QUOTA", "metadata": {}}
+
+    obs.register_resource_pool(ResourcePool.model_validate(_pool("quota:ag:G-5H", "google")))
+    now_iso = epoch_to_iso(harness.clock.now())
+    # 1. Unverified facts
+    facts_unverified = {
+        "status": "unverified",
+        "reasons": [],
+        "checks": {"ag_pools": "unknown", "ag_version": "unknown"},
+        "checked_at": None,
+    }
+    obs.capture(
+        "ag", "quota",
+        FakeObservationSource(measured({"remaining_fraction": 0.85, "facts_report": facts_unverified}, observed_at=now_iso)),
+        resource_pool_ref="quota:ag:G-5H",
+    )
+    frame = render_monitor_frame(harness.db_path, ["peers"], read_at=harness.clock.now() + 5, workspace=harness.workspace)
+    rendered = render_grouped_frame(frame, view="plain", width=80)
+    assert "Facts: unverified" in rendered
+
+    # 2. Unknown pools displayed in monitor line
+    facts_with_pools = {
+        "status": "needs_recheck",
+        "reasons": ["ag: unknown_pool"],
+        "unknown_pools": ["gemini-exp", "gemini-ultra"],
+        "checks": {"ag_pools": "drift"},
+        "checked_at": now_iso,
+    }
+    obs.capture(
+        "ag", "quota",
+        FakeObservationSource(measured({"remaining_fraction": 0.85, "facts_report": facts_with_pools}, observed_at=now_iso)),
+        resource_pool_ref="quota:ag:G-5H",
+    )
+    frame2 = render_monitor_frame(harness.db_path, ["peers"], read_at=harness.clock.now() + 6, workspace=harness.workspace)
+    rendered2 = render_grouped_frame(frame2, view="plain", width=120)
+    assert "Facts: needs_recheck (ag: unknown_pool: gemini-exp, gemini-ultra) - refresh-model-profiles" in rendered2
 
 
 def test_peers_view_footer_clips_facts_line_within_narrow_columns(tmp_path):

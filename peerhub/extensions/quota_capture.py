@@ -53,28 +53,28 @@ def _packaged_observed_versions() -> dict[str, str]:
         return {}
 
 
-def _read_latest_facts_report(db_path: str | Path) -> dict[str, Any] | None:
-    import sqlite3
+def _read_latest_facts_report(store: ObservationStore) -> dict[str, Any] | None:
     import json
-    conn = None
     try:
-        conn = sqlite3.connect(db_path)
-        row = conn.execute(
-            "SELECT payload_json FROM observations "
-            "WHERE kind='quota' AND payload_json LIKE '%facts_report%' "
-            "ORDER BY capture_seq DESC LIMIT 1"
-        ).fetchone()
-        if row and row[0]:
-            data_obj: object = json.loads(row[0])
-            if isinstance(data_obj, dict):
-                rep_obj: object = cast(dict[str, Any], data_obj).get("facts_report")
-                if isinstance(rep_obj, dict):
-                    return cast(dict[str, Any], rep_obj)
-    except (sqlite3.Error, ValueError, TypeError):
+        with store.read_tx() as conn:
+            rows = conn.execute(
+                "SELECT payload_json FROM observations "
+                "WHERE kind='quota' "
+                "ORDER BY capture_seq DESC LIMIT 20"
+            ).fetchall()
+            for (p_str,) in rows:
+                if not p_str or "facts_report" not in p_str:
+                    continue
+                try:
+                    data_obj: object = json.loads(p_str)
+                    if isinstance(data_obj, dict):
+                        rep_obj: object = cast(dict[str, Any], data_obj).get("facts_report")
+                        if isinstance(rep_obj, dict):
+                            return cast(dict[str, Any], rep_obj)
+                except (ValueError, TypeError):
+                    continue
+    except Exception:
         pass
-    finally:
-        if conn is not None:
-            conn.close()
     return None
 
 
@@ -98,9 +98,11 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     store = ObservationStore(db_path, require_existing=True)
 
     observed_versions = _packaged_observed_versions()
-    prior_report = _read_latest_facts_report(db_path)
+    prior_report = _read_latest_facts_report(store)
     prior_checks: dict[str, str] = prior_report.get("checks", {}) if isinstance(prior_report, dict) else {}
+    prior_check_dates: dict[str, str] = prior_report.get("check_dates", {}) if isinstance(prior_report, dict) else {}
     prior_reasons: list[str] = prior_report.get("reasons", []) if isinstance(prior_report, dict) else []
+    prior_unknown_pools: list[str] = [str(p) for p in prior_report.get("unknown_pools", [])] if isinstance(prior_report, dict) else []
 
     ag_probed_ok = False
     ag_unknown_pools: list[str] = []
@@ -110,11 +112,11 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
         return _probe_cli_version(k, sys_dir)
 
     v_fn: Callable[[str], str | None] = version_checker if version_checker is not None else _default_v_fn
-    for peer in peers:
+    for kind in set(kinds):
         try:
-            probed_versions[peer] = v_fn(peer)
+            probed_versions[kind] = v_fn(kind)
         except Exception:
-            probed_versions[peer] = None
+            probed_versions[kind] = None
     pending_obs: list[tuple[str, str | None, str, EvidenceState, dict[str, Any], str, str, bool]] = []
     warnings: list[str] = []
 
@@ -124,7 +126,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                                     deadline_sec=deadline_sec, sys_dir=sys_dir)
             if not readings:
                 raise ValueError("probe returned no evidence")
-            if peer == "ag":
+            if kind == "ag":
                 ag_probed_ok = True
                 for r in readings:
                     extra_obj: object = getattr(r, "extra", None)
@@ -175,10 +177,21 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                 epoch_to_iso(evidence.captured_at), False,
             ))
 
+    import re
+    today = utc_now_iso()[:10]
     checks: dict[str, str] = {}
+    check_dates: dict[str, str] = {}
     reasons: set[str] = set()
 
-    if "ag" in peers and ag_probed_ok:
+    sanitized_unknown_pools: list[str] = []
+    if ag_unknown_pools:
+        cleaned = [re.sub(r"[^\w\-\:\.]", "", p).strip() for p in ag_unknown_pools]
+        sanitized_unknown_pools = sorted(list(dict.fromkeys(c for c in cleaned if c)))[:5]
+    elif prior_checks.get("ag_pools") == "drift":
+        sanitized_unknown_pools = prior_unknown_pools[:5]
+
+    if "ag" in kinds and ag_probed_ok:
+        check_dates["ag_pools"] = today
         if ag_unknown_pools:
             checks["ag_pools"] = "drift"
             reasons.add("ag: unknown_pool")
@@ -187,37 +200,55 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     else:
         if prior_checks.get("ag_pools") == "drift":
             checks["ag_pools"] = "drift"
+            check_dates["ag_pools"] = prior_check_dates.get("ag_pools", today)
             for r in prior_reasons:
                 if r == "ag: unknown_pool":
                     reasons.add(r)
         else:
             checks["ag_pools"] = prior_checks.get("ag_pools", "unknown")
+            if "ag_pools" in prior_check_dates:
+                check_dates["ag_pools"] = prior_check_dates["ag_pools"]
 
     ver_targets = [("ag", "ag_version", "agy"), ("cc", "cc_version", "claude"), ("cx", "cx_version", "codex-cli")]
-    for p_id, chk_key, obs_key in ver_targets:
-        if p_id in peers and p_id in probed_versions and probed_versions[p_id] is not None:
-            v_val = probed_versions[p_id]
-            expected = observed_versions.get(p_id) or observed_versions.get(obs_key)
+    for p_kind, chk_key, obs_key in ver_targets:
+        if p_kind in kinds and p_kind in probed_versions and probed_versions[p_kind] is not None:
+            v_val = probed_versions[p_kind]
+            expected = observed_versions.get(p_kind) or observed_versions.get(obs_key)
+            check_dates[chk_key] = today
             if expected and v_val != expected:
                 checks[chk_key] = "drift"
-                reasons.add(f"{p_id}: version_drift")
+                reasons.add(f"{p_kind}: version_drift")
             else:
                 checks[chk_key] = "ok"
         else:
             if prior_checks.get(chk_key) == "drift":
                 checks[chk_key] = "drift"
+                check_dates[chk_key] = prior_check_dates.get(chk_key, today)
                 for r in prior_reasons:
-                    if r.startswith(f"{p_id}:"):
+                    if r.startswith(f"{p_kind}:"):
                         reasons.add(r)
             else:
                 checks[chk_key] = prior_checks.get(chk_key, "unknown")
+                if chk_key in prior_check_dates:
+                    check_dates[chk_key] = prior_check_dates[chk_key]
 
-    report_status = "needs_recheck" if reasons else "ok"
+    if reasons:
+        report_status = "needs_recheck"
+    elif any(v == "ok" for v in checks.values()):
+        report_status = "ok"
+    else:
+        report_status = "unverified"
+
+    ok_dates = [check_dates[k] for k, v in checks.items() if v == "ok" and k in check_dates]
+    report_checked_at: str | None = max(ok_dates) if ok_dates else (today if report_status == "ok" else None)
+
     facts_report = {
         "status": report_status,
         "reasons": sorted(reasons),
         "checks": checks,
-        "checked_at": utc_now_iso(),
+        "check_dates": check_dates,
+        "unknown_pools": sanitized_unknown_pools,
+        "checked_at": report_checked_at,
     }
 
     written: list[dict[str, Any]] = []

@@ -13,60 +13,69 @@
       "model": "gemini-3.8-flash-low",
       "source": "cli:agy.exe models@1.4.0 2026-10-16",
       "checked": "2026-10-16",
-      "pools": ["G-5H", "G-7D"]
+      "pools": ["G-5H", "G-7D"],
+      "pools_source": "unverified"
     },
     "ag.effort": {
       "model": "gemini-3.8-flash-medium",
       "source": "cli:agy.exe models@1.4.0 2026-10-16",
       "checked": "2026-10-16",
-      "pools": ["G-5H", "G-7D"]
+      "pools": ["G-5H", "G-7D"],
+      "pools_source": "unverified"
     },
     "ag.deepthink": {
       "model": "claude-sonnet-5-5-high",
       "source": "cli:agy.exe models@1.4.0 2026-10-16",
       "checked": "2026-10-16",
-      "pools": ["3P-5H", "3P-7D"]
+      "pools": ["3P-5H", "3P-7D"],
+      "pools_source": "unverified"
     },
     "cc.standard": {
       "model": "claude-haiku-5-5",
       "source": "known-id:claude --help aliases@2.1.301 2026-10-16",
       "checked": "2026-10-16",
-      "pools": ["C-5H", "C-7D"]
+      "pools": ["C-5H", "C-7D"],
+      "pools_source": "unverified"
     },
     "cc.effort": {
       "model": "claude-sonnet-5-5",
       "reasoning_effort": "high",
       "source": "known-id:claude --help aliases@2.1.301 2026-10-16",
       "checked": "2026-10-16",
-      "pools": ["C-5H", "C-7D"]
+      "pools": ["C-5H", "C-7D"],
+      "pools_source": "unverified"
     },
     "cc.deepthink": {
       "model": "claude-opus-5-5",
       "reasoning_effort": "high",
       "source": "known-id:claude --help aliases@2.1.301 2026-10-16",
       "checked": "2026-10-16",
-      "pools": ["C-5H", "C-7D"]
+      "pools": ["C-5H", "C-7D"],
+      "pools_source": "unverified"
     },
     "cx.standard": {
       "model": "gpt-6-luna",
       "reasoning_effort": "low",
       "source": "cli:codex debug models@0.163.0 2026-10-16",
       "checked": "2026-10-16",
-      "pools": ["X-5H", "X-7D"]
+      "pools": ["X-5H", "X-7D"],
+      "pools_source": "unverified"
     },
     "cx.effort": {
       "model": "gpt-6.1-sol",
       "reasoning_effort": "medium",
       "source": "cli:codex debug models@0.163.0 2026-10-16",
       "checked": "2026-10-16",
-      "pools": ["X-5H", "X-7D"]
+      "pools": ["X-5H", "X-7D"],
+      "pools_source": "unverified"
     },
     "cx.deepthink": {
       "model": "gpt-6.1-sol",
       "reasoning_effort": "xhigh",
       "source": "cli:codex debug models@0.163.0 2026-10-16",
       "checked": "2026-10-16",
-      "pools": ["X-5H", "X-7D"]
+      "pools": ["X-5H", "X-7D"],
+      "pools_source": "unverified"
     }
   },
   "sources": {

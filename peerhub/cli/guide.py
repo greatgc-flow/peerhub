@@ -15,9 +15,11 @@ def render_guide(workspace: Path | None = None) -> str:
     from peerhub.extensions.adapters.profiles import list_profiles
 
     ws = workspace or Path(".")
+    load_error: str | None = None
     try:
         profs = list_profiles(ws)
-    except Exception:
+    except Exception as exc:
+        load_error = f"{type(exc).__name__}: {exc}"
         profs = []
 
     tier_order = {"standard": 0, "effort": 1, "deepthink": 2}
@@ -33,9 +35,11 @@ def render_guide(workspace: Path | None = None) -> str:
         "========================================",
         "",
         "Profiles (defaulting to .standard first):",
-        f"{'Profile':<14} {'Model':<24} {'Pools':<14} {'Source'}",
+        f"{'Profile':<14} {'Model':<24} {'Pools':<14} {'Layer'}",
         "-" * 64,
     ]
+    if load_error:
+        lines.append(f"  (error loading profiles: {load_error})")
     for p in sorted_profs:
         raw_fields: object = p.get("fields")
         fields: dict[str, Any] = cast(dict[str, Any], raw_fields) if isinstance(raw_fields, dict) else {}
@@ -54,8 +58,8 @@ def render_guide(workspace: Path | None = None) -> str:
     lines.extend([
         "",
         "Two-Asks Session Reuse Example:",
-        '  peerhub ask cc "Explain the architecture" --profile cc.standard --stream arch-review',
-        '  peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review',
+        '  peerhub ask cc "Explain the architecture" --profile cc.standard --stream arch-review --request-id req-001',
+        '  peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002',
         "  (Subsequent asks on the same stream reuse the warm session automatically)",
         "",
         "Delivery Safety & Uncertainty:",
@@ -66,11 +70,11 @@ def render_guide(workspace: Path | None = None) -> str:
         "  peerhub monitor              # live dashboard: quota, session lineage, facts",
         "  peerhub diag                 # read-only diagnostics across all peers",
         "  peerhub profile list         # inspect resolved configuration layers",
-        "  peerhub session list         # list retained sessions and context usage",
+        "  peerhub session list         # list retained sessions and runtime state",
         "  peerhub observation refresh  # re-probe provider quota observations",
         "",
         "Model Facts & CLI Drift Recovery:",
-        "  When the monitor shows 'Facts: needs_recheck', run repo skill:",
-        "    refresh-model-profiles     # single recovery step to probe and update facts",
+        "  When the monitor shows 'Facts: needs_recheck', consult docs/model-profiles/ (refresh-model-profiles):",
+        "    peerhub observation refresh  # re-probe provider quota observations",
     ])
     return "\n".join(lines)

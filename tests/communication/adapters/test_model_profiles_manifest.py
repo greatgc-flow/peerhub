@@ -54,8 +54,10 @@ def test_manifest_and_toml_source_and_date_present():
         for pid, p in prof_dict.items():
             source = p.get("source")
             checked = p.get("checked")
+            pools_source = p.get("pools_source")
             assert isinstance(source, str) and len(source) > 0, f"{source_name} {pid} missing source"
             assert isinstance(checked, str) and date_pat.match(checked), f"{source_name} {pid} invalid checked date: {checked!r}"
+            assert pools_source == "unverified", f"{source_name} {pid} pools_source is not 'unverified'"
 
 
 def test_manifest_pools_evidenced_mappings():

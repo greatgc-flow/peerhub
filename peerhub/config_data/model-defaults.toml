@@ -22,6 +22,7 @@ reasoning_effort = "low"
 source = "cli:codex debug models@0.163.0 2026-10-16"
 checked = "2026-10-16"
 pools = ["X-5H", "X-7D"]
+pools_source = "unverified"
 
 [profiles."cx.effort"]
 selection_mode = "pinned"
@@ -30,6 +31,7 @@ reasoning_effort = "medium"
 source = "cli:codex debug models@0.163.0 2026-10-16"
 checked = "2026-10-16"
 pools = ["X-5H", "X-7D"]
+pools_source = "unverified"
 
 [profiles."cx.deepthink"]
 selection_mode = "pinned"
@@ -38,6 +40,7 @@ reasoning_effort = "xhigh"
 source = "cli:codex debug models@0.163.0 2026-10-16"
 checked = "2026-10-16"
 pools = ["X-5H", "X-7D"]
+pools_source = "unverified"
 
 [profiles."cc.standard"]
 selection_mode = "pinned"
@@ -45,6 +48,7 @@ model = "claude-haiku-5-5"
 source = "known-id:claude --help aliases@2.1.301 2026-10-16"
 checked = "2026-10-16"
 pools = ["C-5H", "C-7D"]
+pools_source = "unverified"
 
 [profiles."cc.effort"]
 selection_mode = "pinned"
@@ -53,6 +57,7 @@ reasoning_effort = "high"
 source = "known-id:claude --help aliases@2.1.301 2026-10-16"
 checked = "2026-10-16"
 pools = ["C-5H", "C-7D"]
+pools_source = "unverified"
 
 [profiles."cc.deepthink"]
 selection_mode = "pinned"
@@ -61,6 +66,7 @@ reasoning_effort = "high"
 source = "known-id:claude --help aliases@2.1.301 2026-10-16"
 checked = "2026-10-16"
 pools = ["C-5H", "C-7D"]
+pools_source = "unverified"
 
 [profiles."ag.standard"]
 selection_mode = "pinned"
@@ -68,6 +74,7 @@ model = "gemini-3.8-flash-low"
 source = "cli:agy.exe models@1.4.0 2026-10-16"
 checked = "2026-10-16"
 pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
 
 [profiles."ag.effort"]
 selection_mode = "pinned"
@@ -75,6 +82,7 @@ model = "gemini-3.8-flash-medium"
 source = "cli:agy.exe models@1.4.0 2026-10-16"
 checked = "2026-10-16"
 pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
 
 [profiles."ag.deepthink"]
 selection_mode = "pinned"
@@ -82,3 +90,4 @@ model = "claude-sonnet-5-5-high"
 source = "cli:agy.exe models@1.4.0 2026-10-16"
 checked = "2026-10-16"
 pools = ["3P-5H", "3P-7D"]
+pools_source = "unverified"

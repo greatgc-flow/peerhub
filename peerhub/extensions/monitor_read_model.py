@@ -630,17 +630,23 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             defaults_meta = packaged_defaults_meta()
             if latest_facts_report is None:
                 try:
-                    f_row = conn.execute(
+                    f_rows = conn.execute(
                         "SELECT payload_json FROM observations "
-                        "WHERE kind='quota' AND payload_json LIKE '%facts_report%' "
-                        "ORDER BY capture_seq DESC LIMIT 1"
-                    ).fetchone()
-                    if f_row and f_row[0]:
-                        data_obj: object = json.loads(f_row[0])
-                        if isinstance(data_obj, dict):
-                            rep_val: object = cast(dict[str, Any], data_obj).get("facts_report")
-                            if isinstance(rep_val, dict):
-                                latest_facts_report = cast(dict[str, Any], rep_val)
+                        "WHERE kind='quota' "
+                        "ORDER BY capture_seq DESC LIMIT 20"
+                    ).fetchall()
+                    for (f_str,) in f_rows:
+                        if not f_str or "facts_report" not in f_str:
+                            continue
+                        try:
+                            data_obj: object = json.loads(f_str)
+                            if isinstance(data_obj, dict):
+                                rep_val: object = cast(dict[str, Any], data_obj).get("facts_report")
+                                if isinstance(rep_val, dict):
+                                    latest_facts_report = cast(dict[str, Any], rep_val)
+                                    break
+                        except (ValueError, TypeError):
+                            continue
                 except (sqlite3.Error, ValueError, TypeError):
                     pass
             output["peers"] = {

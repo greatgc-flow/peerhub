@@ -170,3 +170,104 @@ def test_refresh_quota_partial_or_failed_refresh_preserves_prior_drift(tmp_path)
     assert rep3["status"] == "ok"
     assert "ag: unknown_pool" not in rep3["reasons"]
     assert rep3["checks"]["ag_pools"] == "ok"
+
+
+def test_refresh_quota_with_peer_alias_agy(tmp_path):
+    """S3/CC review: key pool-drift/version checks on kind (aliases agy/claude/codex work)."""
+    db = tmp_path / "core.db"
+    CoreStore(db)
+
+    value = SimpleNamespace(quota_pool_scope="G-5H", remaining_fraction=0.80,
+                            window_started_at=100, resets_at=18100)
+    evidence = SimpleNamespace(state=EvidenceState.MEASURED, value=value, evidence_ref="probe:ag",
+                               source_tag="fake_usage", observed_at=100, captured_at=100)
+    reading = SimpleNamespace(evidence=evidence, extra={"unknown_pools": ["custom-pool-1"]})
+
+    result = refresh_quota(
+        db, ["agy"],
+        pollers={"ag": lambda **kw: [reading]},
+        version_checker=lambda kind: "1.4.0",
+    )
+    obs = result["observations"][0]
+    report = obs["payload"]["facts_report"]
+    assert report["status"] == "needs_recheck"
+    assert "ag: unknown_pool" in report["reasons"]
+    assert report["checks"]["ag_pools"] == "drift"
+    assert report["checks"]["ag_version"] == "ok"
+    assert report["unknown_pools"] == ["custom-pool-1"]
+
+
+def test_facts_report_sanitizes_and_caps_unknown_pools(tmp_path):
+    """S3/CC review: up to 5 sanitized unknown pool IDs stored in report."""
+    db = tmp_path / "core.db"
+    CoreStore(db)
+
+    value = SimpleNamespace(quota_pool_scope="G-5H", remaining_fraction=0.80,
+                            window_started_at=100, resets_at=18100)
+    evidence = SimpleNamespace(state=EvidenceState.MEASURED, value=value, evidence_ref="probe:ag",
+                               source_tag="fake_usage", observed_at=100, captured_at=100)
+    pools = ["bad pool @ 1", "pool-2", "pool-3", "pool-4", "pool-5", "pool-6", "pool-2"]
+    reading = SimpleNamespace(evidence=evidence, extra={"unknown_pools": pools})
+
+    result = refresh_quota(
+        db, ["ag"],
+        pollers={"ag": lambda **kw: [reading]},
+        version_checker=lambda kind: "1.4.0",
+    )
+    obs = result["observations"][0]
+    report = obs["payload"]["facts_report"]
+    assert len(report["unknown_pools"]) == 5
+    assert "badpool1" in report["unknown_pools"]
+    assert "pool-2" in report["unknown_pools"]
+
+
+def test_facts_report_carries_per_check_date_and_unverified_status(tmp_path):
+    """S3/CC review: carry per-check date forward without refreshing checked_at; overall unverified unless >=1 ok."""
+    from peerhub.extensions.observation import ObservationStore
+    from peerhub.extensions.observation_model import Observation, epoch_to_iso
+    import uuid
+
+    db = tmp_path / "core.db"
+    CoreStore(db)
+    store = ObservationStore(db)
+
+    # Seed an observation with check_dates from earlier
+    prior_facts = {
+        "status": "ok",
+        "reasons": [],
+        "checks": {"ag_pools": "ok", "ag_version": "ok", "cc_version": "unknown", "cx_version": "unknown"},
+        "check_dates": {"ag_pools": "2026-10-10", "ag_version": "2026-10-10"},
+        "checked_at": "2026-10-10",
+        "unknown_pools": [],
+    }
+    store.persist(Observation(
+        observation_id=uuid.uuid4().hex,
+        subject_ref="ag",
+        kind="quota",
+        source="seed",
+        state=EvidenceState.MEASURED,
+        payload={"remaining_fraction": 0.9, "facts_report": prior_facts},
+        observed_at="2026-10-10T12:00:00Z",
+        captured_at="2026-10-10T12:00:00Z",
+    ))
+
+    # Probe cx only (no version returned)
+    value_cx = SimpleNamespace(quota_pool_scope="X-5H", remaining_fraction=0.85,
+                               window_started_at=200, resets_at=18200)
+    ev_cx = SimpleNamespace(state=EvidenceState.MEASURED, value=value_cx, evidence_ref="probe:cx",
+                            source_tag="fake", observed_at=200, captured_at=200)
+    reading_cx = SimpleNamespace(evidence=ev_cx, extra={})
+
+    res = refresh_quota(
+        db, ["cx"],
+        pollers={"cx": lambda **kw: [reading_cx]},
+        version_checker=lambda kind: None,  # no version probe
+    )
+    rep = res["observations"][0]["payload"]["facts_report"]
+    # Carried checks ag_pools and ag_version must keep their original 2026-10-10 dates!
+    assert rep["check_dates"]["ag_pools"] == "2026-10-10"
+    assert rep["check_dates"]["ag_version"] == "2026-10-10"
+    assert rep["checks"]["ag_pools"] == "ok"
+    assert rep["status"] == "ok"
+    assert rep["checked_at"] == "2026-10-10"
+

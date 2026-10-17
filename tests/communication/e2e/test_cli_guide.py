@@ -18,7 +18,7 @@ import pytest
 
 from peerhub.cli.app import build_parser, main
 
-pytestmark = [pytest.mark.e2e]
+pytestmark = [pytest.mark.unit]
 
 
 def test_guide_line_and_token_cap(capsys):
@@ -87,15 +87,36 @@ def test_guide_contains_required_sections_and_guidance(capsys):
     assert code == 0
     out = capsys.readouterr().out
 
-    # Two-asks reuse example
+    # Two-asks reuse example with distinct request-id
     assert "ask" in out and "--stream" in out
+    assert "--request-id req-001" in out and "--request-id req-002" in out
     # Uncertain delivery / no blind retry guidance
     assert "blind retry" in out.lower() or "uncertain" in out.lower()
     # Discovery commands
     assert "peerhub monitor" in out
     assert "peerhub diag" in out
-    # Single recovery step
+    assert "session list" in out
+    assert "context usage" not in out
+    # Layer column label accurate
+    assert "Layer" in out
+    # Single recovery step without saying repo skill
+    assert "repo skill" not in out.lower()
     assert "refresh-model-profiles" in out
+
+
+def test_guide_shows_error_line_if_profiles_fail(monkeypatch, capsys):
+    """S5/CC review: No silent except Exception empty table; error line is displayed."""
+    from peerhub.cli.app import main
+    import peerhub.extensions.adapters.profiles as prof_mod
+
+    def _fail_list(ws):
+        raise RuntimeError("disk unreadable")
+
+    monkeypatch.setattr(prof_mod, "list_profiles", _fail_list)
+    code = main(["guide"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "error loading profiles: RuntimeError: disk unreadable" in out
 
 
 def test_guide_works_without_store_or_providers(tmp_path, monkeypatch, capsys):
