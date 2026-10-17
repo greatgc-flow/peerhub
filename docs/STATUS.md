@@ -2,6 +2,8 @@
 
 ## Current release: v0.18.2 (published 2026-10-16T16:17:37Z, tag v0.18.2, target 8274e9f5; live gate G3 6+3+3 passed bound to 8274e9f5; PR #111)
 
+Benchmark v0.16.0 vs v0.18.2 (live, MECE; cc/cx/ag unanimous): `docs/benchmarks/v0.16.0-vs-v0.18.2-2026-10-17.md`.
+
 v0.18.2 adds the monitor peers group (linking quota, profile/model, session
 reuse, and context), model-fact provenance reporting, and SQLite store schema
 version gate 4 (central connection factory). It also incorporates the responsive
