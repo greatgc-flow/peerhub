@@ -6,6 +6,16 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
+## [Unreleased]
+
+### Added
+
+- Guidance registry (`peerhub/cli/recovery.py`) mapping ask-path non-success outcomes to structured guidance and recovery advice (`meaning`, `why`, `recover` argv arrays, `avoid`, `docs`).
+- Offline `peerhub explain CODE [--json]` subcommand providing detailed human-readable and structured JSON guidance for outcome codes.
+- Additive top-level `guidance` object `{code, explain_cmd, summary}` on non-success `peerhub ask --json` outputs, and concise hints on human stderr.
+- Contract tests verifying all ask-path non-success outcomes have well-formed recovery registry entries that parse with the real CLI parser and never recommend unsafe operations.
+- Direct `ClaimHeldError` classification in CLI `main`, preserving error status while mapping to `ask_claim_held` recovery guidance.
+
 ## [0.19.0] - 2026-10-17
 
 ### Breaking
