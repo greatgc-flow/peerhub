@@ -20,12 +20,54 @@ def test_manifest_is_valid_against_its_json_schema():
 def test_manifest_equals_the_packaged_toml_profile_by_profile():
     assert MANIFEST["revision"] == TOML["defaults_revision"]
     assert MANIFEST["observed_at"] == TOML["observed_at"]
+    assert MANIFEST["observed_versions"] == TOML["observed_versions"]
     packaged = {k: v for k, v in TOML["profiles"].items() if k != "*"}
     assert set(packaged) == set(MANIFEST["profiles"])
     for pid, want in MANIFEST["profiles"].items():
         got = packaged[pid]
         assert got["selection_mode"] == "pinned" and got["model"] == want["model"], pid
         assert got.get("reasoning_effort") == want.get("reasoning_effort"), pid
+        assert got.get("pools") == want.get("pools"), pid
+        assert got.get("source") == want.get("source"), pid
+        assert got.get("checked") == want.get("checked"), pid
+
+
+def test_manifest_and_toml_every_pool_id_exists_in_probe_constants():
+    from peerhub.extensions.quota_probes import AGY_QUOTA_FAMILIES, _CLAUDE_USAGE_SECTIONS
+
+    ag_pools = {v for _, v in AGY_QUOTA_FAMILIES}
+    cc_pools = {v[0] for v in _CLAUDE_USAGE_SECTIONS.values()}
+    cx_pools = {"X-5H", "X-7D"}
+    all_known_pools = ag_pools | cc_pools | cx_pools
+
+    for source_name, prof_dict in [("manifest", MANIFEST["profiles"]), ("toml", TOML["profiles"])]:
+        for pid, p in prof_dict.items():
+            pools = p.get("pools")
+            assert isinstance(pools, list) and len(pools) > 0, f"{source_name} {pid} missing pools"
+            for pool_id in pools:
+                assert pool_id in all_known_pools, f"{source_name} {pid} pool {pool_id!r} not in known probe constants"
+
+
+def test_manifest_and_toml_source_and_date_present():
+    date_pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    for source_name, prof_dict in [("manifest", MANIFEST["profiles"]), ("toml", TOML["profiles"])]:
+        for pid, p in prof_dict.items():
+            source = p.get("source")
+            checked = p.get("checked")
+            assert isinstance(source, str) and len(source) > 0, f"{source_name} {pid} missing source"
+            assert isinstance(checked, str) and date_pat.match(checked), f"{source_name} {pid} invalid checked date: {checked!r}"
+
+
+def test_manifest_pools_evidenced_mappings():
+    assert MANIFEST["profiles"]["ag.standard"]["pools"] == ["G-5H", "G-7D"]
+    assert MANIFEST["profiles"]["ag.effort"]["pools"] == ["G-5H", "G-7D"]
+    assert MANIFEST["profiles"]["ag.deepthink"]["pools"] == ["3P-5H", "3P-7D"]
+    assert MANIFEST["profiles"]["cc.standard"]["pools"] == ["C-5H", "C-7D"]
+    assert MANIFEST["profiles"]["cc.effort"]["pools"] == ["C-5H", "C-7D"]
+    assert MANIFEST["profiles"]["cc.deepthink"]["pools"] == ["C-5H", "C-7D"]
+    assert MANIFEST["profiles"]["cx.standard"]["pools"] == ["X-5H", "X-7D"]
+    assert MANIFEST["profiles"]["cx.effort"]["pools"] == ["X-5H", "X-7D"]
+    assert MANIFEST["profiles"]["cx.deepthink"]["pools"] == ["X-5H", "X-7D"]
 
 
 def test_adapter_docs_link_to_the_manifest_without_profile_tables():

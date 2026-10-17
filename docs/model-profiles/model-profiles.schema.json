@@ -39,10 +39,13 @@
     "profile": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["model", "source"],
+      "required": ["model", "source", "checked", "pools"],
       "properties": {
         "model": {"type": "string", "minLength": 1},
         "source": {"type": "string", "minLength": 1},
+        "checked": {"type": "string", "format": "date"},
+        "pools": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "note": {"type": "string"},
         "reasoning_effort": {"enum": ["low", "medium", "high", "xhigh", "max"]}
       }
     },

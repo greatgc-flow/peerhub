@@ -104,6 +104,7 @@ def inspect_profile(profile: str, workspace: str | Path) -> dict[str, Any]:
             "selection_mode": {"value": mode, "source": sources["selection_mode"]},
             "model": {"value": model, "source": sources.get("model", sources["selection_mode"])},
             "effort": {"value": effort, "source": sources.get("reasoning_effort", sources["selection_mode"])},
+            "pools": {"value": effective.get("pools"), "source": sources.get("pools", sources["selection_mode"])},
         },
     }
 
@@ -127,7 +128,7 @@ def list_profiles(workspace: str | Path) -> list[dict[str, Any]]:
     return [inspect_profile(name, workspace) for name in sorted(names)]
 
 
-def packaged_defaults_meta() -> dict[str, str]:
+def packaged_defaults_meta() -> dict[str, Any]:
     """Read release-maintained revision and observation metadata from packaged defaults."""
     packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
     with packaged.open("rb") as handle:
@@ -135,4 +136,5 @@ def packaged_defaults_meta() -> dict[str, str]:
     return {
         "defaults_revision": str(layer.get("defaults_revision") or ""),
         "observed_at": str(layer.get("observed_at") or ""),
+        "observed_versions": dict(layer.get("observed_versions") or {}),
     }
