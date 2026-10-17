@@ -899,7 +899,8 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         })
         if core_read:
             from peerhub.cli.store_select import report_missing_store
-            if report_missing_store(args.db, json_output=bool(getattr(args, "format", None) == "json" or getattr(args, "json", False))):
+            use_json = bool(getattr(args, "json", False) or getattr(args, "format", None) == "json" or (getattr(args, "format", None) == "auto" and not sys.stdout.isatty()))
+            if report_missing_store(args.db, json_output=use_json):
                 return 5
         store = CoreStore(args.db, readonly=core_read)
         return _run_core_cli(args, store)

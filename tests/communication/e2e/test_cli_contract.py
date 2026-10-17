@@ -418,7 +418,7 @@ def test_store_selection_failure_uses_normal_cli_error(monkeypatch, capsys):
     assert capsys.readouterr().err == "ERROR: invalid store selection\n"
 
 
-def test_core_read_missing_store_emits_json_when_requested(tmp_path, capsys):
+def test_core_read_missing_store_emits_json_when_requested(tmp_path, capsys, monkeypatch):
     missing_db = str(tmp_path / "does_not_exist.db")
     code = main(["--db", missing_db, "peer", "list", "--format", "json"])
     assert code == 5
@@ -427,4 +427,13 @@ def test_core_read_missing_store_emits_json_when_requested(tmp_path, capsys):
     payload = json.loads(out)
     assert payload["status"] == "UNAVAILABLE"
     assert "database not found" in payload["error"]
+
+    # When --format auto and stdout is not a tty, json is also emitted
+    monkeypatch.setattr("sys.stdout.isatty", lambda: False)
+    code_auto = main(["--db", missing_db, "peer", "list", "--format", "auto"])
+    assert code_auto == 5
+    out_auto, err_auto = capsys.readouterr()
+    payload_auto = json.loads(out_auto)
+    assert payload_auto["status"] == "UNAVAILABLE"
+    assert "database not found" in payload_auto["error"]
 

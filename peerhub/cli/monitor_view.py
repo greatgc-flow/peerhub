@@ -650,7 +650,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
             overflow = f"+{hidden} --group all"
         lines.append(_fit(overflow, width - 1, unicode))
     refresh_clean = str(payload.get("refresh_state") or "")
-    if (refresh_clean == "STOPPED · AGY TOKEN USE" or refresh_clean == "STOPPED | AGY TOKEN USE") and len(lines) < height - 1:
+    if refresh_clean == "STOPPED · AGY TOKEN USE" and len(lines) < height - 1:
         lines.append(_fit("Next: --allow-agy-token-use to continue", width - 1, unicode))
     for warning in _safe_refresh_warning_labels(payload.get("refresh_warnings")):
         if len(lines) >= height - 1:
