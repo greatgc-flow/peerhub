@@ -269,6 +269,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
     d_integrity.epilog = "example: peerhub diag integrity"
 
+    explain_parser = subparsers.add_parser("explain", help="Explain recovery guidance for outcome codes")
+    explain_parser.add_argument("code", help="Guidance code to explain")
+    explain_parser.add_argument("--json", action="store_true", default=False, help="Machine-readable guidance output")
+
     guide_parser = subparsers.add_parser("guide", help="Quick reference, profile tables, and best practices")
     guide_parser.description = "Print the quick reference guide, model profile table, and operational best practices."
 
@@ -320,6 +324,19 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         if has_streamed and not args.json and not output_has_newline:
             print()
         raise
+    from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
+    is_success = result.get("status") in ("delivered", "recovered_terminal") and result.get("error") is None
+    guidance_entry = None
+    if not is_success:
+        guidance_code = select_guidance_code(
+            status=result.get("status"),
+            processed_status=result.get("processed_status"),
+            certainty=result.get("certainty"),
+            reason=result.get("reason"),
+        )
+        if guidance_code:
+            result["guidance"] = make_guidance_payload(guidance_code)
+            guidance_entry = get_guidance(guidance_code)
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:
@@ -343,8 +360,12 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         reset_time = result.get("reset_time") or result.get("resets_at")
         reset_suffix = f"; reset: {reset_time}" if reset_time else ""
         print(f"Task outcome: NOT_EXECUTED (provider refusal: {reason_str}{reset_suffix}; no tool execution observed)", file=sys.stderr)
+        if guidance_entry is not None:
+            print(render_guidance_hint(guidance_entry), file=sys.stderr)
     else:
         print(json.dumps(result, ensure_ascii=True), file=sys.stderr)
+        if guidance_entry is not None:
+            print(render_guidance_hint(guidance_entry), file=sys.stderr)
     session = result.get("session")
     if not args.json and isinstance(session, dict):
         session = cast("dict[str, Any]", session)
@@ -861,6 +882,7 @@ def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
+    from peerhub.extensions.bridge_claims import ClaimHeldError
     tolerant_streams()
     parser = build_parser(prog=prog)
     actual = sys.argv[1:] if argv is None else argv
@@ -868,13 +890,30 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         args = parser.parse_args(argv)
     except SystemExit as exc:
         if exc.code == 2 and "ask" in actual and "--json" in actual:
+            from peerhub.cli.recovery import make_guidance_payload
+            guidance_code = "ask_selector_error" if any(a in actual for a in ("--session", "--fresh")) else "ask_unexpected_failure"
             print(json.dumps(dict(status="error", response=None, session=None,
-                                  error=dict(code="invalid_arguments", message="Invalid ask arguments."))))
+                                  error=dict(code="invalid_arguments", message="Invalid ask arguments."),
+                                  guidance=make_guidance_payload(guidance_code))))
             return 2
         raise
-    def error_output(code: str, message: str, session: dict[str, Any] | None = None) -> None:
-        if args.subcommand == "ask" and args.json:
-            print(json.dumps(dict(status="error", response=None, session=session, error=dict(code=code, message=message)), ensure_ascii=True))
+    def error_output(code: str, message: str, session: dict[str, Any] | None = None, exception: BaseException | None = None) -> None:
+        if args.subcommand == "ask":
+            from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
+            guidance_code = select_guidance_code(exception=exception)
+            if args.json:
+                payload: dict[str, Any] = dict(status="error", response=None, session=session, error=dict(code=code, message=message))
+                if guidance_code:
+                    payload["guidance"] = make_guidance_payload(guidance_code)
+                print(json.dumps(payload, ensure_ascii=True))
+            else:
+                print(message, file=sys.stderr)
+                if session is not None:
+                    print(_session_trailer(session))
+                if guidance_code:
+                    entry = get_guidance(guidance_code)
+                    if entry is not None:
+                        print(render_guidance_hint(entry), file=sys.stderr)
         else:
             print(message, file=sys.stderr)
             if args.subcommand == "ask" and session is not None:
@@ -898,6 +937,9 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             return _run_light_command(args, parser)
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
             return _run_diag_cli(args, parser)
+        if args.subcommand == "explain":
+            from peerhub.cli.recovery import run_explain_cli
+            return run_explain_cli(args.code, json_output=bool(getattr(args, "json", False)))
         if args.subcommand == "guide":
             from peerhub.cli.guide import render_guide
             print(render_guide())
@@ -915,27 +957,30 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         return _run_core_cli(args, store)
 
     except (StorageReadOnlyError, StorageFullError, StorageCorruptError) as e:
-        error_output("storage_corrupt", f"STORAGE ERROR ({type(e).__name__}): {e}", getattr(e, "session", None))
+        error_output("storage_corrupt", f"STORAGE ERROR ({type(e).__name__}): {e}", getattr(e, "session", None), exception=e)
         return 4
     except SchemaVersionError as e:
-        error_output("schema_version_error", f"SCHEMA VERSION ERROR: {e}")
+        error_output("schema_version_error", f"SCHEMA VERSION ERROR: {e}", exception=e)
         return 6
     except IdempotencyConflictError as e:
-        error_output("idempotency_conflict", f"CONFLICT ERROR: {e}")
+        error_output("idempotency_conflict", f"CONFLICT ERROR: {e}", exception=e)
         return 2
     except CasMismatchError as e:
-        error_output("cas_conflict", f"CAS ERROR: {e}")
+        error_output("cas_conflict", f"CAS ERROR: {e}", exception=e)
         return 3
+    except ClaimHeldError as e:
+        error_output("delivery_failed", f"ERROR: {e}", getattr(e, "session", None), exception=e)
+        return 1
     except ValueError as e:
-        error_output(getattr(e, "code", "invalid_arguments"), f"ERROR: {e}")
+        error_output(getattr(e, "code", "invalid_arguments"), f"ERROR: {e}", exception=e)
         return 2 if args.subcommand == "ask" and getattr(e, "code", None) != "session_lost" else 1
     except SystemExit as e:
         if args.subcommand == "ask" and args.json and e.code == 2:
-            error_output("invalid_arguments", "Invalid ask arguments.")
+            error_output("invalid_arguments", "Invalid ask arguments.", exception=e)
             return 2
         raise
     except Exception as e:
-        error_output("delivery_failed", f"ERROR: {e}", getattr(e, "session", None))
+        error_output("delivery_failed", f"ERROR: {e}", getattr(e, "session", None), exception=e)
         return 1
 
 
