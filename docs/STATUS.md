@@ -1,14 +1,24 @@
 # PeerHub Development Status
 
-## Current source: v0.18.2 (release candidate)
+## Current release: v0.18.2 (published 2026-10-16T16:17:37Z, tag v0.18.2, target 8274e9f5; live gate G3 6+3+3 passed bound to 8274e9f5; PR #111)
 
-v0.18.1 prepares the responsive terminal dashboard fix from PR #108. The view
-fits the available terminal height and width, surfaces the selected database
-and bounded read-error context, and redraws on resize from the cached snapshot.
-The code is merged to `main`; publication awaits the standard G3 evidence and
-release workflow.
+v0.18.2 adds the monitor peers group (linking quota, profile/model, session
+reuse, and context), model-fact provenance reporting, and SQLite store schema
+version gate 4 (central connection factory). It also incorporates the responsive
+terminal dashboard fix from PR #108.
 
-## Latest published release: v0.18.0
+### Release attempts
+
+| Attempt | Target commit / ref | PR | Status | Notes |
+|---|---|---|---|---|
+| **v0.17.0** draft | `04eab676` (`release/0.17.0-monitor-groups`) | PR #106 | NEVER PUBLISHED | Content shipped in v0.18.0 |
+| **v0.18.0** | `dc510f4f` | PR #107 | Published | Published 2026-10-16 |
+| **v0.18.1** draft + tag | `75677b07` | PR #109 | NEVER PUBLISHED | Content shipped in v0.18.2 |
+| **v0.18.2** | `8274e9f5` | PR #111 | Published | Published 2026-10-16T16:17:37Z |
+
+Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
+
+## Prior published release: v0.18.0
 
 The tagged v0.17.0 candidate is superseded before publication. v0.18.0 keeps the
 grouped monitor contract, renders it as the default human dashboard, and moves
