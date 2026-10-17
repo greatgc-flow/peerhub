@@ -144,7 +144,12 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     q_pct = float(cast(float, _number(q_obj.get("remaining_fraction")))) * 100
                 q_age = _number(q_obj.get("age_seconds"))
 
-                if q_state == "STALE":
+                q_scope = _clean(q_obj.get("scope") or "")
+
+                if q_state == "INCOMPLETE" or q_pool == "incomplete":
+                    q_wide = "incomplete"
+                    q_narr = "incomplete"
+                elif q_state == "STALE":
                     q_wide = "STALE"
                     q_narr = "STALE"
                 elif q_state != "MEASURED" or q_pct is None:
@@ -153,7 +158,11 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 else:
                     age_val = max(0.0, (q_age or 0.0) + elapsed_seconds)
                     age_str = f" ({int(age_val // 60)}m ago)" if q_age is not None and age_val >= 60 else ""
-                    pool_str = f" ({q_pool})" if q_pool else ""
+                    if q_scope in ("unmapped", "account-wide"):
+                        pool_label = f"{q_pool} unmapped" if q_pool else "unmapped"
+                    else:
+                        pool_label = q_pool
+                    pool_str = f" ({pool_label})" if pool_label else ""
                     q_wide = f"{q_pct:.0f}%{pool_str}{age_str}"
                     q_narr = f"{q_pct:.0f}%{pool_str}"
 

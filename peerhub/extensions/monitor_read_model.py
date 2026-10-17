@@ -216,8 +216,9 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             needs_sessions = bool(set(groups) & {"overview", "sessions", "usage", "context", "runtime", "peers"})
             rows = conn.execute(
                 "SELECT h.session_handle,h.stream_id,h.peer_id,h.session_generation,h.runtime_kind,h.state,h.resumable,"
-                "h.last_seen,h.created_at,h.tombstoned_at,s.binding_json,s.latest_telemetry_seq,s.reuse_count,s.fresh_count,e.detail "
-                "FROM (SELECT rowid,session_handle,stream_id,peer_id,session_generation,runtime_kind,state,resumable,last_seen,created_at,tombstoned_at "
+                "h.last_seen,h.created_at,h.tombstoned_at,COALESCE(s.binding_json, h.binding) AS binding_json,"
+                "s.latest_telemetry_seq,s.reuse_count,s.fresh_count,e.detail "
+                "FROM (SELECT rowid,session_handle,stream_id,peer_id,session_generation,runtime_kind,binding,state,resumable,last_seen,created_at,tombstoned_at "
                 "FROM bridge_session_history ORDER BY rowid DESC LIMIT 101) h "
                 "LEFT JOIN bridge_session_monitor_stats s ON s.session_handle=h.session_handle "
                 "LEFT JOIN bridge_evidence e ON e.seq=s.latest_telemetry_seq AND e.kind='session_telemetry' "
@@ -460,6 +461,39 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     key=lambda s: (float(s.get("last_seen") or 0.0), int(s.get("generation") or 0)),
                     default=None,
                 )
+                prof_data: dict[str, Any] | None = None
+                configured_model: object = None
+                configured_pools: list[str] = []
+                is_mapped = False
+                if s_item is not None:
+                    raw_binding: object = s_item.get("configured_binding")
+                    binding: dict[str, Any] = cast(dict[str, Any], raw_binding) if isinstance(raw_binding, dict) else {}
+                    prof_name = binding.get("profile")
+                    recorded_model = binding.get("model")
+                    prof_source = "unknown"
+                    if isinstance(prof_name, str):
+                        cp = _current_profile(prof_name, config_workspace)
+                        raw_fields: object = cp.get("fields")
+                        fields: dict[str, Any] = cast(dict[str, Any], raw_fields) if isinstance(raw_fields, dict) else {}
+                        raw_model: object = fields.get("model")
+                        model_field: dict[str, Any] = cast(dict[str, Any], raw_model) if isinstance(raw_model, dict) else {}
+                        configured_model = model_field.get("value")
+                        model_source: object = model_field.get("source")
+                        raw_pools: object = fields.get("pools")
+                        pools_field: dict[str, Any] = cast(dict[str, Any], raw_pools) if isinstance(raw_pools, dict) else {}
+                        pools_val: object = pools_field.get("value")
+                        if isinstance(pools_val, list):
+                            configured_pools = [str(x) for x in cast(list[object], pools_val)]
+                        if model_source and recorded_model is not None and recorded_model == configured_model:
+                            prof_source = str(model_source)
+                            if configured_pools:
+                                is_mapped = True
+                    prof_data = {
+                        "profile": prof_name,
+                        "model": binding.get("model"),
+                        "source": prof_source,
+                    }
+
                 peer_observations = [o for o in observations if o["peer_id"] == pid]
                 q_data: dict[str, Any] | None = None
                 measured_candidates: list[tuple[float, dict[str, Any]]] = []
@@ -478,58 +512,89 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     elif state == "STALE":
                         stale_candidates.append(o)
 
-                if measured_candidates:
-                    lowest_rem, best_obs = min(measured_candidates, key=lambda x: (x[0], str(x[1].get("pool_ref") or "")))
-                    q_data = {
-                        "pool_ref": best_obs.get("pool_ref") or best_obs.get("pool_kind"),
-                        "remaining_fraction": lowest_rem,
-                        "percent": round(lowest_rem * 100),
-                        "state": "MEASURED",
-                        "source": best_obs.get("source"),
-                        "age_seconds": best_obs.get("age_seconds"),
-                    }
-                elif stale_candidates:
-                    stale_obs = stale_candidates[0]
-                    q_data = {
-                        "pool_ref": stale_obs.get("pool_ref") or stale_obs.get("pool_kind"),
-                        "remaining_fraction": None,
-                        "percent": None,
-                        "state": "STALE",
-                        "source": stale_obs.get("source"),
-                        "age_seconds": stale_obs.get("age_seconds"),
-                    }
-                elif peer_observations:
-                    first_obs = peer_observations[0]
-                    q_data = {
-                        "pool_ref": first_obs.get("pool_ref") or first_obs.get("pool_kind"),
-                        "remaining_fraction": None,
-                        "percent": None,
-                        "state": first_obs.get("state") or "UNKNOWN",
-                        "source": first_obs.get("source"),
-                        "age_seconds": first_obs.get("age_seconds"),
-                    }
-                prof_data: dict[str, Any] | None = None
-                if s_item is not None:
-                    raw_binding: object = s_item.get("configured_binding")
-                    binding: dict[str, Any] = cast(dict[str, Any], raw_binding) if isinstance(raw_binding, dict) else {}
-                    prof_name = binding.get("profile")
-                    recorded_model: object = binding.get("model")
-                    prof_source = "unknown"
-                    if isinstance(prof_name, str):
-                        cp = _current_profile(prof_name, config_workspace)
-                        raw_fields: object = cp.get("fields")
-                        fields: dict[str, Any] = cast(dict[str, Any], raw_fields) if isinstance(raw_fields, dict) else {}
-                        raw_model: object = fields.get("model")
-                        model_field: dict[str, Any] = cast(dict[str, Any], raw_model) if isinstance(raw_model, dict) else {}
-                        current_model: object = model_field.get("value")
-                        model_source: object = model_field.get("source")
-                        if model_source and recorded_model is not None and recorded_model == current_model:
-                            prof_source = str(model_source)
-                    prof_data = {
-                        "profile": prof_name,
-                        "model": binding.get("model"),
-                        "source": prof_source,
-                    }
+                if is_mapped:
+                    mapped_measured: list[tuple[float, dict[str, Any]]] = []
+                    is_incomplete = False
+                    for p_req in configured_pools:
+                        matching_obs = [
+                            o for o in peer_observations
+                            if (str(o.get("pool_ref") or o.get("pool_kind") or "").split(":")[-1]) == p_req
+                        ]
+                        if not matching_obs:
+                            is_incomplete = True
+                            break
+                        best_matching = matching_obs[0]
+                        raw_m_val = best_matching.get("measurements")
+                        q_m_dict = cast(dict[str, Any], raw_m_val) if isinstance(raw_m_val, dict) else {}
+                        rem_val = q_m_dict.get("remaining_fraction")
+                        is_valid = (
+                            isinstance(rem_val, (int, float)) and not isinstance(rem_val, bool)
+                            and math.isfinite(float(rem_val)) and 0.0 <= float(rem_val) <= 1.0
+                        )
+                        if best_matching.get("state") != "MEASURED" or not is_valid:
+                            is_incomplete = True
+                            break
+                        mapped_measured.append((float(cast(float, rem_val)), best_matching))
+
+                    if is_incomplete:
+                        q_data = {
+                            "pool_ref": "incomplete",
+                            "remaining_fraction": None,
+                            "percent": None,
+                            "state": "INCOMPLETE",
+                            "source": "derived",
+                            "age_seconds": None,
+                            "scope": "mapped",
+                        }
+                    elif mapped_measured:
+                        lowest_rem, best_obs = min(mapped_measured, key=lambda x: (x[0], str(x[1].get("pool_ref") or "")))
+                        q_data = {
+                            "pool_ref": best_obs.get("pool_ref") or best_obs.get("pool_kind"),
+                            "remaining_fraction": lowest_rem,
+                            "percent": round(lowest_rem * 100),
+                            "state": "MEASURED",
+                            "source": best_obs.get("source"),
+                            "age_seconds": best_obs.get("age_seconds"),
+                            "scope": "mapped",
+                        }
+                else:
+                    unmapped_scope = "unmapped" if s_item is not None else None
+                    if measured_candidates:
+                        lowest_rem, best_obs = min(measured_candidates, key=lambda x: (x[0], str(x[1].get("pool_ref") or "")))
+                        q_data = {
+                            "pool_ref": best_obs.get("pool_ref") or best_obs.get("pool_kind"),
+                            "remaining_fraction": lowest_rem,
+                            "percent": round(lowest_rem * 100),
+                            "state": "MEASURED",
+                            "source": best_obs.get("source"),
+                            "age_seconds": best_obs.get("age_seconds"),
+                        }
+                        if unmapped_scope is not None:
+                            q_data["scope"] = unmapped_scope
+                    elif stale_candidates:
+                        stale_obs = stale_candidates[0]
+                        q_data = {
+                            "pool_ref": stale_obs.get("pool_ref") or stale_obs.get("pool_kind"),
+                            "remaining_fraction": None,
+                            "percent": None,
+                            "state": "STALE",
+                            "source": stale_obs.get("source"),
+                            "age_seconds": stale_obs.get("age_seconds"),
+                        }
+                        if unmapped_scope is not None:
+                            q_data["scope"] = unmapped_scope
+                    elif peer_observations:
+                        first_obs = peer_observations[0]
+                        q_data = {
+                            "pool_ref": first_obs.get("pool_ref") or first_obs.get("pool_kind"),
+                            "remaining_fraction": None,
+                            "percent": None,
+                            "state": first_obs.get("state") or "UNKNOWN",
+                            "source": first_obs.get("source"),
+                            "age_seconds": first_obs.get("age_seconds"),
+                        }
+                        if unmapped_scope is not None:
+                            q_data["scope"] = unmapped_scope
                 sess_data: dict[str, Any] | None = None
                 if s_item is not None:
                     sess_data = {
