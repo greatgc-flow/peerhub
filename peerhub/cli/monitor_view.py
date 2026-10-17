@@ -373,8 +373,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     elif group_id == "capacity":
         observations = _items(data.get("observations"))
         if observations:
-            limit = len(observations) if expand else min(2, len(observations))
-            for item in observations[:limit]:
+            for item in observations:
                 measurements = _obj(item.get("measurements"))
                 remaining = _number(measurements.get("remaining_fraction"))
                 pool = _clean(item.get("pool_ref") or item.get("pool_kind") or "quota pool")
@@ -399,8 +398,6 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 age_text = f"{sep}age {max(0.0, age + elapsed_seconds):.0f}s" if age is not None else ""
                 projection_text = f"{sep}{projection_state}{eta_text}"
                 rows.append(f"{_peer(item)} {pool}: {detail}{sep}{state}{projection_text}{pace_text}{age_text}")
-            if not expand and len(observations) > 2:
-                rows.append(f"+{len(observations) - 2} quota observations not shown")
         else:
             rows.append("Quota capacity: no observations")
         note = _coverage(data, unicode)
@@ -637,7 +634,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     if show_db_path:
         lines.append(_fit(f"DB [{db_source}]: {db_path}", width - 1, unicode))
     descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
-    blocks: list[tuple[int, int, str, list[str]]] = []
+    blocks: list[tuple[int, int, str, list[str], str]] = []
     for order, group_id in enumerate(group_ids):
         group = _obj(groups.get(group_id))
         status = _clean(group.get("status") or "UNKNOWN").upper()
@@ -674,15 +671,48 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
                                                             for line in group_data):
             group_data.append(f"Coverage: partial {'·' if unicode else '|'} {_clean(coverage.get('reason') or 'incomplete evidence')}")
         summary = _fit(group_data.pop(0) if group_data else "No data", content_width, unicode)
-        blocks.append((_priority(group), order, heading, [summary, *group_data]))
+        blocks.append((_priority(group), order, heading, [summary, *group_data], group_id))
+
+    def _rank_key(item: tuple[int, int, str, list[str], str]) -> tuple[int, int, int]:
+        prio, order, _h, _r, gid = item
+        if prio < 3:
+            return (prio, 0, order)
+        if gid == "capacity":
+            return (3, 0, order)
+        if gid == "peers":
+            return (3, 1, order)
+        return (3, 2, order)
+
     # Severity controls which summaries survive a short viewport; catalog order is stable.
-    ranked = sorted(blocks, key=lambda item: (item[0], item[1]))
+    ranked = sorted(blocks, key=_rank_key)
     budget = max(0, height - 1 - len(lines))
     all_summaries_fit = len(ranked) * 2 <= budget
     visible_count = len(ranked) if all_summaries_fit else max(0, (budget - 1) // 2)
-    visible = (blocks if all_summaries_fit else ranked[:visible_count])
+    visible = (list(blocks) if all_summaries_fit else list(ranked[:visible_count]))
     hidden = len(ranked) - len(visible)
-    for _priority_value, _order, heading, rows in visible:
+
+    # When terminal height is limited, drop other groups before clipping quota.
+    cap_block = next((b for b in blocks if b[4] == "capacity"), None)
+    if cap_block is not None and cap_block in visible:
+        cap_detail_rows = cap_block[3][1:]
+        needed_details = len(cap_detail_rows)
+        if needed_details > 0:
+            lines_used = len(lines) + len(visible) * 2 + (1 if hidden else 0)
+            remaining_for_details = max(0, height - 1 - lines_used)
+            while remaining_for_details < needed_details:
+                droppable = [b for b in visible if b[4] != "capacity"]
+                if not droppable:
+                    break
+                # Drop lowest severity group first (highest priority int, then highest catalog order)
+                droppable_sorted = sorted(droppable, key=lambda item: (item[0], item[1]), reverse=True)
+                to_drop = droppable_sorted[0]
+                visible.remove(to_drop)
+                hidden = len(blocks) - len(visible)
+                lines_used = len(lines) + len(visible) * 2 + (1 if hidden else 0)
+                remaining_for_details = max(0, height - 1 - lines_used)
+            visible = sorted(visible, key=lambda item: item[1])
+
+    for _priority_value, _order, heading, rows, *_ in visible:
         lines.append(heading)
         indent = "  " if width >= 4 else ""
         lines.append(indent + rows[0])
@@ -703,7 +733,17 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
             break
         lines.append(_fit(f"Warning: {warning}", width - 1, unicode))
     # Extra rows reveal detail without changing selected summaries or their order.
-    for _priority_value, _order, _heading, rows in visible:
+    # Prioritize quota details so quota rows are not clipped by other groups.
+    if cap_block is not None and cap_block in visible:
+        for detail in cap_block[3][1:]:
+            if len(lines) >= height - 1:
+                break
+            detail_indent = "  " if width >= 4 else ""
+            lines.append(_fit(f"{detail_indent}{detail}", width - 1, unicode))
+    for item in visible:
+        if item[4] == "capacity":
+            continue
+        rows = item[3]
         for detail in rows[1:]:
             if len(lines) >= height - 1:
                 break

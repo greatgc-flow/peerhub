@@ -10,7 +10,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
-- `peerhub monitor --expand`: human dashboard option (supporting watch and `--snapshot`) rendering all loaded rows of detail groups (`sessions`, `usage`, `context`, `capacity`, `runtime`) instead of capping at 2 rows. Expanded session rows include the stable session handle. Bounded by existing DB read caps (100) with truncation disclosure; rejects `--expand` with `--json` (Slice 1).
+- `peerhub monitor --expand`: human dashboard option (supporting watch and `--snapshot`) rendering all loaded rows of detail groups (`sessions`, `usage`, `context`, `runtime`) instead of capping at 2 rows. All loaded quota observations (`capacity` and peers quota) are always visible by default across all pools and windows without `--expand`. When terminal height is limited, other groups are dropped before clipping quota. Expanded session rows include the stable session handle. Bounded by existing DB read caps (100) with truncation disclosure; rejects `--expand` with `--json` (Slice 1).
 - Model pools and observed versions metadata in `docs/model-profiles/model-profiles.json` and packaged `model-defaults.toml` with cross-artifact parity verification (S1).
 - Multi-pool selection in monitor peers view selecting minimum remaining quota across fresh measured pools for mapped profile models; explicit `incomplete` and `account-wide`/`unmapped` status handling (S2).
 - Drift report persistence inside quota observation payload, retaining unknown bucket IDs and comparing installed CLI versions against packaged baselines (S3).

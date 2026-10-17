@@ -342,14 +342,16 @@ def test_expand_renders_all_loaded_detail_rows_and_session_handle(frame):
         for i in range(1, 5)
     ]
 
-    # Default (expand=False): 2-row cap + "+N not shown"
+    # Default (expand=False): 2-row cap + "+N not shown" for sessions/runtime; ALL quota observations visible
     default_rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80)
     assert "+2 sessions not shown" in default_rendered
-    assert "+2 quota observations not shown" in default_rendered
+    assert "not shown" not in default_rendered.split("CAPACITY [OK]")[1].split("RUNTIME [OK]")[0]
     assert "+2 runtime sessions not shown" in default_rendered
     assert "sess_test_1" not in default_rendered
+    assert "quota:cx:1h" in default_rendered
+    assert "quota:cx:4h" in default_rendered
 
-    # Expanded (expand=True): ALL 4 rows rendered, no "+N not shown", session handle present
+    # Expanded (expand=True): ALL rows rendered across all groups, no "+N not shown", session handle present
     expanded_rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, expand=True)
     assert "not shown" not in expanded_rendered
     assert "sess_test_1" in expanded_rendered
@@ -357,6 +359,26 @@ def test_expand_renders_all_loaded_detail_rows_and_session_handle(frame):
     # Widths must be <= width - 1 (79 columns)
     for line in expanded_rendered.splitlines():
         assert _width(line) <= 79, f"Line exceeds width - 1: {line}"
+
+
+def test_limited_height_drops_other_groups_before_clipping_quota(frame):
+    """When terminal height is limited, other groups are dropped before clipping quota rows."""
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["groups"]["capacity"]["data"]["observations"] = [
+        {"peer_id": "cx", "pool_ref": f"quota:cx:{i}h", "state": "MEASURED",
+         "measurements": {"remaining_fraction": 0.2 * i},
+         "projection": {"state": "safe", "pace_pt": 5.0}, "age_seconds": 10.0}
+        for i in range(1, 5)
+    ]
+    # Height 14 is too tight to fit all group summaries (9 * 2 = 18 lines) plus 3 detail lines
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=14)
+    # Other groups dropped
+    assert "groups omitted" in rendered
+    # All 4 quota observations are retained unclipped
+    for i in range(1, 5):
+        assert f"quota:cx:{i}h" in rendered
+    assert len(rendered.splitlines()) <= 13
 
 
 def test_default_output_byte_identical_when_expand_is_false(frame):
