@@ -442,6 +442,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         "freshness_basis": freshness.basis,
                         "skew_seconds": freshness.skew_seconds,
                         "measurements": measurements,
+                        "payload": observation.payload,
                     })
                 if "capacity" in groups:
                     output["capacity"] = {"status": "OK", "data": {"observations": observations,
@@ -623,6 +624,30 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 })
             from peerhub.extensions.adapters.profiles import packaged_defaults_meta
             defaults_meta = packaged_defaults_meta()
+            latest_facts_report: dict[str, Any] | None = None
+            for o in observations:
+                p_load: object = o.get("payload")
+                if isinstance(p_load, dict) and "facts_report" in p_load:
+                    p_dict = cast(dict[str, Any], p_load)
+                    raw_rep: object = p_dict.get("facts_report")
+                    if isinstance(raw_rep, dict):
+                        latest_facts_report = cast(dict[str, Any], raw_rep)
+                        break
+            if latest_facts_report is None:
+                try:
+                    f_row = conn.execute(
+                        "SELECT payload_json FROM observations "
+                        "WHERE kind='quota' AND payload_json LIKE '%facts_report%' "
+                        "ORDER BY capture_seq DESC LIMIT 1"
+                    ).fetchone()
+                    if f_row and f_row[0]:
+                        data_obj: object = json.loads(f_row[0])
+                        if isinstance(data_obj, dict):
+                            rep_val: object = cast(dict[str, Any], data_obj).get("facts_report")
+                            if isinstance(rep_val, dict):
+                                latest_facts_report = cast(dict[str, Any], rep_val)
+                except (sqlite3.Error, ValueError, TypeError):
+                    pass
             output["peers"] = {
                 "status": "ERROR" if "sessions" in errors else "OK",
                 "data": {
@@ -633,6 +658,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     "peer_sample_truncated": peer_sample_truncated,
                     "defaults_revision": defaults_meta.get("defaults_revision"),
                     "observed_at": defaults_meta.get("observed_at"),
+                    "facts_report": latest_facts_report,
                 },
             }
         if "store" in groups:

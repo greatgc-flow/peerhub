@@ -859,4 +859,127 @@ def test_peers_view_unmapped_model_or_override_uses_lowest_pool_labelled_unmappe
     assert "ag  quota: 17% (3P-5H unmapped)" in rendered
 
 
+def test_peers_view_footer_shows_facts_drift_line_and_json_detail(tmp_path):
+    """S4: Monitor peers group consumes facts_report and renders clipped drift line + JSON detail."""
+    import sqlite3
+    from tests.communication.bridge_helpers import bseed
+    from tests.communication.harness.bridge import BridgeHarness
+    from peerhub.extensions.observation import ObservationStore
+    from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
+    from tests.communication.fakes.observation import FakeObservationSource, measured
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    harness = BridgeHarness(tmp_path / "workspace")
+    bseed(harness, peers=("a", "ag"), stream="s")
+    obs = ObservationStore(harness.db_path, clock=harness.clock.now)
+
+    def _pool(pool_id: str, provider: str) -> dict:
+        return {"schema_version": "1.0", "resource_pool_id": pool_id,
+                "provider": provider, "kind": "QUOTA", "metadata": {}}
+
+    obs.register_resource_pool(ResourcePool.model_validate(_pool("quota:ag:G-5H", "google")))
+    now_iso = epoch_to_iso(harness.clock.now())
+    facts = {
+        "status": "needs_recheck",
+        "reasons": ["ag: unknown_pool"],
+        "checks": {"ag_pools": "drift", "ag_version": "ok", "cc_version": "ok", "cx_version": "ok"},
+        "checked_at": now_iso,
+    }
+    obs.capture(
+        "ag", "quota",
+        FakeObservationSource(measured({"remaining_fraction": 0.85, "facts_report": facts}, observed_at=now_iso)),
+        resource_pool_ref="quota:ag:G-5H",
+    )
+
+    frame = render_monitor_frame(harness.db_path, ["peers"], read_at=harness.clock.now() + 5, workspace=harness.workspace)
+    data = frame["groups"]["peers"]["data"]
+    assert data["facts_report"] is not None
+    assert data["facts_report"]["status"] == "needs_recheck"
+    assert data["facts_report"]["reasons"] == ["ag: unknown_pool"]
+
+    rendered = render_grouped_frame(frame, view="plain", width=80)
+    assert "Facts: needs_recheck (ag: unknown_pool) - refresh-model-profiles" in rendered
+
+
+def test_peers_view_footer_shows_facts_ok_when_clean(tmp_path):
+    """S4: Facts line displays 'Facts: ok' when facts_report status is ok."""
+    import sqlite3
+    from tests.communication.bridge_helpers import bseed
+    from tests.communication.harness.bridge import BridgeHarness
+    from peerhub.extensions.observation import ObservationStore
+    from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
+    from tests.communication.fakes.observation import FakeObservationSource, measured
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    harness = BridgeHarness(tmp_path / "workspace")
+    bseed(harness, peers=("a", "ag"), stream="s")
+    obs = ObservationStore(harness.db_path, clock=harness.clock.now)
+
+    def _pool(pool_id: str, provider: str) -> dict:
+        return {"schema_version": "1.0", "resource_pool_id": pool_id,
+                "provider": provider, "kind": "QUOTA", "metadata": {}}
+
+    obs.register_resource_pool(ResourcePool.model_validate(_pool("quota:ag:G-5H", "google")))
+    now_iso = epoch_to_iso(harness.clock.now())
+    facts = {
+        "status": "ok",
+        "reasons": [],
+        "checks": {"ag_pools": "ok", "ag_version": "ok", "cc_version": "ok", "cx_version": "ok"},
+        "checked_at": now_iso,
+    }
+    obs.capture(
+        "ag", "quota",
+        FakeObservationSource(measured({"remaining_fraction": 0.85, "facts_report": facts}, observed_at=now_iso)),
+        resource_pool_ref="quota:ag:G-5H",
+    )
+
+    frame = render_monitor_frame(harness.db_path, ["peers"], read_at=harness.clock.now() + 5, workspace=harness.workspace)
+    assert frame["groups"]["peers"]["data"]["facts_report"]["status"] == "ok"
+
+    rendered = render_grouped_frame(frame, view="plain", width=80)
+    assert "Facts: ok" in rendered
+
+
+def test_peers_view_footer_clips_facts_line_within_narrow_columns(tmp_path):
+    """S4: Facts line clips cleanly within columns minus 1 on narrow widths."""
+    from tests.communication.bridge_helpers import bseed
+    from tests.communication.harness.bridge import BridgeHarness
+    from peerhub.extensions.observation import ObservationStore
+    from peerhub.extensions.observation_model import ResourcePool, epoch_to_iso
+    from tests.communication.fakes.observation import FakeObservationSource, measured
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    harness = BridgeHarness(tmp_path / "workspace")
+    bseed(harness, peers=("a", "ag"), stream="s")
+    obs = ObservationStore(harness.db_path, clock=harness.clock.now)
+
+    def _pool(pool_id: str, provider: str) -> dict:
+        return {"schema_version": "1.0", "resource_pool_id": pool_id,
+                "provider": provider, "kind": "QUOTA", "metadata": {}}
+
+    obs.register_resource_pool(ResourcePool.model_validate(_pool("quota:ag:G-5H", "google")))
+    now_iso = epoch_to_iso(harness.clock.now())
+    facts = {
+        "status": "needs_recheck",
+        "reasons": ["ag: unknown_pool", "cx: version_drift"],
+        "checks": {"ag_pools": "drift", "cx_version": "drift"},
+        "checked_at": now_iso,
+    }
+    obs.capture(
+        "ag", "quota",
+        FakeObservationSource(measured({"remaining_fraction": 0.85, "facts_report": facts}, observed_at=now_iso)),
+        resource_pool_ref="quota:ag:G-5H",
+    )
+
+    frame = render_monitor_frame(harness.db_path, ["peers"], read_at=harness.clock.now() + 5, workspace=harness.workspace)
+    rendered = render_grouped_frame(frame, view="plain", width=38)
+    facts_lines = [l for l in rendered.splitlines() if "Facts:" in l]
+    assert len(facts_lines) == 1
+    assert len(facts_lines[0]) <= 37
+
+
+
 

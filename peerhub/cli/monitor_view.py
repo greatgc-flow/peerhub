@@ -260,6 +260,21 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
         )
         rows.append(_fit(footer, max(0, width - 1), unicode))
 
+        facts_rep: object = data.get("facts_report")
+        if isinstance(facts_rep, dict):
+            rep_dict = cast(dict[str, Any], facts_rep)
+            status = _clean(rep_dict.get("status") or "")
+            reasons_raw = rep_dict.get("reasons")
+            reasons = [str(r) for r in cast(list[object], reasons_raw)] if isinstance(reasons_raw, list) else []
+            if status == "needs_recheck":
+                reason_str = f" ({', '.join(reasons)})" if reasons else ""
+                facts_line = f"Facts: needs_recheck{reason_str} - refresh-model-profiles"
+            elif status == "ok":
+                facts_line = "Facts: ok"
+            else:
+                facts_line = f"Facts: {status}" if status else "Facts: unknown"
+            rows.append(_fit(facts_line, max(0, width - 1), unicode))
+
     elif group_id == "execution":
         scopes = _items(data.get("scopes"))
         totals = {key: 0 for key in ("not_started", "may_have_started", "started", "terminal")}
