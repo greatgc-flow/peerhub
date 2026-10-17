@@ -184,28 +184,28 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     reasons: set[str] = set()
 
     sanitized_unknown_pools: list[str] = []
-    if ag_unknown_pools:
-        cleaned = [re.sub(r"[^\w\-\:\.]", "", p).strip() for p in ag_unknown_pools]
-        sanitized_unknown_pools = sorted(list(dict.fromkeys(c for c in cleaned if c)))[:5]
-    elif prior_checks.get("ag_pools") == "drift":
-        sanitized_unknown_pools = prior_unknown_pools[:5]
 
     if "ag" in kinds and ag_probed_ok:
         check_dates["ag_pools"] = today
         if ag_unknown_pools:
             checks["ag_pools"] = "drift"
             reasons.add("ag: unknown_pool")
+            cleaned = [re.sub(r"[^\w\-\:\.]", "", p).strip() for p in ag_unknown_pools]
+            sanitized_unknown_pools = sorted(list(dict.fromkeys(c for c in cleaned if c)))[:5]
         else:
             checks["ag_pools"] = "ok"
+            sanitized_unknown_pools = []
     else:
         if prior_checks.get("ag_pools") == "drift":
             checks["ag_pools"] = "drift"
             check_dates["ag_pools"] = prior_check_dates.get("ag_pools", today)
+            sanitized_unknown_pools = prior_unknown_pools[:5]
             for r in prior_reasons:
                 if r == "ag: unknown_pool":
                     reasons.add(r)
         else:
             checks["ag_pools"] = prior_checks.get("ag_pools", "unknown")
+            sanitized_unknown_pools = []
             if "ag_pools" in prior_check_dates:
                 check_dates["ag_pools"] = prior_check_dates["ag_pools"]
 

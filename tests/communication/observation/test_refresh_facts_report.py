@@ -170,6 +170,7 @@ def test_refresh_quota_partial_or_failed_refresh_preserves_prior_drift(tmp_path)
     assert rep3["status"] == "ok"
     assert "ag: unknown_pool" not in rep3["reasons"]
     assert rep3["checks"]["ag_pools"] == "ok"
+    assert rep3["unknown_pools"] == []
 
 
 def test_refresh_quota_with_peer_alias_agy(tmp_path):
@@ -270,4 +271,53 @@ def test_facts_report_carries_per_check_date_and_unverified_status(tmp_path):
     assert rep["checks"]["ag_pools"] == "ok"
     assert rep["status"] == "ok"
     assert rep["checked_at"] == "2026-10-10"
+
+
+def test_facts_report_clears_stale_unknown_pools_when_ag_pools_ok(tmp_path):
+    """S3: When ag_pools check becomes ok, stale unknown_pools are cleared in the new report."""
+    from peerhub.extensions.observation import ObservationStore
+    from peerhub.extensions.observation_model import Observation
+    import uuid
+
+    db = tmp_path / "core.db"
+    CoreStore(db)
+    store = ObservationStore(db)
+
+    # Seed prior observation with ag_pools drift and stale unknown_pools
+    prior_facts = {
+        "status": "needs_recheck",
+        "reasons": ["ag: unknown_pool"],
+        "checks": {"ag_pools": "drift", "ag_version": "ok", "cc_version": "unknown", "cx_version": "unknown"},
+        "check_dates": {"ag_pools": "2026-10-10", "ag_version": "2026-10-10"},
+        "checked_at": "2026-10-10",
+        "unknown_pools": ["custom-pool-old"],
+    }
+    store.persist(Observation(
+        observation_id=uuid.uuid4().hex,
+        subject_ref="ag",
+        kind="quota",
+        source="seed",
+        state=EvidenceState.MEASURED,
+        payload={"remaining_fraction": 0.9, "facts_report": prior_facts},
+        observed_at="2026-10-10T12:00:00Z",
+        captured_at="2026-10-10T12:00:00Z",
+    ))
+
+    # New probe returns no unknown pools (clean)
+    value = SimpleNamespace(quota_pool_scope="G-5H", remaining_fraction=0.80,
+                            window_started_at=100, resets_at=18100)
+    evidence = SimpleNamespace(state=EvidenceState.MEASURED, value=value, evidence_ref="probe:ag",
+                               source_tag="fake_usage", observed_at=100, captured_at=100)
+    reading = SimpleNamespace(evidence=evidence, extra={"unknown_pools": []})
+
+    res = refresh_quota(
+        db, ["ag"],
+        pollers={"ag": lambda **kw: [reading]},
+        version_checker=lambda kind: "1.4.0",
+    )
+    rep = res["observations"][0]["payload"]["facts_report"]
+    assert rep["checks"]["ag_pools"] == "ok"
+    assert "ag: unknown_pool" not in rep["reasons"]
+    assert rep["unknown_pools"] == []
+
 

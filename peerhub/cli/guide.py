@@ -74,7 +74,8 @@ def render_guide(workspace: Path | None = None) -> str:
         "  peerhub observation refresh  # re-probe provider quota observations",
         "",
         "Model Facts & CLI Drift Recovery:",
-        "  When the monitor shows 'Facts: needs_recheck', consult docs/model-profiles/ (refresh-model-profiles):",
-        "    peerhub observation refresh  # re-probe provider quota observations",
+        "  'peerhub observation refresh' only re-measures provider quotas.",
+        "  'Facts: needs_recheck' clears only by running the refresh-model-profiles skill",
+        "  from a repo checkout or upgrading to a release with new packaged facts.",
     ])
     return "\n".join(lines)
