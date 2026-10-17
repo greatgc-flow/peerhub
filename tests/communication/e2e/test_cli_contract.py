@@ -416,3 +416,15 @@ def test_store_selection_failure_uses_normal_cli_error(monkeypatch, capsys):
     monkeypatch.setattr("peerhub.cli.app._select_db", fail)
     assert main(["peer", "get", "--peer", "a"]) == 1
     assert capsys.readouterr().err == "ERROR: invalid store selection\n"
+
+
+def test_core_read_missing_store_emits_json_when_requested(tmp_path, capsys):
+    missing_db = str(tmp_path / "does_not_exist.db")
+    code = main(["--db", missing_db, "peer", "list", "--format", "json"])
+    assert code == 5
+    out, err = capsys.readouterr()
+    assert "database not found" in err
+    payload = json.loads(out)
+    assert payload["status"] == "UNAVAILABLE"
+    assert "database not found" in payload["error"]
+
