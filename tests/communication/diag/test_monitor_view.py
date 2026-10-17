@@ -294,3 +294,22 @@ def test_append_only_renderer_keeps_full_legacy_human_frame(frame):
     assert len(rendered.splitlines()) > 20
     assert all(group.upper() in rendered for group in frame["selected_groups"])
     assert "D:/" not in rendered
+
+
+def test_plain_ascii_monitor_replaces_middle_dot_cleanly_without_question_marks(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["refresh_state"] = "REFRESH PARTIAL · 1 warnings"
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=24)
+
+    assert "·" not in rendered
+    # Delimiters should be ASCII | rather than replacing · with ?
+    assert " | " in rendered
+    assert "REFRESH PARTIAL | 1 WARNINGS" in rendered
+    assert "1.50s avg | 2 samples" in rendered
+    assert "Schema 7 | database" in rendered
+    # Ensure no ? is produced from middle dot replacement
+    for line in rendered.splitlines():
+        assert " ? " not in line
+
+
