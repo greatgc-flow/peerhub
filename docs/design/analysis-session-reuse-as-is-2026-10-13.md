@@ -6,8 +6,8 @@ Source HEAD: `02f262c1de2417686409879ae7257fd28ea9634f`. Existing uncommitted
 plan/index changes were present and are preserved. Source anchors refer to this
 worktree; this is a bounded inspection, not a production-store or legacy audit.
 
-This analysis covers the current checkout, the [reuse plan](plan-session-reuse-2026-10-13.md)
-and the [session monitoring plan](plan-session-monitoring-2026-10-13.md).
+This analysis covers the current checkout, the [reuse plan](../history/ledger-2026-10-17.md#24-docsdesignplan-session-reuse-2026-10-13md-session-continuity--retained-reuse)
+and the [session monitoring plan](../history/ledger-2026-10-17.md#23-docsdesignplan-session-monitoring-2026-10-13md-session-monitoring-pre-tdd-spec) (archived in git history; see ledger).
 The AS-IS map below is the pre-PR1 inspection snapshot; its anchors refer to
 that source revision. PR1 (`eec2cba4`), PR2 (`7cdc6b76`), PR3 (`12129517`), and
 health check fixes (`cfb28aba`) are committed on `feat/session-reuse`.

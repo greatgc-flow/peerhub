@@ -1135,3 +1135,56 @@ def test_monitor_json_privacy_scrubs_sentinel_ids_and_payloads(tmp_path, capsys)
     assert by_kind["reset_credit"]["payload"]["credits"][0]["id_hash"] == sentinel_id_hash
     assert by_kind["activity"]["payload"] == {"status": "delivered", "operation_elapsed_seconds": 2.5}
     assert by_kind["quota"]["payload"]["remaining_fraction"] == 0.5
+
+
+def test_monitor_expand_rejects_json(tmp_path):
+    db = _db(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        main(["--db", str(db), "monitor", "--expand", "--json"])
+    assert exc.value.code == 2
+
+
+def test_monitor_expand_snapshot_human_renders_all_rows(tmp_path, capsys):
+    import sqlite3
+    from peerhub.core.store import CoreStore
+    from peerhub.extensions.bridge import ClaimStore, Bridge
+    db = _db(tmp_path)
+    cs = CoreStore(db)
+    Bridge(cs, ClaimStore(db, "gen"))
+    conn = sqlite3.connect(str(db))
+    # Insert 4 session history rows
+    for i in range(1, 5):
+        conn.execute(
+            "INSERT INTO bridge_session_history(session_handle,stream_id,peer_id,runtime_kind,external_session_id,adapter_fingerprint,session_generation,"
+            "state,resumable,last_seen,created_at,binding) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (f"sess_{i:04x}", f"stream_{i}", "cx", "codex", f"ext_{i}", "fp", i, "ACTIVE", 1, 1000.0, 1000.0, '{"profile":"cx.standard"}'),
+        )
+    conn.commit()
+    conn.close()
+
+    # Snapshot default (expand=False): capped at 2 rows
+    code = main(["--db", str(db), "monitor", "--snapshot", "--group", "sessions", "--view", "plain"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "+2 sessions not shown" in out
+    assert "sess_0001" not in out
+
+    # Snapshot with --expand: all 4 rows rendered with handle, no not shown
+    code = main(["--db", str(db), "monitor", "--snapshot", "--expand", "--group", "sessions", "--view", "plain"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "not shown" not in out
+    assert "sess_0001" in out
+    assert "sess_0004" in out
+
+
+def test_monitor_expand_help_wording(capsys):
+    """--expand help wording states quota is always fully shown and --expand applies to other groups."""
+    with pytest.raises(SystemExit):
+        main(["monitor", "--help"])
+    out = capsys.readouterr().out
+    assert "--expand" in out
+    clean_out = " ".join(out.split())
+    assert "quota is always fully shown; --expand applies to other groups" in clean_out
+

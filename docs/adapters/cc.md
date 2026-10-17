@@ -28,6 +28,9 @@ object for this provider. The manifest is checked against packaged defaults.
 
 `ask --writable` adds `--permission-mode acceptEdits`. Compatible native resume
 uses `--resume SESSION_ID` for compatible continuing asks by default.
+Without `--writable`, `--permission-mode acceptEdits` is omitted; in headless
+mode (`-p -`), Claude Code refuses tool calls that require write permissions,
+preventing workspace edits on fresh and resumed asks (provider-controlled; no OS sandbox).
 
 ## Verify and troubleshoot
 

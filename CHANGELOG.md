@@ -10,6 +10,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- `peerhub monitor --expand`: human dashboard option (supporting watch and `--snapshot`) rendering all loaded rows of detail groups (`sessions`, `usage`, `context`, `runtime`) instead of capping at 2 rows (quota is always fully shown; --expand applies to other groups). Expanded session rows include the stable session handle. Bounded by existing DB read caps (100) with truncation disclosure; rejects `--expand` with `--json` (Slice 1).
 - Model pools and observed versions metadata in `docs/model-profiles/model-profiles.json` and packaged `model-defaults.toml` with cross-artifact parity verification (S1).
 - Multi-pool selection in monitor peers view selecting minimum remaining quota across fresh measured pools for mapped profile models; explicit `incomplete` and `account-wide`/`unmapped` status handling (S2).
 - Drift report persistence inside quota observation payload, retaining unknown bucket IDs and comparing installed CLI versions against packaged baselines (S3).
@@ -20,6 +21,16 @@ they do not claim new validation or publication evidence.
 ### Changed
 
 - **Breaking / Changed — Store discovery:** Removed implicit `<cwd>/peerhub` subfolder walk during store discovery (owner-approved O-1 in October 2026 audit). Store discovery now searches `.peerhub/core.db` in the current directory and parent directories only. Explicit `--db PATH`, `PEERHUB_DB`, and `--workspace` selection are unchanged. When no store is selected and a legacy `<cwd>/peerhub` store exists, missing-store error emits a hint to use `--db` pointing to it; stores of other schema versions remain refused as usual.
+
+### Changed
+
+- Default monitor viewport prioritization: `capacity` and `peers` now rank ahead of other low-priority groups in short viewports (default behaviour change), dropping other groups before clipping quota rows. All loaded quota observations (`capacity` and peers quota) are always visible by default across all pools and windows without `--expand`. When a detail loop stops early due to viewport height, one line `+N rows hidden by terminal height` is emitted with reserved space.
+- Documentation diet: archived obsolete 10,368-line call map (`peerhub-production-call-map-R1.json`) and 4 historical debate documents (4,777 lines across session monitoring/reuse/usage review) to Git history, backed by a comprehensive archival ledger (`docs/history/ledger-2026-10-17.md`) preserving retrieval commands, SHA-256 hashes, and accepted/rejected/deferred decisions. Shrunk `docs/design/README.md` to active/deferred/history links and unified status ownership under `docs/STATUS.md`.
+
+### Fixed
+
+- Preserved write access on resumed Codex (`cx`) sessions when `--writable` is enabled by passing `-c sandbox_mode="workspace-write"` on `exec resume` (resumed sessions previously defaulted to read-only sandbox mode, dropping write permissions even when the session was created writable). Safe read-only (`-c sandbox_mode="read-only"`) is maintained when `--writable` is not set. Scoped guaranteed read-only sandbox enforcement to `cx` only; documented `cc` read-only enforcement via headless permission denial and `ag` read-only as provider-controlled without sandbox enforcement (known limitation: headless `agy` does not enforce a read-only boundary when `--mode accept-edits` is omitted). Added opt-in live canary tests for read-only sentinel creation.
+
 
 ## [0.18.2] - 2026-10-17
 
