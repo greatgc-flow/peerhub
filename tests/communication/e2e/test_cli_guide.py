@@ -22,7 +22,7 @@ pytestmark = [pytest.mark.unit]
 
 
 def test_guide_line_and_token_cap(capsys):
-    """Policy 5/13: peerhub guide stays within <=60 lines and words * 1.3 <= 1200 estimated tokens."""
+    """Policy 5/13: peerhub guide stays within <=60 lines and words * 1.3 <= 900 estimated tokens."""
     code = main(["guide"])
     assert code == 0
     out = capsys.readouterr().out
@@ -30,7 +30,7 @@ def test_guide_line_and_token_cap(capsys):
     assert len(lines) <= 60, f"Guide has {len(lines)} lines, exceeding cap of 60"
     words = len(out.split())
     estimated_tokens = int(words * 1.3)
-    assert estimated_tokens <= 1200, f"Guide has {estimated_tokens} estimated tokens ({words} words * 1.3), exceeding cap of 1200"
+    assert estimated_tokens <= 900, f"Guide has {estimated_tokens} estimated tokens ({words} words * 1.3), exceeding cap of 900"
 
 
 def test_guide_example_commands_parse_via_real_argparse(capsys):
@@ -197,7 +197,7 @@ def test_guide_report_issues_section(capsys):
 
     rep_text = " ".join(rep_lines)
     assert "github.com/greatgc-flow/peerhub" in rep_text
-    assert "gh issue list --search KEYWORD" in rep_text
+    assert "gh issue list -R greatgc-flow/peerhub --search KEYWORD" in rep_text
     assert "peerhub --version" in rep_text
     assert "status/exit code" in rep_text
     assert "workaround" in rep_text

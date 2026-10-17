@@ -1,13 +1,13 @@
 """PeerHub Quick Reference and Best Practices Guide (S5).
 
-Static prose and generated profile table providing a concise (<=60 lines, words * 1.3 <= 1200 tokens)
+Static prose and generated profile table providing a concise (<=60 lines, words * 1.3 <= 900 tokens)
 reference for session reuse, efficiency, safety, discovery, drift recovery, and issue reporting.
 Works without store or provider access.
 
 Token-count method:
-The guide output is capped at <=60 lines and an estimated token budget of words * 1.3 <= 1200 tokens.
+The guide output is capped at <=60 lines and an estimated token budget of words * 1.3 <= 900 tokens.
 The budget is asserted by evaluating whitespace-delimited word count with standard ~1.3 tokens/word
-heuristics (int(len(out.split()) * 1.3) <= 1200).
+heuristics (int(len(out.split()) * 1.3) <= 900).
 """
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "  from a repo checkout or upgrading to a release with new packaged facts.",
         "",
         "Report Issues:",
-        "  File at github.com/greatgc-flow/peerhub/issues after checking 'gh issue list --search KEYWORD'.",
+        "  File at github.com/greatgc-flow/peerhub/issues after checking 'gh issue list -R greatgc-flow/peerhub --search KEYWORD'.",
         "  Include peerhub --version, OS, exact command, status/exit code, and workaround (no secrets/private paths).",
     ])
     return "\n".join(lines)
