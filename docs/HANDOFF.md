@@ -1,6 +1,7 @@
 Reference notes for maintainers. Not an instruction file: open it only when needed.
-The checkpoint below records verified state as of 2026-10-16; [STATUS](STATUS.md)
-tracks the source release and remaining work.
+[STATUS](STATUS.md) is the single authoritative owner of release status, published versions,
+and the active development queue; this document provides maintainer operating guidance
+and coordination checkpoints.
 
 ## 0. Current checkpoint (2026-10-17)
 
