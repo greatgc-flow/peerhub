@@ -3,7 +3,17 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-17)
+## 0. Current checkpoint (2026-10-18) — Issue Resolution Design Ratified & Slice S1 Authorized
+
+- **Authorization & Consensus:** Available-peer consensus achieved (`ag.effort` + `cx.effort` unanimous agreement on S1-S4 including #147). No CC wait (CC quota exhausted until 02:20 KST). Root authorized implementation of Slice S1.
+- **Branch & State:** Working on branch `fix/issue-resolution-020` (incorporating S2-A `f3431ac6`).
+- **Design SSOT:** [docs/design/issue-resolution-2026-10-18.md](design/issue-resolution-2026-10-18.md). Authoritative release status in [STATUS.md](STATUS.md).
+- **Scope Slice S1:** #140 native ag fail-closed without writable (pre-spawn error, cached replay survives), #125 single-peer ask stream fencing via `prompt_guard`, #126 factual tool completion envelope (`empty_response: true`, `task_effects: "unverified"`), #127 structured terminal error preservation.
+- **Discipline:** Implementation stays uncommitted for root review; no pushes, PRs, releases, or live provider calls.
+- **Next action:** Implement Slice S1 contracts, deterministic unit/integration tests, and verify locally.
+- **Resume prompt:** Run deterministic pytest on Slice S1 test additions, then proceed to Slice S2 upon root sign-off.
+
+### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)
 
 - **Branch & commits:** branch `release/0.19.0` prepared for v0.19.0 candidate from `origin/main` (`7158909a`); remote branch pushed, awaiting owner live gate G3 and PR/publish workflow.
 - **Owner top rule:** so-very-simple.
@@ -37,20 +47,26 @@ inspection are not available yet.
 See the [PR2 scope review and validation](implementation/PR2_SESSION_REUSE_VALIDATION.md)
 for coverage, remaining checks and local results.
 
-## 1. Collaboration practice (owner's preferences)
+## 2. Collaboration practice (owner's preferences)
 
-- Involve cc, cx and ag; balance the 7-day pace so `cc <= ag == cx`, using `peerhub diag quota` / `peerhub monitor`.
-- Delegate even small edits via `peerhub ask <peer> --writable`; verify drafts and run pytest / Pyright yourself.
-- Resolve ambiguity through independent consultation of ag and cx, followed by cross-critique.
-- Use English for AI-to-AI prompts and the user's language for user-facing text; keep source, comments, docs, commits and PRs in English.
-- Keep human-facing terminal output short.
-- Peers leave scratch files: run `git status` and add explicit paths.
-- Peer sandboxes cannot run pytest because of temp-directory ACLs.
-- A permission classifier may require an explicit user yes for `gh pr merge` and releases, even after a general grant.
-- Run only one xhigh cx review at a time; concurrent reviews exhausted cx quota.
-- Batch related, locally reviewed changes into one PR when practical: CI is slow.
+- **Owner top rule & COMPACT:** so-very-simple. Apply COMPACT: minimize abstraction and document duplication; all claims require exact empirical evidence.
+- **Unanimity & debate:** Involve cc, cx, and ag. Unlimited critical rounds until unanimity; no feature implementation before complete design and consensus. Cross-critique objectively; encode objections honestly and never fabricate agreement.
+- **Role proposals:** Propose roles until unanimity (`ag.effort` sole editor, `cx.effort` independent control-flow/safety reviewer, `cc.effort` concise veto/reviewer). Configuration and observed task outcomes are not comparative ability benchmarks; do not assert universal limits or unsupported model superiority/throughput claims.
+- **Profile facts & shared pools:**
+  - `ag standard flash-low / effort flash-medium` share Google (G) pools; `deepthink sonnet-high` consumes Anthropic 3P.
+  - `cc standard haiku / effort sonnet high / deepthink opus high` share Claude (C) pools.
+  - `cx standard luna low / effort 6.1-sol medium / deepthink 6.1-sol xhigh` share Codex (X) pools.
+  - Note: Facts require periodic recheck due to unconfirmed models (e.g., `gemini-argon-wtu-weekly`) and CLI drift. Standard profile is not guaranteed cheapest; no benchmarks at this time.
+- **Quota balance & conservation:** Monitor 7-day and 5-hour pools (`peerhub diag quota` / `peerhub monitor`). Zero provider calls or live probes unless explicitly authorized for memory preservation; no profile hopping or deepthink to evade pool limits.
+- **Sandboxing & execution constraints:** Peer sandboxes cannot run pytest reliably due to temp-directory ACL restrictions (observed on cx); headless ag read-only is not enforced at engine level (issue #140). Verify drafts and run tests/typing locally.
+- **Delegation of edits:** Delegate even small edits via `peerhub ask <peer> --writable`; verify drafts and run pytest / Pyright yourself.
+- **Language policy:** Use English for AI-to-AI prompts, source code, comments, docs, commits, and PRs; use Korean (terse) for human user updates.
+- **Session management:** Practice session reuse across turns; preserve history; retain selectors (`--session`, `--fresh`). Clean up stale scratch files.
+- **Token boundaries:** Near root token limit, write a durable handoff, then output exactly ONE resume-prompt line.
+- **Permissions & release discipline:** General permissions are pre-granted. Update dependencies to latest in an isolated venv before any release. Require full suite and candidate-matched G3 live gate. Post-deploy verification and temp cleanup required.
+- **Issue reporting:** File lessons, incidents, and bugs directly on corresponding GitHub issues (peerhub.md retired).
 
-## 2. Tooling pitfalls
+## 3. Tooling pitfalls
 
 - Store discovery, explicit selection and missing-store behavior: [README](../README.md#store-selection-and-existing-data).
 - A STARTED/uncertain request blocks its stream (`blocked_uncertain`); use a new `--stream`. Reusing `--request-id` never replays uncertain execution.
@@ -67,7 +83,7 @@ for coverage, remaining checks and local results.
 - Windows pushes: a configured `gh.exe` path was missing; use the PATH-based
   credential override in [CONTRIBUTING](../CONTRIBUTING.md#development-notes).
 
-## 3. Release lessons
+## 4. Release lessons
 
 - Release sequence, CHANGELOG-derived notes and required assets: [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 - Serial tests, opt-in xdist and disposable development venvs: [development setup](../CONTRIBUTING.md#development-setup).
