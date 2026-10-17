@@ -198,3 +198,49 @@ def test_explicit_missing_db_with_legacy_store_present_emits_no_hint_line(pollut
     _, err = capsys.readouterr()
     assert "database not found: nonexistent.db" in err
     assert "Ignored legacy store:" not in err
+
+
+def test_schema_11_explicit_default_path_with_legacy_store_emits_no_hint(polluted_subfolder_workspace, monkeypatch, capsys):
+    ws, _ = polluted_subfolder_workspace
+    monkeypatch.chdir(ws)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+
+    code = main(["--db", str(DEFAULT_DB_PATH), "monitor", "--json", "--schema-version", "1.1"])
+    assert code == 5
+    out, err = capsys.readouterr()
+    payload = json.loads(out)
+    assert payload["status"] == "UNAVAILABLE"
+    assert f"database not found: {DEFAULT_DB_PATH}" in err
+    assert "Ignored legacy store:" not in err
+
+
+def test_schema_11_env_default_path_with_legacy_store_emits_no_hint(polluted_subfolder_workspace, monkeypatch, capsys):
+    ws, _ = polluted_subfolder_workspace
+    monkeypatch.chdir(ws)
+    monkeypatch.setenv("PEERHUB_DB", str(DEFAULT_DB_PATH))
+
+    code = main(["monitor", "--json", "--schema-version", "1.1"])
+    assert code == 5
+    out, err = capsys.readouterr()
+    payload = json.loads(out)
+    assert payload["status"] == "UNAVAILABLE"
+    assert f"database not found: {DEFAULT_DB_PATH}" in err
+    assert "Ignored legacy store:" not in err
+
+
+def test_schema_11_no_store_selected_with_legacy_store_emits_hint(polluted_subfolder_workspace, monkeypatch, capsys):
+    ws, sub_store = polluted_subfolder_workspace
+    monkeypatch.chdir(ws)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+
+    code = main(["monitor", "--json", "--schema-version", "1.1"])
+    assert code == 5
+    out, err = capsys.readouterr()
+    payload = json.loads(out)
+    assert payload["status"] == "UNAVAILABLE"
+    expected_hint = (
+        f'Ignored legacy store: {sub_store.resolve()} (no longer auto-discovered). '
+        f'Use --db "{sub_store.resolve()}" to keep using it; stores of other schema versions are refused as usual.'
+    )
+    assert expected_hint in err
+
