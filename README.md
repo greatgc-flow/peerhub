@@ -149,7 +149,7 @@ colour while retaining supported cursor controls.
 
 ## Store selection and existing data
 
-The store is `.peerhub/core.db`. Discovery picks the nearest one (current directory, `<cwd>/peerhub`, then parents); `--db PATH` or `PEERHUB_DB` choose explicitly. `peerhub diag health` reports `store_selection` (the path and how it was chosen: `env`, `explicit`, `discovered`, `workspace-default`, `default`). Developer scratch (live-gate JUnit etc.) goes under `.peerhub/work/`; the top of `.peerhub/` holds the database and its `restore.epoch` metadata.
+The store is `.peerhub/core.db`. Discovery picks the nearest one (current directory, then parents); `--db PATH` or `PEERHUB_DB` choose explicitly. `peerhub diag health` reports `store_selection` (the path and how it was chosen: `env`, `explicit`, `discovered`, `workspace-default`, `default`). Developer scratch (live-gate JUnit etc.) goes under `.peerhub/work/`; the top of `.peerhub/` holds the database and its `restore.epoch` metadata.
 
 Use global `--db PATH` before the command, or `PEERHUB_DB`, to select a store explicitly. An explicit missing path is never redirected to another store. `ask --workspace DIR` uses that directory's store unless a database was explicitly selected. Read-only commands do not create a missing store.
 

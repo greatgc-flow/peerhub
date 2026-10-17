@@ -15,6 +15,11 @@ they do not claim new validation or publication evidence.
 - Drift report persistence inside quota observation payload, retaining unknown bucket IDs and comparing installed CLI versions against packaged baselines (S3).
 - Monitor model facts drift line (`Facts: needs_recheck (...) - refresh-model-profiles`) and detailed JSON output without extra probes (S4).
 - Offline `peerhub guide` subcommand (<=60 lines, ~900 tokens) providing `.standard`-first profile table, session reuse examples, delivery safety guidance, discovery commands, and drift recovery (S5).
+- Bounded delta reads in Session Bridge for native, local history, and redirect-candidate delta queries, paging reads and stopping before the current record.
+
+### Changed
+
+- **Breaking / Changed — Store discovery:** Removed implicit `<cwd>/peerhub` subfolder walk during store discovery (owner-approved O-1 in October 2026 audit). Store discovery now searches `.peerhub/core.db` in the current directory and parent directories only. Explicit `--db PATH`, `PEERHUB_DB`, and `--workspace` selection are unchanged.
 
 ## [0.18.2] - 2026-10-17
 

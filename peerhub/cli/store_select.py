@@ -1,7 +1,7 @@
 """Which database file a CLI call uses, and why.
 
 Order: PEERHUB_DB (when allowed) > explicit --db > a discovered workspace store > the default path.
-Discovery looks for `.peerhub/core.db` in the current directory, `<cwd>/peerhub`, then every parent.
+Discovery looks for `.peerhub/core.db` in the current directory, then every parent.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def select_store(configured_path: str, *, use_env: bool = True, discover: bool =
         roots = [workspace_root.resolve()]
     else:
         current = (cwd or Path.cwd()).resolve()
-        roots = [current, current / "peerhub", *current.parents]
+        roots = [current, *current.parents]
     for root in roots:
         candidate = root / DEFAULT_DB_PATH
         if candidate.is_file():
