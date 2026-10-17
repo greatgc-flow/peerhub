@@ -92,7 +92,8 @@ def test_cx_fresh_and_resume_argv(writable, model, effort):
     fresh = ["exec", "--skip-git-repo-check", "-s", "workspace-write" if writable else "read-only"]
     assert spec.argv(model, effort, "question", writable) == fresh + common
     resumed = spec.argv(model, effort, "question", writable, "opaque.A_1:-")
-    assert resumed == ["exec", "resume", "opaque.A_1:-", "--skip-git-repo-check"] + common
+    sandbox = "workspace-write" if writable else "read-only"
+    assert resumed == ["exec", "resume", "opaque.A_1:-", "--skip-git-repo-check", "-c", f'sandbox_mode="{sandbox}"'] + common
     assert "-s" not in resumed and "latest" not in resumed and "--last" not in resumed
 
 

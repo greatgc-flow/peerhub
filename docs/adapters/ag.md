@@ -28,6 +28,10 @@ object for this provider. The manifest is checked against packaged defaults.
 
 `--mode accept-edits` is added only for `ask --writable`. Compatible native
 resume uses `--conversation SESSION_ID` for compatible continuing asks by default.
+Read-only enforcement is provider-controlled: omitting `--mode accept-edits` withholds
+explicit edit approval, but headless `agy.exe` (`-p`) does not provide a sandbox-enforced
+read-only boundary; tools may still execute writes (known limitation; PeerHub does not
+claim an enforced read-only boundary for `ag`).
 
 ## Verify and troubleshoot
 

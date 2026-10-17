@@ -685,8 +685,9 @@ class CxSpec(ProviderSpec):
     def argv(self, model: str | None, effort: str | None, prompt: str, writable: bool = False,
              vendor_session_id: str | None = None) -> list[str]:
         if vendor_session_id is not None:
-            # exec resume inherits the session sandbox and does not accept -s.
-            a = ["exec", "resume", vendor_session_id, "--skip-git-repo-check"]
+            # exec resume does not accept -s; sandbox is configured via -c sandbox_mode=...
+            sandbox = "workspace-write" if writable else "read-only"
+            a = ["exec", "resume", vendor_session_id, "--skip-git-repo-check", "-c", f'sandbox_mode="{sandbox}"']
         else:
             a = ["exec", "--skip-git-repo-check", "-s", "workspace-write" if writable else "read-only"]
         if model:
