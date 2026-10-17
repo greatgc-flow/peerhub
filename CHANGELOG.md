@@ -24,7 +24,7 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
-- Preserved write access on resumed Codex (`cx`) sessions when `--writable` is enabled by passing `-c sandbox_mode="workspace-write"` on `exec resume` (resumed sessions previously defaulted to read-only sandbox mode, dropping write permissions even when the session was created writable). Safe read-only (`-c sandbox_mode="read-only"`) is maintained when `--writable` is not set.
+- Preserved write access on resumed Codex (`cx`) sessions when `--writable` is enabled by passing `-c sandbox_mode="workspace-write"` on `exec resume` (resumed sessions previously defaulted to read-only sandbox mode, dropping write permissions even when the session was created writable). Safe read-only (`-c sandbox_mode="read-only"`) is maintained when `--writable` is not set. Scoped guaranteed read-only sandbox enforcement to `cx` only; documented `cc` read-only enforcement via headless permission denial and `ag` read-only as provider-controlled without sandbox enforcement (known limitation: headless `agy` does not enforce a read-only boundary when `--mode accept-edits` is omitted). Added opt-in live canary tests for read-only sentinel creation.
 
 
 ## [0.18.2] - 2026-10-17

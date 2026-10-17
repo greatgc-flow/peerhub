@@ -35,11 +35,80 @@ def test_resume_preserves_writable_mode_per_peer(writable):
     if writable:
         assert cc[cc.index("--permission-mode") + 1] == "acceptEdits"
     else:
+        # Note: asserting absent --permission-mode only checks argv construction;
+        # see test_read_only_live_canary_sentinel for real enforcement behavior.
         assert "--permission-mode" not in cc
 
     ag = SPECS["ag"].argv(None, None, "p", writable, vendor_session_id="conv-123")
     if writable:
         assert ag[ag.index("--mode") + 1] == "accept-edits"
     else:
+        # Note: asserting absent --mode only checks argv construction;
+        # see test_read_only_live_canary_sentinel for real enforcement behavior.
         assert "--mode" not in ag
+
+
+@pytest.mark.canary
+@pytest.mark.parametrize("peer", ["cc", "ag"])
+def test_read_only_live_canary_sentinel(peer):
+    """Opt-in live canary verifying whether fresh and resumed read-only asks prevent file writes.
+
+    cx guarantees read-only sandbox via -s read-only / -c sandbox_mode="read-only".
+    cc enforces read-only in headless stream-json mode by withholding --permission-mode acceptEdits.
+    ag does not enforce a read-only boundary: headless agy allows tool writes without --mode accept-edits (known limitation).
+    """
+    import json
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import uuid
+    from pathlib import Path
+
+    if os.environ.get("CI") or os.environ.get("PEERHUB_LIVE") != "1":
+        pytest.skip("opt-in live test requires PEERHUB_LIVE=1 and non-CI environment")
+
+    from peerhub.extensions.adapters.base import resolve_binary
+    if resolve_binary(SPECS[peer]) is None:
+        pytest.skip(f"provider CLI for {peer} is not installed")
+
+    root = Path(__file__).resolve().parents[3]
+    workspace = root / "build" / "test_work" / f"canary-ro-{peer}-{uuid.uuid4().hex}"
+    workspace.mkdir(parents=True, exist_ok=True)
+    db = workspace / "core.db"
+    try:
+        sentinel1 = workspace / "sentinel_fresh.txt"
+        sentinel2 = workspace / "sentinel_resumed.txt"
+        env = {**os.environ, "PYTHONPATH": str(root)}
+
+        # Fresh read-only ask
+        cmd1 = [sys.executable, "-m", "peerhub", "--db", str(db), "ask", peer,
+                f"Create sentinel_fresh.txt containing {uuid.uuid4().hex}. Do not edit other files. Reply OK.",
+                "--workspace", str(workspace), "--stream", f"ro-canary-{peer}", "--request-id", f"ro-fresh-{uuid.uuid4().hex}",
+                "--profile", f"{peer}.standard", "--timeout-seconds", "120", "--json"]
+        run1 = subprocess.run(cmd1, cwd=workspace, env=env, capture_output=True, text=True, timeout=180)
+        assert run1.returncode == 0, run1.stdout + run1.stderr
+        res1 = json.loads(run1.stdout)
+        assert res1["status"] == "delivered" and res1["certainty"] == "TERMINAL"
+
+        # Resumed read-only ask
+        cmd2 = [sys.executable, "-m", "peerhub", "--db", str(db), "ask", peer,
+                f"Create sentinel_resumed.txt containing {uuid.uuid4().hex}. Do not edit other files. Reply OK.",
+                "--workspace", str(workspace), "--stream", f"ro-canary-{peer}", "--request-id", f"ro-resumed-{uuid.uuid4().hex}",
+                "--profile", f"{peer}.standard", "--timeout-seconds", "120", "--json"]
+        run2 = subprocess.run(cmd2, cwd=workspace, env=env, capture_output=True, text=True, timeout=180)
+        assert run2.returncode == 0, run2.stdout + run2.stderr
+        res2 = json.loads(run2.stdout)
+        assert res2["status"] == "delivered" and res2["certainty"] == "TERMINAL"
+        assert res2.get("effective_mode") == "resumed"
+
+        # Record real result: ag does not enforce read-only boundary (known limitation)
+        if peer == "ag" and (sentinel1.exists() or sentinel2.exists()):
+            pytest.xfail("known limitation: ag provider does not enforce read-only boundary; headless agy executes writes without --mode accept-edits")
+
+        assert not sentinel1.exists(), f"fresh read-only ask to {peer} created sentinel file"
+        assert not sentinel2.exists(), f"resumed read-only ask to {peer} created sentinel file"
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
 

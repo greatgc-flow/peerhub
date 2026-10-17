@@ -37,6 +37,8 @@ peerhub monitor
 `ask --writable` selects `-s workspace-write`; fresh sessions otherwise use
 `-s read-only`. Compatible continuing asks use `exec resume SESSION_ID` with
 `-c sandbox_mode="workspace-write"` (or `"read-only"` when not writable) because
-resume does not accept `-s`. Changing writable mode starts a fresh generation. Environment restrictions still apply.
+resume does not accept `-s`. Changing writable mode starts a fresh generation.
+Codex is the only adapter providing an OS/filesystem sandbox-enforced read-only boundary.
+Environment restrictions still apply.
 Authentication, quotas, network access, and model availability also remain
 vendor-owned.
