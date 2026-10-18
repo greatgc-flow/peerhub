@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- Skip oversized cx events when a later intact answer and completion establish delivery; preserve uncertainty for lost terminal evidence (#164).
+
 ### Changed
 
 - Monitor QUOTA adds semantic colors, precise remaining bars, compact per-peer probe notes, a space-permitting state legend, and the soonest exhaustion summary (#147 S2).

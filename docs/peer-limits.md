@@ -13,3 +13,13 @@ The `peerhub diag peers` capability probe is **NOT implemented (deferred)**.
 Existing diagnostics do not establish sandbox capabilities.
 
 See the [adapter guide](adapters/README.md) and [installed-CLI smoke recipe](smoke-recipe.md).
+
+## cx event size
+
+The cx adapter accepts at most 262,144 bytes (256 KiB) per JSONL record,
+excluding the newline; this is separate from the total retained output budget
+(`--max-output-bytes`). Oversized records are discarded without retaining their
+payloads in warnings or telemetry. `oversized_event_count` records the count.
+A later intact answer followed by `turn.completed` establishes delivery after a
+skipped record; an oversized final answer/completion or an unresolved gap keeps
+the outcome uncertain. A completion alone cannot substitute for a lost answer.

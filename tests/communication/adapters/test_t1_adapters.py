@@ -598,3 +598,35 @@ def test_cx_final_messages_bounded_and_discloses_truncation():
 
 
 
+
+@pytest.mark.parametrize("max_bytes", [1000, 1_000_000])
+@pytest.mark.parametrize("oversized_kind", ["tool", "answer", "completion", "after_completion"])
+def test_cx_oversized_events_preserve_terminal_certainty(tmp_path, max_bytes, oversized_kind):
+    """#164: only an intact answer and completion after the gap permit delivery."""
+    h = BridgeHarness(tmp_path / "db")
+    script = """
+import json, sys
+kind = sys.argv[1]
+def emit(event):
+    print(json.dumps(event))
+emit({"type": "item.completed", "item": {"type": "agent_message", "text": "PRIVATE_NARRATION"}})
+if kind == "tool":
+    emit({"type": "item.completed", "item": {"type": "command_execution", "output": "OVERSIZED_PRIVATE" * 20000}})
+emit({"type": "item.completed", "item": {"type": "agent_message", "text": "OVERSIZED_PRIVATE" * 20000 if kind == "answer" else "FINAL ANSWER"}})
+emit({"type": "turn.completed", "padding": "OVERSIZED_PRIVATE" * 20000 if kind == "completion" else ""})
+if kind == "after_completion":
+    emit({"type": "error", "message": "OVERSIZED_PRIVATE" * 20000})
+"""
+    target = CliRuntimeTarget("cx", tmp_path, command=[sys.executable, "-c", script, oversized_kind], max_bytes=max_bytes)
+    bseed(h)
+    result = h.delivery_cycle("b", "s", target)
+    if oversized_kind == "tool":
+        assert result.status == "delivered"
+        assert result.certainty == "TERMINAL"
+        assert json.loads(responses(h)[0][4]) == "PRIVATE_NARRATION\nFINAL ANSWER"
+    else:
+        assert result.status == "uncertain"
+        assert responses(h) == []
+    assert "OVERSIZED_PRIVATE" not in json.dumps(list(target.evidence))
+    counts = next(e for e in target.evidence if e["event"] == "event_counts")
+    assert counts["oversized_event_count"] == 1
