@@ -3,6 +3,8 @@
 PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`, `ag`). The Core owns only Peer, Stream, Record, and Offset. All higher-level coordination primitives are extensions.
 
 ## Core & Everyday Guides
+- [Profile Smoke Recipe](smoke-recipe.md): Installed-CLI nonce pings and one result matrix (#148).
+- [Peer Sandbox Limits](peer-limits.md): Per-peer restrictions, operating knobs, and deferred capability probe (#134).
 - [README.md](../README.md): Quick start, installation (`pipx`/`uv`/`pip`), core usage, and everyday operational commands.
 - [Common Tasks](../README.md#common-tasks): Worked recipes for default retained-session continuation, blocked stream recovery, offline diagnostics, and package lifecycle.
 - [STATUS.md](STATUS.md): Single source of truth for current release status, published version history, and remaining development work.
