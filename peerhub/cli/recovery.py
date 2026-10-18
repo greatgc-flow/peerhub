@@ -312,6 +312,45 @@ REGISTRY: dict[str, GuidanceEntry] = {
             {"code": 4, "context": "Storage layer failure (StorageReadOnlyError, StorageFullError, StorageCorruptError)."},
         ],
     ),
+    "ask_schema_version_error": GuidanceEntry(
+        code="ask_schema_version_error",
+        meaning="The selected store uses an unsupported schema version.",
+        why="This PeerHub version cannot read the selected store schema.",
+        recover=[{
+            "argv": ["peerhub", "--version"],
+            "purpose": "Check the installed version and use a PeerHub version compatible with this store",
+            "prereqs": "Verify the selected --db path is the intended store.",
+        }],
+        avoid="Do not edit schema version metadata or downgrade the store to bypass this check.",
+        docs="docs/migrations.md",
+        exits=[{"code": 6, "context": "Unsupported store schema version (SchemaVersionError)."}],
+    ),
+    "ask_cas_conflict": GuidanceEntry(
+        code="ask_cas_conflict",
+        meaning="A compare-and-swap revision check failed.",
+        why="The stored revision changed before the guarded update could commit.",
+        recover=[{
+            "argv": ["peerhub", "diag", "health", "--stream", "STREAM_ID"],
+            "purpose": "Inspect current stream state before retrying the original request",
+            "prereqs": "Provide the affected stream identifier.",
+        }],
+        avoid="Do not bypass revision checks or change the request ID to force another execution; resolve uncertain delivery first.",
+        docs="docs/remote-ask.md",
+        exits=[{"code": 3, "context": "Compare-and-swap revision conflict (CasMismatchError)."}],
+    ),
+    "ask_idempotency_conflict": GuidanceEntry(
+        code="ask_idempotency_conflict",
+        meaning="An idempotency key was reused with conflicting request data.",
+        why="The stored request identity differs from the request supplied with the same key.",
+        recover=[{
+            "argv": ["peerhub", "record", "read", "--stream", "STREAM_ID"],
+            "purpose": "Inspect the original request and reuse its prompt, binding, and session selector for a retry",
+            "prereqs": "Provide the affected stream identifier.",
+        }],
+        avoid="Do not change request IDs to bypass a conflict or retry uncertain execution blindly.",
+        docs="docs/remote-ask.md",
+        exits=[{"code": 2, "context": "Conflicting data for an existing idempotency key (IdempotencyConflictError)."}],
+    ),
     "ask_unexpected_failure": GuidanceEntry(
         code="ask_unexpected_failure",
         meaning="An unclassified or unexpected error occurred during ask dispatch.",
@@ -327,9 +366,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
         docs="docs/remote-ask.md",
         exits=[
             {"code": 1, "context": "Unhandled exception or unexpected runtime error during ask dispatch."},
-            {"code": 2, "context": "Invalid CLI arguments, unrecognized ask options, or idempotency conflict (ValueError other than selector/session errors, or IdempotencyConflictError)."},
-            {"code": 3, "context": "Compare-and-swap revision conflict (CasMismatchError)."},
-            {"code": 6, "context": "Unsupported store schema version (SchemaVersionError)."},
+            {"code": 2, "context": "Invalid CLI arguments or unrecognized ask options (ValueError other than selector/session errors)."},
         ],
     ),
 }
@@ -420,8 +457,15 @@ def select_guidance_code(
             InvalidSessionHandleSyntaxError,
         )
         from peerhub.extensions.ask import LegacySelectorUnsupported, StreamPeerMismatchError
-        from peerhub.core.store import StorageReadOnlyError, StorageFullError, StorageCorruptError
+        from peerhub.core.schema_version import SchemaVersionError
+        from peerhub.core.store import CasMismatchError, IdempotencyConflictError, StorageReadOnlyError, StorageFullError, StorageCorruptError
 
+        if isinstance(exception, SchemaVersionError):
+            return "ask_schema_version_error"
+        if isinstance(exception, CasMismatchError):
+            return "ask_cas_conflict"
+        if isinstance(exception, IdempotencyConflictError):
+            return "ask_idempotency_conflict"
         if isinstance(exception, ClaimHeldError):
             return "ask_claim_held"
         if isinstance(exception, StreamPeerMismatchError):
