@@ -111,7 +111,8 @@ def test_guide_safety_scenarios_and_behaviour(capsys):
             rules[current_rule] += " " + line.strip()
 
     assert "Writes" in rules
-    assert "Uncertain / pending_earlier_record" in rules
+    assert "Uncertain" in rules
+    assert "pending_earlier_record" in rules
     assert "Store hazards" in rules
     assert "Cost side effects" in rules
     assert "Secrets" in rules
@@ -130,7 +131,7 @@ def test_guide_safety_scenarios_and_behaviour(capsys):
     assert re.search(r"when edits are intended,\s*pass --writable on every turn,\s*including resumed turns", writes_text)
 
     # Meaning-level check 2: Uncertain / pending_earlier_record rule
-    unc_text = rules["Uncertain / pending_earlier_record"]
+    unc_text = rules["Uncertain"]
     assert re.search(r"\bstop that stream\b", unc_text, re.IGNORECASE)
     # Recovery command in text must extract and parse cleanly
     diag_cmd_match = re.search(r"'peerhub\s+([a-z0-9 _-]+)'", unc_text)
@@ -148,6 +149,10 @@ def test_guide_safety_scenarios_and_behaviour(capsys):
     # Distinguishes genuinely new work on a new stream
     assert re.search(r"\bcontinue genuinely new work on a new stream with a summary\b", unc_text, re.IGNORECASE)
     assert re.search(r"peerhub explain <code>", unc_text)
+    pending_text = rules["pending_earlier_record"]
+    assert "processed_status" in pending_text
+    assert "delivered" in pending_text and "same request-id" in pending_text
+    assert "uncertain" in pending_text
 
     # Meaning-level check 3: Store hazards
     store_text = rules["Store hazards"]

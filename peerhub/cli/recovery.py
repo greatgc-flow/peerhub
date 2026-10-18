@@ -109,13 +109,13 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
         exit_code=1,
         guidance_code="context-dependent",
         meaning="Cycle processed an earlier record on the stream rather than this prompt. Meaning and guidance depend on processed_status (earlier may have delivered, refused, failed, or ended uncertain).",
-        safe_action="Inspect earlier outcome: re-run ask if earlier delivered; check quota/health if refused/failed; abandon stream if uncertain.",
+        safe_action="Inspect processed_status: if earlier delivered, retry this queued prompt with the same request-id, prompt, binding and selector; check quota/health if refused/failed; abandon stream if uncertain.",
         processed_status_cases=[
             {
                 "processed_status": "delivered / recovered_terminal",
                 "guidance_code": "(none)",
                 "meaning": "Earlier record delivered successfully; prompt was queued behind it and remains unexecuted in this cycle.",
-                "safe_action": "Re-run peerhub ask on the same stream to execute this prompt on the warm session.",
+                "safe_action": "Retry peerhub ask on the same stream with the same request-id, prompt, binding and selector to advance the queued prompt; compatible retained sessions can be reused.",
             },
             {
                 "processed_status": "not_executed",
@@ -566,7 +566,7 @@ def render_guidance_reference() -> str:
             "",
             "### `pending_earlier_record` Case Matrix",
             "",
-            "When `peerhub ask` encounters an earlier record on the stream that has not completed terminal processing, it advances that earlier record first. Because that earlier record may have delivered, refused, failed, or ended uncertain, `pending_earlier_record` guidance and safe recovery action depend on the `processed_status` of that earlier record:",
+            "When `peerhub ask` processes an earlier record instead of the requested prompt, it returns `pending_earlier_record` with exit 1. This does not by itself mean earlier work remains unfinished or uncertain: `processed_status` reports what happened to that earlier record during this cycle. The requested prompt remains queued. Guidance and safe recovery depend on that earlier outcome:",
             "",
             "| Earlier `processed_status` | Guidance Code | Meaning | Safe Action |",
             "|---|---|---|---|",
@@ -582,7 +582,7 @@ def render_guidance_reference() -> str:
         "",
         "## Guidance Registry & Outcome Codes",
         "",
-        "The table below is generated from the PeerHub guidance registry (`peerhub/cli/recovery.py`). Each non-success outcome code maps to its CLI exit code, operational meaning, safe recovery action, and actions to avoid.",
+        "The table below is generated from the PeerHub guidance registry (`peerhub/cli/recovery.py`). A guidance code can cover several CLI exit codes; use the context lists below to interpret the actual process exit. Context-dependent explain JSON contains `exits` without a scalar `exit_code`.",
         "",
         "| Outcome Code | Exit Code | Meaning | Safe Recovery Action | Avoid |",
         "|---|---|---|---|---|",

@@ -941,6 +941,63 @@ def test_scenario_pending_earlier_record_processed_status_cases(tmp_path, monkey
     assert data["guidance"]["code"] == "ask_blocked_uncertain"
 
 
+@pytest.mark.parametrize("exception, guidance_code, expected_exit", [
+    (SessionLostError("continuity lost"), "ask_selector_error", 1),
+    (SessionNotFoundError("missing handle"), "ask_selector_error", 2),
+    (PrespawnError("execution policy rejected"), "ask_delivery_failed", 1),
+    (StorageReadOnlyError("read only"), "ask_delivery_failed", 4),
+    (StorageFullError("disk full"), "ask_delivery_failed", 4),
+    (StorageCorruptError("corrupt store"), "ask_delivery_failed", 4),
+])
+def test_context_exit_registry_matches_cli(tmp_path, monkeypatch, capsys, exception, guidance_code, expected_exit):
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    def fail(*args, **kwargs):
+        raise exception
+
+    monkeypatch.setattr(ask_mod, "ask", fail)
+    actual_exit = main(["--db", str(tmp_path / "core.db"), "ask", "cx", "hello", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["guidance"]["code"] == guidance_code
+    assert actual_exit == expected_exit
+    assert main(["explain", guidance_code, "--json"]) == 0
+    explanation = json.loads(capsys.readouterr().out)
+    assert "exit_code" not in explanation
+    assert actual_exit in {case["code"] for case in explanation["exits"]}
+    assert explanation["exits"] == REGISTRY[guidance_code].exits
+
+
+@pytest.mark.parametrize("processed_status, detail_error, expected_guidance", [
+    ("delivered", None, ""),
+    ("recovered_terminal", None, ""),
+    ("not_executed", None, "ask_refusal"),
+    ("failed_not_started", "executable not found", "ask_launch_failed"),
+    ("failed_not_started", "execution policy rejected", "ask_delivery_failed"),
+    ("uncertain", None, "ask_blocked_uncertain"),
+    ("blocked_uncertain", None, "ask_blocked_uncertain"),
+])
+def test_pending_case_registry_matches_cli(tmp_path, monkeypatch, capsys, processed_status, detail_error, expected_guidance):
+    from peerhub.cli.app import main
+    from peerhub.cli.recovery import RESULT_STATUS_REGISTRY
+    from peerhub.extensions import ask as ask_mod
+
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "pending_earlier_record", "processed_status": processed_status,
+        "detail": {"error": detail_error},
+    })
+    actual_exit = main(["--db", str(tmp_path / "core.db"), "ask", "cx", "queued", "--request-id", "queued-1", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload.get("guidance", {}).get("code", "") == expected_guidance
+    entry = RESULT_STATUS_REGISTRY["pending_earlier_record"]
+    assert actual_exit == entry.exit_code == 1
+    cases = [case for case in entry.processed_status_cases if processed_status in case["processed_status"].split(" / ")]
+    assert len(cases) == 1
+    assert (expected_guidance or "(none)") in cases[0]["guidance_code"].split(" / ")
+    if not expected_guidance:
+        assert "same request-id" in cases[0]["safe_action"]
+
+
 def test_actual_cli_exit_codes_across_contexts(tmp_path, monkeypatch, capsys):
     """P2: Verify actual CLI exit codes match documented context-dependent exits."""
     from peerhub.cli.app import main

@@ -12,25 +12,25 @@ The table below maps actual result statuses (`result["status"]` returned by `pee
 | `delivered` | 0 | (none) | Request executed successfully and terminal response was committed to the stream. | None required. Continue subsequent turns on the same stream to reuse the active session. |
 | `failed_not_started` | 1 | `ask_launch_failed` | Provider process failed before execution started (missing executable or OS spawn rejection). | Inspect peer adapter availability and PATH configuration via `peerhub diag health`. |
 | `not_executed` | 1 | `ask_refusal` | Provider explicitly refused execution before performing tool calls (e.g. quota exhausted, auth failure, invalid model). | Inspect quota pools and reset times via `peerhub diag quota` or verify profile configuration via `peerhub profile list`. |
-| `pending_earlier_record` | 1 | `context-dependent` | Cycle processed an earlier record on the stream rather than this prompt. Meaning and guidance depend on processed_status (earlier may have delivered, refused, failed, or ended uncertain). | Inspect earlier outcome: re-run ask if earlier delivered; check quota/health if refused/failed; abandon stream if uncertain. |
+| `pending_earlier_record` | 1 | `context-dependent` | Cycle processed an earlier record on the stream rather than this prompt. Meaning and guidance depend on processed_status (earlier may have delivered, refused, failed, or ended uncertain). | Inspect processed_status: if earlier delivered, retry this queued prompt with the same request-id, prompt, binding and selector; check quota/health if refused/failed; abandon stream if uncertain. |
 | `recovered_terminal` | 0 | (none) | Prior idempotent execution or replayed terminal response recovered. | None required. Prior committed result recovered. |
 | `session_unavailable` | 2 | `ask_selector_error` | Session selector or handle validation failed before invocation could begin. | List valid sessions via `peerhub session list` or pass `--fresh` to allocate a fresh session. |
 | `uncertain` | 1 | `ask_uncertain` | Request started execution but ended without terminal certainty (timeout or abort). | Inspect stream health via `peerhub diag health --stream STREAM_ID`. Do not retry or pass `--fresh` on this stream; abandon stream. |
 
 ### `pending_earlier_record` Case Matrix
 
-When `peerhub ask` encounters an earlier record on the stream that has not completed terminal processing, it advances that earlier record first. Because that earlier record may have delivered, refused, failed, or ended uncertain, `pending_earlier_record` guidance and safe recovery action depend on the `processed_status` of that earlier record:
+When `peerhub ask` processes an earlier record instead of the requested prompt, it returns `pending_earlier_record` with exit 1. This does not by itself mean earlier work remains unfinished or uncertain: `processed_status` reports what happened to that earlier record during this cycle. The requested prompt remains queued. Guidance and safe recovery depend on that earlier outcome:
 
 | Earlier `processed_status` | Guidance Code | Meaning | Safe Action |
 |---|---|---|---|
-| `delivered / recovered_terminal` | (none) | Earlier record delivered successfully; prompt was queued behind it and remains unexecuted in this cycle. | Re-run peerhub ask on the same stream to execute this prompt on the warm session. |
+| `delivered / recovered_terminal` | (none) | Earlier record delivered successfully; prompt was queued behind it and remains unexecuted in this cycle. | Retry peerhub ask on the same stream with the same request-id, prompt, binding and selector to advance the queued prompt; compatible retained sessions can be reused. |
 | `not_executed` | `ask_refusal` | Earlier record was refused by the provider (quota, auth, invalid model). | Inspect quota via peerhub diag quota or verify profile configuration. |
 | `failed_not_started` | `ask_launch_failed / ask_delivery_failed` | Earlier record failed before execution started (missing executable or pre-spawn policy check). | Inspect provider binary and PATH configuration via peerhub diag health. |
 | `uncertain / blocked_uncertain` | `ask_blocked_uncertain` | Earlier record ended in an uncertain state, blocking further progress on this stream. | Inspect stream via peerhub diag health --stream STREAM_ID. Abandon stream; start a new stream for subsequent work. |
 
 ## Guidance Registry & Outcome Codes
 
-The table below is generated from the PeerHub guidance registry (`peerhub/cli/recovery.py`). Each non-success outcome code maps to its CLI exit code, operational meaning, safe recovery action, and actions to avoid.
+The table below is generated from the PeerHub guidance registry (`peerhub/cli/recovery.py`). A guidance code can cover several CLI exit codes; use the context lists below to interpret the actual process exit. Context-dependent explain JSON contains `exits` without a scalar `exit_code`.
 
 | Outcome Code | Exit Code | Meaning | Safe Recovery Action | Avoid |
 |---|---|---|---|---|
