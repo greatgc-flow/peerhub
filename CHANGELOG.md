@@ -8,9 +8,11 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-10-19
+
 ### Changed
 
-- Uncertain ask guidance and guide now direct default-timeout asks to a new stream with explicit `--timeout-seconds` (long reviews: 1800 or more), preserving retry cautions (#169).
+- Uncertain ask guidance and guide now direct default-timeout asks to a new stream with explicit `--timeout-seconds` (long reviews: 1800 or more), preserving retry cautions (#169, PR #171).
 
 ## [0.21.0] - 2026-10-18
 
