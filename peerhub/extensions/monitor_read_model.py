@@ -417,7 +417,12 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         anchor_basis=observation.payload.get("anchor_basis"),
                     )
                     measurements = None
+                    reset_in_seconds = None
                     if freshness.state.value == "MEASURED":
+                        resets_at = observation.payload.get("resets_at")
+                        if (isinstance(resets_at, (int, float)) and not isinstance(resets_at, bool)
+                                and math.isfinite(resets_at)):
+                            reset_in_seconds = max(0.0, resets_at - now)
                         measured: dict[str, int | float] = {}
                         for key in MEASUREMENT_KEYS.intersection(observation.payload):
                             value = observation.payload[key]
@@ -447,6 +452,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         "freshness_basis": freshness.basis,
                         "skew_seconds": freshness.skew_seconds,
                         "measurements": measurements,
+                        "reset_in_seconds": reset_in_seconds,
                         "reason": observation.payload.get("reason") or observation.payload.get("condition"),
                     })
                 if "capacity" in groups:

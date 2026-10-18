@@ -497,7 +497,9 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                         rem_str = "-"
                         bar_str = f"[{('░' if unicode else '.') * 8}]"
 
-                    reset_in = _number(measurements.get("reset_in_seconds"))
+                    reset_in = _number(item.get("reset_in_seconds"))
+                    if reset_in is None:
+                        reset_in = _number(measurements.get("reset_in_seconds"))
                     if reset_in is not None and reset_in >= 0:
                         rem_reset = max(0.0, reset_in - elapsed_seconds)
                         reset_str = _format_duration(rem_reset)
