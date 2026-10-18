@@ -2,9 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.21.0 (release candidate, in preparation)
+## Current source: v0.21.1 (release candidate, in preparation)
 
-v0.21.0 adds cached-only diagnostic readiness (#145 part 1), the monitor QUOTA visual refresh S2 (#147), and oversized cx event handling that preserves uncertainty when terminal evidence is lost (#164 part A). Candidate validation and publication remain pending.
+v0.21.1 updates uncertain ask guidance and the guide to direct default-timeout asks to a new stream with explicit `--timeout-seconds`, preserving retry cautions (#169, PR #171). Candidate validation and publication remain pending.
 
 ### Release attempts
 
@@ -17,6 +17,7 @@ v0.21.0 adds cached-only diagnostic readiness (#145 part 1), the monitor QUOTA v
 | **v0.19.0** | `32da9284` | PR #144 | Published | Published 2026-10-17T14:39:58Z; workflow run 39041714673; live gate G3 passed bound to `32da9284`; PyPI 0.19.0 |
 | **v0.20.0** candidate | branch `release/0.20.0` | | In preparation | Prepared 2026-10-18 |
 | **v0.21.0** candidate | branch `release/0.21.0` | | In preparation | Prepared 2026-10-18 |
+| **v0.21.1** candidate | branch `release/0.21.1` | | In preparation | Prepared 2026-10-19 |
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
 

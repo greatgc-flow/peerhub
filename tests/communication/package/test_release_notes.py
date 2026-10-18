@@ -20,8 +20,8 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.21.0"
-    assert "Cached-only `peerhub diag readiness [--json]`" in body
-    assert "Monitor QUOTA visual refresh S2" in body
-    assert "Skip oversized cx events" in body
-    assert "preserve uncertainty for lost terminal evidence" in body
+    assert __version__ == "0.21.1"
+    assert "Uncertain ask guidance and guide" in body
+    assert "default-timeout asks to a new stream" in body
+    assert "explicit `--timeout-seconds` (long reviews: 1800 or more)" in body
+    assert "preserving retry cautions (#169, PR #171)" in body
