@@ -8,7 +8,7 @@ and coordination checkpoints.
 - **Branch & state:** `release/0.21.1` in worktree `rel-wt`, based on `ae87ef41`; v0.21.1 release preparation is uncommitted.
 - **Release status:** In preparation; the latest recorded published release is v0.19.0. [STATUS.md](STATUS.md) owns publication evidence.
 - **Delivered scope:** Uncertain ask guidance and guide changes for default-timeout asks: use a new stream with explicit `--timeout-seconds` (long reviews: 1800 or more), preserving retry cautions (#169, PR #171).
-- **Design reference:** [Issue resolution](design/issue-resolution-2026-10-18.md); top-level `peerhub readiness` (#145) remains deferred beyond the delivered cached diagnostic report.
+- **Design reference:** [Issue resolution](design/issue-resolution-2026-10-18.md); `peerhub diag readiness` delivers the cached report; the paid active probe (#145 part 2) remains deferred below.
 - **Next:** Review candidate changes and deterministic checks, then follow the [release procedure](../CONTRIBUTING.md#releasing) for CI, merge, candidate-matched local live gate G3, and publication. No v0.21.1 live or publication evidence is claimed.
 - **Resume prompt:** Review the uncommitted v0.21.1 candidate on `release/0.21.1`, then complete the release gates and publish workflow.
 
@@ -24,6 +24,20 @@ and coordination checkpoints.
 - **Resume prompt:** Run local live gate G3 for v0.19.0 candidate, then proceed with GitHub release PR and publish workflow.
 
 
+
+## Deferred backlog (start triggers)
+
+| Item | Start trigger / decision |
+|---|---|
+| Interactive TUI for monitor | Owner asks after the visual refresh settles. |
+| Store schema v2 slices | A feature needs a non-additive schema change; current schema is v4. |
+| DB lineage/provenance | Cross-store comparison becomes a recurring need. |
+| Opt-in `ag.argon` profile | Owner decides quality/cost; needs cx/cc vote. The A-7D pool is already visible. |
+| `peerhub diag peers` capability probe | [Peer limits](peer-limits.md) drifts too often. |
+| `peerhub diag readiness --probe`: paid active probe + before/after benchmark (#145 part 2) | NOT implemented on purpose: diag stays read-only; the manual [smoke recipe](smoke-recipe.md) is enough. Revisit if the all-profile ping recurs often. |
+| cx/ag/cc response `final` field separating narration from the final answer (#164 part B) | NOT implemented on purpose: v0.20.0 keeps the aggregate cx response unless explicit phase metadata marks commentary; a final-only response could drop answer content. Revisit with a concrete mismatch case and a schema decision. |
+
+Stale-stream note: `s2a-ag` is OK; no action.
 
 ## 1. Historical release checkpoint (2026-10-13)
 
