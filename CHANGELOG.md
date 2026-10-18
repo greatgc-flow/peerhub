@@ -6,6 +6,13 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
+## [Unreleased]
+
+### Added
+
+- Dependabot config: automated weekly updates for pip and github-actions ecosystems (`.github/dependabot.yml`).
+- SECURITY.md: vulnerability reporting policy, supported version scope, and reporting guidance.
+
 ## [0.19.0] - 2026-10-17
 
 ### Breaking
