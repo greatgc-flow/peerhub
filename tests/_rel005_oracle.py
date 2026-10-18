@@ -10,8 +10,12 @@ from typing import Any
 
 import pytest
 
-_PTY_NODEID = "tests/communication/e2e/test_cli_monitor.py::test_posix_pty_snapshot_obeys_physical_viewport"
-_PTY_SKIP_REASON_RAW = "Skipped: POSIX PTY smoke; Windows TTY behavior is covered by ConPTY/manual tests"
+_APPROVED_PTY_SKIPS: dict[str, str] = {
+    "tests/communication/e2e/test_cli_monitor.py::test_posix_pty_snapshot_obeys_physical_viewport":
+        "Skipped: POSIX PTY smoke; Windows TTY behavior is covered by ConPTY/manual tests",
+    "tests/communication/e2e/test_cli_monitor.py::test_monitor_reset_countdown_posix_pty_plain_parity":
+        "Skipped: POSIX PTY parity; simulated TTY parity runs on Windows",
+}
 
 
 def pytest_addoption(parser: Any) -> None:
@@ -239,11 +243,11 @@ def validate_pair(collection: object, execution: object, *, expected_nonce: tupl
     for nodeid in executed_items:
         rows = phases[nodeid]
         lifecycle = [(item["when"], item["outcome"]) for item in rows]
-        if nodeid == _PTY_NODEID and platform == "windows":
+        if nodeid in _APPROVED_PTY_SKIPS and platform == "windows":
             expected = [("setup", "skipped"), ("teardown", "passed")]
             if lifecycle != expected:
                 _reject("expected Windows PTY test skip lifecycle is missing or invalid")
-            if rows[0].get("skip_reason") != _PTY_SKIP_REASON_RAW:
+            if rows[0].get("skip_reason") != _APPROVED_PTY_SKIPS[nodeid]:
                 _reject("Windows PTY skip reason does not exactly match the approved reason")
             observed_skips.add(nodeid)
         else:
@@ -253,6 +257,6 @@ def validate_pair(collection: object, execution: object, *, expected_nonce: tupl
                 _reject(f"test {nodeid!r} has an unexpected skip reason")
         if any(item.get("wasxfail") for item in rows):
             _reject(f"test {nodeid!r} was xfailed or xpassed")
-    expected_skips = {_PTY_NODEID} if platform == "windows" else set()
+    expected_skips = set(_APPROVED_PTY_SKIPS.keys()) if platform == "windows" else set()
     if observed_skips != expected_skips:
         _reject(f"observed skip nodeids {sorted(observed_skips)!r} do not equal {sorted(expected_skips)!r}")

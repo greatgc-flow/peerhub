@@ -330,8 +330,14 @@ def _valid_fraction(value: object) -> TypeGuard[int | float]:
 
 _AGY_GROUP_PREFIX_MAP: dict[str, str] = {
     "gemini models": "G",
+    "gemini": "G",
+    "g": "G",
     "claude and gpt models": "3P",
+    "claude": "3P",
+    "3p": "3P",
     "gemini 4 argon": "A",
+    "argon": "A",
+    "a": "A",
 }
 
 
