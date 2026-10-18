@@ -183,16 +183,21 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                     row_targets: Any = json.loads(row_targets_json or "[]")
                 except (ValueError, TypeError):
                     continue
-                if not isinstance(row_meta, dict) or ("runtime_kind" not in row_meta and "binding" not in row_meta):
+                if not isinstance(row_meta, dict) or "runtime_kind" not in row_meta or "binding" not in row_meta:
                     continue
-                if not isinstance(row_targets, list):
+                if not isinstance(row_targets, list) or not row_targets:
                     continue
                 targets_list = cast(list[Any], row_targets)
-                if len(targets_list) == 1 and targets_list[0] != peer_id:
+                if len(targets_list) != 1:
+                    raise StreamPeerMismatchError(
+                        f"stream {sid!r} has mixed historical prompt targets {targets_list!r}; "
+                        f"cannot dispatch to '{peer_id}' on the same ask stream (use dedicated single-peer streams)"
+                    )
+                if targets_list[0] != peer_id:
                     bound_peer = str(targets_list[0])
                     raise StreamPeerMismatchError(
                         f"stream {sid!r} is already bound to ask target peer {bound_peer!r}; "
-                        f"cannot target peer {peer_id!r} on the same ask stream (use a distinct --stream)"
+                        f"cannot dispatch to '{peer_id}' on the same ask stream (use a distinct --stream)"
                     )
         if previous is None:
             bridge.validate_selector_before_append(token, target, selector)
