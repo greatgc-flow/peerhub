@@ -339,8 +339,9 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
             detail_error=detail_error,
         )
         if guidance_code:
-            result["guidance"] = make_guidance_payload(guidance_code)
-            guidance_entry = get_guidance(guidance_code)
+            sid = result.get("stream_id") or getattr(args, "stream_id", None)
+            result["guidance"] = make_guidance_payload(guidance_code, db_path=args.db, stream_id=sid)
+            guidance_entry = get_guidance(guidance_code, db_path=args.db, stream_id=sid)
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:
@@ -911,17 +912,19 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         if args.subcommand == "ask":
             from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
             guidance_code = select_guidance_code(exception=exception)
+            db_arg = getattr(args, "db", None)
+            sid = getattr(args, "stream_id", None)
             if args.json:
                 payload: dict[str, Any] = dict(status="error", response=None, session=session, error=dict(code=code, message=message))
                 if guidance_code:
-                    payload["guidance"] = make_guidance_payload(guidance_code)
+                    payload["guidance"] = make_guidance_payload(guidance_code, db_path=db_arg, stream_id=sid)
                 print(json.dumps(payload, ensure_ascii=True))
             else:
                 print(message, file=sys.stderr)
                 if session is not None:
                     print(_session_trailer(session))
                 if guidance_code:
-                    entry = get_guidance(guidance_code)
+                    entry = get_guidance(guidance_code, db_path=db_arg, stream_id=sid)
                     if entry is not None:
                         print(render_guidance_hint(entry), file=sys.stderr)
         else:

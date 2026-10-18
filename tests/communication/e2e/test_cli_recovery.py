@@ -127,9 +127,34 @@ def test_render_guidance_hint_contains_all_components():
     entry = REGISTRY["ask_uncertain"]
     hint = render_guidance_hint(entry)
     assert "What happened:" in hint
+    assert "Rationale:" in hint
+    assert entry.why in hint
     assert "Next action:" in hint
     assert "What NOT to do:" in hint
     assert "peerhub explain ask_uncertain" in hint
+
+
+def test_guidance_context_instantiation(tmp_path):
+    db_file = tmp_path / "test.db"
+    abs_db = str(db_file.resolve())
+    entry = get_guidance("ask_uncertain", db_path=db_file, stream_id="stream-123")
+    assert entry is not None
+    first_step = entry.recover[0]
+    assert first_step["argv"] == ["peerhub", "--db", abs_db, "diag", "health", "--stream", "stream-123"]
+    assert "STREAM_ID" not in first_step["argv"]
+    second_step = entry.recover[1]
+    assert second_step["argv"] == ["peerhub", "--db", abs_db, "diag", "health"]
+
+
+def test_recovery_wording_honesty():
+    entry_blocked = REGISTRY["ask_blocked_uncertain"]
+    assert "exactly-once" not in entry_blocked.why.lower()
+    assert "only inspects status" not in entry_blocked.why.lower()
+
+    entry_claim = REGISTRY["ask_claim_held"]
+    purpose = entry_claim.recover[0]["purpose"]
+    assert "not active" in purpose.lower()
+
 
 
 def test_explain_cli_output_and_exit_codes(capsys):

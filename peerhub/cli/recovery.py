@@ -14,6 +14,7 @@ import json
 import shlex
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -64,7 +65,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_blocked_uncertain": GuidanceEntry(
         code="ask_blocked_uncertain",
         meaning="New request on this stream is blocked because an earlier record on the stream ended in an uncertain state.",
-        why="Stream ordering and exactly-once execution require resolving or abandoning uncertain prior work before appending new turns. Re-issuing the exact same in-flight request with its original --request-id, prompt, and binding inspects recovery status without creating a duplicate turn.",
+        why="Stream ordering requires resolving or abandoning uncertain prior work before appending new turns on the stream. Inspect stream health and uncommitted evidence before deciding whether to retry or start a new stream.",
         recover=[
             {
                 "argv": ["peerhub", "diag", "health", "--stream", "STREAM_ID"],
@@ -82,7 +83,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
         recover=[
             {
                 "argv": ["peerhub", "diag", "health", "--stream", "STREAM_ID"],
-                "purpose": "Check active stream lease and claim status",
+                "purpose": "Inspect store connectivity and stream activity (note: diag health checks store and stream records, not active in-memory leases or claims)",
                 "prereqs": "Wait for the active turn or lease timeout to expire.",
             },
         ],
@@ -194,10 +195,49 @@ ALIASES: dict[str, str] = {
 }
 
 
-def get_guidance(code: str) -> GuidanceEntry | None:
-    """Retrieve guidance entry by code or alias."""
+def instantiate_entry(
+    entry: GuidanceEntry,
+    *,
+    db_path: str | Path | None = None,
+    stream_id: str | None = None,
+) -> GuidanceEntry:
+    """Instantiate trusted absolute DB and stream argv from the actual execution context."""
+    if not db_path and not stream_id:
+        return entry
+    abs_db = str(Path(db_path).resolve()) if db_path else None
+    instantiated_recover: list[dict[str, Any]] = []
+    for step in entry.recover:
+        argv = list(step["argv"])
+        if stream_id and "STREAM_ID" in argv:
+            argv = [stream_id if arg == "STREAM_ID" else arg for arg in argv]
+        if abs_db and argv and argv[0] == "peerhub" and "--db" not in argv:
+            argv = [argv[0], "--db", abs_db, *argv[1:]]
+        new_step = dict(step, argv=argv)
+        if stream_id and "STREAM_ID" in step["argv"] and step.get("prereqs") == "Provide the affected stream identifier.":
+            new_step["prereqs"] = "None."
+        instantiated_recover.append(new_step)
+    return GuidanceEntry(
+        code=entry.code,
+        meaning=entry.meaning,
+        why=entry.why,
+        recover=instantiated_recover,
+        avoid=entry.avoid,
+        docs=entry.docs,
+    )
+
+
+def get_guidance(
+    code: str,
+    *,
+    db_path: str | Path | None = None,
+    stream_id: str | None = None,
+) -> GuidanceEntry | None:
+    """Retrieve guidance entry by code or alias, optionally instantiated with execution context."""
     canonical = ALIASES.get(code, code)
-    return REGISTRY.get(canonical)
+    entry = REGISTRY.get(canonical)
+    if entry is None:
+        return None
+    return instantiate_entry(entry, db_path=db_path, stream_id=stream_id)
 
 
 def _is_launch_failure_text(text: object) -> bool:
@@ -267,9 +307,14 @@ def select_guidance_code(
     return "ask_unexpected_failure"
 
 
-def make_guidance_payload(code: str) -> dict[str, str]:
+def make_guidance_payload(
+    code: str,
+    *,
+    db_path: str | Path | None = None,
+    stream_id: str | None = None,
+) -> dict[str, str]:
     """Build additive top-level guidance dict for JSON responses."""
-    entry = get_guidance(code)
+    entry = get_guidance(code, db_path=db_path, stream_id=stream_id)
     if entry is None:
         return {}
     return {
@@ -286,6 +331,7 @@ def render_guidance_hint(entry: GuidanceEntry) -> str:
     return (
         f"Guidance [{entry.code}]:\n"
         f"  What happened:  {entry.meaning}\n"
+        f"  Rationale:      {entry.why}\n"
         f"  Next action:    {action_text}\n"
         f"  What NOT to do: {entry.avoid}\n"
         f"  Details:        peerhub explain {entry.code}"
