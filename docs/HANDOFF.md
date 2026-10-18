@@ -3,14 +3,14 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-18 — v0.20.0 candidate preparation)
+## 0. Current checkpoint (2026-10-18 — v0.21.0 candidate preparation)
 
-- **Branch & state:** `release/0.20.0` in worktree `rel-wt`, based on `5f99f3f0`; v0.20.0 release preparation is uncommitted.
-- **Release status:** In preparation; v0.19.0 remains the latest published release. [STATUS.md](STATUS.md) owns publication evidence.
-- **Delivered scope:** Execution safety and stream fencing; guidance registry, exact-code explain and lessons lookup; quota-first monitor, measured RESET-IN, Argon A-7D pool and cx reset credits; #153 review follow-ups; Windows stderr and operating documentation.
-- **Design reference:** [Issue resolution](design/issue-resolution-2026-10-18.md); `peerhub readiness` (#145) remains deferred.
-- **Next:** Review candidate changes and deterministic checks, then follow the [release procedure](../CONTRIBUTING.md#releasing) for CI, merge, candidate-matched local live gate G3, and publication. No v0.20.0 live or publication evidence is claimed.
-- **Resume prompt:** Review the uncommitted v0.20.0 candidate on `release/0.20.0`, then complete the release gates and publish workflow.
+- **Branch & state:** `release/0.21.0` in worktree `rel-wt`, based on `cb8e220e`; v0.21.0 release preparation is uncommitted.
+- **Release status:** In preparation; the latest recorded published release is v0.19.0. [STATUS.md](STATUS.md) owns publication evidence.
+- **Delivered scope:** Cached-only `peerhub diag readiness` (#145 part 1); monitor QUOTA visual refresh S2 (#147); oversized cx event handling with uncertainty preserved for lost terminal evidence (#164 part A).
+- **Design reference:** [Issue resolution](design/issue-resolution-2026-10-18.md); top-level `peerhub readiness` (#145) remains deferred beyond the delivered cached diagnostic report.
+- **Next:** Review candidate changes and deterministic checks, then follow the [release procedure](../CONTRIBUTING.md#releasing) for CI, merge, candidate-matched local live gate G3, and publication. No v0.21.0 live or publication evidence is claimed.
+- **Resume prompt:** Review the uncommitted v0.21.0 candidate on `release/0.21.0`, then complete the release gates and publish workflow.
 
 ### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)
 
