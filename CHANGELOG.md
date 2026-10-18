@@ -19,6 +19,8 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- Published generated guidance and session lifecycle reference (`docs/guidance-reference.md`) with 1:1 registry parity test and verified session state definitions (`ACTIVE`, `LOST`, `FRESH`, `TOMBSTONED`, `resumable`, `session_generation` semantics) (#135).
+- Added Windows PowerShell operations guide (`docs/windows.md`) covering tested parallel asks (`Start-Job`, `ForEach-Object -Parallel`, `$using:`), quoting rules, `--query-file`, non-ASCII paths, and verified command parser test (#136).
 - Guidance registry (`peerhub/cli/recovery.py`) mapping ask-path non-success outcomes to structured guidance and recovery advice (`meaning`, `why`, `recover` argv arrays, `avoid`, `docs`), including `ask_launch_failed` (#120) and `ask_stream_peer_mismatch` (#125) (#117).
 - Offline `peerhub explain CODE [--json]` subcommand providing detailed human-readable and structured JSON guidance for outcome codes (#117).
 - Bare `peerhub` invocation (no arguments) now prints `peerhub guide` and exits 0 (#121).
@@ -29,13 +31,15 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- Updated `peerhub guide` and `docs/remote-ask.md` for `ag` silence timeout behavior (leave unset or set `>= --timeout-seconds`, long tasks: `--timeout-seconds 7200`) (#118).
+- Documented Windows monitor lock avoidance (`stop peerhub monitor -> pip install -U -> restart monitor`) and PyPI index lag in `README.md` and `peerhub guide` (#123).
 - Missing-store error output now includes the selection source (`(source: ...)`), a quoted creation command with global `--db` before the subcommand, and `Learn: peerhub guide` (#121).
 - Monitor human dashboard (`peerhub/cli/monitor_view.py`) now renders all `CAPACITY` rows contiguously inside the `CAPACITY` block instead of splitting rows to the bottom of the screen, aligns bar fill direction with remaining %, separates window `reset` countdown from burn `ETA` (#146), and computes `USAGE` display fallback (`provider_input_tokens + output_tokens`) plus cache hit % when `provider_total_tokens` is absent (#147).
 - Aligned `peerhub guide`, `README.md`, `docs/remote-ask.md`, and `docs/migrations.md` with current store selection, write-policy, and recovery rules (#118, #123, #130, #134–#136, #148).
 
 ### Fixed
 
-- Subprocess stderr decoding (`decode_stderr`) now attempts strict UTF-8 first and falls back to `locale.getpreferredencoding(False)`, preventing `U+FFFD` replacement loss on Windows localized error messages (#120).
+- Subprocess stderr decoding (`decode_stderr`) now queries Windows console output and OEM code pages (`GetConsoleOutputCP`/`GetOEMCP`, with cp949 fixture from `claude.exe` not recognized error) before falling back to UTF-8 with replacement, preventing `U+FFFD` replacement loss on Windows localized console messages (#120).
 - Preserved bounded terminal provider error summaries in `detail.error` when preceded by verbose startup stderr (#127), and kept aggregate `cx` response text across turns unless explicit provider phase metadata cleanly separates final text from commentary (#127).
 
 ## [0.19.0] - 2026-10-17
