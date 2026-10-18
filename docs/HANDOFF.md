@@ -3,18 +3,14 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-18) — Slices S1–S4 Implemented, Verified Offline & Deployed Locally
+## 0. Current checkpoint (2026-10-18 — v0.20.0 candidate preparation)
 
-- **Authorization & Execution:** Slices S1, S2, S3, and S4 (#117, #118, #120, #121, #123, #125, #126, #127, #130, #134–#136, #140, #146, #147, #148, #149) implemented and verified across the offline test suite on branch `fix/issue-resolution-020`, pushed to `origin/fix/issue-resolution-020`, and installed into `C:\AI\_sys\env\venv`. Only `#145` (`peerhub readiness`) remains deferred.
-- **Branch & State:** Branch `fix/issue-resolution-020` pushed to `origin` and locally installed in `C:\AI\_sys\env\venv`.
-- **Design SSOT:** [docs/design/issue-resolution-2026-10-18.md](design/issue-resolution-2026-10-18.md). Authoritative release status in [STATUS.md](STATUS.md).
-- **Delivered Scope (S1–S4):**
-  - **S1:** `#140` native `ag` fail-closed pre-spawn without `--writable` (cached replay preserved), `#125` single-peer ask stream fencing (`StreamPeerMismatchError`), `#126` factual tool-only turn completion (`empty_response: true`, `task_effects: "unverified"`), `#127` terminal error summary preservation & `cx` pre-tool narration segregation, `#149` `gemini-argon-wtu-weekly` -> `A-7D` quota pool mapping.
-  - **S2:** `#117` recovery guidance wording, `#121` bare `peerhub` -> `peerhub guide` (exit 0) and improved missing-store guidance with source + quoted `--db` command, `#120` UTF-8-first with locale fallback (`decode_stderr`) and `ask_launch_failed` guidance.
-  - **S3:** `#146` contiguous `CAPACITY` rendering in `monitor_view.py`, consistent bar fill direction, and `reset` duration separated from `ETA`; `#147` `USAGE` token display fallback (`provider_input_tokens + output_tokens`) + cache hit % when `provider_total_tokens` is `None`.
-  - **S4:** `#118, #123, #130, #134–#136, #148` documentation and `peerhub guide` alignment.
-- **Next action (after `cx` 03:50 KST and `cc` 06:20 KST quota reset):** Run cross-peer review on `fix/issue-resolution-020`, merge PR to `main`, run `python -m tools.live_gate --yes` for v0.20.0 release, and close `#145` if desired.
-- **Resume prompt:** `C:\AI\workspace\peerhub의 fix/issue-resolution-020 브랜치(docs/HANDOFF.md 및 docs/STATUS.md 참조)를 확인하고, cx/cc 쿼터 리셋 상태를 점검한 뒤 main 병합 및 live_gate(v0.20.0 배포)와 남은 #145 이슈를 마무리해줘.`
+- **Branch & state:** `release/0.20.0` in worktree `rel-wt`, based on `5f99f3f0`; v0.20.0 release preparation is uncommitted.
+- **Release status:** In preparation; v0.19.0 remains the latest published release. [STATUS.md](STATUS.md) owns publication evidence.
+- **Delivered scope:** Execution safety and stream fencing; guidance registry, exact-code explain and lessons lookup; quota-first monitor, measured RESET-IN, Argon A-7D pool and cx reset credits; #153 review follow-ups; Windows stderr and operating documentation.
+- **Design reference:** [Issue resolution](design/issue-resolution-2026-10-18.md); `peerhub readiness` (#145) remains deferred.
+- **Next:** Review candidate changes and deterministic checks, then follow the [release procedure](../CONTRIBUTING.md#releasing) for CI, merge, candidate-matched local live gate G3, and publication. No v0.20.0 live or publication evidence is claimed.
+- **Resume prompt:** Review the uncommitted v0.20.0 candidate on `release/0.20.0`, then complete the release gates and publish workflow.
 
 ### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)
 

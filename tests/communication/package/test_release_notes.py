@@ -20,6 +20,8 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.19.0"
-    assert "Implicit `./peerhub` store discovery removed" in body
-    assert "peerhub monitor --expand" in body
+    assert __version__ == "0.20.0"
+    assert "Bare `peerhub` exit 2 -> 0" in body
+    assert "Argon `A-7D` quota pool" in body
+    assert "RESET-IN" in body
+    assert "cx reset credits" in body

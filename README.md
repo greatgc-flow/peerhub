@@ -129,8 +129,8 @@ changes the default selection. `monitor --snapshot` renders one read-only
 dashboard without refreshing providers. For automation, `--json` emits schema
 2.0 NDJSON frames for watch and one JSON object for snapshot. The frozen 0.16.1
 machine contract remains available as `--json --schema-version 1.1`; the hidden
-deprecated `--legacy` alias selects it through 0.19.x and will be removed in 0.20.0
-(sunset explicitly extended to 0.20.0; removal deferred as no removal evidence is needed).
+deprecated `--legacy` alias was removed in 0.20.0 after its 0.19.x sunset.
+Use the explicit `--json --schema-version 1.1` options for the frozen machine contract.
 
 The `diag` dashboard shows a threat summary, a stable pool
 table with usage, PACE in percentage points, reset countdown, conditional

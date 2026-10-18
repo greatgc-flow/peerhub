@@ -2,9 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.19.0 (post-release main at `32da9284`)
+## Current source: v0.20.0 (release candidate, in preparation)
 
-v0.19.0 removes implicit store discovery under `<cwd>/peerhub`, reprioritizes bare monitor output to keep quota always visible, adds `peerhub monitor --expand`, introduces the offline `peerhub guide` subcommand, multi-pool quota accounting and drift tracking, fixes Codex session resume write access, and adds bounded delta reads in Session Bridge.
+v0.20.0 adds Argon A-7D quota mapping, the quota-first monitor with measured RESET-IN and cx reset credits, recovery guidance and lessons lookup, execution safety and stream fencing, Windows stderr fixes, and updated operating documentation. Bare `peerhub` now shows the guide with exit 0; the deprecated monitor `--legacy` alias has reached its sunset. Candidate validation and publication remain pending.
 
 ### Release attempts
 
@@ -15,6 +15,7 @@ v0.19.0 removes implicit store discovery under `<cwd>/peerhub`, reprioritizes ba
 | **v0.18.1** draft + tag | `75677b07` | PR #109 | NEVER PUBLISHED | Content shipped in v0.18.2 |
 | **v0.18.2** | `8274e9f5` | PR #111 | Published | Published 2026-10-16T16:17:37Z |
 | **v0.19.0** | `32da9284` | PR #144 | Published | Published 2026-10-17T14:39:58Z; workflow run 39041714673; live gate G3 passed bound to `32da9284`; PyPI 0.19.0 |
+| **v0.20.0** candidate | branch `release/0.20.0` | | In preparation | Prepared 2026-10-18 |
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
 
