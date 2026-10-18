@@ -524,8 +524,17 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
     """Execute peerhub explain CODE [--json]. Offline; no store/provider/network."""
     entry = get_guidance(code)
     if entry is None:
+        from peerhub.cli.lessons import lookup_lessons, render_lesson
+
+        matches = lookup_lessons(code)
+        if matches:
+            if json_output:
+                print(json.dumps({"lessons": matches}, indent=2, ensure_ascii=True))
+            else:
+                print("\n".join(render_lesson(lesson) for lesson in matches))
+            return 0
         known = sorted(REGISTRY.keys())
-        msg = f"Unknown guidance code: {code!r}. Known codes: {', '.join(known)}"
+        msg = f"No matching lessons for {code!r}. Try fewer keywords or 'peerhub guide'."
         if json_output:
             print(json.dumps({"error": f"Unknown guidance code: {code!r}", "known_codes": known}, indent=2, ensure_ascii=True), file=sys.stderr)
         else:

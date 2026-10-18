@@ -269,8 +269,8 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
     d_integrity.epilog = "example: peerhub diag integrity"
 
-    explain_parser = subparsers.add_parser("explain", help="Explain recovery guidance for outcome codes")
-    explain_parser.add_argument("code", help="Guidance code to explain")
+    explain_parser = subparsers.add_parser("explain", help="Explain outcome codes or look up operational lessons")
+    explain_parser.add_argument("code", nargs="+", help="Guidance code or free words to look up")
     explain_parser.add_argument("--json", action="store_true", default=False, help="Machine-readable guidance output")
 
     guide_parser = subparsers.add_parser("guide", help="Quick reference, profile tables, and best practices")
@@ -954,7 +954,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             return _run_diag_cli(args, parser)
         if args.subcommand == "explain":
             from peerhub.cli.recovery import run_explain_cli
-            return run_explain_cli(args.code, json_output=bool(getattr(args, "json", False)))
+            return run_explain_cli(" ".join(args.code), json_output=bool(getattr(args, "json", False)))
         if args.subcommand == "guide":
             from peerhub.cli.guide import render_guide
             print(render_guide())

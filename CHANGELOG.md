@@ -10,7 +10,7 @@ they do not claim new validation or publication evidence.
 
 > [!NOTE]
 > **Scope Notice:** This PR resolves Slice S1 execution safety and stream fencing (#125, #126, #127, #140), core guidance registry and exact-code `peerhub explain <CODE>` (#117 S2-A), bare CLI routing (#121), stderr decoding (#120), monitor UX improvements (#146, #147), and documentation updates (#118, #123, #130, #134–#136, #148, #149).
-> Lessons catalog keyword lookup, packaged `lessons.toml`, generated `docs/lessons.md` parity test, and top-level `peerhub readiness` command (#145) are **NOT** included in this PR and remain pending follow-up PRs; this PR does not claim S1-S4 completion.
+> The top-level `peerhub readiness` command (#145) remains pending; this PR does not claim S1-S4 completion.
 
 ### Breaking
 
@@ -18,6 +18,8 @@ they do not claim new validation or publication evidence.
 - **Single-peer ask stream fencing (#125):** `peerhub ask` enforces one peer per ask stream (`StreamPeerMismatchError`, exit 2, guidance `ask_stream_peer_mismatch`) when an existing stream with established `ask:` prompt records is targeted by a different peer.
 
 ### Added
+
+- Offline AND-token lessons lookup via `peerhub explain <free words>`, packaged `lessons.toml`, generated `docs/lessons.md` with drift coverage, and a one-line guide pointer within the existing budget (#117).
 
 - Published generated guidance and session lifecycle reference (`docs/guidance-reference.md`) with status -> exit code -> safe action mapping derived from `RESULT_STATUS_REGISTRY`, 1:1 registry parity and link tests, and verified qualified session state definitions (`ACTIVE`, `LOST`, `FRESH`, `TOMBSTONED`, `resumable`, `session_generation` semantics) (#135).
 - Added Windows PowerShell operations guide (`docs/windows.md`) covering tested parallel asks (`Start-Job`, `ForEach-Object -Parallel`, `$using:`), quoting rules, `--query-file`, non-ASCII paths, and verified command parser test (#136).
