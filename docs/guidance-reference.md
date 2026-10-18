@@ -42,7 +42,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `ask_selector_error` | 1 or 2 (context-dependent) | Session selector or handle validation failed before invocation could begin. | `peerhub session list` (List available valid sessions and check session handles) | Do not invent session handles, do not combine --fresh with --session, and do not retry without correcting the session selector. |
 | `ask_stream_peer_mismatch` | 2 | The target stream is already bound to a different ask target peer. | `peerhub stream list` (Inspect existing streams and select or create a stream for this peer) | Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding. |
 | `ask_uncertain` | 1 | Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort). | `peerhub diag health --stream STREAM_ID` (Inspect stream health and check for uncommitted or partial activity) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. |
-| `ask_unexpected_failure` | 1, 2, or 4 (context-dependent) | An unclassified or unexpected error occurred during ask dispatch. | `peerhub diag health` (Inspect diagnostic evidence and stream state) | Do not retry destructive actions or invent unverified recovery commands. |
+| `ask_unexpected_failure` | 1, 2, 3, or 6 (context-dependent) | An unclassified or unexpected error occurred during ask dispatch. | `peerhub diag health` (Inspect diagnostic evidence and stream state) | Do not retry destructive actions or invent unverified recovery commands. |
 
 ### Detailed Recovery Advice by Outcome Code
 
@@ -136,8 +136,9 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 - **Exit Codes** (context-dependent):
   - `1`: Unhandled exception or unexpected runtime error during ask dispatch.
-  - `2`: Invalid CLI arguments or unrecognized ask options (ValueError with code != 'session_lost').
-  - `4`: Storage layer failure encountered during unclassified dispatch.
+  - `2`: Invalid CLI arguments, unrecognized ask options, or idempotency conflict (ValueError other than selector/session errors, or IdempotencyConflictError).
+  - `3`: Compare-and-swap revision conflict (CasMismatchError).
+  - `6`: Unsupported store schema version (SchemaVersionError).
 - **Meaning**: An unclassified or unexpected error occurred during ask dispatch.
 - **Why**: An unhandled exception or internal error interrupted the ask command.
 - **Safe Recovery Actions**:

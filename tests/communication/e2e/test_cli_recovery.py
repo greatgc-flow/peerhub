@@ -37,7 +37,14 @@ from peerhub.extensions.bridge import (
     SessionWorkspaceMismatchError,
 )
 from peerhub.extensions.ask import LegacySelectorUnsupported, StreamPeerMismatchError
-from peerhub.core.store import StorageReadOnlyError, StorageFullError, StorageCorruptError
+from peerhub.core.store import (
+    CasMismatchError,
+    IdempotencyConflictError,
+    SchemaVersionError,
+    StorageReadOnlyError,
+    StorageFullError,
+    StorageCorruptError,
+)
 
 pytestmark = [pytest.mark.unit]
 
@@ -966,6 +973,33 @@ def test_context_exit_registry_matches_cli(tmp_path, monkeypatch, capsys, except
     assert "exit_code" not in explanation
     assert actual_exit in {case["code"] for case in explanation["exits"]}
     assert explanation["exits"] == REGISTRY[guidance_code].exits
+
+
+@pytest.mark.parametrize("exception, error_code, expected_exit", [
+    (RuntimeError("dispatch failed"), "delivery_failed", 1),
+    (ValueError("invalid input"), "invalid_arguments", 2),
+    (IdempotencyConflictError("conflicting request"), "idempotency_conflict", 2),
+    (CasMismatchError("revision changed"), "cas_conflict", 3),
+    (SchemaVersionError("unsupported schema"), "schema_version_error", 6),
+])
+def test_unexpected_failure_exit_contexts(tmp_path, monkeypatch, capsys, exception, error_code, expected_exit):
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    def fail(*args, **kwargs):
+        raise exception
+
+    monkeypatch.setattr(ask_mod, "ask", fail)
+    actual_exit = main(["--db", str(tmp_path / "core.db"), "ask", "cx", "hello", "--json"])
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"]["code"] == error_code
+    assert payload["guidance"]["code"] == "ask_unexpected_failure"
+    assert actual_exit == expected_exit
+    assert main(["explain", "ask_unexpected_failure", "--json"]) == 0
+    explanation = json.loads(capsys.readouterr().out)
+    assert "exit_code" not in explanation
+    assert {case["code"] for case in explanation["exits"]} == {1, 2, 3, 6}
+    assert actual_exit in {case["code"] for case in explanation["exits"]}
 
 
 @pytest.mark.parametrize("processed_status, detail_error, expected_guidance", [

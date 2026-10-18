@@ -327,8 +327,9 @@ REGISTRY: dict[str, GuidanceEntry] = {
         docs="docs/remote-ask.md",
         exits=[
             {"code": 1, "context": "Unhandled exception or unexpected runtime error during ask dispatch."},
-            {"code": 2, "context": "Invalid CLI arguments or unrecognized ask options (ValueError with code != 'session_lost')."},
-            {"code": 4, "context": "Storage layer failure encountered during unclassified dispatch."},
+            {"code": 2, "context": "Invalid CLI arguments, unrecognized ask options, or idempotency conflict (ValueError other than selector/session errors, or IdempotencyConflictError)."},
+            {"code": 3, "context": "Compare-and-swap revision conflict (CasMismatchError)."},
+            {"code": 6, "context": "Unsupported store schema version (SchemaVersionError)."},
         ],
     ),
 }
