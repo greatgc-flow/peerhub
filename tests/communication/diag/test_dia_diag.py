@@ -242,12 +242,13 @@ def test_explicit_integrity_check_detects_projection_drift_without_repair(tmp_pa
 def test_dia_002_diag_cannot_append_record_or_change_any_state(tmp_path):
     h = populated(tmp_path)
     public = {n for n in dir(ReadonlyDiag) if not n.startswith("_")}
-    assert public == {"render", "inspect_stream_health"}  # no mutating verb is even reachable
+    assert public == {"render", "inspect_stream_health", "readiness"}  # all three verbs only read
     before = h.full_state()
     for _ in range(2):
         report = h.render_diag()
         assert report.status == "OK" and report.sections["streams"].data["streams"][0]["head_position"] == 3
     assert ReadonlyDiag(h.db_path).inspect_stream_health("s")["offsets"] == {"b": 1}
+    assert ReadonlyDiag(h.db_path).readiness(["cx.standard"])["status"] == "OK"
     assert h.full_state() == before and h.row_counts()["records"] == 3 and len(h.obs_rows()) == 3
     # control: the digest is sensitive, i.e. a real write would have been noticed
     h.append_record(req(body="x", key="kx"))

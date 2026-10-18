@@ -277,6 +277,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     d_readiness = diag_sub.add_parser("readiness", help="Cached profile readiness (read-only; never probes)")
     d_readiness.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                              help="Machine-readable cached readiness (schema_version 1.0)")
+    d_readiness.epilog = "examples: peerhub diag readiness | peerhub --db ws.db diag readiness --json"
 
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
     d_integrity.epilog = "example: peerhub diag integrity"

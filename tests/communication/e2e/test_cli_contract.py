@@ -19,7 +19,7 @@ def test_inventory_file_equals_the_real_parser():
     committed = json.loads(inv.INVENTORY.read_text(encoding="utf-8"))
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
-        "ask", "diag health", "diag integrity", "diag quota", "explain", "guide", "monitor defaults reset", "monitor defaults set", "monitor defaults show", "monitor groups", "monitor repair", "observation refresh", "offset advance", "offset get", "peer get", "peer list", "peer register",
+        "ask", "diag health", "diag integrity", "diag quota", "diag readiness", "explain", "guide", "monitor defaults reset", "monitor defaults set", "monitor defaults show", "monitor groups", "monitor repair", "observation refresh", "offset advance", "offset get", "peer get", "peer list", "peer register",
         "profile list", "profile show", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
