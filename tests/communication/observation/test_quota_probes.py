@@ -912,13 +912,18 @@ def test_agy_argon_weekly_bucket_maps_to_a_7d_without_unknown_pools(monkeypatch,
             "data": {
                 "groups": [
                     {
-                        "name": "gemini",
+                        "name": "Gemini Models",
                         "buckets": [
                             {"id": "gemini-5h", "remaining_fraction": 0.9, "reset_time": "2026-10-18T07:00:00Z"},
                             {"id": "gemini-weekly", "remaining_fraction": 0.85, "reset_time": "2026-10-24T00:00:00Z"},
+                        ],
+                    },
+                    {
+                        "name": "Gemini 4 Argon",
+                        "buckets": [
                             {"id": "gemini-argon-wtu-weekly", "remaining_fraction": 0.98, "reset_time": "2026-10-23T06:00:00Z"},
                         ],
-                    }
+                    },
                 ]
             },
         },
@@ -1000,7 +1005,7 @@ def test_poll_agy_usage_with_fixture_measures_all_five_pools_without_drift(monke
         assert "unknown_pools" not in obs.extra
 
 
-def test_poll_agy_usage_derives_group_pool_for_unregistered_bucket_while_preserving_drift(monkeypatch, tmp_path):
+def test_poll_agy_usage_preserves_unregistered_bucket_as_drift_without_mapping_pool_label(monkeypatch, tmp_path):
     payload = {
         "status": "SUCCESS",
         "num_turns": 0,
@@ -1030,10 +1035,95 @@ def test_poll_agy_usage_derives_group_pool_for_unregistered_bucket_while_preserv
     )
 
     observations = poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: 1_790_000_000, sys_dir=sys_dir)
+    # Only registered bucket gemini-weekly gets a pool label; unfamiliar gemini-new-preview-5h does NOT get mapped to G-5H
     scopes = [obs.evidence.value.quota_pool_scope for obs in observations if obs.evidence.value is not None]
-    assert "G-7D" in scopes
-    assert "G-5H" in scopes
+    assert scopes == ["G-7D"]
     for obs in observations:
         assert obs.extra.get("unknown_pools") == ["gemini-new-preview-5h"]
+
+
+def test_poll_agy_usage_emits_conflict_observation_on_envelope_group_conflict(monkeypatch, tmp_path):
+    payload = {
+        "status": "SUCCESS",
+        "num_turns": 0,
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "command": {
+            "name": "usage",
+            "data": {
+                "groups": [
+                    {
+                        "name": "Claude and GPT models",
+                        "buckets": [
+                            # gemini-weekly is registered as G-7D (Gemini Models), but here appears under Claude and GPT models!
+                            {"id": "gemini-weekly", "remaining_fraction": 0.85, "reset_time": "2026-10-24T00:00:00Z"},
+                            {"id": "3p-weekly", "remaining_fraction": 0.50, "reset_time": "2026-10-24T00:00:00Z"},
+                        ],
+                    }
+                ]
+            },
+        },
+    }
+    sys_dir = tmp_path / "_sys"
+    sys_dir.mkdir(parents=True)
+    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(args=["agy.exe"], returncode=0, stdout=json.dumps(payload), stderr=""),
+    )
+
+    observations = poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: 1_790_000_000, sys_dir=sys_dir)
+    # Fixed label G-7D must NOT be silently trusted for conflicting bucket
+    measured = {obs.evidence.value.quota_pool_scope: obs for obs in observations if obs.evidence.value is not None}
+    assert "G-7D" not in measured
+    assert "3P-7D" in measured
+    assert measured["3P-7D"].evidence.state == EvidenceState.MEASURED
+
+    # Conflicting bucket emits an ERROR observation with conflict details and flags drift
+    conflict_obs = [obs for obs in observations if obs.evidence.state == EvidenceState.ERROR]
+    assert len(conflict_obs) == 1
+    assert conflict_obs[0].evidence.evidence_ref == "probe:ag:conflict"
+    assert conflict_obs[0].extra.get("reason") == "envelope_consistency_conflict"
+    assert conflict_obs[0].extra.get("bucket") == "gemini-weekly"
+    assert "Claude and GPT models" in conflict_obs[0].extra.get("conflict", "")
+    assert "gemini-weekly" in conflict_obs[0].extra.get("unknown_pools", [])
+
+
+def test_poll_agy_usage_emits_conflict_observation_on_envelope_window_conflict(monkeypatch, tmp_path):
+    payload = {
+        "status": "SUCCESS",
+        "num_turns": 0,
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "command": {
+            "name": "usage",
+            "data": {
+                "groups": [
+                    {
+                        "name": "Gemini Models",
+                        "buckets": [
+                            # gemini-weekly is registered as 7D, but here appears with window 5h!
+                            {"id": "gemini-weekly", "window": "5h", "remaining_fraction": 0.85, "reset_time": "2026-10-24T00:00:00Z"},
+                        ],
+                    }
+                ]
+            },
+        },
+    }
+    sys_dir = tmp_path / "_sys"
+    sys_dir.mkdir(parents=True)
+    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(args=["agy.exe"], returncode=0, stdout=json.dumps(payload), stderr=""),
+    )
+
+    observations = poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: 1_790_000_000, sys_dir=sys_dir)
+    measured = [obs for obs in observations if obs.evidence.value is not None]
+    assert len(measured) == 0
+    conflict_obs = [obs for obs in observations if obs.evidence.state == EvidenceState.ERROR]
+    assert len(conflict_obs) == 1
+    assert conflict_obs[0].extra.get("bucket") == "gemini-weekly"
+    assert "window" in conflict_obs[0].extra.get("conflict", "")
 
 
