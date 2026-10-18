@@ -942,3 +942,98 @@ def test_agy_argon_weekly_bucket_maps_to_a_7d_without_unknown_pools(monkeypatch,
     assert argon_obs.evidence.value.used_fraction == pytest.approx(0.02)
     assert "unknown_pools" not in argon_obs.extra
 
+
+def test_parse_agy_usage_output_against_live_fixture():
+    fixture_path = Path(__file__).parents[1] / "fixtures" / "telemetry" / "agy-usage-fixture.json"
+    text = fixture_path.read_text(encoding="utf-8")
+    parsed = _parse_agy_usage_output(text)
+
+    # 5 buckets present across the 3 groups
+    assert set(parsed.keys()) == {
+        "gemini-weekly",
+        "gemini-5h",
+        "3p-weekly",
+        "3p-5h",
+        "gemini-argon-wtu-weekly",
+    }
+
+    # Derived pool labels
+    assert parsed["gemini-weekly"]["label"] == "G-7D"
+    assert parsed["gemini-5h"]["label"] == "G-5H"
+    assert parsed["3p-weekly"]["label"] == "3P-7D"
+    assert parsed["3p-5h"]["label"] == "3P-5H"
+    assert parsed["gemini-argon-wtu-weekly"]["label"] == "A-7D"
+
+    # Remaining fractions preserved losslessly from payload
+    assert parsed["gemini-weekly"]["remaining_fraction"] == pytest.approx(0.1249094307422638)
+    assert parsed["gemini-5h"]["remaining_fraction"] == pytest.approx(0.9966447353363037)
+    assert parsed["3p-weekly"]["remaining_fraction"] == pytest.approx(0.1329655945301056)
+    assert parsed["3p-5h"]["remaining_fraction"] == pytest.approx(1.0)
+    assert parsed["gemini-argon-wtu-weekly"]["remaining_fraction"] == pytest.approx(0.40645745396614075)
+
+    # Resets preserved losslessly
+    assert parsed["gemini-weekly"]["reset_time"] == "2026-10-24T00:19:08Z"
+    assert parsed["gemini-5h"]["reset_time"] == "2026-10-18T11:30:40Z"
+    assert parsed["3p-weekly"]["reset_time"] == "2026-10-21T00:10:27Z"
+    assert parsed["3p-5h"]["reset_time"] == "2026-10-18T11:38:40Z"
+    assert parsed["gemini-argon-wtu-weekly"]["reset_time"] == "2026-10-24T16:47:06Z"
+
+
+def test_poll_agy_usage_with_fixture_measures_all_five_pools_without_drift(monkeypatch, tmp_path):
+    fixture_path = Path(__file__).parents[1] / "fixtures" / "telemetry" / "agy-usage-fixture.json"
+    text = fixture_path.read_text(encoding="utf-8")
+
+    sys_dir = tmp_path / "_sys"
+    sys_dir.mkdir(parents=True)
+    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(args=["agy.exe"], returncode=0, stdout=text, stderr=""),
+    )
+
+    observations = poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: 1_790_000_000, sys_dir=sys_dir)
+    pools = {obs.evidence.value.quota_pool_scope: obs for obs in observations if obs.evidence.value is not None}
+    assert set(pools.keys()) == {"G-5H", "G-7D", "3P-5H", "3P-7D", "A-7D"}
+    for pool_id, obs in pools.items():
+        assert obs.evidence.state == EvidenceState.MEASURED
+        assert "unknown_pools" not in obs.extra
+
+
+def test_poll_agy_usage_derives_group_pool_for_unregistered_bucket_while_preserving_drift(monkeypatch, tmp_path):
+    payload = {
+        "status": "SUCCESS",
+        "num_turns": 0,
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "command": {
+            "name": "usage",
+            "data": {
+                "groups": [
+                    {
+                        "name": "Gemini Models",
+                        "buckets": [
+                            {"id": "gemini-weekly", "remaining_fraction": 0.85, "reset_time": "2026-10-24T00:00:00Z"},
+                            {"id": "gemini-new-preview-5h", "window": "5h", "remaining_fraction": 0.95, "reset_time": "2026-10-18T12:00:00Z"},
+                        ],
+                    }
+                ]
+            },
+        },
+    }
+    sys_dir = tmp_path / "_sys"
+    sys_dir.mkdir(parents=True)
+    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(args=["agy.exe"], returncode=0, stdout=json.dumps(payload), stderr=""),
+    )
+
+    observations = poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: 1_790_000_000, sys_dir=sys_dir)
+    scopes = [obs.evidence.value.quota_pool_scope for obs in observations if obs.evidence.value is not None]
+    assert "G-7D" in scopes
+    assert "G-5H" in scopes
+    for obs in observations:
+        assert obs.extra.get("unknown_pools") == ["gemini-new-preview-5h"]
+
+

@@ -328,6 +328,40 @@ def _valid_fraction(value: object) -> TypeGuard[int | float]:
             and 0.0 <= value <= 1.0 and math.isfinite(value))
 
 
+_AGY_GROUP_PREFIX_MAP: dict[str, str] = {
+    "gemini models": "G",
+    "claude and gpt models": "3P",
+    "gemini 4 argon": "A",
+}
+
+
+def _derive_agy_pool_label(
+    group_name: Optional[str],
+    bucket_id: str,
+    window: Optional[str] = None,
+) -> Optional[str]:
+    """Derive pool label (e.g. 'G-7D', '3P-5H', 'A-7D') from group name and window/id."""
+    known_ids = dict(AGY_QUOTA_FAMILIES)
+    prefix: Optional[str] = None
+    if group_name:
+        prefix = _AGY_GROUP_PREFIX_MAP.get(group_name.strip().lower())
+
+    window_code: Optional[str] = None
+    w = (window or "").strip().lower()
+    bid = bucket_id.lower()
+    if w == "weekly" or "weekly" in bid:
+        window_code = "7D"
+    elif w == "5h" or "5h" in bid:
+        window_code = "5H"
+
+    if prefix and window_code:
+        if prefix == "A" and window_code != "7D":
+            return None
+        return f"{prefix}-{window_code}"
+
+    return known_ids.get(bucket_id)
+
+
 def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
     """Extract quota buckets from ``agy -p /usage --output-format json``.
 
@@ -373,6 +407,7 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
         if not isinstance(group, dict):
             continue
         group_dict = cast(dict[str, Any], group)
+        group_name = group_dict.get("name")
         raw_buckets_raw = group_dict.get("buckets")
         if not isinstance(raw_buckets_raw, list):
             continue
@@ -384,6 +419,10 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
             bucket_id = bucket.get("id")
             remaining = bucket.get("remaining_fraction")
             reset_time = bucket.get("reset_time")
+            window = bucket.get("window")
+            window_str = str(window) if isinstance(window, str) else None
+            group_name_str = str(group_name) if isinstance(group_name, str) else None
+
             if isinstance(bucket_id, str) and bucket_id in known_ids and not _valid_fraction(remaining):
                 return {}
             if (
@@ -392,11 +431,21 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
                 or not isinstance(reset_time, str)
             ):
                 continue
-            buckets[bucket_id] = {
+            entry: dict[str, Any] = {
                 "remaining_fraction": float(remaining),
                 "reset_time": reset_time,
             }
+            label = _derive_agy_pool_label(group_name_str, bucket_id, window_str)
+            if label is not None:
+                entry["label"] = label
+                entry["pool"] = label
+            if window_str is not None:
+                entry["window"] = window_str
+            if group_name_str is not None:
+                entry["group"] = group_name_str
+            buckets[bucket_id] = entry
     return buckets
+
 
 def _agy_envelope(text: str) -> Optional[dict[str, Any]]:
     """First JSON object in agy's stdout (whole text, else last-line-first, tolerating a launcher prefix line)."""
@@ -986,7 +1035,20 @@ def poll_agy_usage(
         
     unknown_buckets = [b for b in quota_dict_typed.keys() if b not in _AG_QUOTA_LABELS]
     results: list[UsageObserved] = []
-    for key, label in _AG_QUOTA_LABELS.items():
+
+    seen_keys: set[str] = set()
+    process_order: list[tuple[str, str]] = list(_AG_QUOTA_LABELS.items())
+    for k, v in quota_dict_typed.items():
+        if k not in _AG_QUOTA_LABELS and isinstance(v, dict):
+            v_dict = cast(dict[str, Any], v)
+            raw_label: object = v_dict.get("label") or v_dict.get("pool")
+            if isinstance(raw_label, str) and raw_label:
+                process_order.append((k, raw_label))
+
+    for key, label in process_order:
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
         q_raw = quota_dict_typed.get(key)
         if not isinstance(q_raw, dict):
             continue
