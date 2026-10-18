@@ -109,9 +109,9 @@ def _format_duration(seconds: float) -> str:
 
 def _section_rule(label: str, width: int, unicode: bool, color: bool = False) -> str:
     prefix = f"── {label} " if unicode else f"-- {label} "
-    fill = max(0, width - 1 - _width(prefix))
+    fill = max(0, width - _width(prefix))
     rule = prefix + ("─" if unicode else "-") * fill
-    rule = _fit(rule, width - 1, unicode)
+    rule = _fit(rule, width, unicode)
     if color:
         rule = f"\x1b[1;36m{rule}\x1b[0m"
     return rule
@@ -452,12 +452,30 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 return (p, w_sec, pid.lower())
 
             sorted_obs = sorted(observations, key=_quota_sort_key)
-            include_exhaust = (width >= 99)
-            if include_exhaust:
-                hdr = f"{'PEER':<4}  {'POOL':<8}  {'REM':>5}  {'[BAR]':<10}  {'RESET-IN':<9}  {'EXHAUST-IN':<11}  {'PACE':<8}  {'STATE':<10}  {'AGE':>5}"
-            else:
-                hdr = f"{'PEER':<4}  {'POOL':<8}  {'REM':>5}  {'[BAR]':<10}  {'RESET-IN':<9}  {'PACE':<8}  {'STATE':<10}  {'AGE':>5}"
-            rows.append(_fit(hdr, width - 1, unicode))
+            # Remove optional columns before fitting any quota identity/state.
+            column_widths = {"PEER": 4, "POOL": 8, "REM": 5, "[BAR]": 10,
+                             "RESET-IN": 9, "EXHAUST-IN": 11, "PACE": 8,
+                             "STATE": 10, "AGE": 5}
+            columns = list(column_widths)
+            omitted_cols: list[str] = []
+            if width < 99:
+                columns.remove("EXHAUST-IN")
+                omitted_cols.append("exhaust-in")
+            for optional in ("[BAR]", "EXHAUST-IN", "AGE", "PACE", "RESET-IN"):
+                needed = sum(column_widths[c] for c in columns) + 2 * (len(columns) - 1)
+                if needed <= width:
+                    break
+                if optional in columns:
+                    columns.remove(optional)
+                    omitted_cols.append("bar" if optional == "[BAR]" else optional.lower())
+
+            def quota_row(values: dict[str, str]) -> str:
+                return "  ".join(
+                    f"{values[c]:>{column_widths[c]}}" if c in {"REM", "AGE"}
+                    else f"{values[c]:<{column_widths[c]}}" for c in columns
+                )
+
+            rows.append(_fit(quota_row({c: c for c in columns}), width, unicode))
 
             for item in sorted_obs:
                 peer = _clean(item.get("peer_id") or "?")
@@ -509,11 +527,23 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     reason = _clean(item.get("reason") or item.get("condition") or projection.get("reason") or "")
                     state_str = f"{state}:{reason}" if reason else state
 
-                if include_exhaust:
-                    row_str = f"{peer:<4}  {pool_id:<8}  {rem_str:>5}  {bar_str}  {reset_str:<9}  {exhaust_str:<11}  {pace_str:<8}  {state_str:<10}  {age_str:>5}"
-                else:
-                    row_str = f"{peer:<4}  {pool_id:<8}  {rem_str:>5}  {bar_str}  {reset_str:<9}  {pace_str:<8}  {state_str:<10}  {age_str:>5}"
-                rows.append(_fit(row_str, width - 1, unicode))
+                row_str = quota_row({"PEER": peer, "POOL": pool_id, "REM": rem_str,
+                                     "[BAR]": bar_str, "RESET-IN": reset_str,
+                                     "EXHAUST-IN": exhaust_str, "PACE": pace_str,
+                                     "STATE": state_str, "AGE": age_str})
+                rows.append(_fit(row_str, width, unicode))
+
+            if len(omitted_cols) > 1:
+                # Wrap disclosure so narrow displays do not hide column names.
+                note = "Columns omitted:"
+                for column in omitted_cols:
+                    if _width(f"{note} {column}") > width:
+                        rows.append(_fit(note, width, unicode))
+                        note = column
+                    else:
+                        note += f" {column}"
+                rows.append(_fit(note, width, unicode))
+
         else:
             rows.append("Quota capacity: no observations")
         note = _coverage(data, unicode)
@@ -634,8 +664,11 @@ def _fallback_rows(data: dict[str, Any], prefix: str = "", depth: int = 0) -> li
 def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
                             unicode: bool, width: int, expand: bool = False) -> str:
     """Keep the append-only pipe/plain layout stable; it is not a TTY viewport."""
-    target_width = width - 1 if expand else width
-    target_width = max(20, target_width)
+    target_width = max(0, width - 1)
+    if target_width == 0:
+        return ""
+    if target_width < 19:
+        return _fit("Narrow; use >=20 columns", target_width, unicode) + "\n"
     selected = payload.get("selected_groups")
     raw_group_ids = [str(g) for g in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
     groups = _obj(payload.get("groups"))
@@ -818,33 +851,42 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
 
     visible_other: list[tuple[str, int, str, list[str]]] = []
 
+    def allocate_other(budget: int) -> list[tuple[str, int, str, list[str]]]:
+        # Even when every summary fits, hidden details need a disclosure row.
+        full_size = sum(1 + max(1, len(block[3])) for block in other_blocks)
+        summary_budget = budget - int(full_size > budget)
+        count = max(0, summary_budget // 2)
+        if count >= len(other_blocks):
+            return list(other_blocks)
+        ranked = sorted(other_blocks, key=lambda block: (block[1], other_blocks.index(block)))
+        return ranked[:count]
+
     if cap_block is not None:
         cap_rule = cap_block[2]
         cap_rows = cap_block[3]
-        quota_lines_needed = 1 + len(cap_rows)
         budget = max_lines - len(lines) - extra_overhead
         quota_budget = budget - (1 if other_blocks else 0)
+        show_cap_rule = quota_budget >= 1 + len(cap_rows)
+        if not show_cap_rule:
+            # Reclaim the section rule before hiding any quota row.
+            cap_status = _clean(_obj(groups.get("capacity")).get("status") or "UNKNOWN").upper()
+            lines[0] = _fit(f"QUOTA [{cap_status}] | {title}", target_width, unicode)
+        quota_lines_needed = len(cap_rows) + int(show_cap_rule)
 
         if quota_budget >= quota_lines_needed:
             # All quota rows fit!
-            lines.append(cap_rule)
+            if show_cap_rule:
+                lines.append(cap_rule)
             lines.extend(cap_rows)
             # Allocate to other blocks
             rem_budget = max_lines - len(lines) - extra_overhead
-            ranked_other = sorted(other_blocks, key=lambda b: (b[1], other_blocks.index(b)))
-            if len(other_blocks) * 2 <= rem_budget:
-                visible_other = list(other_blocks)
-                omitted_blocks = 0
-            else:
-                can_fit_count = max(0, (rem_budget - 1) // 2)
-                visible_other = ranked_other[:can_fit_count]
-                omitted_blocks = len(other_blocks) - len(visible_other)
-        elif budget >= 3:
+            visible_other = allocate_other(rem_budget)
+            omitted_blocks = len(other_blocks) - len(visible_other)
+        elif budget >= 2:
             # Partial quota rows fit; lower sections suppressed
-            lines.append(cap_rule)
             lines.append(cap_rows[0] if cap_rows else "")  # table header
             data_cap_rows = cap_rows[1:]
-            can_show = max(0, budget - 3)  # reserve 1 for omission
+            can_show = max(0, budget - 2)  # reserve 1 for omission
             lines.extend(data_cap_rows[:can_show])
             omitted_quota = len(data_cap_rows) - can_show
             omitted_blocks = len(other_blocks)
@@ -854,49 +896,50 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     else:
         # No capacity group, allocate other blocks by severity
         budget = max_lines - len(lines) - extra_overhead
-        ranked_other = sorted(other_blocks, key=lambda b: (b[1], other_blocks.index(b)))
-        if len(other_blocks) * 2 <= budget:
-            visible_other = list(other_blocks)
-            omitted_blocks = 0
-        else:
-            can_fit_count = max(0, (budget - 1) // 2)
-            visible_other = ranked_other[:can_fit_count]
-            omitted_blocks = len(other_blocks) - len(visible_other)
+        visible_other = allocate_other(budget)
+        omitted_blocks = len(other_blocks) - len(visible_other)
 
     for ob in visible_other:
         lines.append(ob[2])
         lines.append(ob[3][0] if ob[3] else "")
 
-    # Emit detail lines if room allows
-    space_left = max_lines - len(lines) - extra_overhead - (1 if (omitted_quota or omitted_blocks) else 0)
-    if space_left > 0:
-        other_details: list[str] = []
-        for ob in visible_other:
-            other_details.extend(ob[3][1:])
-        can_take = min(len(other_details), space_left)
-        lines.extend(other_details[:can_take])
+    # Count every loaded row omitted by the viewport, including --expand rows
+    # in groups that could not receive even a summary.
+    other_details = [row for ob in visible_other for row in ob[3][1:]]
+    omitted_group_rows = sum(len(ob[3]) for ob in other_blocks if ob not in visible_other)
+    space_left = max(0, max_lines - len(lines) - extra_overhead)
+    needs_omission = bool(omitted_quota or omitted_blocks or len(other_details) > space_left)
+    can_take = min(len(other_details), max(0, space_left - int(needs_omission)))
+    lines.extend(other_details[:can_take])
+    omitted_details = len(other_details) - can_take + omitted_group_rows
 
-    # Omission line
-    if omitted_quota > 0 or omitted_blocks > 0:
+    if omitted_quota or omitted_blocks or omitted_details:
         sep = " · " if unicode else " | "
+        counts: list[str] = []
+        if omitted_blocks:
+            counts.append(f"{omitted_blocks} groups omitted")
+        hidden_rows = omitted_quota + omitted_details
+        if hidden_rows:
+            counts.append(f"+{hidden_rows} rows hidden")
+        hint = ("peerhub monitor --snapshot --group capacity --expand"
+                if omitted_quota or omitted_blocks else "peerhub monitor --snapshot --expand")
         if target_width >= 64:
-            hint = "peerhub monitor --snapshot --group capacity --expand"
-            if omitted_quota > 0 and omitted_blocks > 0:
-                overflow = f"+{omitted_quota} quota, {omitted_blocks} omitted{sep}{hint}"
-            elif omitted_quota > 0:
-                overflow = f"+{omitted_quota} rows hidden{sep}{hint}"
-            else:
-                overflow = f"{omitted_blocks} groups omitted{sep}{hint}"
+            # Keep the actionable hint intact on 80-column displays.
+            room = target_width - _width(sep + hint)
+            detail = ", ".join(counts)
+            if _width(detail) > room:
+                detail = (f"{omitted_blocks} groups omitted,+{hidden_rows}r"
+                          if omitted_blocks else f"+{hidden_rows} rows hidden")
+            if _width(detail) > room:
+                hint = "--expand"
+                detail = ", ".join(counts)
+            overflow = f"{detail}{sep}{hint}"
         elif target_width >= 32:
-            if omitted_quota > 0 and omitted_blocks > 0:
-                overflow = f"+{omitted_quota}q,{omitted_blocks}g omitted{sep}--expand"
-            elif omitted_quota > 0:
-                overflow = f"+{omitted_quota} rows hidden{sep}--expand"
-            else:
-                overflow = f"{omitted_blocks} groups omitted{sep}--expand"
+            overflow = f"{', '.join(counts)}{sep}--expand"
+            if _width(overflow) > target_width:
+                overflow = f"+{omitted_quota + omitted_details}r,{omitted_blocks}g hidden{sep}--expand"
         else:
-            count = omitted_blocks if omitted_blocks > 0 else omitted_quota
-            overflow = f"+{count} --expand"
+            overflow = f"+{omitted_quota + omitted_details + omitted_blocks} --expand"
         if len(lines) < max_lines:
             lines.append(_fit(overflow, target_width, unicode))
 

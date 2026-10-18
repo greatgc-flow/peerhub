@@ -246,6 +246,7 @@ def test_display_width_ignores_combining_and_joiner_and_sanitizes_bidi(frame):
 def test_cjk_combining_and_joined_emoji_fit_actual_viewport(frame):
     from peerhub.cli.monitor_view import render_grouped_frame, _width
 
+    frame["selected_groups"] = ["overview"]
     frame["groups"]["overview"]["data"]["peers"][0]["display_name"] = "\u202e\u200b東京 cafe\u0301 👩\u200d💻\u0378"
     rendered = render_grouped_frame(frame, view="rich", unicode=True, width=20, height=8)
 
@@ -538,7 +539,7 @@ def test_fixed_time_render_fixtures_viewport_matrix():
             # Quota block is always at top
             assert "QUOTA [OK]" in rendered
             first_rule_idx = min(i for i, l in enumerate(lines) if "QUOTA [OK]" in l)
-            assert first_rule_idx == 1  # line 0 is title, line 1 is quota rule
+            assert first_rule_idx == (0 if (width, height) == (80, 12) else 1)
 
             # Check columns
             if width >= 100:
@@ -547,6 +548,8 @@ def test_fixed_time_render_fixtures_viewport_matrix():
                 assert "EXHAUST-IN" not in rendered
 
             if (width, height) == (80, 12):
+                for observation in fixture["groups"]["capacity"]["data"]["observations"]:
+                    assert observation["pool_ref"].split(":")[-1] in rendered
                 # 80x12 budget suppresses lower sections and shows exact hint
                 assert "peerhub monitor --snapshot --group capacity --expand" in rendered
                 assert "STORE" not in rendered
@@ -555,6 +558,87 @@ def test_fixed_time_render_fixtures_viewport_matrix():
                 assert "·" not in rendered
                 assert "█" not in rendered
                 rendered.encode("ascii")
+
+
+@pytest.mark.parametrize("width", [1, 2, 10, 19, 20, 50, 60, 80, 100, 120])
+@pytest.mark.parametrize("expand", [False, True])
+@pytest.mark.parametrize("unicode_mode", [False, True])
+def test_append_frame_leaves_terminal_last_column_free(frame, width, expand, unicode_mode):
+    from peerhub.cli.monitor_view import render_grouped_frame, _width
+
+    rendered = render_grouped_frame(frame, width=width, unicode=unicode_mode,
+                                    color=unicode_mode, expand=expand)
+    assert all(_width(line) <= width - 1 for line in rendered.splitlines())
+    if 10 <= width < 20:
+        assert "narrow" in rendered.lower()
+
+
+@pytest.mark.parametrize("width", [50, 60])
+@pytest.mark.parametrize("height", [None, 24])
+def test_narrow_quota_keeps_identity_remaining_reset_and_state(frame, width, height):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["selected_groups"] = ["capacity"]
+    item = frame["groups"]["capacity"]["data"]["observations"][0]
+    item.update(pool_ref="quota:cx:X-7D", projection={"state": "exhausted"})
+    item["measurements"]["reset_in_seconds"] = 90000
+    rendered = render_grouped_frame(frame, width=width, height=height, unicode=False)
+    header = next(line for line in rendered.splitlines() if "PEER" in line)
+    for label in ("PEER", "POOL", "REM", "RESET-IN", "STATE"):
+        assert label in header
+    row = next(line for line in rendered.splitlines() if "X-7D" in line)
+    for value in ("cx", "X-7D", "75%", "1d01h", "EXHAUSTED"):
+        assert value in row
+    assert "Columns omitted:" in rendered
+    for label in ("bar", "exhaust-in", "age"):
+        assert label in rendered
+
+
+@pytest.mark.parametrize("expand, height, hidden", [(False, 5, 2), (True, 6, 3)])
+def test_bounded_other_details_report_exact_hidden_rows(frame, expand, height, hidden):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["selected_groups"] = ["usage"]
+    frame["groups"]["usage"]["data"] = {"sessions": [
+        {"peer_id": f"worker{i}", "telemetry": {"normalized": {"provider_total_tokens": i}}}
+        for i in range(1, 6)
+    ]}
+    rendered = render_grouped_frame(frame, width=100, height=height, unicode=False, expand=expand)
+    assert f"+{hidden} rows hidden" in rendered
+    assert "--expand" in rendered
+    assert "worker1" in rendered
+    if expand:
+        assert "worker2" in rendered
+    assert len(rendered.splitlines()) == height - 1
+
+
+@pytest.mark.parametrize("width", [64, 80, 100, 120])
+def test_omitted_groups_disclose_loaded_expanded_rows(frame, width):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["selected_groups"] = ["capacity", "usage"]
+    frame["groups"]["usage"]["data"] = {"sessions": [
+        {"peer_id": f"worker{i}"} for i in range(5)
+    ]}
+    rendered = render_grouped_frame(frame, width=width, height=6, unicode=False, expand=True)
+    assert "1 groups omitted" in rendered
+    assert "+5 rows hidden" in rendered or "+5r" in rendered
+    assert "--expand" in rendered
+
+
+def test_group_summaries_reserve_space_for_hidden_detail_disclosure(frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["selected_groups"] = ["usage", "context"]
+    for group in frame["selected_groups"]:
+        frame["groups"][group]["data"] = {"sessions": [
+            {"peer_id": f"worker{i}"} for i in range(3)
+        ]}
+    rendered = render_grouped_frame(frame, width=100, height=6, unicode=False, expand=True)
+    assert "worker1" in rendered
+    assert "+4 rows hidden" in rendered or "+4r" in rendered
+    assert "--expand" in rendered
+    assert len(rendered.splitlines()) <= 5
 
 
 
