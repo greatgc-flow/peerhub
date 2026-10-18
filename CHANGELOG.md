@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Docs
+
+- Added peer sandbox limits and installed-CLI profile smoke recipe, linked from the documentation index (#134, #148).
+
 > [!NOTE]
 > **Scope Notice:** This PR resolves Slice S1 execution safety and stream fencing (#125, #126, #127, #140), core guidance registry and exact-code `peerhub explain <CODE>` (#117 S2-A), bare CLI routing (#121), stderr decoding (#120), monitor UX improvements (#146, #147), and documentation updates (#118, #123, #130, #134–#136, #148, #149).
 > The top-level `peerhub readiness` command (#145) remains pending; this PR does not claim S1-S4 completion.
