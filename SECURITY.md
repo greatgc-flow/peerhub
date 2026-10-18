@@ -13,7 +13,7 @@ Only the latest minor release line receives security updates.
 
 Please report suspected security vulnerabilities privately rather than through public issues or pull requests.
 
-Use [GitHub Private Vulnerability Reporting](https://github.com/greatgc-flow/peerhub/security/advisories/new) for `greatgc-flow/peerhub`. Note that the repository owner must enable private vulnerability reporting under repository **Settings > Code security and analysis**.
+Use [GitHub Private Vulnerability Reporting](https://github.com/greatgc-flow/peerhub/security/advisories/new) for `greatgc-flow/peerhub`. Private vulnerability reporting is enabled for this repository.
 
 ### Report Guidelines
 
