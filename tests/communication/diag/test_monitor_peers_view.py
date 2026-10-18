@@ -722,12 +722,14 @@ def test_peers_view_mapped_model_selects_minimum_remaining_and_labels_pool(tmp_p
     obs.register_resource_pool(ResourcePool.model_validate(_pool("quota:ag:G-5H", "google")))
     obs.register_resource_pool(ResourcePool.model_validate(_pool("quota:ag:G-7D", "google")))
     obs.register_resource_pool(ResourcePool.model_validate(_pool("quota:ag:3P-5H", "google")))
+    obs.register_resource_pool(ResourcePool.model_validate(_pool("quota:ag:A-7D", "google")))
 
     now_iso = epoch_to_iso(harness.clock.now())
     obs.capture("ag", "quota", FakeObservationSource(measured({"remaining_fraction": 0.80}, observed_at=now_iso)), resource_pool_ref="quota:ag:G-5H")
     obs.capture("ag", "quota", FakeObservationSource(measured({"remaining_fraction": 0.45}, observed_at=now_iso)), resource_pool_ref="quota:ag:G-7D")
-    # Even though 3P-5H is 10%, it is NOT a pool for ag.standard, so it must not be picked
+    # Even though 3P-5H is 10% and A-7D is 5%, they are NOT pools for ag.standard, so they must not be picked
     obs.capture("ag", "quota", FakeObservationSource(measured({"remaining_fraction": 0.10}, observed_at=now_iso)), resource_pool_ref="quota:ag:3P-5H")
+    obs.capture("ag", "quota", FakeObservationSource(measured({"remaining_fraction": 0.05}, observed_at=now_iso)), resource_pool_ref="quota:ag:A-7D")
 
     frame = render_monitor_frame(harness.db_path, ["peers"], read_at=harness.clock.now() + 5, workspace=harness.workspace)
     assert frame["status"] in ("OK", "PARTIAL")

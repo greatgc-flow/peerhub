@@ -473,8 +473,29 @@ def test_capacity_rows_stay_contiguous_under_capacity_heading_and_usage_fallback
     assert "0%  [........]" in rendered
     assert "2h05m" in rendered
     assert "30m" in rendered
-    # USAGE fallback total tokens (1000 + 250 = 1,250) and cache 80%
     assert "cx provider-reported tokens: 1,250 | cache 80%" in rendered
+
+
+def test_monitor_capacity_renders_argon_a_7d_pool_row_like_other_pools(frame):
+    """#149: A-7D pool row renders in QUOTA like other pools without special casing."""
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["groups"]["capacity"]["data"]["observations"] = [
+        {
+            "peer_id": "ag",
+            "pool_ref": "quota:ag:A-7D",
+            "state": "MEASURED",
+            "measurements": {"remaining_fraction": 0.406, "reset_in_seconds": 550000},
+            "projection": {"state": "on_pace", "pace_pt": 0.0},
+            "age_seconds": 15.0,
+        },
+    ]
+
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=28)
+    assert "QUOTA [OK]" in rendered
+    assert "A-7D" in rendered
+    assert "41%" in rendered
+    assert "ag" in rendered
 
 
 def test_fixed_time_render_fixtures_viewport_matrix():
