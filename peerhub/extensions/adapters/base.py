@@ -190,6 +190,7 @@ class IncrementalEventParser:
         self.cx_candidate_thread_id: str | None = None
         self._cx_observed_thread_id: str | None = None
         self._cx_thread_conflict = False
+        self._cx_oversized_unresolved = False
         self._cx_agent_messages_head: list[str] = []
         self._cx_agent_messages_tail: deque[str] = deque()
         self._cx_head_bytes: int = 0
@@ -287,6 +288,16 @@ class IncrementalEventParser:
                     popped = self._cx_final_messages_tail.popleft()
                     self._cx_final_tail_bytes -= max(1, len(popped.encode("utf-8", "replace")))
 
+    def _note_oversized(self) -> None:
+        self.oversized_count += 1
+        if self.kind == "cx":
+            # A discarded record could be an answer, failure, or newer activity.
+            # Only a subsequent intact answer AND turn completion can supersede it.
+            self._cx_oversized_unresolved = True
+            self._cx_latest_activity_has_turn_completed = False
+            self.cx_turn_completed = None
+        self.pending.clear()
+
     def _try_parse_ag(self) -> None:
         try:
             text = self._ag_raw_buf.decode("utf-8")
@@ -367,8 +378,7 @@ class IncrementalEventParser:
                     self.pending.clear()
                     continue
                 if len(self.pending) + len(part) > MAX_EVENT_BYTES:
-                    self.oversized_count += 1
-                    self.pending.clear()
+                    self._note_oversized()
                     continue
                 self.pending.extend(part)
                 line = bytes(self.pending)
@@ -381,10 +391,7 @@ class IncrementalEventParser:
                     continue
                 if len(self.pending) + len(part) > MAX_EVENT_BYTES:
                     self.line_oversized = True
-                    self.oversized_count += 1
-                    room = MAX_EVENT_BYTES - len(self.pending)
-                    if room > 0:
-                        self.pending.extend(part[:room])
+                    self._note_oversized()
                 else:
                     self.pending.extend(part)
 
@@ -542,6 +549,8 @@ class IncrementalEventParser:
                     item_dict = cast("dict[str, Any]", item)
                     if item_dict.get("type") == "agent_message" and isinstance(item_dict.get("text"), str):
                         text_val = cast(str, item_dict["text"])
+                        if item_dict.get("phase") != "commentary":
+                            self._cx_oversized_unresolved = False
                         self._add_cx_agent_message(text_val)
                         if item_dict.get("phase") == "final":
                             self._add_cx_final_message(text_val)
@@ -579,7 +588,7 @@ class IncrementalEventParser:
     def parse(self) -> str:
         if self.parser_failed:
             raise ValueError("parser failure encountered; outcome indeterminate")
-        if self.oversized_count > 0:
+        if self.oversized_count > 0 and (self.kind != "cx" or self._cx_oversized_unresolved):
             raise ValueError(f"oversized event encountered ({self.oversized_count} record(s)); outcome indeterminate")
         if self.kind == "cc":
             if not self.cc_results:
@@ -1186,6 +1195,8 @@ class CliRuntimeTarget:
                     del self._active[external_session_id]
         if pending:
             stream_display_truncated = True
+        if parser.oversized_count:
+            self._note("event_counts", oversized_event_count=parser.oversized_count)
         display_truncated = res.display_truncated or stream_display_truncated
         self._note("exited", pid=res.pid, returncode=res.returncode, timed_out=res.timed_out,
                    silence_timed_out=res.silence_timed_out,
@@ -1272,6 +1283,8 @@ class CliRuntimeTarget:
         else:
             usage = self._spec.parse_usage(res.stdout.decode("utf-8", "replace"))
             vendor_session_id = self._spec.parse_session_id(res.stdout.decode("utf-8", "replace"))
+        if parser.oversized_count:
+            payload["oversized_event_count"] = parser.oversized_count
         if display_truncated:
             payload["display_truncated"] = True
         if usage is not None:

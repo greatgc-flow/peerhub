@@ -1096,3 +1096,50 @@ def test_cli_app_ask_prints_final_answer_when_display_thread_slow(tmp_path, monk
 
 
 
+
+
+@pytest.mark.parametrize("chunk_size", [4096, 262_144, 1_000_000])
+@pytest.mark.parametrize("suffix,expected", [
+    ('{"type":"item.completed","item":{"type":"agent_message","text":"answer"}}\n'
+     '{"type":"turn.completed"}\n', "before\nanswer"),
+    ('{"type":"turn.completed"}\n', None),
+    ('{"type":"item.completed","item":{"type":"agent_message","phase":"commentary","text":"working"}}\n'
+     '{"type":"turn.completed"}\n', None),
+    ('{"type":"item.completed","item":{"type":"command_execution"}}\n'
+     '{"type":"turn.completed"}\n', None),
+    ('{"type":"item.completed","item":{"type":"agent_message","text":"answer"}}\n', None),
+])
+def test_cx_oversized_gap_requires_later_answer_and_completion(chunk_size, suffix, expected):
+    parser = IncrementalEventParser("cx")
+    prefix = ('{"type":"item.completed","item":{"type":"agent_message","text":"before"}}\n'
+              '{"type":"turn.completed"}\n')
+    oversized = json.dumps({"type": "item.completed", "padding": "x" * 262_144}) + "\n"
+    data = (prefix + oversized + suffix).encode()
+    for start in range(0, len(data), chunk_size):
+        parser.feed(data[start:start + chunk_size])
+        assert len(parser.pending) <= 262_144
+    parser.close()
+    assert parser.oversized_count == 1
+    if expected is None:
+        with pytest.raises(ValueError, match="oversized|incomplete"):
+            parser.parse()
+    else:
+        assert parser.parse() == expected
+
+
+@pytest.mark.parametrize("extra_bytes", [0, 1])
+@pytest.mark.parametrize("terminated", [False, True])
+def test_cx_event_size_limit_excludes_newline(extra_bytes, terminated):
+    parser = IncrementalEventParser("cx")
+    event = json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": "answer"}}).encode()
+    event += b" " * (262_144 + extra_bytes - len(event))
+    parser.feed(event + (b"\n" if terminated else b""))
+    parser.close()
+    assert parser.oversized_count == extra_bytes
+    assert parser.pending == bytearray()
+    parser.feed(b'\n{"type":"turn.completed"}\n')
+    if extra_bytes:
+        with pytest.raises(ValueError, match="oversized"):
+            parser.parse()
+    else:
+        assert parser.parse() == "answer"
