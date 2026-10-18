@@ -548,6 +548,12 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
         else:
             rows.append("Quota capacity: no observations")
+        for credit in _items(data.get("reset_credits")):
+            count = _count(credit.get("available_count"))
+            expires = _number(credit.get("nearest_expires_at"))
+            expiry = datetime.fromtimestamp(expires, timezone.utc).strftime("%Y-%m-%d %H:%MZ") if expires is not None else "-"
+            state = _clean(credit.get("state") or "UNKNOWN")
+            rows.append(f"{_peer(credit)} reset credits: {count} | soonest {expiry} [{state}]")
         note = _coverage(data, unicode)
         if note:
             rows.append(f"Coverage: {note}")

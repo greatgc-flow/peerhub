@@ -85,6 +85,52 @@ def test_poll_claude_usage_timeout_fail_closed(monkeypatch):
     assert obs.extra["reason"] == "claude_usage_timeout"  # the stored ERROR says WHY (a loaded machine vs. a changed CLI)
 
 
+def test_monitor_keeps_last_good_cc_pools_after_usage_timeout(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from peerhub.cli.monitor_view import render_grouped_frame
+    from peerhub.core.store import CoreStore
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.extensions.quota_capture import refresh_quota
+
+    now = 1792300000
+    timed_out = False
+
+    class FakeProc:
+        pid = 9999
+
+        def communicate(self, timeout=None):
+            if timed_out:
+                raise subprocess.TimeoutExpired(cmd="claude -p /usage", timeout=timeout)
+            return ("Current session: 25% used resets 12:00pm\n"
+                    "Current week (all models): 40% used resets Oct 24, 12:00pm\n", "")
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: FakeProc())
+    monkeypatch.setattr("peerhub.extensions.quota_probes._cleanup_probe", lambda _: None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda *a: ["claude"])
+    monkeypatch.setattr("peerhub.extensions.quota_probes._parse_claude_usage_reset",
+                        lambda *a, **kw: datetime.fromtimestamp(now + 3600, timezone.utc))
+    db = tmp_path / "core.db"
+    CoreStore(db)
+    pollers = {"cc": lambda **kw: poll_claude_usage(**kw, clock=lambda: now)}
+    refresh_quota(db, ["cc"], pollers=pollers, version_checker=lambda _: None)
+    now += 30
+    timed_out = True
+    refresh_quota(db, ["cc"], pollers=pollers, version_checker=lambda _: None)
+    frame = render_monitor_frame(str(db), ["capacity"], read_at=now)
+    frame["selected_groups"] = ["capacity"]
+    rows = frame["groups"]["capacity"]["data"]["observations"]
+    good = {row["pool_ref"]: row for row in rows if row["state"] == "MEASURED"}
+    assert set(good) == {"quota:cc:C-5H", "quota:cc:C-7D"}
+    assert all(row["age_seconds"] == 30 for row in good.values())
+    assert any(row["reason"] == "claude_usage_timeout" for row in rows)
+    for view in ("plain", "rich"):
+        text = render_grouped_frame(frame, view=view, width=120, height=30)
+        assert "AGE" in text
+        for pool, percent in (("C-5H", "75%"), ("C-7D", "60%")):
+            line = next(line for line in text.splitlines() if pool in line)
+            assert percent in line and "30s" in line
+
+
 def test_poll_claude_usage_spawn_failure_records_the_error_type(monkeypatch):
     def boom(*args, **kwargs):
         raise PermissionError("denied")
