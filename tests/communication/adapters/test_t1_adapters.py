@@ -408,12 +408,35 @@ def test_cx_tool_only_turn_and_narration_segregation():
     p_tool.close()
     assert p_tool.parse() == ""
 
-    # Pre-tool narration followed by tool call and final post-tool answer (#127)
+    # Pre-tool narration followed by tool call: keep aggregate text unless phase metadata separates final/commentary (#127)
     p_seg = IncrementalEventParser("cx")
     p_seg.feed(b'{"type":"item.completed","item":{"type":"agent_message","text":"Let me inspect the files first."}}\n')
     p_seg.feed(b'{"type":"item.completed","item":{"type":"command_execution","command":"git status"}}\n')
     p_seg.feed(b'{"type":"item.completed","item":{"type":"agent_message","text":"Final answeronly"}}\n')
     p_seg.feed(b'{"type":"turn.completed","usage":{"input_tokens":80,"output_tokens":10}}\n')
     p_seg.close()
-    assert p_seg.parse() == "Final answeronly"
+    assert p_seg.parse() == "Let me inspect the files first.\nFinal answeronly"
+
+    # Explicit provider phase metadata separates final response from commentary
+    p_phase = IncrementalEventParser("cx")
+    p_phase.feed(b'{"type":"item.completed","item":{"type":"agent_message","phase":"commentary","text":"Let me inspect the files first."}}\n')
+    p_phase.feed(b'{"type":"item.completed","item":{"type":"command_execution","command":"git status"}}\n')
+    p_phase.feed(b'{"type":"item.completed","item":{"type":"agent_message","phase":"final","text":"Final answeronly"}}\n')
+    p_phase.feed(b'{"type":"turn.completed","usage":{"input_tokens":80,"output_tokens":10}}\n')
+    p_phase.close()
+    assert p_phase.parse() == "Final answeronly"
+
+
+def test_native_delivery_oversized_event_forces_conservative_parser_rejection(tmp_path):
+    # Produce an oversized single line in stdout, but total output is within max_output_bytes
+    script = (
+        "import sys, json; "
+        "sys.stdout.write(json.dumps({'type': 'init', 'data': 'x' * 300000}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}) + '\\n'); "
+        "sys.exit(0)"
+    )
+    target = CliRuntimeTarget("cc", tmp_path, command=[sys.executable, "-c", script], max_bytes=1_000_000)
+    with pytest.raises(RuntimeTargetError, match="oversized event encountered"):
+        list(target.deliver("sess-1", rec("hello"), []))
+
 

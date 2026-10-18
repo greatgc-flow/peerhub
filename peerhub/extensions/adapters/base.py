@@ -198,8 +198,7 @@ class IncrementalEventParser:
         self.cx_last_message_has_turn_completed = False
         self._cx_has_completed_item = False
         self._cx_last_item_has_turn_completed = False
-        self._cx_post_tool_messages: list[str] = []
-        self._cx_saw_tool_since_last_msg = False
+        self._cx_final_messages: list[str] = []
         self.cx_errors: deque[str] = deque(maxlen=10)
         self._cx_tail_started = False
 
@@ -481,8 +480,6 @@ class IncrementalEventParser:
                 elif cast("dict[str, Any]", item).get("type") not in ("agent_message", "reasoning", "error"):
                     # Unknown future items cannot establish absence of execution.
                     self.has_tool_calls = True
-                    self._cx_saw_tool_since_last_msg = True
-                    self._cx_post_tool_messages.clear()
             if "thread_id" in event:
                 tid = _session_id(event.get("thread_id"))
                 if tid is not None:
@@ -515,11 +512,8 @@ class IncrementalEventParser:
                         text_val = cast(str, item_dict["text"])
                         self._add_cx_agent_message(text_val)
                         self.cx_last_message_has_turn_completed = False
-                        if self._cx_saw_tool_since_last_msg:
-                            self._cx_post_tool_messages = [text_val]
-                            self._cx_saw_tool_since_last_msg = False
-                        elif self.has_tool_calls:
-                            self._cx_post_tool_messages.append(text_val)
+                        if item_dict.get("phase") == "final":
+                            self._cx_final_messages.append(text_val)
             elif ev_type == "turn.completed":
                 self.has_success = True
                 self.cx_turn_completed = event
@@ -579,8 +573,8 @@ class IncrementalEventParser:
                 if self._cx_has_completed_item and self._cx_last_item_has_turn_completed:
                     return ""
                 raise ValueError("cx output has no turn.completed after the last agent_message (incomplete)")
-            if self.has_tool_calls and not self.truncated and self._cx_post_tool_messages:
-                return "\n".join(self._cx_post_tool_messages)
+            if self._cx_final_messages:
+                return "\n".join(self._cx_final_messages)
             return "\n".join(self.cx_agent_messages)
         elif self.kind == "ag":
             if self._ag_invalid_top_level:
@@ -732,21 +726,10 @@ class CxSpec(ProviderSpec):
             if completed_items and any(e.get("type") == "turn.completed" for e in events[completed_items[-1] + 1:]):
                 return ""
             raise ValueError("cx output has no turn.completed after the last agent_message (incomplete)")
-        tool_indices = [
-            i for i, e in enumerate(events)
-            if e.get("type") in ("item.started", "item.updated", "item.completed")
-            and isinstance(e.get("item"), dict)
-            and e["item"].get("type") not in ("agent_message", "reasoning", "error")
-        ]
-        if tool_indices:
-            last_tool = max(tool_indices)
-            post_tool_msgs = [
-                e["item"]["text"] for i, e in enumerate(events)
-                if i > last_tool and e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
-                and e["item"].get("type") == "agent_message" and isinstance(e["item"].get("text"), str)
-            ]
-            if post_tool_msgs:
-                return "\n".join(post_tool_msgs)
+        phase_msgs = [e["item"]["text"] for e in events if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
+                      and e["item"].get("type") == "agent_message" and e["item"].get("phase") == "final" and isinstance(e["item"].get("text"), str)]
+        if phase_msgs:
+            return "\n".join(phase_msgs)
         return "\n".join(msgs)
 
     def parse_session_id(self, stdout: str) -> str | None:
@@ -1229,7 +1212,7 @@ class CliRuntimeTarget:
             raise RuntimeTargetError(f"{self.runtime_kind} exited {res.returncode}: " + excerpt,
                                      termination_confirmed=res.termination_confirmed)
         try:
-            if res.stdout_truncated or parser.truncated:
+            if res.stdout_truncated or parser.truncated or parser.oversized_count > 0:
                 if self.runtime_kind == "ag":
                     raw_head = res.stdout.lstrip()
                     if (raw_head and not raw_head.startswith(b"{")) or parser.ag_invalid_top_level:
