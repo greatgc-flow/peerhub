@@ -56,7 +56,7 @@ where = ["."]
 include = ["peerhub*"]
 
 [tool.setuptools.package-data]
-"peerhub.config_data" = ["model-defaults.toml"]
+"peerhub.config_data" = ["model-defaults.toml", "lessons.toml"]
 "peerhub.core" = ["schemas/*.json"]
 "peerhub.extensions" = ["schemas/*.json"]
 

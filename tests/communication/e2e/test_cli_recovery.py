@@ -543,8 +543,8 @@ def test_explain_cli_output_and_exit_codes(capsys):
     # Unknown - human
     assert run_explain_cli("non_existent_code", json_output=False) == 1
     err = capsys.readouterr().err
-    assert "Unknown guidance code: 'non_existent_code'" in err
-    assert "Known codes:" in err
+    assert "No matching lessons" in err
+    assert "Try fewer keywords" in err
 
     # Unknown - json
     assert run_explain_cli("non_existent_code", json_output=True) == 1
@@ -564,7 +564,7 @@ def test_main_explain_dispatch(capsys):
     assert json.loads(capsys.readouterr().out)["code"] == "ask_uncertain"
 
     assert main(["explain", "unknown_xyz"]) == 1
-    assert "Unknown guidance code" in capsys.readouterr().err
+    assert "No matching lessons" in capsys.readouterr().err
 
 
 # ------------------------------------------------------------------ Ask path scenario tests
