@@ -223,6 +223,7 @@ def test_queued_rejection_replays_before_liveness_and_changed_intent_conflicts(t
     from peerhub.core.workspace import Workspace
     db = tmp_path / "ask.db"
     rt = NativeRuntimeTarget()
+    workspace = Workspace(db.parent)
     store = CoreStore(db)
     for peer in ("user", "cx"):
         store.register_peer(Peer(peer_id=peer))
@@ -231,7 +232,7 @@ def test_queued_rejection_replays_before_liveness_and_changed_intent_conflicts(t
     store.append_record(stream_id="s", author_peer_id="user", kind="prompt", body="queued",
                         targets=["cx"], idempotency_key="ask:reject", created_at="2026-10-14T00:00:00Z",
                         metadata={"runtime_kind": rt.runtime_kind, "binding": rt.binding(), "session_selector": "sess:" + handle,
-                                  "adapter_fingerprint": rt.fingerprint(), "workspace_generation": Workspace(db.parent).generation()})
+                                  "adapter_fingerprint": rt.fingerprint(), "workspace_generation": workspace.generation()})
     kw = dict(stream_id="s", request_id="reject", session=handle, runtime=rt)
     original = ask(db, "cx", "queued", **kw)
     assert original["status"] == "failed_not_started" and original["error"]["code"] == "session_not_found"

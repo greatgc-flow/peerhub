@@ -13,36 +13,59 @@ from pathlib import Path
 from typing import Any, cast
 
 
-def resolve_profile(kind: str, profile: str, workspace: str | Path) -> tuple[str | None, str | None]:
-    profile = qualified_profile(kind, profile)
-    if not profile.startswith(kind + ".") or not profile[len(kind) + 1:]:
-        raise ValueError("profile must be a fully qualified name for the target provider")
+def _load_layer(path: Path | Traversable) -> dict[str, Any]:
+    with path.open("rb") as handle:
+        layer = tomllib.load(handle)
+    version = layer.get("schema_version", 1)
+    if type(version) is not int or version != 1:
+        raise ValueError("model profile config schema_version must be 1")
+    if not isinstance(layer.get("profiles", {}), dict):
+        raise ValueError("model profile config [profiles] must be a table")
+    return layer
+
+
+def _load_layers(workspace: str | Path | None) -> list[tuple[str, dict[str, Any]]]:
     packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
-    with packaged.open("rb") as handle:
-        layers = [tomllib.load(handle)]
     global_home = Path(os.environ.get("PEERHUB_CONFIG_HOME") or Path.home() / ".peerhub" / "config")
-    for path in (global_home / "models.toml", Path(workspace) / ".peerhub" / "config" / "models.toml"):
+    paths = [("global", global_home / "models.toml")]
+    if workspace is not None:
+        paths.append(("workspace", Path(workspace) / ".peerhub" / "config" / "models.toml"))
+    layers = [("packaged", _load_layer(packaged))]
+    for name, path in paths:
         if path.exists():
-            with path.open("rb") as handle:
-                layers.append(tomllib.load(handle))
+            layers.append((name, _load_layer(path)))
+    return layers
+
+
+def _select_profile(profile: str, layers: list[tuple[str, dict[str, Any]]]) -> tuple[dict[str, Any], dict[str, str]]:
     selected: dict[str, Any] = {}
+    sources: dict[str, str] = {}
     found = False
-    for layer in layers:
-        if layer.get("schema_version", 1) != 1:
-            raise ValueError("model profile config schema_version must be 1")
-        profiles = layer.get("profiles", {})
-        if not isinstance(profiles, dict):
-            raise ValueError("model profile config [profiles] must be a table")
-        profiles = cast("dict[str, Any]", profiles)
+    for name, layer in layers:
+        profiles = cast("dict[str, Any]", layer.get("profiles", {}))
         if profile not in profiles:
             continue
         entry = profiles[profile]
         if not isinstance(entry, dict):
             raise ValueError("model profile entry must be a table")
-        selected.update(cast("dict[str, Any]", entry))
+        for key, value in cast("dict[str, Any]", entry).items():
+            selected[key] = value
+            sources[key] = name
         found = True
     if not found:
         raise ValueError(f"unknown model profile {profile!r}")
+    return selected, sources
+
+
+def resolve_profile(kind: str, profile: str, workspace: str | Path) -> tuple[str | None, str | None]:
+    profile = qualified_profile(kind, profile)
+    if not profile.startswith(kind + ".") or not profile[len(kind) + 1:]:
+        raise ValueError("profile must be a fully qualified name for the target provider")
+    selected, _ = _select_profile(profile, _load_layers(workspace))
+    return _profile_values(selected)
+
+
+def _profile_values(selected: dict[str, Any]) -> tuple[str | None, str | None]:
     mode = selected.get("selection_mode")
     model = selected.get("model") if mode == "pinned" else None
     effort = selected.get("reasoning_effort")
@@ -62,41 +85,15 @@ def qualified_profile(kind: str, profile: str) -> str:
 
 def inspect_profile(profile: str, workspace: str | Path, *, include_pool_source: bool = False) -> dict[str, Any]:
     """Return effective declarative values with the winning TOML layer per field."""
+    return _inspect_profile(profile, _load_layers(workspace), include_pool_source=include_pool_source)
+
+
+def _inspect_profile(profile: str, layers: list[tuple[str, dict[str, Any]]], *, include_pool_source: bool) -> dict[str, Any]:
     qualified = profile
     if "." not in qualified or not all(qualified.split(".", 1)):
         raise ValueError("profile must be a fully qualified provider.profile name")
-    kind = qualified.split(".", 1)[0]
-    model, effort = resolve_profile(kind, qualified, workspace)  # shared resolver remains the validation oracle
-    packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
-    global_home = Path(os.environ.get("PEERHUB_CONFIG_HOME") or Path.home() / ".peerhub" / "config")
-    layer_paths: list[tuple[str, Any]] = [("packaged", packaged)]
-    global_path = global_home / "models.toml"
-    workspace_path = Path(workspace) / ".peerhub" / "config" / "models.toml"
-    if global_path.exists():
-        layer_paths.append(("global", global_path))
-    if workspace_path.exists():
-        layer_paths.append(("workspace", workspace_path))
-    effective: dict[str, Any] = {}
-    sources: dict[str, str] = {}
-    found = False
-    for layer_name, path in layer_paths:
-        with path.open("rb") as handle:
-            layer = tomllib.load(handle)
-        profiles = layer.get("profiles", {})
-        if not isinstance(profiles, dict):
-            raise ValueError("model profile config [profiles] must be a table")
-        profile_map = cast("dict[str, Any]", profiles)
-        entry = profile_map.get(qualified)
-        if entry is None:
-            continue
-        if not isinstance(entry, dict):
-            raise ValueError("model profile entry must be a table")
-        found = True
-        for key, value in cast("dict[str, Any]", entry).items():
-            effective[key] = value
-            sources[key] = layer_name
-    if not found:
-        raise ValueError(f"unknown model profile {qualified!r}")
+    effective, sources = _select_profile(qualified, layers)
+    model, effort = _profile_values(effective)
     mode = effective["selection_mode"]
     result: dict[str, Any] = {
         "profile": qualified,
@@ -114,28 +111,17 @@ def inspect_profile(profile: str, workspace: str | Path, *, include_pool_source:
 
 def list_profiles(workspace: str | Path, *, include_pool_source: bool = False) -> list[dict[str, Any]]:
     """List the union of explicitly named profiles across the same resolver layers."""
-    packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
-    global_home = Path(os.environ.get("PEERHUB_CONFIG_HOME") or Path.home() / ".peerhub" / "config")
-    paths: list[Path | Traversable] = [packaged, global_home / "models.toml", Path(workspace) / ".peerhub" / "config" / "models.toml"]
+    layers = _load_layers(workspace)
     names: set[str] = set()
-    for path in paths:
-        if not path.is_file():
-            continue
-        with path.open("rb") as handle:
-            layer = tomllib.load(handle)
-        profiles = layer.get("profiles", {})
-        if not isinstance(profiles, dict):
-            raise ValueError("model profile config [profiles] must be a table")
-        profile_map = cast("dict[str, Any]", profiles)
-        names.update(str(name) for name in profile_map)
-    return [inspect_profile(name, workspace, include_pool_source=include_pool_source) for name in sorted(names)]
+    for _, layer in layers:
+        names.update(cast("dict[str, Any]", layer.get("profiles", {})))
+    return [_inspect_profile(name, layers, include_pool_source=include_pool_source) for name in sorted(names)]
 
 
 def packaged_defaults_meta() -> dict[str, Any]:
     """Read release-maintained revision and observation metadata from packaged defaults."""
     packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
-    with packaged.open("rb") as handle:
-        layer = tomllib.load(handle)
+    layer = _load_layer(packaged)
     return {
         "defaults_revision": str(layer.get("defaults_revision") or ""),
         "observed_at": str(layer.get("observed_at") or ""),
@@ -151,18 +137,7 @@ def resolve_model_pools(model: str, workspace: str | Path | None = None) -> list
 
 def inspect_model_pools(model: str, workspace: str | Path | None = None) -> dict[str, Any] | None:
     """Keep the exact mapping's verification evidence alongside its pool IDs."""
-    packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
-    with packaged.open("rb") as handle:
-        layers = [tomllib.load(handle)]
-    global_home = Path(os.environ.get("PEERHUB_CONFIG_HOME") or Path.home() / ".peerhub" / "config")
-    paths: list[Path] = [global_home / "models.toml"]
-    if workspace is not None:
-        paths.append(Path(workspace) / ".peerhub" / "config" / "models.toml")
-    for path in paths:
-        if path.exists():
-            with path.open("rb") as handle:
-                layers.append(tomllib.load(handle))
-    for layer in reversed(layers):
+    for _, layer in reversed(_load_layers(workspace)):
         exact_pools: object = layer.get("exact_model_pools")
         if isinstance(exact_pools, dict) and model in exact_pools:
             entry: object = cast(dict[str, Any], exact_pools)[model]

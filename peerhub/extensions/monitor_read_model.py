@@ -115,14 +115,15 @@ def _monitor_workspace(db_path: str, workspace: str | Path | None) -> Path:
     if workspace is not None:
         return Path(workspace)
     database = Path(db_path).resolve()
-    if (database.parent / "workspace.generation").is_file():
-        return database.parent
     if database.parent.name == ".peerhub":
         return database.parent.parent
+    if (database.parent / "workspace.generation").is_file():
+        return database.parent
     return Path.cwd()
 
 
-def _public_telemetry(raw: object, *, handle: str, generation: int, provider: str) -> dict[str, Any]:
+def public_telemetry(raw: object, *, handle: str, generation: int, provider: str) -> dict[str, Any]:
+    """Validate and redact one session receipt for monitor and session inspection."""
     detail = _safe_object(raw)
     if (detail.get("schema_version") != 3 or detail.get("handle") != handle or
             detail.get("generation") != generation or detail.get("provider_kind") != provider):
@@ -227,8 +228,8 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             truncated = len(rows) > 100
             for row in rows[:100]:
                 binding = _safe_object(row["binding_json"])
-                telemetry = _public_telemetry(row["detail"], handle=str(row["session_handle"]),
-                                               generation=int(row["session_generation"]), provider=str(row["runtime_kind"]))
+                telemetry = public_telemetry(row["detail"], handle=str(row["session_handle"]),
+                                             generation=int(row["session_generation"]), provider=str(row["runtime_kind"]))
                 rc, fc = row["reuse_count"], row["fresh_count"]
                 exec_mode = ("reused" if rc and rc > 0 else "fresh" if fc and fc > 0 else None)
                 sessions.append({"handle": str(row["session_handle"]), "stream_id": str(row["stream_id"]),

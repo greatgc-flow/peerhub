@@ -255,6 +255,12 @@ def test_quota_json_carries_projection_with_window_timing(tmp_path, capsys):
     assert p2["exhaustion_at"] >= reset_t
 
 
+def test_quota_module_has_no_retired_dashboard_renderer():
+    from peerhub.extensions import diag_quota
+
+    assert not hasattr(diag_quota, "format_dashboard")
+
+
 def test_format_dashboard_inline_forecast_and_threat_summary(tmp_path):
     from peerhub.extensions.diag import ReadonlyDiag
     from peerhub.cli.view import format_frame

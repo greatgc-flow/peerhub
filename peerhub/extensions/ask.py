@@ -145,6 +145,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     if callable(validate_policy):
         validate_policy()
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    lineage = Workspace(Path(db_path).resolve().parent)
     store = CoreStore(db_path)
     peer = store.get_peer(peer_id)
     if peer is None:
@@ -156,7 +157,6 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             store.create_stream(Stream(stream_id=sid, members=[author, peer_id]))
         except AlreadyExistsError:  # another caller created the same conversation
             pass
-    lineage = Workspace(Path(db_path).resolve().parent)
     prompt_metadata.update(adapter_fingerprint=target.fingerprint(), workspace_generation=lineage.generation())
     claims = ClaimStore(db_path, generation=lineage.generation)
     # Runtime events may be silent until completion; keep the claim alive for the bounded run.

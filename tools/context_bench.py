@@ -8,11 +8,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import shutil
-import subprocess
 import tempfile
 import time
+
+from peerhub.extensions.adapters.process import run_bounded
+
+TIMEOUT_S = 240
+MAX_OUTPUT_BYTES = 1_048_576
 
 
 def workload(turns, item_count=259):
@@ -60,13 +65,20 @@ def invoke(args, prompt, cwd, session):
     executable = shutil.which(cmd[0])
     if executable is None:
         raise FileNotFoundError(f"{cmd[0]} is not on PATH")
-    proc = subprocess.run([executable, *cmd[1:]], input=None if args.peer == "ag" else prompt, cwd=cwd,
-                          capture_output=True, encoding="utf-8", errors="replace")
+    proc = run_bounded([executable, *cmd[1:]], stdin=None if args.peer == "ag" else prompt.encode("utf-8"),
+                       cwd=cwd, env=os.environ, timeout_s=TIMEOUT_S, max_bytes=MAX_OUTPUT_BYTES)
+    if proc.timed_out:
+        raise ValueError("CLI timed out")
+    if proc.output_exceeded or proc.output_truncated:
+        raise ValueError("CLI output limit exceeded")
+    if proc.aborted or proc.drain_timed_out or proc.returncode is None:
+        raise ValueError("CLI execution incomplete")
+    stdout = proc.stdout.decode("utf-8", errors="replace")
     if proc.stderr:
-        print(proc.stderr, end="")
+        print(proc.stderr.decode("utf-8", errors="replace"), end="")
     try:
         if args.peer == "cc":
-            result = json.loads(proc.stdout)
+            result = json.loads(stdout)
             failed = result.get("is_error", False)
             usage = result.get("usage", {})
             answer = result.get("result", "")
@@ -76,7 +88,7 @@ def invoke(args, prompt, cwd, session):
             written = int(usage.get("cache_creation_input_tokens", 0))
             total = int(usage.get("input_tokens", 0)) + cached + written
         elif args.peer == "cx":
-            events = [json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+            events = [json.loads(line) for line in stdout.splitlines() if line.strip()]
             failed = any(e.get("type") in ("error", "turn.failed") for e in events)
             usage, answers = {}, []
             for event in events:
@@ -90,7 +102,7 @@ def invoke(args, prompt, cwd, session):
             answer, cost, written = "\n".join(answers), 0.0, 0
             total, cached = int(usage.get("input_tokens", 0)), int(usage.get("cached_input_tokens", 0))
         else:
-            result = json.loads(proc.stdout)
+            result = json.loads(stdout)
             failed = result.get("is_error", False) or result.get("error")
             usage = result.get("usage", {})
             answer = result.get("response", "")
@@ -102,7 +114,7 @@ def invoke(args, prompt, cwd, session):
             raise ValueError(f"CLI failed or returned no usage (exit {proc.returncode})")
         return answer, session, [total, cached, written, int(usage.get("output_tokens", 0)), cost]
     except (ValueError, TypeError, KeyError):
-        print(proc.stdout, end="")
+        print(stdout, end="")
         raise
 
 

@@ -1,5 +1,8 @@
 import json
+import sqlite3
 from unittest.mock import patch
+
+import pytest
 
 from peerhub.cli.app import main
 from tests.communication.fakes import FakeRuntimeTarget
@@ -108,6 +111,42 @@ def test_session_cursor_rejects_changed_filter(tmp_path, capsys):
 
     assert main(["--db", str(db), "session", "list", "--limit", "1", "--peer", "ag", "--cursor", cursor]) == 1
     assert json.loads(capsys.readouterr().out)["status"] == "ERROR"
+
+
+@pytest.mark.parametrize("mismatch", [None, "handle", "generation", "provider_kind", "schema_version"])
+def test_session_inspection_validates_receipt_identity_usage_and_context(tmp_path, capsys, mismatch):
+    db = tmp_path / "core.db"
+    _seed(db, capsys, count=1)
+    with sqlite3.connect(db) as conn:
+        handle, generation, provider = conn.execute(
+            "SELECT session_handle,session_generation,runtime_kind FROM bridge_session_history").fetchone()
+        detail = {
+            "schema_version": 3, "handle": handle, "generation": generation, "provider_kind": provider,
+            "configured_model": "untrusted\nmodel", "resolved_model": "untrusted\nmodel",
+            "last_input_tokens": 50, "context_window": 100, "context_pct": 50,
+            "source": "invented", "observed_at": 123, "window_reported_at": 123,
+            "usage": {"schema_version": 1, "reported": {"input_tokens": -1}, "normalized": {"output_tokens": -1}},
+        }
+        if mismatch:
+            detail[mismatch] = "wrong"
+            detail["configured_model"] = "plausible-model"
+        # Import an untrusted receipt and point the projection at it without
+        # mutating the append-only evidence already written by the Bridge.
+        receipt = conn.execute(
+            "INSERT INTO bridge_evidence (stream_id,peer_id,kind,detail) SELECT stream_id,peer_id,kind,? "
+            "FROM bridge_evidence WHERE kind='session_telemetry' LIMIT 1", (json.dumps(detail),))
+        conn.execute("UPDATE bridge_session_monitor_stats SET latest_telemetry_seq=?", (receipt.lastrowid,))
+
+    for command in (["session", "list"], ["session", "show", handle]):
+        assert main(["--db", str(db), *command]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        session = payload["session"] if "session" in payload else payload["items"][0]
+        telemetry = session["latest_telemetry"]
+        assert telemetry["configured_model"] is None
+        assert telemetry["resolved_model"] is None
+        assert telemetry["usage"] is None
+        assert telemetry["context"]["state"] == "UNKNOWN"
+        assert telemetry["context"]["percent"] is None
 
 
 def test_session_inspection_refuses_future_schema(tmp_path, capsys):

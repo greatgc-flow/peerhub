@@ -15,7 +15,7 @@ This page documents the current production contract. Historical migration notes 
 Create invocations are equivalent to:
 
 ```text
-agy.exe -p <prompt> --output-format json [--model MODEL] [--effort EFFORT] [--mode accept-edits]
+agy.exe -p <prompt> --output-format json [--model MODEL] [--effort EFFORT] --mode accept-edits
 ```
 
 PeerHub resolves model configuration centrally (workspace binding, then global
@@ -26,12 +26,11 @@ Profile models and efforts are defined in the
 [model profile manifest](../model-profiles/model-profiles.json); see its `profiles`
 object for this provider. The manifest is checked against packaged defaults.
 
-`--mode accept-edits` is added only for `ask --writable`. Compatible native
-resume uses `--conversation SESSION_ID` for compatible continuing asks by default.
-Read-only enforcement is provider-controlled: omitting `--mode accept-edits` withholds
-explicit edit approval, but headless `agy.exe` (`-p`) does not provide a sandbox-enforced
-read-only boundary; tools may still execute writes (known limitation; PeerHub does not
-claim an enforced read-only boundary for `ag`).
+Native `ag` execution requires `ask --writable`, which adds `--mode accept-edits`.
+Without `--writable`, PeerHub refuses execution before spawning the CLI (#140),
+because headless `agy.exe` (`-p`) does not enforce a read-only sandbox. Cached
+terminal replay remains available without launching the provider. Compatible
+native resume uses `--conversation SESSION_ID` for continuing asks by default.
 
 ## Verify and troubleshoot
 

@@ -155,6 +155,11 @@ The store is `.peerhub/core.db`. Discovery picks the nearest one (current direct
 
 Use global `--db PATH` before the command, or `PEERHUB_DB`, to select a store explicitly. An explicit missing path is never redirected to another store. `ask --workspace DIR` uses that directory's store unless a database was explicitly selected. Read-only commands do not create a missing store.
 
+Stop clients before restoring a store and reopen them afterward. Snapshot and
+bundle restores fence old CoreStore instances from reads and writes using
+`workspace.generation`; changes to the bundle rollback marker `restore.epoch`
+also fence old instances. A stale instance raises `StoreReplacedError`.
+
 Monitor and diagnostics refuse a missing selected database with exit 5 before
 any probes. Create it explicitly with `peerhub --db <path> peer register --peer
 <id> --name <name>`. Observation refresh also refuses a missing automatically

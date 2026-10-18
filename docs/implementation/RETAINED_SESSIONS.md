@@ -106,7 +106,10 @@ stays separate and is never converted into occupancy. Ask does not probe quota.
 generation, filters, ordering, and first-page row high-water. Both commands
 expose PeerHub handles and redacted state only; vendor and external session IDs
 are never included. The CLI opens an existing database in read-only mode and
-does not initialize bridge tables. Monitoring views remain in progress.
+does not initialize bridge tables. Grouped monitoring uses a shared read-only
+snapshot with bounded session, usage, context, runtime, and coverage projections;
+unsupported context occupancy remains unknown. See
+[monitoring](../../README.md#everyday-commands) for current commands.
 Writer implementations: [registry](../../peerhub/extensions/bridge_registry.py),
 [receipts](../../peerhub/extensions/session_receipts.py),
 [Bridge](../../peerhub/extensions/bridge.py), [ask](../../peerhub/extensions/ask.py).

@@ -129,7 +129,7 @@ class CoreStore:
         offset.before_head_check); `conn_init(conn)` runs on every store connection (e.g. a real `PRAGMA max_page_count`);
         `busy_timeout_ms` bounds how long a writer waits for the database write lock before failing explicitly."""
         self.db_path = str(db_path)
-        self._restore_epoch = self._read_restore_epoch()
+        self._restore_lineage = self._read_restore_lineage()
         self.fault_hook = fault_hook
         self.busy_timeout_ms = int(busy_timeout_ms)
         self.conn_init = conn_init
@@ -160,12 +160,17 @@ class CoreStore:
             self._preflight()  # fail closed on a corrupt/foreign file BEFORE any migration/WAL change (FLT-013)
             run_migrations(self.db_path)  # ordered, transactional, no-op at current version; rejects future versions (TD-14)
 
-    def _read_restore_epoch(self) -> str | None:
-        epoch = Path(self.db_path).parent / "restore.epoch"
-        return epoch.read_text(encoding="utf-8") if epoch.exists() else None
+    def _read_restore_lineage(self) -> tuple[str | None, str | None]:
+        root = Path(self.db_path).parent
+        generation = root / "workspace.generation"
+        epoch = root / "restore.epoch"
+        # Snapshot restores rotate generation; bundle restores also advance the
+        # numeric rollback epoch. Fence on either, including legacy epoch-only stores.
+        return (generation.read_text(encoding="utf-8") if generation.exists() else None,
+                epoch.read_text(encoding="utf-8") if epoch.exists() else None)
 
-    def _check_restore_epoch(self) -> None:
-        if self._read_restore_epoch() != self._restore_epoch:
+    def _check_restore_lineage(self) -> None:
+        if self._read_restore_lineage() != self._restore_lineage:
             raise StoreReplacedError("workspace restored; this CoreStore belongs to a stale lineage")
 
     def _preflight(self) -> None:
@@ -209,7 +214,7 @@ class CoreStore:
     @contextmanager
     def read_uow(self):
         """Read-only unit of work: `mode=ro` + `query_only`; any write is rejected by SQLite itself."""
-        self._check_restore_epoch()
+        self._check_restore_lineage()
         conn = connection.create_connection(self.db_path, readonly=True, timeout_ms=self.busy_timeout_ms)
         try:
             with storage_errors():
@@ -224,7 +229,7 @@ class CoreStore:
             conn.close()
 
     def _get_connection(self) -> sqlite3.Connection:
-        self._check_restore_epoch()
+        self._check_restore_lineage()
         conn = connection.create_connection(self.db_path, readonly=self.readonly, timeout_ms=self.busy_timeout_ms)
         try:
             with storage_errors():
@@ -249,7 +254,7 @@ class CoreStore:
                     yield conn
                     if point is not None:
                         self._fire(f"{point}.before_commit")
-                    self._check_restore_epoch()
+                    self._check_restore_lineage()
                 except BaseException:
                     rollback_quietly(conn)  # SQLite may already have rolled back (SQLITE_FULL): never mask the original error
                     raise
