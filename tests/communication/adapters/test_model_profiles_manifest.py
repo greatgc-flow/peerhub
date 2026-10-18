@@ -47,6 +47,14 @@ def test_manifest_and_toml_every_pool_id_exists_in_probe_constants():
             for pool_id in pools:
                 assert pool_id in all_known_pools, f"{source_name} {pid} pool {pool_id!r} not in known probe constants"
 
+    for source_name, pool_map in [("manifest", MANIFEST.get("exact_model_pools", {})), ("toml", TOML.get("exact_model_pools", {}))]:
+        for mid, p in pool_map.items():
+            pools = p.get("pools")
+            assert isinstance(pools, list) and len(pools) > 0, f"{source_name} {mid} missing pools"
+            for pool_id in pools:
+                assert pool_id in all_known_pools, f"{source_name} {mid} pool {pool_id!r} not in known probe constants"
+
+
 
 def test_manifest_and_toml_source_and_date_present():
     date_pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -87,8 +95,40 @@ def test_manifest_update_targets_exist():
         assert (REPO / rel).is_file(), rel
 
 
+def test_manifest_equals_the_packaged_toml_exact_model_pools():
+    assert "exact_model_pools" in MANIFEST
+    assert "exact_model_pools" in TOML
+    assert set(MANIFEST["exact_model_pools"]) == set(TOML["exact_model_pools"])
+    for mid, want in MANIFEST["exact_model_pools"].items():
+        got = TOML["exact_model_pools"][mid]
+        assert got["pools"] == want["pools"], mid
+        assert got["pools_source"] == want["pools_source"], mid
+        assert got["checked"] == want["checked"], mid
+
+
+def test_exact_model_pools_argon_mappings():
+    date_pat = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    argon_models = ["gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high"]
+    for source_name, m_dict in [("manifest", MANIFEST["exact_model_pools"]), ("toml", TOML["exact_model_pools"])]:
+        for model in argon_models:
+            assert model in m_dict, f"{source_name} missing {model}"
+            entry = m_dict[model]
+            assert entry["pools"] == ["A-7D"], f"{source_name} {model} pools"
+            assert entry["pools_source"] == "agy /usage group (agy 1.4.0)", f"{source_name} {model} pools_source"
+            assert entry["checked"] == "2026-10-18", f"{source_name} {model} checked"
+            assert date_pat.match(entry["checked"])
+
+
+def test_resolve_model_pools_resolves_packaged_argon_models(tmp_path):
+    from peerhub.extensions.adapters.profiles import resolve_model_pools
+    assert resolve_model_pools("gemini-4-argon-low", tmp_path) == ["A-7D"]
+    assert resolve_model_pools("gemini-4-argon-medium", tmp_path) == ["A-7D"]
+    assert resolve_model_pools("gemini-4-argon-high", tmp_path) == ["A-7D"]
+    assert resolve_model_pools("unknown-model", tmp_path) is None
+
+
 def test_packaged_defaults_revision_and_expected_models():
-    assert TOML["defaults_revision"] == "2026-10-16.1"
+    assert TOML["defaults_revision"] == "2026-10-18.1"
     assert TOML["observed_at"] == "2026-10-16"
     profiles = TOML["profiles"]
     assert len(profiles) == 9

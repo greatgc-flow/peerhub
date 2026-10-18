@@ -328,6 +328,93 @@ def _valid_fraction(value: object) -> TypeGuard[int | float]:
             and 0.0 <= value <= 1.0 and math.isfinite(value))
 
 
+_AGY_GROUP_PREFIX_MAP: dict[str, str] = {
+    "gemini models": "G",
+    "gemini": "G",
+    "g": "G",
+    "claude and gpt models": "3P",
+    "claude": "3P",
+    "3p": "3P",
+    "gemini 4 argon": "A",
+    "argon": "A",
+    "a": "A",
+}
+
+
+def _derive_agy_pool_label(
+    group_name: Optional[str],
+    bucket_id: str,
+    window: Optional[str] = None,
+) -> Optional[str]:
+    """Derive pool label (e.g. 'G-7D', '3P-5H', 'A-7D') from group name and window/id.
+
+    Only registered bucket IDs get labels. Unfamiliar buckets return None to preserve
+    their raw identity as drift.
+    """
+    known_ids = dict(AGY_QUOTA_FAMILIES)
+    if bucket_id not in known_ids:
+        return None
+
+    prefix: Optional[str] = None
+    if group_name:
+        prefix = _AGY_GROUP_PREFIX_MAP.get(group_name.strip().lower())
+
+    window_code: Optional[str] = None
+    w = (window or "").strip().lower()
+    bid = bucket_id.lower()
+    if w == "weekly" or "weekly" in bid:
+        window_code = "7D"
+    elif w == "5h" or "5h" in bid:
+        window_code = "5H"
+
+    if prefix and window_code:
+        if prefix == "A" and window_code != "7D":
+            return None
+        derived = f"{prefix}-{window_code}"
+        if derived != known_ids[bucket_id]:
+            return None
+        return derived
+
+    return known_ids.get(bucket_id)
+
+
+def _check_agy_bucket_conflict(key: str, label: str, q: dict[str, Any]) -> Optional[str]:
+    """Return conflict description if envelope group/window contradicts registered bucket label."""
+    parts = label.split("-")
+    if len(parts) != 2:
+        return None
+    expected_prefix, expected_window = parts[0], parts[1]
+
+    group_name = q.get("group")
+    if group_name is not None and isinstance(group_name, str) and group_name.strip():
+        prefix = _AGY_GROUP_PREFIX_MAP.get(group_name.strip().lower())
+        if prefix is None:
+            return f"bucket '{key}' registered as '{label}' appeared in unrecognized group '{group_name}'"
+        if prefix != expected_prefix:
+            return (
+                f"bucket '{key}' registered as '{label}' (group prefix '{expected_prefix}') "
+                f"appeared in group '{group_name}' (prefix '{prefix}')"
+            )
+
+    window = q.get("window")
+    if window is not None and isinstance(window, str) and window.strip():
+        w = window.strip().lower()
+        w_code: Optional[str] = None
+        if w == "weekly":
+            w_code = "7D"
+        elif w == "5h":
+            w_code = "5H"
+        if w_code is None:
+            return f"bucket '{key}' registered as '{label}' appeared with unrecognized window '{window}'"
+        if w_code != expected_window:
+            return (
+                f"bucket '{key}' registered as '{label}' (window '{expected_window}') "
+                f"appeared with window '{window}' ('{w_code}')"
+            )
+
+    return None
+
+
 def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
     """Extract quota buckets from ``agy -p /usage --output-format json``.
 
@@ -373,6 +460,7 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
         if not isinstance(group, dict):
             continue
         group_dict = cast(dict[str, Any], group)
+        group_name = group_dict.get("name")
         raw_buckets_raw = group_dict.get("buckets")
         if not isinstance(raw_buckets_raw, list):
             continue
@@ -384,6 +472,10 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
             bucket_id = bucket.get("id")
             remaining = bucket.get("remaining_fraction")
             reset_time = bucket.get("reset_time")
+            window = bucket.get("window")
+            window_str = str(window) if isinstance(window, str) else None
+            group_name_str = str(group_name) if isinstance(group_name, str) else None
+
             if isinstance(bucket_id, str) and bucket_id in known_ids and not _valid_fraction(remaining):
                 return {}
             if (
@@ -392,11 +484,21 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
                 or not isinstance(reset_time, str)
             ):
                 continue
-            buckets[bucket_id] = {
+            entry: dict[str, Any] = {
                 "remaining_fraction": float(remaining),
                 "reset_time": reset_time,
             }
+            label = _derive_agy_pool_label(group_name_str, bucket_id, window_str)
+            if label is not None:
+                entry["label"] = label
+                entry["pool"] = label
+            if window_str is not None:
+                entry["window"] = window_str
+            if group_name_str is not None:
+                entry["group"] = group_name_str
+            buckets[bucket_id] = entry
     return buckets
+
 
 def _agy_envelope(text: str) -> Optional[dict[str, Any]]:
     """First JSON object in agy's stdout (whole text, else last-line-first, tolerating a launcher prefix line)."""
@@ -985,12 +1087,43 @@ def poll_agy_usage(
         evidence_ref = EvidenceRef("probe:ag:statusline")
         
     unknown_buckets = [b for b in quota_dict_typed.keys() if b not in _AG_QUOTA_LABELS]
+    for key, label in _AG_QUOTA_LABELS.items():
+        q_raw = quota_dict_typed.get(key)
+        if isinstance(q_raw, dict):
+            q_check = cast(dict[str, Any], q_raw)
+            if _check_agy_bucket_conflict(key, label, q_check) is not None:
+                if key not in unknown_buckets:
+                    unknown_buckets.append(key)
+
     results: list[UsageObserved] = []
+
     for key, label in _AG_QUOTA_LABELS.items():
         q_raw = quota_dict_typed.get(key)
         if not isinstance(q_raw, dict):
             continue
         q = cast(dict[str, Any], q_raw)
+
+        conflict_desc = _check_agy_bucket_conflict(key, label, q)
+        if conflict_desc is not None:
+            results.append(
+                _fail_closed(
+                    ids,
+                    instance_id,
+                    profile_id,
+                    EvidenceState.ERROR,
+                    evidence_observed_at,
+                    freshness_ttl,
+                    peer="ag",
+                    evidence_ref_override="probe:ag:conflict",
+                    extra={
+                        "reason": "envelope_consistency_conflict",
+                        "bucket": key,
+                        "conflict": conflict_desc,
+                        "unknown_pools": list(unknown_buckets),
+                    },
+                )
+            )
+            continue
             
         rem = q.get("remaining_fraction")
         if not _valid_fraction(rem):
@@ -1044,7 +1177,7 @@ def poll_agy_usage(
         
         obs_extra: dict[str, Any] = {}
         if unknown_buckets:
-            obs_extra["unknown_pools"] = unknown_buckets
+            obs_extra["unknown_pools"] = list(unknown_buckets)
         results.append(
             UsageObserved(
                 observation_id=ids.new_id("usage-observation"),
@@ -1056,6 +1189,9 @@ def poll_agy_usage(
         )
         
     if not results:
-        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, evidence_observed_at, freshness_ttl, peer="ag"),)
+        extra_err: dict[str, Any] = {}
+        if unknown_buckets:
+            extra_err["unknown_pools"] = list(unknown_buckets)
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, evidence_observed_at, freshness_ttl, peer="ag", extra=extra_err),)
         
     return tuple(results)

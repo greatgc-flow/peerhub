@@ -1,7 +1,7 @@
 {
   "$schema": "./model-profiles.schema.json",
   "schema_version": 1,
-  "revision": "2026-10-16.1",
+  "revision": "2026-10-18.1",
   "observed_at": "2026-10-16",
   "observed_versions": {
     "ag": "1.4.0",
@@ -76,6 +76,23 @@
       "checked": "2026-10-16",
       "pools": ["X-5H", "X-7D"],
       "pools_source": "unverified"
+    }
+  },
+  "exact_model_pools": {
+    "gemini-4-argon-low": {
+      "pools": ["A-7D"],
+      "pools_source": "agy /usage group (agy 1.4.0)",
+      "checked": "2026-10-18"
+    },
+    "gemini-4-argon-medium": {
+      "pools": ["A-7D"],
+      "pools_source": "agy /usage group (agy 1.4.0)",
+      "checked": "2026-10-18"
+    },
+    "gemini-4-argon-high": {
+      "pools": ["A-7D"],
+      "pools_source": "agy /usage group (agy 1.4.0)",
+      "checked": "2026-10-18"
     }
   },
   "sources": {

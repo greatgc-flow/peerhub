@@ -4,7 +4,7 @@
   "title": "peerhub model profile manifest",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "revision", "observed_at", "observed_versions", "profiles", "sources", "tier_rules", "update_targets", "instructions"],
+  "required": ["schema_version", "revision", "observed_at", "observed_versions", "profiles", "exact_model_pools", "sources", "tier_rules", "update_targets", "instructions"],
   "properties": {
     "$schema": {"type": "string", "description": "Editor hint: relative path of this schema."},
     "schema_version": {"const": 1},
@@ -25,6 +25,13 @@
       "minProperties": 9,
       "maxProperties": 9
     },
+    "exact_model_pools": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^.+$": {"$ref": "#/$defs/exact_model_pool"}
+      }
+    },
     "sources": {
       "type": "object",
       "additionalProperties": false,
@@ -36,6 +43,16 @@
     "instructions": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Ordered procedure for the AI reading this file."}
   },
   "$defs": {
+    "exact_model_pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pools", "pools_source", "checked"],
+      "properties": {
+        "pools": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "minItems": 1},
+        "pools_source": {"type": "string", "minLength": 1},
+        "checked": {"type": "string", "format": "date"}
+      }
+    },
     "profile": {
       "type": "object",
       "additionalProperties": false,
