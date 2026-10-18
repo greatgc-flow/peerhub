@@ -153,3 +153,26 @@ def test_refresh_unknown_and_error_carry_no_counts(tmp_path, state, payload, con
     p = json.loads(pj)
     assert st == state.value and pool == "credit:cx:reset" and "available_count" not in p and p.get("condition") == cond
     assert res["status"] == ("PARTIAL" if state == EvidenceState.ERROR else "OK")
+
+
+@pytest.mark.parametrize("value,expected", [
+    ({"availableCount": 2, "credits": [credit(expiresAt=EXPIRES + 500), credit()]},
+     "cx reset credits: 2 | soonest 2026-10-29 18:52Z [MEASURED]"),
+    ({"availableCount": 0, "credits": []}, "cx reset credits: 0 | soonest - [MEASURED]"),
+    (None, "cx reset credits: ? | soonest - [UNKNOWN]"),
+    ({"availableCount": "bad"}, "cx reset credits: ? | soonest - [ERROR]"),
+])
+def test_monitor_reset_credits_from_wire_are_read_only(tmp_path, monkeypatch, value, expected):
+    from peerhub.cli.monitor_view import render_grouped_frame
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
+    db = tmp_path / "core.db"
+    CoreStore(db)
+    usage, credits = run_probe(monkeypatch, envelope(rateLimitResetCredits=value))
+    refresh_quota(db, ["cx"], pollers={"cx": lambda **kw: [*usage, *credits]}, version_checker=lambda _: None)
+    before = db.read_bytes()
+    frame = render_monitor_frame(str(db), ["capacity"], read_at=credits[0].captured_at)
+    frame["selected_groups"] = ["capacity"]
+    for view in ("plain", "rich"):
+        assert expected in render_grouped_frame(frame, view=view, width=120, height=30)
+    assert db.read_bytes() == before

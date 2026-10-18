@@ -381,6 +381,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             if len(scope_rows) > 0 and max((int(row[22]) for row in scope_rows), default=0) > 3:
                 sessions_data["peer_sample_truncated"] = True
         observations: list[dict[str, Any]] = []
+        reset_credits: list[dict[str, Any]] = []
         latest_facts_report: dict[str, Any] | None = None
         if bool(set(groups) & {"capacity", "peers"}):
             try:
@@ -389,7 +390,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     "o.payload_json,o.observed_at,o.captured_at,o.effective_at_us,p.provider,p.kind AS pool_kind "
                     "FROM observation_rollups r JOIN observations o ON o.capture_seq=r.latest_capture_seq "
                     "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref "
-                    "WHERE r.kind IN ('quota','rate_limit') ORDER BY o.subject_ref,r.pool_key LIMIT 101"
+                    "WHERE r.kind IN ('quota','rate_limit','reset_credit') ORDER BY o.subject_ref,r.pool_key LIMIT 101"
                 ).fetchall()
                 for row in rows[:100]:
                     try:
@@ -401,6 +402,16 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         if isinstance(raw_f, dict):
                             latest_facts_report = cast(dict[str, Any], raw_f)
                     freshness = evaluate_observation(observation, capture_seq, round(now * 1_000_000), FreshnessPolicy())
+                    if observation.kind == "reset_credit":
+                        shown = freshness.state.value in {"MEASURED", "STALE"}
+                        reset_credits.append({
+                            "peer_id": observation.subject_ref,
+                            "state": freshness.state.value,
+                            "age_seconds": freshness.age_seconds,
+                            "available_count": observation.payload.get("available_count") if shown else None,
+                            "nearest_expires_at": observation.payload.get("nearest_expires_at") if shown else None,
+                        })
+                        continue
                     observed_at = observation.observed_at
                     try:
                         measured_at = datetime.fromisoformat(observed_at.replace("Z", "+00:00")).timestamp()
@@ -457,6 +468,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     })
                 if "capacity" in groups:
                     output["capacity"] = {"status": "OK", "data": {"observations": observations,
+                        "reset_credits": reset_credits,
                         "sample_size": min(len(rows), 100), "truncated": len(rows) > 100}}
             except sqlite3.Error as exc:
                 errors["capacity"] = type(exc).__name__
