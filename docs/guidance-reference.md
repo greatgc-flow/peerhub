@@ -34,7 +34,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 | Outcome Code | Exit Code | Meaning | Safe Recovery Action | Avoid |
 |---|---|---|---|---|
-| `ask_blocked_uncertain` | 1 | New request on this stream is blocked because an earlier record on the stream ended in an uncertain state. | `peerhub diag health --stream STREAM_ID` (Inspect the blocked stream and review uncommitted evidence) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context. |
+| `ask_blocked_uncertain` | 1 | New request on this stream is blocked because an earlier record on the stream ended in an uncertain state. | `peerhub diag health --stream STREAM_ID` (Inspect the blocked stream and review uncommitted evidence) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context. If the ask used the default timeout, do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more). |
 | `ask_cas_conflict` | 3 | A compare-and-swap revision check failed. | `peerhub diag health --stream STREAM_ID` (Inspect current stream state before retrying the original request) | Do not bypass revision checks or change the request ID to force another execution; resolve uncertain delivery first. |
 | `ask_claim_held` | 1 | A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream. | `peerhub diag health --stream STREAM_ID` (Inspect store connectivity and stream activity (note: diag health checks store and stream records, not active in-memory leases or claims)) | Do not delete claim tables or database files, do not force --fresh, and do not bypass claim contention with duplicate request IDs. |
 | `ask_delivery_failed` | 1 or 4 (context-dependent) | Adapter invocation failed before execution started or failed critically during delivery. | `peerhub diag health` (Inspect peer adapter status and diagnostic health) | Do not loop blind retries or pass --fresh without verifying adapter flags and availability. |
@@ -44,7 +44,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `ask_schema_version_error` | 6 | The selected store uses an unsupported schema version. | `peerhub --version` (Check the installed version and use a PeerHub version compatible with this store) | Do not edit schema version metadata or downgrade the store to bypass this check. |
 | `ask_selector_error` | 1 or 2 (context-dependent) | Session selector or handle validation failed before invocation could begin. | `peerhub session list` (List available valid sessions and check session handles) | Do not invent session handles, do not combine --fresh with --session, and do not retry without correcting the session selector. |
 | `ask_stream_peer_mismatch` | 2 | The target stream is already bound to a different ask target peer. | `peerhub stream list` (Inspect existing streams and select or create a stream for this peer) | Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding. |
-| `ask_uncertain` | 1 | Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort). | `peerhub diag health --stream STREAM_ID` (Inspect stream health and check for uncommitted or partial activity) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. |
+| `ask_uncertain` | 1 | Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort). | `peerhub diag health --stream STREAM_ID` (Inspect stream health and check for uncommitted or partial activity) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. If the ask used the default timeout, do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more). |
 | `ask_unexpected_failure` | 1 or 2 (context-dependent) | An unclassified or unexpected error occurred during ask dispatch. | `peerhub diag health` (Inspect diagnostic evidence and stream state) | Do not retry destructive actions or invent unverified recovery commands. |
 
 ### Detailed Recovery Advice by Outcome Code
@@ -56,7 +56,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 - **Why**: Stream ordering requires resolving or abandoning uncertain prior work before appending new turns on the stream. Inspect stream health and uncommitted evidence before deciding whether to retry or start a new stream.
 - **Safe Recovery Actions**:
   1. `peerhub diag health --stream STREAM_ID`: Inspect the blocked stream and review uncommitted evidence (Prerequisites: Provide the affected stream identifier.)
-- **Avoid**: Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context.
+- **Avoid**: Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context. If the ask used the default timeout, do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more).
 - **Documentation**: [docs/remote-ask.md](remote-ask.md)
 
 #### `ask_cas_conflict`
@@ -162,7 +162,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 - **Safe Recovery Actions**:
   1. `peerhub diag health --stream STREAM_ID`: Inspect stream health and check for uncommitted or partial activity (Prerequisites: Provide the affected stream identifier.)
   2. `peerhub diag health`: Check overall store and peer health (Prerequisites: None.)
-- **Avoid**: Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work.
+- **Avoid**: Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. If the ask used the default timeout, do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more).
 - **Documentation**: [docs/remote-ask.md](remote-ask.md)
 
 #### `ask_unexpected_failure`

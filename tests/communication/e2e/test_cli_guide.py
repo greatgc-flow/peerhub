@@ -98,6 +98,8 @@ def test_guide_safety_scenarios_and_behaviour(capsys):
 
     # Parse Safety section into semantic rules dict: {"Writes": "...", "Uncertain / pending_earlier_record": "...", ...}
     assert "Safety:\n" in out
+    assert "Default-timeout ask: do not retry on the same stream" in out
+    assert "start a new stream with explicit --timeout-seconds (long reviews: 1800 or more)" in out
     safety_block = out.split("Safety:\n", 1)[1].split("\n\n", 1)[0]
     rules: dict[str, str] = {}
     current_rule: str | None = None
