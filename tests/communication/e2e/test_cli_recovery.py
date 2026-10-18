@@ -596,6 +596,10 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     assert code == 1
     err = capsys.readouterr().err
     assert "Guidance [ask_uncertain]:" in err
+    assert "default timeout" in err
+    assert "do not retry on the same stream; start a new stream with explicit --timeout-seconds" in err
+    assert "long reviews: 1800 or more" in err
+    assert "Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims." in err
     assert "What happened:" in err
     assert "Next action:" in err
     assert "What NOT to do:" in err
@@ -618,6 +622,10 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     assert code == 1
     err = capsys.readouterr().err
     assert "Guidance [ask_blocked_uncertain]:" in err
+    assert "default timeout" in err
+    assert "do not retry on the same stream; start a new stream with explicit --timeout-seconds" in err
+    assert "long reviews: 1800 or more" in err
+    assert "Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims." in err
     assert "peerhub explain ask_blocked_uncertain" in err
 
 

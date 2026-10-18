@@ -180,7 +180,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
                 "prereqs": "None.",
             },
         ],
-        avoid="Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work.",
+        avoid="Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. If the ask used the default timeout, do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more).",
         docs="docs/remote-ask.md",
         exits=[
             {"code": 1, "context": "Execution timed out or aborted without terminal certainty (uncertain result status)."}
@@ -197,7 +197,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
                 "prereqs": "Provide the affected stream identifier.",
             },
         ],
-        avoid="Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context.",
+        avoid="Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context. If the ask used the default timeout, do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more).",
         docs="docs/remote-ask.md",
         exits=[
             {"code": 1, "context": "Stream has an earlier record in an uncertain state, blocking subsequent turns (blocked_uncertain result status)."}

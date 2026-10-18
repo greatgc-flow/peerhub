@@ -84,7 +84,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "  pending_earlier_record: inspect processed_status; delivered => retry same request-id/prompt/binding/selector; uncertain => stop.",
         "  Uncertain: stop that stream, 'peerhub diag health' to check effects;",
         "    never blind-retry original prompt under a new request-id, with --fresh, or delete claims;",
-        "    continue genuinely new work on a new stream with a summary; details: 'peerhub explain <code>'.",
+        "    Default-timeout ask: do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more); continue genuinely new work on a new stream with a summary; details: 'peerhub explain <code>'.",
         "  Store hazards: back up core.db before upgrading; new schema not openable by old versions;",
         "    stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor (running monitor locks peerhub.exe on Windows);",
         "    don't run dev builds on the real store.",
