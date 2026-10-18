@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import pytest
 
 from peerhub.cli.app import build_parser
@@ -16,9 +17,26 @@ from peerhub.cli.recovery import (
     run_explain_cli,
     select_guidance_code,
 )
+from typing import Any
+
 from peerhub.extensions.bridge_claims import ClaimHeldError
-from peerhub.extensions.bridge import SessionNotFoundError, ConflictingSessionFlagsError
-from peerhub.extensions.ask import LegacySelectorUnsupported
+from peerhub.extensions.bridge import (
+    ConflictingSessionFlagsError,
+    InvalidSessionHandleSyntaxError,
+    PrespawnError,
+    SessionBindingMismatchError,
+    SessionDeltaOverflowError,
+    SessionFingerprintMismatchError,
+    SessionLostError,
+    SessionNotFoundError,
+    SessionPeerMismatchError,
+    SessionStreamMismatchError,
+    SessionTombstonedError,
+    SessionUnavailableError,
+    SessionWorkspaceMismatchError,
+)
+from peerhub.extensions.ask import LegacySelectorUnsupported, StreamPeerMismatchError
+from peerhub.core.store import StorageReadOnlyError, StorageFullError, StorageCorruptError
 
 pytestmark = [pytest.mark.unit]
 
@@ -47,11 +65,24 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
 
     root = Path(__file__).resolve().parents[3]
     bridge_file = root / "peerhub" / "extensions" / "bridge.py"
+    claims_file = root / "peerhub" / "extensions" / "bridge_claims.py"
+    adapter_base = root / "peerhub" / "extensions" / "adapters" / "base.py"
     ask_file = root / "peerhub" / "extensions" / "ask.py"
     app_file = root / "peerhub" / "cli" / "app.py"
 
     statuses: set[str] = set()
-    # 1. Statuses from bridge.py (CycleResult calls)
+    exceptions: set[str] = set()
+
+    def _extract_raises(file_path: Path) -> None:
+        with open(file_path, "r", encoding="utf-8") as f:
+            tree = ast.parse(f.read(), str(file_path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Raise):
+                if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
+                    if node.exc.func.id and node.exc.func.id[0].isupper():
+                        exceptions.add(node.exc.func.id)
+
+    # 1. Statuses and raises from bridge.py
     with open(bridge_file, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read(), str(bridge_file))
     for node in ast.walk(tree):
@@ -60,9 +91,16 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
             if (isinstance(func, ast.Name) and func.id == "CycleResult") or (isinstance(func, ast.Attribute) and func.attr == "CycleResult"):
                 if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
                     statuses.add(node.args[0].value)
+        elif isinstance(node, ast.Raise):
+            if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
+                if node.exc.func.id and node.exc.func.id[0].isupper():
+                    exceptions.add(node.exc.func.id)
 
-    # 2. Statuses and exceptions from ask.py
-    exceptions: set[str] = set()
+    # 2. Raises from bridge_claims.py and adapter base.py
+    _extract_raises(claims_file)
+    _extract_raises(adapter_base)
+
+    # 3. Statuses and raises from ask.py
     with open(ask_file, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read(), str(ask_file))
     for node in ast.walk(tree):
@@ -73,9 +111,10 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
                         statuses.add(node.value.value)
         elif isinstance(node, ast.Raise):
             if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
-                exceptions.add(node.exc.func.id)
+                if node.exc.func.id and node.exc.func.id[0].isupper():
+                    exceptions.add(node.exc.func.id)
 
-    # 3. Exceptions handled in app.py
+    # 4. Exceptions handled in app.py error paths
     with open(app_file, "r", encoding="utf-8") as f:
         tree = ast.parse(f.read(), str(app_file))
     for node in ast.walk(tree):
@@ -90,73 +129,235 @@ def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
     return statuses, exceptions
 
 
-def test_inventory_driven_ask_path_outcomes_cover_entire_registry():
-    """Independent AST scan inventories ask-path emission boundaries; every emitted outcome must be in REGISTRY."""
-    from peerhub.extensions.bridge_claims import ClaimHeldError
-    from peerhub.extensions.bridge import PrespawnError, SessionNotFoundError, ConflictingSessionFlagsError
-    from peerhub.extensions.ask import LegacySelectorUnsupported, StreamPeerMismatchError
-    from peerhub.core.store import StorageReadOnlyError, StorageFullError, StorageCorruptError
+STATUS_TERMINAL_SUCCESS: dict[str, str] = {
+    "delivered": "Terminal success delivery completes successfully without recovery guidance.",
+    "recovered_terminal": "Idempotent recovery of already-completed terminal record produces no guidance.",
+}
 
+STATUS_FALLBACK_ALLOWLIST: dict[str, str] = {
+    "ack_failed": "Internal bridge acknowledgment failure during execution loop falls back to generic unexpected failure.",
+    "cancelled": "Bridge cycle cancellation falls back to generic unexpected failure.",
+    "fenced": "Bridge cycle fencing token conflict falls back to generic unexpected failure.",
+    "idle": "Bridge loop idle tick without dispatch falls back to generic unexpected failure.",
+    "paused": "Bridge loop pause state falls back to generic unexpected failure.",
+}
+
+STATUS_SCENARIOS: dict[str, list[tuple[dict[str, Any], str]]] = {
+    "uncertain": [
+        ({}, "ask_uncertain"),
+    ],
+    "blocked_uncertain": [
+        ({}, "ask_blocked_uncertain"),
+    ],
+    "session_unavailable": [
+        ({}, "ask_selector_error"),
+    ],
+    "not_executed": [
+        ({}, "ask_refusal"),
+    ],
+    "failed_not_started": [
+        ({"detail_error": "executable not found"}, "ask_launch_failed"),
+        ({"detail_error": "unsupported runtime"}, "ask_delivery_failed"),
+    ],
+    "pending_earlier_record": [
+        ({"processed_status": "uncertain"}, "ask_blocked_uncertain"),
+        ({"processed_status": "not_executed"}, "ask_refusal"),
+        ({"processed_status": "failed_not_started", "detail_error": "executable not found"}, "ask_launch_failed"),
+        ({"processed_status": "failed_not_started", "detail_error": "unsupported"}, "ask_delivery_failed"),
+        ({"processed_status": "delivered"}, ""),
+    ],
+}
+
+EXCEPTION_CONTROL_FLOW_ALLOWLIST: dict[str, str] = {
+    "Exception": "Standard library exception base class caught in top-level app error dispatch.",
+    "KeyboardInterrupt": "User SIGINT/Ctrl+C aborts CLI command without guidance output.",
+    "SystemExit": "Process exit handler; translates exit code without guidance output.",
+    "ImportError": "Optional dependency loading failure caught during dynamic module import.",
+    "OSError": "Low-level OS/socket error caught during file/socket operations.",
+    "TypeError": "Standard library type error caught during internal argument validation.",
+}
+
+EXCEPTION_FALLBACK_ALLOWLIST: dict[str, str] = {
+    "BoundaryConflictError": "Internal bridge state boundary conflict falls back to generic unexpected failure.",
+    "CasMismatchError": "Store CAS concurrency mismatch falls back to generic unexpected failure.",
+    "ClaimFinalizedError": "Attempt to mutate already-finalized claim falls back to generic unexpected failure.",
+    "ClaimScopeError": "Internal claim scope mismatch falls back to generic unexpected failure.",
+    "ControlRejectedError": "Internal bridge control cycle rejection falls back to generic unexpected failure.",
+    "IdempotencyConflictError": "Store idempotency collision falls back to generic unexpected failure.",
+    "IllegalCertaintyTransition": "Internal certainty monotonicity violation falls back to generic unexpected failure.",
+    "InvalidTerminalResultError": "Internal invalid terminal cycle state falls back to generic unexpected failure.",
+    "InvocationMarkerError": "Internal durable invocation marker failure falls back to generic unexpected failure.",
+    "NoDeliveryError": "Bridge delivery abstraction failure falls back to generic unexpected failure.",
+    "OffsetAckConflictError": "Bridge offset acknowledgment conflict falls back to generic unexpected failure.",
+    "ReconcileRejectedError": "Bridge reconciliation rejection falls back to generic unexpected failure.",
+    "RecordRejectedError": "Bridge persistence record rejection falls back to generic unexpected failure.",
+    "RuntimeTargetError": "Base class for runtime target adapter errors falls back to generic unexpected failure.",
+    "SchemaVersionError": "Store schema version mismatch falls back to generic unexpected failure.",
+    "SpawnFailure": "Subprocess spawn low-level error wrapper falls back to generic unexpected failure.",
+    "StaleClaimError": "Claim state staleness falls back to generic unexpected failure.",
+    "TerminalConflictError": "Bridge terminal state race condition falls back to generic unexpected failure.",
+    "UnknownReferenceError": "Claim reference lookup failure falls back to generic unexpected failure.",
+}
+
+
+class SessionValueError(ValueError):
+    """Subclass of ValueError carrying 'session' identity in type name."""
+    pass
+
+
+EXCEPTION_SCENARIOS: dict[str, list[tuple[Exception, str]]] = {
+    "ClaimHeldError": [
+        (ClaimHeldError("claim held by peer"), "ask_claim_held"),
+    ],
+    "StreamPeerMismatchError": [
+        (StreamPeerMismatchError("stream peer mismatch"), "ask_stream_peer_mismatch"),
+    ],
+    "LegacySelectorUnsupported": [
+        (LegacySelectorUnsupported("legacy selector unsupported"), "ask_selector_error"),
+    ],
+    "ConflictingSessionFlagsError": [
+        (ConflictingSessionFlagsError("conflicting session flags"), "ask_selector_error"),
+    ],
+    "InvalidSessionHandleSyntaxError": [
+        (InvalidSessionHandleSyntaxError("invalid session handle syntax"), "ask_selector_error"),
+    ],
+    "SessionNotFoundError": [
+        (SessionNotFoundError("session not found"), "ask_selector_error"),
+    ],
+    "SessionStreamMismatchError": [
+        (SessionStreamMismatchError("session stream mismatch"), "ask_selector_error"),
+    ],
+    "SessionPeerMismatchError": [
+        (SessionPeerMismatchError("session peer mismatch"), "ask_selector_error"),
+    ],
+    "SessionTombstonedError": [
+        (SessionTombstonedError("session tombstoned"), "ask_selector_error"),
+    ],
+    "SessionLostError": [
+        (SessionLostError("session lost"), "ask_selector_error"),
+    ],
+    "SessionUnavailableError": [
+        (SessionUnavailableError("session unavailable"), "ask_selector_error"),
+    ],
+    "SessionWorkspaceMismatchError": [
+        (SessionWorkspaceMismatchError("session workspace mismatch"), "ask_selector_error"),
+    ],
+    "SessionFingerprintMismatchError": [
+        (SessionFingerprintMismatchError("session fingerprint mismatch"), "ask_selector_error"),
+    ],
+    "SessionBindingMismatchError": [
+        (SessionBindingMismatchError("session binding mismatch"), "ask_selector_error"),
+    ],
+    "SessionDeltaOverflowError": [
+        (SessionDeltaOverflowError("session delta overflow"), "ask_selector_error"),
+    ],
+    "PrespawnError": [
+        (PrespawnError("executable not found on PATH"), "ask_launch_failed"),
+        (PrespawnError("ag execution requires --writable"), "ask_delivery_failed"),
+    ],
+    "StorageReadOnlyError": [
+        (StorageReadOnlyError("read only"), "ask_delivery_failed"),
+    ],
+    "StorageFullError": [
+        (StorageFullError("disk full"), "ask_delivery_failed"),
+    ],
+    "StorageCorruptError": [
+        (StorageCorruptError("db corrupt"), "ask_delivery_failed"),
+    ],
+    "ValueError": [
+        (SessionValueError("invalid session selector"), "ask_selector_error"),
+    ],
+}
+
+
+def test_inventory_driven_ask_path_outcomes_cover_entire_registry():
+    """Independent AST scan inventories ask-path emission boundaries; every emitted outcome must map to REGISTRY."""
     inventoried_statuses, inventoried_exceptions = _inventory_ask_path_emission_boundaries()
 
     # Must find real emitted boundaries in the codebase
     assert len(inventoried_statuses) >= 8, f"Expected >= 8 statuses, found: {inventoried_statuses}"
     assert len(inventoried_exceptions) >= 5, f"Expected >= 5 exceptions, found: {inventoried_exceptions}"
 
+    # Verify inventory completeness against accounted status and exception categories
+    exercised_statuses = set(STATUS_SCENARIOS.keys())
+    accounted_statuses = exercised_statuses | set(STATUS_TERMINAL_SUCCESS.keys()) | set(STATUS_FALLBACK_ALLOWLIST.keys())
+    assert inventoried_statuses == accounted_statuses, (
+        f"Inventoried statuses do not match accounted statuses. "
+        f"Unaccounted: {inventoried_statuses - accounted_statuses}; "
+        f"Stale: {accounted_statuses - inventoried_statuses}"
+    )
+
+    exercised_exceptions = set(EXCEPTION_SCENARIOS.keys())
+    accounted_exceptions = exercised_exceptions | set(EXCEPTION_CONTROL_FLOW_ALLOWLIST.keys()) | set(EXCEPTION_FALLBACK_ALLOWLIST.keys())
+    assert inventoried_exceptions == accounted_exceptions, (
+        f"Inventoried exceptions do not match accounted exceptions. "
+        f"Unaccounted: {inventoried_exceptions - accounted_exceptions}; "
+        f"Stale: {accounted_exceptions - inventoried_exceptions}"
+    )
+
     emitted_codes: set[str] = set()
 
-    # Drive all inventoried statuses through select_guidance_code
-    for status in inventoried_statuses:
-        if status in ("delivered", "recovered_terminal"):
-            assert select_guidance_code(status=status) == "", f"Success status {status} should not produce guidance"
-            continue
-
-        if status == "pending_earlier_record":
-            for ps in ("delivered", "not_executed", "failed_not_started", "uncertain"):
-                code = select_guidance_code(status=status, processed_status=ps)
-                if code:
-                    assert code in REGISTRY, f"Status outcome {status}/{ps} emitted unregistered code {code!r}"
-                    emitted_codes.add(code)
-            continue
-
-        if status == "failed_not_started":
-            for detail in ("executable not found", "unsupported runtime"):
-                code = select_guidance_code(status=status, detail_error=detail)
-                assert code in REGISTRY, f"Status outcome {status}/{detail} emitted unregistered code {code!r}"
-                emitted_codes.add(code)
-            continue
-
+    # 1. Drive terminal success statuses (must produce no guidance code)
+    for status in STATUS_TERMINAL_SUCCESS:
         code = select_guidance_code(status=status)
-        assert code in REGISTRY, f"Status {status} emitted unregistered code {code!r}"
-        emitted_codes.add(code)
+        assert code == "", f"Success status {status} should not produce guidance, got {code!r}"
 
-    # Drive inventoried exception classes
-    exception_instances = [
-        ClaimHeldError("claim held"),
-        StreamPeerMismatchError("stream peer mismatch"),
-        SessionNotFoundError("session not found"),
-        LegacySelectorUnsupported("legacy selector"),
-        ConflictingSessionFlagsError("conflicting session flags"),
-        PrespawnError("executable not found on PATH"),
-        PrespawnError("policy denied"),
-        StorageReadOnlyError("read only"),
-        StorageFullError("disk full"),
-        StorageCorruptError("db corrupt"),
-        ValueError("session handle invalid"),
-        RuntimeError("unexpected"),
-    ]
-    for exc in exception_instances:
-        code = select_guidance_code(exception=exc)
-        assert code in REGISTRY, f"Exception {exc!r} emitted unregistered code {code!r}"
-        emitted_codes.add(code)
+    # 2. Drive allowlisted fallback statuses (must produce ask_unexpected_failure, but NOT satisfy coverage)
+    for status in STATUS_FALLBACK_ALLOWLIST:
+        code = select_guidance_code(status=status)
+        assert code == "ask_unexpected_failure", f"Fallback status {status} must yield ask_unexpected_failure, got {code!r}"
 
-    # Every code in the registry must be covered by actual inventoried emission boundaries
+    # 3. Drive non-fallback status scenarios (each status must map to its OWN registry entry, never fallback)
+    for status, scenarios in STATUS_SCENARIOS.items():
+        for kwargs, expected_code in scenarios:
+            code = select_guidance_code(status=status, **kwargs)
+            assert code == expected_code, f"Status {status} with {kwargs} yielded {code!r}, expected {expected_code!r}"
+            if expected_code:
+                assert code != "ask_unexpected_failure", f"Status scenario for {status} must not rely on generic unexpected failure fallback"
+                assert code in REGISTRY, f"Status outcome {status} emitted unregistered code {code!r}"
+                emitted_codes.add(code)
+
+    # 4. Drive allowlisted fallback exceptions (must produce ask_unexpected_failure, but NOT satisfy coverage)
+    for exc_name in EXCEPTION_FALLBACK_ALLOWLIST:
+        fake_cls = type(exc_name, (Exception,), {})
+        code = select_guidance_code(exception=fake_cls("simulated failure"))
+        assert code == "ask_unexpected_failure", f"Fallback exception {exc_name} must yield ask_unexpected_failure, got {code!r}"
+
+    # 5. Drive non-fallback exception scenarios (each exception must map to its OWN registry entry, never fallback)
+    for exc_name, scenarios in EXCEPTION_SCENARIOS.items():
+        for exc_inst, expected_code in scenarios:
+            code = select_guidance_code(exception=exc_inst)
+            assert code == expected_code, f"Exception {exc_name} yielded {code!r}, expected {expected_code!r}"
+            assert code != "ask_unexpected_failure", f"Exception scenario for {exc_name} must not rely on generic unexpected failure fallback"
+            assert code in REGISTRY, f"Exception {exc_inst!r} emitted unregistered code {code!r}"
+            emitted_codes.add(code)
+
+    # 6. Drive explicit unexpected failure scenario to cover ask_unexpected_failure legitimately
+    code = select_guidance_code(exception=RuntimeError("unexpected dispatch failure"))
+    assert code == "ask_unexpected_failure"
+    emitted_codes.add(code)
+
+    # Every code in the registry must be covered by actual driven emission boundaries
     assert emitted_codes == set(REGISTRY.keys()), f"Uncovered registry codes: {set(REGISTRY.keys()) - emitted_codes}"
 
-    # Contract: any new unmapped outcome without a registry entry MUST fail
-    with pytest.raises(AssertionError):
-        fake_unregistered_code = "ask_hypothetical_new_unregistered_code"
-        assert fake_unregistered_code in REGISTRY
+
+@pytest.mark.parametrize("fake_status, fake_exception", [
+    ("unhandled_mutation_status_xyz", None),
+    (None, "UnhandledMutationExceptionXYZ"),
+])
+def test_mutation_unhandled_emitted_outcome_fails_coverage(monkeypatch, fake_status, fake_exception):
+    """Mutating the inventory with a fake unhandled status or exception must fail coverage."""
+    real_statuses, real_exceptions = _inventory_ask_path_emission_boundaries()
+    mutated_statuses = real_statuses | ({fake_status} if fake_status else set())
+    mutated_exceptions = real_exceptions | ({fake_exception} if fake_exception else set())
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "_inventory_ask_path_emission_boundaries",
+        lambda: (mutated_statuses, mutated_exceptions),
+    )
+    expected_token = fake_status or fake_exception
+    with pytest.raises(AssertionError, match=expected_token):
+        test_inventory_driven_ask_path_outcomes_cover_entire_registry()
 
 
 
