@@ -41,6 +41,7 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- Monitor QUOTA `RESET-IN` now counts down from measured provider reset timestamps; stale and unknown observations retain `-` (#146).
 - Subprocess stderr decoding (`decode_stderr`) now queries Windows console output and OEM code pages (`GetConsoleOutputCP`/`GetOEMCP`, with cp949 fixture from `claude.exe` not recognized error) before falling back to UTF-8 with replacement, preventing `U+FFFD` replacement loss on Windows localized console messages (#120).
 - Preserved bounded terminal provider error summaries in `detail.error` when preceded by verbose startup stderr (#127), and kept aggregate `cx` response text across turns unless explicit provider phase metadata cleanly separates final text from commentary (#127).
 

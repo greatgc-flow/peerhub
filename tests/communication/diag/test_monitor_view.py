@@ -9,6 +9,29 @@ import pytest
 pytestmark = [pytest.mark.unit, pytest.mark.diag]
 
 
+@pytest.mark.parametrize(("state", "seconds", "expected"), [
+    ("MEASURED", 17880, "4h58m"), ("MEASURED", None, "-"),
+    ("STALE", 17880, "-"), ("UNKNOWN", 17880, "-"),
+])
+@pytest.mark.parametrize("elapsed", [0, 60])
+def test_quota_reset_countdown_plain_and_tty_parity(frame, state, seconds, expected, elapsed):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["selected_groups"] = ["capacity"]
+    item = frame["groups"]["capacity"]["data"]["observations"][0]
+    item.update(state=state, reset_in_seconds=seconds)
+    frame["display_elapsed_seconds"] = elapsed
+    if expected == "4h58m" and elapsed:
+        expected = "4h57m"
+    for view, unicode_mode in [("plain", False), ("rich", True)]:
+        rendered = render_grouped_frame(frame, view=view, unicode=unicode_mode,
+                                        width=120, height=24)
+        header = next(line for line in rendered.splitlines() if "RESET-IN" in line)
+        row = next(line for line in rendered.splitlines() if "5h" in line)
+        start = header.index("RESET-IN")
+        assert row[start:start + 9].strip() == expected
+
+
 @pytest.fixture
 def frame():
     return {

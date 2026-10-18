@@ -191,6 +191,94 @@ def test_schema_11_watch_is_explicit_legacy_ndjson(tmp_path, monkeypatch, capsys
     assert [normalize(frame) for frame in frames] == expected
 
 
+@pytest.mark.parametrize("tty", [False, True])
+def test_monitor_reset_countdown_tty_plain_parity(tmp_path, monkeypatch, tty):
+    import io
+
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.extensions.observation_model import EvidenceState, Observation, epoch_to_iso
+    from tests.communication.harness.observation import T0, ObservationHarness
+
+    h = ObservationHarness(tmp_path / "workspace")
+    h.register_pool({"schema_version": "1.0", "resource_pool_id": "quota:cx:5h",
+                     "provider": "openai", "kind": "QUOTA", "metadata": {}})
+    h.obs.persist(Observation(
+        observation_id="reset-fixture", subject_ref="cx", resource_pool_ref="quota:cx:5h",
+        kind="quota", source="fixture", observed_at=epoch_to_iso(T0),
+        captured_at=epoch_to_iso(T0), state=EvidenceState.MEASURED,
+        payload={"remaining_fraction": 0.75, "resets_at": T0 + 18000},
+    ))
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return tty
+
+    output = Output()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setenv("COLUMNS", "120")
+    monkeypatch.setenv("LINES", "24")
+    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame",
+                        lambda db, groups: render_monitor_frame(db, groups, read_at=T0 + 120))
+
+    assert main(["--db", str(h.db_path), "monitor", "--snapshot", "--group", "capacity"]) in (0, 4)
+    assert "RESET-IN" in output.getvalue()
+    assert "4h58m" in output.getvalue()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX PTY parity; simulated TTY parity runs on Windows")
+def test_monitor_reset_countdown_posix_pty_plain_parity(tmp_path):
+    import fcntl
+    import pty
+    import struct
+    import subprocess
+    import sys
+    import termios
+    import time
+
+    from peerhub.extensions.observation_model import EvidenceState, Observation, epoch_to_iso
+    from tests.communication.harness.observation import ObservationHarness
+
+    h = ObservationHarness(tmp_path / "workspace")
+    h.register_pool({"schema_version": "1.0", "resource_pool_id": "quota:cx:5h",
+                     "provider": "openai", "kind": "QUOTA", "metadata": {}})
+    now = time.time()
+    h.obs.persist(Observation(
+        observation_id="reset-fixture", subject_ref="cx", resource_pool_ref="quota:cx:5h",
+        kind="quota", source="fixture", observed_at=epoch_to_iso(now),
+        captured_at=epoch_to_iso(now), state=EvidenceState.MEASURED,
+        payload={"remaining_fraction": 0.75, "resets_at": now + 17910},
+    ))
+    command = [sys.executable, "-m", "peerhub", "--db", str(h.db_path),
+               "monitor", "--snapshot", "--group", "capacity"]
+    env = dict(os.environ, TERM="xterm", NO_COLOR="1", COLUMNS="120", LINES="24")
+    plain = subprocess.run(command, capture_output=True, text=True, env=env, timeout=30)
+    assert plain.returncode in (0, 4)
+    master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 120, 0, 0))
+    process = subprocess.Popen(command, stdin=slave, stdout=slave, stderr=subprocess.PIPE, env=env)
+    os.close(slave)
+    output = bytearray()
+    try:
+        while True:
+            try:
+                chunk = os.read(master, 4096)
+            except OSError:
+                break
+            if not chunk:
+                break
+            output.extend(chunk)
+        assert process.wait(timeout=30) in (0, 4)
+    finally:
+        os.close(master)
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+    for rendered in (plain.stdout, output.decode("utf-8")):
+        assert "RESET-IN" in rendered
+        assert "4h58m" in rendered
+
+
 def test_bare_monitor_default_tty_uses_grouped_sections(tmp_path, monkeypatch):
     import io
 
