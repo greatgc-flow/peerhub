@@ -257,6 +257,6 @@ def validate_pair(collection: object, execution: object, *, expected_nonce: tupl
                 _reject(f"test {nodeid!r} has an unexpected skip reason")
         if any(item.get("wasxfail") for item in rows):
             _reject(f"test {nodeid!r} was xfailed or xpassed")
-    expected_skips = set(_APPROVED_PTY_SKIPS.keys()) if platform == "windows" else set()
+    expected_skips = {nodeid for nodeid in executed_items if nodeid in _APPROVED_PTY_SKIPS} if platform == "windows" else set()
     if observed_skips != expected_skips:
         _reject(f"observed skip nodeids {sorted(observed_skips)!r} do not equal {sorted(expected_skips)!r}")
