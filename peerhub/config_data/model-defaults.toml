@@ -7,7 +7,7 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-10-16.1"
+defaults_revision = "2026-10-18.1"
 observed_at = "2026-10-16"
 
 [observed_versions]
@@ -91,3 +91,19 @@ source = "cli:agy.exe models@1.4.0 2026-10-16"
 checked = "2026-10-16"
 pools = ["3P-5H", "3P-7D"]
 pools_source = "unverified"
+
+[exact_model_pools."gemini-4-argon-low"]
+pools = ["A-7D"]
+pools_source = "agy /usage group (agy 1.4.0)"
+checked = "2026-10-18"
+
+[exact_model_pools."gemini-4-argon-medium"]
+pools = ["A-7D"]
+pools_source = "agy /usage group (agy 1.4.0)"
+checked = "2026-10-18"
+
+[exact_model_pools."gemini-4-argon-high"]
+pools = ["A-7D"]
+pools_source = "agy /usage group (agy 1.4.0)"
+checked = "2026-10-18"
+

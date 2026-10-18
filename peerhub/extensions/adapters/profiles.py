@@ -138,3 +138,28 @@ def packaged_defaults_meta() -> dict[str, Any]:
         "observed_at": str(layer.get("observed_at") or ""),
         "observed_versions": dict(layer.get("observed_versions") or {}),
     }
+
+
+def resolve_model_pools(model: str, workspace: str | Path | None = None) -> list[str] | None:
+    """Resolve pool IDs for an exact model name from workspace > global > packaged defaults."""
+    packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
+    with packaged.open("rb") as handle:
+        layers = [tomllib.load(handle)]
+    global_home = Path(os.environ.get("PEERHUB_CONFIG_HOME") or Path.home() / ".peerhub" / "config")
+    paths: list[Path] = [global_home / "models.toml"]
+    if workspace is not None:
+        paths.append(Path(workspace) / ".peerhub" / "config" / "models.toml")
+    for path in paths:
+        if path.exists():
+            with path.open("rb") as handle:
+                layers.append(tomllib.load(handle))
+    for layer in reversed(layers):
+        exact_pools: object = layer.get("exact_model_pools")
+        if isinstance(exact_pools, dict) and model in exact_pools:
+            entry: object = cast(dict[str, Any], exact_pools)[model]
+            if isinstance(entry, dict) and "pools" in entry:
+                pools: object = cast(dict[str, Any], entry)["pools"]
+                if isinstance(pools, list):
+                    return [str(p) for p in cast(list[object], pools)]
+    return None
+
