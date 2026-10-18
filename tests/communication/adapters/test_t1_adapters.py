@@ -440,3 +440,101 @@ def test_native_delivery_oversized_event_forces_conservative_parser_rejection(tm
         list(target.deliver("sess-1", rec("hello"), []))
 
 
+def test_cx_requires_completion_after_latest_activity_in_both_parsers():
+    """Completion must occur after latest activity in both CxSpec and IncrementalEventParser."""
+    from peerhub.extensions.adapters.base import CxSpec, IncrementalEventParser
+
+    # Turn 1 completes, but newer turn starts without completion
+    events_new_turn = (
+        '{"type":"thread.started","thread_id":"th-1"}\n'
+        '{"type":"turn.started"}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"turn 1 msg"}}\n'
+        '{"type":"turn.completed"}\n'
+        '{"type":"turn.started"}\n'
+    )
+    # Batch parser
+    with pytest.raises(ValueError, match="no turn.completed after the latest activity"):
+        CxSpec().parse(events_new_turn)
+
+    # Streaming parser
+    p1 = IncrementalEventParser("cx")
+    p1.feed(events_new_turn.encode("utf-8"))
+    p1.close()
+    with pytest.raises(ValueError, match="no turn.completed after the latest activity"):
+        p1.parse()
+
+    # Turn 1 completes, but newer item starts without completion
+    events_new_item = (
+        '{"type":"thread.started","thread_id":"th-1"}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"turn 1 msg"}}\n'
+        '{"type":"turn.completed"}\n'
+        '{"type":"item.started","item":{"type":"command_execution"}}\n'
+    )
+    with pytest.raises(ValueError, match="no turn.completed after the latest activity"):
+        CxSpec().parse(events_new_item)
+
+    p2 = IncrementalEventParser("cx")
+    p2.feed(events_new_item.encode("utf-8"))
+    p2.close()
+    with pytest.raises(ValueError, match="no turn.completed after the latest activity"):
+        p2.parse()
+
+    # Legitimate multi-turn stream where latest activity is completed
+    events_valid = (
+        '{"type":"thread.started","thread_id":"th-1"}\n'
+        '{"type":"turn.started"}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"turn 1 msg"}}\n'
+        '{"type":"turn.completed"}\n'
+        '{"type":"turn.started"}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"turn 2 msg"}}\n'
+        '{"type":"turn.completed"}\n'
+    )
+    assert CxSpec().parse(events_valid) == "turn 1 msg\nturn 2 msg"
+    p3 = IncrementalEventParser("cx")
+    p3.feed(events_valid.encode("utf-8"))
+    p3.close()
+    assert p3.parse() == "turn 1 msg\nturn 2 msg"
+
+
+def test_native_delivery_cx_newer_activity_after_completion_rejected(tmp_path):
+    """Native delivery rejects output where earlier completion is followed by unfinished activity."""
+    script = (
+        "import sys, json; "
+        "sys.stdout.write(json.dumps({'type': 'thread.started', 'thread_id': 'th-1'}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'turn.started'}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': 'done1'}}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'turn.completed'}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'turn.started'}) + '\\n'); "
+        "sys.exit(0)"
+    )
+    target = CliRuntimeTarget("cx", tmp_path, command=[sys.executable, "-c", script])
+    with pytest.raises(RuntimeTargetError, match="no turn.completed after the latest activity"):
+        list(target.deliver("sess-1", rec("hello"), []))
+
+
+def test_cx_final_messages_bounded_and_discloses_truncation():
+    """Final-phase messages are retained within budget, drop intermediate text, and disclose truncation."""
+    from peerhub.extensions.adapters.base import IncrementalEventParser
+
+    # Set small max_bytes = 100
+    p = IncrementalEventParser("cx", max_bytes=100)
+    p.feed(b'{"type":"thread.started","thread_id":"th-1"}\n')
+    # Feed 10 final-phase messages each of 30 bytes (total 300 bytes > 100 bytes budget)
+    for i in range(10):
+        msg = f"Final msg {i}: " + ("x" * 20)
+        payload = json.dumps({"type": "item.completed", "item": {"type": "agent_message", "phase": "final", "text": msg}}) + "\n"
+        p.feed(payload.encode("utf-8"))
+    p.feed(b'{"type":"turn.completed"}\n')
+    p.close()
+
+    assert p.truncated is True
+    res = p.parse()
+    # Output must be bounded within the budget (head + tail)
+    assert len(res.encode("utf-8")) <= 120
+    # Head message must be preserved
+    assert "Final msg 0:" in res
+    # Latest tail message must be preserved
+    assert "Final msg 9:" in res
+
+
+

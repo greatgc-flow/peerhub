@@ -195,10 +195,13 @@ class IncrementalEventParser:
         self._cx_head_bytes: int = 0
         self._cx_tail_bytes: int = 0
         self.cx_turn_completed: dict[str, Any] | None = None
-        self.cx_last_message_has_turn_completed = False
         self._cx_has_completed_item = False
-        self._cx_last_item_has_turn_completed = False
-        self._cx_final_messages: list[str] = []
+        self._cx_latest_activity_has_turn_completed = False
+        self._cx_final_messages_head: list[str] = []
+        self._cx_final_messages_tail: deque[str] = deque()
+        self._cx_final_head_bytes: int = 0
+        self._cx_final_tail_bytes: int = 0
+        self._cx_final_tail_started = False
         self.cx_errors: deque[str] = deque(maxlen=10)
         self._cx_tail_started = False
 
@@ -256,6 +259,33 @@ class IncrementalEventParser:
                 while self._cx_tail_bytes > tail_limit and len(self._cx_agent_messages_tail) > 1:
                     popped = self._cx_agent_messages_tail.popleft()
                     self._cx_tail_bytes -= max(1, len(popped.encode("utf-8", "replace")))
+
+    @property
+    def cx_final_messages(self) -> list[str]:
+        return self._cx_final_messages_head + list(self._cx_final_messages_tail)
+
+    def _add_cx_final_message(self, text: str) -> None:
+        text_bytes = max(1, len(text.encode("utf-8", "replace")))
+        head_limit = max(0, self.max_bytes // 2)
+        tail_limit = max(0, self.max_bytes - head_limit)
+        if not self._cx_final_tail_started and self._cx_final_head_bytes + text_bytes <= head_limit:
+            self._cx_final_messages_head.append(text)
+            self._cx_final_head_bytes += text_bytes
+        elif not self._cx_final_tail_started and not self._cx_final_messages_head and head_limit > 0:
+            self._cx_final_messages_head.append(text)
+            self._cx_final_head_bytes += text_bytes
+            if self._cx_final_head_bytes > head_limit:
+                self.truncated = True
+                self._cx_final_tail_started = True
+        else:
+            self.truncated = True
+            self._cx_final_tail_started = True
+            if tail_limit > 0:
+                self._cx_final_messages_tail.append(text)
+                self._cx_final_tail_bytes += text_bytes
+                while self._cx_final_tail_bytes > tail_limit and len(self._cx_final_messages_tail) > 1:
+                    popped = self._cx_final_messages_tail.popleft()
+                    self._cx_final_tail_bytes -= max(1, len(popped.encode("utf-8", "replace")))
 
     def _try_parse_ag(self) -> None:
         try:
@@ -470,6 +500,9 @@ class IncrementalEventParser:
                     self._cc_session_id_conflict = True
         elif self.kind == "cx":
             ev_type = event.get("type")
+            if ev_type in ("turn.started", "item.started", "item.updated", "item.completed"):
+                self._cx_latest_activity_has_turn_completed = False
+                self.cx_turn_completed = None
             if ev_type not in ("thread.started", "turn.started", "turn.completed", "turn.failed", "error",
                                "item.started", "item.updated", "item.completed"):
                 self.refusal_evidence_incomplete = True
@@ -506,19 +539,16 @@ class IncrementalEventParser:
                 item = event.get("item")
                 if isinstance(item, dict):
                     self._cx_has_completed_item = True
-                    self._cx_last_item_has_turn_completed = False
                     item_dict = cast("dict[str, Any]", item)
                     if item_dict.get("type") == "agent_message" and isinstance(item_dict.get("text"), str):
                         text_val = cast(str, item_dict["text"])
                         self._add_cx_agent_message(text_val)
-                        self.cx_last_message_has_turn_completed = False
                         if item_dict.get("phase") == "final":
-                            self._cx_final_messages.append(text_val)
+                            self._add_cx_final_message(text_val)
             elif ev_type == "turn.completed":
                 self.has_success = True
                 self.cx_turn_completed = event
-                self.cx_last_message_has_turn_completed = True
-                self._cx_last_item_has_turn_completed = True
+                self._cx_latest_activity_has_turn_completed = True
         elif self.kind == "ag":
             if event.get("tool_calls") or event.get("tool_use"):
                 self.has_tool_calls = True
@@ -565,16 +595,14 @@ class IncrementalEventParser:
         elif self.kind == "cx":
             if self.cx_errors:
                 raise ValueError(f"cx reported {self.cx_errors[-1]}")
+            if not self._cx_latest_activity_has_turn_completed:
+                raise ValueError("cx output has no turn.completed after the latest activity (incomplete)")
             if not self.cx_agent_messages:
-                if self._cx_has_completed_item and self._cx_last_item_has_turn_completed:
+                if self._cx_has_completed_item:
                     return ""
                 raise ValueError("no agent_message in cx output")
-            if not self.cx_last_message_has_turn_completed:
-                if self._cx_has_completed_item and self._cx_last_item_has_turn_completed:
-                    return ""
-                raise ValueError("cx output has no turn.completed after the last agent_message (incomplete)")
-            if self._cx_final_messages:
-                return "\n".join(self._cx_final_messages)
+            if self.cx_final_messages:
+                return "\n".join(self.cx_final_messages)
             return "\n".join(self.cx_agent_messages)
         elif self.kind == "ag":
             if self._ag_invalid_top_level:
@@ -713,19 +741,20 @@ class CxSpec(ProviderSpec):
         for e in events:
             if e.get("type") in ("turn.failed", "error"):
                 raise ValueError(f"cx reported {e.get('type')}")
-        completed_items = [i for i, e in enumerate(events) if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)]
+        activity_indices = [
+            i for i, e in enumerate(events)
+            if e.get("type") in ("turn.started", "item.started", "item.updated", "item.completed")
+        ]
+        if not activity_indices:
+            raise ValueError("no agent_message in cx output")
+        latest_activity = max(activity_indices)
+        if not any(e.get("type") == "turn.completed" for e in events[latest_activity + 1:]):
+            raise ValueError("cx output has no turn.completed after the latest activity (incomplete)")
+
         msgs = [e["item"]["text"] for e in events if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
                 and e["item"].get("type") == "agent_message" and isinstance(e["item"].get("text"), str)]
         if not msgs:
-            if completed_items and any(e.get("type") == "turn.completed" for e in events[completed_items[-1] + 1:]):
-                return ""
-            raise ValueError("no agent_message in cx output")
-        last_msg = max(i for i, e in enumerate(events) if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
-                       and e["item"].get("type") == "agent_message")
-        if not any(e.get("type") == "turn.completed" for e in events[last_msg + 1:]):
-            if completed_items and any(e.get("type") == "turn.completed" for e in events[completed_items[-1] + 1:]):
-                return ""
-            raise ValueError("cx output has no turn.completed after the last agent_message (incomplete)")
+            return ""
         phase_msgs = [e["item"]["text"] for e in events if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
                       and e["item"].get("type") == "agent_message" and e["item"].get("phase") == "final" and isinstance(e["item"].get("text"), str)]
         if phase_msgs:
