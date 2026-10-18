@@ -922,7 +922,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         if hidden_rows:
             counts.append(f"+{hidden_rows} rows hidden")
         hint = ("peerhub monitor --snapshot --group capacity --expand"
-                if omitted_quota or omitted_blocks else "peerhub monitor --snapshot --expand")
+                if omitted_quota else "peerhub monitor --snapshot --group all --expand")
         if target_width >= 64:
             # Keep the actionable hint intact on 80-column displays.
             room = target_width - _width(sep + hint)

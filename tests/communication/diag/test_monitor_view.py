@@ -166,7 +166,8 @@ def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, 
     elif height >= 3 and len(frame["selected_groups"]) > max(0, height - 3):
         assert "omitted" in rendered or "hidden" in rendered or any(f"+{i}" in rendered for i in range(1, 10))
         if width >= 64:
-            assert "peerhub monitor --snapshot --group capacity --expand" in rendered
+            assert any(f"peerhub monitor --snapshot --group {group} --expand" in rendered
+                       for group in ("capacity", "all"))
         else:
             assert "--expand" in rendered
 
@@ -414,6 +415,7 @@ def test_detail_loop_stopping_early_emits_hidden_by_terminal_height(frame):
     # Height 6: 1 title + 1 heading + 1 table header + 1 detail row + 1 hidden line = 5 lines (<= height - 1)
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=6)
     assert "rows hidden" in rendered
+    assert "peerhub monitor --snapshot --group capacity --expand" in rendered
     assert "1h" in rendered
     assert "6h" not in rendered
     assert len(rendered.splitlines()) <= 5
@@ -550,8 +552,10 @@ def test_fixed_time_render_fixtures_viewport_matrix():
             if (width, height) == (80, 12):
                 for observation in fixture["groups"]["capacity"]["data"]["observations"]:
                     assert observation["pool_ref"].split(":")[-1] in rendered
-                # 80x12 budget suppresses lower sections and shows exact hint
-                assert "peerhub monitor --snapshot --group capacity --expand" in rendered
+                # All eight quota pools fit; the hint must recover the eight other groups.
+                assert "8 groups omitted" in rendered
+                assert "peerhub monitor --snapshot --group all --expand" in rendered
+                assert "--group capacity" not in rendered
                 assert "STORE" not in rendered
 
             if not unicode_mode:
