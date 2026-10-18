@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Docs
+
+- Record deferred backlog start triggers and deliberate probe/response-field deferrals in the maintainer handoff (#167).
+
 ## [0.21.1] - 2026-10-19
 
 ### Changed
