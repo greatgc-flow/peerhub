@@ -832,7 +832,7 @@ def test_tool_only_turn_empty_response_propagated(tmp_path):
 
 def test_guidance_reference_doc_parity():
     """Issue #135: Parity test between guidance registry, session definitions, and docs/guidance-reference.md."""
-    from peerhub.cli.recovery import render_guidance_reference, REGISTRY
+    from peerhub.cli.recovery import render_guidance_reference, REGISTRY, RESULT_STATUS_REGISTRY
 
     doc_path = Path("docs/guidance-reference.md")
     assert doc_path.is_file(), "docs/guidance-reference.md does not exist"
@@ -842,6 +842,12 @@ def test_guidance_reference_doc_parity():
     expected_content = render_guidance_reference()
     assert doc_content.strip() == expected_content.strip(), "docs/guidance-reference.md differs from render_guidance_reference()"
 
+    # Verify coverage of every registered result status
+    for status_name, res_entry in RESULT_STATUS_REGISTRY.items():
+        assert f"`{status_name}`" in doc_content, f"Result status {status_name} missing from doc"
+        assert res_entry.meaning in doc_content, f"Meaning for status {status_name} missing from doc"
+        assert str(res_entry.exit_code) in doc_content
+
     # Verify coverage of every registered guidance code
     for code, entry in REGISTRY.items():
         assert code in doc_content, f"Guidance code {code} missing from doc"
@@ -849,14 +855,42 @@ def test_guidance_reference_doc_parity():
         for step in entry.recover:
             assert step["purpose"] in doc_content, f"Recovery purpose for {code} missing"
 
-    # Verify session state definitions in doc
+    # Verify session state definitions and qualified semantics in doc
     assert "ACTIVE" in doc_content
+    assert "actual eligibility also requires" in doc_content
     assert "LOST" in doc_content
+    assert "does not mean the next request automatically starts a new generation" in doc_content
+    assert "select another compatible retained session" in doc_content
+    assert "subsequent turns automatically allocate a new session generation" not in doc_content
     assert "FRESH" in doc_content
     assert "TOMBSTONED" in doc_content
     assert "resumable" in doc_content
     assert "session_generation" in doc_content
     assert "binding change" in doc_content.lower()
+
+
+def test_guidance_reference_relative_links_validity():
+    """#135 / S2-A: Markdown links inside docs/guidance-reference.md must be relative to docs/ and resolve to existing files."""
+    doc_path = Path("docs/guidance-reference.md")
+    assert doc_path.is_file()
+    doc_content = doc_path.read_text(encoding="utf-8")
+
+    link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+    matches = link_pattern.findall(doc_content)
+    assert len(matches) >= 4, f"Expected at least 4 markdown links, found {len(matches)}"
+
+    for text, link in matches:
+        if link.startswith("http://") or link.startswith("https://") or link.startswith("#"):
+            continue
+        # Relative link must not start with docs/ (which would cause docs/docs/...)
+        assert not link.startswith("docs/"), (
+            f"Link {link!r} in docs/guidance-reference.md should be relative to docs/ without 'docs/' prefix"
+        )
+        resolved_target = (doc_path.parent / link).resolve()
+        assert resolved_target.is_file(), (
+            f"Link {link!r} in docs/guidance-reference.md does not resolve to an existing file ({resolved_target})"
+        )
+
 
 
 

@@ -19,7 +19,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
-- Published generated guidance and session lifecycle reference (`docs/guidance-reference.md`) with 1:1 registry parity test and verified session state definitions (`ACTIVE`, `LOST`, `FRESH`, `TOMBSTONED`, `resumable`, `session_generation` semantics) (#135).
+- Published generated guidance and session lifecycle reference (`docs/guidance-reference.md`) with status -> exit code -> safe action mapping derived from `RESULT_STATUS_REGISTRY`, 1:1 registry parity and link tests, and verified qualified session state definitions (`ACTIVE`, `LOST`, `FRESH`, `TOMBSTONED`, `resumable`, `session_generation` semantics) (#135).
 - Added Windows PowerShell operations guide (`docs/windows.md`) covering tested parallel asks (`Start-Job`, `ForEach-Object -Parallel`, `$using:`), quoting rules, `--query-file`, non-ASCII paths, and verified command parser test (#136).
 - Guidance registry (`peerhub/cli/recovery.py`) mapping ask-path non-success outcomes to structured guidance and recovery advice (`meaning`, `why`, `recover` argv arrays, `avoid`, `docs`), including `ask_launch_failed` (#120) and `ask_stream_peer_mismatch` (#125) (#117).
 - Offline `peerhub explain CODE [--json]` subcommand providing detailed human-readable and structured JSON guidance for outcome codes (#117).

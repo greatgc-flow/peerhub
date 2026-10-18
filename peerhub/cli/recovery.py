@@ -26,10 +26,12 @@ class GuidanceEntry:
     recover: list[dict[str, Any]]
     avoid: str
     docs: str
+    exit_code: int = 1
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "code": self.code,
+            "exit_code": self.exit_code,
             "meaning": self.meaning,
             "why": self.why,
             "recover": self.recover,
@@ -40,6 +42,85 @@ class GuidanceEntry:
     def summary(self) -> str:
         next_action = self.recover[0]["purpose"] if self.recover else "Inspect diagnostics"
         return f"{self.meaning} Next: {next_action}. {self.avoid}"
+
+
+@dataclass(frozen=True)
+class ResultStatusEntry:
+    status: str
+    exit_code: int
+    guidance_code: str
+    meaning: str
+    safe_action: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "exit_code": self.exit_code,
+            "guidance_code": self.guidance_code,
+            "meaning": self.meaning,
+            "safe_action": self.safe_action,
+        }
+
+
+RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
+    "blocked_uncertain": ResultStatusEntry(
+        status="blocked_uncertain",
+        exit_code=1,
+        guidance_code="ask_blocked_uncertain",
+        meaning="New request on this stream is blocked because an earlier record on the stream ended in an uncertain state.",
+        safe_action="Inspect stream health and uncommitted evidence via `peerhub diag health --stream STREAM_ID`. Abandon the blocked stream and continue on a new stream.",
+    ),
+    "delivered": ResultStatusEntry(
+        status="delivered",
+        exit_code=0,
+        guidance_code="(none)",
+        meaning="Request executed successfully and terminal response was committed to the stream.",
+        safe_action="None required. Continue subsequent turns on the same stream to reuse the active session.",
+    ),
+    "failed_not_started": ResultStatusEntry(
+        status="failed_not_started",
+        exit_code=1,
+        guidance_code="ask_launch_failed",
+        meaning="Provider process failed before execution started (missing executable or OS spawn rejection).",
+        safe_action="Inspect peer adapter availability and PATH configuration via `peerhub diag health`.",
+    ),
+    "not_executed": ResultStatusEntry(
+        status="not_executed",
+        exit_code=1,
+        guidance_code="ask_refusal",
+        meaning="Provider explicitly refused execution before performing tool calls (e.g. quota exhausted, auth failure, invalid model).",
+        safe_action="Inspect quota pools and reset times via `peerhub diag quota` or verify profile configuration via `peerhub profile list`.",
+    ),
+    "pending_earlier_record": ResultStatusEntry(
+        status="pending_earlier_record",
+        exit_code=1,
+        guidance_code="ask_blocked_uncertain",
+        meaning="Stream has earlier pending work that has not yet completed terminal execution.",
+        safe_action="Await completion of earlier record or inspect stream state via `peerhub diag health --stream STREAM_ID`.",
+    ),
+    "recovered_terminal": ResultStatusEntry(
+        status="recovered_terminal",
+        exit_code=0,
+        guidance_code="(none)",
+        meaning="Prior idempotent execution or replayed terminal response recovered.",
+        safe_action="None required. Prior committed result recovered.",
+    ),
+    "session_unavailable": ResultStatusEntry(
+        status="session_unavailable",
+        exit_code=2,
+        guidance_code="ask_selector_error",
+        meaning="Session selector or handle validation failed before invocation could begin.",
+        safe_action="List valid sessions via `peerhub session list` or pass `--fresh` to allocate a fresh session.",
+    ),
+    "uncertain": ResultStatusEntry(
+        status="uncertain",
+        exit_code=1,
+        guidance_code="ask_uncertain",
+        meaning="Request started execution but ended without terminal certainty (timeout or abort).",
+        safe_action="Inspect stream health via `peerhub diag health --stream STREAM_ID`. Do not retry or pass `--fresh` on this stream; abandon stream.",
+    ),
+}
+
 
 
 REGISTRY: dict[str, GuidanceEntry] = {
@@ -103,6 +184,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not invent session handles, do not combine --fresh with --session, and do not retry without correcting the session selector.",
         docs="docs/implementation/RETAINED_SESSIONS.md",
+        exit_code=2,
     ),
     "ask_refusal": GuidanceEntry(
         code="ask_refusal",
@@ -150,6 +232,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding.",
         docs="docs/remote-ask.md",
+        exit_code=2,
     ),
     "ask_delivery_failed": GuidanceEntry(
         code="ask_delivery_failed",
@@ -223,6 +306,7 @@ def instantiate_entry(
         recover=instantiated_recover,
         avoid=entry.avoid,
         docs=entry.docs,
+        exit_code=entry.exit_code,
     )
 
 
@@ -384,13 +468,30 @@ def render_guidance_reference() -> str:
         "",
         "Reference documentation for PeerHub CLI outcome status codes, recovery guidance, and session lifecycle states.",
         "",
-        "## Status Outcomes & Recovery Guidance",
+        "## Execution Result Statuses",
         "",
-        "The table below is generated from the PeerHub guidance registry (`peerhub/cli/recovery.py`). Each non-success outcome code maps to its operational meaning, safe recovery action, and actions to avoid.",
+        "The table below maps actual result statuses (`result[\"status\"]` returned by `peerhub ask`) to CLI exit codes, associated guidance codes, and safe recovery actions derived from `RESULT_STATUS_REGISTRY`.",
         "",
-        "| Status / Outcome Code | Meaning | Safe Recovery Action | Avoid |",
-        "|---|---|---|---|",
+        "| Status | Exit Code | Guidance Code | Meaning | Safe Action |",
+        "|---|---|---|---|---|",
     ]
+
+    for status_key in sorted(RESULT_STATUS_REGISTRY.keys()):
+        item = RESULT_STATUS_REGISTRY[status_key]
+        clean_meaning = item.meaning.replace("|", "\\|")
+        clean_action = item.safe_action.replace("|", "\\|")
+        guidance_cell = f"`{item.guidance_code}`" if item.guidance_code != "(none)" else "(none)"
+        lines.append(f"| `{item.status}` | {item.exit_code} | {guidance_cell} | {clean_meaning} | {clean_action} |")
+
+    lines.extend([
+        "",
+        "## Guidance Registry & Outcome Codes",
+        "",
+        "The table below is generated from the PeerHub guidance registry (`peerhub/cli/recovery.py`). Each non-success outcome code maps to its CLI exit code, operational meaning, safe recovery action, and actions to avoid.",
+        "",
+        "| Outcome Code | Exit Code | Meaning | Safe Recovery Action | Avoid |",
+        "|---|---|---|---|---|",
+    ])
 
     for code in sorted(REGISTRY.keys()):
         entry = REGISTRY[code]
@@ -399,7 +500,7 @@ def render_guidance_reference() -> str:
         clean_meaning = entry.meaning.replace("|", "\\|")
         clean_action = safe_action.replace("|", "\\|")
         clean_avoid = entry.avoid.replace("|", "\\|")
-        lines.append(f"| `{code}` | {clean_meaning} | {clean_action} | {clean_avoid} |")
+        lines.append(f"| `{code}` | {entry.exit_code} | {clean_meaning} | {clean_action} | {clean_avoid} |")
 
     lines.extend([
         "",
@@ -409,9 +510,11 @@ def render_guidance_reference() -> str:
 
     for code in sorted(REGISTRY.keys()):
         entry = REGISTRY[code]
+        doc_rel = entry.docs[len("docs/"):] if entry.docs.startswith("docs/") else entry.docs
         lines.extend([
             f"#### `{code}`",
             "",
+            f"- **Exit Code**: {entry.exit_code}",
             f"- **Meaning**: {entry.meaning}",
             f"- **Why**: {entry.why}",
             "- **Safe Recovery Actions**:",
@@ -422,7 +525,7 @@ def render_guidance_reference() -> str:
             lines.append(f"  {idx}. `{rendered_cmd}`: {step['purpose']}{prereq}")
         lines.extend([
             f"- **Avoid**: {entry.avoid}",
-            f"- **Documentation**: [{entry.docs}]({entry.docs})",
+            f"- **Documentation**: [{entry.docs}]({doc_rel})",
             "",
         ])
 
@@ -433,9 +536,9 @@ def render_guidance_reference() -> str:
         "",
         "### Session States",
         "",
-        "- **`ACTIVE`**: The session is retained, verified eligible, and ready for immediate turn execution and turn reuse. A session remains `ACTIVE` across successful subsequent turns on the same stream, peer, and compatible binding.",
+        "- **`ACTIVE`**: The session record is in the active lifecycle state. Note that having `state = 'ACTIVE'` alone does not guarantee immediate turn reuse or resumption eligibility; actual eligibility also requires meeting retention age bounds (`0 <= now - last_seen <= MAX_AGE_S`), `resumable = 1`, bootstrap integrity, and valid native vendor session evidence (non-null `vendor_session_id` and `context_watermark`). A session remains `ACTIVE` across successful subsequent turns on the same stream, peer, and compatible binding.",
         "- **`FRESH`**: A newly allocated session generation that has been created but has not yet completed a successful native vendor execution.",
-        "- **`LOST`**: Session continuity has been broken or tainted. This occurs when the adapter reports context loss, when a prior execution ends in an uncertain state (e.g. timeout or abort), or when a session resumption is rejected. A `LOST` session cannot be resumed; subsequent turns automatically allocate a new session generation.",
+        "- **`LOST`**: Session continuity has been broken or tainted. This occurs when the adapter reports context loss, when a prior execution ends in an uncertain state (e.g. timeout or abort), or when a session resumption is rejected. A `LOST` session cannot be resumed. Note that marking a session `LOST` does not mean the next request automatically starts a new generation: an uncertain delivery can block the stream with `ask_blocked_uncertain`, and session selection during recovery can select another compatible retained session from history if available.",
         "- **`TOMBSTONED`**: The session has been permanently retired because it exceeded the maximum retention age (`MAX_AGE_S` = 30 days) or the per-stream history capacity (`MAX_RETAINED` = 20 sessions). Tombstoned sessions cannot be resumed or resurrected.",
         "",
         "### Resumability (`resumable`)",
@@ -449,7 +552,7 @@ def render_guidance_reference() -> str:
         "- **Generation Stays Constant (`gen = 1`)**: Within a retained session, the generation remains constant (e.g. `1`) across turns as long as the caller continues on the same stream and peer with compatible options. Subsequent asks on that stream automatically reuse the warm session without bumping the generation.",
         "- **Generation Bumps (`gen -> gen + 1`)**: PeerHub allocates a new generation (incrementing `session_generation` via `bridge_session_counters`) in any of the following circumstances:",
         "  1. **Binding Change**: When the effective runtime binding changes. For example, in Antigravity (`ag`), switching between read-only and `--writable` changes the CLI execution mode (`--mode accept-edits`), modifying the binding and bumping the generation.",
-        "  2. **Session Marked `LOST`**: When an earlier turn timed out, aborted, or ended in uncertainty, the session is marked `LOST` to prevent split-brain execution; the next request starts a new generation.",
+        "  2. **No Eligible Compatible Retained Session**: When a prior session was marked `LOST` (e.g. context loss or resumption rejection) or tombstoned, and no other compatible retained session is eligible in history, the next eligible turn on an unblocked stream allocates a new generation. (Note: an uncertain delivery blocks subsequent turns on the stream with `ask_blocked_uncertain` rather than automatically bumping generations, and recovery can select another compatible retained session if available.)",
         "  3. **Explicit `--fresh`**: When the caller explicitly requests `--fresh`, forcing a new session generation.",
         "  4. **Expiration or Tombstoning**: When the retained session exceeds 30 days or is pruned due to quota.",
         "  5. **Workspace or Fingerprint Mismatch**: When the workspace lineage or adapter binary fingerprint differs from the retained session.",
