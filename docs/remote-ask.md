@@ -99,7 +99,9 @@ workspace; this recipe specifies no automatic file transfer.
 `--timeout-seconds` bounds provider execution (default 60); it is not an SSH
 connection timeout. Optional `--silence-timeout-seconds` aborts silent execution
 and leaves uncertainty; `--max-output-bytes` defaults to 1,000,000
-(`peerhub/cli/app.py:121–124`). A disconnect/timeout does not prove no work happened.
+(`peerhub/cli/app.py:121–124`). For Antigravity, ag prints nothing until done:
+for ag leave `--silence-timeout-seconds` unset or set it `>= --timeout-seconds`
+(long tasks: `--timeout-seconds 7200`). A disconnect/timeout does not prove no work happened.
 SSH's remote-exit propagation and transport-failure code 255 are **unverified**;
 capture `$?` in bash or `$LASTEXITCODE` in PowerShell and inspect both stderr and
 the JSON status before retrying.

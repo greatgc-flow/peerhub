@@ -220,6 +220,8 @@ def test_guide_contains_required_sections_and_guidance(capsys):
     assert "session:" in out
     assert "--timeout-seconds" in out and "--silence-timeout-seconds" in out
     assert "foreground/background-with-exit-notification" in out
+    assert "ag prints nothing until done" in out
+    assert "--timeout-seconds 7200" in out
     # Discovery commands
     assert "peerhub monitor" in out
     assert "peerhub monitor --expand" in out
@@ -275,4 +277,15 @@ def test_guide_pointers_in_help_and_readme(capsys):
     readme_path = Path("README.md")
     assert readme_path.is_file()
     assert "peerhub guide" in readme_path.read_text(encoding="utf-8")
+
+
+def test_remote_ask_ag_silence_timeout_guidance():
+    """Issue #118: docs/remote-ask.md documents ag silence timeout behavior."""
+    remote_ask = Path("docs/remote-ask.md")
+    assert remote_ask.is_file()
+    text = remote_ask.read_text(encoding="utf-8")
+    assert "ag prints nothing until done" in text
+    assert "--silence-timeout-seconds" in text
+    assert "--timeout-seconds 7200" in text
+
 
