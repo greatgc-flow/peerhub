@@ -622,7 +622,7 @@ def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
     rendered = output.decode("utf-8", errors="replace")
     lines = rendered.rstrip("\r\n").splitlines()
     assert len(lines) <= 7
-    assert "8 groups omitted" in rendered
+    assert "8g hidden" in rendered
     assert "--expand" in rendered
     assert "COLUMNS" not in rendered
     assert "\x1b" not in rendered
