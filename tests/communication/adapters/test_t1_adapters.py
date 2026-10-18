@@ -388,6 +388,34 @@ def test_decode_stderr_utf8_then_fallback_cp949():
     assert "\ufffd" not in decoded
 
 
+def test_decode_stderr_windows_oem_cp949_claude_not_recognized_fixture(monkeypatch):
+    """#120: decode peer-CLI stderr using evidenced Windows OEM code page (cp949 fixture from claude.exe 'not recognized')."""
+    from peerhub.extensions.adapters.process import decode_stderr
+    import sys
+    import locale
+
+    # Exact bytes produced by Windows cmd.exe when claude.exe is not recognized in Korean locale (CP949)
+    claude_not_found_cp949 = (
+        b"'claude.exe'\xc0\xba(\xb4\xc2) \xb3\xbb\xba\xce \xb6\xc7\xb4\xc2 \xbf\xdc\xba\xce "
+        b"\xb8\xed\xb7\xc9, \xbd\xc7\xc7\xe0\xc7\xd2 \xbc\xf6 \xc0\xd6\xb4\xc2 \xc7\xc1\xb7\xce\xb1\xd7\xb7\xa5, "
+        b"\xb6\xc7\xb4\xc2\r\n\xb9\xe8\xc4\xa1 \xc6\xc4\xc0\xcf\xc0\xcc \xbe\xc6\xb4\xd5\xb4\xcf\xb4\xd9.\r\n"
+    )
+
+    # Calling decode_stderr without fallback_encoding must decode correctly via GetOEMCP/GetConsoleOutputCP
+    decoded = decode_stderr(claude_not_found_cp949)
+    assert "'claude.exe'은(는) 내부 또는 외부 명령" in decoded
+    assert "실행할 수 있는 프로그램" in decoded
+    assert "\ufffd" not in decoded
+
+    # Ensure it works even when locale.getpreferredencoding(False) returns 'utf-8'
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(locale, "getpreferredencoding", lambda *a: "utf-8")
+    decoded_utf8_env = decode_stderr(claude_not_found_cp949)
+    assert "'claude.exe'은(는) 내부 또는 외부 명령" in decoded_utf8_env
+    assert "\ufffd" not in decoded_utf8_env
+
+
+
 def test_ag_fail_closed_without_writable(mk):
     """#140: ag without writable=True fails closed with PrespawnError before spawning."""
     a = mk("ag", writable=False)
