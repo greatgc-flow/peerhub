@@ -44,7 +44,7 @@ jobs:
         run: python -m pyright
       - name: Run full deterministic suite
         run: python -u -m pytest -q --junitxml=junit/ubuntu-full.xml
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: junit-ubuntu-full-${{ github.sha }}-${{ github.run_id }}
@@ -92,7 +92,7 @@ jobs:
       - name: Verify platform-sensitive inventory and reject skips
         if: steps.suite.outputs.windows_suite == 'targeted'
         run: python -m tools.ci_platform verify-junit junit/windows-platform.xml --inventory ci/platform_sensitive_tests.txt
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: junit-windows-${{ steps.suite.outputs.windows_suite }}-${{ github.sha }}-${{ github.run_id }}
@@ -164,7 +164,7 @@ jobs:
         run: python -m pyright
       - name: Run full deterministic suite
         run: python -u -m pytest -q --junitxml=junit/full-matrix.xml
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: junit-full-${{ matrix.os }}-py${{ matrix.python-version }}-${{ github.sha }}-${{ github.run_id }}
