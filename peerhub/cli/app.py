@@ -274,6 +274,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     d_quota.add_argument("--pool", default=None, help="Only this resource_pool_ref (exact match)")
     d_quota.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Machine-readable output (schema_version 1.0) instead of the table")
     d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --observation-db other_ws.db"
+    d_readiness = diag_sub.add_parser("readiness", help="Cached profile readiness (read-only; never probes)")
+    d_readiness.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                             help="Machine-readable cached readiness (schema_version 1.0)")
+    d_readiness.epilog = "examples: peerhub diag readiness | peerhub --db ws.db diag readiness --json"
 
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
     d_integrity.epilog = "example: peerhub diag integrity"
@@ -475,6 +479,21 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         finally:
             output.close()
         return code
+    if args.action == "readiness":
+        from peerhub.extensions.diag_readiness import format_readiness, readiness_report
+        from peerhub.cli.recovery import get_guidance
+        rep = readiness_report(args.db)
+        for profile in rep["profiles"]:
+            action = profile.pop("action")
+            stream = profile.pop("stream_id")
+            if action:
+                entry = get_guidance("ask_refusal" if action == "wait_reset" else
+                                     "ask_delivery_failed" if action == "inspect_facts" else action,
+                                     db_path=args.db, stream_id=stream)
+                if entry is not None:
+                    profile["next"] = {"code": action, "argv": entry.recover[0]["argv"]}
+        print(json.dumps(rep, separators=(",", ":"), ensure_ascii=True) if args.json else format_readiness(rep))
+        return diag_quota.EXIT_BY_STATUS[rep["status"]]
     if args.action == "quota":  # pure reader: no CoreStore (it would create/migrate the database)
         report_missing_store(args.obs_db or args.db, selected=is_explicit or bool(args.obs_db), source="explicit" if args.obs_db else db_source)
         rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool)

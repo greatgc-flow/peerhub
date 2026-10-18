@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- Cached-only `peerhub diag readiness [--json]`: configured profile readiness from stored quota and matching delivery evidence, with shared pools and contextual diagnostic actions; no provider calls or writes (#145, part 1).
+
 ## [0.20.0] - 2026-10-18
 
 ### Breaking

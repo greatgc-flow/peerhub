@@ -351,6 +351,46 @@ class ReadonlyDiag:
         return Section("log", "OK", {"lines": lines[-LOG_TAIL_LINES:], "size_bytes": size})
 
     # ------------------------------------------------------------------ public views
+    def readiness(self, profile_ids: list[str], *, read_at: float | None = None) -> dict[str, Any]:
+        """Read quota and the latest deliveries in one read-only transaction."""
+        import json
+
+        now = time.time() if read_at is None else read_at
+        out: dict[str, Any] = dict(schema_version="1.0", read_at=now, status="OK", basis="cached",
+                                   observations=[], deliveries=[], complete=False, error=None)
+        if not Path(self.db_path).is_file():
+            return dict(out, status="UNAVAILABLE", error=f"database not found: {self.db_path}")
+        conn = None
+        try:
+            conn = self._open()
+            obs = self._observations(conn, round(now * 1_000_000))
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            complete = obs.status == "OK" and {"bridge_deliveries", "bridge_evidence"} <= tables
+            rows = []
+            if {"bridge_deliveries", "bridge_evidence"} <= tables:
+                # One uncapped batch, independent of monitor's bounded session sample.
+                # Include corrupt metadata so it cannot silently certify older success.
+                rows = [dict(r) for r in conn.execute(
+                    "SELECT d.delivery_id,d.stream_id,d.certainty,d.result_json,d.terminal_at,"
+                    "r.metadata_json,r.appended_at,e.kind,e.detail FROM bridge_deliveries d "
+                    "JOIN records r ON r.record_id=d.record_id "
+                    "LEFT JOIN bridge_evidence e ON e.seq=(SELECT MAX(x.seq) FROM bridge_evidence x "
+                    "WHERE x.delivery_id=d.delivery_id AND x.kind IN "
+                    "('terminal','refusal_detected','runtime_error','runtime_timeout','runtime_disconnect','start_uncertain')) "
+                    "WHERE NOT json_valid(r.metadata_json) OR EXISTS "
+                    "(SELECT 1 FROM json_each(?) p WHERE json_extract(CASE WHEN json_valid(r.metadata_json) "
+                    "THEN r.metadata_json ELSE '{}' END,'$.binding') LIKE p.value || '/%') "
+                    "ORDER BY d.seq DESC,d.attempt DESC,d.delivery_id DESC",
+                    (json.dumps(profile_ids),))]
+            return dict(out, observations=obs.data.get("items", []), deliveries=rows, complete=complete)
+        except SchemaVersionError as exc:
+            return dict(out, status="SCHEMA_VERSION", error=f"{type(exc).__name__}: {exc}")
+        except (sqlite3.Error, OSError, DiagReadOnlyError, ValueError) as exc:
+            return dict(out, status="FAILED", error=f"{type(exc).__name__}: {exc}")
+        finally:
+            if conn is not None:
+                conn.close()
+
     def render(self, sections: list[str] | tuple[str, ...] | None = None, read_at: float | None = None) -> DiagnosticReport:
         names = list(SECTION_ORDER) if sections is None else list(sections)
         unknown = [n for n in names if n not in SECTION_ORDER and n not in OPTIONAL_SECTIONS]

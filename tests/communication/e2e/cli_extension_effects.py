@@ -81,6 +81,25 @@ def diag_json(e):
     assert not e.run(db, "diag")[1].lstrip().startswith("{")
 
 
+def readiness_json(e):
+    from peerhub.extensions.observation import ObservationStore
+
+    db = e.fresh()
+    ObservationStore(db)
+    before = db.read_bytes()
+    # The command reads cached facts; --json changes its representation.
+    with patch("subprocess.Popen", side_effect=AssertionError("readiness must not spawn providers")):
+        result = e.j(db, "diag", "readiness", "--json")
+        code, table, err = e.run(db, "diag", "readiness")
+    assert result["schema_version"] == "1.0" and result["basis"] == "cached" and result["status"] == "OK"
+    assert result["profiles"] and all(p["state"] == "UNKNOWN" for p in result["profiles"])
+    assert code == 0 and not err and "PROFILE POOLS STATE LAST NEXT" in table
+    assert not table.lstrip().startswith("{") and db.read_bytes() == before
+    missing = e.tmp / "missing-readiness" / "core.db"
+    assert e.j(missing, "diag", "readiness", "--json", code=5)["status"] == "UNAVAILABLE"
+    assert not missing.parent.exists()
+
+
 def session_selector_effect(e, option):
     from tests.communication.fakes.runtime import NativeRuntimeTarget
     rt = NativeRuntimeTarget()
@@ -435,6 +454,7 @@ EFFECT.update({f"ask {option}": (lambda e, option=option: session_selector_effec
 EFFECT.update({f"explain {option}": (lambda e, option=option: explain_effect(e, option))
                for option in ("code", "--json")})
 EFFECT["diag --json"] = diag_json
+EFFECT["diag readiness --json"] = readiness_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
                for option in ("--live", "--interval-seconds", "--cycles", "--view")})
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))

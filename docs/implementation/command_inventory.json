@@ -252,6 +252,21 @@
       ]
     },
     {
+      "command": "diag readiness",
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
+    },
+    {
       "command": "explain",
       "options": [
         {
