@@ -106,3 +106,39 @@ def test_capacity_projection_does_not_claim_provider_fixed_anchor_without_source
     assert row["source"] == "fixture-quota-probe"
     assert row["projection"]["anchor_basis"] == "reset_minus_duration_inferred"
     assert row["projection"]["anchor_basis"] != "provider_fixed_window"
+
+
+@pytest.mark.parametrize(("resets_at", "expected"), [
+    (READ_AT + 17880, 17880), (READ_AT - 1, 0), (None, None),
+    ("malformed", None), (True, None), ({"unexpected": "timestamp"}, None),
+])
+def test_capacity_reset_countdown_is_additive_and_uses_frame_time(tmp_path, resets_at, expected):
+    h = ObservationHarness(tmp_path / "workspace")
+    h.register_pool(_pool("weekly"))
+    _persist(h, resets_at=resets_at)
+    before = h.full_state()
+
+    row = _row(h)
+
+    assert row["reset_in_seconds"] == expected
+    assert row["measurements"] == {"remaining_fraction": 0.6}
+    assert h.full_state() == before
+
+
+@pytest.mark.parametrize("state", [EvidenceState.STALE, EvidenceState.UNKNOWN, EvidenceState.ABSENT])
+def test_capacity_reset_countdown_requires_measured_evidence(tmp_path, state):
+    h = ObservationHarness(tmp_path / "workspace")
+    h.register_pool(_pool("weekly"))
+    if state == EvidenceState.STALE:
+        _persist(h, captured_at=READ_AT - 301, resets_at=READ_AT + 17880)
+    else:
+        h.obs.persist(Observation(
+            observation_id="unmeasured", subject_ref="peer:cx", resource_pool_ref="weekly",
+            kind="quota", source="fixture-quota-probe", observed_at=epoch_to_iso(MEASURED_AT),
+            captured_at=epoch_to_iso(READ_AT), state=state,
+            payload={"resets_at": READ_AT + 17880, "condition": "unavailable"},
+        ))
+
+    row = _row(h)
+    assert row["state"] == state.value
+    assert row["reset_in_seconds"] is None
