@@ -75,6 +75,7 @@ Use concise Conventional Commit subjects, following the repository's existing
 history: `fix(cli): correct adapter detection`, `docs: clarify setup`, or
 `feat(governance): add a workflow`. Open a focused pull request to `main` that
 explains the change and the checks you ran.
+For security vulnerabilities, see [SECURITY.md](SECURITY.md); for Dependabot PRs, review the changelog and run tests (majors need cx review).
 
 ## Guide impact
 

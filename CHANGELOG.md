@@ -24,6 +24,8 @@ they do not claim new validation or publication evidence.
 - Bare `peerhub` invocation (no arguments) now prints `peerhub guide` and exits 0 (#121).
 - Factual tool-only turn completion metadata (`empty_response: true`, `task_effects: "unverified"`) when a provider completes a turn with tool actions and no final text message (#126).
 - Mapped Antigravity `gemini-argon-wtu-weekly` quota bucket to `A-7D` in `AGY_QUOTA_FAMILIES`, eliminating false-positive `unknown_pools` drift warnings (#149).
+- Dependabot config: automated weekly updates for pip and github-actions ecosystems (`.github/dependabot.yml`).
+- SECURITY.md: vulnerability reporting policy, supported version scope, and reporting guidance.
 
 ### Changed
 
