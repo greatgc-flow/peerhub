@@ -375,3 +375,87 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
     else:
         print(render_explain(entry))
     return 0
+
+
+def render_guidance_reference() -> str:
+    """Generate the guidance and session lifecycle reference documentation."""
+    lines: list[str] = [
+        "# PeerHub Guidance & Session Reference",
+        "",
+        "Reference documentation for PeerHub CLI outcome status codes, recovery guidance, and session lifecycle states.",
+        "",
+        "## Status Outcomes & Recovery Guidance",
+        "",
+        "The table below is generated from the PeerHub guidance registry (`peerhub/cli/recovery.py`). Each non-success outcome code maps to its operational meaning, safe recovery action, and actions to avoid.",
+        "",
+        "| Status / Outcome Code | Meaning | Safe Recovery Action | Avoid |",
+        "|---|---|---|---|",
+    ]
+
+    for code in sorted(REGISTRY.keys()):
+        entry = REGISTRY[code]
+        first_step = entry.recover[0] if entry.recover else {"argv": ["peerhub", "diag", "health"], "purpose": "Inspect health"}
+        safe_action = f"`{shlex.join(first_step['argv'])}` ({first_step['purpose']})"
+        clean_meaning = entry.meaning.replace("|", "\\|")
+        clean_action = safe_action.replace("|", "\\|")
+        clean_avoid = entry.avoid.replace("|", "\\|")
+        lines.append(f"| `{code}` | {clean_meaning} | {clean_action} | {clean_avoid} |")
+
+    lines.extend([
+        "",
+        "### Detailed Recovery Advice by Outcome Code",
+        "",
+    ])
+
+    for code in sorted(REGISTRY.keys()):
+        entry = REGISTRY[code]
+        lines.extend([
+            f"#### `{code}`",
+            "",
+            f"- **Meaning**: {entry.meaning}",
+            f"- **Why**: {entry.why}",
+            "- **Safe Recovery Actions**:",
+        ])
+        for idx, step in enumerate(entry.recover, 1):
+            rendered_cmd = shlex.join(step["argv"])
+            prereq = f" (Prerequisites: {step['prereqs']})" if step.get("prereqs") else ""
+            lines.append(f"  {idx}. `{rendered_cmd}`: {step['purpose']}{prereq}")
+        lines.extend([
+            f"- **Avoid**: {entry.avoid}",
+            f"- **Documentation**: [{entry.docs}]({entry.docs})",
+            "",
+        ])
+
+    lines.extend([
+        "## Session Lifecycle & State Definitions",
+        "",
+        "PeerHub manages durable session continuity for AI peer adapters (`cc`, `cx`, `ag`) via retained sessions in SQLite storage (`bridge_session_history`, `bridge_sessions`).",
+        "",
+        "### Session States",
+        "",
+        "- **`ACTIVE`**: The session is retained, verified eligible, and ready for immediate turn execution and turn reuse. A session remains `ACTIVE` across successful subsequent turns on the same stream, peer, and compatible binding.",
+        "- **`FRESH`**: A newly allocated session generation that has been created but has not yet completed a successful native vendor execution.",
+        "- **`LOST`**: Session continuity has been broken or tainted. This occurs when the adapter reports context loss, when a prior execution ends in an uncertain state (e.g. timeout or abort), or when a session resumption is rejected. A `LOST` session cannot be resumed; subsequent turns automatically allocate a new session generation.",
+        "- **`TOMBSTONED`**: The session has been permanently retired because it exceeded the maximum retention age (`MAX_AGE_S` = 30 days) or the per-stream history capacity (`MAX_RETAINED` = 20 sessions). Tombstoned sessions cannot be resumed or resurrected.",
+        "",
+        "### Resumability (`resumable`)",
+        "",
+        "- **`resumable`**: A boolean flag (`0` or `1`) indicating whether the adapter and runtime target support multi-turn session resumption. CLI peers with native session continuation support (`cc`, `cx`, `ag`) operate with `resumable = 1`. If an adapter is not resumable, every turn executes in a fresh generation.",
+        "",
+        "### Generation Semantics (`session_generation`)",
+        "",
+        "The session generation counter (`session_generation`) tracks distinct conversation lineages within a stream and peer:",
+        "",
+        "- **Generation Stays Constant (`gen = 1`)**: Within a retained session, the generation remains constant (e.g. `1`) across turns as long as the caller continues on the same stream and peer with compatible options. Subsequent asks on that stream automatically reuse the warm session without bumping the generation.",
+        "- **Generation Bumps (`gen -> gen + 1`)**: PeerHub allocates a new generation (incrementing `session_generation` via `bridge_session_counters`) in any of the following circumstances:",
+        "  1. **Binding Change**: When the effective runtime binding changes. For example, in Antigravity (`ag`), switching between read-only and `--writable` changes the CLI execution mode (`--mode accept-edits`), modifying the binding and bumping the generation.",
+        "  2. **Session Marked `LOST`**: When an earlier turn timed out, aborted, or ended in uncertainty, the session is marked `LOST` to prevent split-brain execution; the next request starts a new generation.",
+        "  3. **Explicit `--fresh`**: When the caller explicitly requests `--fresh`, forcing a new session generation.",
+        "  4. **Expiration or Tombstoning**: When the retained session exceeds 30 days or is pruned due to quota.",
+        "  5. **Workspace or Fingerprint Mismatch**: When the workspace lineage or adapter binary fingerprint differs from the retained session.",
+        "  6. **Context Delta Overflow**: When the catch-up delta exceeds the context window budget (`delta_too_large`).",
+        "",
+    ])
+
+    return "\n".join(lines)
+

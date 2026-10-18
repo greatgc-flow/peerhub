@@ -1,0 +1,133 @@
+# PeerHub Guidance & Session Reference
+
+Reference documentation for PeerHub CLI outcome status codes, recovery guidance, and session lifecycle states.
+
+## Status Outcomes & Recovery Guidance
+
+The table below is generated from the PeerHub guidance registry (`peerhub/cli/recovery.py`). Each non-success outcome code maps to its operational meaning, safe recovery action, and actions to avoid.
+
+| Status / Outcome Code | Meaning | Safe Recovery Action | Avoid |
+|---|---|---|---|
+| `ask_blocked_uncertain` | New request on this stream is blocked because an earlier record on the stream ended in an uncertain state. | `peerhub diag health --stream STREAM_ID` (Inspect the blocked stream and review uncommitted evidence) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context. |
+| `ask_claim_held` | A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream. | `peerhub diag health --stream STREAM_ID` (Inspect store connectivity and stream activity (note: diag health checks store and stream records, not active in-memory leases or claims)) | Do not delete claim tables or database files, do not force --fresh, and do not bypass claim contention with duplicate request IDs. |
+| `ask_delivery_failed` | Adapter invocation failed before execution started or failed critically during delivery. | `peerhub diag health` (Inspect peer adapter status and diagnostic health) | Do not loop blind retries or pass --fresh without verifying adapter flags and availability. |
+| `ask_launch_failed` | Provider CLI executable could not be found or failed to spawn before execution started. | `peerhub diag health` (Inspect peer adapter availability and PATH configuration) | Do not loop retries or pass --fresh until the provider CLI executable is installed and reachable on PATH. |
+| `ask_refusal` | The provider explicitly refused execution before performing any tool calls (task outcome NOT_EXECUTED). | `peerhub diag quota` (Inspect provider quota pools and reset times) | Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue. |
+| `ask_selector_error` | Session selector or handle validation failed before invocation could begin. | `peerhub session list` (List available valid sessions and check session handles) | Do not invent session handles, do not combine --fresh with --session, and do not retry without correcting the session selector. |
+| `ask_stream_peer_mismatch` | The target stream is already bound to a different ask target peer. | `peerhub stream list` (Inspect existing streams and select or create a stream for this peer) | Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding. |
+| `ask_uncertain` | Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort). | `peerhub diag health --stream STREAM_ID` (Inspect stream health and check for uncommitted or partial activity) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. |
+| `ask_unexpected_failure` | An unclassified or unexpected error occurred during ask dispatch. | `peerhub diag health` (Inspect diagnostic evidence and stream state) | Do not retry destructive actions or invent unverified recovery commands. |
+
+### Detailed Recovery Advice by Outcome Code
+
+#### `ask_blocked_uncertain`
+
+- **Meaning**: New request on this stream is blocked because an earlier record on the stream ended in an uncertain state.
+- **Why**: Stream ordering requires resolving or abandoning uncertain prior work before appending new turns on the stream. Inspect stream health and uncommitted evidence before deciding whether to retry or start a new stream.
+- **Safe Recovery Actions**:
+  1. `peerhub diag health --stream STREAM_ID`: Inspect the blocked stream and review uncommitted evidence (Prerequisites: Provide the affected stream identifier.)
+- **Avoid**: Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context.
+- **Documentation**: [docs/remote-ask.md](docs/remote-ask.md)
+
+#### `ask_claim_held`
+
+- **Meaning**: A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream.
+- **Why**: Only one caller can execute an ask turn per peer and stream at a time to prevent concurrent dispatch races. Wait for the active turn to finish, or use a distinct --stream for genuinely separate parallel work.
+- **Safe Recovery Actions**:
+  1. `peerhub diag health --stream STREAM_ID`: Inspect store connectivity and stream activity (note: diag health checks store and stream records, not active in-memory leases or claims) (Prerequisites: Wait for the active turn or lease timeout to expire.)
+- **Avoid**: Do not delete claim tables or database files, do not force --fresh, and do not bypass claim contention with duplicate request IDs.
+- **Documentation**: [docs/design/a2a-inbound-server.md](docs/design/a2a-inbound-server.md)
+
+#### `ask_delivery_failed`
+
+- **Meaning**: Adapter invocation failed before execution started or failed critically during delivery.
+- **Why**: The adapter rejected pre-spawn execution policy (e.g. ag without --writable), failed pre-spawn validation, or encountered a storage/delivery error.
+- **Safe Recovery Actions**:
+  1. `peerhub diag health`: Inspect peer adapter status and diagnostic health (Prerequisites: None.)
+- **Avoid**: Do not loop blind retries or pass --fresh without verifying adapter flags and availability.
+- **Documentation**: [docs/remote-ask.md](docs/remote-ask.md)
+
+#### `ask_launch_failed`
+
+- **Meaning**: Provider CLI executable could not be found or failed to spawn before execution started.
+- **Why**: The configured provider binary (codex, claude, or agy) is missing from PATH or the OS rejected process creation before any turn started.
+- **Safe Recovery Actions**:
+  1. `peerhub diag health`: Inspect peer adapter availability and PATH configuration (Prerequisites: Ensure the provider CLI is installed and on PATH.)
+- **Avoid**: Do not loop retries or pass --fresh until the provider CLI executable is installed and reachable on PATH.
+- **Documentation**: [docs/remote-ask.md](docs/remote-ask.md)
+
+#### `ask_refusal`
+
+- **Meaning**: The provider explicitly refused execution before performing any tool calls (task outcome NOT_EXECUTED).
+- **Why**: The provider reported quota exhaustion, invalid model selection, authentication failure, or another refusal before start.
+- **Safe Recovery Actions**:
+  1. `peerhub diag quota`: Inspect provider quota pools and reset times (Prerequisites: None.)
+  2. `peerhub profile list`: Review available model profiles and configured bindings (Prerequisites: None.)
+- **Avoid**: Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue.
+- **Documentation**: [docs/history/from-engram-repo/protocol-docs/ops/automatic-profile-routing-2026-06-20.md](docs/history/from-engram-repo/protocol-docs/ops/automatic-profile-routing-2026-06-20.md)
+
+#### `ask_selector_error`
+
+- **Meaning**: Session selector or handle validation failed before invocation could begin.
+- **Why**: The specified session handle is invalid, tombstoned, incompatible with the runtime binding, or flags like --fresh and --session conflict.
+- **Safe Recovery Actions**:
+  1. `peerhub session list`: List available valid sessions and check session handles (Prerequisites: None.)
+- **Avoid**: Do not invent session handles, do not combine --fresh with --session, and do not retry without correcting the session selector.
+- **Documentation**: [docs/implementation/RETAINED_SESSIONS.md](docs/implementation/RETAINED_SESSIONS.md)
+
+#### `ask_stream_peer_mismatch`
+
+- **Meaning**: The target stream is already bound to a different ask target peer.
+- **Why**: Each ask stream maintains ordered single-peer session continuity and cannot be retargeted to another peer mid-stream.
+- **Safe Recovery Actions**:
+  1. `peerhub stream list`: Inspect existing streams and select or create a stream for this peer (Prerequisites: Use a distinct --stream per target peer.)
+- **Avoid**: Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding.
+- **Documentation**: [docs/remote-ask.md](docs/remote-ask.md)
+
+#### `ask_uncertain`
+
+- **Meaning**: Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort).
+- **Why**: The provider or process exceeded timeout or was interrupted before producing terminal truth. Execution state remains uncertain.
+- **Safe Recovery Actions**:
+  1. `peerhub diag health --stream STREAM_ID`: Inspect stream health and check for uncommitted or partial activity (Prerequisites: Provide the affected stream identifier.)
+  2. `peerhub diag health`: Check overall store and peer health (Prerequisites: None.)
+- **Avoid**: Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work.
+- **Documentation**: [docs/remote-ask.md](docs/remote-ask.md)
+
+#### `ask_unexpected_failure`
+
+- **Meaning**: An unclassified or unexpected error occurred during ask dispatch.
+- **Why**: An unhandled exception or internal error interrupted the ask command.
+- **Safe Recovery Actions**:
+  1. `peerhub diag health`: Inspect diagnostic evidence and stream state (Prerequisites: None.)
+- **Avoid**: Do not retry destructive actions or invent unverified recovery commands.
+- **Documentation**: [docs/remote-ask.md](docs/remote-ask.md)
+
+## Session Lifecycle & State Definitions
+
+PeerHub manages durable session continuity for AI peer adapters (`cc`, `cx`, `ag`) via retained sessions in SQLite storage (`bridge_session_history`, `bridge_sessions`).
+
+### Session States
+
+- **`ACTIVE`**: The session is retained, verified eligible, and ready for immediate turn execution and turn reuse. A session remains `ACTIVE` across successful subsequent turns on the same stream, peer, and compatible binding.
+- **`FRESH`**: A newly allocated session generation that has been created but has not yet completed a successful native vendor execution.
+- **`LOST`**: Session continuity has been broken or tainted. This occurs when the adapter reports context loss, when a prior execution ends in an uncertain state (e.g. timeout or abort), or when a session resumption is rejected. A `LOST` session cannot be resumed; subsequent turns automatically allocate a new session generation.
+- **`TOMBSTONED`**: The session has been permanently retired because it exceeded the maximum retention age (`MAX_AGE_S` = 30 days) or the per-stream history capacity (`MAX_RETAINED` = 20 sessions). Tombstoned sessions cannot be resumed or resurrected.
+
+### Resumability (`resumable`)
+
+- **`resumable`**: A boolean flag (`0` or `1`) indicating whether the adapter and runtime target support multi-turn session resumption. CLI peers with native session continuation support (`cc`, `cx`, `ag`) operate with `resumable = 1`. If an adapter is not resumable, every turn executes in a fresh generation.
+
+### Generation Semantics (`session_generation`)
+
+The session generation counter (`session_generation`) tracks distinct conversation lineages within a stream and peer:
+
+- **Generation Stays Constant (`gen = 1`)**: Within a retained session, the generation remains constant (e.g. `1`) across turns as long as the caller continues on the same stream and peer with compatible options. Subsequent asks on that stream automatically reuse the warm session without bumping the generation.
+- **Generation Bumps (`gen -> gen + 1`)**: PeerHub allocates a new generation (incrementing `session_generation` via `bridge_session_counters`) in any of the following circumstances:
+  1. **Binding Change**: When the effective runtime binding changes. For example, in Antigravity (`ag`), switching between read-only and `--writable` changes the CLI execution mode (`--mode accept-edits`), modifying the binding and bumping the generation.
+  2. **Session Marked `LOST`**: When an earlier turn timed out, aborted, or ended in uncertainty, the session is marked `LOST` to prevent split-brain execution; the next request starts a new generation.
+  3. **Explicit `--fresh`**: When the caller explicitly requests `--fresh`, forcing a new session generation.
+  4. **Expiration or Tombstoning**: When the retained session exceeds 30 days or is pruned due to quota.
+  5. **Workspace or Fingerprint Mismatch**: When the workspace lineage or adapter binary fingerprint differs from the retained session.
+  6. **Context Delta Overflow**: When the catch-up delta exceeds the context window budget (`delta_too_large`).
+

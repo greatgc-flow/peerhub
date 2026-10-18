@@ -20,6 +20,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Model Profiles](model-profiles/model-profiles.json): Provider model defaults, profiles, and refresh schemas.
 - [Adapter Guide](adapters/README.md): Vendor CLI prerequisites, authentication, and execution flags (`cc`, `cx`, `ag`).
 - [CLI Reference](adapters/peer-cli-reference.md): Low-level adapter options and platform constraints.
+- [Guidance & Session Reference](guidance-reference.md): Status outcome codes, safe recovery actions, and session lifecycle state definitions.
 
 ## Active Design & Plans
 - [Design Documents Index](design/README.md): Overview of active design specifications, deferred proposals, and history pointers.

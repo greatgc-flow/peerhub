@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 import sys
 import pytest
@@ -827,6 +828,36 @@ def test_tool_only_turn_empty_response_propagated(tmp_path):
     assert res["response"] == ""
     assert res["empty_response"] is True
     assert res["task_effects"] == "unverified"
+
+
+def test_guidance_reference_doc_parity():
+    """Issue #135: Parity test between guidance registry, session definitions, and docs/guidance-reference.md."""
+    from peerhub.cli.recovery import render_guidance_reference, REGISTRY
+
+    doc_path = Path("docs/guidance-reference.md")
+    assert doc_path.is_file(), "docs/guidance-reference.md does not exist"
+    doc_content = doc_path.read_text(encoding="utf-8")
+
+    # Parity with generator
+    expected_content = render_guidance_reference()
+    assert doc_content.strip() == expected_content.strip(), "docs/guidance-reference.md differs from render_guidance_reference()"
+
+    # Verify coverage of every registered guidance code
+    for code, entry in REGISTRY.items():
+        assert code in doc_content, f"Guidance code {code} missing from doc"
+        assert entry.meaning in doc_content, f"Meaning for {code} missing from doc"
+        for step in entry.recover:
+            assert step["purpose"] in doc_content, f"Recovery purpose for {code} missing"
+
+    # Verify session state definitions in doc
+    assert "ACTIVE" in doc_content
+    assert "LOST" in doc_content
+    assert "FRESH" in doc_content
+    assert "TOMBSTONED" in doc_content
+    assert "resumable" in doc_content
+    assert "session_generation" in doc_content
+    assert "binding change" in doc_content.lower()
+
 
 
 
