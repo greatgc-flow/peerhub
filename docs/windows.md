@@ -73,7 +73,7 @@ For long, multiline, or heavily-quoted prompts (such as code reviews, markdown e
 Set-Content -Path "query.txt" -Value "Review this function: def foo(bar): return bar * 2" -Encoding utf8
 
 # Pass prompt file directly to peerhub ask
-peerhub ask cc "Prompt from file" --query-file query.txt --stream review-session --request-id req-qf-001
+peerhub ask cc --query-file query.txt --stream review-session --request-id req-qf-001
 ```
 
 ## Non-ASCII and Unicode Paths
