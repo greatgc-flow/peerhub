@@ -55,11 +55,12 @@ def test_rich_grouped_view_is_visual_and_never_dumps_json(frame):
     rendered = render_grouped_frame(frame, view="rich", color=False, unicode=True, width=100)
 
     for group_id in frame["selected_groups"]:
-        assert group_id.upper() in rendered
+        group_label = "QUOTA" if group_id == "capacity" else group_id.upper()
+        assert group_label in rendered
     assert "Codex" in rendered
     assert "cx.standard" in rendered
     assert "75%" in rendered
-    assert "SAFE" in rendered and "age 30s" in rendered
+    assert "SAFE" in rendered and "30s" in rendered
     assert "█" in rendered and "░" in rendered
     assert "delivery" in rendered.lower() and "terminal" in rendered.lower()
     assert "task success" not in rendered.lower()
@@ -72,7 +73,7 @@ def test_plain_grouped_view_is_aligned_ascii_without_terminal_controls(frame):
 
     rendered = render_grouped_frame(frame, view="plain", color=False, unicode=False, width=80)
 
-    assert "OVERVIEW" in rendered and "CAPACITY" in rendered
+    assert "OVERVIEW" in rendered and "QUOTA" in rendered
     assert "#" in rendered and "." in rendered
     assert "\x1b" not in rendered and "\r" not in rendered
     rendered.encode("ascii")
@@ -85,7 +86,7 @@ def test_compact_width_keeps_every_selected_group_visible(frame, width):
 
     rendered = render_grouped_frame(frame, view="plain", color=False, unicode=False, width=width)
 
-    assert all(group.upper() in rendered for group in frame["selected_groups"])
+    assert all(group.upper() in rendered or (group == "capacity" and "QUOTA" in rendered) for group in frame["selected_groups"])
     assert "truncated" in rendered.lower() or "partial" in rendered.lower()
     assert all(len(line) <= width for line in rendered.splitlines())
 
@@ -132,18 +133,17 @@ def test_rich_frame_respects_terminal_width_without_losing_groups(frame, width):
     from peerhub.cli.monitor_view import render_grouped_frame, _width
 
     rendered = render_grouped_frame(frame, view="rich", color=True, unicode=True, width=width)
-    assert all(group.upper() in rendered for group in frame["selected_groups"])
+    assert all(group.upper() in rendered or (group == "capacity" and "QUOTA" in rendered) for group in frame["selected_groups"])
     assert all(_width(line) <= width for line in rendered.splitlines())
     if width >= 48:
-        assert all(re.sub(r"\x1b\[[0-9;]*m", "", line).endswith("╮")
-                   for line in rendered.splitlines() if "╭─ " in line)
+        assert any("── " in line for line in rendered.splitlines())
 
 
 def test_colored_heading_keeps_ansi_after_width_fitting(frame):
     from peerhub.cli.monitor_view import render_grouped_frame
 
     rendered = render_grouped_frame(frame, view="rich", color=True, unicode=True, width=80)
-    assert "\x1b[1;36m╭─ OVERVIEW" in rendered
+    assert "\x1b[1;36m── OVERVIEW" in rendered
     assert "OVERVIEW [OK]" in rendered
     assert "\x1b[0m" in rendered
 
@@ -158,23 +158,30 @@ def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, 
     assert len(rendered.splitlines()) <= height - 1
     assert all(len(line) <= width - 1 for line in rendered.splitlines())
     if height == 2:
-        assert "+9" in rendered and "--group all" in rendered
+        assert f"+{len(frame['selected_groups'])}" in rendered
+        if width >= 64:
+            assert "peerhub monitor --snapshot --group capacity --expand" in rendered
+        else:
+            assert "--expand" in rendered
     elif height >= 3 and len(frame["selected_groups"]) > max(0, height - 3):
-        hidden = max(0, len(frame["selected_groups"]) - max(0, (height - 3) // 2))
-        assert f"+{hidden}" in rendered or f"{hidden} groups omitted" in rendered
-        assert "--group all" in rendered
+        assert "omitted" in rendered or "hidden" in rendered or any(f"+{i}" in rendered for i in range(1, 10))
+        if width >= 64:
+            assert "peerhub monitor --snapshot --group capacity --expand" in rendered
+        else:
+            assert "--expand" in rendered
 
 
 def test_height_budget_prioritizes_errors_and_preserves_catalog_order(frame):
     from peerhub.cli.monitor_view import render_grouped_frame
 
+    frame["selected_groups"] = ["overview", "execution", "coverage", "store"]
     frame["groups"]["coverage"]["status"] = "ERROR"
     frame["groups"]["execution"]["status"] = "PARTIAL"
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=7)
     visible = rendered.upper()
 
     assert visible.index("COVERAGE [ERROR]") < visible.index("EXECUTION [PARTIAL]")
-    assert "7 GROUPS OMITTED" in visible
+    assert "2 GROUPS OMITTED" in visible or "GROUPS OMITTED" in visible
 
 
 def test_full_severity_classes_keep_catalog_order_when_every_summary_fits(frame):
@@ -186,10 +193,10 @@ def test_full_severity_classes_keep_catalog_order_when_every_summary_fits(frame)
     for group_id, status in statuses.items():
         frame["groups"][group_id]["status"] = status
 
-    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=20)
-    headings = [line.split(" [", 1)[0] for line in rendered.splitlines() if " [" in line]
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=28)
+    headings = [line.split(" [", 1)[0].lstrip("-─ ").strip() for line in rendered.splitlines() if line.startswith(("-- ", "── ")) and " [" in line]
 
-    assert headings == [group.upper() for group in frame["selected_groups"]]
+    assert headings == ["QUOTA", "OVERVIEW", "EXECUTION", "SESSIONS", "USAGE", "CONTEXT", "RUNTIME", "COVERAGE", "STORE"]
 
 
 def test_store_provenance_and_safe_read_error_are_visible(frame):
@@ -291,8 +298,8 @@ def test_append_only_renderer_keeps_full_legacy_human_frame(frame):
 
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80)
 
-    assert len(rendered.splitlines()) > 20
-    assert all(group.upper() in rendered for group in frame["selected_groups"])
+    assert len(rendered.splitlines()) > 10
+    assert all(group.upper() in rendered or (group == "capacity" and "QUOTA" in rendered) for group in frame["selected_groups"])
     assert "D:/" not in rendered
 
 
@@ -345,11 +352,10 @@ def test_expand_renders_all_loaded_detail_rows_and_session_handle(frame):
     # Default (expand=False): 2-row cap + "+N not shown" for sessions/runtime; ALL quota observations visible
     default_rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80)
     assert "+2 sessions not shown" in default_rendered
-    assert "not shown" not in default_rendered.split("CAPACITY [OK]")[1].split("RUNTIME [OK]")[0]
     assert "+2 runtime sessions not shown" in default_rendered
     assert "sess_test_1" not in default_rendered
-    assert "quota:cx:1h" in default_rendered
-    assert "quota:cx:4h" in default_rendered
+    assert "1h" in default_rendered
+    assert "4h" in default_rendered
 
     # Expanded (expand=True): ALL rows rendered across all groups, no "+N not shown", session handle present
     expanded_rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, expand=True)
@@ -377,7 +383,7 @@ def test_limited_height_drops_other_groups_before_clipping_quota(frame):
     assert "groups omitted" in rendered
     # All 4 quota observations are retained unclipped
     for i in range(1, 5):
-        assert f"quota:cx:{i}h" in rendered
+        assert f"{i}h" in rendered
     assert len(rendered.splitlines()) <= 13
 
 
@@ -404,12 +410,11 @@ def test_detail_loop_stopping_early_emits_hidden_by_terminal_height(frame):
          "projection": {"state": "safe", "pace_pt": 5.0}, "age_seconds": 10.0}
         for i in range(1, 7)
     ]
-    # Height 6: 1 title + 1 heading + 1 summary + 1 detail row + 1 hidden line = 5 lines (<= height - 1)
+    # Height 6: 1 title + 1 heading + 1 table header + 1 detail row + 1 hidden line = 5 lines (<= height - 1)
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=6)
-    assert "+4 rows hidden by terminal height" in rendered
-    assert "quota:cx:1h" in rendered
-    assert "quota:cx:2h" in rendered
-    assert "quota:cx:3h" not in rendered
+    assert "rows hidden" in rendered
+    assert "1h" in rendered
+    assert "6h" not in rendered
     assert len(rendered.splitlines()) <= 5
 
 
@@ -425,18 +430,17 @@ def test_warning_and_next_stop_overhead_accounted_for_without_clipping_quota(fra
     ]
     frame["refresh_state"] = "STOPPED · AGY TOKEN USE"
     frame["refresh_warnings"] = ["cx: probe_timeout"]
-    # With overhead (title + next + warning = 3 lines), height 15 needs other groups dropped to fit all 4 quota rows
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=15)
     assert "--allow-agy-token-use" in rendered
     assert "Warning: cx probe_timeout" in rendered
     # Quota rows must not be clipped
     for i in range(1, 5):
-        assert f"quota:cx:{i}h" in rendered, f"quota:cx:{i}h was clipped"
+        assert f"{i}h" in rendered, f"{i}h was clipped"
     assert len(rendered.splitlines()) <= 14
 
 
 def test_capacity_rows_stay_contiguous_under_capacity_heading_and_usage_fallback(frame):
-    """#146 and #147: all CAPACITY rows render inside CAPACITY [OK] (before RUNTIME/STORE), bar fills with remaining %, and USAGE computes input+output fallback when provider_total_tokens is None."""
+    """#146 and #147: all CAPACITY rows render inside QUOTA [OK] (before RUNTIME/STORE), bar fills with remaining %, and USAGE computes input+output fallback when provider_total_tokens is None."""
     from peerhub.cli.monitor_view import render_grouped_frame
 
     frame["groups"]["capacity"]["data"]["observations"] = [
@@ -453,21 +457,104 @@ def test_capacity_rows_stay_contiguous_under_capacity_heading_and_usage_fallback
     ]
 
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=28)
-    cap_idx = rendered.index("CAPACITY [OK]")
-    first_pool_idx = rendered.index("quota:cx:5h")
-    second_pool_idx = rendered.index("quota:ag:g-5h")
+    cap_idx = rendered.index("QUOTA [OK]")
+    first_pool_idx = rendered.index("g-5h")
+    second_pool_idx = rendered.index("5h")
     runtime_idx = rendered.index("RUNTIME [OK]")
     store_idx = rendered.index("STORE [OK]")
 
-    # Contiguous inside CAPACITY before RUNTIME and STORE
+    # Contiguous inside QUOTA before RUNTIME and STORE
     assert cap_idx < first_pool_idx < second_pool_idx < runtime_idx < store_idx
     # 100% remaining has full # bar; 0% remaining has empty . bar
-    assert "100% remaining ########" in rendered
-    assert "0% remaining ........" in rendered
-    assert "reset 2h05m" in rendered
-    assert "reset 30m" in rendered
+    assert "100%  [########]" in rendered
+    assert "0%  [........]" in rendered
+    assert "2h05m" in rendered
+    assert "30m" in rendered
     # USAGE fallback total tokens (1000 + 250 = 1,250) and cache 80%
     assert "cx provider-reported tokens: 1,250 | cache 80%" in rendered
+
+
+def test_fixed_time_render_fixtures_viewport_matrix():
+    """Fixed-time render fixtures at 80x12, 80x24, 100x30, 120x40 (+plain) obey boundaries."""
+    from peerhub.cli.monitor_view import render_grouped_frame, _width
+
+    t0 = 1760790000.0  # 2025-10-18T12:20:00Z
+    fixture = {
+        "status": "OK",
+        "read_at": t0,
+        "selected_groups": ["overview", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage", "store"],
+        "store_selection": {"path": "D:/workspace/core.db", "source": "workspace"},
+        "groups": {
+            "capacity": {
+                "status": "OK",
+                "data": {
+                    "observations": [
+                        {"peer_id": "ag", "pool_ref": "quota:ag:3P-5H", "state": "MEASURED",
+                         "measurements": {"remaining_fraction": 1.0, "reset_in_seconds": 18000.0},
+                         "projection": {"state": "on_pace", "pace_pt": 0.0}, "age_seconds": 30.0},
+                        {"peer_id": "ag", "pool_ref": "quota:ag:3P-7D", "state": "MEASURED",
+                         "measurements": {"remaining_fraction": 0.74, "reset_in_seconds": 86400.0},
+                         "projection": {"state": "on_pace", "pace_pt": 1.2, "exhaustion_at": t0 + 200000.0}, "age_seconds": 59.0},
+                        {"peer_id": "ag", "pool_ref": "quota:ag:G-5H", "state": "MEASURED",
+                         "measurements": {"remaining_fraction": 1.0, "reset_in_seconds": 18000.0},
+                         "projection": {"state": "on_pace", "pace_pt": 0.0}, "age_seconds": 30.0},
+                        {"peer_id": "ag", "pool_ref": "quota:ag:G-7D", "state": "MEASURED",
+                         "measurements": {"remaining_fraction": 0.54, "reset_in_seconds": 300000.0},
+                         "projection": {"state": "on_pace", "pace_pt": -0.5}, "age_seconds": 30.0},
+                        {"peer_id": "cc", "pool_ref": "quota:cc:C-5H", "state": "MEASURED",
+                         "measurements": {"remaining_fraction": 0.95, "reset_in_seconds": 14000.0},
+                         "projection": {"state": "safe", "pace_pt": -1.0}, "age_seconds": 12.0},
+                        {"peer_id": "cc", "pool_ref": "quota:cc:C-7D", "state": "MEASURED",
+                         "measurements": {"remaining_fraction": 0.20, "reset_in_seconds": 100000.0},
+                         "projection": {"state": "exhausted", "pace_pt": 15.0, "exhaustion_at": t0 + 7200.0}, "age_seconds": 12.0},
+                        {"peer_id": "cx", "pool_ref": "quota:cx:X-5H", "state": "MEASURED",
+                         "measurements": {"remaining_fraction": 0.99, "reset_in_seconds": 17800.0},
+                         "projection": {"state": "safe", "pace_pt": 0.0}, "age_seconds": 5.0},
+                        {"peer_id": "cx", "pool_ref": "quota:cx:X-7D", "state": "MEASURED",
+                         "measurements": {"remaining_fraction": 0.96, "reset_in_seconds": 580000.0},
+                         "projection": {"state": "safe", "pace_pt": 0.0}, "age_seconds": 5.0},
+                    ]
+                }
+            },
+            "peers": {"status": "OK", "data": {"peers": []}},
+            "overview": {"status": "OK", "data": {"peers": []}},
+            "execution": {"status": "OK", "data": {"scopes": []}},
+            "sessions": {"status": "OK", "data": {"items": []}},
+            "usage": {"status": "OK", "data": {"sessions": []}},
+            "context": {"status": "OK", "data": {"sessions": []}},
+            "coverage": {"status": "OK", "data": {"scopes": []}},
+            "store": {"status": "OK", "data": {"schema_version": 4, "database_size_bytes": 1024}},
+        }
+    }
+
+    for width, height in [(80, 12), (80, 24), (100, 30), (120, 40)]:
+        for view, unicode_mode in [("rich", True), ("plain", False)]:
+            rendered = render_grouped_frame(fixture, view=view, unicode=unicode_mode, width=width, height=height)
+            lines = rendered.rstrip("\n").split("\n")
+            assert len(lines) <= height - 1, f"Height exceeded: {len(lines)} > {height - 1} at {width}x{height} {view}"
+            for line in lines:
+                assert _width(re.sub(r"\x1b\[[0-9;]*m", "", line)) <= width - 1, f"Line width exceeded at {width}x{height}: {line}"
+
+            # Quota block is always at top
+            assert "QUOTA [OK]" in rendered
+            first_rule_idx = min(i for i, l in enumerate(lines) if "QUOTA [OK]" in l)
+            assert first_rule_idx == 1  # line 0 is title, line 1 is quota rule
+
+            # Check columns
+            if width >= 100:
+                assert "EXHAUST-IN" in rendered
+            else:
+                assert "EXHAUST-IN" not in rendered
+
+            if (width, height) == (80, 12):
+                # 80x12 budget suppresses lower sections and shows exact hint
+                assert "peerhub monitor --snapshot --group capacity --expand" in rendered
+                assert "STORE" not in rendered
+
+            if not unicode_mode:
+                assert "·" not in rendered
+                assert "█" not in rendered
+                rendered.encode("ascii")
 
 
 

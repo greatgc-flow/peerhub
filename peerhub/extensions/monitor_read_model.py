@@ -447,6 +447,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         "freshness_basis": freshness.basis,
                         "skew_seconds": freshness.skew_seconds,
                         "measurements": measurements,
+                        "reason": observation.payload.get("reason") or observation.payload.get("condition"),
                     })
                 if "capacity" in groups:
                     output["capacity"] = {"status": "OK", "data": {"observations": observations,

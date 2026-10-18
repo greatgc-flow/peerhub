@@ -135,7 +135,7 @@ def assert_view_glyph_effect(rich, plain, *, monitor=False):
     # and NO_COLOR. Fail if --view becomes inert or both styles use ASCII.
     assert rich != plain
     if monitor:
-        assert "╭" in rich and "╭" not in plain
+        assert "─" in rich and "─" not in plain
         plain.encode("ascii")
         return
     assert "█" in rich and "░" in rich
