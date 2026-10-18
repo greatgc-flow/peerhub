@@ -22,28 +22,68 @@ from peerhub.extensions.ask import LegacySelectorUnsupported
 
 pytestmark = [pytest.mark.unit]
 
-REQUIRED_CODES = {
-    "ask_uncertain",
-    "ask_blocked_uncertain",
-    "ask_claim_held",
-    "ask_selector_error",
-    "ask_refusal",
-    "ask_delivery_failed",
-    "ask_unexpected_failure",
-}
-
-
-def test_registry_contains_all_required_ask_outcomes():
-    for code in REQUIRED_CODES:
-        assert code in REGISTRY, f"Missing required registry code: {code}"
-        entry = REGISTRY[code]
+def test_registry_well_formedness():
+    """Every registered guidance entry satisfies structural well-formedness contracts."""
+    assert len(REGISTRY) >= 9
+    for code, entry in REGISTRY.items():
         assert isinstance(entry, GuidanceEntry)
         assert entry.code == code
-        assert entry.meaning and isinstance(entry.meaning, str)
-        assert entry.why and isinstance(entry.why, str)
-        assert entry.avoid and isinstance(entry.avoid, str)
-        assert entry.docs and isinstance(entry.docs, str)
+        assert entry.meaning and isinstance(entry.meaning, str) and len(entry.meaning.strip()) > 10
+        assert entry.why and isinstance(entry.why, str) and len(entry.why.strip()) > 10
+        assert entry.avoid and isinstance(entry.avoid, str) and len(entry.avoid.strip()) > 10
+        assert entry.docs and isinstance(entry.docs, str) and entry.docs.startswith("docs/")
         assert isinstance(entry.recover, list) and len(entry.recover) > 0
+        for step in entry.recover:
+            assert isinstance(step, dict)
+            assert "argv" in step and isinstance(step["argv"], list) and len(step["argv"]) > 0
+            assert "purpose" in step and isinstance(step["purpose"], str) and len(step["purpose"].strip()) > 5
+            assert "prereqs" in step and isinstance(step["prereqs"], str)
+
+
+def test_scenario_driven_ask_path_outcomes_cover_entire_registry():
+    """Scenario-driven coverage: every code in REGISTRY is emitted by a concrete ask-path scenario."""
+    from peerhub.extensions.bridge_claims import ClaimHeldError
+    from peerhub.extensions.bridge import PrespawnError, SessionNotFoundError, ConflictingSessionFlagsError
+    from peerhub.extensions.ask import LegacySelectorUnsupported, StreamPeerMismatchError
+    from peerhub.core.store import StorageReadOnlyError
+
+    scenarios = [
+        # 1. Unconfirmed termination / timeout
+        {"status": "uncertain", "certainty": "STARTED"},
+        # 2. Blocked uncertain prior turn
+        {"status": "blocked_uncertain"},
+        {"status": "pending_earlier_record", "processed_status": "uncertain"},
+        # 3. Concurrent claim contention
+        {"exception": ClaimHeldError("claim held by peer")},
+        # 4. Session selector errors
+        {"exception": SessionNotFoundError("handle not found")},
+        {"exception": LegacySelectorUnsupported("legacy selector unsupported")},
+        {"exception": ConflictingSessionFlagsError("conflicting session flags")},
+        {"status": "session_unavailable"},
+        # 5. Provider refusals
+        {"status": "not_executed", "reason": "quota_exhausted"},
+        {"status": "not_executed", "reason": "invalid_model"},
+        # 6. Process launch failures (missing binary / OS exec failure)
+        {"exception": PrespawnError("codex executable not found on PATH")},
+        {"status": "failed_not_started", "detail_error": "cannot spawn process"},
+        # 7. Single-peer stream retargeting mismatch
+        {"exception": StreamPeerMismatchError("stream already bound to peer")},
+        # 8. Pre-spawn execution policy or storage delivery failures
+        {"exception": PrespawnError("ag adapter does not enforce a read-only sandbox")},
+        {"exception": StorageReadOnlyError("attempt to write a readonly database")},
+        {"status": "failed_not_started", "detail_error": "unsupported runtime"},
+        # 9. Unexpected runtime exceptions
+        {"exception": RuntimeError("unhandled internal crash")},
+    ]
+
+    emitted_codes: set[str] = set()
+    for sc in scenarios:
+        code = select_guidance_code(**sc)
+        assert code in REGISTRY, f"Scenario {sc} emitted unknown code {code!r}"
+        emitted_codes.add(code)
+
+    # Every code in the registry must be covered by actual scenarios
+    assert emitted_codes == set(REGISTRY.keys()), f"Uncovered registry codes: {set(REGISTRY.keys()) - emitted_codes}"
 
 
 def test_recovery_actions_parse_with_real_parser():
