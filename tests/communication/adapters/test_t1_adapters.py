@@ -388,6 +388,66 @@ def test_decode_stderr_utf8_then_fallback_cp949():
     assert "\ufffd" not in decoded
 
 
+def test_decode_stderr_windows_oem_cp949_claude_not_recognized_fixture(monkeypatch):
+    """#120: decode peer-CLI stderr using evidenced Windows OEM code page (cp949 fixture from claude.exe 'not recognized').
+
+    Mocks console/OEM code-page APIs explicitly and verifies non-Windows and UTF-8 behaviors.
+    """
+    from peerhub.extensions.adapters.process import decode_stderr
+    import ctypes
+    import locale
+    import sys
+
+    # Exact bytes produced by Windows cmd.exe when claude.exe is not recognized in Korean locale (CP949)
+    claude_not_found_cp949 = (
+        b"'claude.exe'\xc0\xba(\xb4\xc2) \xb3\xbb\xba\xce \xb6\xc7\xb4\xc2 \xbf\xdc\xba\xce "
+        b"\xb8\xed\xb7\xc9, \xbd\xc7\xc7\xe0\xc7\xd2 \xbc\xf6 \xc0\xd6\xb4\xc2 \xc7\xc1\xb7\xce\xb1\xd7\xb7\xa5, "
+        b"\xb6\xc7\xb4\xc2\r\n\xb9\xe8\xc4\xa1 \xc6\xc4\xc0\xcf\xc0\xcc \xbe\xc6\xb4\xd5\xb4\xcf\xb4\xd9.\r\n"
+    )
+    utf8_msg_bytes = "명령이 정상적으로 실행되었습니다. (claude.exe UTF-8)".encode("utf-8")
+
+    class MockKernel32:
+        def GetConsoleOutputCP(self) -> int:
+            return 949
+
+        def GetOEMCP(self) -> int:
+            return 949
+
+    class MockWindll:
+        kernel32 = MockKernel32()
+
+    # Case 1: Windows environment with explicitly mocked console/OEM CP (CP949)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(ctypes, "windll", MockWindll(), raising=False)
+    monkeypatch.setattr(locale, "getpreferredencoding", lambda *a: "utf-8")
+
+    decoded_win = decode_stderr(claude_not_found_cp949)
+    assert "'claude.exe'은(는) 내부 또는 외부 명령" in decoded_win
+    assert "실행할 수 있는 프로그램" in decoded_win
+    assert "\ufffd" not in decoded_win
+
+    # Case 2: Windows UTF-8 stderr decodes cleanly without needing OEM code page
+    decoded_win_utf8 = decode_stderr(utf8_msg_bytes)
+    assert decoded_win_utf8 == "명령이 정상적으로 실행되었습니다. (claude.exe UTF-8)"
+    assert "\ufffd" not in decoded_win_utf8
+
+    # Case 3: Non-Windows platform (Linux) with UTF-8
+    monkeypatch.setattr(sys, "platform", "linux")
+    decoded_linux_utf8 = decode_stderr(utf8_msg_bytes)
+    assert decoded_linux_utf8 == "명령이 정상적으로 실행되었습니다. (claude.exe UTF-8)"
+
+    # Case 4: Non-Windows platform with non-UTF-8 bytes and fallback_encoding
+    decoded_linux_fallback = decode_stderr(claude_not_found_cp949, fallback_encoding="cp949")
+    assert "'claude.exe'은(는) 내부 또는 외부 명령" in decoded_linux_fallback
+    assert "\ufffd" not in decoded_linux_fallback
+
+    # Case 5: Non-Windows platform without fallback gracefully uses replacement
+    decoded_linux_no_fallback = decode_stderr(claude_not_found_cp949)
+    assert "\ufffd" in decoded_linux_no_fallback
+
+
+
+
 def test_ag_fail_closed_without_writable(mk):
     """#140: ag without writable=True fails closed with PrespawnError before spawning."""
     a = mk("ag", writable=False)

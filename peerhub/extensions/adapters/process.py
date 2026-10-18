@@ -93,15 +93,36 @@ def check_argv(argv: Sequence[Any]) -> None:
 
 
 def decode_stderr(raw: bytes, *, fallback_encoding: str | None = None) -> str:
-    """Decode subprocess stderr as UTF-8 first, falling back to system preferred encoding on non-UTF-8 bytes."""
+    """Decode subprocess stderr using evidenced encoding (Windows: OEM code page via GetOEMCP/GetConsoleOutputCP, fall back UTF-8 with replacement)."""
     try:
         return raw.decode("utf-8")
     except UnicodeDecodeError:
-        enc = fallback_encoding
-        if enc is None and sys.platform == "win32":
-            import locale
-            enc = locale.getpreferredencoding(False)
-        if enc and enc.lower().replace("-", "") != "utf8":
+        candidates: list[str] = []
+        if fallback_encoding:
+            candidates.append(fallback_encoding)
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                k32 = getattr(ctypes, "windll", None) and getattr(ctypes.windll, "kernel32", None)
+                if k32:
+                    for fn in ("GetConsoleOutputCP", "GetOEMCP"):
+                        func = getattr(k32, fn, None)
+                        if func:
+                            cp = func()
+                            if cp:
+                                name = f"cp{cp}"
+                                if name not in candidates:
+                                    candidates.append(name)
+            except Exception:
+                pass
+            try:
+                import locale
+                pref = locale.getpreferredencoding(False)
+                if pref and pref.lower().replace("-", "") != "utf8" and pref not in candidates:
+                    candidates.append(pref)
+            except Exception:
+                pass
+        for enc in candidates:
             try:
                 return raw.decode(enc)
             except (LookupError, UnicodeDecodeError):
