@@ -193,7 +193,7 @@ def test_arch_004_diag_dependency_surface_is_read_only():
     # every non-dunder public method of ReadonlyDiag is a reader
     tree = ast.parse(text)
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ReadonlyDiag")
-    assert {n.name for n in cls.body if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")} == {"render", "inspect_stream_health"}
+    assert {n.name for n in cls.body if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")} == {"render", "inspect_stream_health", "readiness"}
 
 
 @pytest.mark.catalog_id("ARCH-005")

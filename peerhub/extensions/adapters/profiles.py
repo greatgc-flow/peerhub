@@ -60,7 +60,7 @@ def qualified_profile(kind: str, profile: str) -> str:
     return f"{kind}.{profile}" if "." not in profile else profile
 
 
-def inspect_profile(profile: str, workspace: str | Path) -> dict[str, Any]:
+def inspect_profile(profile: str, workspace: str | Path, *, include_pool_source: bool = False) -> dict[str, Any]:
     """Return effective declarative values with the winning TOML layer per field."""
     qualified = profile
     if "." not in qualified or not all(qualified.split(".", 1)):
@@ -98,7 +98,7 @@ def inspect_profile(profile: str, workspace: str | Path) -> dict[str, Any]:
     if not found:
         raise ValueError(f"unknown model profile {qualified!r}")
     mode = effective["selection_mode"]
-    return {
+    result: dict[str, Any] = {
         "profile": qualified,
         "fields": {
             "selection_mode": {"value": mode, "source": sources["selection_mode"]},
@@ -107,9 +107,12 @@ def inspect_profile(profile: str, workspace: str | Path) -> dict[str, Any]:
             "pools": {"value": effective.get("pools"), "source": sources.get("pools", sources["selection_mode"])},
         },
     }
+    if include_pool_source:
+        result["fields"]["pools_source"] = {"value": effective.get("pools_source"), "source": sources.get("pools_source")}
+    return result
 
 
-def list_profiles(workspace: str | Path) -> list[dict[str, Any]]:
+def list_profiles(workspace: str | Path, *, include_pool_source: bool = False) -> list[dict[str, Any]]:
     """List the union of explicitly named profiles across the same resolver layers."""
     packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
     global_home = Path(os.environ.get("PEERHUB_CONFIG_HOME") or Path.home() / ".peerhub" / "config")
@@ -125,7 +128,7 @@ def list_profiles(workspace: str | Path) -> list[dict[str, Any]]:
             raise ValueError("model profile config [profiles] must be a table")
         profile_map = cast("dict[str, Any]", profiles)
         names.update(str(name) for name in profile_map)
-    return [inspect_profile(name, workspace) for name in sorted(names)]
+    return [inspect_profile(name, workspace, include_pool_source=include_pool_source) for name in sorted(names)]
 
 
 def packaged_defaults_meta() -> dict[str, Any]:
@@ -142,6 +145,12 @@ def packaged_defaults_meta() -> dict[str, Any]:
 
 def resolve_model_pools(model: str, workspace: str | Path | None = None) -> list[str] | None:
     """Resolve pool IDs for an exact model name from workspace > global > packaged defaults."""
+    entry = inspect_model_pools(model, workspace)
+    return entry["pools"] if entry is not None else None
+
+
+def inspect_model_pools(model: str, workspace: str | Path | None = None) -> dict[str, Any] | None:
+    """Keep the exact mapping's verification evidence alongside its pool IDs."""
     packaged = resources.files("peerhub.config_data").joinpath("model-defaults.toml")
     with packaged.open("rb") as handle:
         layers = [tomllib.load(handle)]
@@ -160,6 +169,8 @@ def resolve_model_pools(model: str, workspace: str | Path | None = None) -> list
             if isinstance(entry, dict) and "pools" in entry:
                 pools: object = cast(dict[str, Any], entry)["pools"]
                 if isinstance(pools, list):
-                    return [str(p) for p in cast(list[object], pools)]
+                    entry = cast(dict[str, Any], entry)
+                    return {"pools": [str(p) for p in cast(list[object], pools)],
+                            "verified": bool(entry.get("pools_source")) and entry.get("pools_source") != "unverified"}
     return None
 
