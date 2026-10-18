@@ -229,13 +229,23 @@ peerhub diag quota --json
 
 ### Upgrade
 
-```powershell
-pipx upgrade peerhub
-# or
-uv tool upgrade peerhub
-# or
-pip install --upgrade peerhub
-```
+To upgrade PeerHub safely:
+
+1. **Stop `peerhub monitor`**: Stop any active monitor process before upgrading. A running monitor locks `peerhub.exe` on Windows and keeps old code running.
+2. **Run upgrade**:
+   ```powershell
+   pip install -U peerhub
+   # or
+   pipx upgrade peerhub
+   # or
+   uv tool upgrade peerhub
+   ```
+   > [!NOTE]
+   > If pip says no matching version right after a release, retry after a few minutes or install the file URL directly (PyPI index lag).
+3. **Restart monitor**:
+   ```powershell
+   peerhub monitor
+   ```
 
 ### Uninstall
 

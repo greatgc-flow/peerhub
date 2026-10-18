@@ -330,6 +330,8 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
     if not is_success:
         detail_obj: Any = result.get("detail")
         raw_detail_err: Any = cast(dict[str, Any], detail_obj).get("error") if isinstance(detail_obj, dict) else None
+        if not raw_detail_err and isinstance(result.get("error"), dict):
+            raw_detail_err = result["error"].get("message")
         detail_error: str | None = raw_detail_err if isinstance(raw_detail_err, str) else None
         guidance_code = select_guidance_code(
             status=result.get("status"),

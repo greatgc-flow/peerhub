@@ -111,7 +111,8 @@ def test_guide_safety_scenarios_and_behaviour(capsys):
             rules[current_rule] += " " + line.strip()
 
     assert "Writes" in rules
-    assert "Uncertain / pending_earlier_record" in rules
+    assert "Uncertain" in rules
+    assert "pending_earlier_record" in rules
     assert "Store hazards" in rules
     assert "Cost side effects" in rules
     assert "Secrets" in rules
@@ -130,7 +131,7 @@ def test_guide_safety_scenarios_and_behaviour(capsys):
     assert re.search(r"when edits are intended,\s*pass --writable on every turn,\s*including resumed turns", writes_text)
 
     # Meaning-level check 2: Uncertain / pending_earlier_record rule
-    unc_text = rules["Uncertain / pending_earlier_record"]
+    unc_text = rules["Uncertain"]
     assert re.search(r"\bstop that stream\b", unc_text, re.IGNORECASE)
     # Recovery command in text must extract and parse cleanly
     diag_cmd_match = re.search(r"'peerhub\s+([a-z0-9 _-]+)'", unc_text)
@@ -148,6 +149,10 @@ def test_guide_safety_scenarios_and_behaviour(capsys):
     # Distinguishes genuinely new work on a new stream
     assert re.search(r"\bcontinue genuinely new work on a new stream with a summary\b", unc_text, re.IGNORECASE)
     assert re.search(r"peerhub explain <code>", unc_text)
+    pending_text = rules["pending_earlier_record"]
+    assert "processed_status" in pending_text
+    assert "delivered" in pending_text and "same request-id" in pending_text
+    assert "uncertain" in pending_text
 
     # Meaning-level check 3: Store hazards
     store_text = rules["Store hazards"]
@@ -220,6 +225,8 @@ def test_guide_contains_required_sections_and_guidance(capsys):
     assert "session:" in out
     assert "--timeout-seconds" in out and "--silence-timeout-seconds" in out
     assert "foreground/background-with-exit-notification" in out
+    assert "ag prints nothing until done" in out
+    assert "--timeout-seconds 7200" in out
     # Discovery commands
     assert "peerhub monitor" in out
     assert "peerhub monitor --expand" in out
@@ -231,6 +238,9 @@ def test_guide_contains_required_sections_and_guidance(capsys):
     # Single recovery step without saying repo skill
     assert "repo skill" not in out.lower()
     assert "refresh-model-profiles" in out
+    # Upgrade monitor lock guidance (#123)
+    assert "stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor" in out
+    assert "locks peerhub.exe on Windows" in out
 
 
 def test_guide_shows_error_line_if_profiles_fail(monkeypatch, capsys):
@@ -275,4 +285,26 @@ def test_guide_pointers_in_help_and_readme(capsys):
     readme_path = Path("README.md")
     assert readme_path.is_file()
     assert "peerhub guide" in readme_path.read_text(encoding="utf-8")
+
+
+def test_remote_ask_ag_silence_timeout_guidance():
+    """Issue #118: docs/remote-ask.md documents ag silence timeout behavior."""
+    remote_ask = Path("docs/remote-ask.md")
+    assert remote_ask.is_file()
+    text = remote_ask.read_text(encoding="utf-8")
+    assert "ag prints nothing until done" in text
+    assert "--silence-timeout-seconds" in text
+    assert "--timeout-seconds 7200" in text
+
+
+def test_readme_upgrade_guidance():
+    """Issue #123: README Upgrade section documents monitor stopping and PyPI lag."""
+    readme_path = Path("README.md")
+    assert readme_path.is_file()
+    text = readme_path.read_text(encoding="utf-8")
+    assert "peerhub monitor" in text
+    assert "locks `peerhub.exe` on Windows" in text
+    assert "PyPI index lag" in text
+
+
 
