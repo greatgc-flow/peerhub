@@ -1,0 +1,14 @@
+PeerHub Monitor | OK | 1970-01-01 00:16:40Z
+[32m── QUOTA [OK] | soonest exhaust: ag P-3H 1% in 30m ────────────────────────────[0m
+PEER  POOL        REM  [BAR]       RESET-IN   PACE      STATE         AGE
+[32mag    P-1H       100%  [████████]  2h00m      -         ON_PACE       30s[0m
+[33mag    P-2H        50%  [████░░░░]  2h00m      -         WATCH         30s[0m
+[31mag    P-3H         1%  [▏░░░░░░░]  2h00m      -         THREAT        30s[0m
+[31mag    P-4H         0%  [░░░░░░░░]  2h00m      -         EXHAUSTED     30s[0m
+[31mag    P-5H          -  [░░░░░░░░]  -          -         ERROR         30s[0m
+[2mag    P-6H          -  [░░░░░░░░]  -          -         UNKNOWN       30s[0m
+[2mag    P-7H          -  [░░░░░░░░]  -          -         STALE         30s[0m
+[2mag    P-8H        90%  [███████░]  2h00m      -         INSUFFICIENT    30s[0m
+[2mag probe: UNKNOWN fresh measured evidence is requ… (2043s ago)[0m
+[2mcc probe: ERROR claude_usage_timeout (10635s ago)[0m
+STATE: INSUFFICIENT=not enough history; THREAT=exhausts before reset; ON_PACE
