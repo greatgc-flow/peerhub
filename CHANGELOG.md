@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+> [!NOTE]
+> **Scope Notice:** This PR resolves Slice S1 execution safety and stream fencing (#125, #126, #127, #140), core guidance registry and exact-code `peerhub explain <CODE>` (#117 S2-A), bare CLI routing (#121), stderr decoding (#120), monitor UX improvements (#146, #147), and documentation updates (#118, #123, #130, #134–#136, #148, #149).
+> Lessons catalog keyword lookup, packaged `lessons.toml`, generated `docs/lessons.md` parity test, and top-level `peerhub readiness` command (#145) are **NOT** included in this PR and remain pending follow-up PRs; this PR does not claim S1-S4 completion.
+
 ### Breaking
 
 - **Native `ag` requires explicit `--writable` (#140):** Because the `agy` CLI does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution now fails closed pre-spawn (`PrespawnError` / `failed_not_started`) unless `--writable` is explicitly set. Cached replay of already-acknowledged requests continues to return before policy validation.
@@ -30,7 +34,7 @@ they do not claim new validation or publication evidence.
 ### Fixed
 
 - Subprocess stderr decoding (`decode_stderr`) now attempts strict UTF-8 first and falls back to `locale.getpreferredencoding(False)`, preventing `U+FFFD` replacement loss on Windows localized error messages (#120).
-- Preserved bounded terminal provider error summaries in `detail.error` when preceded by verbose startup stderr, and segregated `cx` pre-tool narration `agent_message` items from the final post-tool response (#127).
+- Preserved bounded terminal provider error summaries in `detail.error` when preceded by verbose startup stderr (#127), and kept aggregate `cx` response text across turns unless explicit provider phase metadata cleanly separates final text from commentary (#127).
 
 ## [0.19.0] - 2026-10-17
 
