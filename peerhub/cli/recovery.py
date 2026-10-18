@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import shlex
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -26,18 +26,27 @@ class GuidanceEntry:
     recover: list[dict[str, Any]]
     avoid: str
     docs: str
-    exit_code: int = 1
+    exits: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
+
+    @property
+    def exit_code(self) -> int | None:
+        """Scalar exit code if entry has exactly one exit code; None if context-dependent."""
+        distinct_codes = {int(e["code"]) for e in self.exits}
+        return next(iter(distinct_codes)) if len(distinct_codes) == 1 else None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "code": self.code,
-            "exit_code": self.exit_code,
             "meaning": self.meaning,
             "why": self.why,
             "recover": self.recover,
             "avoid": self.avoid,
             "docs": self.docs,
+            "exits": self.exits,
         }
+        if self.exit_code is not None:
+            data["exit_code"] = self.exit_code
+        return data
 
     def summary(self) -> str:
         next_action = self.recover[0]["purpose"] if self.recover else "Inspect diagnostics"
@@ -51,15 +60,19 @@ class ResultStatusEntry:
     guidance_code: str
     meaning: str
     safe_action: str
+    processed_status_cases: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data: dict[str, Any] = {
             "status": self.status,
             "exit_code": self.exit_code,
             "guidance_code": self.guidance_code,
             "meaning": self.meaning,
             "safe_action": self.safe_action,
         }
+        if self.processed_status_cases:
+            data["processed_status_cases"] = self.processed_status_cases
+        return data
 
 
 RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
@@ -94,9 +107,35 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
     "pending_earlier_record": ResultStatusEntry(
         status="pending_earlier_record",
         exit_code=1,
-        guidance_code="ask_blocked_uncertain",
-        meaning="Stream has earlier pending work that has not yet completed terminal execution.",
-        safe_action="Await completion of earlier record or inspect stream state via `peerhub diag health --stream STREAM_ID`.",
+        guidance_code="context-dependent",
+        meaning="Cycle processed an earlier record on the stream rather than this prompt. Meaning and guidance depend on processed_status (earlier may have delivered, refused, failed, or ended uncertain).",
+        safe_action="Inspect earlier outcome: re-run ask if earlier delivered; check quota/health if refused/failed; abandon stream if uncertain.",
+        processed_status_cases=[
+            {
+                "processed_status": "delivered / recovered_terminal",
+                "guidance_code": "(none)",
+                "meaning": "Earlier record delivered successfully; prompt was queued behind it and remains unexecuted in this cycle.",
+                "safe_action": "Re-run peerhub ask on the same stream to execute this prompt on the warm session.",
+            },
+            {
+                "processed_status": "not_executed",
+                "guidance_code": "ask_refusal",
+                "meaning": "Earlier record was refused by the provider (quota, auth, invalid model).",
+                "safe_action": "Inspect quota via peerhub diag quota or verify profile configuration.",
+            },
+            {
+                "processed_status": "failed_not_started",
+                "guidance_code": "ask_launch_failed / ask_delivery_failed",
+                "meaning": "Earlier record failed before execution started (missing executable or pre-spawn policy check).",
+                "safe_action": "Inspect provider binary and PATH configuration via peerhub diag health.",
+            },
+            {
+                "processed_status": "uncertain / blocked_uncertain",
+                "guidance_code": "ask_blocked_uncertain",
+                "meaning": "Earlier record ended in an uncertain state, blocking further progress on this stream.",
+                "safe_action": "Inspect stream via peerhub diag health --stream STREAM_ID. Abandon stream; start a new stream for subsequent work.",
+            },
+        ],
     ),
     "recovered_terminal": ResultStatusEntry(
         status="recovered_terminal",
@@ -123,6 +162,7 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
 
 
 
+
 REGISTRY: dict[str, GuidanceEntry] = {
     "ask_uncertain": GuidanceEntry(
         code="ask_uncertain",
@@ -142,6 +182,9 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work.",
         docs="docs/remote-ask.md",
+        exits=[
+            {"code": 1, "context": "Execution timed out or aborted without terminal certainty (uncertain result status)."}
+        ],
     ),
     "ask_blocked_uncertain": GuidanceEntry(
         code="ask_blocked_uncertain",
@@ -156,6 +199,9 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context.",
         docs="docs/remote-ask.md",
+        exits=[
+            {"code": 1, "context": "Stream has an earlier record in an uncertain state, blocking subsequent turns (blocked_uncertain result status)."}
+        ],
     ),
     "ask_claim_held": GuidanceEntry(
         code="ask_claim_held",
@@ -170,6 +216,9 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not delete claim tables or database files, do not force --fresh, and do not bypass claim contention with duplicate request IDs.",
         docs="docs/design/a2a-inbound-server.md",
+        exits=[
+            {"code": 1, "context": "Concurrent ask operation or active lease currently holds the delivery claim (ClaimHeldError)."}
+        ],
     ),
     "ask_selector_error": GuidanceEntry(
         code="ask_selector_error",
@@ -184,7 +233,10 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not invent session handles, do not combine --fresh with --session, and do not retry without correcting the session selector.",
         docs="docs/implementation/RETAINED_SESSIONS.md",
-        exit_code=2,
+        exits=[
+            {"code": 1, "context": "Session lost error (SessionLostError) when retained session continuity is broken."},
+            {"code": 2, "context": "Selector syntax error, unsupported selector, conflicting flags, or session handle not found (session_unavailable status or invalid_arguments)."},
+        ],
     ),
     "ask_refusal": GuidanceEntry(
         code="ask_refusal",
@@ -204,6 +256,9 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue.",
         docs="docs/history/from-engram-repo/protocol-docs/ops/automatic-profile-routing-2026-06-20.md",
+        exits=[
+            {"code": 1, "context": "Provider refused execution before starting (quota exhaustion, invalid model, auth failure; not_executed status)."}
+        ],
     ),
     "ask_launch_failed": GuidanceEntry(
         code="ask_launch_failed",
@@ -218,6 +273,9 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not loop retries or pass --fresh until the provider CLI executable is installed and reachable on PATH.",
         docs="docs/remote-ask.md",
+        exits=[
+            {"code": 1, "context": "Provider CLI binary missing from PATH or process spawn rejected by OS (failed_not_started status or PrespawnError)."}
+        ],
     ),
     "ask_stream_peer_mismatch": GuidanceEntry(
         code="ask_stream_peer_mismatch",
@@ -232,7 +290,9 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding.",
         docs="docs/remote-ask.md",
-        exit_code=2,
+        exits=[
+            {"code": 2, "context": "Target stream is already bound to a different peer (StreamPeerMismatchError)."}
+        ],
     ),
     "ask_delivery_failed": GuidanceEntry(
         code="ask_delivery_failed",
@@ -247,6 +307,10 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not loop blind retries or pass --fresh without verifying adapter flags and availability.",
         docs="docs/remote-ask.md",
+        exits=[
+            {"code": 1, "context": "Adapter invocation failure, rejected pre-spawn execution policy, or general execution error (failed_not_started status or adapter exception)."},
+            {"code": 4, "context": "Storage layer failure (StorageReadOnlyError, StorageFullError, StorageCorruptError)."},
+        ],
     ),
     "ask_unexpected_failure": GuidanceEntry(
         code="ask_unexpected_failure",
@@ -261,6 +325,11 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
         avoid="Do not retry destructive actions or invent unverified recovery commands.",
         docs="docs/remote-ask.md",
+        exits=[
+            {"code": 1, "context": "Unhandled exception or unexpected runtime error during ask dispatch."},
+            {"code": 2, "context": "Invalid CLI arguments or unrecognized ask options (ValueError with code != 'session_lost')."},
+            {"code": 4, "context": "Storage layer failure encountered during unclassified dispatch."},
+        ],
     ),
 }
 
@@ -306,7 +375,7 @@ def instantiate_entry(
         recover=instantiated_recover,
         avoid=entry.avoid,
         docs=entry.docs,
-        exit_code=entry.exit_code,
+        exits=entry.exits,
     )
 
 
@@ -429,9 +498,17 @@ def render_explain(entry: GuidanceEntry) -> str:
         f"Guidance Code: {entry.code}",
         f"Meaning:       {entry.meaning}",
         f"Why:           {entry.why}",
+    ]
+    if entry.exit_code is not None:
+        lines.append(f"Exit Code:     {entry.exit_code}")
+    elif entry.exits:
+        lines.append("Exit Codes:    Context-dependent:")
+        for exit_info in entry.exits:
+            lines.append(f"  - {exit_info['code']}: {exit_info['context']}")
+    lines.extend([
         f"Avoid:         {entry.avoid}",
         "Recovery Steps:",
-    ]
+    ])
     for idx, step in enumerate(entry.recover, 1):
         rendered_cmd = shlex.join(step["argv"])
         lines.append(f"  {idx}. Command: {rendered_cmd}")
@@ -483,6 +560,24 @@ def render_guidance_reference() -> str:
         guidance_cell = f"`{item.guidance_code}`" if item.guidance_code != "(none)" else "(none)"
         lines.append(f"| `{item.status}` | {item.exit_code} | {guidance_cell} | {clean_meaning} | {clean_action} |")
 
+    pending_entry = RESULT_STATUS_REGISTRY.get("pending_earlier_record")
+    if pending_entry and pending_entry.processed_status_cases:
+        lines.extend([
+            "",
+            "### `pending_earlier_record` Case Matrix",
+            "",
+            "When `peerhub ask` encounters an earlier record on the stream that has not completed terminal processing, it advances that earlier record first. Because that earlier record may have delivered, refused, failed, or ended uncertain, `pending_earlier_record` guidance and safe recovery action depend on the `processed_status` of that earlier record:",
+            "",
+            "| Earlier `processed_status` | Guidance Code | Meaning | Safe Action |",
+            "|---|---|---|---|",
+        ])
+        for case in pending_entry.processed_status_cases:
+            p_status = case["processed_status"]
+            p_guidance = f"`{case['guidance_code']}`" if case["guidance_code"] != "(none)" else "(none)"
+            clean_case_meaning = case["meaning"].replace("|", "\\|")
+            clean_case_action = case["safe_action"].replace("|", "\\|")
+            lines.append(f"| `{p_status}` | {p_guidance} | {clean_case_meaning} | {clean_case_action} |")
+
     lines.extend([
         "",
         "## Guidance Registry & Outcome Codes",
@@ -500,7 +595,16 @@ def render_guidance_reference() -> str:
         clean_meaning = entry.meaning.replace("|", "\\|")
         clean_action = safe_action.replace("|", "\\|")
         clean_avoid = entry.avoid.replace("|", "\\|")
-        lines.append(f"| `{code}` | {entry.exit_code} | {clean_meaning} | {clean_action} | {clean_avoid} |")
+        if entry.exit_code is not None:
+            exit_display = str(entry.exit_code)
+        else:
+            distinct_codes = sorted({int(e["code"]) for e in entry.exits})
+            if len(distinct_codes) == 2:
+                exit_display = f"{distinct_codes[0]} or {distinct_codes[1]} (context-dependent)"
+            else:
+                prefix = ", ".join(str(c) for c in distinct_codes[:-1])
+                exit_display = f"{prefix}, or {distinct_codes[-1]} (context-dependent)"
+        lines.append(f"| `{code}` | {exit_display} | {clean_meaning} | {clean_action} | {clean_avoid} |")
 
     lines.extend([
         "",
@@ -514,7 +618,14 @@ def render_guidance_reference() -> str:
         lines.extend([
             f"#### `{code}`",
             "",
-            f"- **Exit Code**: {entry.exit_code}",
+        ])
+        if entry.exit_code is not None:
+            lines.append(f"- **Exit Code**: {entry.exit_code}")
+        else:
+            lines.append("- **Exit Codes** (context-dependent):")
+            for e in entry.exits:
+                lines.append(f"  - `{e['code']}`: {e['context']}")
+        lines.extend([
             f"- **Meaning**: {entry.meaning}",
             f"- **Why**: {entry.why}",
             "- **Safe Recovery Actions**:",

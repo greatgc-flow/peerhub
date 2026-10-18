@@ -33,6 +33,7 @@ they do not claim new validation or publication evidence.
 
 - Updated `peerhub guide` and `docs/remote-ask.md` for `ag` silence timeout behavior (leave unset or set `>= --timeout-seconds`, long tasks: `--timeout-seconds 7200`) (#118).
 - Documented Windows monitor lock avoidance (`stop peerhub monitor -> pip install -U -> restart monitor`) and PyPI index lag in `README.md` and `peerhub guide` (#123).
+- Documented `pending_earlier_record` processed_status-dependent meaning and guidance (`delivered`, `not_executed`, `failed_not_started`, `uncertain`) in the guidance registry and `docs/guidance-reference.md`, and represented context-dependent exit codes as lists per context in explain JSON and reference documentation (#135).
 - Missing-store error output now includes the selection source (`(source: ...)`), a quoted creation command with global `--db` before the subcommand, and `Learn: peerhub guide` (#121).
 - Monitor human dashboard (`peerhub/cli/monitor_view.py`) now renders all `CAPACITY` rows contiguously inside the `CAPACITY` block instead of splitting rows to the bottom of the screen, aligns bar fill direction with remaining %, separates window `reset` countdown from burn `ETA` (#146), and computes `USAGE` display fallback (`provider_input_tokens + output_tokens`) plus cache hit % when `provider_total_tokens` is absent (#147).
 - Aligned `peerhub guide`, `README.md`, `docs/remote-ask.md`, and `docs/migrations.md` with current store selection, write-policy, and recovery rules (#118, #123, #130, #134–#136, #148).

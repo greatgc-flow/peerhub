@@ -478,14 +478,56 @@ def test_explain_cli_output_and_exit_codes(capsys):
     assert run_explain_cli("ask_uncertain", json_output=False) == 0
     out = capsys.readouterr().out
     assert "Guidance Code: ask_uncertain" in out
+    assert "Exit Code:     1" in out
     assert "Recovery Steps:" in out
 
-    # Found - json
+    # Found - json (single exit)
     assert run_explain_cli("ask_uncertain", json_output=True) == 0
     out_json = capsys.readouterr().out
     data = json.loads(out_json)
     assert data["code"] == "ask_uncertain"
+    assert data["exit_code"] == 1
+    assert "exits" in data
+    assert len(data["exits"]) == 1
     assert isinstance(data["recover"], list)
+
+    # Context-dependent entries: scalar exit_code removed from JSON, exits list present
+    for code in ("ask_selector_error", "ask_delivery_failed", "ask_unexpected_failure"):
+        entry = REGISTRY[code]
+        assert entry.exit_code is None
+        data = entry.to_dict()
+        assert "exit_code" not in data, f"Scalar exit_code must not be present in {code} JSON"
+        assert "exits" in data
+        assert len(data["exits"]) >= 2
+        for exit_info in data["exits"]:
+            assert "code" in exit_info and isinstance(exit_info["code"], int)
+            assert "context" in exit_info and isinstance(exit_info["context"], str)
+
+        # Human output shows context-dependent exits
+        assert run_explain_cli(code, json_output=False) == 0
+        out_human = capsys.readouterr().out
+        assert "Exit Codes:    Context-dependent:" in out_human
+        for exit_info in data["exits"]:
+            assert str(exit_info["code"]) in out_human
+
+        # CLI --json output matches to_dict()
+        assert run_explain_cli(code, json_output=True) == 0
+        cli_json = json.loads(capsys.readouterr().out)
+        assert "exit_code" not in cli_json
+        assert cli_json["exits"] == data["exits"]
+
+    # Single-exit entries: scalar exit_code present in JSON, exits present
+    for code in ("ask_uncertain", "ask_blocked_uncertain", "ask_claim_held", "ask_refusal", "ask_launch_failed", "ask_stream_peer_mismatch"):
+        entry = REGISTRY[code]
+        assert entry.exit_code is not None
+        data = entry.to_dict()
+        assert "exit_code" in data and data["exit_code"] == entry.exit_code
+        assert "exits" in data
+        assert len(data["exits"]) == 1
+
+        assert run_explain_cli(code, json_output=False) == 0
+        out_human = capsys.readouterr().out
+        assert f"Exit Code:     {entry.exit_code}" in out_human
 
     # Found via alias
     assert run_explain_cli("uncertain", json_output=False) == 0
@@ -830,6 +872,169 @@ def test_tool_only_turn_empty_response_propagated(tmp_path):
     assert res["task_effects"] == "unverified"
 
 
+def test_scenario_pending_earlier_record_processed_status_cases(tmp_path, monkeypatch, capsys):
+    """P2: pending_earlier_record guidance and safe actions depend on earlier processed_status."""
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    db = tmp_path / "core.db"
+
+    # Case 1: earlier delivered / recovered_terminal -> guidance is empty, re-run prompt on warm session
+    assert select_guidance_code(status="pending_earlier_record", processed_status="delivered") == ""
+    assert select_guidance_code(status="pending_earlier_record", processed_status="recovered_terminal") == ""
+
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "pending_earlier_record",
+        "processed_status": "delivered",
+        "record_id": 10,
+        "response": "earlier answer",
+        "session": {"session_id": "sess_1", "generation": 1},
+    })
+    code = main(["--db", str(db), "ask", "cx", "queued prompt", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["status"] == "pending_earlier_record"
+    assert data["processed_status"] == "delivered"
+    assert "guidance" not in data
+
+    # Case 2: earlier not_executed -> ask_refusal
+    assert select_guidance_code(status="pending_earlier_record", processed_status="not_executed") == "ask_refusal"
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "pending_earlier_record",
+        "processed_status": "not_executed",
+        "reason": "quota_exhausted",
+        "record_id": 11,
+    })
+    code = main(["--db", str(db), "ask", "cx", "queued prompt", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["status"] == "pending_earlier_record"
+    assert data["guidance"]["code"] == "ask_refusal"
+
+    # Case 3: earlier failed_not_started -> launch_failed or delivery_failed
+    assert select_guidance_code(status="pending_earlier_record", processed_status="failed_not_started", detail_error="Executable not found: codex") == "ask_launch_failed"
+    assert select_guidance_code(status="pending_earlier_record", processed_status="failed_not_started", detail_error="Execution policy rejected") == "ask_delivery_failed"
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "pending_earlier_record",
+        "processed_status": "failed_not_started",
+        "error": {"code": "delivery_failed", "message": "Executable not found: codex"},
+        "record_id": 12,
+    })
+    code = main(["--db", str(db), "ask", "cx", "queued prompt", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["status"] == "pending_earlier_record"
+    assert data["guidance"]["code"] == "ask_launch_failed"
+
+    # Case 4: earlier uncertain / blocked_uncertain -> ask_blocked_uncertain
+    assert select_guidance_code(status="pending_earlier_record", processed_status="uncertain") == "ask_blocked_uncertain"
+    assert select_guidance_code(status="pending_earlier_record", processed_status="blocked_uncertain") == "ask_blocked_uncertain"
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "pending_earlier_record",
+        "processed_status": "uncertain",
+        "record_id": 13,
+    })
+    code = main(["--db", str(db), "ask", "cx", "queued prompt", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["status"] == "pending_earlier_record"
+    assert data["guidance"]["code"] == "ask_blocked_uncertain"
+
+
+def test_actual_cli_exit_codes_across_contexts(tmp_path, monkeypatch, capsys):
+    """P2: Verify actual CLI exit codes match documented context-dependent exits."""
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    db = tmp_path / "core.db"
+
+    # 1. ask_selector_error:
+    # Context 1a: SessionLostError -> CLI exits 1
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: (_ for _ in ()).throw(SessionLostError("Session lost")))
+    code = main(["--db", str(db), "ask", "cx", "hello", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["error"]["code"] == "session_lost"
+    assert data["guidance"]["code"] == "ask_selector_error"
+
+    # Context 1b: Conflicting session flags -> CLI exits 2
+    code = main(["--db", str(db), "ask", "cx", "hello", "--fresh", "--session", "sess_0123456789abcdef", "--json"])
+    assert code == 2
+    data = json.loads(capsys.readouterr().out)
+    assert data["error"]["code"] == "conflicting_session_flags"
+    assert data["guidance"]["code"] == "ask_selector_error"
+
+    # Context 1c: Invalid session handle syntax -> CLI exits 2
+    code = main(["--db", str(db), "ask", "cx", "hello", "--session", "bad_handle", "--json"])
+    assert code == 2
+    data = json.loads(capsys.readouterr().out)
+    assert data["error"]["code"] == "invalid_session_handle_syntax"
+    assert data["guidance"]["code"] == "ask_selector_error"
+
+    # 2. ask_delivery_failed:
+    # Context 2a: Adapter prespawn / execution failure -> CLI exits 1
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: (_ for _ in ()).throw(PrespawnError("Policy check rejected execution")))
+    code = main(["--db", str(db), "ask", "cx", "hello", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["error"]["code"] == "delivery_failed"
+    assert data["guidance"]["code"] == "ask_delivery_failed"
+
+    # Context 2b: Storage failure (StorageReadOnlyError) -> CLI exits 4
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: (_ for _ in ()).throw(StorageReadOnlyError("Disk read-only")))
+    code = main(["--db", str(db), "ask", "cx", "hello", "--json"])
+    assert code == 4
+    data = json.loads(capsys.readouterr().out)
+    assert data["error"]["code"] == "storage_corrupt"
+    assert data["guidance"]["code"] == "ask_delivery_failed"
+
+    # 3. ask_stream_peer_mismatch: CLI exits 2
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: (_ for _ in ()).throw(StreamPeerMismatchError("Stream peer mismatch")))
+    code = main(["--db", str(db), "ask", "cx", "hello", "--json"])
+    assert code == 2
+    data = json.loads(capsys.readouterr().out)
+    assert data["error"]["code"] == "stream_peer_mismatch"
+    assert data["guidance"]["code"] == "ask_stream_peer_mismatch"
+
+    # 4. ask_claim_held: CLI exits 1
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: (_ for _ in ()).throw(ClaimHeldError("Claim held")))
+    code = main(["--db", str(db), "ask", "cx", "hello", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["guidance"]["code"] == "ask_claim_held"
+
+    # 5. ask_launch_failed: CLI exits 1
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: (_ for _ in ()).throw(PrespawnError("executable not found: codex")))
+    code = main(["--db", str(db), "ask", "cx", "hello", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["guidance"]["code"] == "ask_launch_failed"
+
+    # 6. ask_uncertain: CLI exits 1
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "uncertain",
+        "certainty": "STARTED",
+        "response": None,
+    })
+    code = main(["--db", str(db), "ask", "cx", "hello", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["status"] == "uncertain"
+    assert data["guidance"]["code"] == "ask_uncertain"
+
+    # 7. ask_refusal: CLI exits 1
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "not_executed",
+        "reason": "quota_exhausted",
+        "response": None,
+    })
+    code = main(["--db", str(db), "ask", "cx", "hello", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["status"] == "not_executed"
+    assert data["guidance"]["code"] == "ask_refusal"
+
+
 def test_guidance_reference_doc_parity():
     """Issue #135: Parity test between guidance registry, session definitions, and docs/guidance-reference.md."""
     from peerhub.cli.recovery import render_guidance_reference, REGISTRY, RESULT_STATUS_REGISTRY
@@ -848,12 +1053,26 @@ def test_guidance_reference_doc_parity():
         assert res_entry.meaning in doc_content, f"Meaning for status {status_name} missing from doc"
         assert str(res_entry.exit_code) in doc_content
 
-    # Verify coverage of every registered guidance code
+    # Verify pending_earlier_record cases in doc
+    pending_entry = RESULT_STATUS_REGISTRY["pending_earlier_record"]
+    assert pending_entry.processed_status_cases
+    for case in pending_entry.processed_status_cases:
+        assert case["processed_status"] in doc_content, f"Case {case['processed_status']} missing from doc"
+        assert case["meaning"] in doc_content, f"Meaning for {case['processed_status']} missing from doc"
+        assert case["safe_action"] in doc_content, f"Safe action for {case['processed_status']} missing from doc"
+
+    # Verify coverage of every registered guidance code and its exits
     for code, entry in REGISTRY.items():
         assert code in doc_content, f"Guidance code {code} missing from doc"
         assert entry.meaning in doc_content, f"Meaning for {code} missing from doc"
         for step in entry.recover:
             assert step["purpose"] in doc_content, f"Recovery purpose for {code} missing"
+        if entry.exit_code is not None:
+            assert f"- **Exit Code**: {entry.exit_code}" in doc_content
+        else:
+            assert f"#### `{code}`\n\n- **Exit Codes** (context-dependent):" in doc_content
+            for e in entry.exits:
+                assert f"- `{e['code']}`: {e['context']}" in doc_content
 
     # Verify session state definitions and qualified semantics in doc
     assert "ACTIVE" in doc_content

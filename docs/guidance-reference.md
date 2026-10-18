@@ -12,10 +12,21 @@ The table below maps actual result statuses (`result["status"]` returned by `pee
 | `delivered` | 0 | (none) | Request executed successfully and terminal response was committed to the stream. | None required. Continue subsequent turns on the same stream to reuse the active session. |
 | `failed_not_started` | 1 | `ask_launch_failed` | Provider process failed before execution started (missing executable or OS spawn rejection). | Inspect peer adapter availability and PATH configuration via `peerhub diag health`. |
 | `not_executed` | 1 | `ask_refusal` | Provider explicitly refused execution before performing tool calls (e.g. quota exhausted, auth failure, invalid model). | Inspect quota pools and reset times via `peerhub diag quota` or verify profile configuration via `peerhub profile list`. |
-| `pending_earlier_record` | 1 | `ask_blocked_uncertain` | Stream has earlier pending work that has not yet completed terminal execution. | Await completion of earlier record or inspect stream state via `peerhub diag health --stream STREAM_ID`. |
+| `pending_earlier_record` | 1 | `context-dependent` | Cycle processed an earlier record on the stream rather than this prompt. Meaning and guidance depend on processed_status (earlier may have delivered, refused, failed, or ended uncertain). | Inspect earlier outcome: re-run ask if earlier delivered; check quota/health if refused/failed; abandon stream if uncertain. |
 | `recovered_terminal` | 0 | (none) | Prior idempotent execution or replayed terminal response recovered. | None required. Prior committed result recovered. |
 | `session_unavailable` | 2 | `ask_selector_error` | Session selector or handle validation failed before invocation could begin. | List valid sessions via `peerhub session list` or pass `--fresh` to allocate a fresh session. |
 | `uncertain` | 1 | `ask_uncertain` | Request started execution but ended without terminal certainty (timeout or abort). | Inspect stream health via `peerhub diag health --stream STREAM_ID`. Do not retry or pass `--fresh` on this stream; abandon stream. |
+
+### `pending_earlier_record` Case Matrix
+
+When `peerhub ask` encounters an earlier record on the stream that has not completed terminal processing, it advances that earlier record first. Because that earlier record may have delivered, refused, failed, or ended uncertain, `pending_earlier_record` guidance and safe recovery action depend on the `processed_status` of that earlier record:
+
+| Earlier `processed_status` | Guidance Code | Meaning | Safe Action |
+|---|---|---|---|
+| `delivered / recovered_terminal` | (none) | Earlier record delivered successfully; prompt was queued behind it and remains unexecuted in this cycle. | Re-run peerhub ask on the same stream to execute this prompt on the warm session. |
+| `not_executed` | `ask_refusal` | Earlier record was refused by the provider (quota, auth, invalid model). | Inspect quota via peerhub diag quota or verify profile configuration. |
+| `failed_not_started` | `ask_launch_failed / ask_delivery_failed` | Earlier record failed before execution started (missing executable or pre-spawn policy check). | Inspect provider binary and PATH configuration via peerhub diag health. |
+| `uncertain / blocked_uncertain` | `ask_blocked_uncertain` | Earlier record ended in an uncertain state, blocking further progress on this stream. | Inspect stream via peerhub diag health --stream STREAM_ID. Abandon stream; start a new stream for subsequent work. |
 
 ## Guidance Registry & Outcome Codes
 
@@ -25,13 +36,13 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 |---|---|---|---|---|
 | `ask_blocked_uncertain` | 1 | New request on this stream is blocked because an earlier record on the stream ended in an uncertain state. | `peerhub diag health --stream STREAM_ID` (Inspect the blocked stream and review uncommitted evidence) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context. |
 | `ask_claim_held` | 1 | A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream. | `peerhub diag health --stream STREAM_ID` (Inspect store connectivity and stream activity (note: diag health checks store and stream records, not active in-memory leases or claims)) | Do not delete claim tables or database files, do not force --fresh, and do not bypass claim contention with duplicate request IDs. |
-| `ask_delivery_failed` | 1 | Adapter invocation failed before execution started or failed critically during delivery. | `peerhub diag health` (Inspect peer adapter status and diagnostic health) | Do not loop blind retries or pass --fresh without verifying adapter flags and availability. |
+| `ask_delivery_failed` | 1 or 4 (context-dependent) | Adapter invocation failed before execution started or failed critically during delivery. | `peerhub diag health` (Inspect peer adapter status and diagnostic health) | Do not loop blind retries or pass --fresh without verifying adapter flags and availability. |
 | `ask_launch_failed` | 1 | Provider CLI executable could not be found or failed to spawn before execution started. | `peerhub diag health` (Inspect peer adapter availability and PATH configuration) | Do not loop retries or pass --fresh until the provider CLI executable is installed and reachable on PATH. |
 | `ask_refusal` | 1 | The provider explicitly refused execution before performing any tool calls (task outcome NOT_EXECUTED). | `peerhub diag quota` (Inspect provider quota pools and reset times) | Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue. |
-| `ask_selector_error` | 2 | Session selector or handle validation failed before invocation could begin. | `peerhub session list` (List available valid sessions and check session handles) | Do not invent session handles, do not combine --fresh with --session, and do not retry without correcting the session selector. |
+| `ask_selector_error` | 1 or 2 (context-dependent) | Session selector or handle validation failed before invocation could begin. | `peerhub session list` (List available valid sessions and check session handles) | Do not invent session handles, do not combine --fresh with --session, and do not retry without correcting the session selector. |
 | `ask_stream_peer_mismatch` | 2 | The target stream is already bound to a different ask target peer. | `peerhub stream list` (Inspect existing streams and select or create a stream for this peer) | Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding. |
 | `ask_uncertain` | 1 | Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort). | `peerhub diag health --stream STREAM_ID` (Inspect stream health and check for uncommitted or partial activity) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. |
-| `ask_unexpected_failure` | 1 | An unclassified or unexpected error occurred during ask dispatch. | `peerhub diag health` (Inspect diagnostic evidence and stream state) | Do not retry destructive actions or invent unverified recovery commands. |
+| `ask_unexpected_failure` | 1, 2, or 4 (context-dependent) | An unclassified or unexpected error occurred during ask dispatch. | `peerhub diag health` (Inspect diagnostic evidence and stream state) | Do not retry destructive actions or invent unverified recovery commands. |
 
 ### Detailed Recovery Advice by Outcome Code
 
@@ -57,7 +68,9 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 #### `ask_delivery_failed`
 
-- **Exit Code**: 1
+- **Exit Codes** (context-dependent):
+  - `1`: Adapter invocation failure, rejected pre-spawn execution policy, or general execution error (failed_not_started status or adapter exception).
+  - `4`: Storage layer failure (StorageReadOnlyError, StorageFullError, StorageCorruptError).
 - **Meaning**: Adapter invocation failed before execution started or failed critically during delivery.
 - **Why**: The adapter rejected pre-spawn execution policy (e.g. ag without --writable), failed pre-spawn validation, or encountered a storage/delivery error.
 - **Safe Recovery Actions**:
@@ -88,7 +101,9 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 #### `ask_selector_error`
 
-- **Exit Code**: 2
+- **Exit Codes** (context-dependent):
+  - `1`: Session lost error (SessionLostError) when retained session continuity is broken.
+  - `2`: Selector syntax error, unsupported selector, conflicting flags, or session handle not found (session_unavailable status or invalid_arguments).
 - **Meaning**: Session selector or handle validation failed before invocation could begin.
 - **Why**: The specified session handle is invalid, tombstoned, incompatible with the runtime binding, or flags like --fresh and --session conflict.
 - **Safe Recovery Actions**:
@@ -119,7 +134,10 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 #### `ask_unexpected_failure`
 
-- **Exit Code**: 1
+- **Exit Codes** (context-dependent):
+  - `1`: Unhandled exception or unexpected runtime error during ask dispatch.
+  - `2`: Invalid CLI arguments or unrecognized ask options (ValueError with code != 'session_lost').
+  - `4`: Storage layer failure encountered during unclassified dispatch.
 - **Meaning**: An unclassified or unexpected error occurred during ask dispatch.
 - **Why**: An unhandled exception or internal error interrupted the ask command.
 - **Safe Recovery Actions**:
