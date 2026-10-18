@@ -233,6 +233,9 @@ def test_guide_contains_required_sections_and_guidance(capsys):
     # Single recovery step without saying repo skill
     assert "repo skill" not in out.lower()
     assert "refresh-model-profiles" in out
+    # Upgrade monitor lock guidance (#123)
+    assert "stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor" in out
+    assert "locks peerhub.exe on Windows" in out
 
 
 def test_guide_shows_error_line_if_profiles_fail(monkeypatch, capsys):
@@ -287,5 +290,16 @@ def test_remote_ask_ag_silence_timeout_guidance():
     assert "ag prints nothing until done" in text
     assert "--silence-timeout-seconds" in text
     assert "--timeout-seconds 7200" in text
+
+
+def test_readme_upgrade_guidance():
+    """Issue #123: README Upgrade section documents monitor stopping and PyPI lag."""
+    readme_path = Path("README.md")
+    assert readme_path.is_file()
+    text = readme_path.read_text(encoding="utf-8")
+    assert "peerhub monitor" in text
+    assert "locks `peerhub.exe` on Windows" in text
+    assert "PyPI index lag" in text
+
 
 
