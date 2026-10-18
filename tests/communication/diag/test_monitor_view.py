@@ -3,10 +3,99 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
 pytestmark = [pytest.mark.unit, pytest.mark.diag]
+
+
+@pytest.fixture
+def quota_visual_frame():
+    states = ["on_pace", "watch", "threat", "exhausted", "ERROR", "UNKNOWN", "STALE", "insufficient"]
+    observations = [
+        {"peer_id": "ag", "pool_ref": f"quota:ag:P-{i + 1}H",
+         "state": state if state in {"ERROR", "UNKNOWN", "STALE"} else "MEASURED",
+         "measurements": {"remaining_fraction": [1.0, .5, .01, 0.0, .8, .8, .8, .9][i],
+                          "reset_in_seconds": 7200},
+         "projection": {"state": state, "exhaustion_at": 2800.0 if state == "threat" else None},
+         "age_seconds": 30.0}
+        for i, state in enumerate(states)
+    ]
+    observations.extend([
+        {"peer_id": "cc", "pool_kind": "quota", "state": "ERROR",
+         "reason": "claude_usage_timeout", "age_seconds": 10635},
+        {"peer_id": "cc", "pool_kind": "quota", "state": "UNKNOWN", "reason": "duplicate"},
+        {"peer_id": "ag", "pool_kind": "quota", "state": "UNKNOWN",
+         "reason": "fresh measured evidence is required with a deliberately long explanation", "age_seconds": 2043},
+    ])
+    return {"status": "OK", "read_at": 1000.0, "selected_groups": ["capacity"],
+            "groups": {"capacity": {"status": "OK", "data": {"observations": observations}}}}
+
+
+@pytest.mark.parametrize("color", [False, True])
+def test_quota_visual_snapshot_at_80_columns(quota_visual_frame, color, monkeypatch):
+    from peerhub.cli.monitor_view import render_grouped_frame, _width
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    rendered = render_grouped_frame(quota_visual_frame, color=color, width=80, height=24)
+    snapshot = Path(__file__).with_name("fixtures") / f"quota_s2_color_{'on' if color else 'off'}.txt"
+    assert rendered == snapshot.read_text(encoding="utf-8")
+    assert all(_width(line) <= 79 for line in rendered.splitlines())
+    assert rendered.count("cc probe:") == rendered.count("ag probe:") == 1
+    assert "soonest exhaust: ag P-3H 1% in 30m" in rendered
+    assert "duplicate" not in rendered
+    assert "STATE: INSUFFICIENT=not enough history" in rendered
+    if color:
+        for code, state in [(32, "ON_PACE"), (33, "WATCH"), (31, "THREAT"),
+                            (31, "EXHAUSTED"), (31, "ERROR"), (2, "UNKNOWN"), (2, "STALE")]:
+            assert any(line.startswith(f"\x1b[{code}m") and state in line for line in rendered.splitlines())
+        assert any(line.startswith("\x1b[2mcc probe:") for line in rendered.splitlines())
+    else:
+        assert "\x1b" not in rendered
+
+
+def test_quota_color_suppression_preserves_identical_text(quota_visual_frame, monkeypatch):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    options = {"width": 80, "height": 24, "unicode": False}
+    off = render_grouped_frame(quota_visual_frame, color=False, **options)
+    on = render_grouped_frame(quota_visual_frame, color=True, **options)
+    assert re.sub(r"\x1b\[[0-9;]*m", "", on) == off
+    assert render_grouped_frame(quota_visual_frame, view="plain", color=True, **options) == off
+    monkeypatch.setenv("NO_COLOR", "")
+    assert render_grouped_frame(quota_visual_frame, color=True, **options) == off
+    assert "\x1b" not in off
+
+
+@pytest.mark.parametrize("unicode_mode", [False, True])
+def test_quota_bar_boundaries_and_monotonic_fill(unicode_mode):
+    from peerhub.cli.monitor_view import _bar_quota
+
+    full, empty, low = ("█", "░", "▏") if unicode_mode else ("#", ".", ":")
+    assert _bar_quota(1.0, unicode=unicode_mode) == f"[{full * 8}]"
+    assert _bar_quota(.999, unicode=unicode_mode) == f"[{full * 8}]"
+    assert _bar_quota(0.0, unicode=unicode_mode) == f"[{empty * 8}]"
+    assert _bar_quota(.001, unicode=unicode_mode) == f"[{low}{empty * 7}]"
+    bars = [_bar_quota(i / 1000, unicode=unicode_mode) for i in range(1001)]
+    fills = [bar.count(full) + .1 * bar.count(low) for bar in bars]
+    assert fills == sorted(fills)
+    assert all(len(bar) == 10 for bar in bars)
+
+
+def test_soonest_exhaustion_ignores_stale_and_counts_down(quota_visual_frame):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    observations = quota_visual_frame["groups"]["capacity"]["data"]["observations"]
+    observations[0]["projection"]["exhaustion_at"] = 4600
+    observations[6]["projection"]["exhaustion_at"] = 1100
+    quota_visual_frame["display_elapsed_seconds"] = 60
+    rendered = render_grouped_frame(quota_visual_frame, width=80, height=12)
+    assert "soonest exhaust: ag P-3H 1% in 29m" in rendered.splitlines()[0]
+    assert "STATE:" not in rendered
+    for i in range(1, 9):
+        assert f"P-{i}H" in rendered
 
 
 @pytest.mark.parametrize(("state", "seconds", "expected"), [
@@ -162,9 +251,10 @@ def test_rich_frame_respects_terminal_width_without_losing_groups(frame, width):
         assert any("── " in line for line in rendered.splitlines())
 
 
-def test_colored_heading_keeps_ansi_after_width_fitting(frame):
+def test_colored_heading_keeps_ansi_after_width_fitting(frame, monkeypatch):
     from peerhub.cli.monitor_view import render_grouped_frame
 
+    monkeypatch.delenv("NO_COLOR", raising=False)
     rendered = render_grouped_frame(frame, view="rich", color=True, unicode=True, width=80)
     assert "\x1b[1;36m── OVERVIEW" in rendered
     assert "OVERVIEW [OK]" in rendered
@@ -521,10 +611,12 @@ def test_monitor_capacity_renders_argon_a_7d_pool_row_like_other_pools(frame):
     assert "ag" in rendered
 
 
-def test_fixed_time_render_fixtures_viewport_matrix():
+@pytest.mark.parametrize("color", [False, True])
+def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
     """Fixed-time render fixtures at 80x12, 80x24, 100x30, 120x40 (+plain) obey boundaries."""
     from peerhub.cli.monitor_view import render_grouped_frame, _width
 
+    monkeypatch.delenv("NO_COLOR", raising=False)
     t0 = 1760790000.0  # 2025-10-18T12:20:00Z
     fixture = {
         "status": "OK",
@@ -576,7 +668,7 @@ def test_fixed_time_render_fixtures_viewport_matrix():
 
     for width, height in [(80, 12), (80, 24), (100, 30), (120, 40)]:
         for view, unicode_mode in [("rich", True), ("plain", False)]:
-            rendered = render_grouped_frame(fixture, view=view, unicode=unicode_mode, width=width, height=height)
+            rendered = render_grouped_frame(fixture, view=view, color=color, unicode=unicode_mode, width=width, height=height)
             lines = rendered.rstrip("\n").split("\n")
             assert len(lines) <= height - 1, f"Height exceeded: {len(lines)} > {height - 1} at {width}x{height} {view}"
             for line in lines:

@@ -127,7 +127,7 @@ def test_monitor_keeps_last_good_cc_pools_after_usage_timeout(tmp_path, monkeypa
         text = render_grouped_frame(frame, view=view, width=120, height=30)
         assert "AGE" in text
         for pool, percent in (("C-5H", "75%"), ("C-7D", "60%")):
-            line = next(line for line in text.splitlines() if pool in line)
+            line = next(line for line in text.splitlines() if line.startswith("cc") and pool in line)
             assert percent in line and "30s" in line
 
 

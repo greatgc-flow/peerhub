@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import unicodedata
 from collections.abc import Mapping, Sequence
@@ -71,15 +72,29 @@ def _bar_quota(remaining: float | None, cells: int = 8, unicode: bool = True) ->
     if remaining is None or not (0.0 <= remaining <= 1.0):
         empty = "░" if unicode else "."
         return f"[{empty * cells}]"
-    if remaining <= 0.0:
-        filled = 0
-    elif remaining >= 1.0:
-        filled = cells
-    else:
-        filled = max(1, min(cells - 1, round(remaining * cells)))
+    filled = int(remaining * cells + 0.5)
     full = "█" if unicode else "#"
     empty = "░" if unicode else "."
+    if remaining > 0 and filled == 0 and cells > 0:
+        return f"[{'▏' if unicode else ':'}{empty * (cells - 1)}]"
     return f"[{full * filled}{empty * (cells - filled)}]"
+
+
+def _quota_label(status: str, group: dict[str, Any], read_at: float | None,
+                 elapsed_seconds: float) -> str:
+    label = f"QUOTA [{status}]"
+    candidates: list[tuple[float, str]] = []
+    for item in _items(_obj(group.get("data")).get("observations")):
+        exhaustion = _number(_obj(item.get("projection")).get("exhaustion_at"))
+        rem = _number(_obj(item.get("measurements")).get("remaining_fraction"))
+        if item.get("state") != "MEASURED" or exhaustion is None or rem is None or not 0 <= rem <= 1:
+            continue
+        pool = _clean(item.get("pool_ref") or item.get("pool_kind") or "?").split(":")[-1]
+        duration = _format_duration(max(0.0, exhaustion - (read_at or 0.0) - elapsed_seconds))
+        candidates.append((exhaustion, f"{_peer(item)} {pool} {rem * 100:.0f}% in {duration}"))
+    if candidates:
+        label += f" | soonest exhaust: {min(candidates)[1]}"
+    return label
 
 
 def _parse_window(pool_ref: str) -> tuple[int, str]:
@@ -452,6 +467,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 return (p, w_sec, pid.lower())
 
             sorted_obs = sorted(observations, key=_quota_sort_key)
+            probe_notes: dict[str, str] = {}
             # Remove optional columns before fitting any quota identity/state.
             column_widths = {"PEER": 4, "POOL": 8, "REM": 5, "[BAR]": 10,
                              "RESET-IN": 9, "EXHAUST-IN": 11, "PACE": 8,
@@ -486,6 +502,13 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 projection = _obj(item.get("projection"))
                 age = _number(item.get("age_seconds"))
                 age_str = f"{max(0.0, age + elapsed_seconds):.0f}s" if age is not None else "-"
+
+                if pool_id == "quota" and state != "MEASURED":
+                    reason = _clean(item.get("reason") or item.get("condition") or projection.get("reason") or "")
+                    detail = _fit(f"{state} {reason}".strip(), 40, unicode)
+                    ago = f" ({age_str} ago)" if age is not None else ""
+                    probe_notes.setdefault(peer, f"{peer} probe: {detail}{ago}")
+                    continue
 
                 is_usable = (state == "MEASURED")
                 if is_usable:
@@ -535,6 +558,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                                      "STATE": state_str, "AGE": age_str})
                 rows.append(_fit(row_str, width, unicode))
 
+            rows.extend(_fit(note, width, unicode) for note in probe_notes.values())
             if len(omitted_cols) > 1:
                 # Wrap disclosure so narrow displays do not hide column names.
                 note = "Columns omitted:"
@@ -717,7 +741,7 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
     for group_id in group_ids:
         group = _obj(groups.get(group_id))
         status = _clean(group.get("status") or "UNKNOWN").upper()
-        label = f"QUOTA [{status}]" if group_id == "capacity" else f"{group_id.upper()} [{status}]"
+        label = _quota_label(status, group, read_at, elapsed_seconds) if group_id == "capacity" else f"{group_id.upper()} [{status}]"
         if group_id not in descriptions:
             label += " [unrecognized group]"
 
@@ -742,6 +766,42 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
 
 
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
+                         unicode: bool = True, width: int = 100, height: int | None = None,
+                         expand: bool = False) -> str:
+    """Fit text first, then apply the optional quota palette without changing alignment."""
+    color = color and view == "rich" and "NO_COLOR" not in os.environ
+    rendered = _render_grouped_frame(payload, view=view, color=color, unicode=unicode,
+                                     width=width, height=height, expand=expand)
+    lines = rendered.splitlines()
+    start = next((i for i, line in enumerate(lines) if "QUOTA [" in line), None)
+    if start is None:
+        return rendered
+    end = next((i for i in range(start + 1, len(lines))
+                if _ANSI.sub("", lines[i]).startswith(("-- ", "── "))
+                or "rows hidden" in lines[i] or "groups omitted" in lines[i]
+                or lines[i].startswith(("Warning:", "Next:", "+"))), len(lines))
+    legend = "STATE: INSUFFICIENT=not enough history; THREAT=exhausts before reset; ON_PACE"
+    if (_width(legend) <= width - 1 and (height is None or len(lines) < height - 1)
+            and any("PEER" in line and "POOL" in line for line in lines[start:end])):
+        lines.insert(end, legend)
+    if color:
+        for i in range(start, end):
+            line = _ANSI.sub("", lines[i])
+            if " probe:" in line or re.search(r"\b(UNKNOWN|STALE|INSUFFICIENT)\b", line):
+                code = "2"
+            elif re.search(r"\b(THREAT|EXHAUSTED|ERROR|FAILED)\b", line):
+                code = "31"
+            elif re.search(r"\b(WATCH|PARTIAL)\b", line):
+                code = "33"
+            elif re.search(r"\b(ON_PACE|SAFE|OK)\b", line):
+                code = "32"
+            else:
+                continue
+            lines[i] = f"\x1b[{code}m{line}\x1b[0m"
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
                          expand: bool = False) -> str:
     """Render a cached schema-2 frame; height enables bounded interactive layout."""
@@ -817,7 +877,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     for gid in group_ids:
         grp = _obj(groups.get(gid))
         st = _clean(grp.get("status") or "UNKNOWN").upper()
-        lbl = f"QUOTA [{st}]" if gid == "capacity" else f"{gid.upper()} [{st}]"
+        lbl = _quota_label(st, grp, read_at, elapsed_seconds) if gid == "capacity" else f"{gid.upper()} [{st}]"
         if gid not in descriptions:
             lbl += " [unrecognized group]"
         rule = _section_rule(lbl, target_width, unicode, color)
@@ -878,7 +938,8 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         if not show_cap_rule:
             # Reclaim the section rule before hiding any quota row.
             cap_status = _clean(_obj(groups.get("capacity")).get("status") or "UNKNOWN").upper()
-            lines[0] = _fit(f"QUOTA [{cap_status}] | {title}", target_width, unicode)
+            label = _quota_label(cap_status, _obj(groups.get("capacity")), read_at, elapsed_seconds)
+            lines[0] = _fit(f"{label} | {title}", target_width, unicode)
         quota_lines_needed = len(cap_rows) + int(show_cap_rule)
 
         if quota_budget >= quota_lines_needed:

@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Monitor QUOTA adds semantic colors, precise remaining bars, compact per-peer probe notes, a space-permitting state legend, and the soonest exhaustion summary (#147 S2).
+
 ### Added
 
 - Cached-only `peerhub diag readiness [--json]`: configured profile readiness from stored quota and matching delivery evidence, with shared pools and contextual diagnostic actions; no provider calls or writes (#145, part 1).
