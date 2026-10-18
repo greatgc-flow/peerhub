@@ -6,6 +6,7 @@ import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timezone
+from pathlib import Path
 from typing import Any, cast
 
 from peerhub.cli.monitor_preferences import GROUPS
@@ -64,6 +65,68 @@ def _bar(used: float, cells: int, unicode: bool) -> str:
     filled = int(used * cells + 0.5)
     full, empty = ("█", "░") if unicode else ("#", ".")
     return full * filled + empty * (cells - filled)
+
+
+def _bar_quota(remaining: float | None, cells: int = 8, unicode: bool = True) -> str:
+    if remaining is None or not (0.0 <= remaining <= 1.0):
+        empty = "░" if unicode else "."
+        return f"[{empty * cells}]"
+    if remaining <= 0.0:
+        filled = 0
+    elif remaining >= 1.0:
+        filled = cells
+    else:
+        filled = max(1, min(cells - 1, round(remaining * cells)))
+    full = "█" if unicode else "#"
+    empty = "░" if unicode else "."
+    return f"[{full * filled}{empty * (cells - filled)}]"
+
+
+def _parse_window(pool_ref: str) -> tuple[int, str]:
+    token = pool_ref.split(":")[-1] if ":" in pool_ref else pool_ref
+    part = token.split("-")[-1] if "-" in token else token
+    match = re.match(r"^(\d+)([a-zA-Z]+)$", part)
+    if match:
+        num, unit = int(match.group(1)), match.group(2).upper()
+        mult = 3600 if unit == "H" else 86400 if unit == "D" else 60 if unit == "M" else 1
+        return (num * mult, f"{num}{unit}")
+    return (999999999, token)
+
+
+def _format_duration(seconds: float) -> str:
+    if seconds >= 86400:
+        days = int(seconds // 86400)
+        hours = int((seconds % 86400) // 3600)
+        return f"{days}d{hours:02d}h"
+    elif seconds >= 3600:
+        hours = int(seconds // 3600)
+        mins = int((seconds % 3600) // 60)
+        return f"{hours}h{mins:02d}m"
+    else:
+        mins = int(seconds // 60)
+        return f"{mins}m"
+
+
+def _section_rule(label: str, width: int, unicode: bool, color: bool = False) -> str:
+    prefix = f"── {label} " if unicode else f"-- {label} "
+    fill = max(0, width - _width(prefix))
+    rule = prefix + ("─" if unicode else "-") * fill
+    rule = _fit(rule, width, unicode)
+    if color:
+        rule = f"\x1b[1;36m{rule}\x1b[0m"
+    return rule
+
+
+def _reorder_groups(group_ids: list[str]) -> list[str]:
+    reordered: list[str] = []
+    if "capacity" in group_ids:
+        reordered.append("capacity")
+    if "peers" in group_ids:
+        reordered.append("peers")
+    for gid in group_ids:
+        if gid not in ("capacity", "peers"):
+            reordered.append(gid)
+    return reordered
 
 
 def _number(value: object) -> float | None:
@@ -381,38 +444,106 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     elif group_id == "capacity":
         observations = _items(data.get("observations"))
         if observations:
-            for item in observations:
-                measurements = _obj(item.get("measurements"))
-                remaining = _number(measurements.get("remaining_fraction"))
-                pool = _clean(item.get("pool_ref") or item.get("pool_kind") or "quota pool")
+            def _quota_sort_key(item: dict[str, Any]) -> tuple[str, int, str]:
+                p = str(item.get("peer_id") or "?").lower()
+                pref = str(item.get("pool_ref") or item.get("pool_kind") or "")
+                pid = pref.split(":")[-1] if ":" in pref else pref
+                w_sec, _ = _parse_window(pref)
+                return (p, w_sec, pid.lower())
+
+            sorted_obs = sorted(observations, key=_quota_sort_key)
+            # Remove optional columns before fitting any quota identity/state.
+            column_widths = {"PEER": 4, "POOL": 8, "REM": 5, "[BAR]": 10,
+                             "RESET-IN": 9, "EXHAUST-IN": 11, "PACE": 8,
+                             "STATE": 10, "AGE": 5}
+            columns = list(column_widths)
+            omitted_cols: list[str] = []
+            if width < 99:
+                columns.remove("EXHAUST-IN")
+                omitted_cols.append("exhaust-in")
+            for optional in ("[BAR]", "EXHAUST-IN", "AGE", "PACE", "RESET-IN"):
+                needed = sum(column_widths[c] for c in columns) + 2 * (len(columns) - 1)
+                if needed <= width:
+                    break
+                if optional in columns:
+                    columns.remove(optional)
+                    omitted_cols.append("bar" if optional == "[BAR]" else optional.lower())
+
+            def quota_row(values: dict[str, str]) -> str:
+                return "  ".join(
+                    f"{values[c]:>{column_widths[c]}}" if c in {"REM", "AGE"}
+                    else f"{values[c]:<{column_widths[c]}}" for c in columns
+                )
+
+            rows.append(_fit(quota_row({c: c for c in columns}), width, unicode))
+
+            for item in sorted_obs:
+                peer = _clean(item.get("peer_id") or "?")
+                pool_ref = _clean(item.get("pool_ref") or item.get("pool_kind") or "quota")
+                pool_id = pool_ref.split(":")[-1] if ":" in pool_ref else pool_ref
                 state = _clean(item.get("state") or "UNKNOWN").upper()
+                measurements = _obj(item.get("measurements"))
                 projection = _obj(item.get("projection"))
-                pace = _number(projection.get("pace_pt"))
                 age = _number(item.get("age_seconds"))
-                if remaining is not None and 0 <= remaining <= 1:
-                    cells = max(3, min(12, width // 12))
-                    detail = f"{remaining * 100:.0f}% remaining {_bar(remaining, cells, unicode)}"
+                age_str = f"{max(0.0, age + elapsed_seconds):.0f}s" if age is not None else "-"
+
+                is_usable = (state == "MEASURED")
+                if is_usable:
+                    rem = _number(measurements.get("remaining_fraction"))
+                    if rem is not None and 0.0 <= rem <= 1.0:
+                        rem_str = f"{rem * 100:.0f}%"
+                        bar_str = _bar_quota(rem, 8, unicode)
+                    else:
+                        rem_str = "-"
+                        bar_str = f"[{('░' if unicode else '.') * 8}]"
+
+                    reset_in = _number(measurements.get("reset_in_seconds"))
+                    if reset_in is not None and reset_in >= 0:
+                        rem_reset = max(0.0, reset_in - elapsed_seconds)
+                        reset_str = _format_duration(rem_reset)
+                    else:
+                        reset_str = "-"
+
+                    exhaustion = _number(projection.get("exhaustion_at"))
+                    if exhaustion is not None:
+                        ref_time = read_at if read_at is not None else 0.0
+                        rem_exhaust = max(0.0, exhaustion - ref_time - elapsed_seconds)
+                        exhaust_str = _format_duration(rem_exhaust)
+                    else:
+                        exhaust_str = "-"
+
+                    pace = _number(projection.get("pace_pt"))
+                    pace_str = f"{pace:+.1f}pp" if pace is not None else "-"
+
+                    proj_state = _clean(projection.get("state") or "").upper()
+                    state_str = proj_state if proj_state else "MEASURED"
                 else:
-                    detail = "remaining unknown"
-                reset_in = _number(measurements.get("reset_in_seconds"))
-                reset_text = ""
-                if reset_in is not None and reset_in >= 0:
-                    rem_reset = max(0.0, reset_in - elapsed_seconds)
-                    hours = int(rem_reset // 3600)
-                    mins = int((rem_reset % 3600) // 60)
-                    reset_text = f"{sep}reset {hours}h{mins:02d}m" if hours > 0 else f"{sep}reset {mins}m"
-                pace_text = f"{sep}pace {pace:+.1f}pp" if pace is not None else ""
-                projection_state = _clean(projection.get("state") or "unknown").upper()
-                exhaustion = _number(projection.get("exhaustion_at"))
-                eta_text = ""
-                if exhaustion is not None:
-                    try:
-                        eta_text = f"{sep}ETA " + datetime.fromtimestamp(exhaustion, timezone.utc).strftime("%m-%d %H:%MZ")
-                    except (OverflowError, OSError, ValueError):
-                        eta_text = f"{sep}ETA unknown"
-                age_text = f"{sep}age {max(0.0, age + elapsed_seconds):.0f}s" if age is not None else ""
-                projection_text = f"{sep}{projection_state}{eta_text}{reset_text}"
-                rows.append(f"{_peer(item)} {pool}: {detail}{sep}{state}{projection_text}{pace_text}{age_text}")
+                    # STALE/UNKNOWN rows keep identity+reason, no usable capacity shown
+                    rem_str = "-"
+                    bar_str = f"[{('░' if unicode else '.') * 8}]"
+                    reset_str = "-"
+                    exhaust_str = "-"
+                    pace_str = "-"
+                    reason = _clean(item.get("reason") or item.get("condition") or projection.get("reason") or "")
+                    state_str = f"{state}:{reason}" if reason else state
+
+                row_str = quota_row({"PEER": peer, "POOL": pool_id, "REM": rem_str,
+                                     "[BAR]": bar_str, "RESET-IN": reset_str,
+                                     "EXHAUST-IN": exhaust_str, "PACE": pace_str,
+                                     "STATE": state_str, "AGE": age_str})
+                rows.append(_fit(row_str, width, unicode))
+
+            if len(omitted_cols) > 1:
+                # Wrap disclosure so narrow displays do not hide column names.
+                note = "Columns omitted:"
+                for column in omitted_cols:
+                    if _width(f"{note} {column}") > width:
+                        rows.append(_fit(note, width, unicode))
+                        note = column
+                    else:
+                        note += f" {column}"
+                rows.append(_fit(note, width, unicode))
+
         else:
             rows.append("Quota capacity: no observations")
         note = _coverage(data, unicode)
@@ -533,18 +664,28 @@ def _fallback_rows(data: dict[str, Any], prefix: str = "", depth: int = 0) -> li
 def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
                             unicode: bool, width: int, expand: bool = False) -> str:
     """Keep the append-only pipe/plain layout stable; it is not a TTY viewport."""
-    target_width = width - 1 if expand else width
-    target_width = max(20, target_width)
+    target_width = max(0, width - 1)
+    if target_width == 0:
+        return ""
+    if target_width < 19:
+        return _fit("Narrow; use >=20 columns", target_width, unicode) + "\n"
     selected = payload.get("selected_groups")
-    group_ids = [str(group_id) for group_id in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
+    raw_group_ids = [str(g) for g in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
     groups = _obj(payload.get("groups"))
-    if not group_ids:
-        group_ids = [str(group_id) for group_id in groups.keys()]
+    if not raw_group_ids:
+        raw_group_ids = [str(g) for g in groups.keys()]
+    group_ids = _reorder_groups(raw_group_ids)
+
     status_label = _clean(payload.get("status") or "UNKNOWN")
     title = f"PeerHub Monitor | {status_label}"
     read_at = _number(payload.get("read_at"))
     next_refresh = _number(payload.get("next_refresh_in"))
     elapsed_seconds = _number(payload.get("display_elapsed_seconds")) or 0.0
+    refresh_state = _clean(payload.get("refresh_state") or "").upper()
+    if refresh_state:
+        title += f" | {refresh_state}"
+    if next_refresh is not None:
+        title += f" | refresh in {max(0, math.ceil(next_refresh))}s"
     if target_width < 48:
         title = f"Monitor {status_label}"
     elif read_at is not None:
@@ -552,39 +693,41 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
             title += " | " + datetime.fromtimestamp(read_at, timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
         except (OverflowError, OSError, ValueError):
             title += " | time unknown"
-    if next_refresh is not None:
-        title += f" | refresh in {max(0, math.ceil(next_refresh))}s"
-    lines = [_fit(title, target_width, unicode)]
+
+    store = _obj(payload.get("store_selection"))
+    db_path = _clean(store.get("path") or "")
+    db_source = _clean(store.get("source") or "")
+    if db_source and target_width >= 48:
+        if db_path and target_width >= 64:
+            title += f" | DB:{db_source} ({Path(db_path).name})"
+        else:
+            title += f" | DB:{db_source}"
+
+    lines: list[str] = [_fit(title, target_width, unicode)]
     descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
+
     for group_id in group_ids:
         group = _obj(groups.get(group_id))
         status = _clean(group.get("status") or "UNKNOWN").upper()
-        label = f"{group_id.upper()} [{status}]"
+        label = f"QUOTA [{status}]" if group_id == "capacity" else f"{group_id.upper()} [{status}]"
         if group_id not in descriptions:
             label += " [unrecognized group]"
-        if view == "rich" and unicode and target_width >= 32:
-            border = "─" * max(0, target_width - _width(label) - 5)
-            heading = _fit(f"╭─ {label} {border}╮", target_width, unicode)
-            if color:
-                heading = f"\x1b[1;36m{heading}\x1b[0m"
-            lines.append(heading)
-        else:
-            lines.append(_fit(label, target_width, unicode))
-        content_width = target_width - 4 if view == "rich" and unicode and target_width >= 32 else target_width - 2
-        group_data = _group_lines(group_id, group, width=content_width, unicode=unicode,
+
+        rule = _section_rule(label, target_width, unicode, color)
+        lines.append(rule)
+
+        group_data = _group_lines(group_id, group, width=target_width, unicode=unicode,
                                   elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand)
         coverage = _obj(group.get("coverage"))
         if coverage.get("read") == "partial" and not any("partial" in line.lower() or "truncated" in line.lower()
-                                                            for line in group_data):
+                                                         for line in group_data):
             group_data.append(f"Coverage: partial {'·' if unicode else '|'} {_clean(coverage.get('reason') or 'incomplete evidence')}")
         for content in group_data:
-            fitted = _fit(content, content_width, unicode)
-            if view == "rich" and unicode and target_width >= 32:
-                lines.append("│ " + fitted.ljust(content_width) + " │")
+            if group_id == "capacity":
+                lines.append(_fit(content, target_width, unicode))
             else:
-                lines.append("  " + fitted)
-        if view == "rich" and unicode and target_width >= 32:
-            lines.append("╰" + "─" * (target_width - 2) + "╯")
+                lines.append(_fit("  " + content, target_width, unicode))
+
     if not unicode:
         lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
     return "\n".join(lines) + "\n"
@@ -598,31 +741,35 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         return _render_unbounded_frame(payload, view=view, color=color, unicode=unicode, width=width, expand=expand)
     width = max(1, width)
     height = max(1, height)
-    selected = payload.get("selected_groups")
-    group_ids = [str(group_id) for group_id in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
-    groups = _obj(payload.get("groups"))
-    if not group_ids:
-        group_ids = [str(group_id) for group_id in groups.keys()]
-    if height <= 1:
+    target_width = width - 1
+    if target_width <= 0 or height <= 1:
         return ""
-    if height == 2:
-        if width <= 1:
-            return ""
-        return _fit(f"+{len(group_ids)} --group all", width - 1, unicode) + "\n"
-    status_label = _clean(payload.get("status") or "UNKNOWN")
+
+    selected = payload.get("selected_groups")
+    raw_group_ids = [str(g) for g in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
     groups = _obj(payload.get("groups"))
-    statuses = [str(_obj(groups.get(group_id)).get("status") or "UNKNOWN").upper() for group_id in group_ids]
-    errors = sum(status in {"ERROR", "FAILED"} for status in statuses)
-    partial = sum(status in {"PARTIAL", "STALE", "UNKNOWN", "UNAVAILABLE"} for status in statuses)
+    if not raw_group_ids:
+        raw_group_ids = [str(g) for g in groups.keys()]
+    group_ids = _reorder_groups(raw_group_ids)
+
+    if height == 2:
+        hint = "peerhub monitor --snapshot --group capacity --expand" if width >= 64 else "--expand"
+        return _fit(f"+{len(group_ids)} {hint}", target_width, unicode) + "\n"
+
+    status_label = _clean(payload.get("status") or "UNKNOWN")
+    statuses = [str(_obj(groups.get(gid)).get("status") or "UNKNOWN").upper() for gid in group_ids]
+    errors = sum(s in {"ERROR", "FAILED"} for s in statuses)
+    partial = sum(s in {"PARTIAL", "STALE", "UNKNOWN", "UNAVAILABLE"} for s in statuses)
     refresh_state = _clean(payload.get("refresh_state") or "").upper()
+    read_at = _number(payload.get("read_at"))
+    next_refresh = _number(payload.get("next_refresh_in"))
+    elapsed_seconds = _number(payload.get("display_elapsed_seconds")) or 0.0
+
     title = f"PeerHub Monitor | {status_label}"
     if errors or partial:
         title += f" | {errors} err {'·' if unicode else '|'} {partial} partial"
     if refresh_state:
         title += f" | {refresh_state}"
-    read_at = _number(payload.get("read_at"))
-    next_refresh = _number(payload.get("next_refresh_in"))
-    elapsed_seconds = _number(payload.get("display_elapsed_seconds")) or 0.0
     if width < 48:
         title = f"Monitor {status_label}"
         if errors or partial:
@@ -631,167 +778,179 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
             title += f" {refresh_state}"
     if next_refresh is not None:
         title += f" | refresh in {max(0, math.ceil(next_refresh))}s"
-    if width >= 120 and read_at is not None:
+    if width >= 48 and read_at is not None:
         try:
-            title += " | " + datetime.fromtimestamp(read_at, timezone.utc).strftime("%H:%M:%SZ")
+            if width >= 120:
+                title += " | " + datetime.fromtimestamp(read_at, timezone.utc).strftime("%H:%M:%SZ")
+            else:
+                title += " | " + datetime.fromtimestamp(read_at, timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
         except (OverflowError, OSError, ValueError):
             pass
+
     store = _obj(payload.get("store_selection"))
     db_path = _clean(store.get("path") or "")
     db_source = _clean(store.get("source") or "")
-    show_db_path = width >= 64 and height > 6 and bool(db_path)
-    if db_source and not show_db_path:
-        if width <= 24:
-            title = f"{status_label} DB:{db_source}"
+    if db_source:
+        if db_path and width >= 64:
+            title += f" | DB:{db_source} ({Path(db_path).name})"
         else:
-            title = f"{title} DB:{db_source}" if width < 48 else f"{title}{' · ' if unicode else ' | '}DB:{db_source}"
-    lines = [_fit(title, width - 1, unicode)]
-    if show_db_path:
-        lines.append(_fit(f"DB [{db_source}]: {db_path}", width - 1, unicode))
+            title += f" | DB:{db_source}"
+
+    lines: list[str] = [_fit(title, target_width, unicode)]
+
     descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
-    blocks: list[tuple[int, int, str, list[str], str]] = []
-    for order, group_id in enumerate(group_ids):
-        group = _obj(groups.get(group_id))
-        status = _clean(group.get("status") or "UNKNOWN").upper()
-        label = f"{group_id.upper()} [{status}]"
-        if group_id not in descriptions:
-            label += " [unrecognized group]"
-        if view == "rich" and unicode and width >= 48:
-            border = "─" * max(0, width - _width(label) - 6)
-            heading = _fit(f"╭─ {label} {border}╮", width - 1, unicode)
-            if color:
-                heading = f"\x1b[1;36m{heading}\x1b[0m"
-        else:
-            heading = _fit(label, width - 1, unicode)
-        indent = "  " if width >= 4 else ""
-        content_width = max(0, width - 1 - _width(indent))
-        group_data = _group_lines(group_id, group, width=content_width, unicode=unicode,
-                                  elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand)
+    refresh_clean = str(payload.get("refresh_state") or "")
+    warning_labels = _safe_refresh_warning_labels(payload.get("refresh_warnings"))
+    stopped_agy = (refresh_clean == "STOPPED · AGY TOKEN USE")
+    extra_overhead = (1 if stopped_agy else 0) + len(warning_labels)
+
+    # Prepare blocks: list of (gid, priority, heading_rule, [content_lines])
+    blocks: list[tuple[str, int, str, list[str]]] = []
+    for gid in group_ids:
+        grp = _obj(groups.get(gid))
+        st = _clean(grp.get("status") or "UNKNOWN").upper()
+        lbl = f"QUOTA [{st}]" if gid == "capacity" else f"{gid.upper()} [{st}]"
+        if gid not in descriptions:
+            lbl += " [unrecognized group]"
+        rule = _section_rule(lbl, target_width, unicode, color)
+        data_rows = _group_lines(gid, grp, width=target_width, unicode=unicode,
+                                 elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand)
         error_map = _obj(payload.get("errors"))
-        error_value = error_map.get(group_id)
-        if error_value is None:
-            dependencies = {
+        error_val = error_map.get(gid)
+        if error_val is None:
+            deps = {
                 "overview": ("sessions", "execution"), "peers": ("sessions", "capacity"),
                 "sessions": ("sessions", "execution"),
                 "usage": ("sessions", "execution"), "context": ("sessions", "execution"),
                 "runtime": ("sessions", "execution"), "execution": ("execution",),
                 "coverage": ("execution",), "capacity": ("capacity",), "store": ("store",),
             }
-            error_value = next((error_map[key] for key in dependencies.get(group_id, (group_id,))
-                                if key in error_map), None)
-        if status in {"ERROR", "FAILED"}:
-            group_data.insert(0, _safe_error_reason(error_value))
-        coverage = _obj(group.get("coverage"))
-        if coverage.get("read") == "partial" and not any("partial" in line.lower() or "truncated" in line.lower()
-                                                            for line in group_data):
-            group_data.append(f"Coverage: partial {'·' if unicode else '|'} {_clean(coverage.get('reason') or 'incomplete evidence')}")
-        summary = _fit(group_data.pop(0) if group_data else "No data", content_width, unicode)
-        blocks.append((_priority(group), order, heading, [summary, *group_data], group_id))
+            error_val = next((error_map[k] for k in deps.get(gid, (gid,)) if k in error_map), None)
+        if st in {"ERROR", "FAILED"}:
+            data_rows.insert(0, _safe_error_reason(error_val))
 
-    def _rank_key(item: tuple[int, int, str, list[str], str]) -> tuple[int, int, int]:
-        prio, order, _h, _r, gid = item
-        if prio < 3:
-            return (prio, 0, order)
-        if gid == "capacity":
-            return (3, 0, order)
-        if gid == "peers":
-            return (3, 1, order)
-        return (3, 2, order)
+        cov = _obj(grp.get("coverage"))
+        if cov.get("read") == "partial" and not any("partial" in r.lower() or "truncated" in r.lower() for r in data_rows):
+            data_rows.append(f"Coverage: partial {'·' if unicode else '|'} {_clean(cov.get('reason') or 'incomplete evidence')}")
 
-    # Severity controls which summaries survive a short viewport; catalog order is stable.
-    ranked = sorted(blocks, key=_rank_key)
-    budget = max(0, height - 1 - len(lines))
-    all_summaries_fit = len(ranked) * 2 <= budget
-    visible_count = len(ranked) if all_summaries_fit else max(0, (budget - 1) // 2)
-    visible = (list(blocks) if all_summaries_fit else list(ranked[:visible_count]))
-    hidden = len(ranked) - len(visible)
+        content_lines: list[str] = []
+        for r in data_rows:
+            if gid == "capacity":
+                content_lines.append(_fit(r, target_width, unicode))
+            else:
+                content_lines.append(_fit("  " + r, target_width, unicode))
+        blocks.append((gid, _priority(grp), rule, content_lines))
 
-    refresh_clean = str(payload.get("refresh_state") or "")
-    warning_labels = _safe_refresh_warning_labels(payload.get("refresh_warnings"))
-    extra_overhead = (1 if refresh_clean == "STOPPED · AGY TOKEN USE" else 0) + len(warning_labels)
+    # Quota-first height allocation
+    max_lines = height - 1
+    omitted_quota = 0
+    omitted_blocks = 0
 
-    # When terminal height is limited, drop other groups before clipping quota.
-    cap_block = next((b for b in blocks if b[4] == "capacity"), None)
-    if cap_block is not None and cap_block in visible:
-        cap_detail_rows = cap_block[3][1:]
-        needed_details = len(cap_detail_rows)
-        if needed_details > 0:
-            lines_used = len(lines) + len(visible) * 2 + (1 if hidden else 0) + extra_overhead
-            remaining_for_details = max(0, height - 1 - lines_used)
-            while remaining_for_details < needed_details:
-                droppable = [b for b in visible if b[4] != "capacity"]
-                if not droppable:
-                    break
-                # Drop lowest severity group first (highest priority int, then highest catalog order)
-                droppable_sorted = sorted(droppable, key=lambda item: (item[0], item[1]), reverse=True)
-                to_drop = droppable_sorted[0]
-                visible.remove(to_drop)
-                hidden = len(blocks) - len(visible)
-                lines_used = len(lines) + len(visible) * 2 + (1 if hidden else 0) + extra_overhead
-                remaining_for_details = max(0, height - 1 - lines_used)
-            visible = sorted(visible, key=lambda item: item[1])
+    cap_block = next((b for b in blocks if b[0] == "capacity"), None)
+    other_blocks = [b for b in blocks if b[0] != "capacity"]
 
-    mandatory_lines = len(lines) + len(visible) * 2 + (1 if hidden else 0) + extra_overhead
-    cap_detail_budget = max(0, height - 1 - mandatory_lines)
+    visible_other: list[tuple[str, int, str, list[str]]] = []
 
-    for _priority_value, _order, heading, rows, gid in visible:
-        lines.append(heading)
-        indent = "  " if width >= 4 else ""
-        lines.append(indent + rows[0])
-        if gid == "capacity" and len(rows) > 1:
-            details = rows[1:]
-            if len(details) <= cap_detail_budget:
-                for item in details:
-                    lines.append(_fit(f"{indent}{item}", width - 1, unicode))
-            elif cap_detail_budget > 0:
-                can_show = max(0, cap_detail_budget - 1)
-                for item in details[:can_show]:
-                    lines.append(_fit(f"{indent}{item}", width - 1, unicode))
-                hidden_count = len(details) - can_show
-                lines.append(_fit(f"{indent}+{hidden_count} rows hidden by terminal height", width - 1, unicode))
-    if hidden:
-        sep = " · " if unicode else " | "
-        if width >= 64:
-            overflow = f"{hidden} groups omitted{sep}peerhub monitor --snapshot --group all"
-        elif width >= 32:
-            overflow = f"{hidden} groups omitted{sep}--group all"
+    def allocate_other(budget: int) -> list[tuple[str, int, str, list[str]]]:
+        # Even when every summary fits, hidden details need a disclosure row.
+        full_size = sum(1 + max(1, len(block[3])) for block in other_blocks)
+        summary_budget = budget - int(full_size > budget)
+        count = max(0, summary_budget // 2)
+        if count >= len(other_blocks):
+            return list(other_blocks)
+        ranked = sorted(other_blocks, key=lambda block: (block[1], other_blocks.index(block)))
+        return ranked[:count]
+
+    if cap_block is not None:
+        cap_rule = cap_block[2]
+        cap_rows = cap_block[3]
+        budget = max_lines - len(lines) - extra_overhead
+        quota_budget = budget - (1 if other_blocks else 0)
+        show_cap_rule = quota_budget >= 1 + len(cap_rows)
+        if not show_cap_rule:
+            # Reclaim the section rule before hiding any quota row.
+            cap_status = _clean(_obj(groups.get("capacity")).get("status") or "UNKNOWN").upper()
+            lines[0] = _fit(f"QUOTA [{cap_status}] | {title}", target_width, unicode)
+        quota_lines_needed = len(cap_rows) + int(show_cap_rule)
+
+        if quota_budget >= quota_lines_needed:
+            # All quota rows fit!
+            if show_cap_rule:
+                lines.append(cap_rule)
+            lines.extend(cap_rows)
+            # Allocate to other blocks
+            rem_budget = max_lines - len(lines) - extra_overhead
+            visible_other = allocate_other(rem_budget)
+            omitted_blocks = len(other_blocks) - len(visible_other)
+        elif budget >= 2:
+            # Partial quota rows fit; lower sections suppressed
+            lines.append(cap_rows[0] if cap_rows else "")  # table header
+            data_cap_rows = cap_rows[1:]
+            can_show = max(0, budget - 2)  # reserve 1 for omission
+            lines.extend(data_cap_rows[:can_show])
+            omitted_quota = len(data_cap_rows) - can_show
+            omitted_blocks = len(other_blocks)
         else:
-            overflow = f"+{hidden} --group all"
-        lines.append(_fit(overflow, width - 1, unicode))
-    if refresh_clean == "STOPPED · AGY TOKEN USE" and len(lines) < height - 1:
-        lines.append(_fit("Next: --allow-agy-token-use to continue", width - 1, unicode))
+            omitted_quota = len(cap_rows)
+            omitted_blocks = len(other_blocks)
+    else:
+        # No capacity group, allocate other blocks by severity
+        budget = max_lines - len(lines) - extra_overhead
+        visible_other = allocate_other(budget)
+        omitted_blocks = len(other_blocks) - len(visible_other)
+
+    for ob in visible_other:
+        lines.append(ob[2])
+        lines.append(ob[3][0] if ob[3] else "")
+
+    # Count every loaded row omitted by the viewport, including --expand rows
+    # in groups that could not receive even a summary.
+    other_details = [row for ob in visible_other for row in ob[3][1:]]
+    omitted_group_rows = sum(len(ob[3]) for ob in other_blocks if ob not in visible_other)
+    space_left = max(0, max_lines - len(lines) - extra_overhead)
+    needs_omission = bool(omitted_quota or omitted_blocks or len(other_details) > space_left)
+    can_take = min(len(other_details), max(0, space_left - int(needs_omission)))
+    lines.extend(other_details[:can_take])
+    omitted_details = len(other_details) - can_take + omitted_group_rows
+
+    if omitted_quota or omitted_blocks or omitted_details:
+        sep = " · " if unicode else " | "
+        counts: list[str] = []
+        if omitted_blocks:
+            counts.append(f"{omitted_blocks} groups omitted")
+        hidden_rows = omitted_quota + omitted_details
+        if hidden_rows:
+            counts.append(f"+{hidden_rows} rows hidden")
+        hint = ("peerhub monitor --snapshot --group capacity --expand"
+                if omitted_quota else "peerhub monitor --snapshot --group all --expand")
+        if target_width >= 64:
+            # Keep the actionable hint intact on 80-column displays.
+            room = target_width - _width(sep + hint)
+            detail = ", ".join(counts)
+            if _width(detail) > room:
+                detail = (f"{omitted_blocks} groups omitted,+{hidden_rows}r"
+                          if omitted_blocks else f"+{hidden_rows} rows hidden")
+            if _width(detail) > room:
+                hint = "--expand"
+                detail = ", ".join(counts)
+            overflow = f"{detail}{sep}{hint}"
+        elif target_width >= 32:
+            overflow = f"{', '.join(counts)}{sep}--expand"
+            if _width(overflow) > target_width:
+                overflow = f"+{omitted_quota + omitted_details}r,{omitted_blocks}g hidden{sep}--expand"
+        else:
+            overflow = f"+{omitted_quota + omitted_details + omitted_blocks} --expand"
+        if len(lines) < max_lines:
+            lines.append(_fit(overflow, target_width, unicode))
+
+    if stopped_agy and len(lines) < max_lines:
+        lines.append(_fit("Next: --allow-agy-token-use to continue", target_width, unicode))
     for warning in warning_labels:
-        if len(lines) >= height - 1:
-            break
-        lines.append(_fit(f"Warning: {warning}", width - 1, unicode))
+        if len(lines) < max_lines:
+            lines.append(_fit(f"Warning: {warning}", target_width, unicode))
 
-    def _emit_details(details: list[str]) -> bool:
-        if not details:
-            return True
-        space_left = max(0, height - 1 - len(lines))
-        detail_indent = "  " if width >= 4 else ""
-        if len(details) <= space_left:
-            for item in details:
-                lines.append(_fit(f"{detail_indent}{item}", width - 1, unicode))
-            return True
-        if space_left <= 0:
-            return False
-        can_show = max(0, space_left - 1)
-        for item in details[:can_show]:
-            lines.append(_fit(f"{detail_indent}{item}", width - 1, unicode))
-        hidden_count = len(details) - can_show
-        lines.append(_fit(f"{detail_indent}+{hidden_count} rows hidden by terminal height", width - 1, unicode))
-        return False
-
-    other_details: list[str] = []
-    for item in visible:
-        if item[4] == "capacity":
-            continue
-        other_details.extend(item[3][1:])
-    if other_details and len(lines) < height - 1:
-        _emit_details(other_details)
-    lines = lines[:height - 1]
-    # Force ASCII on request even if data contains provider-controlled Unicode.
+    lines = lines[:max_lines]
     if not unicode:
         lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
     return "\n".join(lines) + "\n"
+

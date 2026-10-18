@@ -573,7 +573,7 @@ def test_redirected_snapshot_keeps_full_human_group_frame(tmp_path, capsys):
     output = capsys.readouterr().out
 
     assert code in (0, 4)
-    assert all(group.upper() in output for group in
+    assert all((group.upper() in output if group != "capacity" else ("QUOTA" in output or "CAPACITY" in output)) for group in
                ("overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"))
     assert "groups omitted" not in output.lower()
     assert "No scope evidence" in output and "Schema 4" in output
@@ -622,8 +622,8 @@ def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
     rendered = output.decode("utf-8", errors="replace")
     lines = rendered.rstrip("\r\n").splitlines()
     assert len(lines) <= 7
-    assert "8 groups omitted" in rendered
-    assert "--group all" in rendered
+    assert "8g hidden" in rendered
+    assert "--expand" in rendered
     assert "COLUMNS" not in rendered
     assert "\x1b" not in rendered
 
@@ -1180,11 +1180,11 @@ def test_monitor_expand_snapshot_human_renders_all_rows(tmp_path, capsys):
 
 
 def test_monitor_expand_help_wording(capsys):
-    """--expand help wording states quota is always fully shown and --expand applies to other groups."""
+    """--expand help wording states loaded detail rows render without default caps."""
     with pytest.raises(SystemExit):
         main(["monitor", "--help"])
     out = capsys.readouterr().out
     assert "--expand" in out
     clean_out = " ".join(out.split())
-    assert "quota is always fully shown; --expand applies to other groups" in clean_out
+    assert "Render all loaded detail rows instead of capping at default limits" in clean_out
 
