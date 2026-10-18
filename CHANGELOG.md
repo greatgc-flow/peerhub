@@ -25,13 +25,14 @@ they do not claim new validation or publication evidence.
 - Added Windows PowerShell operations guide (`docs/windows.md`) covering tested parallel asks (`Start-Job`, `ForEach-Object -Parallel`, `$using:`), quoting rules, `--query-file`, non-ASCII paths, and verified command parser test (#136).
 - Guidance registry (`peerhub/cli/recovery.py`) mapping ask-path non-success outcomes to structured guidance and recovery advice (`meaning`, `why`, `recover` argv arrays, `avoid`, `docs`), including `ask_launch_failed` (#120) and `ask_stream_peer_mismatch` (#125) (#117).
 - Offline `peerhub explain CODE [--json]` subcommand providing detailed human-readable and structured JSON guidance for outcome codes (#117).
-- Bare `peerhub` invocation (no arguments) now prints `peerhub guide` and exits 0 (#121).
 - Factual tool-only turn completion metadata (`empty_response: true`, `task_effects: "unverified"`) when a provider completes a turn with tool actions and no final text message (#126).
 - Group-derived Antigravity quota pool membership (`_parse_agy_usage_output` derives pool labels `G-*`, `3P-*`, `A-*` from `groups[].name`), mapped `gemini-argon-wtu-weekly` to `A-7D`, added raw `agy /usage` envelope fixture and parser tests, and mapped exact models `gemini-4-argon-{low,medium,high}` to `["A-7D"]` in `model-profiles.json` and `model-defaults.toml` (defaults revision `2026-10-18.1`) (#149).
 - Dependabot config: automated weekly updates for pip and github-actions ecosystems (`.github/dependabot.yml`).
 - SECURITY.md: vulnerability reporting policy, supported version scope, and reporting guidance.
 
 ### Changed
+
+- Bare `peerhub` invocation (no arguments) now prints `peerhub guide`; its exit code changes from 2 to 0 (#121, #153).
 
 - **Monitor quota-first layout and bounded overflow (S1, #146):** Transformed monitor dashboard into a quota-first UX beneath a 1-line status header (UTC timestamps, DB source, and no synthetic refresh in snapshot); renders deterministic QUOTA table first (`PEER POOL REM [bar] RESET-IN PACE STATE AGE`, adding `EXHAUST-IN` only at >=100 cols), sorts deterministically by peer, window (derived from pool ref), and pool id, preserves STALE/UNKNOWN identity with reason while hiding unusable capacity, and guarantees at least one bar cell for non-zero fraction; replaces tall enclosing boxes with single-line section rules; orders PEERS dependency view before EXECUTION, SESSIONS, USAGE, and CONTEXT; enforces bounded 80x12 overflow policy that displays quota first, suppresses lower sections, and emits an unclipped omission line with exact hint `peerhub monitor --snapshot --group capacity --expand`; and corrected `--expand` help text to reflect row limits across all sections.
 - Updated `peerhub guide` and `docs/remote-ask.md` for `ag` silence timeout behavior (leave unset or set `>= --timeout-seconds`, long tasks: `--timeout-seconds 7200`) (#118).

@@ -25,7 +25,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 from pydantic import BaseModel
 
 from peerhub._console import tolerant_streams
@@ -110,9 +110,18 @@ def _decode_session_cursor(raw_cursor: str, *, store_id: str, lineage: str, filt
     return data
 
 
+class _ArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> NoReturn:
+        try:
+            super().error(message)
+        except SystemExit as exc:
+            setattr(exc, "argument_error", message)
+            raise
+
+
 def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     description = "PeerHub CLI"
-    parser = argparse.ArgumentParser(prog=prog, description=description)
+    parser = _ArgumentParser(prog=prog, description=description)
     from peerhub._version import __version__
     parser.add_argument("--version", "-v", "-V", action="version", version=f"peerhub {__version__}")
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Path to SQLite database")
@@ -347,6 +356,8 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:
+        if result["response"] == "":
+            print("note: empty response (see --json)", file=sys.stderr)
         if has_streamed and not result.get("display_truncated"):
             if not output_has_newline:
                 print()
@@ -904,7 +915,8 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     except SystemExit as exc:
         if exc.code == 2 and "ask" in actual and "--json" in actual:
             from peerhub.cli.recovery import make_guidance_payload
-            guidance_code = "ask_selector_error" if any(a in actual for a in ("--session", "--fresh")) else "ask_unexpected_failure"
+            argument = getattr(exc, "argument_error", "").split(":", 1)[0]
+            guidance_code = "ask_selector_error" if argument in ("argument --session", "argument --fresh") else "ask_unexpected_failure"
             print(json.dumps(dict(status="error", response=None, session=None,
                                   error=dict(code="invalid_arguments", message="Invalid ask arguments."),
                                   guidance=make_guidance_payload(guidance_code))))

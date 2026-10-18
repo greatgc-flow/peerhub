@@ -187,11 +187,9 @@ EXCEPTION_CONTROL_FLOW_ALLOWLIST: dict[str, str] = {
 
 EXCEPTION_FALLBACK_ALLOWLIST: dict[str, str] = {
     "BoundaryConflictError": "Internal bridge state boundary conflict falls back to generic unexpected failure.",
-    "CasMismatchError": "Store CAS concurrency mismatch falls back to generic unexpected failure.",
     "ClaimFinalizedError": "Attempt to mutate already-finalized claim falls back to generic unexpected failure.",
     "ClaimScopeError": "Internal claim scope mismatch falls back to generic unexpected failure.",
     "ControlRejectedError": "Internal bridge control cycle rejection falls back to generic unexpected failure.",
-    "IdempotencyConflictError": "Store idempotency collision falls back to generic unexpected failure.",
     "IllegalCertaintyTransition": "Internal certainty monotonicity violation falls back to generic unexpected failure.",
     "InvalidTerminalResultError": "Internal invalid terminal cycle state falls back to generic unexpected failure.",
     "InvocationMarkerError": "Internal durable invocation marker failure falls back to generic unexpected failure.",
@@ -200,7 +198,6 @@ EXCEPTION_FALLBACK_ALLOWLIST: dict[str, str] = {
     "ReconcileRejectedError": "Bridge reconciliation rejection falls back to generic unexpected failure.",
     "RecordRejectedError": "Bridge persistence record rejection falls back to generic unexpected failure.",
     "RuntimeTargetError": "Base class for runtime target adapter errors falls back to generic unexpected failure.",
-    "SchemaVersionError": "Store schema version mismatch falls back to generic unexpected failure.",
     "SpawnFailure": "Subprocess spawn low-level error wrapper falls back to generic unexpected failure.",
     "StaleClaimError": "Claim state staleness falls back to generic unexpected failure.",
     "TerminalConflictError": "Bridge terminal state race condition falls back to generic unexpected failure.",
@@ -214,6 +211,9 @@ class SessionValueError(ValueError):
 
 
 EXCEPTION_SCENARIOS: dict[str, list[tuple[Exception, str]]] = {
+    "CasMismatchError": [(CasMismatchError("revision changed"), "ask_cas_conflict")],
+    "IdempotencyConflictError": [(IdempotencyConflictError("conflicting request"), "ask_idempotency_conflict")],
+    "SchemaVersionError": [(SchemaVersionError("unsupported schema"), "ask_schema_version_error")],
     "ClaimHeldError": [
         (ClaimHeldError("claim held by peer"), "ask_claim_held"),
     ],
@@ -383,7 +383,9 @@ def test_recovery_actions_parse_with_real_parser():
                 parsed = parser.parse_args(tokens)
                 assert parsed is not None
             except SystemExit as exc:
-                pytest.fail(f"Recovery argv {argv} for code {code} failed to parse: {exc}")
+                assert tokens == ["--version"] and exc.code == 0, (
+                    f"Recovery argv {argv} for code {code} failed to parse: {exc}"
+                )
 
 
 def test_recovery_text_never_recommends_unsafe_operations():
@@ -975,14 +977,14 @@ def test_context_exit_registry_matches_cli(tmp_path, monkeypatch, capsys, except
     assert explanation["exits"] == REGISTRY[guidance_code].exits
 
 
-@pytest.mark.parametrize("exception, error_code, expected_exit", [
-    (RuntimeError("dispatch failed"), "delivery_failed", 1),
-    (ValueError("invalid input"), "invalid_arguments", 2),
-    (IdempotencyConflictError("conflicting request"), "idempotency_conflict", 2),
-    (CasMismatchError("revision changed"), "cas_conflict", 3),
-    (SchemaVersionError("unsupported schema"), "schema_version_error", 6),
+@pytest.mark.parametrize("exception, error_code, guidance_code, expected_exit", [
+    (RuntimeError("dispatch failed"), "delivery_failed", "ask_unexpected_failure", 1),
+    (ValueError("invalid input"), "invalid_arguments", "ask_unexpected_failure", 2),
+    (IdempotencyConflictError("conflicting request"), "idempotency_conflict", "ask_idempotency_conflict", 2),
+    (CasMismatchError("revision changed"), "cas_conflict", "ask_cas_conflict", 3),
+    (SchemaVersionError("unsupported schema"), "schema_version_error", "ask_schema_version_error", 6),
 ])
-def test_unexpected_failure_exit_contexts(tmp_path, monkeypatch, capsys, exception, error_code, expected_exit):
+def test_failure_exit_contexts(tmp_path, monkeypatch, capsys, exception, error_code, guidance_code, expected_exit):
     from peerhub.cli.app import main
     from peerhub.extensions import ask as ask_mod
 
@@ -993,12 +995,16 @@ def test_unexpected_failure_exit_contexts(tmp_path, monkeypatch, capsys, excepti
     actual_exit = main(["--db", str(tmp_path / "core.db"), "ask", "cx", "hello", "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert payload["error"]["code"] == error_code
-    assert payload["guidance"]["code"] == "ask_unexpected_failure"
+    assert payload["guidance"]["code"] == guidance_code
     assert actual_exit == expected_exit
-    assert main(["explain", "ask_unexpected_failure", "--json"]) == 0
+    assert main(["explain", guidance_code, "--json"]) == 0
     explanation = json.loads(capsys.readouterr().out)
-    assert "exit_code" not in explanation
-    assert {case["code"] for case in explanation["exits"]} == {1, 2, 3, 6}
+    if guidance_code == "ask_unexpected_failure":
+        assert "exit_code" not in explanation
+        assert {case["code"] for case in explanation["exits"]} == {1, 2}
+    else:
+        assert explanation["exit_code"] == expected_exit
+        assert explanation["code"] == guidance_code
     assert actual_exit in {case["code"] for case in explanation["exits"]}
 
 
@@ -1205,3 +1211,54 @@ def test_guidance_reference_relative_links_validity():
 
 
 
+
+
+@pytest.mark.parametrize("status", ["delivered", "recovered_terminal"])
+@pytest.mark.parametrize("response", ["", "answer"])
+@pytest.mark.parametrize("json_output", [False, True])
+def test_empty_response_cli_note(tmp_path, monkeypatch, capsys, status, response, json_output):
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    session = {"handle": "sess_0000000000000001", "mode": "reuse", "generation": 1}
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": status, "response": response, "session": session,
+        "empty_response": response == "", "task_effects": "unverified",
+    })
+    argv = ["--db", str(tmp_path / "core.db"), "ask", "cx", "hello"]
+    assert main(argv + (["--json"] if json_output else [])) == 0
+    output = capsys.readouterr()
+    assert output.err == ("note: empty response (see --json)\n" if response == "" and not json_output else "")
+    if json_output:
+        payload = json.loads(output.out)
+        assert payload["response"] == response
+        assert payload["empty_response"] == (response == "")
+    else:
+        assert output.out == f"{response}\nsession: {session['handle']} reuse gen1\n"
+
+
+@pytest.mark.parametrize("flags, selector_error", [
+    (["--session"], True),
+    (["--fresh=yes"], True),
+    (["--fresh", "--timeout-seconds", "bad"], False),
+    (["--session", "sess_0000000000000001", "--max-output-bytes", "bad"], False),
+    (["--fresh", "--unknown"], False),
+    (["--session=sess_0000000000000001", "--unknown"], False),
+])
+def test_argparse_guidance_uses_failing_argument(tmp_path, capsys, flags, selector_error):
+    from peerhub.cli.app import main
+
+    assert main(["--db", str(tmp_path / "core.db"), "ask", "cx", "hello", "--json", *flags]) == 2
+    output = capsys.readouterr()
+    payload = json.loads(output.out)
+    expected = "ask_selector_error" if selector_error else "ask_unexpected_failure"
+    assert payload["guidance"]["code"] == expected
+    assert payload["session"] is None
+    assert not (tmp_path / "core.db").exists()
+
+
+def test_bare_cli_exit_change_documented_under_changed():
+    changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+    changed = changelog.split("### Changed", 1)[1].split("### ", 1)[0]
+    assert "Bare `peerhub`" in changed
+    assert "from 2 to 0" in changed

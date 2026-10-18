@@ -35,14 +35,17 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | Outcome Code | Exit Code | Meaning | Safe Recovery Action | Avoid |
 |---|---|---|---|---|
 | `ask_blocked_uncertain` | 1 | New request on this stream is blocked because an earlier record on the stream ended in an uncertain state. | `peerhub diag health --stream STREAM_ID` (Inspect the blocked stream and review uncommitted evidence) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context. |
+| `ask_cas_conflict` | 3 | A compare-and-swap revision check failed. | `peerhub diag health --stream STREAM_ID` (Inspect current stream state before retrying the original request) | Do not bypass revision checks or change the request ID to force another execution; resolve uncertain delivery first. |
 | `ask_claim_held` | 1 | A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream. | `peerhub diag health --stream STREAM_ID` (Inspect store connectivity and stream activity (note: diag health checks store and stream records, not active in-memory leases or claims)) | Do not delete claim tables or database files, do not force --fresh, and do not bypass claim contention with duplicate request IDs. |
 | `ask_delivery_failed` | 1 or 4 (context-dependent) | Adapter invocation failed before execution started or failed critically during delivery. | `peerhub diag health` (Inspect peer adapter status and diagnostic health) | Do not loop blind retries or pass --fresh without verifying adapter flags and availability. |
+| `ask_idempotency_conflict` | 2 | An idempotency key was reused with conflicting request data. | `peerhub record read --stream STREAM_ID` (Inspect the original request and reuse its prompt, binding, and session selector for a retry) | Do not change request IDs to bypass a conflict or retry uncertain execution blindly. |
 | `ask_launch_failed` | 1 | Provider CLI executable could not be found or failed to spawn before execution started. | `peerhub diag health` (Inspect peer adapter availability and PATH configuration) | Do not loop retries or pass --fresh until the provider CLI executable is installed and reachable on PATH. |
 | `ask_refusal` | 1 | The provider explicitly refused execution before performing any tool calls (task outcome NOT_EXECUTED). | `peerhub diag quota` (Inspect provider quota pools and reset times) | Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue. |
+| `ask_schema_version_error` | 6 | The selected store uses an unsupported schema version. | `peerhub --version` (Check the installed version and use a PeerHub version compatible with this store) | Do not edit schema version metadata or downgrade the store to bypass this check. |
 | `ask_selector_error` | 1 or 2 (context-dependent) | Session selector or handle validation failed before invocation could begin. | `peerhub session list` (List available valid sessions and check session handles) | Do not invent session handles, do not combine --fresh with --session, and do not retry without correcting the session selector. |
 | `ask_stream_peer_mismatch` | 2 | The target stream is already bound to a different ask target peer. | `peerhub stream list` (Inspect existing streams and select or create a stream for this peer) | Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding. |
 | `ask_uncertain` | 1 | Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort). | `peerhub diag health --stream STREAM_ID` (Inspect stream health and check for uncommitted or partial activity) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. |
-| `ask_unexpected_failure` | 1, 2, 3, or 6 (context-dependent) | An unclassified or unexpected error occurred during ask dispatch. | `peerhub diag health` (Inspect diagnostic evidence and stream state) | Do not retry destructive actions or invent unverified recovery commands. |
+| `ask_unexpected_failure` | 1 or 2 (context-dependent) | An unclassified or unexpected error occurred during ask dispatch. | `peerhub diag health` (Inspect diagnostic evidence and stream state) | Do not retry destructive actions or invent unverified recovery commands. |
 
 ### Detailed Recovery Advice by Outcome Code
 
@@ -54,6 +57,16 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 - **Safe Recovery Actions**:
   1. `peerhub diag health --stream STREAM_ID`: Inspect the blocked stream and review uncommitted evidence (Prerequisites: Provide the affected stream identifier.)
 - **Avoid**: Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context.
+- **Documentation**: [docs/remote-ask.md](remote-ask.md)
+
+#### `ask_cas_conflict`
+
+- **Exit Code**: 3
+- **Meaning**: A compare-and-swap revision check failed.
+- **Why**: The stored revision changed before the guarded update could commit.
+- **Safe Recovery Actions**:
+  1. `peerhub diag health --stream STREAM_ID`: Inspect current stream state before retrying the original request (Prerequisites: Provide the affected stream identifier.)
+- **Avoid**: Do not bypass revision checks or change the request ID to force another execution; resolve uncertain delivery first.
 - **Documentation**: [docs/remote-ask.md](remote-ask.md)
 
 #### `ask_claim_held`
@@ -78,6 +91,16 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 - **Avoid**: Do not loop blind retries or pass --fresh without verifying adapter flags and availability.
 - **Documentation**: [docs/remote-ask.md](remote-ask.md)
 
+#### `ask_idempotency_conflict`
+
+- **Exit Code**: 2
+- **Meaning**: An idempotency key was reused with conflicting request data.
+- **Why**: The stored request identity differs from the request supplied with the same key.
+- **Safe Recovery Actions**:
+  1. `peerhub record read --stream STREAM_ID`: Inspect the original request and reuse its prompt, binding, and session selector for a retry (Prerequisites: Provide the affected stream identifier.)
+- **Avoid**: Do not change request IDs to bypass a conflict or retry uncertain execution blindly.
+- **Documentation**: [docs/remote-ask.md](remote-ask.md)
+
 #### `ask_launch_failed`
 
 - **Exit Code**: 1
@@ -98,6 +121,16 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
   2. `peerhub profile list`: Review available model profiles and configured bindings (Prerequisites: None.)
 - **Avoid**: Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue.
 - **Documentation**: [docs/history/from-engram-repo/protocol-docs/ops/automatic-profile-routing-2026-06-20.md](history/from-engram-repo/protocol-docs/ops/automatic-profile-routing-2026-06-20.md)
+
+#### `ask_schema_version_error`
+
+- **Exit Code**: 6
+- **Meaning**: The selected store uses an unsupported schema version.
+- **Why**: This PeerHub version cannot read the selected store schema.
+- **Safe Recovery Actions**:
+  1. `peerhub --version`: Check the installed version and use a PeerHub version compatible with this store (Prerequisites: Verify the selected --db path is the intended store.)
+- **Avoid**: Do not edit schema version metadata or downgrade the store to bypass this check.
+- **Documentation**: [docs/migrations.md](migrations.md)
 
 #### `ask_selector_error`
 
@@ -136,9 +169,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 - **Exit Codes** (context-dependent):
   - `1`: Unhandled exception or unexpected runtime error during ask dispatch.
-  - `2`: Invalid CLI arguments, unrecognized ask options, or idempotency conflict (ValueError other than selector/session errors, or IdempotencyConflictError).
-  - `3`: Compare-and-swap revision conflict (CasMismatchError).
-  - `6`: Unsupported store schema version (SchemaVersionError).
+  - `2`: Invalid CLI arguments or unrecognized ask options (ValueError other than selector/session errors).
 - **Meaning**: An unclassified or unexpected error occurred during ask dispatch.
 - **Why**: An unhandled exception or internal error interrupted the ask command.
 - **Safe Recovery Actions**:
