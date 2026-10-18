@@ -8,50 +8,46 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
-### Docs
-
-- Added peer sandbox limits and installed-CLI profile smoke recipe, linked from the documentation index (#134, #148).
-
-> [!NOTE]
-> **Scope Notice:** This PR resolves Slice S1 execution safety and stream fencing (#125, #126, #127, #140), core guidance registry and exact-code `peerhub explain <CODE>` (#117 S2-A), bare CLI routing (#121), stderr decoding (#120), monitor UX improvements (#146, #147), and documentation updates (#118, #123, #130, #134–#136, #148, #149).
-> The top-level `peerhub readiness` command (#145) remains pending; this PR does not claim S1-S4 completion.
+## [0.20.0] - 2026-10-18
 
 ### Breaking
 
-- **Native `ag` requires explicit `--writable` (#140):** Because the `agy` CLI does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution now fails closed pre-spawn (`PrespawnError` / `failed_not_started`) unless `--writable` is explicitly set. Cached replay of already-acknowledged requests continues to return before policy validation.
-- **Single-peer ask stream fencing (#125):** `peerhub ask` enforces one peer per ask stream (`StreamPeerMismatchError`, exit 2, guidance `ask_stream_peer_mismatch`) when an existing stream with established `ask:` prompt records is targeted by a different peer.
+- **Bare `peerhub` exit 2 -> 0:** Invoking `peerhub` without arguments now prints the offline `peerhub guide` and exits successfully (#121, #153).
+- **Native `ag` requires explicit `--writable`:** Because `agy` does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution fails closed before spawn (`PrespawnError` / `failed_not_started`) unless `--writable` is set. Cached replay of acknowledged requests still returns before policy validation (#140).
+- **Single-peer ask stream fencing:** `peerhub ask` rejects targeting a different peer on a stream with established `ask:` prompt records (`StreamPeerMismatchError`, exit 2, guidance `ask_stream_peer_mismatch`) (#125).
+- The deprecated monitor `--legacy` alias reaches its scheduled sunset and is no longer accepted in v0.20.0. Use `peerhub monitor --json --schema-version 1.1` for the frozen machine contract; grouped human output remains the default.
 
 ### Added
 
-- Offline AND-token lessons lookup via `peerhub explain <free words>`, packaged `lessons.toml`, generated `docs/lessons.md` with drift coverage, and a one-line guide pointer within the existing budget (#117).
-
-- Published generated guidance and session lifecycle reference (`docs/guidance-reference.md`) with status -> exit code -> safe action mapping derived from `RESULT_STATUS_REGISTRY`, 1:1 registry parity and link tests, and verified qualified session state definitions (`ACTIVE`, `LOST`, `FRESH`, `TOMBSTONED`, `resumable`, `session_generation` semantics) (#135).
-- Added Windows PowerShell operations guide (`docs/windows.md`) covering tested parallel asks (`Start-Job`, `ForEach-Object -Parallel`, `$using:`), quoting rules, `--query-file`, non-ASCII paths, and verified command parser test (#136).
-- Guidance registry (`peerhub/cli/recovery.py`) mapping ask-path non-success outcomes to structured guidance and recovery advice (`meaning`, `why`, `recover` argv arrays, `avoid`, `docs`), including `ask_launch_failed` (#120) and `ask_stream_peer_mismatch` (#125) (#117).
-- Offline `peerhub explain CODE [--json]` subcommand providing detailed human-readable and structured JSON guidance for outcome codes (#117).
-- Factual tool-only turn completion metadata (`empty_response: true`, `task_effects: "unverified"`) when a provider completes a turn with tool actions and no final text message (#126).
-- Group-derived Antigravity quota pool membership (`_parse_agy_usage_output` derives pool labels `G-*`, `3P-*`, `A-*` from `groups[].name`), mapped `gemini-argon-wtu-weekly` to `A-7D`, added raw `agy /usage` envelope fixture and parser tests, and mapped exact models `gemini-4-argon-{low,medium,high}` to `["A-7D"]` in `model-profiles.json` and `model-defaults.toml` (defaults revision `2026-10-18.1`) (#149).
-- Dependabot config: automated weekly updates for pip and github-actions ecosystems (`.github/dependabot.yml`).
-- SECURITY.md: vulnerability reporting policy, supported version scope, and reporting guidance.
+- Guidance registry (`peerhub/cli/recovery.py`) maps ask outcomes to meanings, causes, recovery argv, cautions, documentation, and contextual exit codes. Offline `peerhub explain CODE [--json]` exposes exact-code recovery guidance (#117, #150).
+- Offline AND-token lessons lookup through `peerhub explain <free words>`, packaged `lessons.toml`, generated `docs/lessons.md` with drift checks, and a compact guide pointer (#117, #150).
+- Factual tool-only turn completion metadata (`empty_response: true`, `task_effects: "unverified"`) when a provider completes tool actions without a final text message (#126, #150).
+- Argon `A-7D` quota pool: group-derived Antigravity pool labels (`G-*`, `3P-*`, `A-*`), `gemini-argon-wtu-weekly` mapping to `A-7D`, and exact `gemini-4-argon-{low,medium,high}` model mappings in both model-profile artifacts (defaults revision `2026-10-18.1`), backed by raw usage fixtures and parser tests (#149).
+- Weekly Dependabot updates for pip and GitHub Actions, plus `SECURITY.md` with vulnerability reporting guidance and supported-version scope (#151).
 
 ### Changed
 
-- Bare `peerhub` invocation (no arguments) now prints `peerhub guide`; its exit code changes from 2 to 0 (#121, #153).
-
-- **Monitor quota-first layout and bounded overflow (S1, #146):** Transformed monitor dashboard into a quota-first UX beneath a 1-line status header (UTC timestamps, DB source, and no synthetic refresh in snapshot); renders deterministic QUOTA table first (`PEER POOL REM [bar] RESET-IN PACE STATE AGE`, adding `EXHAUST-IN` only at >=100 cols), sorts deterministically by peer, window (derived from pool ref), and pool id, preserves STALE/UNKNOWN identity with reason while hiding unusable capacity, and guarantees at least one bar cell for non-zero fraction; replaces tall enclosing boxes with single-line section rules; orders PEERS dependency view before EXECUTION, SESSIONS, USAGE, and CONTEXT; enforces bounded 80x12 overflow policy that displays quota first, suppresses lower sections, and emits an unclipped omission line with exact hint `peerhub monitor --snapshot --group capacity --expand`; and corrected `--expand` help text to reflect row limits across all sections.
-- Updated `peerhub guide` and `docs/remote-ask.md` for `ag` silence timeout behavior (leave unset or set `>= --timeout-seconds`, long tasks: `--timeout-seconds 7200`) (#118).
-- Documented Windows monitor lock avoidance (`stop peerhub monitor -> pip install -U -> restart monitor`) and PyPI index lag in `README.md` and `peerhub guide` (#123).
-- Documented `pending_earlier_record` processed_status-dependent meaning and guidance (`delivered`, `not_executed`, `failed_not_started`, `uncertain`) in the guidance registry and `docs/guidance-reference.md`, and represented context-dependent exit codes as lists per context in explain JSON and reference documentation (#135).
-- Missing-store error output now includes the selection source (`(source: ...)`), a quoted creation command with global `--db` before the subcommand, and `Learn: peerhub guide` (#121).
-- Monitor human dashboard (`peerhub/cli/monitor_view.py`) now renders all `CAPACITY` rows contiguously inside the `CAPACITY` block instead of splitting rows to the bottom of the screen, aligns bar fill direction with remaining %, separates window `reset` countdown from burn `ETA` (#146), and computes `USAGE` display fallback (`provider_input_tokens + output_tokens`) plus cache hit % when `provider_total_tokens` is absent (#147).
-- Aligned `peerhub guide`, `README.md`, `docs/remote-ask.md`, and `docs/migrations.md` with current store selection, write-policy, and recovery rules (#118, #123, #130, #134–#136, #148).
+- Monitor quota-first dashboard: one-line status header with UTC timestamps and database source, followed by a deterministic QUOTA table (`PEER POOL REM [bar] RESET-IN PACE STATE AGE`; `EXHAUST-IN` at widths of at least 100 columns). Quota rows precede PEERS, EXECUTION, SESSIONS, USAGE, and CONTEXT; short viewports disclose omitted rows with `peerhub monitor --snapshot --group capacity --expand`. Stale and unknown rows preserve identity and reasons; snapshot rendering does not synthesize a refresh (#146).
+- Remaining-quota bars fill consistently, all capacity rows stay together, and reset countdowns are separated from burn forecasts. USAGE falls back to input plus output tokens and shows cache hit percentage when provider total tokens are absent (#146, #147).
+- Missing-store errors include the selection source, a quoted creation command using global `--db`, and `Learn: peerhub guide` (#121).
+- `pending_earlier_record` guidance describes processed-status-dependent outcomes (`delivered`, `not_executed`, `failed_not_started`, `uncertain`); explain JSON represents context-dependent exit codes as lists (#135).
 
 ### Fixed
 
-- Monitor shows cx reset-credit count and soonest expiry from existing read-only evidence; fixture coverage verifies cc quota and AGE survive a `/usage` timeout (#157).
-- Monitor QUOTA `RESET-IN` now counts down from measured provider reset timestamps; stale and unknown observations retain `-` (#146).
-- Subprocess stderr decoding (`decode_stderr`) now queries Windows console output and OEM code pages (`GetConsoleOutputCP`/`GetOEMCP`, with cp949 fixture from `claude.exe` not recognized error) before falling back to UTF-8 with replacement, preventing `U+FFFD` replacement loss on Windows localized console messages (#120).
-- Preserved bounded terminal provider error summaries in `detail.error` when preceded by verbose startup stderr (#127), and kept aggregate `cx` response text across turns unless explicit provider phase metadata cleanly separates final text from commentary (#127).
+- Monitor QUOTA `RESET-IN` counts down from measured provider `resets_at` timestamps; stale and unknown observations retain `-` (#146).
+- Monitor displays cx reset credits and soonest expiry from existing read-only evidence; fixture coverage verifies cc last-good quota and AGE survive a `/usage` timeout (#157).
+- Windows stderr decoding consults console output and OEM code pages (`GetConsoleOutputCP` / `GetOEMCP`) before UTF-8 replacement, preserving localized launcher errors including cp949 messages; launch failures receive `ask_launch_failed` guidance (#120).
+- Bounded terminal provider error summaries survive verbose startup stderr; aggregate cx response text is retained unless explicit phase metadata distinguishes final text from commentary (#127).
+- Review follow-ups add an empty-response stderr note, restrict selector guidance to actual selector argument errors, and provide specific guidance for unsupported store schemas, compare-and-swap conflicts, and idempotency conflicts (#153).
+
+### Docs
+
+- Peer sandbox limits and an installed-CLI profile smoke recipe, linked from the documentation index (#134, #148).
+- `ag` silence-timeout guidance: leave it unset or set it at least as high as `--timeout-seconds`; long-task examples use `--timeout-seconds 7200` (#118).
+- Windows upgrade instructions: stop monitor, upgrade, then restart; explain temporary PyPI index lag (#123).
+- Generated guidance and session lifecycle reference with registry parity checks, qualified session-state definitions, safe actions, and contextual exit codes (#135).
+- Windows PowerShell operations guide covering parallel asks, `$using:`, quoting, `--query-file`, non-ASCII paths, and parser-verified examples (#136).
+- Aligned guide, README, remote-ask, and migration documentation with current store selection, write-policy, and recovery rules (#130, #134, #148).
 
 ## [0.19.0] - 2026-10-17
 

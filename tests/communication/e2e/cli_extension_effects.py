@@ -160,7 +160,7 @@ def assert_vt_view_effect(e, db, command):
     for style in ("plain", "rich"):
         for vt in (True, False):
             output = Output()
-            args = (["--legacy", "--cycles", "1"] if command == "monitor" else ["--live", "--cycles", "1"])
+            args = (["--cycles", "1"] if command == "monitor" else ["--live", "--cycles", "1"])
             with patch("sys.stdout", output), patch("peerhub.cli.view.enable_vt", lambda: vt), \
                     patch.dict("os.environ", {"TERM": "xterm"}):
                 assert e.run(db, command, "--view", style, *args)[0] in (0, 4)
@@ -241,8 +241,6 @@ def monitor_effect(e, option):
         argv += ["--json", option, "1.1"]
     elif option == "--view":
         argv += [option, "rich"]
-    elif option == "--legacy":
-        argv = ["monitor", "--legacy", "--json", "--cycles", "1"]
     if option not in ("--view", "--schema-version"):
         # These option effects predate the grouped read model and concern the
         # collection loop itself. Keep the projection-independent 1.1 wire path
@@ -262,7 +260,7 @@ def monitor_effect(e, option):
          patch("peerhub.cli.monitor.sleep", fake_sleep):
         code, out, err = e.run(db, *argv)
         if option == "--view":
-            plain_code, plain, plain_err = e.run(db, "monitor", "--legacy", "--cycles", "1", "--view", "plain")
+            plain_code, plain, plain_err = e.run(db, "monitor", "--cycles", "1", "--view", "plain")
             assert_vt_view_effect(e, db, "monitor")
     if option == "--view":
         assert code in (0, 4) and plain_code in (0, 4) and "refresh:" in err and "refresh:" in plain_err

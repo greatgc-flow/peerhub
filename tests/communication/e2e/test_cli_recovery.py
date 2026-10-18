@@ -1257,8 +1257,7 @@ def test_argparse_guidance_uses_failing_argument(tmp_path, capsys, flags, select
     assert not (tmp_path / "core.db").exists()
 
 
-def test_bare_cli_exit_change_documented_under_changed():
+def test_bare_cli_exit_change_documented_under_breaking():
     changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
-    changed = changelog.split("### Changed", 1)[1].split("### ", 1)[0]
-    assert "Bare `peerhub`" in changed
-    assert "from 2 to 0" in changed
+    breaking = changelog.split("### Breaking", 1)[1].split("### ", 1)[0]
+    assert "Bare `peerhub` exit 2 -> 0" in breaking
