@@ -2,9 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.20.0 (release candidate, in preparation)
+## Current source: v0.21.0 (release candidate, in preparation)
 
-v0.20.0 adds Argon A-7D quota mapping, the quota-first monitor with measured RESET-IN and cx reset credits, recovery guidance and lessons lookup, execution safety and stream fencing, Windows stderr fixes, and updated operating documentation. Bare `peerhub` now shows the guide with exit 0; the deprecated monitor `--legacy` alias has reached its sunset. Candidate validation and publication remain pending.
+v0.21.0 adds cached-only diagnostic readiness (#145 part 1), the monitor QUOTA visual refresh S2 (#147), and oversized cx event handling that preserves uncertainty when terminal evidence is lost (#164 part A). Candidate validation and publication remain pending.
 
 ### Release attempts
 
@@ -16,6 +16,7 @@ v0.20.0 adds Argon A-7D quota mapping, the quota-first monitor with measured RES
 | **v0.18.2** | `8274e9f5` | PR #111 | Published | Published 2026-10-16T16:17:37Z |
 | **v0.19.0** | `32da9284` | PR #144 | Published | Published 2026-10-17T14:39:58Z; workflow run 39041714673; live gate G3 passed bound to `32da9284`; PyPI 0.19.0 |
 | **v0.20.0** candidate | branch `release/0.20.0` | | In preparation | Prepared 2026-10-18 |
+| **v0.21.0** candidate | branch `release/0.21.0` | | In preparation | Prepared 2026-10-18 |
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
 
@@ -90,7 +91,7 @@ Operational design ratified (S1-S4 consensus): [issue-resolution-2026-10-18](des
 | Slice S2 (CLI UX, Decoding & Guidance) | **Done on `fix/issue-resolution-020`**: Guidance registry + `peerhub explain` (#117); bare `peerhub` prints `peerhub guide` (exit 0) and missing-store error includes source, quoted global `--db` command, and `Learn: peerhub guide` (#121); UTF-8-first with locale fallback (`decode_stderr`) and `ask_launch_failed` / `ask_stream_peer_mismatch` guidance (#120, #125). | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #117, #120, #121, #125 |
 | Slice S3 (Monitor UX & Telemetry Display) | **Done on `fix/issue-resolution-020`**: Contiguous `CAPACITY` rendering under `CAPACITY [OK]`, bar fill aligned with remaining %, reset countdown separated from burn `ETA` (#146), and `USAGE` display fallback (`provider_input_tokens + output_tokens`) + cache hit % when `provider_total_tokens` is absent (#147). | Issues #146, #147 |
 | Slice S4 (Docs & Guide Alignment) | **Done on `fix/issue-resolution-020`**: Updated `peerhub/cli/guide.py`, `README.md`, `docs/remote-ask.md`, `docs/migrations.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, and `CHANGELOG.md` (#118, #123, #130, #134-#136, #148). | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #118, #123, #130, #134-#136, #148 |
-| Deferred by Design | `peerhub readiness` (#145), lazy imports, queue/provider timing split, db schema slices 2-5, gemini-4-argon adoption, TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issue #145 |
+| Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, gemini-4-argon adoption, TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issue #145 |
 
 Operational lessons and coordinator handoff: [HANDOFF](HANDOFF.md).
 
