@@ -913,7 +913,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
             guidance_code = select_guidance_code(exception=exception)
             db_arg = getattr(args, "db", None)
-            sid = getattr(args, "stream_id", None)
+            sid = getattr(args, "stream_id", None) or (f"peer:{args.peer}:chat" if getattr(args, "peer", None) else None)
             if args.json:
                 payload: dict[str, Any] = dict(status="error", response=None, session=session, error=dict(code=code, message=message))
                 if guidance_code:

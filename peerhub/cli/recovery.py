@@ -312,7 +312,7 @@ def make_guidance_payload(
     *,
     db_path: str | Path | None = None,
     stream_id: str | None = None,
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Build additive top-level guidance dict for JSON responses."""
     entry = get_guidance(code, db_path=db_path, stream_id=stream_id)
     if entry is None:
@@ -321,6 +321,7 @@ def make_guidance_payload(
         "code": entry.code,
         "explain_cmd": f"peerhub explain {entry.code}",
         "summary": entry.summary(),
+        "recover": entry.recover,
     }
 
 

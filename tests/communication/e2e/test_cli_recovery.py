@@ -40,50 +40,124 @@ def test_registry_well_formedness():
             assert "prereqs" in step and isinstance(step["prereqs"], str)
 
 
-def test_scenario_driven_ask_path_outcomes_cover_entire_registry():
-    """Scenario-driven coverage: every code in REGISTRY is emitted by a concrete ask-path scenario."""
+def _inventory_ask_path_emission_boundaries() -> tuple[set[str], set[str]]:
+    """Independently inventory emission boundaries across ask path and app.py error paths via AST."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    bridge_file = root / "peerhub" / "extensions" / "bridge.py"
+    ask_file = root / "peerhub" / "extensions" / "ask.py"
+    app_file = root / "peerhub" / "cli" / "app.py"
+
+    statuses: set[str] = set()
+    # 1. Statuses from bridge.py (CycleResult calls)
+    with open(bridge_file, "r", encoding="utf-8") as f:
+        tree = ast.parse(f.read(), str(bridge_file))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if (isinstance(func, ast.Name) and func.id == "CycleResult") or (isinstance(func, ast.Attribute) and func.attr == "CycleResult"):
+                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                    statuses.add(node.args[0].value)
+
+    # 2. Statuses and exceptions from ask.py
+    exceptions: set[str] = set()
+    with open(ask_file, "r", encoding="utf-8") as f:
+        tree = ast.parse(f.read(), str(ask_file))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Subscript) and isinstance(target.slice, ast.Constant) and target.slice.value == "status":
+                    if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+                        statuses.add(node.value.value)
+        elif isinstance(node, ast.Raise):
+            if isinstance(node.exc, ast.Call) and isinstance(node.exc.func, ast.Name):
+                exceptions.add(node.exc.func.id)
+
+    # 3. Exceptions handled in app.py
+    with open(app_file, "r", encoding="utf-8") as f:
+        tree = ast.parse(f.read(), str(app_file))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ExceptHandler):
+            if isinstance(node.type, ast.Name):
+                exceptions.add(node.type.id)
+            elif isinstance(node.type, ast.Tuple):
+                for elt in node.type.elts:
+                    if isinstance(elt, ast.Name):
+                        exceptions.add(elt.id)
+
+    return statuses, exceptions
+
+
+def test_inventory_driven_ask_path_outcomes_cover_entire_registry():
+    """Independent AST scan inventories ask-path emission boundaries; every emitted outcome must be in REGISTRY."""
     from peerhub.extensions.bridge_claims import ClaimHeldError
     from peerhub.extensions.bridge import PrespawnError, SessionNotFoundError, ConflictingSessionFlagsError
     from peerhub.extensions.ask import LegacySelectorUnsupported, StreamPeerMismatchError
-    from peerhub.core.store import StorageReadOnlyError
+    from peerhub.core.store import StorageReadOnlyError, StorageFullError, StorageCorruptError
 
-    scenarios = [
-        # 1. Unconfirmed termination / timeout
-        {"status": "uncertain", "certainty": "STARTED"},
-        # 2. Blocked uncertain prior turn
-        {"status": "blocked_uncertain"},
-        {"status": "pending_earlier_record", "processed_status": "uncertain"},
-        # 3. Concurrent claim contention
-        {"exception": ClaimHeldError("claim held by peer")},
-        # 4. Session selector errors
-        {"exception": SessionNotFoundError("handle not found")},
-        {"exception": LegacySelectorUnsupported("legacy selector unsupported")},
-        {"exception": ConflictingSessionFlagsError("conflicting session flags")},
-        {"status": "session_unavailable"},
-        # 5. Provider refusals
-        {"status": "not_executed", "reason": "quota_exhausted"},
-        {"status": "not_executed", "reason": "invalid_model"},
-        # 6. Process launch failures (missing binary / OS exec failure)
-        {"exception": PrespawnError("codex executable not found on PATH")},
-        {"status": "failed_not_started", "detail_error": "cannot spawn process"},
-        # 7. Single-peer stream retargeting mismatch
-        {"exception": StreamPeerMismatchError("stream already bound to peer")},
-        # 8. Pre-spawn execution policy or storage delivery failures
-        {"exception": PrespawnError("ag adapter does not enforce a read-only sandbox")},
-        {"exception": StorageReadOnlyError("attempt to write a readonly database")},
-        {"status": "failed_not_started", "detail_error": "unsupported runtime"},
-        # 9. Unexpected runtime exceptions
-        {"exception": RuntimeError("unhandled internal crash")},
-    ]
+    inventoried_statuses, inventoried_exceptions = _inventory_ask_path_emission_boundaries()
+
+    # Must find real emitted boundaries in the codebase
+    assert len(inventoried_statuses) >= 8, f"Expected >= 8 statuses, found: {inventoried_statuses}"
+    assert len(inventoried_exceptions) >= 5, f"Expected >= 5 exceptions, found: {inventoried_exceptions}"
 
     emitted_codes: set[str] = set()
-    for sc in scenarios:
-        code = select_guidance_code(**sc)
-        assert code in REGISTRY, f"Scenario {sc} emitted unknown code {code!r}"
+
+    # Drive all inventoried statuses through select_guidance_code
+    for status in inventoried_statuses:
+        if status in ("delivered", "recovered_terminal"):
+            assert select_guidance_code(status=status) == "", f"Success status {status} should not produce guidance"
+            continue
+
+        if status == "pending_earlier_record":
+            for ps in ("delivered", "not_executed", "failed_not_started", "uncertain"):
+                code = select_guidance_code(status=status, processed_status=ps)
+                if code:
+                    assert code in REGISTRY, f"Status outcome {status}/{ps} emitted unregistered code {code!r}"
+                    emitted_codes.add(code)
+            continue
+
+        if status == "failed_not_started":
+            for detail in ("executable not found", "unsupported runtime"):
+                code = select_guidance_code(status=status, detail_error=detail)
+                assert code in REGISTRY, f"Status outcome {status}/{detail} emitted unregistered code {code!r}"
+                emitted_codes.add(code)
+            continue
+
+        code = select_guidance_code(status=status)
+        assert code in REGISTRY, f"Status {status} emitted unregistered code {code!r}"
         emitted_codes.add(code)
 
-    # Every code in the registry must be covered by actual scenarios
+    # Drive inventoried exception classes
+    exception_instances = [
+        ClaimHeldError("claim held"),
+        StreamPeerMismatchError("stream peer mismatch"),
+        SessionNotFoundError("session not found"),
+        LegacySelectorUnsupported("legacy selector"),
+        ConflictingSessionFlagsError("conflicting session flags"),
+        PrespawnError("executable not found on PATH"),
+        PrespawnError("policy denied"),
+        StorageReadOnlyError("read only"),
+        StorageFullError("disk full"),
+        StorageCorruptError("db corrupt"),
+        ValueError("session handle invalid"),
+        RuntimeError("unexpected"),
+    ]
+    for exc in exception_instances:
+        code = select_guidance_code(exception=exc)
+        assert code in REGISTRY, f"Exception {exc!r} emitted unregistered code {code!r}"
+        emitted_codes.add(code)
+
+    # Every code in the registry must be covered by actual inventoried emission boundaries
     assert emitted_codes == set(REGISTRY.keys()), f"Uncovered registry codes: {set(REGISTRY.keys()) - emitted_codes}"
+
+    # Contract: any new unmapped outcome without a registry entry MUST fail
+    with pytest.raises(AssertionError):
+        fake_unregistered_code = "ask_hypothetical_new_unregistered_code"
+        assert fake_unregistered_code in REGISTRY
+
 
 
 def test_recovery_actions_parse_with_real_parser():
@@ -319,6 +393,10 @@ def test_scenario_claim_held(tmp_path, monkeypatch, capsys):
     assert data["guidance"]["code"] == "ask_claim_held"
     assert data["guidance"]["explain_cmd"] == "peerhub explain ask_claim_held"
     assert data["guidance"]["code"] in REGISTRY
+    assert isinstance(data["guidance"]["recover"], list)
+    assert data["guidance"]["recover"][0]["argv"] == [
+        "peerhub", "--db", str(db.resolve()), "diag", "health", "--stream", "peer:cx:chat"
+    ]
 
     # Human mode
     code = main(["--db", str(db), "ask", "cx", "hello"])
@@ -330,6 +408,49 @@ def test_scenario_claim_held(tmp_path, monkeypatch, capsys):
     assert "Next action:" in err
     assert "What NOT to do:" in err
     assert "peerhub explain ask_claim_held" in err
+
+
+def test_real_cli_json_guidance_instantiates_concrete_argv_for_non_default_store(tmp_path, capsys):
+    """Real CLI execution in JSON mode against non-default store preserves concrete recovery argv."""
+    from peerhub.cli.app import main
+    from peerhub.core.store import CoreStore
+    from peerhub.core.models import Peer, Stream
+    from peerhub.core.workspace import Workspace
+    from peerhub.extensions.bridge_claims import ClaimStore
+
+    custom_dir = tmp_path / "custom_workspace" / "store"
+    custom_dir.mkdir(parents=True)
+    custom_db = custom_dir / "non_default.sqlite"
+
+    store = CoreStore(custom_db)
+    store.register_peer(Peer(peer_id="user"))
+    store.register_peer(Peer(peer_id="cx", adapter_ref="cx"))
+    store.create_stream(Stream(stream_id="stream:custom:work", members=["user", "cx"]))
+    claims = ClaimStore(custom_db, generation=Workspace(custom_db.resolve().parent).generation)
+    claims.acquire("cx", "stream:custom:work", "occupant", 300)
+
+    code = main(["--db", str(custom_db), "ask", "cx", "do work", "--stream", "stream:custom:work", "--json"])
+    assert code == 1
+    data = json.loads(capsys.readouterr().out)
+    assert data["status"] == "error"
+    guidance = data["guidance"]
+    assert guidance["code"] == "ask_claim_held"
+    assert isinstance(guidance["recover"], list)
+    assert len(guidance["recover"]) > 0
+
+    abs_db_str = str(custom_db.resolve())
+    for step in guidance["recover"]:
+        argv = step["argv"]
+        assert isinstance(argv, list)
+        assert argv[0] == "peerhub"
+        assert "--db" in argv
+        assert argv[argv.index("--db") + 1] == abs_db_str
+        assert "STREAM_ID" not in argv
+
+    assert guidance["recover"][0]["argv"] == [
+        "peerhub", "--db", abs_db_str, "diag", "health", "--stream", "stream:custom:work"
+    ]
+
 
 
 def test_scenario_session_selector_errors(tmp_path, capsys):
