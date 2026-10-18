@@ -19,6 +19,8 @@ def mk(tmp_path):
     def make(kind="cc", mode="ok", **kw):
         env = {"FAKE_MODE": mode, "FAKE_KIND": kind, "FAKE_LOG": str(log), **kw.pop("env_extra", {})}
         kw.setdefault("timeout_s", 20)
+        if kind == "ag":
+            kw.setdefault("writable", True)
         return CliRuntimeTarget(kind, ws, command=kw.pop("command", [sys.executable, FAKE]), env_extra=env, **kw)
 
     make.log, make.ws = log, ws

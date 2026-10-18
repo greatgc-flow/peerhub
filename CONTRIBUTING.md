@@ -63,6 +63,7 @@ Read [CONVENTION.md](CONVENTION.md) before making code changes. It records the
 project's coding rules. Runtime code is grouped into `core`, `extensions` and
 `cli`; tests are grouped by communication, continuity and collaboration.
 Shared fixtures and fake CLIs live under `tests/communication/harness`.
+Every public non-success outcome needs a registry entry in `peerhub/cli/recovery.py`.
 
 ## Branches, commits, and pull requests
 

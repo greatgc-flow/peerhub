@@ -414,12 +414,28 @@ def session_inspection_effect(e, command, option):
         else:
             assert result["session"]["handle"] == argv[2]
 
+def explain_effect(e, option):
+    db = e.tmp / "unused-explain.db"
+    if option == "--json":
+        code, out, err = e.run(db, "explain", "ask_uncertain", "--json")
+        assert code == 0 and not err and not db.exists()
+        payload = json.loads(out)
+        assert payload["code"] == "ask_uncertain" and "meaning" in payload
+    else:
+        code1, out1, err1 = e.run(db, "explain", "ask_uncertain")
+        code2, out2, err2 = e.run(db, "explain", "ask_claim_held")
+        assert code1 == code2 == 0 and not err1 and not err2 and not db.exists()
+        assert "ask_uncertain" in out1 and "ask_claim_held" in out2 and out1 != out2
+
+
 EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for option in (
     "peer", "prompt", "--query-file", "--stream", "--request-id", "--author-peer", "-w", "--workspace", "--model",
     "--effort", "-p", "--profile", "--writable", "--timeout-seconds", "--silence-timeout-seconds",
     "--max-output-bytes", "--json")}
 EFFECT.update({f"ask {option}": (lambda e, option=option: session_selector_effect(e, option))
                for option in ("--fresh", "--session")})
+EFFECT.update({f"explain {option}": (lambda e, option=option: explain_effect(e, option))
+               for option in ("code", "--json")})
 EFFECT["diag --json"] = diag_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
                for option in ("--live", "--interval-seconds", "--cycles", "--view")})

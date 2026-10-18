@@ -8,10 +8,35 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+> [!NOTE]
+> **Scope Notice:** This PR resolves Slice S1 execution safety and stream fencing (#125, #126, #127, #140), core guidance registry and exact-code `peerhub explain <CODE>` (#117 S2-A), bare CLI routing (#121), stderr decoding (#120), monitor UX improvements (#146, #147), and documentation updates (#118, #123, #130, #134–#136, #148, #149).
+> Lessons catalog keyword lookup, packaged `lessons.toml`, generated `docs/lessons.md` parity test, and top-level `peerhub readiness` command (#145) are **NOT** included in this PR and remain pending follow-up PRs; this PR does not claim S1-S4 completion.
+
+### Breaking
+
+- **Native `ag` requires explicit `--writable` (#140):** Because the `agy` CLI does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution now fails closed pre-spawn (`PrespawnError` / `failed_not_started`) unless `--writable` is explicitly set. Cached replay of already-acknowledged requests continues to return before policy validation.
+- **Single-peer ask stream fencing (#125):** `peerhub ask` enforces one peer per ask stream (`StreamPeerMismatchError`, exit 2, guidance `ask_stream_peer_mismatch`) when an existing stream with established `ask:` prompt records is targeted by a different peer.
+
 ### Added
 
+- Guidance registry (`peerhub/cli/recovery.py`) mapping ask-path non-success outcomes to structured guidance and recovery advice (`meaning`, `why`, `recover` argv arrays, `avoid`, `docs`), including `ask_launch_failed` (#120) and `ask_stream_peer_mismatch` (#125) (#117).
+- Offline `peerhub explain CODE [--json]` subcommand providing detailed human-readable and structured JSON guidance for outcome codes (#117).
+- Bare `peerhub` invocation (no arguments) now prints `peerhub guide` and exits 0 (#121).
+- Factual tool-only turn completion metadata (`empty_response: true`, `task_effects: "unverified"`) when a provider completes a turn with tool actions and no final text message (#126).
+- Mapped Antigravity `gemini-argon-wtu-weekly` quota bucket to `A-7D` in `AGY_QUOTA_FAMILIES`, eliminating false-positive `unknown_pools` drift warnings (#149).
 - Dependabot config: automated weekly updates for pip and github-actions ecosystems (`.github/dependabot.yml`).
 - SECURITY.md: vulnerability reporting policy, supported version scope, and reporting guidance.
+
+### Changed
+
+- Missing-store error output now includes the selection source (`(source: ...)`), a quoted creation command with global `--db` before the subcommand, and `Learn: peerhub guide` (#121).
+- Monitor human dashboard (`peerhub/cli/monitor_view.py`) now renders all `CAPACITY` rows contiguously inside the `CAPACITY` block instead of splitting rows to the bottom of the screen, aligns bar fill direction with remaining %, separates window `reset` countdown from burn `ETA` (#146), and computes `USAGE` display fallback (`provider_input_tokens + output_tokens`) plus cache hit % when `provider_total_tokens` is absent (#147).
+- Aligned `peerhub guide`, `README.md`, `docs/remote-ask.md`, and `docs/migrations.md` with current store selection, write-policy, and recovery rules (#118, #123, #130, #134–#136, #148).
+
+### Fixed
+
+- Subprocess stderr decoding (`decode_stderr`) now attempts strict UTF-8 first and falls back to `locale.getpreferredencoding(False)`, preventing `U+FFFD` replacement loss on Windows localized error messages (#120).
+- Preserved bounded terminal provider error summaries in `detail.error` when preceded by verbose startup stderr (#127), and kept aggregate `cx` response text across turns unless explicit provider phase metadata cleanly separates final text from commentary (#127).
 
 ## [0.19.0] - 2026-10-17
 

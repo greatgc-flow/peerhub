@@ -147,6 +147,7 @@ def test_guide_safety_scenarios_and_behaviour(capsys):
     assert re.search(r"delete claims", unc_text)
     # Distinguishes genuinely new work on a new stream
     assert re.search(r"\bcontinue genuinely new work on a new stream with a summary\b", unc_text, re.IGNORECASE)
+    assert re.search(r"peerhub explain <code>", unc_text)
 
     # Meaning-level check 3: Store hazards
     store_text = rules["Store hazards"]

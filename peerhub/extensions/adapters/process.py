@@ -92,6 +92,23 @@ def check_argv(argv: Sequence[Any]) -> None:
             raise ValueError("argument contains characters unsafe for a .cmd wrapper")
 
 
+def decode_stderr(raw: bytes, *, fallback_encoding: str | None = None) -> str:
+    """Decode subprocess stderr as UTF-8 first, falling back to system preferred encoding on non-UTF-8 bytes."""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        enc = fallback_encoding
+        if enc is None and sys.platform == "win32":
+            import locale
+            enc = locale.getpreferredencoding(False)
+        if enc and enc.lower().replace("-", "") != "utf8":
+            try:
+                return raw.decode(enc)
+            except (LookupError, UnicodeDecodeError):
+                pass
+        return raw.decode("utf-8", "replace")
+
+
 class BoundedProcess:
     """start() raises SpawnFailure only when no process was created; wait() never raises for post-spawn failures."""
 

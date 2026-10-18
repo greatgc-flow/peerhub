@@ -328,7 +328,7 @@ def test_t1_oversize_prompt_and_missing_workspace_are_prespawn(mk, tmp_path):
     a = mk("ag")
     with pytest.raises(PrespawnError, match="inline limit"):
         drain(a.deliver("s", rec("x" * 1_000_001), []))
-    gone = CliRuntimeTarget("ag", tmp_path / "gone", command=[sys.executable, FAKE])
+    gone = CliRuntimeTarget("ag", tmp_path / "gone", command=[sys.executable, FAKE], writable=True)
     with pytest.raises(PrespawnError, match="workspace"):
         drain(gone.deliver("s", rec(), []))
     assert calls(mk.log) == []
@@ -373,3 +373,168 @@ def test_leading_dash_prompt_is_data_for_every_provider():
             assert spec.stdin_prompt
             if prompt != "-":
                 assert prompt not in spec.argv(None, None, prompt)
+
+
+def test_decode_stderr_utf8_then_fallback_cp949():
+    """#120: decode_stderr preserves UTF-8 and falls back to locale encoding without U+FFFD loss."""
+    from peerhub.extensions.adapters.process import decode_stderr
+
+    utf8_bytes = "정상 UTF-8 메시지".encode("utf-8")
+    assert decode_stderr(utf8_bytes, fallback_encoding="cp949") == "정상 UTF-8 메시지"
+
+    cp949_bytes = "지정된 파일을 찾을 수 없습니다.".encode("cp949")
+    decoded = decode_stderr(cp949_bytes, fallback_encoding="cp949")
+    assert decoded == "지정된 파일을 찾을 수 없습니다."
+    assert "\ufffd" not in decoded
+
+
+def test_ag_fail_closed_without_writable(mk):
+    """#140: ag without writable=True fails closed with PrespawnError before spawning."""
+    a = mk("ag", writable=False)
+    with pytest.raises(PrespawnError, match="ag execution requires --writable"):
+        drain(a.deliver("s", rec("hello"), []))
+    assert calls(mk.log) == []
+
+
+def test_cx_tool_only_turn_and_narration_segregation():
+    """#126 and #127: cx tool-only turn returns empty response without error, and pre-tool narration is segregated."""
+    from peerhub.extensions.adapters.base import IncrementalEventParser
+
+    # Tool-only turn (#126)
+    p_tool = IncrementalEventParser("cx")
+    p_tool.feed(b'{"type":"thread.started","thread_id":"th-tool-only"}\n')
+    p_tool.feed(b'{"type":"item.completed","item":{"type":"command_execution","command":"git add -A"}}\n')
+    p_tool.feed(b'{"type":"turn.completed","usage":{"input_tokens":50,"output_tokens":5}}\n')
+    p_tool.close()
+    assert p_tool.parse() == ""
+
+    # Pre-tool narration followed by tool call: keep aggregate text unless phase metadata separates final/commentary (#127)
+    p_seg = IncrementalEventParser("cx")
+    p_seg.feed(b'{"type":"item.completed","item":{"type":"agent_message","text":"Let me inspect the files first."}}\n')
+    p_seg.feed(b'{"type":"item.completed","item":{"type":"command_execution","command":"git status"}}\n')
+    p_seg.feed(b'{"type":"item.completed","item":{"type":"agent_message","text":"Final answeronly"}}\n')
+    p_seg.feed(b'{"type":"turn.completed","usage":{"input_tokens":80,"output_tokens":10}}\n')
+    p_seg.close()
+    assert p_seg.parse() == "Let me inspect the files first.\nFinal answeronly"
+
+    # Explicit provider phase metadata separates final response from commentary
+    p_phase = IncrementalEventParser("cx")
+    p_phase.feed(b'{"type":"item.completed","item":{"type":"agent_message","phase":"commentary","text":"Let me inspect the files first."}}\n')
+    p_phase.feed(b'{"type":"item.completed","item":{"type":"command_execution","command":"git status"}}\n')
+    p_phase.feed(b'{"type":"item.completed","item":{"type":"agent_message","phase":"final","text":"Final answeronly"}}\n')
+    p_phase.feed(b'{"type":"turn.completed","usage":{"input_tokens":80,"output_tokens":10}}\n')
+    p_phase.close()
+    assert p_phase.parse() == "Final answeronly"
+
+
+def test_native_delivery_oversized_event_forces_conservative_parser_rejection(tmp_path):
+    # Produce an oversized single line in stdout, but total output is within max_output_bytes
+    script = (
+        "import sys, json; "
+        "sys.stdout.write(json.dumps({'type': 'init', 'data': 'x' * 300000}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}) + '\\n'); "
+        "sys.exit(0)"
+    )
+    target = CliRuntimeTarget("cc", tmp_path, command=[sys.executable, "-c", script], max_bytes=1_000_000)
+    with pytest.raises(RuntimeTargetError, match="oversized event encountered"):
+        list(target.deliver("sess-1", rec("hello"), []))
+
+
+def test_cx_requires_completion_after_latest_activity_in_both_parsers():
+    """Completion must occur after latest activity in both CxSpec and IncrementalEventParser."""
+    from peerhub.extensions.adapters.base import CxSpec, IncrementalEventParser
+
+    # Turn 1 completes, but newer turn starts without completion
+    events_new_turn = (
+        '{"type":"thread.started","thread_id":"th-1"}\n'
+        '{"type":"turn.started"}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"turn 1 msg"}}\n'
+        '{"type":"turn.completed"}\n'
+        '{"type":"turn.started"}\n'
+    )
+    # Batch parser
+    with pytest.raises(ValueError, match="no turn.completed after the latest activity"):
+        CxSpec().parse(events_new_turn)
+
+    # Streaming parser
+    p1 = IncrementalEventParser("cx")
+    p1.feed(events_new_turn.encode("utf-8"))
+    p1.close()
+    with pytest.raises(ValueError, match="no turn.completed after the latest activity"):
+        p1.parse()
+
+    # Turn 1 completes, but newer item starts without completion
+    events_new_item = (
+        '{"type":"thread.started","thread_id":"th-1"}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"turn 1 msg"}}\n'
+        '{"type":"turn.completed"}\n'
+        '{"type":"item.started","item":{"type":"command_execution"}}\n'
+    )
+    with pytest.raises(ValueError, match="no turn.completed after the latest activity"):
+        CxSpec().parse(events_new_item)
+
+    p2 = IncrementalEventParser("cx")
+    p2.feed(events_new_item.encode("utf-8"))
+    p2.close()
+    with pytest.raises(ValueError, match="no turn.completed after the latest activity"):
+        p2.parse()
+
+    # Legitimate multi-turn stream where latest activity is completed
+    events_valid = (
+        '{"type":"thread.started","thread_id":"th-1"}\n'
+        '{"type":"turn.started"}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"turn 1 msg"}}\n'
+        '{"type":"turn.completed"}\n'
+        '{"type":"turn.started"}\n'
+        '{"type":"item.completed","item":{"type":"agent_message","text":"turn 2 msg"}}\n'
+        '{"type":"turn.completed"}\n'
+    )
+    assert CxSpec().parse(events_valid) == "turn 1 msg\nturn 2 msg"
+    p3 = IncrementalEventParser("cx")
+    p3.feed(events_valid.encode("utf-8"))
+    p3.close()
+    assert p3.parse() == "turn 1 msg\nturn 2 msg"
+
+
+def test_native_delivery_cx_newer_activity_after_completion_rejected(tmp_path):
+    """Native delivery rejects output where earlier completion is followed by unfinished activity."""
+    script = (
+        "import sys, json; "
+        "sys.stdout.write(json.dumps({'type': 'thread.started', 'thread_id': 'th-1'}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'turn.started'}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'item.completed', 'item': {'type': 'agent_message', 'text': 'done1'}}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'turn.completed'}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'turn.started'}) + '\\n'); "
+        "sys.exit(0)"
+    )
+    target = CliRuntimeTarget("cx", tmp_path, command=[sys.executable, "-c", script])
+    with pytest.raises(RuntimeTargetError, match="no turn.completed after the latest activity"):
+        list(target.deliver("sess-1", rec("hello"), []))
+
+
+def test_cx_final_messages_bounded_and_discloses_truncation():
+    """Final-phase messages are retained within budget, drop intermediate text, and disclose truncation."""
+    from peerhub.extensions.adapters.base import IncrementalEventParser
+
+    # Set small max_bytes = 100
+    p = IncrementalEventParser("cx", max_bytes=100)
+    p.feed(b'{"type":"thread.started","thread_id":"th-1"}\n')
+    # Feed 10 final-phase messages each of 30 bytes (total 300 bytes > 100 bytes budget)
+    for i in range(10):
+        msg = f"Final msg {i}: " + ("x" * 20)
+        payload = json.dumps({"type": "item.completed", "item": {"type": "agent_message", "phase": "final", "text": msg}}) + "\n"
+        p.feed(payload.encode("utf-8"))
+    p.feed(b'{"type":"turn.completed"}\n')
+    p.close()
+
+    assert p.truncated is True
+    res = p.parse()
+    # Output must be bounded within the budget (head + tail)
+    assert len(res.encode("utf-8")) <= 120
+    # Head message must be preserved
+    assert "Final msg 0:" in res
+    # Latest tail message must be preserved
+    assert "Final msg 9:" in res
+
+
+

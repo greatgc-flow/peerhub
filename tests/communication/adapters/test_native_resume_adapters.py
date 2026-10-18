@@ -122,7 +122,7 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypat
         return SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
 
     monkeypatch.setattr(base, "BoundedProcess", process)
-    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"])
+    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], writable=(kind == "ag"))
     session = adapter.create_session()
     record = SimpleNamespace(body="question")
     first = list(adapter.deliver(session, record, []))
@@ -134,7 +134,7 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypat
     assert actual == expected
     assert telemetry["schema_version"] == 1
     assert telemetry["scope"] == "session_cumulative"
-    assert invocations[-1][0] == ["fake.exe", *base.SPECS[kind].argv(None, None, "question")]
+    assert invocations[-1][0] == ["fake.exe", *base.SPECS[kind].argv(None, None, "question", writable=(kind == "ag"))]
     assert adapter.can_resume is True and adapter.resumable is True
     assert base.SPECS[kind].can_resume is True
     assert adapter.resume_session(session) == "missing"
@@ -144,7 +144,7 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypat
     assert resumed.pop("provider_telemetry") == telemetry
     assert resumed == expected
     assert invocations[-1][0] == ["fake.exe", *base.SPECS[kind].argv(
-        None, None, "question", vendor_session_id="opaque.A_1:-")]
+        None, None, "question", writable=(kind == "ag"), vendor_session_id="opaque.A_1:-")]
     assert invocations[-1][1]["stdin"] == (None if kind == "ag" else b"question")
     # Vendor bindings do not leak to a different local session.
     list(adapter.deliver(adapter.create_session(), record, []))
@@ -153,7 +153,7 @@ def test_terminal_candidate_and_explicit_binding(kind, sample, source, monkeypat
 
 @pytest.mark.parametrize("kind,sample", [("cc", CC), ("cx", CX), ("ag", AG)])
 def test_invalid_vendor_binding_and_failed_terminal(kind, sample, monkeypatch, tmp_path):
-    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"])
+    adapter = base.CliRuntimeTarget(kind, tmp_path, command=["fake.exe"], writable=(kind == "ag"))
     assert adapter.resume_session("session", vendor_session_id="bad/id") == "rejected"
     assert adapter.resume_session("session", vendor_session_id="a" * 201) == "rejected"
     result = base.ProcessResult(123, 1, sample.encode(), b"error", False, False, 0.1)

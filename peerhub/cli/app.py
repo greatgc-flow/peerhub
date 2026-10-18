@@ -269,6 +269,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
     d_integrity.epilog = "example: peerhub diag integrity"
 
+    explain_parser = subparsers.add_parser("explain", help="Explain recovery guidance for outcome codes")
+    explain_parser.add_argument("code", help="Guidance code to explain")
+    explain_parser.add_argument("--json", action="store_true", default=False, help="Machine-readable guidance output")
+
     guide_parser = subparsers.add_parser("guide", help="Quick reference, profile tables, and best practices")
     guide_parser.description = "Print the quick reference guide, model profile table, and operational best practices."
 
@@ -320,6 +324,24 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         if has_streamed and not args.json and not output_has_newline:
             print()
         raise
+    from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
+    is_success = result.get("status") in ("delivered", "recovered_terminal") and result.get("error") is None
+    guidance_entry = None
+    if not is_success:
+        detail_obj: Any = result.get("detail")
+        raw_detail_err: Any = cast(dict[str, Any], detail_obj).get("error") if isinstance(detail_obj, dict) else None
+        detail_error: str | None = raw_detail_err if isinstance(raw_detail_err, str) else None
+        guidance_code = select_guidance_code(
+            status=result.get("status"),
+            processed_status=result.get("processed_status"),
+            certainty=result.get("certainty"),
+            reason=result.get("reason"),
+            detail_error=detail_error,
+        )
+        if guidance_code:
+            sid = result.get("stream_id") or getattr(args, "stream_id", None)
+            result["guidance"] = make_guidance_payload(guidance_code, db_path=args.db, stream_id=sid)
+            guidance_entry = get_guidance(guidance_code, db_path=args.db, stream_id=sid)
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:
@@ -343,8 +365,12 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         reset_time = result.get("reset_time") or result.get("resets_at")
         reset_suffix = f"; reset: {reset_time}" if reset_time else ""
         print(f"Task outcome: NOT_EXECUTED (provider refusal: {reason_str}{reset_suffix}; no tool execution observed)", file=sys.stderr)
+        if guidance_entry is not None:
+            print(render_guidance_hint(guidance_entry), file=sys.stderr)
     else:
         print(json.dumps(result, ensure_ascii=True), file=sys.stderr)
+        if guidance_entry is not None:
+            print(render_guidance_hint(guidance_entry), file=sys.stderr)
     session = result.get("session")
     if not args.json and isinstance(session, dict):
         session = cast("dict[str, Any]", session)
@@ -359,8 +385,9 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
 
 def _run_observation_cli(args: argparse.Namespace) -> int:
     from peerhub.cli.store_select import report_missing_store
-    is_explicit = getattr(args, "db_source", "default") in ("explicit", "env")
-    if not is_explicit and report_missing_store(args.db, json_output=True, selected=is_explicit):
+    db_source = getattr(args, "db_source", "default")
+    is_explicit = db_source in ("explicit", "env")
+    if not is_explicit and report_missing_store(args.db, json_output=True, selected=is_explicit, source=db_source):
         return 5
     from peerhub.extensions.quota_capture import refresh_quota
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
@@ -402,8 +429,9 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     if not args.live and (args.count or args.interval_seconds != 2):
         parser.error("--cycles/--interval-seconds require --live")
     from peerhub.cli.store_select import report_missing_store
-    is_explicit = getattr(args, "db_source", None) in ("explicit", "env")
-    if args.action is None and report_missing_store(args.db, json_output=args.json, selected=is_explicit):
+    db_source = getattr(args, "db_source", None)
+    is_explicit = db_source in ("explicit", "env")
+    if args.action is None and report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
         return 5
     try:
         from peerhub.extensions.diag import ReadonlyDiag
@@ -435,7 +463,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
             output.close()
         return code
     if args.action == "quota":  # pure reader: no CoreStore (it would create/migrate the database)
-        report_missing_store(args.obs_db or args.db, selected=is_explicit or bool(args.obs_db))
+        report_missing_store(args.obs_db or args.db, selected=is_explicit or bool(args.obs_db), source="explicit" if args.obs_db else db_source)
         rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool)
         code = {**diag_quota.EXIT_BY_STATUS, "PARTIAL": 4}[rep["status"]]
         print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else diag_quota.format_quota_table(rep))
@@ -444,7 +472,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         return code
     if args.action == "integrity":
         if not Path(args.db).is_file():
-            report_missing_store(args.db, selected=is_explicit)
+            report_missing_store(args.db, selected=is_explicit, source=db_source)
             result = {"status": "UNAVAILABLE", "error": f"database not found: {args.db}"}
             print(json.dumps(result, indent=2, ensure_ascii=True))
             return 5
@@ -463,7 +491,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         return 0 if result["status"] == "OK" else 4
     if args.action == "health":  # pure reader as well: never CoreStore (no create, no migration of a missing/old --db)
         if not Path(args.db).is_file():
-            report_missing_store(args.db, selected=is_explicit)
+            report_missing_store(args.db, selected=is_explicit, source=db_source)
             result: dict[str, object] = {"status": "UNAVAILABLE", "stream_id": args.stream_id, "error": f"database not found: {args.db}"}
             print(json.dumps(result, indent=2, ensure_ascii=True))
             print(f"DIAG HEALTH UNAVAILABLE: {result['error']}", file=sys.stderr)
@@ -666,7 +694,8 @@ def _run_session_cli(args: argparse.Namespace) -> int:
     db_path = Path(args.db)
     if not db_path.is_file():
         from peerhub.cli.store_select import report_missing_store
-        report_missing_store(args.db, json_output=True, selected=getattr(args, "db_source", None) in ("explicit", "env"))
+        db_source = getattr(args, "db_source", None)
+        report_missing_store(args.db, json_output=True, selected=db_source in ("explicit", "env"), source=db_source)
         return 5
     from contextlib import closing
     from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
@@ -864,17 +893,40 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     tolerant_streams()
     parser = build_parser(prog=prog)
     actual = sys.argv[1:] if argv is None else argv
+    if not actual:
+        from peerhub.cli.guide import render_guide
+        print(render_guide())
+        return 0
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
         if exc.code == 2 and "ask" in actual and "--json" in actual:
+            from peerhub.cli.recovery import make_guidance_payload
+            guidance_code = "ask_selector_error" if any(a in actual for a in ("--session", "--fresh")) else "ask_unexpected_failure"
             print(json.dumps(dict(status="error", response=None, session=None,
-                                  error=dict(code="invalid_arguments", message="Invalid ask arguments."))))
+                                  error=dict(code="invalid_arguments", message="Invalid ask arguments."),
+                                  guidance=make_guidance_payload(guidance_code))))
             return 2
         raise
-    def error_output(code: str, message: str, session: dict[str, Any] | None = None) -> None:
-        if args.subcommand == "ask" and args.json:
-            print(json.dumps(dict(status="error", response=None, session=session, error=dict(code=code, message=message)), ensure_ascii=True))
+    def error_output(code: str, message: str, session: dict[str, Any] | None = None, exception: BaseException | None = None) -> None:
+        if args.subcommand == "ask":
+            from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
+            guidance_code = select_guidance_code(exception=exception)
+            db_arg = getattr(args, "db", None)
+            sid = getattr(args, "stream_id", None) or (f"peer:{args.peer}:chat" if getattr(args, "peer", None) else None)
+            if args.json:
+                payload: dict[str, Any] = dict(status="error", response=None, session=session, error=dict(code=code, message=message))
+                if guidance_code:
+                    payload["guidance"] = make_guidance_payload(guidance_code, db_path=db_arg, stream_id=sid)
+                print(json.dumps(payload, ensure_ascii=True))
+            else:
+                print(message, file=sys.stderr)
+                if session is not None:
+                    print(_session_trailer(session))
+                if guidance_code:
+                    entry = get_guidance(guidance_code, db_path=db_arg, stream_id=sid)
+                    if entry is not None:
+                        print(render_guidance_hint(entry), file=sys.stderr)
         else:
             print(message, file=sys.stderr)
             if args.subcommand == "ask" and session is not None:
@@ -898,6 +950,9 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             return _run_light_command(args, parser)
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
             return _run_diag_cli(args, parser)
+        if args.subcommand == "explain":
+            from peerhub.cli.recovery import run_explain_cli
+            return run_explain_cli(args.code, json_output=bool(getattr(args, "json", False)))
         if args.subcommand == "guide":
             from peerhub.cli.guide import render_guide
             print(render_guide())
@@ -909,33 +964,34 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         if core_read:
             from peerhub.cli.store_select import report_missing_store
             use_json = bool(getattr(args, "json", False) or getattr(args, "format", None) == "json" or (getattr(args, "format", None) == "auto" and not sys.stdout.isatty()))
-            if report_missing_store(args.db, json_output=use_json, selected=getattr(args, "db_source", None) in ("explicit", "env")):
+            db_source = getattr(args, "db_source", None)
+            if report_missing_store(args.db, json_output=use_json, selected=db_source in ("explicit", "env"), source=db_source):
                 return 5
         store = CoreStore(args.db, readonly=core_read)
         return _run_core_cli(args, store)
 
     except (StorageReadOnlyError, StorageFullError, StorageCorruptError) as e:
-        error_output("storage_corrupt", f"STORAGE ERROR ({type(e).__name__}): {e}", getattr(e, "session", None))
+        error_output("storage_corrupt", f"STORAGE ERROR ({type(e).__name__}): {e}", getattr(e, "session", None), exception=e)
         return 4
     except SchemaVersionError as e:
-        error_output("schema_version_error", f"SCHEMA VERSION ERROR: {e}")
+        error_output("schema_version_error", f"SCHEMA VERSION ERROR: {e}", exception=e)
         return 6
     except IdempotencyConflictError as e:
-        error_output("idempotency_conflict", f"CONFLICT ERROR: {e}")
+        error_output("idempotency_conflict", f"CONFLICT ERROR: {e}", exception=e)
         return 2
     except CasMismatchError as e:
-        error_output("cas_conflict", f"CAS ERROR: {e}")
+        error_output("cas_conflict", f"CAS ERROR: {e}", exception=e)
         return 3
     except ValueError as e:
-        error_output(getattr(e, "code", "invalid_arguments"), f"ERROR: {e}")
+        error_output(getattr(e, "code", "invalid_arguments"), f"ERROR: {e}", exception=e)
         return 2 if args.subcommand == "ask" and getattr(e, "code", None) != "session_lost" else 1
     except SystemExit as e:
         if args.subcommand == "ask" and args.json and e.code == 2:
-            error_output("invalid_arguments", "Invalid ask arguments.")
+            error_output("invalid_arguments", "Invalid ask arguments.", exception=e)
             return 2
         raise
     except Exception as e:
-        error_output("delivery_failed", f"ERROR: {e}", getattr(e, "session", None))
+        error_output("delivery_failed", f"ERROR: {e}", getattr(e, "session", None), exception=e)
         return 1
 
 

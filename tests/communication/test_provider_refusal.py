@@ -70,7 +70,7 @@ CX_STALE_TEMP_DIRS_WARNING = (
 # =====================================================================
 
 def test_quota_refusal_read_only_not_executed_ag_exit_3(tmp_path, bridge_h):
-    """Read-only ag quota refusal: replay is safe despite absent tool history."""
+    """#140: ag with writable=False fails closed pre-spawn (failed_not_started / NOT_STARTED)."""
     ws = tmp_path / "ws_ag_quota"
     ws.mkdir()
     script = textwrap.dedent(f"""
@@ -89,47 +89,10 @@ def test_quota_refusal_read_only_not_executed_ag_exit_3(tmp_path, bridge_h):
     (rec,) = bseed(bridge_h, stream="s_ag_q")
     res = bridge_h.delivery_cycle("b", "s_ag_q", target)
 
-    # 1. Delivery cycle outcome
-    assert res.status == "not_executed"
-    assert res.certainty == "STARTED"  # Monotonicity: never downgraded
-    assert res.detail.get("task_outcome") == "NOT_EXECUTED"
-    assert res.detail.get("reason") == "quota_exhausted"
-    assert res.detail.get("reset_time") == "20h9m47s"
-
-    # 2. Database state: bridge_deliveries
-    d_row = sql(bridge_h, "SELECT certainty, acked, response_record_id FROM bridge_deliveries WHERE record_id=?", (rec.record_id,))[0]
-    assert d_row[0] == "STARTED"  # certainty
-    assert d_row[1] == 1  # acked=1
-    assert d_row[2] is None  # no response_record_id
-
-    # 3. No response record in CoreStore
+    assert res.status == "failed_not_started"
+    assert res.certainty == "NOT_STARTED"
+    assert "ag execution requires --writable" in res.detail.get("error", "")
     assert responses(bridge_h, "s_ag_q") == []
-
-    # 4. Durable bridge_evidence contains refusal_detected
-    ev_rows = sql(bridge_h, "SELECT kind, detail FROM bridge_evidence WHERE delivery_id=? ORDER BY seq", (res.delivery_id,))
-    kinds = [r[0] for r in ev_rows]
-    assert "started" in kinds
-    assert "refusal_detected" in kinds
-    ref_detail = json.loads(next(r[1] for r in ev_rows if r[0] == "refusal_detected"))
-    assert ref_detail.get("task_outcome") == "NOT_EXECUTED"
-    assert ref_detail.get("reason") == "quota_exhausted"
-    assert ref_detail.get("reset_time") == "20h9m47s"
-
-    # 5. Stream is unblocked: subsequent cycle with no new records is idle (NOT blocked_uncertain)
-    idle_res = bridge_h.delivery_cycle("b", "s_ag_q", target)
-    assert idle_res.status == "idle"
-
-    # 6. Stream is reusable: new prompt executes cleanly on fresh session generation
-    rec2 = bridge_h.append_record(req(body="Followup prompt", key="f1", author="a", stream="s_ag_q"))
-    ok_script = textwrap.dedent("""
-        import sys, json
-        sys.stdout.write(json.dumps({"response": "OK on fresh gen", "conversation_id": "c2"}))
-        sys.exit(0)
-    """)
-    ok_target = CliRuntimeTarget("ag", ws, command=[PY, "-c", ok_script], timeout_s=15.0)
-    res2 = bridge_h.delivery_cycle("b", "s_ag_q", ok_target)
-    assert res2.status == "delivered"
-    assert res2.session_generation == 2  # fresh session generation isolated from poisoned state
 
 
 def test_quota_refusal_writable_ag_exit_3_stays_uncertain(tmp_path, bridge_h):
@@ -194,16 +157,16 @@ def test_quota_refusal_pre_tool_not_executed_cx_exit_1(tmp_path, bridge_h):
 
 
 def test_quota_refusal_pre_tool_not_executed_ag_invalid_model(tmp_path, bridge_h):
-    """ag exit 1 invalid model refusal: classifies as NOT_EXECUTED, reason invalid_model, reset_time None."""
-    ws = tmp_path / "ws_ag_model"
+    """cc exit 1 invalid model refusal: classifies as NOT_EXECUTED, reason invalid_model, reset_time None."""
+    ws = tmp_path / "ws_cc_model"
     ws.mkdir()
     script = textwrap.dedent(f"""
-        import sys
-        sys.stderr.write({AG_INVALID_MODEL_EXIT_1_OUTPUT!r})
+        import sys, json
+        sys.stdout.write(json.dumps({{"type": "error", "message": {AG_INVALID_MODEL_EXIT_1_OUTPUT!r}}}) + "\\n")
         sys.exit(1)
     """)
     target = CliRuntimeTarget(
-        "ag",
+        "cc",
         ws,
         command=[PY, "-c", script],
         timeout_s=15.0,
@@ -368,15 +331,15 @@ def test_quota_refusal_variants_quoted_prompt_text_no_false_positive(tmp_path, b
 
 
 def test_quota_refusal_variants_auth_failure_agy_login(tmp_path, bridge_h):
-    """ag auth failure 'Please run `agy login`' classifies as NOT_EXECUTED with auth_failure."""
+    """cc auth failure 'Please run `agy login`' classifies as NOT_EXECUTED with auth_failure."""
     ws = tmp_path / "ws_auth"
     ws.mkdir()
     script = textwrap.dedent("""
-        import sys
-        sys.stderr.write("error: authentication required. Please run `agy login` to authenticate.\\n")
+        import sys, json
+        sys.stdout.write(json.dumps({"type": "error", "message": "error: authentication required. Please run `agy login` to authenticate."}) + "\\n")
         sys.exit(1)
     """)
-    target = CliRuntimeTarget("ag", ws, command=[PY, "-c", script], timeout_s=15.0)
+    target = CliRuntimeTarget("cc", ws, command=[PY, "-c", script], timeout_s=15.0)
 
     (rec,) = bseed(bridge_h, stream="s_auth")
     res = bridge_h.delivery_cycle("b", "s_auth", target)
@@ -397,13 +360,13 @@ def test_ask_integration_surfaces_reason_and_reset(tmp_path):
     ws = tmp_path / "ws_ask"
     ws.mkdir()
     script = textwrap.dedent(f"""
-        import sys
-        sys.stderr.write({AG_QUOTA_EXIT_3_OUTPUT!r})
+        import sys, json
+        sys.stdout.write(json.dumps({{"type": "error", "message": {AG_QUOTA_EXIT_3_OUTPUT!r}}}) + "\\n")
         sys.exit(3)
     """)
-    target = CliRuntimeTarget("ag", ws, command=[PY, "-c", script], timeout_s=15.0)
+    target = CliRuntimeTarget("cc", ws, command=[PY, "-c", script], timeout_s=15.0)
 
-    result = ask(db, "ag", "Refactor models", stream_id="impl", runtime=target)
+    result = ask(db, "cc", "Refactor models", stream_id="impl", runtime=target)
 
     # 1. Ask result JSON
     assert result["status"] == "not_executed"
@@ -417,8 +380,8 @@ def test_ask_integration_surfaces_reason_and_reset(tmp_path):
     diag = ReadonlyDiag(db)
     act_sec = diag.render(["activity"]).sections.get("activity")
     assert act_sec is not None and act_sec.status == "OK"
-    ag_act = next(p for p in act_sec.data["peers"] if p["peer"] == "ag")
-    assert ag_act["last_status"] == "not_executed"
+    cc_act = next(p for p in act_sec.data["peers"] if p["peer"] == "cc")
+    assert cc_act["last_status"] == "not_executed"
 
     # 3. Diag inspect_stream_health surfaces last refusal
     s_health = diag.inspect_stream_health("impl")
@@ -487,7 +450,7 @@ def _output_target(tmp_path, kind, stdout, *, stderr="", exit_code=1, max_bytes=
         f"sys.exit({exit_code})\n",
         encoding="utf-8", newline="\n",
     )
-    return CliRuntimeTarget(kind, tmp_path, command=[PY, str(script)], timeout_s=15, max_bytes=max_bytes)
+    return CliRuntimeTarget(kind, tmp_path, command=[PY, str(script)], timeout_s=15, max_bytes=max_bytes, writable=(kind == "ag"))
 
 
 @pytest.mark.parametrize("kind", ["cx", "cc", "ag"])

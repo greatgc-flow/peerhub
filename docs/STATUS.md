@@ -2,7 +2,7 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.19.0 (release candidate)
+## Current source: v0.19.0 (post-release main at `32da9284`)
 
 v0.19.0 removes implicit store discovery under `<cwd>/peerhub`, reprioritizes bare monitor output to keep quota always visible, adds `peerhub monitor --expand`, introduces the offline `peerhub guide` subcommand, multi-pool quota accounting and drift tracking, fixes Codex session resume write access, and adds bounded delta reads in Session Bridge.
 
@@ -14,11 +14,15 @@ v0.19.0 removes implicit store discovery under `<cwd>/peerhub`, reprioritizes ba
 | **v0.18.0** | `dc510f4f` | PR #107 | Published | Published 2026-10-16 |
 | **v0.18.1** draft + tag | `75677b07` | PR #109 | NEVER PUBLISHED | Content shipped in v0.18.2 |
 | **v0.18.2** | `8274e9f5` | PR #111 | Published | Published 2026-10-16T16:17:37Z |
-| **v0.19.0** candidate | branch `release/0.19.0` | | In preparation | Prepared 2026-10-17 |
+| **v0.19.0** | `32da9284` | PR #144 | Published | Published 2026-10-17T14:39:58Z; workflow run 39041714673; live gate G3 passed bound to `32da9284`; PyPI 0.19.0 |
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
 
-## Latest published release: v0.18.2 (published 2026-10-16T16:17:37Z, tag v0.18.2, target 8274e9f5; live gate G3 6+3+3 passed bound to 8274e9f5; PR #111)
+## Latest published release: v0.19.0 (published 2026-10-17T14:39:58Z, tag v0.19.0, target 32da9284; workflow run 39041714673; live gate G3 passed bound to 32da9284; PyPI 0.19.0 confirmed; PR #144)
+
+v0.19.0 removes implicit store discovery under `<cwd>/peerhub`, reprioritizes bare monitor output to keep quota always visible, adds `peerhub monitor --expand`, introduces the offline `peerhub guide` subcommand, multi-pool quota accounting and drift tracking, fixes Codex session resume write access, and adds bounded delta reads in Session Bridge.
+
+## Prior published release: v0.18.2 (published 2026-10-16T16:17:37Z, tag v0.18.2, target 8274e9f5; live gate G3 6+3+3 passed bound to 8274e9f5; PR #111)
 
 Benchmark v0.16.0 vs v0.18.2 (live, MECE; cc/cx/ag unanimous): `docs/benchmarks/v0.16.0-vs-v0.18.2-2026-10-17.md`.
 
@@ -77,12 +81,15 @@ completed the gates in [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 **Released on 2026-10-16.** [v0.16.1](https://github.com/greatgc-flow/peerhub/releases/tag/v0.16.1) adds grouped monitoring for session, delivery, usage, context, runtime provenance, capacity, coverage, and store health. Monitoring uses a shared snapshot, bounds scope reads, and never invokes provider CLIs. Capacity preserves typed quota projections and provenance; unsupported context values remain unknown. The candidate-matched G3 gate passed all 12 live cases on commit `ab3aef83f047f495c1a33e7848c6262d15e38e83`; sanitized provider details are recorded in [live evidence](implementation/live_evidence/2026-10-15.json). See the [CHANGELOG](../CHANGELOG.md) for user-facing notes.
 ## Remaining work
 
-| Track | Done / remaining after v0.16.1 | Design SSOT |
+Operational design ratified (S1-S4 consensus): [issue-resolution-2026-10-18](design/issue-resolution-2026-10-18.md). Slices S1, S2, S3, and S4 implemented and verified offline on branch `fix/issue-resolution-020`.
+
+| Track | Done / remaining after v0.19.0 | Design SSOT |
 |---|---|---|
-| Stuck streams | PRs 1-3 complete. Quota admission and automatic settlement are proposed for removal/deferment; audited `stream resolve` still requires final contract review. | [Proposed Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md#3-coherent-prerequisite-dag-and-implementation-slices) |
-| Monitoring v2 | Shared snapshot/schema, bounded session inspection, and observation/activity projections are implemented. Core record totals and per-stream counts still scan history; stores without observation projections use a compatibility full scan until their next writer initializes the projection. Representative-store latency measurements and any further bounded-history design remain open. | [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md) |
-| CLI and inspection | Bounded peer/stream/profile/session reads, read-only Core access, and aligned human/JSON output are implemented. No profile catalog mutation. Remaining work is operational validation on representative stores and any issues it finds. | [CLI/Monitoring Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md) |
-| Session reuse | PRs 1-3, health fixes, and bounded list/show inspection are committed. Attributable runtime telemetry, session alerts/watch behavior, retention policy, and replay refinements remain proposed work; resolve the listed owner/empirical gates before TDD. | [Proposed Renewal](design/peerhub-pre-tdd-renewal-2026-10-14.md#4-concrete-final-interfaces-and-module-ownership) |
+| Slice S1 (Safety & Correctness) | **Done on `fix/issue-resolution-020`**: Native `ag` fail-closed pre-spawn without `--writable` while preserving cached terminal replay (#140); single-peer ask stream fencing via `StreamPeerMismatchError` (#125); factual empty-response evidence (`empty_response: true`, `task_effects: "unverified"`) (#126); structured terminal error summary preservation and `cx` pre-tool narration segregation (#127); `gemini-argon-wtu-weekly` mapped to `A-7D` (#149). | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #125, #126, #127, #140, #149 |
+| Slice S2 (CLI UX, Decoding & Guidance) | **Done on `fix/issue-resolution-020`**: Guidance registry + `peerhub explain` (#117); bare `peerhub` prints `peerhub guide` (exit 0) and missing-store error includes source, quoted global `--db` command, and `Learn: peerhub guide` (#121); UTF-8-first with locale fallback (`decode_stderr`) and `ask_launch_failed` / `ask_stream_peer_mismatch` guidance (#120, #125). | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #117, #120, #121, #125 |
+| Slice S3 (Monitor UX & Telemetry Display) | **Done on `fix/issue-resolution-020`**: Contiguous `CAPACITY` rendering under `CAPACITY [OK]`, bar fill aligned with remaining %, reset countdown separated from burn `ETA` (#146), and `USAGE` display fallback (`provider_input_tokens + output_tokens`) + cache hit % when `provider_total_tokens` is absent (#147). | Issues #146, #147 |
+| Slice S4 (Docs & Guide Alignment) | **Done on `fix/issue-resolution-020`**: Updated `peerhub/cli/guide.py`, `README.md`, `docs/remote-ask.md`, `docs/migrations.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, and `CHANGELOG.md` (#118, #123, #130, #134-#136, #148). | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #118, #123, #130, #134-#136, #148 |
+| Deferred by Design | `peerhub readiness` (#145), lazy imports, queue/provider timing split, db schema slices 2-5, gemini-4-argon adoption, TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issue #145 |
 
 Operational lessons and coordinator handoff: [HANDOFF](HANDOFF.md).
 

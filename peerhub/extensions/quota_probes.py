@@ -16,7 +16,13 @@ from peerhub.extensions.binary_resolution import CLAUDE_CMD, CODEX_CMD
 from peerhub.extensions.process_tree import kill_process_tree
 from peerhub.extensions.quota_types import IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement, ResetCreditObserved
 
-AGY_QUOTA_FAMILIES = (("gemini-5h", "G-5H"), ("gemini-weekly", "G-7D"), ("3p-5h", "3P-5H"), ("3p-weekly", "3P-7D"))
+AGY_QUOTA_FAMILIES = (
+    ("gemini-5h", "G-5H"),
+    ("gemini-weekly", "G-7D"),
+    ("3p-5h", "3P-5H"),
+    ("3p-weekly", "3P-7D"),
+    ("gemini-argon-wtu-weekly", "A-7D"),
+)
 
 _CODEX_CLIENT_INFO = {"name": "hub-credit", "version": "1.0"}
 _RATE_LIMITS_READ_METHOD = "account/rateLimits/read"

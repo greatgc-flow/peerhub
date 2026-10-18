@@ -342,7 +342,15 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 normalized = _obj(telemetry.get("normalized"))
                 reported = _obj(telemetry.get("reported"))
                 tokens = normalized.get("provider_total_tokens", reported.get("total_tokens"))
-                rows.append(f"{_peer(session)} provider-reported tokens: {_count(tokens)}")
+                in_tok = _number(normalized.get("provider_input_tokens", reported.get("input_tokens")))
+                out_tok = _number(normalized.get("output_tokens", reported.get("output_tokens")))
+                cached_tok = _number(normalized.get("cached_input_tokens", reported.get("cached_input_tokens")))
+                if tokens is None and in_tok is not None and out_tok is not None and in_tok >= 0 and out_tok >= 0:
+                    tokens = int(in_tok + out_tok)
+                cache_part = ""
+                if cached_tok is not None and in_tok is not None and in_tok > 0 and 0 <= cached_tok <= in_tok:
+                    cache_part = f"{sep}cache {cached_tok / in_tok * 100:.0f}%"
+                rows.append(f"{_peer(session)} provider-reported tokens: {_count(tokens)}{cache_part}")
             if not expand and len(sessions) > 2:
                 rows.append(f"+{len(sessions) - 2} sessions not shown")
         else:
@@ -383,9 +391,16 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 age = _number(item.get("age_seconds"))
                 if remaining is not None and 0 <= remaining <= 1:
                     cells = max(3, min(12, width // 12))
-                    detail = f"{remaining * 100:.0f}% remaining {_bar(1 - remaining, cells, unicode)}"
+                    detail = f"{remaining * 100:.0f}% remaining {_bar(remaining, cells, unicode)}"
                 else:
                     detail = "remaining unknown"
+                reset_in = _number(measurements.get("reset_in_seconds"))
+                reset_text = ""
+                if reset_in is not None and reset_in >= 0:
+                    rem_reset = max(0.0, reset_in - elapsed_seconds)
+                    hours = int(rem_reset // 3600)
+                    mins = int((rem_reset % 3600) // 60)
+                    reset_text = f"{sep}reset {hours}h{mins:02d}m" if hours > 0 else f"{sep}reset {mins}m"
                 pace_text = f"{sep}pace {pace:+.1f}pp" if pace is not None else ""
                 projection_state = _clean(projection.get("state") or "unknown").upper()
                 exhaustion = _number(projection.get("exhaustion_at"))
@@ -396,7 +411,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     except (OverflowError, OSError, ValueError):
                         eta_text = f"{sep}ETA unknown"
                 age_text = f"{sep}age {max(0.0, age + elapsed_seconds):.0f}s" if age is not None else ""
-                projection_text = f"{sep}{projection_state}{eta_text}"
+                projection_text = f"{sep}{projection_state}{eta_text}{reset_text}"
                 rows.append(f"{_peer(item)} {pool}: {detail}{sep}{state}{projection_text}{pace_text}{age_text}")
         else:
             rows.append("Quota capacity: no observations")
@@ -716,10 +731,24 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
                 remaining_for_details = max(0, height - 1 - lines_used)
             visible = sorted(visible, key=lambda item: item[1])
 
-    for _priority_value, _order, heading, rows, *_ in visible:
+    mandatory_lines = len(lines) + len(visible) * 2 + (1 if hidden else 0) + extra_overhead
+    cap_detail_budget = max(0, height - 1 - mandatory_lines)
+
+    for _priority_value, _order, heading, rows, gid in visible:
         lines.append(heading)
         indent = "  " if width >= 4 else ""
         lines.append(indent + rows[0])
+        if gid == "capacity" and len(rows) > 1:
+            details = rows[1:]
+            if len(details) <= cap_detail_budget:
+                for item in details:
+                    lines.append(_fit(f"{indent}{item}", width - 1, unicode))
+            elif cap_detail_budget > 0:
+                can_show = max(0, cap_detail_budget - 1)
+                for item in details[:can_show]:
+                    lines.append(_fit(f"{indent}{item}", width - 1, unicode))
+                hidden_count = len(details) - can_show
+                lines.append(_fit(f"{indent}+{hidden_count} rows hidden by terminal height", width - 1, unicode))
     if hidden:
         sep = " · " if unicode else " | "
         if width >= 64:
@@ -754,10 +783,6 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         lines.append(_fit(f"{detail_indent}+{hidden_count} rows hidden by terminal height", width - 1, unicode))
         return False
 
-    # Extra rows reveal detail without changing selected summaries or their order.
-    # Prioritize quota details so quota rows are not clipped by other groups.
-    if cap_block is not None and cap_block in visible:
-        _emit_details(cap_block[3][1:])
     other_details: list[str] = []
     for item in visible:
         if item[4] == "capacity":

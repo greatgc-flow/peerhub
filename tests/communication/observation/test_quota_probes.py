@@ -897,3 +897,48 @@ def test_claude_missing_timezone_database_is_unavailable(monkeypatch):
     assert observations[0].evidence.state == EvidenceState.UNAVAILABLE
     assert observations[0].evidence.value is None
     assert observations[0].extra["reason"] == "timezone_database_missing"
+
+
+def test_agy_argon_weekly_bucket_maps_to_a_7d_without_unknown_pools(monkeypatch, tmp_path):
+    import json
+    from peerhub.extensions import quota_probes as probes
+
+    payload = {
+        "status": "SUCCESS",
+        "num_turns": 0,
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "command": {
+            "name": "usage",
+            "data": {
+                "groups": [
+                    {
+                        "name": "gemini",
+                        "buckets": [
+                            {"id": "gemini-5h", "remaining_fraction": 0.9, "reset_time": "2026-10-18T07:00:00Z"},
+                            {"id": "gemini-weekly", "remaining_fraction": 0.85, "reset_time": "2026-10-24T00:00:00Z"},
+                            {"id": "gemini-argon-wtu-weekly", "remaining_fraction": 0.98, "reset_time": "2026-10-23T06:00:00Z"},
+                        ],
+                    }
+                ]
+            },
+        },
+    }
+
+    sys_dir = tmp_path / "_sys"
+    sys_dir.mkdir(parents=True)
+    monkeypatch.setattr(probes, "_real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(args=["agy.exe"], returncode=0, stdout=json.dumps(payload), stderr=""),
+    )
+
+    observations = poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: 1_790_000_000, sys_dir=sys_dir)
+    pools = {obs.evidence.value.quota_pool_scope: obs for obs in observations if obs.evidence.value is not None}
+    assert set(pools.keys()) == {"G-5H", "G-7D", "A-7D"}
+    argon_obs = pools["A-7D"]
+    assert argon_obs.evidence.state == EvidenceState.MEASURED
+    assert argon_obs.evidence.value.remaining_fraction == pytest.approx(0.98)
+    assert argon_obs.evidence.value.used_fraction == pytest.approx(0.02)
+    assert "unknown_pools" not in argon_obs.extra
+

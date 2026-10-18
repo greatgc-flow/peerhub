@@ -555,7 +555,7 @@ def test_ag_stderr_overflow_preserves_multiline_json_completion(tmp_path, bridge
         ''')
         sys.stdout.flush()
     """)
-    target = CliRuntimeTarget("ag", ws, command=[PY, "-c", script], timeout_s=15.0, max_bytes=50_000)
+    target = CliRuntimeTarget("ag", ws, command=[PY, "-c", script], timeout_s=15.0, max_bytes=50_000, writable=True)
     (rec,) = bseed(bridge_h, stream="s_ag_stderr")
     res = bridge_h.delivery_cycle("b", "s_ag_stderr", target)
 
@@ -660,7 +660,7 @@ def test_ag_invalid_toplevel_array_rejected_after_truncation(tmp_path):
         sys.stdout.write("P" * 50_000)
         sys.stdout.flush()
     """)
-    target = CliRuntimeTarget("ag", ws, command=[PY, "-c", script], timeout_s=15.0, max_bytes=1024)
+    target = CliRuntimeTarget("ag", ws, command=[PY, "-c", script], timeout_s=15.0, max_bytes=1024, writable=True)
     sess = target.create_session()
     # Must raise RuntimeTargetError and must NEVER yield a terminal event or bind untrusted session ID
     with pytest.raises(RuntimeTargetError, match="unparseable ag output"):
@@ -762,7 +762,7 @@ def test_ag_nested_response_in_wrapper_rejected_after_truncation(tmp_path):
         sys.stdout.write(" " * 50_000)
         sys.stdout.flush()
     """)
-    target = CliRuntimeTarget("ag", ws, command=[PY, "-c", script], timeout_s=15.0, max_bytes=1024)
+    target = CliRuntimeTarget("ag", ws, command=[PY, "-c", script], timeout_s=15.0, max_bytes=1024, writable=True)
     sess = target.create_session()
     with pytest.raises(RuntimeTargetError, match="unparseable ag output"):
         list(target.deliver(sess, _record(), []))

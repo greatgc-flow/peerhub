@@ -34,14 +34,18 @@ def report_missing_store(
     json_output: bool = False,
     cwd: Path | None = None,
     selected: bool | None = None,
+    source: str | None = None,
 ) -> bool:
     """Refuse absent stores before opening storage or invoking any provider."""
     if Path(path).is_file():
         return False
     message = f"database not found: {path}"
-    print(message, file=sys.stderr)
-    print(f"Create one explicitly: peerhub --db {path} peer register --peer <id> --name <name>", file=sys.stderr)
     is_selected = selected if selected is not None else (Path(path) != Path(DEFAULT_DB_PATH))
+    resolved_source = source or ("explicit" if is_selected else "default")
+    print(f"{message} (source: {resolved_source})", file=sys.stderr)
+    print(f"Create one explicitly: peerhub --db {path} peer register --peer <id> --name <name>", file=sys.stderr)
+    print(f'Example: peerhub --db "{path}" peer register --peer local --name local', file=sys.stderr)
+    print("Learn: peerhub guide", file=sys.stderr)
     if not is_selected:
         legacy = find_legacy_store(cwd)
         if legacy is not None:

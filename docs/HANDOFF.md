@@ -3,7 +3,20 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-17)
+## 0. Current checkpoint (2026-10-18) — Slices S1–S4 Implemented, Verified Offline & Deployed Locally
+
+- **Authorization & Execution:** Slices S1, S2, S3, and S4 (#117, #118, #120, #121, #123, #125, #126, #127, #130, #134–#136, #140, #146, #147, #148, #149) implemented and verified across the offline test suite on branch `fix/issue-resolution-020`, pushed to `origin/fix/issue-resolution-020`, and installed into `C:\AI\_sys\env\venv`. Only `#145` (`peerhub readiness`) remains deferred.
+- **Branch & State:** Branch `fix/issue-resolution-020` pushed to `origin` and locally installed in `C:\AI\_sys\env\venv`.
+- **Design SSOT:** [docs/design/issue-resolution-2026-10-18.md](design/issue-resolution-2026-10-18.md). Authoritative release status in [STATUS.md](STATUS.md).
+- **Delivered Scope (S1–S4):**
+  - **S1:** `#140` native `ag` fail-closed pre-spawn without `--writable` (cached replay preserved), `#125` single-peer ask stream fencing (`StreamPeerMismatchError`), `#126` factual tool-only turn completion (`empty_response: true`, `task_effects: "unverified"`), `#127` terminal error summary preservation & `cx` pre-tool narration segregation, `#149` `gemini-argon-wtu-weekly` -> `A-7D` quota pool mapping.
+  - **S2:** `#117` recovery guidance wording, `#121` bare `peerhub` -> `peerhub guide` (exit 0) and improved missing-store guidance with source + quoted `--db` command, `#120` UTF-8-first with locale fallback (`decode_stderr`) and `ask_launch_failed` guidance.
+  - **S3:** `#146` contiguous `CAPACITY` rendering in `monitor_view.py`, consistent bar fill direction, and `reset` duration separated from `ETA`; `#147` `USAGE` token display fallback (`provider_input_tokens + output_tokens`) + cache hit % when `provider_total_tokens` is `None`.
+  - **S4:** `#118, #123, #130, #134–#136, #148` documentation and `peerhub guide` alignment.
+- **Next action (after `cx` 03:50 KST and `cc` 06:20 KST quota reset):** Run cross-peer review on `fix/issue-resolution-020`, merge PR to `main`, run `python -m tools.live_gate --yes` for v0.20.0 release, and close `#145` if desired.
+- **Resume prompt:** `C:\AI\workspace\peerhub의 fix/issue-resolution-020 브랜치(docs/HANDOFF.md 및 docs/STATUS.md 참조)를 확인하고, cx/cc 쿼터 리셋 상태를 점검한 뒤 main 병합 및 live_gate(v0.20.0 배포)와 남은 #145 이슈를 마무리해줘.`
+
+### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)
 
 - **Branch & commits:** branch `release/0.19.0` prepared for v0.19.0 candidate from `origin/main` (`7158909a`); remote branch pushed, awaiting owner live gate G3 and PR/publish workflow.
 - **Owner top rule:** so-very-simple.
@@ -37,20 +50,26 @@ inspection are not available yet.
 See the [PR2 scope review and validation](implementation/PR2_SESSION_REUSE_VALIDATION.md)
 for coverage, remaining checks and local results.
 
-## 1. Collaboration practice (owner's preferences)
+## 2. Collaboration practice (owner's preferences)
 
-- Involve cc, cx and ag; balance the 7-day pace so `cc <= ag == cx`, using `peerhub diag quota` / `peerhub monitor`.
-- Delegate even small edits via `peerhub ask <peer> --writable`; verify drafts and run pytest / Pyright yourself.
-- Resolve ambiguity through independent consultation of ag and cx, followed by cross-critique.
-- Use English for AI-to-AI prompts and the user's language for user-facing text; keep source, comments, docs, commits and PRs in English.
-- Keep human-facing terminal output short.
-- Peers leave scratch files: run `git status` and add explicit paths.
-- Peer sandboxes cannot run pytest because of temp-directory ACLs.
-- A permission classifier may require an explicit user yes for `gh pr merge` and releases, even after a general grant.
-- Run only one xhigh cx review at a time; concurrent reviews exhausted cx quota.
-- Batch related, locally reviewed changes into one PR when practical: CI is slow.
+- **Owner top rule & COMPACT:** so-very-simple. Apply COMPACT: minimize abstraction and document duplication; all claims require exact empirical evidence.
+- **Unanimity & debate:** Involve cc, cx, and ag. Unlimited critical rounds until unanimity; no feature implementation before complete design and consensus. Cross-critique objectively; encode objections honestly and never fabricate agreement.
+- **Role proposals:** Propose roles until unanimity (`ag.effort` sole editor, `cx.effort` independent control-flow/safety reviewer, `cc.effort` concise veto/reviewer). Configuration and observed task outcomes are not comparative ability benchmarks; do not assert universal limits or unsupported model superiority/throughput claims.
+- **Profile facts & shared pools:**
+  - `ag standard flash-low / effort flash-medium` share Google (G) pools; `deepthink sonnet-high` consumes Anthropic 3P.
+  - `cc standard haiku / effort sonnet high / deepthink opus high` share Claude (C) pools.
+  - `cx standard luna low / effort 6.1-sol medium / deepthink 6.1-sol xhigh` share Codex (X) pools.
+  - Note: Facts require periodic recheck due to unconfirmed models (e.g., `gemini-argon-wtu-weekly`) and CLI drift. Standard profile is not guaranteed cheapest; no benchmarks at this time.
+- **Quota balance & conservation:** Monitor 7-day and 5-hour pools (`peerhub diag quota` / `peerhub monitor`). Zero provider calls or live probes unless explicitly authorized for memory preservation; no profile hopping or deepthink to evade pool limits.
+- **Sandboxing & execution constraints:** Peer sandboxes cannot run pytest reliably due to temp-directory ACL restrictions (observed on cx); headless ag read-only is not enforced at engine level (issue #140). Verify drafts and run tests/typing locally.
+- **Delegation of edits:** Delegate even small edits via `peerhub ask <peer> --writable`; verify drafts and run pytest / Pyright yourself.
+- **Language policy:** Use English for AI-to-AI prompts, source code, comments, docs, commits, and PRs; use Korean (terse) for human user updates.
+- **Session management:** Practice session reuse across turns; preserve history; retain selectors (`--session`, `--fresh`). Clean up stale scratch files.
+- **Token boundaries:** Near root token limit, write a durable handoff, then output exactly ONE resume-prompt line.
+- **Permissions & release discipline:** General permissions are pre-granted. Update dependencies to latest in an isolated venv before any release. Require full suite and candidate-matched G3 live gate. Post-deploy verification and temp cleanup required.
+- **Issue reporting:** File lessons, incidents, and bugs directly on corresponding GitHub issues (peerhub.md retired).
 
-## 2. Tooling pitfalls
+## 3. Tooling pitfalls
 
 - Store discovery, explicit selection and missing-store behavior: [README](../README.md#store-selection-and-existing-data).
 - A STARTED/uncertain request blocks its stream (`blocked_uncertain`); use a new `--stream`. Reusing `--request-id` never replays uncertain execution.
@@ -67,7 +86,7 @@ for coverage, remaining checks and local results.
 - Windows pushes: a configured `gh.exe` path was missing; use the PATH-based
   credential override in [CONTRIBUTING](../CONTRIBUTING.md#development-notes).
 
-## 3. Release lessons
+## 4. Release lessons
 
 - Release sequence, CHANGELOG-derived notes and required assets: [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 - Serial tests, opt-in xdist and disposable development venvs: [development setup](../CONTRIBUTING.md#development-setup).

@@ -17,7 +17,7 @@ def ask_args(peer: str, workspace: Path, prompt: str, request_id: str, *,
             "--workspace", str(workspace), "--stream", "live-measurement",
             "--request-id", request_id, "--profile", f"{peer}.standard",
             "--timeout-seconds", str(ASK_TIMEOUT), "--max-output-bytes", "65536", "--json"]
-    if writable:
+    if writable or peer == "ag":
         args.append("--writable")
     if fresh:
         args.append("--fresh")
