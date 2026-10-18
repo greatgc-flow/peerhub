@@ -133,3 +133,42 @@ def test_active_claim_blocks_second_ask_before_prompt_append(tmp_path):
             yield "terminal", {"response": "done"}
     assert ask(db, "cx", "first", runtime=Runtime())["status"] == "delivered"
     assert [r.body for r in CoreStore(db).read_records("peer:cx:chat") if r.kind == "prompt"] == ["first"]
+
+
+def test_older_work_progress_reported_without_uncertain_label(tmp_path):
+    from peerhub.cli.recovery import select_guidance_code
+    from peerhub.core.models import Peer, Stream
+    from peerhub.core.store import utc_now_iso
+    db = tmp_path / "core.db"
+    store = CoreStore(db)
+    store.register_peer(Peer(peer_id="cx"))
+    store.register_peer(Peer(peer_id="user"))
+    store.create_stream(Stream(stream_id="peer:cx:chat", members=["user", "cx"]))
+    rt = FakeRuntimeTarget()
+    store.append_record(
+        stream_id="peer:cx:chat",
+        author_peer_id="user",
+        kind="prompt",
+        body="earlier prompt",
+        targets=["cx"],
+        idempotency_key="ask:earlier-1",
+        metadata={
+            "runtime_kind": rt.runtime_kind,
+            "binding": rt.binding(),
+            "session_selector": "latest",
+            "adapter_fingerprint": rt.fingerprint(),
+        },
+        created_at=utc_now_iso(),
+    )
+    rt.script_deliver(("started", "exec-earlier"), ("terminal", {"response": "earlier answer"}))
+    res = ask(db, "cx", "second prompt", stream_id="peer:cx:chat", runtime=rt)
+    assert res["status"] == "pending_earlier_record"
+    assert res.get("processed_status") == "delivered"
+    assert res.get("response") == "earlier answer"
+    guidance = select_guidance_code(
+        status=res.get("status"),
+        processed_status=res.get("processed_status"),
+        certainty=res.get("certainty"),
+    )
+    assert guidance == ""
+

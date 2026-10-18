@@ -244,9 +244,15 @@ def select_guidance_code(
 
     if status in ("delivered", "recovered_terminal"):
         return ""
-    if status == "pending_earlier_record" or processed_status in ("uncertain", "blocked_uncertain"):
+    if status == "pending_earlier_record":
+        if processed_status in ("delivered", "recovered_terminal"):
+            return ""
+        if processed_status == "not_executed":
+            return "ask_refusal"
+        if processed_status == "failed_not_started":
+            return "ask_launch_failed" if _is_launch_failure_text(detail_error) else "ask_delivery_failed"
         return "ask_blocked_uncertain"
-    if status == "blocked_uncertain":
+    if status == "blocked_uncertain" or processed_status in ("uncertain", "blocked_uncertain"):
         return "ask_blocked_uncertain"
     if status == "uncertain" or (certainty in ("STARTED", "MAY_HAVE_STARTED") and status != "not_executed"):
         return "ask_uncertain"

@@ -87,6 +87,8 @@ def test_select_guidance_code_by_composite_context():
 
     # 2. blocked-uncertain / pending_earlier_record
     assert select_guidance_code(status="pending_earlier_record", processed_status="uncertain") == "ask_blocked_uncertain"
+    assert select_guidance_code(status="pending_earlier_record", processed_status="delivered") == ""
+    assert select_guidance_code(status="pending_earlier_record", processed_status="recovered_terminal") == ""
     assert select_guidance_code(status="blocked_uncertain") == "ask_blocked_uncertain"
 
     # 3. claim-held (ClaimHeldError)
