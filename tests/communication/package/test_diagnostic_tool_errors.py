@@ -8,6 +8,37 @@ import pytest
 from tools import context_bench, model_ping
 
 
+@pytest.mark.parametrize("peer", ["cc", "cx"])
+def test_context_bench_resolves_npm_shims_and_stringifies_cwd(tmp_path, monkeypatch, peer):
+    binary = "claude" if peer == "cc" else "codex"
+    shim = tmp_path / "npm & tools" / f"{binary}.cmd"
+    if peer == "cc":
+        direct = shim.parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+        expected = [str(direct)]
+    else:
+        direct = shim.parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
+        node = shim.parent / "node.exe"
+        expected = [str(node), str(direct)]
+    direct.parent.mkdir(parents=True)
+    direct.touch()
+    shim.touch()
+    if peer == "cx":
+        node.touch()
+    monkeypatch.setattr(context_bench.shutil, "which", lambda name: str(shim))
+
+    def run(argv, **kwargs):
+        assert argv[:len(expected)] == expected
+        assert kwargs["cwd"] == str(tmp_path)
+        payload = ({"result": "answer", "usage": {"input_tokens": 1}} if peer == "cc" else
+                   {"type": "turn.completed", "usage": {"input_tokens": 1}})
+        return SimpleNamespace(stdout=json.dumps(payload).encode(), stderr=b"", returncode=0,
+                               timed_out=False, output_exceeded=False, output_truncated=False,
+                               aborted=False, drain_timed_out=False)
+
+    monkeypatch.setattr(context_bench, "run_bounded", run)
+    context_bench.invoke(SimpleNamespace(peer=peer, model="test", effort=None), "prompt", tmp_path, "")
+
+
 @pytest.mark.parametrize("peer", ["cc", "cx", "ag"])
 def test_context_bench_bounded_runner_preserves_results_and_session(tmp_path, monkeypatch, peer):
     from peerhub.extensions.adapters.process import run_bounded
@@ -33,11 +64,12 @@ def test_context_bench_bounded_runner_preserves_results_and_session(tmp_path, mo
 
     monkeypatch.setattr(context_bench, "run_bounded", run)
     args = SimpleNamespace(peer=peer, model="test", effort="low")
-    assert context_bench.invoke(args, "prompt", str(tmp_path), "prior") == (
+    assert context_bench.invoke(args, "prompt", tmp_path, "prior") == (
         "answer", "native", [40, 2, 0, 4, 0.0])
     argv, options = calls[0]
     assert "prior" in argv and "test" in argv
     assert options["stdin"] == (None if peer == "ag" else b"prompt")
+    assert options["cwd"] == str(tmp_path)
     assert options["timeout_s"] == 240 and options["max_bytes"] == 1_048_576
 
 

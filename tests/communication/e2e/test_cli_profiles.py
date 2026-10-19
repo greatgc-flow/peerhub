@@ -5,6 +5,23 @@ import pytest
 from peerhub.cli.app import main
 
 
+@pytest.mark.parametrize("scope", ["global", "workspace"])
+@pytest.mark.parametrize("schema", ["", "schema_version=1\n"])
+def test_pool_only_config_accepts_missing_profiles(tmp_path, monkeypatch, scope, schema):
+    from peerhub.extensions.adapters import profiles
+
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global"))
+    config = (tmp_path / "global" if scope == "global" else tmp_path / ".peerhub" / "config") / "models.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(schema + '[exact_model_pools."test-model"]\npools=["TEST"]\n', encoding="utf-8")
+
+    assert profiles.resolve_model_pools("test-model", tmp_path) == ["TEST"]
+    assert profiles.inspect_model_pools("test-model", tmp_path) == {"pools": ["TEST"], "verified": False}
+    assert profiles.resolve_profile("cx", "cx.standard", tmp_path) == ("gpt-6-luna", "low")
+    assert profiles.inspect_profile("cx.standard", tmp_path)["fields"]["model"]["source"] == "packaged"
+    assert any(row["profile"] == "cx.standard" for row in profiles.list_profiles(tmp_path))
+
+
 @pytest.mark.parametrize("reader", ["resolve_profile", "inspect_profile", "list_profiles", "resolve_model_pools", "inspect_model_pools"])
 @pytest.mark.parametrize("version", ["2", "true", '"1"', "1.0"])
 @pytest.mark.parametrize("scope", ["global", "workspace"])

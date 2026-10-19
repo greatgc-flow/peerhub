@@ -261,7 +261,7 @@ def test_quota_module_has_no_retired_dashboard_renderer():
     assert not hasattr(diag_quota, "format_dashboard")
 
 
-def test_format_dashboard_inline_forecast_and_threat_summary(tmp_path):
+def test_format_frame_inline_forecast_and_threat_summary(tmp_path):
     from peerhub.extensions.diag import ReadonlyDiag
     from peerhub.cli.view import format_frame
     h = ObservationHarness(tmp_path / "wsDash")

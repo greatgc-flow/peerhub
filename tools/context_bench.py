@@ -13,8 +13,10 @@ import random
 import shutil
 import tempfile
 import time
+from pathlib import Path
 
 from peerhub.extensions.adapters.process import run_bounded
+from peerhub.extensions.binary_resolution import resolve_direct_binary
 
 TIMEOUT_S = 240
 MAX_OUTPUT_BYTES = 1_048_576
@@ -65,8 +67,11 @@ def invoke(args, prompt, cwd, session):
     executable = shutil.which(cmd[0])
     if executable is None:
         raise FileNotFoundError(f"{cmd[0]} is not on PATH")
-    proc = run_bounded([executable, *cmd[1:]], stdin=None if args.peer == "ag" else prompt.encode("utf-8"),
-                       cwd=cwd, env=os.environ, timeout_s=TIMEOUT_S, max_bytes=MAX_OUTPUT_BYTES)
+    prefix = [executable]
+    if Path(executable).suffix.lower() in (".cmd", ".bat"):
+        prefix = resolve_direct_binary(Path(executable)) or prefix
+    proc = run_bounded([*prefix, *cmd[1:]], stdin=None if args.peer == "ag" else prompt.encode("utf-8"),
+                       cwd=str(cwd), env=os.environ, timeout_s=TIMEOUT_S, max_bytes=MAX_OUTPUT_BYTES)
     if proc.timed_out:
         raise ValueError("CLI timed out")
     if proc.output_exceeded or proc.output_truncated:

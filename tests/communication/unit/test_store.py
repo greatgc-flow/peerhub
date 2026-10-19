@@ -5,12 +5,40 @@ from concurrent.futures import ThreadPoolExecutor
 
 from peerhub.core.models import Peer, Stream, StreamState, Record, Offset
 from peerhub.core.store import CoreStore, IdempotencyConflictError, CasMismatchError
+from peerhub.core.store import StoreReplacedError
+from peerhub.core.workspace import Workspace
 
 
 @pytest.fixture
 def store(tmp_path: Path) -> CoreStore:
     db_file = tmp_path / "test_core.db"
     return CoreStore(db_file)
+
+
+@pytest.mark.parametrize("layout", [".peerhub", "legacy"])
+@pytest.mark.parametrize("readonly", [False, True])
+def test_fresh_workspace_can_initialize_generation_after_store_open(tmp_path, layout, readonly):
+    root = tmp_path / layout
+    root.mkdir()
+    writer = CoreStore(root / "core.db")
+    opened = CoreStore(root / "core.db", readonly=True) if readonly else writer
+    assert opened.list_streams() == []
+
+    workspace = Workspace(root)
+    assert opened.list_streams() == []
+    if not readonly:
+        opened.register_peer(Peer(peer_id="fresh"))
+
+    workspace.replace_generation()
+    with pytest.raises(StoreReplacedError):
+        opened.list_streams()
+
+
+def test_first_restore_epoch_still_fences_store(tmp_path):
+    opened = CoreStore(tmp_path / "core.db")
+    (tmp_path / "restore.epoch").write_text("1", encoding="utf-8")
+    with pytest.raises(StoreReplacedError):
+        opened.list_streams()
 
 
 def test_peer_registration_and_retrieval(store: CoreStore):
