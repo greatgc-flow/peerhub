@@ -2,9 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.21.1 (release candidate, in preparation)
+## Current source: v0.21.2 (release candidate, in preparation)
 
-v0.21.1 updates uncertain ask guidance and the guide to direct default-timeout asks to a new stream with explicit `--timeout-seconds`, preserving retry cautions (#169, PR #171). Candidate validation and publication remain pending.
+v0.21.2 incorporates the MECE fixes and follow-up (#177, #178): restore fencing on both lineage markers with first-generation adoption preserved, shared receipt validation, monitor workspace resolution, unified profile loading, and bounded benchmark subprocesses with Windows shim support. It also updates upgrade and maintainer documentation (#173, #175, #181). Candidate validation and publication remain pending.
 
 ### Release attempts
 
@@ -15,13 +15,18 @@ v0.21.1 updates uncertain ask guidance and the guide to direct default-timeout a
 | **v0.18.1** draft + tag | `75677b07` | PR #109 | NEVER PUBLISHED | Content shipped in v0.18.2 |
 | **v0.18.2** | `8274e9f5` | PR #111 | Published | Published 2026-10-16T16:17:37Z |
 | **v0.19.0** | `32da9284` | PR #144 | Published | Published 2026-10-17T14:39:58Z; workflow run 39041714673; live gate G3 passed bound to `32da9284`; PyPI 0.19.0 |
-| **v0.20.0** candidate | branch `release/0.20.0` | | In preparation | Prepared 2026-10-18 |
-| **v0.21.0** candidate | branch `release/0.21.0` | | In preparation | Prepared 2026-10-18 |
-| **v0.21.1** candidate | branch `release/0.21.1` | | In preparation | Prepared 2026-10-19 |
+| **v0.20.0** | `732996c6` | PR #163 | Published | Tag `v0.20.0` |
+| **v0.21.0** | `920931db` | PR #170 | Published | Tag `v0.21.0` |
+| **v0.21.1** | `9aa06d30` | PR #172 | Published | Tag `v0.21.1` |
+| **v0.21.2** candidate | branch `release/0.21.2` | | In preparation | Prepared 2026-10-19; uncommitted |
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
 
-## Latest published release: v0.19.0 (published 2026-10-17T14:39:58Z, tag v0.19.0, target 32da9284; workflow run 39041714673; live gate G3 passed bound to 32da9284; PyPI 0.19.0 confirmed; PR #144)
+## Latest published release: v0.21.1 (tag v0.21.1, target 9aa06d30; PR #172)
+
+v0.21.1 updates uncertain ask guidance and the guide to direct default-timeout asks to a new stream with explicit `--timeout-seconds`, preserving retry cautions (#169, PR #171). See the [published release](https://github.com/greatgc-flow/peerhub/releases/tag/v0.21.1).
+
+## Prior published release: v0.19.0 (published 2026-10-17T14:39:58Z, tag v0.19.0, target 32da9284; workflow run 39041714673; live gate G3 passed bound to 32da9284; PyPI 0.19.0 confirmed; PR #144)
 
 v0.19.0 removes implicit store discovery under `<cwd>/peerhub`, reprioritizes bare monitor output to keep quota always visible, adds `peerhub monitor --expand`, introduces the offline `peerhub guide` subcommand, multi-pool quota accounting and drift tracking, fixes Codex session resume write access, and adds bounded delta reads in Session Bridge.
 

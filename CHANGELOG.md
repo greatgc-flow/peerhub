@@ -6,12 +6,23 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
-## [Unreleased]
+## [0.21.2] - 2026-10-19
+
+### Changed
+
+- Share session receipt validation between session inspection and monitor, and use one profile layer loader for CLI configuration and runtime resolution (#177).
+- Remove the unused `format_dashboard` renderer and rename its regression test to identify the active `format_frame` renderer (#177, #178).
+
+### Fixed
+
+- Fence open stores on changes to either lineage marker (`workspace.generation` or `restore.epoch`), while allowing first-generation adoption without fencing existing connections (#177, #178).
+- Resolve monitor profiles from the selected store's workspace root (#177).
+- Bound context benchmark subprocess time and output, and resolve Windows `.cmd`/`.bat` shims through the shared binary resolver (#177, #178).
 
 ### Docs
 
-- Upgrade guidance: wait for running asks (they lock dependency files) and what to do if an upgrade leaves a broken install (#180).
-- Record deferred backlog start triggers and deliberate probe/response-field deferrals in the maintainer handoff (#167).
+- Document in-flight ask behavior across upgrades and restarts; wait for running asks (they lock dependency files), inspect results before re-sending, and recover from a broken upgrade (#175, #180, #181).
+- Align `ag` adapter documentation with its explicit `--writable` requirement and place deferred backlog start triggers and deliberate probe/response-field deferrals under `docs/STATUS.md` ownership (#167, #173, #177).
 
 ## [0.21.1] - 2026-10-19
 
