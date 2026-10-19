@@ -2,7 +2,7 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.21.3 (release candidate, in preparation)
+## Current source: v0.21.3 (published)
 
 v0.21.3 (live gate ran the ag canary on the Argon model because the default ag pool was exhausted; packaged `ag.standard` model not exercised, #191): provider quota/usage limits surface as `provider_limit` on uncertain asks, cc limit phrasings are classified (#186), and monitor display fixes (#189). Earlier: v0.21.2 incorporates the MECE fixes and follow-up (#177, #178): restore fencing on both lineage markers with first-generation adoption preserved, shared receipt validation, monitor workspace resolution, unified profile loading, and bounded benchmark subprocesses with Windows shim support. It also updates upgrade and maintainer documentation (#173, #175, #181). Candidate validation and publication remain pending.
 
@@ -19,11 +19,13 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 | **v0.21.0** | `920931db` | PR #170 | Published | Tag `v0.21.0` |
 | **v0.21.1** | `9aa06d30` | PR #172 | Published | Tag `v0.21.1` |
 | **v0.21.2** | `c34959c3` | PR #182 | Published | Tag `v0.21.2` |
-| **v0.21.3** candidate | branch `fix/189-monitor-display` | | In preparation | Prepared 2026-10-19 |
+| **v0.21.3** | `9692777e` | PR #190, #191 | Published | Tag `v0.21.3`; G3 passed bound to 9692777e (ag canary on gemini-4-argon-low, #191) |
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
 
-## Latest published release: v0.21.2 (tag v0.21.2, target c34959c3; PR #182; live gate G3 passed bound to c34959c3)
+## Latest published release: v0.21.3 (tag v0.21.3, target 9692777e; PR #190, #191; G3 passed bound to 9692777e with the ag canary on gemini-4-argon-low; packaged ag.standard model not exercised)
+
+## Prior published release: v0.21.2 (tag v0.21.2, target c34959c3; PR #182)
 
 ## Prior published release: v0.21.1 (tag v0.21.1, target 9aa06d30; PR #172)
 
