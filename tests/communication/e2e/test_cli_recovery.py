@@ -1269,3 +1269,12 @@ def test_bare_cli_exit_change_documented_under_breaking():
     changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
     breaking = changelog.split("### Breaking", 1)[1].split("### ", 1)[0]
     assert "Bare `peerhub` exit 2 -> 0" in breaking
+
+
+def test_provider_limit_in_uncertain_error_is_surfaced():
+    from peerhub.cli.app import _provider_limit
+    got = _provider_limit("ag exited 3: error: Individual quota reached. Please upgrade. Resets in 1h22m56s.\nAGY_ERROR: {}")
+    assert got == {"reason": "quota_exhausted", "reset_time": "1h22m56s"}
+    assert _provider_limit("cx exited 1: You've hit your usage limit. try again at 3:05 PM") == {"reason": "usage_limit", "reset_time": "3:05 PM"}
+    assert _provider_limit("ag exited 1: fatal: unrelated") is None
+    assert _provider_limit(None) is None
