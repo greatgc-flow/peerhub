@@ -23,3 +23,13 @@ payloads in warnings or telemetry. `oversized_event_count` records the count.
 A later intact answer followed by `turn.completed` establishes delivery after a
 skipped record; an oversized final answer/completion or an unresolved gap keeps
 the outcome uncertain. A completion alone cannot substitute for a lost answer.
+
+## Upgrading or restarting during an in-flight ask
+
+An ask keeps running in its child process even if `peerhub` is upgraded or its
+status view reports no live process afterwards; the result may still be
+recorded later. Before re-sending, check `peerhub diag health --stream
+STREAM_ID` and wait for the result; re-sending starts a duplicate run. Avoid
+upgrading while asks are in flight (stop `peerhub monitor` first).
+
+`ag` asks always require `--writable`; the prespawn error names the flag.
