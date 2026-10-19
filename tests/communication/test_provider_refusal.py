@@ -661,3 +661,14 @@ def test_bridge_does_not_ack_incomplete_refusal_event(bridge_h, started, payload
     assert result.status == "uncertain"
     assert result.certainty == ("STARTED" if started else "MAY_HAVE_STARTED")
     assert sql(bridge_h, "SELECT acked FROM bridge_deliveries WHERE record_id=?", (rec.record_id,)) == [(0,)]
+
+
+@pytest.mark.parametrize("text", [
+    "Claude AI usage limit reached|1760000000",
+    "You've hit your limit · resets 3pm (Asia/Seoul)",
+    "5-hour limit reached ∙ resets 3pm",
+    "Weekly limit reached",
+])
+def test_cc_limit_phrasings_classify_as_usage_limit(text):
+    from peerhub.extensions.adapters.base import classify_refusal_text
+    assert classify_refusal_text(text)["reason"] == "usage_limit"
