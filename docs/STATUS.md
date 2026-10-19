@@ -4,7 +4,7 @@
 
 ## Current source: v0.21.3 (release candidate, in preparation)
 
-v0.21.3: provider quota/usage limits surface as `provider_limit` on uncertain asks, cc limit phrasings are classified (#186), and monitor display fixes (#189). Earlier: v0.21.2 incorporates the MECE fixes and follow-up (#177, #178): restore fencing on both lineage markers with first-generation adoption preserved, shared receipt validation, monitor workspace resolution, unified profile loading, and bounded benchmark subprocesses with Windows shim support. It also updates upgrade and maintainer documentation (#173, #175, #181). Candidate validation and publication remain pending.
+v0.21.3 (live gate ran the ag canary on the Argon model because the default ag pool was exhausted; packaged `ag.standard` model not exercised, #191): provider quota/usage limits surface as `provider_limit` on uncertain asks, cc limit phrasings are classified (#186), and monitor display fixes (#189). Earlier: v0.21.2 incorporates the MECE fixes and follow-up (#177, #178): restore fencing on both lineage markers with first-generation adoption preserved, shared receipt validation, monitor workspace resolution, unified profile loading, and bounded benchmark subprocesses with Windows shim support. It also updates upgrade and maintainer documentation (#173, #175, #181). Candidate validation and publication remain pending.
 
 ### Release attempts
 

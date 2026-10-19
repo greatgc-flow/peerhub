@@ -35,7 +35,9 @@ def lowest_profile(kind: str) -> dict:
     """The packaged `<kind>.standard` profile (lowest tier). Read from the packaged defaults, not hardcoded here."""
     data = tomllib.loads((ROOT / "peerhub" / "config_data" / "model-defaults.toml").read_text(encoding="utf-8"))
     p = data["profiles"][f"{kind}.standard"]
-    return {"profile": f"{kind}.standard", "model": p["model"], "effort": p.get("reasoning_effort")}
+    override = os.environ.get("PEERHUB_LIVE_AG_MODEL") if kind == "ag" else None  # exhausted default pool: recorded, never silent
+    return {"profile": f"{kind}.standard", "model": override or p["model"],
+            "effort": None if override else p.get("reasoning_effort"), "model_override": bool(override)}
 
 
 def tree_snapshot(root: Path = ROOT, *, ignore: tuple[Path, ...] = (EVIDENCE_DIR,)) -> dict[str, tuple[int, int]]:
@@ -150,6 +152,7 @@ def canary(kind: str) -> dict:
         "workspace_outside_project": ROOT.resolve() not in (base.resolve(), *base.resolve().parents),
         "project_tree_changed": diff_snapshots(before, after),
         "model": prof["model"], "effort": prof["effort"], "profile": prof["profile"],
+        "model_override": prof.get("model_override", False),
     }
     _CACHE[key] = out
     return out

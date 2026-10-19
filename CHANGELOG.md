@@ -12,6 +12,7 @@ they do not claim new validation or publication evidence.
 
 - Uncertain asks whose provider error is a quota/usage limit (ag exit 3, stderr-only errors) now report `provider_limit` and a one-line wait-for-reset note; status stays uncertain because edits cannot be excluded (#186).
 - Refusal classifier recognises cc limit phrasings such as `You've hit your limit`, `Claude AI usage limit reached` and `5-hour limit reached` (#186).
+- Live gate: `PEERHUB_LIVE_AG_MODEL` may replace the ag model when its default pool is exhausted; every JUnit case then records `live_ag_model_override`. For v0.21.3 the ag canary ran on `gemini-4-argon-low` (A-7D) because G-7D was exhausted: the packaged `ag.standard` model was NOT exercised (#191).
 - Live-gate quota canary waits 60s instead of 30s for slow cc usage probes (#183).
 
 ### Changed

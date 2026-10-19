@@ -129,6 +129,8 @@ When filing or triaging an issue that alters a safety or caution fact (peer writ
 
 ## Releasing
 
+If an ag pool is exhausted, `PEERHUB_LIVE_AG_MODEL=<model>` swaps the ag model for the gate run; it is recorded per case in the JUnit and must be disclosed in the changelog and STATUS (#191).
+
 1. Open a version-bump PR updating `peerhub/_version.py` and the current
    `v0.x.y` line in `docs/STATUS.md`, and add the matching `CHANGELOG.md`
    section. Wait for CI to be green: `gh pr checks`
