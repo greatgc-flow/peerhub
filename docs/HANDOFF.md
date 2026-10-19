@@ -3,14 +3,11 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-19 — v0.21.1 candidate preparation)
+## 0. Current checkpoint (2026-10-19 — v0.21.2 candidate preparation)
 
-- **Branch & state:** `release/0.21.1` in worktree `rel-wt`, based on `ae87ef41`; v0.21.1 release preparation is uncommitted.
-- **Release status:** In preparation; the latest recorded published release is v0.19.0. [STATUS.md](STATUS.md) owns publication evidence.
-- **Delivered scope:** Uncertain ask guidance and guide changes for default-timeout asks: use a new stream with explicit `--timeout-seconds` (long reviews: 1800 or more), preserving retry cautions (#169, PR #171).
-- **Design reference:** [Issue resolution](design/issue-resolution-2026-10-18.md); `peerhub diag readiness` delivers the cached report; the paid active probe (#145 part 2) remains deferred in [STATUS](STATUS.md#deferred-backlog-start-triggers).
-- **Next:** Review candidate changes and deterministic checks, then follow the [release procedure](../CONTRIBUTING.md#releasing) for CI, merge, candidate-matched local live gate G3, and publication. No v0.21.1 live or publication evidence is claimed.
-- **Resume prompt:** Review the uncommitted v0.21.1 candidate on `release/0.21.1`, then complete the release gates and publish workflow.
+- **State:** v0.21.1 is published; v0.21.2 preparation is uncommitted on `release/0.21.2`, based on `fdfcdd37`. The former v0.21.1 `rel-wt` is gone; the current worktree reuses that path for v0.21.2.
+- **Scope:** MECE fixes and follow-up (#177, #178), plus upgrade and maintainer documentation (#173, #175, #181). [CHANGELOG](../CHANGELOG.md) owns release notes; [STATUS](STATUS.md) owns publication evidence and backlog.
+- **Next:** Review the candidate and deterministic checks, then follow the [release procedure](../CONTRIBUTING.md#releasing) for CI, merge, candidate-matched local live gate G3, and publication. v0.21.2 release gates remain pending.
 
 ### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)
 
