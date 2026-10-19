@@ -113,6 +113,27 @@ def test_session_cursor_rejects_changed_filter(tmp_path, capsys):
     assert json.loads(capsys.readouterr().out)["status"] == "ERROR"
 
 
+def test_hidden_store_uses_database_directory_for_lineage(tmp_path, capsys):
+    from peerhub.core.workspace import Workspace
+    from peerhub.extensions.monitor_read_model import _monitor_workspace
+
+    root = tmp_path / ".peerhub"
+    db = root / "core.db"
+    _seed(db, capsys, count=2)
+    lineage = Workspace(root).generation()
+    assert not (tmp_path / "workspace.generation").exists()
+    with sqlite3.connect(db) as conn:
+        metadata = json.loads(conn.execute("SELECT metadata_json FROM records WHERE kind='prompt' LIMIT 1").fetchone()[0])
+        assert metadata["workspace_generation"] == lineage
+        assert conn.execute("SELECT DISTINCT workspace_generation FROM bridge_session_history").fetchall() == [(lineage,)]
+    assert _monitor_workspace(str(db), None) == tmp_path
+    assert main(["--db", str(db), "session", "list", "--limit", "1"]) == 0
+    cursor = json.loads(capsys.readouterr().out)["next_cursor"]
+    Workspace(root).replace_generation()
+    assert main(["--db", str(db), "session", "list", "--limit", "1", "--cursor", cursor]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "ERROR"
+
+
 @pytest.mark.parametrize("mismatch", [None, "handle", "generation", "provider_kind", "schema_version"])
 def test_session_inspection_validates_receipt_identity_usage_and_context(tmp_path, capsys, mismatch):
     db = tmp_path / "core.db"
@@ -147,6 +168,8 @@ def test_session_inspection_validates_receipt_identity_usage_and_context(tmp_pat
         assert telemetry["usage"] is None
         assert telemetry["context"]["state"] == "UNKNOWN"
         assert telemetry["context"]["percent"] is None
+        if mismatch:
+            assert telemetry["context"]["reason"] == "invalid_or_missing_receipt"
 
 
 def test_session_inspection_refuses_future_schema(tmp_path, capsys):

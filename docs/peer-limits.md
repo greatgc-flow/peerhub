@@ -11,6 +11,7 @@ PeerHub's `--writable` permits edits but does not remove sandbox limits.
 
 The `peerhub diag peers` capability probe is **NOT implemented (deferred)**.
 Existing diagnostics do not establish sandbox capabilities.
+Other unbounded subprocess sites (such as Git calls in `tools/release_evidence.py` and version capture in `peerhub/extensions/quota_capture.py`) are exempt from PR #177's bounded-runner scope.
 
 See the [adapter guide](adapters/README.md) and [installed-CLI smoke recipe](smoke-recipe.md).
 

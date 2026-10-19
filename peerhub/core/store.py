@@ -170,7 +170,12 @@ class CoreStore:
                 epoch.read_text(encoding="utf-8") if epoch.exists() else None)
 
     def _check_restore_lineage(self) -> None:
-        if self._read_restore_lineage() != self._restore_lineage:
+        current = self._read_restore_lineage()
+        # A fresh Core database can precede Workspace initialization. Adopt its
+        # first generation, but never ignore a restore epoch change.
+        if self._restore_lineage[0] is None and current[1] == self._restore_lineage[1]:
+            self._restore_lineage = current
+        if current != self._restore_lineage:
             raise StoreReplacedError("workspace restored; this CoreStore belongs to a stale lineage")
 
     def _preflight(self) -> None:
