@@ -244,6 +244,7 @@ def test_guide_contains_required_sections_and_guidance(capsys):
     # Upgrade monitor lock guidance (#123)
     assert "stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor" in out
     assert "locks peerhub.exe on Windows" in out
+    assert "also wait for running asks" in out
 
 
 def test_guide_shows_error_line_if_profiles_fail(monkeypatch, capsys):
