@@ -10,6 +10,7 @@ they do not claim new validation or publication evidence.
 
 ### Docs
 
+- Upgrade guidance: wait for running asks (they lock dependency files) and what to do if an upgrade leaves a broken install (#180).
 - Record deferred backlog start triggers and deliberate probe/response-field deferrals in the maintainer handoff (#167).
 
 ## [0.21.1] - 2026-10-19
