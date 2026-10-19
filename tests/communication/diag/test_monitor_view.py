@@ -45,7 +45,7 @@ def test_quota_visual_snapshot_at_80_columns(quota_visual_frame, color, monkeypa
     assert rendered.count("cc probe:") == rendered.count("ag probe:") == 1
     assert "soonest exhaust: ag P-3H 1% in 30m" in rendered
     assert "duplicate" not in rendered
-    assert "STATE: INSUFFICIENT=not enough history" in rendered
+    assert "STATE: INSUFFICIENT=window just started" in rendered
     if color:
         for code, state in [(32, "ON_PACE"), (33, "WATCH"), (31, "THREAT"),
                             (31, "EXHAUSTED"), (31, "ERROR"), (2, "UNKNOWN"), (2, "STALE")]:
@@ -783,3 +783,12 @@ def test_group_summaries_reserve_space_for_hidden_detail_disclosure(frame):
 
 
 
+
+
+def test_soonest_exhaust_header_says_exhausted_when_pool_is_empty():
+    from peerhub.cli.monitor_view import _quota_label
+    group = {"data": {"observations": [{"state": "MEASURED", "peer_id": "cx", "pool_ref": "quota:cx:X-5H",
+                                        "projection": {"exhaustion_at": 100.0},
+                                        "measurements": {"remaining_fraction": 0.0}}]}}
+    label = _quota_label("OK", group, 100.0, 0.0)
+    assert "cx X-5H 0% exhausted" in label and " in 0m" not in label

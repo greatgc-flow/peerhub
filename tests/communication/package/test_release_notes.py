@@ -20,9 +20,7 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.21.2"
-    assert "either lineage marker" in body
-    assert "first-generation adoption" in body
-    assert "(#177, #178)" in body
-    assert "(#175, #180, #181)" in body
-    assert "Uncertain ask guidance and guide" not in body
+    assert __version__ == "0.21.3"
+    assert "provider_limit" in body
+    assert "(#189)" in body
+    assert "either lineage marker" not in body

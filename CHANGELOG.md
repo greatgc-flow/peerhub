@@ -6,6 +6,18 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
+## [0.21.3] - 2026-10-19
+
+### Fixed
+
+- Uncertain asks whose provider error is a quota/usage limit (ag exit 3, stderr-only errors) now report `provider_limit` and a one-line wait-for-reset note; status stays uncertain because edits cannot be excluded (#186).
+- Refusal classifier recognises cc limit phrasings such as `You've hit your limit`, `Claude AI usage limit reached` and `5-hour limit reached` (#186).
+- Live-gate quota canary waits 60s instead of 30s for slow cc usage probes (#183).
+
+### Changed
+
+- Monitor: the soonest-exhaust header says `exhausted` for an empty pool, probe age uses `2h57m`-style durations, and the INSUFFICIENT legend reads `window just started` (#189).
+
 ## [0.21.2] - 2026-10-19
 
 ### Changed
