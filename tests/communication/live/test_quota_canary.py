@@ -13,7 +13,7 @@ pytestmark = pytest.mark.slow
 def test_live_007_provider_quota_live_persists_measured_evidence(tmp_path, provider):
     db = tmp_path / "core.db"
     CoreStore(db)
-    result = refresh_quota(db, [provider], deadline_sec=30)
+    result = refresh_quota(db, [provider], deadline_sec=60)
     assert any(o["state"] == "MEASURED" for o in result["observations"]), result
     report = quota_report(db, peer=provider)
     assert report["status"] == "OK" and report["overall"] == "OK"
