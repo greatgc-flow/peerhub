@@ -9,6 +9,6 @@ PEER  POOL        REM  [BAR]       RESET-IN   PACE      STATE         AGE
 [2mag    P-6H          -  [░░░░░░░░]  -          -         UNKNOWN       30s[0m
 [2mag    P-7H          -  [░░░░░░░░]  -          -         STALE         30s[0m
 [2mag    P-8H        90%  [███████░]  2h00m      -         INSUFFICIENT    30s[0m
-[2mag probe: UNKNOWN fresh measured evidence is requ… (2043s ago)[0m
-[2mcc probe: ERROR claude_usage_timeout (10635s ago)[0m
-STATE: INSUFFICIENT=not enough history; THREAT=exhausts before reset; ON_PACE
+[2mag probe: UNKNOWN fresh measured evidence is requ… (34m ago)[0m
+[2mcc probe: ERROR claude_usage_timeout (2h57m ago)[0m
+STATE: INSUFFICIENT=window just started; THREAT=exhausts before reset; ON_PACE

@@ -24,7 +24,7 @@ peerhub --help
 peerhub --version
 ```
 
-This describes current source (v0.21.2 release candidate); v0.21.1 is published. The public command is `peerhub`; the temporary milestone-specific entrypoint has been retired. `python -m peerhub` and `python -m peerhub.cli` use the same public CLI.
+This describes current source (v0.21.3 release candidate); v0.21.2 is published. The public command is `peerhub`; the temporary milestone-specific entrypoint has been retired. `python -m peerhub` and `python -m peerhub.cli` use the same public CLI.
 
 ## Core recipe
 

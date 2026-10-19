@@ -2,9 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.21.2 (release candidate, in preparation)
+## Current source: v0.21.3 (release candidate, in preparation)
 
-v0.21.2 incorporates the MECE fixes and follow-up (#177, #178): restore fencing on both lineage markers with first-generation adoption preserved, shared receipt validation, monitor workspace resolution, unified profile loading, and bounded benchmark subprocesses with Windows shim support. It also updates upgrade and maintainer documentation (#173, #175, #181). Candidate validation and publication remain pending.
+v0.21.3: provider quota/usage limits surface as `provider_limit` on uncertain asks, cc limit phrasings are classified (#186), and monitor display fixes (#189). Earlier: v0.21.2 incorporates the MECE fixes and follow-up (#177, #178): restore fencing on both lineage markers with first-generation adoption preserved, shared receipt validation, monitor workspace resolution, unified profile loading, and bounded benchmark subprocesses with Windows shim support. It also updates upgrade and maintainer documentation (#173, #175, #181). Candidate validation and publication remain pending.
 
 ### Release attempts
 
@@ -18,11 +18,14 @@ v0.21.2 incorporates the MECE fixes and follow-up (#177, #178): restore fencing 
 | **v0.20.0** | `732996c6` | PR #163 | Published | Tag `v0.20.0` |
 | **v0.21.0** | `920931db` | PR #170 | Published | Tag `v0.21.0` |
 | **v0.21.1** | `9aa06d30` | PR #172 | Published | Tag `v0.21.1` |
-| **v0.21.2** candidate | branch `release/0.21.2` | | In preparation | Prepared 2026-10-19; uncommitted |
+| **v0.21.2** | `c34959c3` | PR #182 | Published | Tag `v0.21.2` |
+| **v0.21.3** candidate | branch `fix/189-monitor-display` | | In preparation | Prepared 2026-10-19 |
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
 
-## Latest published release: v0.21.1 (tag v0.21.1, target 9aa06d30; PR #172)
+## Latest published release: v0.21.2 (tag v0.21.2, target c34959c3; PR #182; live gate G3 passed bound to c34959c3)
+
+## Prior published release: v0.21.1 (tag v0.21.1, target 9aa06d30; PR #172)
 
 v0.21.1 updates uncertain ask guidance and the guide to direct default-timeout asks to a new stream with explicit `--timeout-seconds`, preserving retry cautions (#169, PR #171). See the [published release](https://github.com/greatgc-flow/peerhub/releases/tag/v0.21.1).
 

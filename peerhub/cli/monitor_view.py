@@ -90,8 +90,9 @@ def _quota_label(status: str, group: dict[str, Any], read_at: float | None,
         if item.get("state") != "MEASURED" or exhaustion is None or rem is None or not 0 <= rem <= 1:
             continue
         pool = _clean(item.get("pool_ref") or item.get("pool_kind") or "?").split(":")[-1]
-        duration = _format_duration(max(0.0, exhaustion - (read_at or 0.0) - elapsed_seconds))
-        candidates.append((exhaustion, f"{_peer(item)} {pool} {rem * 100:.0f}% in {duration}"))
+        remaining_s = exhaustion - (read_at or 0.0) - elapsed_seconds
+        when = "exhausted" if rem <= 0 or remaining_s <= 0 else f"in {_format_duration(remaining_s)}"
+        candidates.append((exhaustion, f"{_peer(item)} {pool} {rem * 100:.0f}% {when}"))
     if candidates:
         label += f" | soonest exhaust: {min(candidates)[1]}"
     return label
@@ -506,7 +507,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 if pool_id == "quota" and state != "MEASURED":
                     reason = _clean(item.get("reason") or item.get("condition") or projection.get("reason") or "")
                     detail = _fit(f"{state} {reason}".strip(), 40, unicode)
-                    ago = f" ({age_str} ago)" if age is not None else ""
+                    probe_age = max(0.0, age + elapsed_seconds) if age is not None else 0.0
+                    ago = "" if age is None else f" ({_format_duration(probe_age) if probe_age >= 60 else age_str} ago)"
                     probe_notes.setdefault(peer, f"{peer} probe: {detail}{ago}")
                     continue
 
@@ -780,7 +782,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
                 if _ANSI.sub("", lines[i]).startswith(("-- ", "── "))
                 or "rows hidden" in lines[i] or "groups omitted" in lines[i]
                 or lines[i].startswith(("Warning:", "Next:", "+"))), len(lines))
-    legend = "STATE: INSUFFICIENT=not enough history; THREAT=exhausts before reset; ON_PACE"
+    legend = "STATE: INSUFFICIENT=window just started; THREAT=exhausts before reset; ON_PACE"
     if (_width(legend) <= width - 1 and (height is None or len(lines) < height - 1)
             and any("PEER" in line and "POOL" in line for line in lines[start:end])):
         lines.insert(end, legend)

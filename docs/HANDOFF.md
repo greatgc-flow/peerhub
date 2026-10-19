@@ -3,11 +3,11 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-19 — v0.21.2 candidate preparation)
+## 0. Current checkpoint (2026-10-19 — v0.21.3 candidate preparation)
 
-- **State:** v0.21.1 is published; v0.21.2 preparation is uncommitted on `release/0.21.2`, based on `fdfcdd37`. The former v0.21.1 `rel-wt` is gone; the current worktree reuses that path for v0.21.2.
-- **Scope:** MECE fixes and follow-up (#177, #178), plus upgrade and maintainer documentation (#173, #175, #181). [CHANGELOG](../CHANGELOG.md) owns release notes; [STATUS](STATUS.md) owns publication evidence and backlog.
-- **Next:** Review the candidate and deterministic checks, then follow the [release procedure](../CONTRIBUTING.md#releasing) for CI, merge, candidate-matched local live gate G3, and publication. v0.21.2 release gates remain pending.
+- **State:** v0.21.2 is published; v0.21.3 preparation is on `fix/189-monitor-display`.
+- **Scope:** provider-limit surfacing (#186) and monitor display fixes (#189). [CHANGELOG](../CHANGELOG.md) owns release notes; [STATUS](STATUS.md) owns publication evidence and backlog.
+- **Next:** Review the candidate and deterministic checks, then follow the [release procedure](../CONTRIBUTING.md#releasing) for CI, merge, candidate-matched local live gate G3, and publication. v0.21.3 release gates remain pending.
 
 ### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)
 
