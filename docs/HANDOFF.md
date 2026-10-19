@@ -3,11 +3,12 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-19 — v0.21.3 candidate preparation)
+## 0. Current checkpoint (2026-10-19 — post-v0.21.3)
 
-- **State:** v0.21.2 is published; v0.21.3 preparation is on `fix/189-monitor-display`.
-- **Scope:** provider-limit surfacing (#186) and monitor display fixes (#189). [CHANGELOG](../CHANGELOG.md) owns release notes; [STATUS](STATUS.md) owns publication evidence and backlog.
-- **Next:** Review the candidate and deterministic checks, then follow the [release procedure](../CONTRIBUTING.md#releasing) for CI, merge, candidate-matched local live gate G3, and publication. v0.21.3 release gates remain pending.
+- **State:** v0.21.3 is published (tag v0.21.3, PyPI confirmed). No release in preparation.
+- **Open:** #189 items 2 (0% shown as THREAT vs EXHAUSTED) and 4 (reset credits absolute date); revisit when touching `monitor_view.py`.
+- **Scope:** v0.21.3 shipped provider-limit surfacing (#186), monitor display fixes (#189 part) and the ag live-gate model override (#191).
+- **Next:** none pending. Optional: re-run G3 on the packaged ag.standard model after the ag G-7D quota resets (#191); see STATUS deferred backlog.
 
 ### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)
 
@@ -17,7 +18,7 @@ and coordination checkpoints.
 - **Hazards:** store hazard (.peerhub copy at user_version 3 vs source v4) — running source v4 against it migrates it to v4 and the installed 0.16.0 CLI then refuses it; use a copy (`--db`) for dev; `core.db.v018-bak` keeps the backup store.
 - **Known:** `test_rel_005` POSIX PTY smoke skipped on Windows (ConPTY/manual test coverage).
 - **Peers:** one persistent stream per peer (`dev-cx`, `dev-cc`, `peers-pr1-ag`/`dev-ag`) with `*.effort` profiles; peers cannot run pytest reliably; cx writes no files.
-- **Next:** owner runs live gate G3 (local), reviews PR, merges and triggers publication workflow.
+- **Next:** none pending. Optional: re-run G3 on the packaged ag.standard model after the ag G-7D quota resets (#191); see STATUS deferred backlog.
 - **Resume prompt:** Run local live gate G3 for v0.19.0 candidate, then proceed with GitHub release PR and publish workflow.
 
 
