@@ -298,6 +298,16 @@ def _dump(model: BaseModel) -> str:
 
 
 
+def _provider_limit(detail_error: str | None) -> dict[str, Any] | None:
+    """Limit evidence in a failed ask's error text; informational only, the ask stays uncertain (#186)."""
+    from peerhub.extensions.adapters.base import classify_refusal_text
+    for line in (detail_error or "").splitlines():
+        r = classify_refusal_text(line.split(": ", 1)[1] if line.startswith(("ag exited", "cx exited", "cc exited")) else line)
+        if r is not None and r["reason"] in ("quota_exhausted", "usage_limit"):
+            return {"reason": r["reason"], "reset_time": r.get("reset_time")}
+    return None
+
+
 def _session_trailer(session: dict[str, Any]) -> str:
     suffix = ""
     if session["mode"] == "fresh":
@@ -353,6 +363,9 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
             reason=result.get("reason"),
             detail_error=detail_error,
         )
+        limit = _provider_limit(detail_error) if result.get("status") == "uncertain" else None
+        if limit is not None:
+            result["provider_limit"] = limit
         if guidance_code:
             sid = result.get("stream_id") or getattr(args, "stream_id", None)
             result["guidance"] = make_guidance_payload(guidance_code, db_path=args.db, stream_id=sid)
@@ -386,6 +399,10 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
             print(render_guidance_hint(guidance_entry), file=sys.stderr)
     else:
         print(json.dumps(result, ensure_ascii=True), file=sys.stderr)
+        if "provider_limit" in result:
+            pl = result["provider_limit"]
+            print(f"note: provider reported {pl['reason']}" + (f" (reset: {pl['reset_time']})" if pl.get("reset_time") else "")
+                  + "; retrying now will fail again - wait for the reset, and check the workspace for partial edits.", file=sys.stderr)
         if guidance_entry is not None:
             print(render_guidance_hint(guidance_entry), file=sys.stderr)
     session = result.get("session")
