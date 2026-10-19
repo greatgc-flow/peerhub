@@ -279,7 +279,9 @@ A product-maturity item may be `VERIFIED` only with a `git_sha`
 Ask peers with `peerhub ask <ag|cx|cc> ...` (choose one peer).
 `--writable` permits file edits and is off by default. It maps to cc
 `--permission-mode acceptEdits`, cx `-s workspace-write` (default
-`-s read-only`), and ag `--mode accept-edits`.
+`-s read-only`), and ag `--mode accept-edits`. Native `ag` execution requires
+`--writable` and is refused before spawn without it because agy does not enforce
+a read-only sandbox (#140). Cached terminal replay remains available.
 
 Keep prompts in English, split large tasks into small requests, and treat peer
 output as drafts. Verify every change yourself. For cx reviews, run pytest and

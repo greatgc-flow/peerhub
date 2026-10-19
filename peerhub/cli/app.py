@@ -793,7 +793,7 @@ def _run_session_cli(args: argparse.Namespace) -> int:
                                 ",NULL AS binding_json,NULL AS fresh_count,NULL AS reuse_count,NULL AS counts_complete,NULL AS telemetry_detail "
                                 "FROM bridge_session_history h")
                 row = None if not has_table else conn.execute(
-                    "SELECT h.session_handle,h.stream_id,h.peer_id,h.session_generation,h.state,h.resumable,h.last_seen,"
+                    "SELECT h.session_handle,h.stream_id,h.peer_id,h.session_generation,h.runtime_kind,h.state,h.resumable,h.last_seen,"
                     "h.context_watermark,h.bootstrap_truncated,h.context_watermark_version,h.created_at,h.tombstoned_at" +
                     extra_select + " WHERE h.session_handle=?", (args.handle,)).fetchone()
                 if row is None:
@@ -826,7 +826,7 @@ def _run_session_cli(args: argparse.Namespace) -> int:
                             ",NULL AS binding_json,NULL AS fresh_count,NULL AS reuse_count,NULL AS counts_complete,NULL AS telemetry_detail "
                             "FROM bridge_session_history h")
             rows = conn.execute(
-                "SELECT h.rowid,h.session_handle,h.stream_id,h.peer_id,h.session_generation,h.state,h.resumable,h.last_seen,"
+                "SELECT h.rowid,h.session_handle,h.stream_id,h.peer_id,h.session_generation,h.runtime_kind,h.state,h.resumable,h.last_seen,"
                 "h.context_watermark,h.bootstrap_truncated,h.context_watermark_version,h.created_at,h.tombstoned_at" +
                 extra_select + " WHERE " + " AND ".join(where) +
                 " ORDER BY h.stream_id,h.peer_id,h.session_generation DESC,h.session_handle DESC LIMIT ?", params).fetchall()
@@ -883,27 +883,10 @@ def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
     latest = None
     raw_telemetry = row["telemetry_detail"] if "telemetry_detail" in row.keys() else None
     if isinstance(raw_telemetry, str):
-        try:
-            detail = json.loads(raw_telemetry)
-            if isinstance(detail, dict):
-                detail = cast("dict[str, Any]", detail)
-                raw_usage = detail.get("usage")
-                usage = None
-                if isinstance(raw_usage, dict):
-                    raw_usage = cast("dict[str, Any]", raw_usage)
-                    usage = {key: raw_usage.get(key) for key in
-                             ("schema_version", "scope", "source", "attribution", "reported", "normalized", "coverage")}
-                latest = {
-                    "schema_version": detail.get("schema_version"),
-                    "configured_model": detail.get("configured_model"),
-                    "resolved_model": detail.get("resolved_model"),
-                    "observed_at": detail.get("observed_at"),
-                    "context": {key: detail.get(key) for key in
-                                ("last_input_tokens", "context_window", "context_pct", "source", "window_reported_at")},
-                    "usage": usage,
-                }
-        except (ValueError, TypeError):
-            latest = None
+        from peerhub.extensions.monitor_read_model import public_telemetry
+        latest = {"schema_version": 3, **public_telemetry(
+            raw_telemetry, handle=str(row["session_handle"]),
+            generation=int(row["session_generation"]), provider=str(row["runtime_kind"]))}
     result = {
         "handle": str(row["session_handle"]), "stream_id": str(row["stream_id"]),
         "peer_id": str(row["peer_id"]), "generation": int(row["session_generation"]),

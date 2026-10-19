@@ -1,9 +1,64 @@
 """Offline argument and failure paths; no provider CLI is invoked."""
 from types import SimpleNamespace
+import json
+import sys
 
 import pytest
 
 from tools import context_bench, model_ping
+
+
+@pytest.mark.parametrize("peer", ["cc", "cx", "ag"])
+def test_context_bench_bounded_runner_preserves_results_and_session(tmp_path, monkeypatch, peer):
+    from peerhub.extensions.adapters.process import run_bounded
+
+    if peer == "cc":
+        payload = json.dumps({"result": "answer", "session_id": "native", "usage": {
+            "input_tokens": 38, "cache_read_input_tokens": 2, "output_tokens": 4}})
+    elif peer == "cx":
+        payload = "\n".join(map(json.dumps, [
+            {"type": "thread.started", "thread_id": "native"},
+            {"type": "item.completed", "item": {"type": "agent_message", "text": "answer"}},
+            {"type": "turn.completed", "usage": {"input_tokens": 40, "cached_input_tokens": 2, "output_tokens": 4}},
+        ]))
+    else:
+        payload = json.dumps({"response": "answer", "conversation_id": "native", "usage": {
+            "input_tokens": 40, "cache_read_tokens": 2, "output_tokens": 4}})
+    monkeypatch.setattr(context_bench.shutil, "which", lambda name: "fake-provider")
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return run_bounded([sys.executable, "-c", f"import sys; sys.stdout.write({payload!r})"], **kwargs)
+
+    monkeypatch.setattr(context_bench, "run_bounded", run)
+    args = SimpleNamespace(peer=peer, model="test", effort="low")
+    assert context_bench.invoke(args, "prompt", str(tmp_path), "prior") == (
+        "answer", "native", [40, 2, 0, 4, 0.0])
+    argv, options = calls[0]
+    assert "prior" in argv and "test" in argv
+    assert options["stdin"] == (None if peer == "ag" else b"prompt")
+    assert options["timeout_s"] == 240 and options["max_bytes"] == 1_048_576
+
+
+@pytest.mark.parametrize("script,reason", [
+    ("import time; time.sleep(30)", "timed out"),
+    ("import sys; sys.stdout.write('x' * 100000); sys.stdout.flush()", "output limit"),
+])
+def test_context_bench_bounds_child_time_and_output(tmp_path, monkeypatch, script, reason):
+    from peerhub.extensions.adapters.process import run_bounded
+
+    monkeypatch.setattr(context_bench, "TIMEOUT_S", 0.5, raising=False)
+    monkeypatch.setattr(context_bench, "MAX_OUTPUT_BYTES", 256, raising=False)
+    monkeypatch.setattr(context_bench.shutil, "which", lambda name: sys.executable)
+
+    def run(argv, **kwargs):
+        return run_bounded([sys.executable, "-c", script], **kwargs)
+
+    monkeypatch.setattr(context_bench, "run_bounded", run, raising=False)
+    args = SimpleNamespace(peer="cc", model="test", effort=None)
+    with pytest.raises(ValueError, match=reason):
+        context_bench.invoke(args, "prompt", str(tmp_path), "")
 
 
 @pytest.mark.parametrize("argv,message", [

@@ -1,6 +1,49 @@
 import json
 
+import pytest
+
 from peerhub.cli.app import main
+
+
+@pytest.mark.parametrize("reader", ["resolve_profile", "inspect_profile", "list_profiles", "resolve_model_pools", "inspect_model_pools"])
+@pytest.mark.parametrize("version", ["2", "true", '"1"', "1.0"])
+@pytest.mark.parametrize("scope", ["global", "workspace"])
+def test_profile_readers_reject_invalid_schema_in_every_layer(tmp_path, monkeypatch, reader, version, scope):
+    from peerhub.extensions.adapters import profiles
+
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global"))
+    config = (tmp_path / "global" if scope == "global" else tmp_path / ".peerhub" / "config") / "models.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(f'schema_version={version}\n[exact_model_pools."test-model"]\npools=["TEST"]\n', encoding="utf-8")
+    args = {"resolve_profile": ("cx", "cx.standard", tmp_path), "inspect_profile": ("cx.standard", tmp_path),
+            "list_profiles": (tmp_path,), "resolve_model_pools": ("test-model", tmp_path),
+            "inspect_model_pools": ("test-model", tmp_path)}
+    with pytest.raises(ValueError, match="schema_version"):
+        getattr(profiles, reader)(*args[reader])
+
+
+@pytest.mark.parametrize("reader", ["inspect_profile", "list_profiles"])
+def test_profile_inspection_reads_each_layer_once(tmp_path, monkeypatch, reader):
+    from peerhub.extensions.adapters import profiles
+
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global"))
+    config = tmp_path / ".peerhub" / "config" / "models.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text('[profiles."cx.standard"]\nmodel="workspace-model"\n', encoding="utf-8")
+    real_load = profiles.tomllib.load
+    reads = []
+
+    def load(handle):
+        reads.append(handle.name)
+        return real_load(handle)
+
+    monkeypatch.setattr(profiles.tomllib, "load", load)
+    if reader == "list_profiles":
+        result = next(item for item in profiles.list_profiles(tmp_path) if item["profile"] == "cx.standard")
+    else:
+        result = profiles.inspect_profile("cx.standard", tmp_path)
+    assert result["fields"]["model"] == {"value": "workspace-model", "source": "workspace"}
+    assert len(reads) == 2 and len(set(reads)) == 2
 
 
 def test_profile_show_resolves_fields_with_source_provenance(tmp_path, monkeypatch, capsys):

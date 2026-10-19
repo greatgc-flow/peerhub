@@ -67,9 +67,8 @@ these boundaries cause trouble.
 
 Provider refusals (quota exhaustion, invalid model selection, authentication failures,
 or usage limits) are classified as a distinct `NOT_EXECUTED` task outcome when
-post-spawn evidence proves no tool work occurred, or a read-only Agy invocation
-has no side effects. The delivery prompt is acknowledged (`acked=1`) and offset
-advanced, unblocking the stream without replaying the prompt. Certainty is preserved as `STARTED` per Bridge
+post-spawn evidence proves no tool work occurred. The delivery prompt is
+acknowledged (`acked=1`) and offset advanced, unblocking the stream without replaying the prompt. Certainty is preserved as `STARTED` per Bridge
 monotonicity. Refusals occurring after tool calls remain uncertain (`blocked_uncertain`)
 to guard potential workspace side effects.
 
@@ -79,9 +78,11 @@ execution evidence. Missing, malformed, oversized, or unknown event evidence
 prevents automatic refusal settlement. Agy emits its flat JSON output only on
 completion, so empty stdout cannot prove absence of tool work. Its recognized
 nonzero stderr diagnostics with empty stdout and complete retained output qualify
-only for read-only invocations (`--writable` off). For example, exit 3 with
+only for historical read-only invocations (`--writable` off). For example, exit 3 with
 `Individual quota reached ... Resets in 20h9m47s` is settled as a refusal only
-in read-only mode. Writable Agy runs remain uncertain (`blocked_uncertain`)
+in historical read-only mode. Current native `ag` execution requires `--writable`
+and is refused before spawn without it (#140); cached terminal replay still works.
+Writable Agy runs remain uncertain (`blocked_uncertain`)
 unless output carries explicit pre-execution evidence; Agy provides none today.
 
 Refusal evidence is committed before settlement. Recovery finishes session

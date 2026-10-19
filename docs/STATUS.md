@@ -94,6 +94,18 @@ Operational design ratified (S1-S4 consensus): [issue-resolution-2026-10-18](des
 | Slice S4 (Docs & Guide Alignment) | **Done on `fix/issue-resolution-020`**: Updated `peerhub/cli/guide.py`, `README.md`, `docs/remote-ask.md`, `docs/migrations.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, and `CHANGELOG.md` (#118, #123, #130, #134-#136, #148). | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #118, #123, #130, #134-#136, #148 |
 | Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, gemini-4-argon adoption, TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issue #145 |
 
+### Deferred backlog (start triggers)
+
+| Item | Start trigger / decision |
+|---|---|
+| Interactive TUI for monitor | Owner asks after the visual refresh settles. |
+| Store schema v2 slices | A feature needs a non-additive schema change; current schema is v4. |
+| DB lineage/provenance | Cross-store comparison becomes a recurring need. |
+| Opt-in `ag.argon` profile | Owner decides quality/cost; needs cx/cc vote. The A-7D pool is already visible. |
+| `peerhub diag peers` capability probe | [Peer limits](peer-limits.md) drifts too often. |
+| `peerhub diag readiness --probe`: paid active probe + before/after benchmark (#145 part 2) | NOT implemented on purpose: diag stays read-only; the manual [smoke recipe](smoke-recipe.md) is enough. Revisit if the all-profile ping recurs often. |
+| cx/ag/cc response `final` field separating narration from the final answer (#164 part B) | NOT implemented on purpose: v0.20.0 keeps the aggregate cx response unless explicit phase metadata marks commentary; a final-only response could drop answer content. Revisit with a concrete mismatch case and a schema decision. |
+
 Operational lessons and coordinator handoff: [HANDOFF](HANDOFF.md).
 
 ## History

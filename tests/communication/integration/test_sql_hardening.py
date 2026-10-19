@@ -7,7 +7,7 @@ from contextlib import closing
 import pytest
 
 from peerhub.extensions.bridge_claims import StaleClaimError
-from peerhub.core.store import CoreStore
+from peerhub.core.store import CoreStore, StoreReplacedError
 from peerhub.core.workspace import SnapshotInvalidError
 from tests.communication.harness.clock import ManualClock
 from tests.communication.helpers import append_n, req, seed
@@ -83,6 +83,49 @@ def _setup(harness, tmp_path):
     snap = _snapshot(harness, tmp_path / "snap.db")  # snapshot holds the claim row stamped with generation G1
     append_n(harness, 2, prefix="post")  # live state moves on after the snapshot
     return clock, tok, snap
+
+
+@pytest.mark.parametrize("point", [None, "restore.after_generation", "restore.after_replace"])
+def test_snapshot_restore_fences_old_store_reads_and_unguarded_writes(harness, tmp_path, point):
+    seed(harness)
+    snap = _snapshot(harness, tmp_path / "snap.db")
+    old_store = harness.store
+    old_reader = CoreStore(harness.db_path, readonly=True)
+
+    def fault(current):
+        if current == point:
+            raise Crash(current)
+
+    if point:
+        with pytest.raises(Crash):
+            harness.ws.restore_snapshot(snap, fault=fault)
+    else:
+        harness.ws.restore_snapshot(snap)
+    for store in (old_store, old_reader):
+        with pytest.raises(StoreReplacedError):
+            store.list_streams()
+        with pytest.raises(StoreReplacedError):
+            with store.read_uow():
+                pass
+        with pytest.raises(StoreReplacedError):
+            store.connect()
+    with pytest.raises(StoreReplacedError):
+        old_store.append_record(**req(body="stale", key="stale"))
+    assert CoreStore(harness.db_path).stream_head("s") == 0
+
+
+@pytest.mark.parametrize("marker", ["workspace.generation", "restore.epoch"])
+def test_lineage_switch_before_commit_rolls_back_unguarded_write(harness, marker):
+    seed(harness)
+
+    def switch(point):
+        if point == "append.before_commit":
+            (harness.workspace / marker).write_text("replaced", encoding="utf-8")
+
+    harness.store.fault_hook = switch
+    with pytest.raises(StoreReplacedError):
+        harness.store.append_record(**req(body="stale", key="stale"))
+    assert CoreStore(harness.db_path).stream_head("s") == 0
 
 
 @pytest.mark.catalog_id("SQL-010")
@@ -163,6 +206,9 @@ def test_sql_010_guarded_writes_rejected_after_generation_change(harness):
     assert harness.store.append_record(guard=claims.guard(tok), **req(body="ok", key="before")).position == 3  # control
     harness.ws.replace_generation()
     state = harness.state_digest()
+    with pytest.raises(StoreReplacedError):
+        harness.store.append_record(guard=claims.guard(tok), **req(body="x", key="after"))
+    harness.reopen()
     with pytest.raises(StaleClaimError):
         harness.store.append_record(guard=claims.guard(tok), **req(body="x", key="after"))
     with pytest.raises(StaleClaimError):
