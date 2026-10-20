@@ -168,7 +168,7 @@ def compose(profiles: list[dict[str, Any]], observations: list[dict[str, Any]],
 def format_readiness(report: dict[str, Any]) -> str:
     lines = [f"Cached readiness: {report['status']} (READY=cached criteria satisfied; delivery certainty only)", "PROFILE POOLS STATE LAST NEXT"]
     aliases = {ref: str(n) for n, ref in enumerate(report["pools"], 1)}
-    for p in report["profiles"][:9]:
+    for p in report["profiles"][:10]:
         last = p["last"]
         age = "?" if last["age"] is None else f"{last['age']:.0f}s"
         action = {"ask_uncertain": "health", "ask_refusal": "refusal", "ask_delivery_failed": "consent",
@@ -176,8 +176,8 @@ def format_readiness(report: dict[str, Any]) -> str:
         label = last["error_class"] if last["error_class"] != "UNKNOWN" else last["outcome"]
         outcome = "-" if last["age"] is None and "evidence" not in last else f"{label}@{age}"
         lines.append(f"{p['id']} {','.join(aliases[r] for r in p['pools']) or '?'} {p['state']} {outcome} {action}")
-    if len(report["profiles"]) > 9:
-        lines.append(f"+{len(report['profiles']) - 9} profiles, see --json")
+    if len(report["profiles"]) > 10:
+        lines.append(f"+{len(report['profiles']) - 10} profiles, see --json")
     for ref, pool in report["pools"].items():
         rem = "?" if pool["remaining"] is None else f"{pool['remaining']:.0%}"
         reset = "?" if pool["reset_in"] is None else f"{pool['reset_in']:.0f}s"

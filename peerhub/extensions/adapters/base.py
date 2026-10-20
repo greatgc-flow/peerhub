@@ -107,11 +107,12 @@ def _json_lines(text: str) -> list[dict[str, Any]]:
 MAX_EVENT_BYTES = 262_144  # 256 KB
 
 _RESET_IN_RE = re.compile(r"(?:resets?\s+in|try\s+again\s+in)\s+([0-9]+[hdwms][0-9hdwms]*)", re.IGNORECASE)
-_RESET_AT_TIME_RE = re.compile(r"(?:try\s+again\s+at|resets?(?:\s+at)?)\s+([0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?\s*(?:AM|PM|am|pm)?)", re.IGNORECASE)
+_RESET_AT_TIME_RE = re.compile(r"(?:try\s+again\s+at|resets?(?:\s+at)?)\s+([0-9]{1,2}(?::[0-9]{2}(?::[0-9]{2})?\s*(?:AM|PM)?|\s*(?:AM|PM)))\b", re.IGNORECASE)
 _RESET_AT_ISO_RE = re.compile(r"(?:resets?\s+at|try\s+again\s+at)\s+([0-9]{4}-[0-9]{2}-[0-9]{2}T[^\s,.]+)", re.IGNORECASE)
 
 
-def _extract_reset_time(text: str) -> str | None:
+def extract_reset_time(text: str) -> str | None:
+    """Return provider reset text verbatim, without timezone or rollover inference."""
     m = _RESET_IN_RE.search(text) or _RESET_AT_TIME_RE.search(text) or _RESET_AT_ISO_RE.search(text)
     return m.group(1).strip() if m else None
 
@@ -121,15 +122,15 @@ def classify_refusal_text(text: str) -> dict[str, Any] | None:
     text = re.sub(r"^error:\s*", "", text.strip(), flags=re.IGNORECASE)
     # 1. Quota / resource exhausted
     if re.match(r"(?:Individual\s+quota\s+reached|RESOURCE_EXHAUSTED)\b", text, re.IGNORECASE):
-        reset = _extract_reset_time(text)
+        reset = extract_reset_time(text)
         return {
             "reason": "quota_exhausted",
             "reset_time": reset,
             "message": "Individual quota reached / resource exhausted",
         }
     # 2. Usage limit / rate limit (handles both ASCII and curly apostrophes)
-    if re.match(r"(?:You['\u2019]ve\s+hit\s+your\s+usage\s+limit|(?:claude(?:\s+ai)?\s+)?usage\s+limit\s+reached|you['’]ve\s+hit\s+your\s+(?:\w+\s+)?limit|(?:\d+-hour|weekly|session)\s+limit\s+reached|rate_limit_error|rate\s+limit\s+exceeded|exceeded\s+your\s+current\s+quota)\b", text, re.IGNORECASE):
-        reset = _extract_reset_time(text)
+    if re.match(r"(?:You['\u2019]ve\s+hit\s+your\s+usage\s+limit|(?:claude(?:\s+ai)?\s+)?usage\s+limit\s+reached|you['’]ve\s+hit\s+your\s+(?:(?:\w+|\d+-hour)\s+)?limit|(?:\d+-hour|weekly|session)\s+limit\s+reached|rate_limit_error|rate\s+limit\s+exceeded|exceeded\s+your\s+current\s+quota)\b", text, re.IGNORECASE):
+        reset = extract_reset_time(text)
         return {
             "reason": "usage_limit",
             "reset_time": reset,

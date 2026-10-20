@@ -129,6 +129,14 @@ def packaged_defaults_meta() -> dict[str, Any]:
     }
 
 
+def known_model_pools(workspace: str | Path | None = None) -> dict[str, Any]:
+    """List exact model registry entries with the same layer precedence as pool resolution."""
+    models: dict[str, Any] = {}
+    for _, layer in _load_layers(workspace):
+        models.update(cast("dict[str, Any]", layer.get("exact_model_pools", {})))
+    return dict(sorted(models.items()))
+
+
 def resolve_model_pools(model: str, workspace: str | Path | None = None) -> list[str] | None:
     """Resolve pool IDs for an exact model name from workspace > global > packaged defaults."""
     entry = inspect_model_pools(model, workspace)

@@ -1,7 +1,7 @@
 {
   "$schema": "./model-profiles.schema.json",
   "schema_version": 1,
-  "revision": "2026-10-18.1",
+  "revision": "2026-10-20.1",
   "observed_at": "2026-10-16",
   "observed_versions": {
     "ag": "1.4.0",
@@ -29,6 +29,13 @@
       "checked": "2026-10-16",
       "pools": ["3P-5H", "3P-7D"],
       "pools_source": "unverified"
+    },
+    "ag.argon": {
+      "model": "gemini-4-argon-medium",
+      "source": "cli:agy.exe models@1.4.0 2026-10-16",
+      "checked": "2026-10-20",
+      "pools": ["A-7D"],
+      "pools_source": "agy /usage group (agy 1.4.0)"
     },
     "cc.standard": {
       "model": "claude-haiku-5-5",
@@ -79,6 +86,56 @@
     }
   },
   "exact_model_pools": {
+    "gemini-3.8-flash-low": {
+      "pools": ["G-5H", "G-7D"],
+      "pools_source": "unverified",
+      "checked": "2026-10-20"
+    },
+    "gemini-3.8-flash-medium": {
+      "pools": ["G-5H", "G-7D"],
+      "pools_source": "unverified",
+      "checked": "2026-10-20"
+    },
+    "gemini-3.8-flash-high": {
+      "pools": ["G-5H", "G-7D"],
+      "pools_source": "unverified",
+      "checked": "2026-10-20"
+    },
+    "claude-opus-5-5-low": {
+      "pools": ["3P-5H", "3P-7D"],
+      "pools_source": "unverified",
+      "checked": "2026-10-20"
+    },
+    "claude-opus-5-5-medium": {
+      "pools": ["3P-5H", "3P-7D"],
+      "pools_source": "unverified",
+      "checked": "2026-10-20"
+    },
+    "claude-opus-5-5-high": {
+      "pools": ["3P-5H", "3P-7D"],
+      "pools_source": "unverified",
+      "checked": "2026-10-20"
+    },
+    "claude-sonnet-5-5-low": {
+      "pools": ["3P-5H", "3P-7D"],
+      "pools_source": "unverified",
+      "checked": "2026-10-20"
+    },
+    "claude-sonnet-5-5-medium": {
+      "pools": ["3P-5H", "3P-7D"],
+      "pools_source": "unverified",
+      "checked": "2026-10-20"
+    },
+    "claude-sonnet-5-5-high": {
+      "pools": ["3P-5H", "3P-7D"],
+      "pools_source": "unverified",
+      "checked": "2026-10-20"
+    },
+    "gpt-oss-120b-medium": {
+      "pools": ["3P-5H", "3P-7D"],
+      "pools_source": "unverified",
+      "checked": "2026-10-20"
+    },
     "gemini-4-argon-low": {
       "pools": ["A-7D"],
       "pools_source": "agy /usage group (agy 1.4.0)",
@@ -113,6 +170,7 @@
     "standard = cheap/fast triage (cc: haiku, cx: *-luna low, ag: newest flash low).",
     "effort = daily driver (cc: newest sonnet high, cx: newest *-sol medium, ag: newest flash medium).",
     "deepthink = deliberate escalation (cc: newest opus high, cx: newest *-sol xhigh, ag: claude-sonnet-5-5 high while gemini pro absent).",
+    "ag.argon = explicit gemini-4-argon-medium alternative on A-7D; standard/effort/deepthink remain unchanged.",
     "max/ultra efforts are explicit per-call overrides, never a default tier.",
     "Never pick models with visibility 'hide'. Keep an effort only if the model lists it as supported."
   ],
@@ -131,6 +189,6 @@
     "4. Run: python -m pytest -q tests/communication/adapters (test_model_profiles_manifest.py fails on any drift between this file, the toml and the documentation links).",
     "5. Optional, ask first (uses a little quota): python -m tools.model_ping [profile_id ...] pings each profile once and checks WHICH model answered (cc: modelUsage, cx: session log, ag: CLI log). Report failures verbatim.",
     "6. Do not commit, push or release unless the user asks. Answer the user in their language; keep internal text English.",
-    "7. Observations (2026-10-16): installed CLIs are claude 2.1.301, codex-cli 0.163.0, agy 1.4.0. codex debug models: gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-*; agy models adds available gemini-4-argon-{low,medium,high} (available_not_selected; manifest ag profiles keep gemini-3.8-flash-*)."
+    "7. Observations (2026-10-16): installed CLIs are claude 2.1.301, codex-cli 0.163.0, agy 1.4.0. codex debug models: gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-*; agy models adds available gemini-4-argon-{low,medium,high} (ag.argon selects medium; standard/effort keep gemini-3.8-flash-*)."
   ]
 }

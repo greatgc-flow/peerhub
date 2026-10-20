@@ -35,9 +35,19 @@ def lowest_profile(kind: str) -> dict:
     """The packaged `<kind>.standard` profile (lowest tier). Read from the packaged defaults, not hardcoded here."""
     data = tomllib.loads((ROOT / "peerhub" / "config_data" / "model-defaults.toml").read_text(encoding="utf-8"))
     p = data["profiles"][f"{kind}.standard"]
-    override = os.environ.get("PEERHUB_LIVE_AG_MODEL") if kind == "ag" else None  # exhausted default pool: recorded, never silent
+    override = ag_model_override(kind)
     return {"profile": f"{kind}.standard", "model": override or p["model"],
             "effort": None if override else p.get("reasoning_effort"), "model_override": bool(override)}
+
+
+def ag_model_override(kind: str) -> str | None:
+    """Validate explicit ag overrides against the shared packaged registry."""
+    from peerhub.extensions.adapters.profiles import known_model_pools
+
+    model = os.environ.get("PEERHUB_LIVE_AG_MODEL") if kind == "ag" else None
+    if model and model not in known_model_pools():
+        raise ValueError(f"Unknown PEERHUB_LIVE_AG_MODEL {model!r}; check for stale metadata and refresh model profiles")
+    return model or None
 
 
 def tree_snapshot(root: Path = ROOT, *, ignore: tuple[Path, ...] = (EVIDENCE_DIR,)) -> dict[str, tuple[int, int]]:

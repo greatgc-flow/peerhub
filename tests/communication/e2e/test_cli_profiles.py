@@ -88,7 +88,18 @@ def test_profile_list_is_read_only_and_lists_packaged_profiles(tmp_path, capsys)
     data = json.loads(capsys.readouterr().out)
 
     assert code == 0 and any(item["profile"] == "cx.standard" for item in data["profiles"])
+    assert len(data["profiles"]) == 10
+    assert data["known_models"]["gemini-4-argon-medium"]["pools"] == ["A-7D"]
+    assert data["known_models"]["gpt-oss-120b-medium"]["pools_source"] == "unverified"
     assert not (tmp_path / "unused.db").exists()
+
+
+def test_profile_list_table_shows_known_models_and_pool_evidence(tmp_path, capsys):
+    assert main(["profile", "list", "--workspace", str(tmp_path), "--format", "table"]) == 0
+    out = capsys.readouterr().out
+    assert "Known models (pool)" in out
+    assert "gemini-4-argon-medium" in out and "A-7D" in out
+    assert "gpt-oss-120b-medium" in out and "unverified" in out
 
 
 def test_profile_show_reports_invalid_config_in_json(tmp_path, capsys):

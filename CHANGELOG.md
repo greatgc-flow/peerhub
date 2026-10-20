@@ -6,6 +6,19 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
+## [0.21.4] - 2026-10-20
+
+### Added
+
+- Complete the ag exact model/pool registry for flash, argon, Claude opus/sonnet and GPT OSS slugs; add `ag.argon` (`gemini-4-argon-medium`, A-7D) as the tenth profile. Existing tiers remain unchanged; arbitrary-model monitor/readiness integration remains out of scope (#194).
+- `peerhub profile list` shows Known models (pool), with additive `known_models` JSON; the bounded guide includes argon and slug discovery (#194).
+
+### Fixed
+
+- Find quota reset evidence across all error lines, recognize cc `You've hit your 5-hour limit` and preserve hour-only resets such as `3pm` raw. Advice keeps uncertain-stream recovery requirements because a stream may remain quota-blocked after reset (#194).
+- Apply `PEERHUB_LIVE_AG_MODEL` to public ask measurements, annotate only cases applying it, and reject unknown registry slugs with a stale metadata hint (#194).
+- Monitor headers and EXHAUST-IN cells show `past forecast` when quota remains after a forecast passes, reserving `exhausted` for zero remaining quota; INSUFFICIENT means insufficient projection data (#194).
+
 ## [0.21.3] - 2026-10-19
 
 ### Fixed

@@ -91,7 +91,7 @@ def _quota_label(status: str, group: dict[str, Any], read_at: float | None,
             continue
         pool = _clean(item.get("pool_ref") or item.get("pool_kind") or "?").split(":")[-1]
         remaining_s = exhaustion - (read_at or 0.0) - elapsed_seconds
-        when = "exhausted" if rem <= 0 or remaining_s <= 0 else f"in {_format_duration(remaining_s)}"
+        when = "exhausted" if rem == 0 else "past forecast" if remaining_s <= 0 else f"in {_format_duration(remaining_s)}"
         candidates.append((exhaustion, f"{_peer(item)} {pool} {rem * 100:.0f}% {when}"))
     if candidates:
         label += f" | soonest exhaust: {min(candidates)[1]}"
@@ -471,7 +471,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             probe_notes: dict[str, str] = {}
             # Remove optional columns before fitting any quota identity/state.
             column_widths = {"PEER": 4, "POOL": 8, "REM": 5, "[BAR]": 10,
-                             "RESET-IN": 9, "EXHAUST-IN": 11, "PACE": 8,
+                             "RESET-IN": 9, "EXHAUST-IN": 13, "PACE": 8,
                              "STATE": 10, "AGE": 5}
             columns = list(column_widths)
             omitted_cols: list[str] = []
@@ -535,7 +535,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     if exhaustion is not None:
                         ref_time = read_at if read_at is not None else 0.0
                         rem_exhaust = max(0.0, exhaustion - ref_time - elapsed_seconds)
-                        exhaust_str = _format_duration(rem_exhaust)
+                        exhaust_str = "exhausted" if rem == 0 else "past forecast" if rem is not None and rem > 0 and rem_exhaust == 0 else _format_duration(rem_exhaust)
                     else:
                         exhaust_str = "-"
 
@@ -782,7 +782,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
                 if _ANSI.sub("", lines[i]).startswith(("-- ", "── "))
                 or "rows hidden" in lines[i] or "groups omitted" in lines[i]
                 or lines[i].startswith(("Warning:", "Next:", "+"))), len(lines))
-    legend = "STATE: INSUFFICIENT=window just started; THREAT=exhausts before reset; ON_PACE"
+    legend = "STATE: INSUFFICIENT=insufficient projection data; THREAT=exhausts before reset"
     if (_width(legend) <= width - 1 and (height is None or len(lines) < height - 1)
             and any("PEER" in line and "POOL" in line for line in lines[start:end])):
         lines.insert(end, legend)

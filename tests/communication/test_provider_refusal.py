@@ -64,6 +64,20 @@ CX_STALE_TEMP_DIRS_WARNING = (
     "Access is denied. (os error 5)\n"
 )
 
+CC_FIVE_HOUR_LIMIT_JSONL = (
+    '{"type":"result","subtype":"error_during_execution","is_error":true,'
+    '"errors":["You\'ve hit your 5-hour limit. Resets 3pm (Asia/Seoul)"]}\n'
+)
+
+
+def test_cc_five_hour_limit_preserves_hour_only_reset_raw(tmp_path, bridge_h):
+    target = _output_target(tmp_path, "cc", CC_FIVE_HOUR_LIMIT_JSONL)
+    bseed(bridge_h)
+    result = bridge_h.delivery_cycle("b", "s", target)
+    assert result.status == "not_executed"
+    assert result.detail["reason"] == "usage_limit"
+    assert result.detail["reset_time"] == "3pm"
+
 
 # =====================================================================
 # 2. Test 6: Pre-tool quota/auth/limit refusal records NOT_EXECUTED
@@ -672,3 +686,8 @@ def test_bridge_does_not_ack_incomplete_refusal_event(bridge_h, started, payload
 def test_cc_limit_phrasings_classify_as_usage_limit(text):
     from peerhub.extensions.adapters.base import classify_refusal_text
     assert classify_refusal_text(text)["reason"] == "usage_limit"
+
+
+def test_reset_time_ignores_prose_that_is_not_a_time():
+    from peerhub.extensions.adapters.base import extract_reset_time
+    assert extract_reset_time("rate_limit_error: resets 3 times a day") is None

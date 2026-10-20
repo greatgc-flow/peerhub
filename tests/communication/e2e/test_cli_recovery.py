@@ -1278,3 +1278,27 @@ def test_provider_limit_in_uncertain_error_is_surfaced():
     assert _provider_limit("cx exited 1: You've hit your usage limit. try again at 3:05 PM") == {"reason": "usage_limit", "reset_time": "3:05 PM"}
     assert _provider_limit("ag exited 1: fatal: unrelated") is None
     assert _provider_limit(None) is None
+
+
+@pytest.mark.parametrize("message,reset", [
+    ("cc exited 1: You've hit your 5-hour limit\nResets 3pm (Asia/Seoul)", "3pm"),
+    ("Resets in 2h10m\nag exited 3: Individual quota reached", "2h10m"),
+    ("ag exited 3: Individual quota reached\nIndividual quota reached. Resets in 1h", "1h"),
+])
+def test_provider_limit_finds_reset_on_any_line(message, reset):
+    from peerhub.cli.app import _provider_limit
+    assert _provider_limit(message) == {"reason": "usage_limit" if message.startswith("cc") else "quota_exhausted",
+                                       "reset_time": reset}
+
+
+def test_uncertain_limit_advice_preserves_stream_recovery(tmp_path, capsys, monkeypatch):
+    from peerhub.cli.app import main
+    monkeypatch.setattr("peerhub.extensions.ask.ask", lambda *a, **kw: {
+        "status": "uncertain", "certainty": "STARTED", "stream_id": "limited",
+        "detail": {"error": "cc exited 1: You've hit your 5-hour limit\nResets 3pm"},
+        "error": {"code": "ask_uncertain", "message": "provider error"}})
+    assert main(["--db", str(tmp_path / "db"), "ask", "cc", "OK"]) == 1
+    err = capsys.readouterr().err
+    assert "3pm" in err and "may remain quota-blocked" in err
+    assert "partial edits" in err and "diag health" in err
+    assert "retrying now will fail again" not in err
