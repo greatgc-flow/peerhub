@@ -836,3 +836,18 @@ def test_reset_credits_line_uses_relative_time():
     credit = {"peer_id": "cx", "available_count": 2, "nearest_expires_at": 1000.0 + 8 * 86400 + 22 * 3600, "state": "MEASURED"}
     out = render_grouped_frame(_frame(0.5, [credit]), color=False, width=100, height=24)
     assert "cx reset credits: 2 | soonest in 8d22h [MEASURED]" in out
+
+
+@pytest.mark.parametrize(("remaining", "expected"), [
+    (0.0, "0%"),
+    (0.000001, "<1%"),
+    (0.0049, "<1%"),
+    (0.005, "<1%"),  # Python's ties-to-even formatting otherwise becomes 0%.
+    (0.005000001, "1%"),
+    (0.01, "1%"),
+    (1.0, "100%"),
+])
+def test_positive_quota_remainder_is_never_displayed_as_exhausted(remaining, expected):
+    from peerhub.cli.monitor_view import _pct
+
+    assert _pct(remaining) == expected
