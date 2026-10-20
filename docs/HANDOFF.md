@@ -3,11 +3,10 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-19 — v0.21.4 candidate preparation)
+## 0. Current checkpoint (2026-10-20 — v0.21.5 candidate preparation)
 
-- **State:** v0.21.3 is published; v0.21.4 preparation is on `feat/194-ag-models` (plan in #194, unanimous cx/cc/ag).
-- **Open:** #189 items 2 (0% shown as THREAT vs EXHAUSTED) and 4 (reset credits absolute date); revisit when touching `monitor_view.py`.
-- **Scope:** ag model discoverability and registry (#194) plus review-gap fixes; [CHANGELOG](../CHANGELOG.md) owns release notes.
+- **State:** v0.21.4 is published; v0.21.5 preparation is on `release/0.21.5`.
+- **Scope:** #195 denied tool actions and #189 monitor leftovers. Decision (user, 2026-10-20): NO peer-scoped live gate; full fail-closed G3 only.
 - **Next:** CI, merge, G3 (use `PEERHUB_LIVE_AG_MODEL` if G-7D is still exhausted and disclose it), publish per [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 
 ### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)

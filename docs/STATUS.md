@@ -2,7 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.21.4 (release candidate, in preparation)
+## Current source: v0.21.5 (release candidate, in preparation)
+
+v0.21.5: ag empty responses name denied tool actions (`denied_actions`, #195); monitor `<1%` and relative reset credits (#189). Previous: v0.21.4.
 
 v0.21.4: ag model registry completeness and `ag.argon` profile, `profile list` known models, multi-line limit/reset detection, cc 5-hour phrasing, live override applied consistently, monitor `past forecast` wording (#194). Previous: v0.21.3.
 
@@ -21,7 +23,8 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 | **v0.21.0** | `920931db` | PR #170 | Published | Tag `v0.21.0` |
 | **v0.21.1** | `9aa06d30` | PR #172 | Published | Tag `v0.21.1` |
 | **v0.21.2** | `c34959c3` | PR #182 | Published | Tag `v0.21.2` |
-| **v0.21.4** candidate | branch `feat/194-ag-models` | | In preparation | Prepared 2026-10-20 |
+| **v0.21.4** | `01f8f894` | PR #196 | Published | Tag `v0.21.4`; G3 passed bound to 01f8f894 (ag canary on gemini-4-argon-medium, #191) |
+| **v0.21.5** candidate | branch `release/0.21.5` | | In preparation | Prepared 2026-10-20 |
 | **v0.21.3** | `9692777e` | PR #190, #191 | Published | Tag `v0.21.3`; G3 passed bound to 9692777e (ag canary on gemini-4-argon-low, #191) |
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
