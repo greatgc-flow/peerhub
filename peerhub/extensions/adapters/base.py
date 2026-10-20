@@ -108,9 +108,10 @@ def denied_action_names(stdout: str) -> list[str]:
     """Names of tool actions agy auto-denied in headless mode (`denied_actions`), order-preserving and de-duplicated (#195)."""
     names: list[str] = []
     for obj in _json_lines(stdout):
-        denied = obj.get("denied_actions")
-        for item in denied if isinstance(denied, list) else []:
-            name = item.get("action") if isinstance(item, dict) else None
+        denied: Any = obj.get("denied_actions")
+        items: list[Any] = cast("list[Any]", denied) if isinstance(denied, list) else []
+        for item in items:
+            name: Any = cast("dict[str, Any]", item).get("action") if isinstance(item, dict) else None
             if isinstance(name, str) and name and name not in names:
                 names.append(name)
     return names
