@@ -3,11 +3,11 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-20 — v0.21.6 candidate preparation)
+## 0. Current checkpoint (2026-10-20 — post-v0.21.6)
 
-- **State:** v0.21.5 is published; v0.21.6 preparation is on `fix/241-triage` (triage record: #241).
+- **State:** v0.21.6 is published (tag v0.21.6, PyPI confirmed). No release in preparation; no open issues. Audit triage #241: 7 applied, 2 invalid, 31 deferred (docs/STATUS.md index).
 - **Scope:** #195 denied tool actions and #189 monitor leftovers. Decision (user, 2026-10-20): NO peer-scoped live gate; full fail-closed G3 only.
-- **Next:** CI, merge, full G3 (ag canary may use `PEERHUB_LIVE_AG_MODEL`, disclose), publish per [CONTRIBUTING](../CONTRIBUTING.md#releasing).
+- **Next:** none pending. Optional: re-run G3 on the packaged ag.standard model after ag G-7D resets (#191). Decision: no peer-scoped live gate.
 
 ### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)
 
