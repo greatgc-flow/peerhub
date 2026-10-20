@@ -20,7 +20,7 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.21.5"
-    assert "denied_actions" in body
-    assert "<1%" in body
-    assert "ag.argon" not in body
+    assert __version__ == "0.21.6"
+    assert "(#232, #241)" in body
+    assert "(#239, #241)" in body
+    assert "denied_actions" not in body

@@ -6,6 +6,18 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
+## [0.21.6] - 2026-10-20
+
+### Fixed
+
+- Show exact 0.5% and tiny positive quota remainders consistently as `<1%`, including PEERS (#205, #241).
+- Keep on-pace conditional ETAs out of exhaustion headlines and EXHAUST-IN alerts without changing forecast policy (#210, #241).
+- Let explicit monitor snapshot groups override invalid display defaults (#229, #241).
+- Reject non-finite monitor intervals and timeouts before collection in both JSON schemas (#230, #241).
+- Retain buffered Codex JSON-RPC responses after app-server exit and safely ignore non-object messages (#232, #241).
+- Select shared-pool readiness evidence by capture-first parsed instant, then capture sequence (#239, #241).
+- Preserve existing agy pool drift and its check date after failed or unmeasured probes (#240, #241).
+
 ## [0.21.5] - 2026-10-20
 
 ### Fixed

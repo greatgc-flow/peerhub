@@ -173,6 +173,46 @@ def test_refresh_quota_partial_or_failed_refresh_preserves_prior_drift(tmp_path)
     assert rep3["unknown_pools"] == []
 
 
+@pytest.mark.parametrize("outcome", ["ERROR", "UNKNOWN", "STALE", "ABSENT", "mixed", "empty", "exception", "measured"])
+def test_failed_ag_probe_preserves_existing_pool_drift(tmp_path, monkeypatch, outcome):
+    db = tmp_path / "core.db"
+    CoreStore(db)
+    value = SimpleNamespace(quota_pool_scope="G-5H", remaining_fraction=.8,
+                            window_started_at=100, resets_at=18100)
+
+    def reading(state=EvidenceState.MEASURED, unknown_pools=()):
+        evidence = SimpleNamespace(state=state, value=value if state == EvidenceState.MEASURED else None,
+                                   evidence_ref="probe:ag", source_tag="fake_usage", observed_at=100, captured_at=100)
+        return SimpleNamespace(evidence=evidence, extra={"unknown_pools": list(unknown_pools)})
+
+    monkeypatch.setattr("peerhub.extensions.quota_capture.utc_now_iso", lambda: "2026-10-19T00:00:00Z")
+    seed = refresh_quota(db, ["ag"], pollers={"ag": lambda **kw: [reading(unknown_pools=["unknown_bucket"])]},
+                         version_checker=lambda kind: None)
+    prior = seed["observations"][0]["payload"]["facts_report"]
+    monkeypatch.setattr("peerhub.extensions.quota_capture.utc_now_iso", lambda: "2026-10-20T00:00:00Z")
+
+    def poll(**kw):
+        if outcome == "exception":
+            raise RuntimeError("probe failed")
+        if outcome == "empty":
+            return []
+        if outcome == "mixed":
+            return [reading(), reading(EvidenceState.ERROR)]
+        return [reading(EvidenceState.MEASURED if outcome == "measured" else EvidenceState(outcome))]
+
+    result = refresh_quota(db, ["ag"], pollers={"ag": poll}, version_checker=lambda kind: None)
+    report = result["observations"][0]["payload"]["facts_report"]
+    if outcome == "measured":
+        assert report["checks"]["ag_pools"] == "ok"
+        assert report["check_dates"]["ag_pools"] == "2026-10-20"
+        assert report["unknown_pools"] == []
+    else:
+        assert report["checks"]["ag_pools"] == "drift"
+        assert report["check_dates"]["ag_pools"] == prior["check_dates"]["ag_pools"]
+        assert report["unknown_pools"] == prior["unknown_pools"]
+        assert "ag: unknown_pool" in report["reasons"]
+
+
 def test_refresh_quota_with_peer_alias_agy(tmp_path):
     """S3/CC review: key pool-drift/version checks on kind (aliases agy/claude/codex work)."""
     db = tmp_path / "core.db"

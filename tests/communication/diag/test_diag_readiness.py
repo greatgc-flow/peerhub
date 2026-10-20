@@ -93,6 +93,53 @@ def test_shared_pool_exhaustion_and_unknown_delivery_cause(store):
     assert profile(rep, "cx.effort")["action"] == "inspect_facts"
 
 
+@pytest.mark.parametrize("case", ["source_ahead", "source_behind", "offsets", "equal_instant", "fallback",
+                                 "unknown", "stale"])
+def test_shared_pool_uses_capture_instant_then_sequence(store, case):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.extensions.observation_model import Observation, EvidenceState, epoch_to_iso
+
+    h, _ = store
+    delivery(store)
+    with closing(sqlite3.connect(h.db_path)) as conn:
+        conn.execute("DELETE FROM observations")
+        conn.commit()
+    first_observed, first_captured = epoch_to_iso(T0 + 3600), epoch_to_iso(T0)
+    second_observed, second_captured = epoch_to_iso(T0 + 60), epoch_to_iso(T0 + 120)
+    if case == "source_behind":
+        first_observed, second_observed = epoch_to_iso(T0 + 60), epoch_to_iso(T0 - 3600)
+    elif case == "offsets":
+        first_captured = "2026-10-01T09:00:00+09:00"
+    elif case == "equal_instant":
+        first_captured = "2026-10-01T09:02:00+09:00"
+        first_observed = second_observed
+    elif case == "fallback":
+        first_observed, first_captured = epoch_to_iso(T0), None
+        second_observed, second_captured = epoch_to_iso(T0 + 120), None
+
+    for oid, observed, captured, remaining in [("older", first_observed, first_captured, 0),
+                                               ("newer", second_observed, second_captured, .8)]:
+        unknown = case == "unknown" and oid == "newer"
+        h.obs.persist(Observation(
+            observation_id=oid, subject_ref=f"peer:{oid}", resource_pool_ref="quota:cx:P",
+            kind="quota", source="fixture", observed_at=observed, captured_at=captured,
+            state=EvidenceState.UNKNOWN if unknown else EvidenceState.MEASURED,
+            payload={"condition": "unverified"} if unknown else {"remaining_fraction": remaining},
+        ))
+    now = T0 + (500 if case == "stale" else 180)
+    before = h.full_state()
+    rep = readiness_report(h.db_path, read_at=now)
+    pool = rep["pools"]["quota:cx:P"]
+    expected_state = "UNKNOWN" if case == "unknown" else "STALE" if case == "stale" else "MEASURED"
+    assert pool["evidence"] == "observation:newer"
+    assert pool["state"] == expected_state
+    assert pool["remaining"] == (.8 if expected_state == "MEASURED" else None)
+    assert profile(rep)["state"] == ("READY" if expected_state == "MEASURED" else "UNKNOWN")
+    rows = render_monitor_frame(h.db_path, ["capacity"], read_at=now)["groups"]["capacity"]["data"]["observations"]
+    assert next(row for row in rows if row["observation_id"] == "newer")["state"] == pool["state"]
+    assert h.full_state() == before
+
+
 @pytest.mark.parametrize("cause,expected", [("quota_exhausted", "rate_limit"), ("auth_failure", "auth_failure"),
                                            ("invalid_model", "invalid_model"), ("other", "UNKNOWN")])
 def test_explicit_cause_has_evidence(store, cause, expected):

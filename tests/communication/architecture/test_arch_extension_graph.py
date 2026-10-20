@@ -26,7 +26,7 @@ ALLOWED: dict[str, set[str]] = {
     "quota_types": {"observation_model"},
     # M1 Diag
     "diag": {"observation_model"},
-    "diag_readiness": {"adapters", "diag"},
+    "diag_readiness": {"adapters", "diag", "observation_model"},
     "diag_quota": {"diag", "observation_model", "quota_projection"},
     "diag_watch": {"diag"},
     # M2

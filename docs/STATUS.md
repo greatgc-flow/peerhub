@@ -2,7 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.21.5 (published)
+## Current source: v0.21.6 (release candidate, in preparation)
+
+v0.21.6: seven audit fixes (#205 #210 #229 #230 #232 #239 #240) and the Known deferred defects index (#241). Previous: v0.21.5.
 
 v0.21.5: ag empty responses name denied tool actions (`denied_actions`, #195); monitor `<1%` and relative reset credits (#189). Previous: v0.21.4.
 
@@ -24,6 +26,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 | **v0.21.1** | `9aa06d30` | PR #172 | Published | Tag `v0.21.1` |
 | **v0.21.2** | `c34959c3` | PR #182 | Published | Tag `v0.21.2` |
 | **v0.21.4** | `01f8f894` | PR #196 | Published | Tag `v0.21.4`; G3 passed bound to 01f8f894 (ag canary on gemini-4-argon-medium, #191) |
+| **v0.21.6** candidate | branch `fix/241-triage` | | In preparation | Prepared 2026-10-20 |
 | **v0.21.5** | `1c99c134` | PR #198 | Published | Tag `v0.21.5`; G3 passed bound to 1c99c134 (ag canary on gemini-4-argon-medium, #191) |
 | **v0.21.3** | `9692777e` | PR #190, #191 | Published | Tag `v0.21.3`; G3 passed bound to 9692777e (ag canary on gemini-4-argon-low, #191) |
 
