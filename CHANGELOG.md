@@ -6,6 +6,13 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
+## [Unreleased]
+
+### Fixed
+
+- ag empty responses name the cause: agy headless auto-denies tools that need the `command` permission and returns an empty response; the ask result now carries `denied_actions` and the CLI prints a one-line note (#195).
+- Monitor: a tiny non-zero quota remainder shows `<1%` (0% always means exhausted) and `cx reset credits` uses relative time (#189).
+
 ## [0.21.4] - 2026-10-20
 
 ### Added

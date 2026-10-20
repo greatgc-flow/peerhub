@@ -104,6 +104,19 @@ def _json_lines(text: str) -> list[dict[str, Any]]:
     return out
 
 
+def denied_action_names(stdout: str) -> list[str]:
+    """Names of tool actions agy auto-denied in headless mode (`denied_actions`), order-preserving and de-duplicated (#195)."""
+    names: list[str] = []
+    for obj in _json_lines(stdout):
+        denied: Any = obj.get("denied_actions")
+        items: list[Any] = cast("list[Any]", denied) if isinstance(denied, list) else []
+        for item in items:
+            name: Any = cast("dict[str, Any]", item).get("action") if isinstance(item, dict) else None
+            if isinstance(name, str) and name and name not in names:
+                names.append(name)
+    return names
+
+
 MAX_EVENT_BYTES = 262_144  # 256 KB
 
 _RESET_IN_RE = re.compile(r"(?:resets?\s+in|try\s+again\s+in)\s+([0-9]+[hdwms][0-9hdwms]*)", re.IGNORECASE)
@@ -1273,6 +1286,9 @@ class CliRuntimeTarget:
         if not cleaned_response.strip():
             payload["empty_response"] = True
             payload["task_effects"] = "unverified"
+            denied = denied_action_names(res.stdout.decode("utf-8", "replace")) if self.runtime_kind == "ag" else []
+            if denied:
+                payload["denied_actions"] = denied
         if res.output_truncated or parser.truncated:
             payload["output_truncated"] = True
             if res.stdout_truncated or parser.truncated:

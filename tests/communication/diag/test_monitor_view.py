@@ -810,3 +810,29 @@ def test_elapsed_forecast_is_not_measured_exhaustion(frame, rem, elapsed, expect
     header = next(line for line in rendered.splitlines() if "EXHAUST-IN" in line)
     row = next(line for line in rendered.splitlines()[2:] if "5h" in line)
     assert row[header.index("EXHAUST-IN"):header.index("PACE")].strip() == expected
+
+
+def _frame(remaining, credits=None):
+    obs = [{"peer_id": "ag", "pool_ref": "quota:ag:G-7D", "state": "MEASURED",
+            "measurements": {"remaining_fraction": remaining, "reset_in_seconds": 7200},
+            "projection": {"state": "threat", "exhaustion_at": 1500.0}, "age_seconds": 30.0}]
+    data = {"observations": obs}
+    if credits:
+        data["reset_credits"] = credits
+    return {"status": "OK", "read_at": 1000.0, "selected_groups": ["capacity"],
+            "groups": {"capacity": {"status": "OK", "data": data}}}
+
+
+@pytest.mark.parametrize("remaining, shown", [(0.003, "<1%"), (0.0, "0%"), (0.006, "1%")])
+def test_less_than_one_percent_is_never_shown_as_zero(remaining, shown):
+    from peerhub.cli.monitor_view import render_grouped_frame
+    rows = [ln for ln in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines() if ln.startswith("ag ")]
+    assert rows[0].split()[2] == shown
+    assert f"ag G-7D {shown} " in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines()[1]
+
+
+def test_reset_credits_line_uses_relative_time():
+    from peerhub.cli.monitor_view import render_grouped_frame
+    credit = {"peer_id": "cx", "available_count": 2, "nearest_expires_at": 1000.0 + 8 * 86400 + 22 * 3600, "state": "MEASURED"}
+    out = render_grouped_frame(_frame(0.5, [credit]), color=False, width=100, height=24)
+    assert "cx reset credits: 2 | soonest in 8d22h [MEASURED]" in out

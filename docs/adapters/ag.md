@@ -55,3 +55,7 @@ raw (including hour-only times such as `3pm`); PeerHub does not infer timezone o
 rollover. The stream may remain quota-blocked after reset: inspect partial edits
 and `peerhub diag health`, then follow uncertain-stream recovery before continuing
 new work on a new stream. Never blindly replay the original work.
+
+## Empty responses and denied tools
+
+In headless mode agy auto-denies any tool that needs a permission it cannot prompt for (for example `command`) and still exits successfully with an empty `response` and a `denied_actions` list. PeerHub surfaces the names as `denied_actions` in the ask result and prints a one-line note. Read-only file tools work. Avoid shell tools in ag prompts, or add an allow-rule under `permissions.allow` in agy's `settings.json`; PeerHub never passes `--dangerously-skip-permissions` (#195).

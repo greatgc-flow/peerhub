@@ -43,10 +43,10 @@ def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> di
     # final public envelope and allowlisted delivery fields cross the API boundary.
     result.update({key: stored[key] for key in ("response", "session", "error", "task_outcome", "reason", "refusal_reason",
                   "reset_time", "resets_at", "message", "output_truncated", "display_truncated",
-                  "empty_response", "task_effects") if key in stored})
+                  "empty_response", "task_effects", "denied_actions") if key in stored})
     for _kind, detail in conn.execute("SELECT kind,detail FROM bridge_evidence WHERE delivery_id=? AND kind IN ('terminal','refusal_detected') ORDER BY seq", (delivery["delivery_id"],)):
         data = json.loads(detail)
-        for key in ("effective_mode", "fallback_reason", "injected_record_ids", "output_truncated", "display_truncated", "reason", "refusal_reason", "reset_time", "resets_at", "message", "empty_response", "task_effects"):
+        for key in ("effective_mode", "fallback_reason", "injected_record_ids", "output_truncated", "display_truncated", "reason", "refusal_reason", "reset_time", "resets_at", "message", "empty_response", "task_effects", "denied_actions"):
             if key in data:
                 result[key] = data[key]
     row = conn.execute("SELECT body_json,metadata_json FROM records WHERE record_id=?", (delivery["response_record_id"],)).fetchone()
@@ -55,7 +55,7 @@ def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> di
         metadata = json.loads(row[1])
         # Provider usage stays distinct from session context occupancy; metadata carries its scope.
         result.pop("usage", None)
-        for key in ("usage", "usage_scope", "usage_attribution", "display_truncated", "output_truncated", "empty_response", "task_effects"):
+        for key in ("usage", "usage_scope", "usage_attribution", "display_truncated", "output_truncated", "empty_response", "task_effects", "denied_actions"):
             if key in metadata:
                 result[key] = metadata[key]
     if delivery["certainty"] == "TERMINAL" and isinstance(result.get("response"), str) and not result["response"].strip():
@@ -238,7 +238,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                       requested_record_id=rec.record_id, response=json.loads(row[0]) if row else None)
         if row:
             metadata = json.loads(row[1])
-            for key in ("usage", "usage_scope", "usage_attribution", "display_truncated", "output_truncated", "empty_response", "task_effects"):
+            for key in ("usage", "usage_scope", "usage_attribution", "display_truncated", "output_truncated", "empty_response", "task_effects", "denied_actions"):
                 if key in metadata:
                     result[key] = metadata[key]
         if result.get("certainty") == "TERMINAL" and isinstance(result.get("response"), str) and not result["response"].strip():
