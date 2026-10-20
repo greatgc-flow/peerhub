@@ -81,8 +81,9 @@ def _bar_quota(remaining: float | None, cells: int = 8, unicode: bool = True) ->
 
 
 def _pct(rem: float) -> str:
-    """Whole percent; a tiny non-zero remainder is never shown as 0% (0% means exhausted)."""
-    return "<1%" if 0.0 < rem < 0.005 else f"{rem * 100:.0f}%"
+    """Whole percent; any positive remainder that rounds to zero stays visibly nonzero."""
+    rounded = f"{rem * 100:.0f}"
+    return "<1%" if rem > 0.0 and rounded == "0" else f"{rounded}%"
 
 
 def _quota_label(status: str, group: dict[str, Any], read_at: float | None,
