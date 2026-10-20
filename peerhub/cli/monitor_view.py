@@ -80,6 +80,11 @@ def _bar_quota(remaining: float | None, cells: int = 8, unicode: bool = True) ->
     return f"[{full * filled}{empty * (cells - filled)}]"
 
 
+def _pct(rem: float) -> str:
+    """Whole percent; a tiny non-zero remainder is never shown as 0% (0% means exhausted)."""
+    return "<1%" if 0.0 < rem < 0.005 else f"{rem * 100:.0f}%"
+
+
 def _quota_label(status: str, group: dict[str, Any], read_at: float | None,
                  elapsed_seconds: float) -> str:
     label = f"QUOTA [{status}]"
@@ -92,7 +97,7 @@ def _quota_label(status: str, group: dict[str, Any], read_at: float | None,
         pool = _clean(item.get("pool_ref") or item.get("pool_kind") or "?").split(":")[-1]
         remaining_s = exhaustion - (read_at or 0.0) - elapsed_seconds
         when = "exhausted" if rem == 0 else "past forecast" if remaining_s <= 0 else f"in {_format_duration(remaining_s)}"
-        candidates.append((exhaustion, f"{_peer(item)} {pool} {rem * 100:.0f}% {when}"))
+        candidates.append((exhaustion, f"{_peer(item)} {pool} {_pct(rem)} {when}"))
     if candidates:
         label += f" | soonest exhaust: {min(candidates)[1]}"
     return label
@@ -516,7 +521,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 if is_usable:
                     rem = _number(measurements.get("remaining_fraction"))
                     if rem is not None and 0.0 <= rem <= 1.0:
-                        rem_str = f"{rem * 100:.0f}%"
+                        rem_str = _pct(rem)
                         bar_str = _bar_quota(rem, 8, unicode)
                     else:
                         rem_str = "-"
@@ -577,7 +582,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
         for credit in _items(data.get("reset_credits")):
             count = _count(credit.get("available_count"))
             expires = _number(credit.get("nearest_expires_at"))
-            expiry = datetime.fromtimestamp(expires, timezone.utc).strftime("%Y-%m-%d %H:%MZ") if expires is not None else "-"
+            left = None if expires is None or read_at is None else expires - read_at - elapsed_seconds
+            expiry = "-" if expires is None else f"in {_format_duration(left)}" if left and left > 0 else datetime.fromtimestamp(expires, timezone.utc).strftime("%Y-%m-%d %H:%MZ")
             state = _clean(credit.get("state") or "UNKNOWN")
             rows.append(f"{_peer(credit)} reset credits: {count} | soonest {expiry} [{state}]")
         note = _coverage(data, unicode)

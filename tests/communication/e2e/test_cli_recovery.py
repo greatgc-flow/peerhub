@@ -1302,3 +1302,24 @@ def test_uncertain_limit_advice_preserves_stream_recovery(tmp_path, capsys, monk
     assert "3pm" in err and "may remain quota-blocked" in err
     assert "partial edits" in err and "diag health" in err
     assert "retrying now will fail again" not in err
+
+
+def test_ag_denied_actions_are_named_in_empty_response_note(tmp_path, monkeypatch, capsys):
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    session = {"handle": "sess_0000000000000001", "mode": "reuse", "generation": 1}
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "delivered", "response": "", "session": session, "empty_response": True,
+        "task_effects": "unverified", "denied_actions": ["command"],
+    })
+    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello"]) == 0
+    assert "ag denied tool action(s): command" in capsys.readouterr().err
+
+
+def test_denied_action_names_parses_agy_json_defensively():
+    from peerhub.extensions.adapters.base import denied_action_names
+    out = '{"response":"","denied_actions":[{"action":"command"},{"action":"command"},{"x":1},"junk",{"action":"edit"}]}'
+    assert denied_action_names(out) == ["command", "edit"]
+    assert denied_action_names('{"response":"ok"}') == []
+    assert denied_action_names('{"denied_actions":"nope"}') == []

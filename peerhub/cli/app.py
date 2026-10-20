@@ -378,7 +378,10 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:
         if result["response"] == "":
-            print("note: empty response (see --json)", file=sys.stderr)
+            denied = result.get("denied_actions")
+            print("note: empty response (see --json)" if not denied else
+                  f"note: ag denied tool action(s): {', '.join(denied)} (headless cannot prompt); response empty - avoid shell tools or add permissions.allow in agy settings.json",
+                  file=sys.stderr)
         if has_streamed and not result.get("display_truncated"):
             if not output_has_newline:
                 print()

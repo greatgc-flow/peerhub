@@ -1,5 +1,6 @@
 """Codex `rateLimitResetCredits` capture: probe parsing (fake JSON-RPC) and persistence as kind `reset_credit`.
 Oracles are literals (wire values copied from a real response shape), not recomputed from the code under test."""
+import re
 import json
 import sqlite3
 import subprocess
@@ -157,10 +158,10 @@ def test_refresh_unknown_and_error_carry_no_counts(tmp_path, state, payload, con
 
 @pytest.mark.parametrize("value,expected", [
     ({"availableCount": 2, "credits": [credit(expiresAt=EXPIRES + 500), credit()]},
-     "cx reset credits: 2 | soonest 2026-10-29 18:52Z [MEASURED]"),
-    ({"availableCount": 0, "credits": []}, "cx reset credits: 0 | soonest - [MEASURED]"),
-    (None, "cx reset credits: ? | soonest - [UNKNOWN]"),
-    ({"availableCount": "bad"}, "cx reset credits: ? | soonest - [ERROR]"),
+     r"cx reset credits: 2 \| soonest in \d+d\d+h \[MEASURED\]"),
+    ({"availableCount": 0, "credits": []}, re.escape("cx reset credits: 0 | soonest - [MEASURED]")),
+    (None, re.escape("cx reset credits: ? | soonest - [UNKNOWN]")),
+    ({"availableCount": "bad"}, re.escape("cx reset credits: ? | soonest - [ERROR]")),
 ])
 def test_monitor_reset_credits_from_wire_are_read_only(tmp_path, monkeypatch, value, expected):
     from peerhub.cli.monitor_view import render_grouped_frame
@@ -174,5 +175,5 @@ def test_monitor_reset_credits_from_wire_are_read_only(tmp_path, monkeypatch, va
     frame = render_monitor_frame(str(db), ["capacity"], read_at=credits[0].captured_at)
     frame["selected_groups"] = ["capacity"]
     for view in ("plain", "rich"):
-        assert expected in render_grouped_frame(frame, view=view, width=120, height=30)
+        assert re.search(expected, render_grouped_frame(frame, view=view, width=120, height=30))
     assert db.read_bytes() == before
