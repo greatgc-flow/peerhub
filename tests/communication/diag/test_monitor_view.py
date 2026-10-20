@@ -45,7 +45,7 @@ def test_quota_visual_snapshot_at_80_columns(quota_visual_frame, color, monkeypa
     assert rendered.count("cc probe:") == rendered.count("ag probe:") == 1
     assert "soonest exhaust: ag P-3H 1% in 30m" in rendered
     assert "duplicate" not in rendered
-    assert "STATE: INSUFFICIENT=window just started" in rendered
+    assert "STATE: INSUFFICIENT=insufficient projection data" in rendered
     if color:
         for code, state in [(32, "ON_PACE"), (33, "WATCH"), (31, "THREAT"),
                             (31, "EXHAUSTED"), (31, "ERROR"), (2, "UNKNOWN"), (2, "STALE")]:
@@ -792,3 +792,21 @@ def test_soonest_exhaust_header_says_exhausted_when_pool_is_empty():
                                         "measurements": {"remaining_fraction": 0.0}}]}}
     label = _quota_label("OK", group, 100.0, 0.0)
     assert "cx X-5H 0% exhausted" in label and " in 0m" not in label
+
+
+@pytest.mark.parametrize("rem,elapsed,expected", [(0.25, 0, "past forecast"),
+                                                  (0.25, 60, "past forecast"),
+                                                  (0.0, 0, "exhausted")])
+def test_elapsed_forecast_is_not_measured_exhaustion(frame, rem, elapsed, expected):
+    from peerhub.cli.monitor_view import render_grouped_frame
+
+    frame["selected_groups"] = ["capacity"]
+    frame["display_elapsed_seconds"] = elapsed
+    item = frame["groups"]["capacity"]["data"]["observations"][0]
+    item["measurements"]["remaining_fraction"] = rem
+    item["projection"] = {"state": "threat", "exhaustion_at": 999.0}
+    rendered = render_grouped_frame(frame, width=160, unicode=False)
+    assert expected in next(line for line in rendered.splitlines() if "soonest exhaust:" in line)
+    header = next(line for line in rendered.splitlines() if "EXHAUST-IN" in line)
+    row = next(line for line in rendered.splitlines()[2:] if "5h" in line)
+    assert row[header.index("EXHAUST-IN"):header.index("PACE")].strip() == expected

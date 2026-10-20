@@ -3,12 +3,12 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-19 — post-v0.21.3)
+## 0. Current checkpoint (2026-10-19 — v0.21.4 candidate preparation)
 
-- **State:** v0.21.3 is published (tag v0.21.3, PyPI confirmed). No release in preparation.
+- **State:** v0.21.3 is published; v0.21.4 preparation is on `feat/194-ag-models` (plan in #194, unanimous cx/cc/ag).
 - **Open:** #189 items 2 (0% shown as THREAT vs EXHAUSTED) and 4 (reset credits absolute date); revisit when touching `monitor_view.py`.
-- **Scope:** v0.21.3 shipped provider-limit surfacing (#186), monitor display fixes (#189 part) and the ag live-gate model override (#191).
-- **Next:** none pending. Optional: re-run G3 on the packaged ag.standard model after the ag G-7D quota resets (#191); see STATUS deferred backlog.
+- **Scope:** ag model discoverability and registry (#194) plus review-gap fixes; [CHANGELOG](../CHANGELOG.md) owns release notes.
+- **Next:** CI, merge, G3 (use `PEERHUB_LIVE_AG_MODEL` if G-7D is still exhausted and disclose it), publish per [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 
 ### Superseded checkpoint (2026-10-17 — v0.19.0 candidate preparation)
 

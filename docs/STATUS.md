@@ -2,7 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.21.3 (published)
+## Current source: v0.21.4 (release candidate, in preparation)
+
+v0.21.4: ag model registry completeness and `ag.argon` profile, `profile list` known models, multi-line limit/reset detection, cc 5-hour phrasing, live override applied consistently, monitor `past forecast` wording (#194). Previous: v0.21.3.
 
 v0.21.3 (live gate ran the ag canary on the Argon model because the default ag pool was exhausted; packaged `ag.standard` model not exercised, #191): provider quota/usage limits surface as `provider_limit` on uncertain asks, cc limit phrasings are classified (#186), and monitor display fixes (#189). Earlier: v0.21.2 incorporates the MECE fixes and follow-up (#177, #178): restore fencing on both lineage markers with first-generation adoption preserved, shared receipt validation, monitor workspace resolution, unified profile loading, and bounded benchmark subprocesses with Windows shim support. It also updates upgrade and maintainer documentation (#173, #175, #181). Candidate validation and publication remain pending.
 
@@ -19,6 +21,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 | **v0.21.0** | `920931db` | PR #170 | Published | Tag `v0.21.0` |
 | **v0.21.1** | `9aa06d30` | PR #172 | Published | Tag `v0.21.1` |
 | **v0.21.2** | `c34959c3` | PR #182 | Published | Tag `v0.21.2` |
+| **v0.21.4** candidate | branch `feat/194-ag-models` | | In preparation | Prepared 2026-10-20 |
 | **v0.21.3** | `9692777e` | PR #190, #191 | Published | Tag `v0.21.3`; G3 passed bound to 9692777e (ag canary on gemini-4-argon-low, #191) |
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
@@ -102,7 +105,7 @@ Operational design ratified (S1-S4 consensus): [issue-resolution-2026-10-18](des
 | Slice S2 (CLI UX, Decoding & Guidance) | **Done on `fix/issue-resolution-020`**: Guidance registry + `peerhub explain` (#117); bare `peerhub` prints `peerhub guide` (exit 0) and missing-store error includes source, quoted global `--db` command, and `Learn: peerhub guide` (#121); UTF-8-first with locale fallback (`decode_stderr`) and `ask_launch_failed` / `ask_stream_peer_mismatch` guidance (#120, #125). | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #117, #120, #121, #125 |
 | Slice S3 (Monitor UX & Telemetry Display) | **Done on `fix/issue-resolution-020`**: Contiguous `CAPACITY` rendering under `CAPACITY [OK]`, bar fill aligned with remaining %, reset countdown separated from burn `ETA` (#146), and `USAGE` display fallback (`provider_input_tokens + output_tokens`) + cache hit % when `provider_total_tokens` is absent (#147). | Issues #146, #147 |
 | Slice S4 (Docs & Guide Alignment) | **Done on `fix/issue-resolution-020`**: Updated `peerhub/cli/guide.py`, `README.md`, `docs/remote-ask.md`, `docs/migrations.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, and `CHANGELOG.md` (#118, #123, #130, #134-#136, #148). | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #118, #123, #130, #134-#136, #148 |
-| Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, gemini-4-argon adoption, TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issue #145 |
+| Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, arbitrary-model monitor/readiness integration (`ag.argon` profile and exact registry delivered in #194), TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #145, #194 |
 
 ### Deferred backlog (start triggers)
 

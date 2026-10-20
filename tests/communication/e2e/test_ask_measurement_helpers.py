@@ -61,3 +61,32 @@ def test_ci_blocks_even_explicit_live_opt_in(monkeypatch):
     assert opt_in_reason() == "LIVE-CI-DISABLED: real provider calls are local-only"
     monkeypatch.delenv("CI")
     assert opt_in_reason() is None
+
+
+def test_ag_override_applies_to_public_ask_and_only_annotates_when_used(tmp_path, monkeypatch):
+    from tests.communication.live.conftest import _record_ag_model_override
+    from tests.communication.live.live_support import lowest_profile
+
+    monkeypatch.setenv("PEERHUB_LIVE_AG_MODEL", "gemini-4-argon-medium")
+    properties = []
+    _record_ag_model_override.__wrapped__(lambda key, value: properties.append((key, value)), monkeypatch)
+    assert not properties
+    assert "--model" not in ask_args("cc", tmp_path, "OK", "cc")
+    assert not properties
+    args = ask_args("ag", tmp_path, "OK", "ag")
+    assert args[args.index("--model") + 1] == "gemini-4-argon-medium"
+    assert lowest_profile("ag")["model"] == "gemini-4-argon-medium"
+    assert properties and all(key == "live_ag_model_override" and "gemini-4-argon-medium" in value
+                              for key, value in properties)
+
+
+@pytest.mark.parametrize("consumer", ["ask", "adapter"])
+def test_ag_override_rejects_unknown_slug_with_stale_metadata_hint(tmp_path, monkeypatch, consumer):
+    from tests.communication.live.live_support import lowest_profile
+
+    monkeypatch.setenv("PEERHUB_LIVE_AG_MODEL", "gemini-nonexistent-low")
+    with pytest.raises(ValueError, match="stale metadata"):
+        if consumer == "ask":
+            ask_args("ag", tmp_path, "OK", "bad")
+        else:
+            lowest_profile("ag")

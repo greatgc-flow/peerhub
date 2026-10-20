@@ -27,6 +27,8 @@ def test_guide_line_and_token_cap(capsys):
     assert code == 0
     out = capsys.readouterr().out
     assert "peerhub explain ag silence" in out
+    assert "ag.argon" in out and "gemini-4-argon-medium" in out
+    assert "models: peerhub profile list; slugs: agy models; --model <slug>" in out
     lines = out.splitlines()
     assert len(lines) <= 60, f"Guide has {len(lines)} lines, exceeding cap of 60"
     words = len(out.split())

@@ -30,6 +30,7 @@ def test_manifest_equals_the_packaged_toml_profile_by_profile():
         assert got.get("pools") == want.get("pools"), pid
         assert got.get("source") == want.get("source"), pid
         assert got.get("checked") == want.get("checked"), pid
+        assert got.get("pools_source") == want.get("pools_source"), pid
 
 
 def test_manifest_and_toml_every_pool_id_exists_in_probe_constants():
@@ -65,7 +66,7 @@ def test_manifest_and_toml_source_and_date_present():
             pools_source = p.get("pools_source")
             assert isinstance(source, str) and len(source) > 0, f"{source_name} {pid} missing source"
             assert isinstance(checked, str) and date_pat.match(checked), f"{source_name} {pid} invalid checked date: {checked!r}"
-            assert pools_source == "unverified", f"{source_name} {pid} pools_source is not 'unverified'"
+            assert pools_source in {"unverified", "agy /usage group (agy 1.4.0)"}, f"{source_name} {pid} unknown pool evidence"
 
 
 def test_manifest_pools_evidenced_mappings():
@@ -127,11 +128,43 @@ def test_resolve_model_pools_resolves_packaged_argon_models(tmp_path):
     assert resolve_model_pools("unknown-model", tmp_path) is None
 
 
+def test_exact_registry_contains_all_ag_slugs(tmp_path):
+    from peerhub.extensions.adapters.profiles import resolve_model_pools
+
+    expected = {f"{family}-{effort}": pools
+                for family, pools in [("gemini-3.8-flash", ["G-5H", "G-7D"]),
+                                      ("gemini-4-argon", ["A-7D"]),
+                                      ("claude-opus-5-5", ["3P-5H", "3P-7D"]),
+                                      ("claude-sonnet-5-5", ["3P-5H", "3P-7D"])]
+                for effort in ("low", "medium", "high")}
+    expected["gpt-oss-120b-medium"] = ["3P-5H", "3P-7D"]
+    assert set(MANIFEST["exact_model_pools"]) == set(expected)
+    for model, pools in expected.items():
+        assert resolve_model_pools(model, tmp_path) == pools
+    assert MANIFEST["exact_model_pools"]["gpt-oss-120b-medium"]["pools_source"] == "unverified"
+
+
+def test_manifest_schema_accepts_only_the_new_argon_profile():
+    import copy
+    import jsonschema
+
+    schema = json.loads((DIR / "model-profiles.schema.json").read_text(encoding="utf-8"))
+    for wrong in ("ag.opus", "cc.argon", "cx.argon"):
+        changed = copy.deepcopy(MANIFEST)
+        changed["profiles"][wrong] = changed["profiles"].pop("ag.argon")
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(changed, schema)
+
+
 def test_packaged_defaults_revision_and_expected_models():
-    assert TOML["defaults_revision"] == "2026-10-18.1"
+    assert TOML["defaults_revision"] == "2026-10-20.1"
     assert TOML["observed_at"] == "2026-10-16"
     profiles = TOML["profiles"]
-    assert len(profiles) == 9
+    assert len(profiles) == 10
+    assert profiles["ag.argon"]["model"] == "gemini-4-argon-medium"
+    assert profiles["ag.argon"]["pools"] == ["A-7D"]
+    assert profiles["ag.argon"]["pools_source"] == "agy /usage group (agy 1.4.0)"
+    assert "ag.opus" not in profiles
     assert profiles["ag.standard"]["model"] == "gemini-3.8-flash-low"
     assert profiles["ag.effort"]["model"] == "gemini-3.8-flash-medium"
     assert profiles["ag.deepthink"]["model"] == "claude-sonnet-5-5-high"

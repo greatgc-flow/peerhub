@@ -17,6 +17,10 @@ def ask_args(peer: str, workspace: Path, prompt: str, request_id: str, *,
             "--workspace", str(workspace), "--stream", "live-measurement",
             "--request-id", request_id, "--profile", f"{peer}.standard",
             "--timeout-seconds", str(ASK_TIMEOUT), "--max-output-bytes", "65536", "--json"]
+    from tests.communication.live import live_support
+    override = live_support.ag_model_override(peer)
+    if override:
+        args.extend(["--model", override])
     if writable or peer == "ag":
         args.append("--writable")
     if fresh:

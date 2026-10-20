@@ -11,4 +11,4 @@ ag    P-7H          -  [░░░░░░░░]  -          -         STALE   
 ag    P-8H        90%  [███████░]  2h00m      -         INSUFFICIENT    30s
 ag probe: UNKNOWN fresh measured evidence is requ… (34m ago)
 cc probe: ERROR claude_usage_timeout (2h57m ago)
-STATE: INSUFFICIENT=window just started; THREAT=exhausts before reset; ON_PACE
+STATE: INSUFFICIENT=insufficient projection data; THREAT=exhausts before reset

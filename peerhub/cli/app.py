@@ -300,12 +300,16 @@ def _dump(model: BaseModel) -> str:
 
 def _provider_limit(detail_error: str | None) -> dict[str, Any] | None:
     """Limit evidence in a failed ask's error text; informational only, the ask stays uncertain (#186)."""
-    from peerhub.extensions.adapters.base import classify_refusal_text
+    from peerhub.extensions.adapters.base import classify_refusal_text, extract_reset_time
+    limit = None
     for line in (detail_error or "").splitlines():
         r = classify_refusal_text(line.split(": ", 1)[1] if line.startswith(("ag exited", "cx exited", "cc exited")) else line)
         if r is not None and r["reason"] in ("quota_exhausted", "usage_limit"):
-            return {"reason": r["reason"], "reset_time": r.get("reset_time")}
-    return None
+            if limit is None:
+                limit = {"reason": r["reason"], "reset_time": r.get("reset_time")}
+    if limit is not None:
+        limit["reset_time"] = extract_reset_time(detail_error or "")
+    return limit
 
 
 def _session_trailer(session: dict[str, Any]) -> str:
@@ -402,7 +406,7 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         if "provider_limit" in result:
             pl = result["provider_limit"]
             print(f"note: provider reported {pl['reason']}" + (f" (reset: {pl['reset_time']})" if pl.get("reset_time") else "")
-                  + "; retrying now will fail again - wait for the reset, and check the workspace for partial edits.", file=sys.stderr)
+                  + "; the stream may remain quota-blocked after reset; check the workspace for partial edits and follow uncertain-stream recovery.", file=sys.stderr)
         if guidance_entry is not None:
             print(render_guidance_hint(guidance_entry), file=sys.stderr)
     session = result.get("session")
@@ -698,13 +702,14 @@ def _print_page(items: list[dict[str, Any]], next_cursor: str | None, output_for
 
 
 def _run_profile_cli(args: argparse.Namespace) -> int:
-    from peerhub.extensions.adapters.profiles import inspect_profile, list_profiles
+    from peerhub.extensions.adapters.profiles import inspect_profile, known_model_pools, list_profiles
 
     workspace = args.workspace or Path.cwd()
     try:
         if args.action == "list":
             profiles = list_profiles(workspace)
-            payload: dict[str, Any] = {"schema_version": "1.0", "workspace": str(workspace), "profiles": profiles}
+            payload: dict[str, Any] = {"schema_version": "1.0", "workspace": str(workspace), "profiles": profiles,
+                                       "known_models": known_model_pools(workspace)}
         else:
             profile = inspect_profile(args.profile, workspace)
             payload = {"schema_version": "1.0", "workspace": str(workspace), **profile}
@@ -736,6 +741,10 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
     print("  ".join("-" * width for width in widths))
     for row in rows:
         print("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)))
+    if args.action == "list":
+        print("\nKnown models (pool):")
+        for model, entry in payload["known_models"].items():
+            print(f"  {model}: {', '.join(entry['pools'])} ({entry.get('pools_source') or 'unverified'})")
     return 0
 
 
