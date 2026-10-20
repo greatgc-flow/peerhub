@@ -823,7 +823,9 @@ def _frame(remaining, credits=None):
             "groups": {"capacity": {"status": "OK", "data": data}}}
 
 
-@pytest.mark.parametrize("remaining, shown", [(0.003, "<1%"), (0.0, "0%"), (0.006, "1%")])
+@pytest.mark.parametrize("remaining, shown", [(0.000001, "<1%"), (0.0049, "<1%"),
+                                             (0.005, "<1%"), (0.005000001, "1%"),
+                                             (0.0, "0%"), (0.01, "1%"), (1.0, "100%")])
 def test_less_than_one_percent_is_never_shown_as_zero(remaining, shown):
     from peerhub.cli.monitor_view import render_grouped_frame
     rows = [ln for ln in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines() if ln.startswith("ag ")]
@@ -831,8 +833,60 @@ def test_less_than_one_percent_is_never_shown_as_zero(remaining, shown):
     assert f"ag G-7D {shown} " in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines()[1]
 
 
+@pytest.mark.parametrize("remaining,shown", [(0.0, "0%"), (0.000001, "<1%"), (0.0049, "<1%"),
+                                           (0.005, "<1%"), (0.005000001, "1%"), (1.0, "100%")])
+@pytest.mark.parametrize("width", [40, 80, 120])
+@pytest.mark.parametrize("unicode_mode", [False, True])
+def test_peer_and_capacity_remainders_agree_without_changing_raw_frame(remaining, shown, width, unicode_mode):
+    import copy
+    from peerhub.cli.monitor_view import _group_lines
+
+    frame = _frame(remaining)
+    peer_group = {"data": {"peers": [{"peer_id": "ag", "quota": {
+        "state": "MEASURED", "remaining_fraction": remaining, "percent": round(remaining * 100),
+    }}]}}
+    frame["groups"]["peers"] = peer_group
+    before = copy.deepcopy(frame)
+    for group_id in ("peers", "capacity"):
+        lines = _group_lines(group_id, frame["groups"][group_id], width=width, unicode=unicode_mode)
+        assert shown in "\n".join(lines)
+    assert frame == before
+
+
 def test_reset_credits_line_uses_relative_time():
     from peerhub.cli.monitor_view import render_grouped_frame
     credit = {"peer_id": "cx", "available_count": 2, "nearest_expires_at": 1000.0 + 8 * 86400 + 22 * 3600, "state": "MEASURED"}
     out = render_grouped_frame(_frame(0.5, [credit]), color=False, width=100, height=24)
     assert "cx reset credits: 2 | soonest in 8d22h [MEASURED]" in out
+
+
+@pytest.mark.parametrize("used,expected_state,alert", [(0.10, "on_pace", False), (0.60, "threat", True),
+                                                       (1.0, "exhausted", True)])
+def test_exhaustion_alert_requires_within_window_risk(used, expected_state, alert):
+    import copy
+    from peerhub.cli.monitor_view import render_grouped_frame
+    from peerhub.extensions.quota_projection import project_exhaustion
+
+    projection = project_exhaustion(used_fraction=used, window_start=0, resets_at=1000,
+                                    measured_at=500, now=500, evidence_state="MEASURED")
+    assert projection["state"] == expected_state
+    frame = _frame(1 - used)
+    frame["read_at"] = 500
+    item = frame["groups"]["capacity"]["data"]["observations"][0]
+    item["projection"] = projection
+    item["measurements"]["resets_at"] = 1000
+    before = copy.deepcopy(frame)
+    rendered = render_grouped_frame(frame, width=160, unicode=False)
+    assert ("soonest exhaust:" in rendered) == alert
+    header = next(line for line in rendered.splitlines() if "EXHAUST-IN" in line)
+    row = next(line for line in rendered.splitlines() if line.startswith("ag "))
+    cell = row[header.index("EXHAUST-IN"):header.index("PACE")].strip()
+    if not alert:
+        assert cell == "-"
+        assert projection["exhaustion_at"] == 5000
+        assert projection["projected_at_reset"] == 20
+    elif used == 1:
+        assert cell == "exhausted"
+    else:
+        assert cell not in ("-", "exhausted")
+    assert frame == before

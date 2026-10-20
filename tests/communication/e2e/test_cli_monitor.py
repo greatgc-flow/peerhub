@@ -317,7 +317,7 @@ def test_monitor_snapshot_does_not_refresh_providers(tmp_path, monkeypatch, caps
     assert payload["schema_version"] == "2.0"
     assert payload["selected_groups"] == ["store"]
     assert "store" in payload["available_groups"]
-    assert payload["preference"]["source"] in ("workspace", "global", "packaged")
+    assert payload["preference"]["source"] == "command"
     assert payload["groups"]["store"]["coverage"]["read"] == "complete"
     assert calls == []
 
@@ -415,6 +415,37 @@ def test_monitor_default_precedence_and_corrupt_effective_file_fail_closed(tmp_p
     assert result["preference"]["reason"] == "invalid_group"
     assert all(item["default_selected"] is None for item in result["groups"])
     assert not db.parent.exists()
+
+
+@pytest.mark.parametrize("layer", ["workspace", "global"])
+@pytest.mark.parametrize("groups", [["capacity"], ["peers", "capacity"], ["all"]])
+@pytest.mark.parametrize("json_output", [False, True])
+def test_snapshot_explicit_groups_override_invalid_defaults(tmp_path, monkeypatch, capsys, layer, groups, json_output):
+    from peerhub.cli.monitor_preferences import GROUP_IDS
+    from peerhub.extensions.observation import ObservationStore
+    from tests.communication.harness.bridge import BridgeHarness
+
+    monkeypatch.chdir(tmp_path)
+    global_dir = tmp_path / "global"
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(global_dir))
+    config = (tmp_path / ".peerhub" / "config" if layer == "workspace" else global_dir) / "monitor.toml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text("invalid = [", encoding="utf-8")
+    db = BridgeHarness(tmp_path / "workspace").db_path
+    ObservationStore(db)
+    options = [option for group in groups for option in ("--group", group)]
+    with patch("peerhub.extensions.quota_capture.refresh_quota", side_effect=AssertionError("probe")):
+        assert _run(db, "--snapshot", *options, *(["--json"] if json_output else ["--view", "plain"])) == 0
+    output = capsys.readouterr().out
+    if json_output:
+        payload = json.loads(output)
+        assert payload["preference"] == {"status": "OK", "source": "command", "reason": None}
+        assert payload["selected_groups"] == (list(GROUP_IDS) if groups == ["all"] else groups)
+    else:
+        assert "QUOTA" in output
+    with patch("peerhub.extensions.quota_capture.refresh_quota", side_effect=AssertionError("probe")):
+        assert _run(db, "--snapshot", "--json") == 1
+    assert json.loads(capsys.readouterr().out)["preference"]["source"] == layer
 
 
 def test_monitor_repair_rebuilds_projections_idempotently_without_provider_calls(tmp_path, monkeypatch, capsys):
@@ -909,6 +940,18 @@ def test_invalid_args_rejected_before_creation(tmp_path, capsys, args):
         assert _run(tmp_path / "m.db", *args) == 2
     assert calls == []
     assert not (tmp_path / "m.db").exists()
+
+
+@pytest.mark.parametrize("option", ["--interval-seconds", "--timeout-seconds"])
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", "0", "-0.1"])
+@pytest.mark.parametrize("schema", ["1.1", "2.0"])
+def test_nonfinite_monitor_timing_rejected_before_collection(tmp_path, monkeypatch, capsys, option, value, schema):
+    db = _db(tmp_path)
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
+                        lambda *a, **kw: pytest.fail("collection before validation"))
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: pytest.fail("sleep before validation"))
+    assert _run(db, "--json", "--schema-version", schema, "--cycles", "1", f"{option}={value}") == 2
+    assert option in capsys.readouterr().err
 
 
 def test_sleep_called_count_minus_1_times(tmp_path, capsys):

@@ -12,6 +12,7 @@ from typing import Any, cast
 from peerhub.extensions.adapters.profiles import inspect_model_pools, list_profiles
 from peerhub.extensions.adapters.base import classify_refusal_text
 from peerhub.extensions.diag import ReadonlyDiag
+from peerhub.extensions.observation_model import instant_us
 
 
 def readiness_report(db_path: str | Path, *, read_at: float | None = None,
@@ -78,7 +79,8 @@ def compose(profiles: list[dict[str, Any]], observations: list[dict[str, Any]],
     pools: dict[str, Any] = {}
     for ref in sorted({ref for profile in profiles for ref in profile["pools"]}):
         items = [o for o in observations if o["resource_pool_ref"] == ref and o["kind"] in ("quota", "rate_limit")]
-        item = max(items, key=lambda o: (o["observed_at"] or o["captured_at"], o["capture_seq"]), default=None)
+        item = max(items, key=lambda o: (instant_us(o["captured_at"] if o["captured_at"] is not None
+                                                   else o["observed_at"]), o["capture_seq"]), default=None)
         view: dict[str, Any] = dict(state="UNKNOWN", remaining=None, reset_in=None, age=None, evidence=None)
         if item:
             view.update(state=item["state"], age=item["age_seconds"], evidence=f"observation:{item['observation_id']}")

@@ -808,7 +808,7 @@ def poll_codex_usage(
             try:
                 while True:
                     line = proc.stdout.readline()
-                    if not line or proc.poll() is not None:
+                    if not line:
                         break
                     q.put(line)
             except Exception:
@@ -830,9 +830,12 @@ def poll_codex_usage(
                 if line is None:
                     return None
                 try:
-                    obj = json.loads(str(line))
+                    raw: object = json.loads(str(line))
                 except (json.JSONDecodeError, ValueError):
                     continue
+                if not isinstance(raw, dict):
+                    continue
+                obj = cast(dict[str, Any], raw)
                 if obj.get("id") == expected_id and isinstance(obj.get("result"), dict):
                     return obj["result"]
 

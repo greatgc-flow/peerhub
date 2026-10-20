@@ -2,7 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.21.5 (published)
+## Current source: v0.21.6 (release candidate, in preparation)
+
+v0.21.6: seven audit fixes (#205 #210 #229 #230 #232 #239 #240) and the Known deferred defects index (#241). Previous: v0.21.5.
 
 v0.21.5: ag empty responses name denied tool actions (`denied_actions`, #195); monitor `<1%` and relative reset credits (#189). Previous: v0.21.4.
 
@@ -24,6 +26,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 | **v0.21.1** | `9aa06d30` | PR #172 | Published | Tag `v0.21.1` |
 | **v0.21.2** | `c34959c3` | PR #182 | Published | Tag `v0.21.2` |
 | **v0.21.4** | `01f8f894` | PR #196 | Published | Tag `v0.21.4`; G3 passed bound to 01f8f894 (ag canary on gemini-4-argon-medium, #191) |
+| **v0.21.6** candidate | branch `fix/241-triage` | | In preparation | Prepared 2026-10-20 |
 | **v0.21.5** | `1c99c134` | PR #198 | Published | Tag `v0.21.5`; G3 passed bound to 1c99c134 (ag canary on gemini-4-argon-medium, #191) |
 | **v0.21.3** | `9692777e` | PR #190, #191 | Published | Tag `v0.21.3`; G3 passed bound to 9692777e (ag canary on gemini-4-argon-low, #191) |
 
@@ -229,3 +232,40 @@ See [`docs/history/design/2026-08/HUB-REPLACEMENT-ROADMAP-2026-08-09.md`](https:
 **hub.py-replacement design phase (2026-08-23 to 2026-08-26): DESIGN-complete, TDD-ready.** The 7 functional categories `hub.py` covers beyond basic dispatch — compat/cutover strategy, consensus, session/room/thread continuity, health/leadership/duty-lease, task lifecycle/approval, governance/learning, and diagnostics parity — each now have either a concrete `TargetState` JSON schema or a concrete dedicated design, all converged and ratified (52 of 53 remaining open items resolved by design-consistency reasoning, 1 genuine business decision resolved by the user, 1 shared infrastructure prerequisite scoped as its own task). Start at [`docs/history/design/HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md) (supersedes older per-doc "Unresolved" lists), then [`docs/history/design/HUB-REPLACEMENT-DESIGN-REINFORCEMENT-INDEX-2026-08-24.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/HUB-REPLACEMENT-DESIGN-REINFORCEMENT-INDEX-2026-08-24.md) for the full per-gap breakdown. **Update**: most of this design has since been implemented during the TDD phase below (consensus, task, lessons, duty-lease, and half of session/room/thread) — see [`docs/history/design/PEERHUB-BACKLOG-2026-08-27.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PEERHUB-BACKLOG-2026-08-27.md) for exactly what from this design phase is still unimplemented.
 
 The target architecture was designed and converged through a 9-round adversarial review (`ag`/`cx`/`cc`) documented in [`docs/history/design/2026-07/ARCHITECTURE.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-07/ARCHITECTURE.md). The full debate record, including rejected alternatives and evidence citations, is in [`docs/history/design/2026-07/peerhub-architecture-debate.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-07/peerhub-architecture-debate.md). Later design decisions are under [`docs/design/`](https://github.com/greatgc-flow/peerhub/tree/main/docs/design), dated by filename.
+
+## Known deferred defects (triage #241, 2026-10-20)
+
+Valid-but-deliberately-unimplemented findings; each is closed `not planned` with label `deferred`. Library-only components (A2A, MCP, ExtensionHost, Work/Skills, Search, Approval, durable plans) have no CLI wiring. **Gate:** #225, #234 and #238 must be fixed before any A2A/Skills/ExtensionHost wiring merges; #231 is the first to promote if large probe output is reported.
+
+| Issue | Revisit trigger / reason |
+|---|---|
+| #202 | L: Router ignores cost sensitivity; revisit when an actual consumer requires defined cost semantics. |
+| #203 | L: zero-quota candidate demonstrably wins, but Router never dispatches; revisit before automated routing adoption. |
+| #206 | C: known AG error flags are rejected; revisit only with a supported, sanitized flat-status failure fixture. |
+| #207 | Closed-loop balancing is unimplemented product scope; revisit only on an explicit routing requirement. |
+| #208 | C: watch/snapshot already work; revisit interactive TUI only after a demonstrated operator workflow need. |
+| #209 | Universal ledger/benchmark expansion is disproportionate; revisit after a concrete escaped regression exposes a missing gate. |
+| #211 | C: fresh catch-up retains all redirect pins before trimming; revisit on measured memory/latency trouble in realistic streams. |
+| #212 | L: late EOF bypasses deadline recheck; revisit before A2A deployment or support for affected response wrappers. |
+| #213 | L: budget omission and conservative byte accounting are intentional; revisit when a consumer requires pin-coverage reporting. |
+| #214 | L: runtime temp output is unbounded until completion; revisit before adopting ProcessRuntimeAdapter for unattended commands. |
+| #216 | L: host transition has a real stale-state race; revisit before concurrent ExtensionHost use. |
+| #217 | L: MCP duplicates result data, but compatibility is intentional surface area and token impact unproved; revisit with measured client overhead. |
+| #218 | L: sanitizer demonstrably drops prefix wildcard; revisit when shipped Search has an actual user or CLI integration. |
+| #219 | L: scores collapse but SQL ranking survives; revisit when a consumer uses numeric relevance. |
+| #220 | L: metadata search fetches all lexical hits; revisit on an adopted search workload showing material memory cost. |
+| #221 | C: ask guard scans history under write lock; revisit on measured latency/contention rather than add binding projections speculatively. |
+| #222 | L: replay and N+1 reads exist; revisit with substantial Work/Skill usage and measured bottlenecks. |
+| #223 | L: source iterator eagerly loads stream IDs; pinned snapshot is intentional; revisit on large exports or WAL pressure. |
+| #224 | L: re-index falsely adopts changed content, but execution integrity still rejects drift; revisit when SkillCatalog is adopted. |
+| #225 | L: reducer accepts initial ACTIVE state; revisit before Skills authorization consumes externally authored/imported records. |
+| #226 | C/L: constructor reinstalls triggers, but CLI readers bypass it; revisit on measured ask/refresh lock overhead. |
+| #227 | L: rebuild mixes snapshots under concurrent writes; current restore requires quiescence; revisit before supporting online rebuild. |
+| #228 | L: YAML/fallback meanings diverge; revisit before portable Skills manifests become a supported user workflow. |
+| #231 | C: probe buffers lack byte caps, but a cross-provider streaming rewrite lacks demonstrated need; revisit on measured excessive output/RSS. |
+| #233 | L: malformed proof raises AttributeError, but verification still stops before replacement; revisit on supported backup-import use. |
+| #234 | L: A2A owner check is outside append transaction; revisit before concurrent durable A2A deployment. |
+| #235 | L: A2A/plan journals repeatedly replay history; revisit with adopted workloads demonstrating coordination latency. |
+| #236 | L: observations grow indefinitely; revisit before long-lived A2A monitoring is deployed. |
+| #237 | L: approval can cross TTL, but consumption checks expiry atomically; revisit when stale approval state affects a real operator flow. |
+| #238 | L: concurrent same-status evidence can be falsely acknowledged; revisit before multi-writer durable A2A use. |

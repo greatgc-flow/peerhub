@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -66,12 +67,12 @@ def register_monitor_parser(subparsers: Any) -> None:
 
 
 def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
-    if not args.interval > 0:
-        parser.error("--interval-seconds must be a positive number")
+    if not math.isfinite(args.interval) or not args.interval > 0:
+        parser.error("--interval-seconds must be a finite positive number")
     if args.cycles < 0:
         parser.error("--cycles must be >= 0")
-    if not args.timeout > 0:
-        parser.error("--timeout-seconds must be a positive number")
+    if not math.isfinite(args.timeout) or not args.timeout > 0:
+        parser.error("--timeout-seconds must be a finite positive number")
     if args.collect_every < 1:
         parser.error("--collect-every must be >= 1")
     if getattr(args, "expand", False) and args.json:
@@ -290,17 +291,18 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     from peerhub.cli.monitor_preferences import GROUP_IDS, effective_preferences
     from peerhub.cli.store_select import report_missing_store
 
-    preference = effective_preferences()
+    requested = args.group
+    unique_requested = list(dict.fromkeys(requested or []))
+    if "all" in unique_requested and len(unique_requested) > 1:
+        parser.error("--group all cannot be combined with other group IDs")
+    preference = ({"status": "OK", "source": "command", "reason": None}
+                  if unique_requested else effective_preferences())
     if preference["status"] != "OK":
         payload = {"schema_version": "2.0", "status": "ERROR", "selected_groups": None,
                    "preference": {key: preference[key] for key in ("status", "source", "reason")}}
         print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")) if args.json else
               f"PeerHub monitor defaults are invalid ({preference.get('reason') or 'unknown reason'}). Run 'peerhub monitor defaults show' to inspect them.")
         return 1
-    requested = args.group
-    unique_requested = list(dict.fromkeys(requested or []))
-    if "all" in unique_requested and len(unique_requested) > 1:
-        parser.error("--group all cannot be combined with other group IDs")
     selected: list[str] = (list(GROUP_IDS) if unique_requested == ["all"] else
                            sorted(set(cast(list[str], unique_requested)), key=GROUP_IDS.index) if unique_requested else
                            cast(list[str], preference["selected_groups"]))

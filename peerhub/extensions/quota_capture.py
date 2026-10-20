@@ -127,7 +127,11 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             if not readings:
                 raise ValueError("probe returned no evidence")
             if kind == "ag":
-                ag_probed_ok = True
+                ag_probed_ok = all(
+                    not isinstance(r, ResetCreditObserved)
+                    and r.evidence.state == EvidenceState.MEASURED and r.evidence.value is not None
+                    for r in readings
+                )
                 for r in readings:
                     extra_obj: object = getattr(r, "extra", None)
                     extra_dict: dict[str, Any] = cast(dict[str, Any], extra_obj) if isinstance(extra_obj, dict) else {}

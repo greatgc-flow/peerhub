@@ -82,7 +82,14 @@ def _bar_quota(remaining: float | None, cells: int = 8, unicode: bool = True) ->
 
 def _pct(rem: float) -> str:
     """Whole percent; a tiny non-zero remainder is never shown as 0% (0% means exhausted)."""
-    return "<1%" if 0.0 < rem < 0.005 else f"{rem * 100:.0f}%"
+    return "<1%" if 0.0 < rem <= 0.005 else f"{rem * 100:.0f}%"
+
+
+def _alert_exhaustion_at(item: dict[str, Any]) -> float | None:
+    projection = _obj(item.get("projection"))
+    if _obj(item.get("measurements")).get("remaining_fraction") != 0 and projection.get("state") != "threat":
+        return None
+    return _number(projection.get("exhaustion_at"))
 
 
 def _quota_label(status: str, group: dict[str, Any], read_at: float | None,
@@ -90,7 +97,7 @@ def _quota_label(status: str, group: dict[str, Any], read_at: float | None,
     label = f"QUOTA [{status}]"
     candidates: list[tuple[float, str]] = []
     for item in _items(_obj(group.get("data")).get("observations")):
-        exhaustion = _number(_obj(item.get("projection")).get("exhaustion_at"))
+        exhaustion = _alert_exhaustion_at(item)
         rem = _number(_obj(item.get("measurements")).get("remaining_fraction"))
         if item.get("state") != "MEASURED" or exhaustion is None or rem is None or not 0 <= rem <= 1:
             continue
@@ -226,9 +233,10 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 q_pool = _clean(q_obj.get("pool_ref") or "")
                 if ":" in q_pool:
                     q_pool = q_pool.split(":")[-1]
-                q_pct = _number(q_obj.get("percent"))
-                if q_pct is None and _number(q_obj.get("remaining_fraction")) is not None:
-                    q_pct = float(cast(float, _number(q_obj.get("remaining_fraction")))) * 100
+                q_rem = _number(q_obj.get("remaining_fraction"))
+                if q_rem is None:
+                    q_pct = _number(q_obj.get("percent"))
+                    q_rem = q_pct / 100 if q_pct is not None else None
                 q_age = _number(q_obj.get("age_seconds"))
 
                 q_scope = _clean(q_obj.get("scope") or "")
@@ -239,7 +247,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 elif q_state == "STALE":
                     q_wide = "STALE"
                     q_narr = "STALE"
-                elif q_state != "MEASURED" or q_pct is None:
+                elif q_state != "MEASURED" or q_rem is None or not 0 <= q_rem <= 1:
                     q_wide = "unknown"
                     q_narr = "unk"
                 else:
@@ -250,8 +258,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     else:
                         pool_label = q_pool
                     pool_str = f" ({pool_label})" if pool_label else ""
-                    q_wide = f"{q_pct:.0f}%{pool_str}{age_str}"
-                    q_narr = f"{q_pct:.0f}%{pool_str}"
+                    q_wide = f"{_pct(q_rem)}{pool_str}{age_str}"
+                    q_narr = f"{_pct(q_rem)}{pool_str}"
 
             if p_obj is None:
                 p_wide = "unknown [unknown]"
@@ -536,7 +544,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     else:
                         reset_str = "-"
 
-                    exhaustion = _number(projection.get("exhaustion_at"))
+                    exhaustion = _alert_exhaustion_at(item)
                     if exhaustion is not None:
                         ref_time = read_at if read_at is not None else 0.0
                         rem_exhaust = max(0.0, exhaustion - ref_time - elapsed_seconds)
