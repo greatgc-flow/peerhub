@@ -129,6 +129,8 @@ When filing or triaging an issue that alters a safety or caution fact (peer writ
 
 ## Releasing
 
+Before wiring any library-only component (A2A, MCP, ExtensionHost, Work/Skills, Search, Approval, durable plans) into the CLI, review the closed `deferred` issues and docs/STATUS.md "Known deferred defects"; #225, #234 and #238 must be fixed first (#241).
+
 If an ag pool is exhausted, `PEERHUB_LIVE_AG_MODEL=<model>` swaps the ag model for the gate run; it is recorded per case in the JUnit and must be disclosed in the changelog and STATUS (#191).
 
 1. Open a version-bump PR updating `peerhub/_version.py` and the current
