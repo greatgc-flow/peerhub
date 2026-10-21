@@ -20,8 +20,8 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.22.0"
-    assert "peerhub batch run" in body
-    assert "account bind|list|show" in body
-    assert "ag multi-account is unsupported; bound-peer quota is not observed" in body
+    assert __version__ == "0.22.1"
+    assert "Python 3.15 support" in body
+    assert "workspace.generation" in body
+    assert "peerhub batch run" not in body  # no adjacent history
     assert "(#232, #241)" not in body
