@@ -1,6 +1,7 @@
 """Evidence sanitizer: secrets and prompts never reach retained evidence or exception text."""
 from __future__ import annotations
 
+import json
 import os
 import re
 from typing import Iterable, Mapping
@@ -19,6 +20,14 @@ MIN_SECRET_LEN = 6
 def env_secrets(env: Mapping[str, str] | None = None) -> list[str]:
     env = os.environ if env is None else env
     return [v for k, v in env.items() if _SECRET_NAME.search(k) and len(v) >= MIN_SECRET_LEN]
+
+
+def path_secrets(path: str) -> list[str]:
+    """Spellings a vendor may use when reporting an otherwise private path."""
+    variants = {path, path.replace("\\", "/")}
+    variants |= {value.lower() for value in variants} | {value.casefold() for value in variants}
+    return sorted(variants | {json.dumps(value, ensure_ascii=ascii_only)[1:-1]
+                              for value in variants for ascii_only in (False, True)})
 
 
 class Sanitizer:

@@ -3,6 +3,7 @@
 PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`, `ag`). The Core owns only Peer, Stream, Record, and Offset. All higher-level coordination primitives are extensions.
 
 ## Core & Everyday Guides
+- [Account-bound Peers](accounts.md): Immutable cc/cx roots, environment isolation, and quota limitations.
 - [Batch Runs](batch.md): Validate and execute flat parallel asks, interpret statuses, cancel and resume.
 - `peerhub diag readiness [--json]` reports cached criteria for every effective configured profile, sorted by ID. `READY` means fresh positive verified quota and a matching terminal delivery; it proves neither current provider availability, actual model identity, authorization, nor semantic task success. Shared pools appear once with remaining quota, reset and evidence age. Missing/stale mappings or corrupt evidence stay `UNKNOWN`; absent success, changed binding, failed/uncertain delivery or required native ag writable consent stays unverified. Native ag consent still requires explicit `--writable`. Global `--db` selection applies; a missing store exits 5 without creation. This command never calls providers or writes, and rejects `--probe`. Human overflow is disclosed; JSON schema 1.0 includes every profile without a size guarantee. Issue #145 remains partially open for later work.
 - [Profile Smoke Recipe](smoke-recipe.md): Installed-CLI nonce pings and one result matrix (#148).

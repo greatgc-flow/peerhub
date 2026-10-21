@@ -9,6 +9,7 @@ Commands (canonical inventory: docs/implementation/command_inventory.json, deriv
   session list / show   (read-only, bounded and redacted)
   ask                 (provider execution and durable delivery)
   batch run           (flat bounded-parallel asks)
+  account bind / list / show (immutable account-bound peers)
   observation refresh (provider probes and persisted evidence)
   monitor             (collection plus dashboard)
   diag                (read-only dashboard, optionally live)
@@ -214,6 +215,22 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                             help="Abort after this many seconds without stdout/stderr; execution remains uncertain")
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
     ask_parser.add_argument("--json", action="store_true")
+
+    account_parser = subparsers.add_parser("account", help="Immutable cc/cx account roots; peer register overwrite refuses later asks",
+                                          description="Bind a new peer and root for each account. No rebind/unbind. Overwriting a bound peer with peer register makes ask refuse; recover with a new peer and root.")
+    account_sub = account_parser.add_subparsers(dest="action", required=True)
+    account_bind = account_sub.add_parser("bind", help="Bind a new peer to a cc/cx account root")
+    account_bind.add_argument("--peer", required=True)
+    account_bind.add_argument("--provider", required=True)
+    account_bind.add_argument("--alias", required=True)
+    account_bind.add_argument("--root", required=True)
+    account_bind.add_argument("--json", action="store_true")
+    for action in ("list", "show"):
+        account_read = account_sub.add_parser(action, help=f"{action.title()} account bindings (read-only)")
+        if action == "show":
+            account_read.add_argument("--peer", required=True)
+        account_read.add_argument("--json", action="store_true")
+        account_read.add_argument("--show-root", action="store_true", help="Include stored configuration root paths")
 
     batch_parser = subparsers.add_parser("batch", help="Flat bounded-parallel asks")
     batch_sub = batch_parser.add_subparsers(dest="action", required=True)
@@ -943,6 +960,43 @@ def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
     return result
 
 
+def _run_account_cli(args: argparse.Namespace) -> int:
+    from dataclasses import asdict
+    from peerhub.extensions import accounts
+
+    try:
+        if args.action == "bind":
+            rows = [accounts.bind_account(args.db, peer_id=args.peer, provider=args.provider, alias=args.alias, root=args.root)]
+        elif args.action == "show":
+            binding = accounts.get_binding(args.db, args.peer)
+            if binding is None:
+                raise accounts.AccountError("account peer is not bound")
+            rows = [binding]
+        else:
+            rows = accounts.list_bindings(args.db)
+        output: list[dict[str, Any]] = []
+        for row in rows:
+            item = asdict(row)
+            if not getattr(args, "show_root", False):
+                item.pop("config_root")
+            output.append(item)
+        if args.json:
+            print(json.dumps(output if args.action == "list" else output[0], indent=2, ensure_ascii=True))
+        else:
+            print("PEER PROVIDER ALIAS SLOT_ID" + (" ROOT" if getattr(args, "show_root", False) else ""))
+            for item in output:
+                print(" ".join(str(item[key]) for key in ("peer_id", "provider", "alias", "slot_id"))
+                      + (f" {item['config_root']}" if "config_root" in item else ""))
+        return 0
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        message = "account binding violates a registry constraint" if isinstance(exc, sqlite3.IntegrityError) else str(exc)
+        if args.json:
+            print(json.dumps(dict(status="error", error=dict(code="account_invalid", message=message)), ensure_ascii=True))
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+
 def _run_batch_cli(args: argparse.Namespace) -> int:
     import signal
     import threading
@@ -1067,6 +1121,8 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":
             return _run_ask_cli(args, parser, argv)
+        if args.subcommand == "account":
+            return _run_account_cli(args)
         if args.subcommand == "batch":
             return _run_batch_cli(args)
         if args.subcommand == "profile":

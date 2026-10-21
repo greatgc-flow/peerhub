@@ -10,6 +10,8 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- Immutable cc/cx account-bound peers via `account bind|list|show`, protected root validation, scrubbed child environments and account-scoped session identities.
+
 - `peerhub batch run` validates flat task manifests, executes bounded parallel asks, and reports delivery status with cancellation and stable resume identities.
 
 ## [0.21.6] - 2026-10-20

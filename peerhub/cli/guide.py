@@ -58,7 +58,6 @@ def render_guide(workspace: Path | None = None) -> str:
         lines.append(f"{p_name:<14} {mod:<24} {pools_str:<14} {src}")
 
     lines.extend([
-        "",
         "Two-Asks Session Reuse Example:",
         '  peerhub ask cc "Explain the architecture" --profile cc.standard --stream arch-review --request-id req-001',
         '  peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002',
@@ -88,6 +87,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "  Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only); uncertain streams may remain quota-blocked after reset.",
         "  Batch: executes asks (spends quota); ag tasks always writable; overlapping writers rejected.",
         "    Cancel: Windows tree termination; POSIX best-effort. Inspect UNCERTAIN; keep manifest + batch-id for resume.",
+        "  Accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names retained for failures/replay); bound quota unobserved; backups contain roots.",
         "  Secrets: prompts/streams persist in local store; no tokens/passwords.",
         "Discovery & Inspection Commands:",
         "  peerhub explain ag silence   # look up operational lessons",
@@ -96,7 +96,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "  peerhub diag                 # read-only diagnostics across all peers",
         "  models: peerhub profile list; slugs: agy models; --model <slug>",
         "  peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run  # validate before execution",
-        "  peerhub session list         # list retained sessions and runtime state",
+        "  peerhub session list         # retained sessions; accounts: peerhub account list",
         "  peerhub observation refresh  # re-probe provider quota observations",
         "",
         "Model Facts & CLI Drift Recovery:",

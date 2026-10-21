@@ -278,6 +278,34 @@ EXCEPTION_SCENARIOS: dict[str, list[tuple[Exception, str]]] = {
 }
 
 
+def _standalone_validation_error_codes() -> set[str]:
+    """Drive public validation errors outside the ask path, without store creation."""
+    import io
+    import os
+    import tempfile
+    from contextlib import redirect_stdout
+    from unittest.mock import patch
+    from peerhub.cli.app import main
+
+    codes: set[str] = set()
+    with tempfile.TemporaryDirectory(prefix="peerhub-recovery-") as scratch:
+        db = str(Path(scratch) / "absent.db")
+        commands = [
+            (["batch", "run", "absent.json", "--batch-id", "proof", "--max-parallel", "0", "--dry-run", "--json"], "invalid_manifest"),
+            (["account", "bind", "--peer", "proof", "--provider", "ag", "--alias", "work", "--root", scratch, "--json"], "account_invalid"),
+        ]
+        with patch.dict(os.environ, {"PEERHUB_DB": db}):
+            for argv, expected in commands:
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    assert main(["--db", db, *argv]) == 1
+                payload = json.loads(output.getvalue())
+                assert payload["status"] == "error" and payload["error"]["code"] == expected
+                codes.add(payload["error"]["code"])
+        assert not Path(db).exists()
+    return codes
+
+
 def test_inventory_driven_ask_path_outcomes_cover_entire_registry():
     """Independent AST scan inventories ask-path emission boundaries; every emitted outcome must map to REGISTRY."""
     inventoried_statuses, inventoried_exceptions = _inventory_ask_path_emission_boundaries()
@@ -344,6 +372,8 @@ def test_inventory_driven_ask_path_outcomes_cover_entire_registry():
     code = select_guidance_code(exception=RuntimeError("unexpected dispatch failure"))
     assert code == "ask_unexpected_failure"
     emitted_codes.add(code)
+
+    emitted_codes.update(_standalone_validation_error_codes())
 
     # Every code in the registry must be covered by actual driven emission boundaries
     assert emitted_codes == set(REGISTRY.keys()), f"Uncovered registry codes: {set(REGISTRY.keys()) - emitted_codes}"

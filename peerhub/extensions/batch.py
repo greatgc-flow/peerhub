@@ -17,7 +17,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence, cast
 
 from peerhub.extensions.process_tree import kill_process_tree
 
@@ -73,19 +73,20 @@ def check_max_parallel(value: object) -> int:
 def load_manifest(path: str | Path, *, batch_id: str) -> list[Task]:
     path = Path(path)
     try:
-        doc = json.loads(path.read_text(encoding="utf-8-sig"))
+        doc: Any = json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
         raise ManifestError(f"cannot read manifest {path}: {exc}") from exc
-    if not isinstance(doc, dict) or set(doc) != {"tasks"} or not isinstance(doc["tasks"], list):
+    if not isinstance(doc, dict) or set(cast(dict[str, Any], doc)) != {"tasks"} or not isinstance(doc["tasks"], list):
         raise ManifestError('manifest must be {"tasks": [...]}')
-    rows = doc["tasks"]
+    rows = cast(list[Any], doc["tasks"])
     if not 1 <= len(rows) <= MAX_TASKS:
         raise ManifestError(f"manifest needs 1..{MAX_TASKS} tasks")
     tasks: list[Task] = []
     seen: set[str] = set()
     for row in rows:
-        if not isinstance(row, dict) or not set(row) <= _KEYS:
-            raise ManifestError(f"task has unknown keys: {sorted(set(row) - _KEYS) if isinstance(row, dict) else row!r}")
+        if not isinstance(row, dict) or not set(cast(dict[str, Any], row)) <= _KEYS:
+            raise ManifestError(f"task has unknown keys: {sorted(set(cast(dict[str, Any], row)) - _KEYS) if isinstance(row, dict) else row!r}")
+        row = cast(dict[str, Any], row)
         tid = _check_id("task_id", row.get("task_id"))
         derive_ids(batch_id, tid)
         if tid in seen:
@@ -159,7 +160,7 @@ def _parse_result(stdout: str) -> dict[str, Any] | None:
         except ValueError:
             continue
         if isinstance(obj, dict) and not text[start + end:].strip():
-            return obj
+            return cast(dict[str, Any], obj)
     return None
 
 
@@ -177,7 +178,7 @@ def classify_worker(returncode: int | None, stdout: str, *, overflow: bool = Fal
         return "UNCERTAIN", "no_result"
     guidance = result.get("guidance")
     status = result.get("status")
-    if (isinstance(guidance, dict) and guidance.get("code") == "ask_claim_held") or status == "pending_earlier_record":
+    if (isinstance(guidance, dict) and cast(dict[str, Any], guidance).get("code") == "ask_claim_held") or status == "pending_earlier_record":
         return "BLOCKED", "ask_claim_held" if status != "pending_earlier_record" else "pending_earlier_record"
     if status in ("delivered", "recovered_terminal"):
         if returncode != 0:
@@ -196,7 +197,7 @@ def classify_worker(returncode: int | None, stdout: str, *, overflow: bool = Fal
     if status == "uncertain":
         return "UNCERTAIN", "uncertain"
     error = result.get("error")
-    code = error.get("code") if isinstance(error, dict) else None
+    code = cast(dict[str, Any], error).get("code") if isinstance(error, dict) else None
     return "UNCERTAIN", code if isinstance(code, str) and code else f"exit_{returncode}"
 
 
@@ -256,42 +257,44 @@ def _descendants(pid: int) -> list[tuple[int, int]]:
 
 
 def _creation_time(pid: int) -> int:
-    import ctypes
-    from ctypes import wintypes
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.OpenProcess.restype = wintypes.HANDLE
-    handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-    if not handle:
-        return -1
-    try:
-        times = [wintypes.FILETIME() for _ in range(4)]
-        if not k32.GetProcessTimes(handle, *[ctypes.byref(t) for t in times]):
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.restype = wintypes.HANDLE
+        handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
             return -1
-        return (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
-    finally:
-        k32.CloseHandle(handle)
+        try:
+            times = [wintypes.FILETIME() for _ in range(4)]
+            if not k32.GetProcessTimes(handle, *[ctypes.byref(t) for t in times]):
+                return -1
+            return (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        finally:
+            k32.CloseHandle(handle)
 
+    return -1
 
 def _still_alive(pid: int, created: int) -> bool:
-    if sys.platform != "win32":
-        return False
-    import ctypes
-    from ctypes import wintypes
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.OpenProcess.restype = wintypes.HANDLE
-    handle = k32.OpenProcess(0x1000, False, pid)
-    if not handle:
-        return False
-    try:
-        code = wintypes.DWORD()
-        if not k32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != 259:  # STILL_ACTIVE
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.restype = wintypes.HANDLE
+        handle = k32.OpenProcess(0x1000, False, pid)
+        if not handle:
             return False
-    finally:
-        k32.CloseHandle(handle)
-    return _creation_time(pid) == created
+        try:
+            code = wintypes.DWORD()
+            if not k32.GetExitCodeProcess(handle, ctypes.byref(code)) or code.value != 259:  # STILL_ACTIVE
+                return False
+        finally:
+            k32.CloseHandle(handle)
+        return _creation_time(pid) == created
 
+    return False
 
-def kill_tree_confirmed(proc: subprocess.Popen[bytes], *, wait_s: float = 5.0) -> bool:
+def kill_tree_confirmed(proc: subprocess.Popen[Any], *, wait_s: float = 5.0) -> bool:
     """Kill the worker and everything below it; True only when the worker and every recorded descendant are gone."""
     victims = _descendants(proc.pid) if proc.poll() is None else []
     kill_process_tree(proc)
@@ -380,7 +383,7 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
         out_row = {**row, "status": status, "elapsed_s": round(time.monotonic() - started, 3)}
         if reason:
             out_row["reason"] = reason
-        if isinstance(session, dict) and isinstance(session.get("handle"), str):
+        if isinstance(session, dict) and isinstance(cast(dict[str, Any], session).get("handle"), str):
             out_row["session"] = session["handle"]
         return out_row
 

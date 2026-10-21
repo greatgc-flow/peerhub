@@ -1,6 +1,9 @@
 """Behavioural option proofs for the new public first-party extension commands."""
 import json
 import io
+import os
+import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -431,6 +434,53 @@ def session_inspection_effect(e, command, option):
         else:
             assert result["session"]["handle"] == argv[2]
 
+def account_effect(e, action, option):
+    db = e.fresh(False)
+    home, root, other = e.tmp / "account-home", e.tmp / "account-root", e.tmp / "other-account-root"
+    for directory in (home, root, other):
+        directory.mkdir(exist_ok=True)
+    isolated = {name: value for name, value in os.environ.items() if name.upper() not in ("CLAUDE_CONFIG_DIR", "CODEX_HOME")}
+    isolated.update(HOME=str(home), USERPROFILE=str(home))
+    base = ["account", "bind", "--peer", "worker", "--provider", "cc", "--alias", "work", "--root", str(root), "--json"]
+    with patch.dict(os.environ, isolated, clear=True), patch.object(Path, "home", return_value=home):
+        if action == "bind":
+            if option != "--json":
+                base[base.index(option) + 1] = {"--peer": "worker-other", "--provider": "cx",
+                                               "--alias": "other-label", "--root": str(other)}[option]
+            result = e.j(db, *base)
+            expected = {"--peer": ("peer_id", "worker-other"), "--provider": ("provider", "cx"),
+                        "--alias": ("alias", "other-label")}
+            if option in expected:
+                field, value = expected[option]
+                assert result[field] == value
+            elif option == "--root":
+                with sqlite3.connect(db) as conn:
+                    assert conn.execute("SELECT config_root FROM account_bindings").fetchone()[0] == str(other)
+            else:
+                assert result["peer_id"] == "worker" and "config_root" not in result
+                assert CoreStore(db).get_peer("worker").metadata == {"account_bound": True}
+            return
+        e.j(db, *base)
+        argv = ["account", action] + (["--peer", "worker"] if action == "show" else [])
+        if option == "--json":
+            result = e.j(db, *argv, "--json")
+            row = result[0] if action == "list" else result
+            assert row["peer_id"] == "worker" and "config_root" not in row
+            code, out, _ = e.run(db, *argv)
+            assert code == 0 and "PEER PROVIDER ALIAS SLOT_ID" in out
+        elif option == "--show-root":
+            hidden = e.j(db, *argv, "--json")
+            visible = e.j(db, *argv, "--json", "--show-root")
+            assert "config_root" not in (hidden[0] if action == "list" else hidden)
+            assert (visible[0] if action == "list" else visible)["config_root"] == str(root)
+        else:
+            base[base.index("--peer") + 1] = "worker-other"
+            base[base.index("--root") + 1] = str(other)
+            e.j(db, *base)
+            argv[argv.index("--peer") + 1] = "worker-other"
+            assert e.j(db, *argv, "--json")["peer_id"] == "worker-other"
+
+
 def batch_effect(e, option):
     from peerhub.extensions import batch
 
@@ -491,6 +541,10 @@ EFFECT.update({f"explain {option}": (lambda e, option=option: explain_effect(e, 
                for option in ("code", "--json")})
 EFFECT.update({f"batch run {option}": (lambda e, option=option: batch_effect(e, option))
                for option in ("manifest", "--batch-id", "--max-parallel", "--dry-run", "--json")})
+EFFECT.update({f"account {action} {option}": (lambda e, action=action, option=option: account_effect(e, action, option))
+               for action, options in (("bind", ("--peer", "--provider", "--alias", "--root", "--json")),
+                                       ("list", ("--json", "--show-root")),
+                                       ("show", ("--peer", "--json", "--show-root"))) for option in options})
 EFFECT["diag --json"] = diag_json
 EFFECT["diag readiness --json"] = readiness_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))

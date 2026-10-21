@@ -9,11 +9,14 @@ import uuid
 from contextlib import closing
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
+
+if TYPE_CHECKING:
+    from peerhub.extensions.accounts import AccountBinding
 
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.peer_kinds import ALIASES  # noqa: F401  (re-exported for existing importers)
-from peerhub.extensions.bridge import Bridge, CycleResult, RuntimeTarget, normalize_session_selector
+from peerhub.extensions.bridge import PrespawnError, Bridge, CycleResult, RuntimeTarget, normalize_session_selector
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, StaleClaimError
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
@@ -43,10 +46,10 @@ def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> di
     # final public envelope and allowlisted delivery fields cross the API boundary.
     result.update({key: stored[key] for key in ("response", "session", "error", "task_outcome", "reason", "refusal_reason",
                   "reset_time", "resets_at", "message", "output_truncated", "display_truncated",
-                  "empty_response", "task_effects", "denied_actions") if key in stored})
-    for _kind, detail in conn.execute("SELECT kind,detail FROM bridge_evidence WHERE delivery_id=? AND kind IN ('terminal','refusal_detected') ORDER BY seq", (delivery["delivery_id"],)):
+                  "empty_response", "task_effects", "denied_actions", "env_scrubbed") if key in stored})
+    for _kind, detail in conn.execute("SELECT kind,detail FROM bridge_evidence WHERE delivery_id=? AND kind IN ('terminal','refusal_detected','execution_metadata') ORDER BY seq", (delivery["delivery_id"],)):
         data = json.loads(detail)
-        for key in ("effective_mode", "fallback_reason", "injected_record_ids", "output_truncated", "display_truncated", "reason", "refusal_reason", "reset_time", "resets_at", "message", "empty_response", "task_effects", "denied_actions"):
+        for key in ("effective_mode", "fallback_reason", "injected_record_ids", "output_truncated", "display_truncated", "reason", "refusal_reason", "reset_time", "resets_at", "message", "empty_response", "task_effects", "denied_actions", "env_scrubbed"):
             if key in data:
                 result[key] = data[key]
     row = conn.execute("SELECT body_json,metadata_json FROM records WHERE record_id=?", (delivery["response_record_id"],)).fetchone()
@@ -84,6 +87,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         raise ValueError("ask author and target peer must differ")
     # Resolve adapter configuration before any bootstrap/migration or prompt append.
     adapter_ref = None
+    account_binding: AccountBinding | None = None
     db = Path(db_path).resolve()
     if db.is_file() and db.stat().st_size:
         with storage_errors(), closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as conn:
@@ -92,18 +96,35 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                 raise SchemaVersionError(future_schema_message(version, SUPPORTED_SCHEMA_VERSION))
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
             if "peers" in tables:
-                row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id=?", (peer_id,)).fetchone()
+                row = conn.execute("SELECT adapter_ref,metadata_json FROM peers WHERE peer_id=?", (peer_id,)).fetchone()
                 adapter_ref = row[0] if row else None
+                marker = json.loads(row[1]).get("account_bound") is True if row else False
+                if marker or "account_bindings" in tables:
+                    from peerhub.extensions import accounts
+                    try:
+                        account_binding = accounts.get_binding(db, peer_id)
+                    except accounts.AccountError as exc:
+                        raise PrespawnError("invalid account binding") from exc
+                    if marker != (account_binding is not None):
+                        raise PrespawnError("account marker and binding disagree; bind a new peer identity")
+                    if account_binding is not None and adapter_ref != account_binding.provider:
+                        raise PrespawnError("account adapter and binding disagree")
             elif tables:
                 raise StorageCorruptError("database does not contain the communication Core schema; v0 support is archived on branch legacy/v0-main-final")
     kind = ALIASES.get(adapter_ref or peer_id)
     target: RuntimeTarget
+    account_args: dict[str, Any] = {}
+    if account_binding is not None:
+        from peerhub.extensions.accounts import AccountRef
+        if runtime is not None:
+            raise PrespawnError("runtime injection is forbidden for an account-bound peer")
+        account_args["account"] = AccountRef(account_binding.slot_id)
     if runtime is None:
         if kind is None:
             raise ValueError("register this peer with --adapter cx, cc or ag before asking it")
         target = CliRuntimeTarget(kind, workspace or Path.cwd(), model=model, effort=effort,
                                   profile=profile, silence_timeout_s=silence_timeout_s, writable=writable,
-                                  timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output)
+                                  timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output, **account_args)
     else:
         target = runtime
     sid = stream_id or f"peer:{peer_id}:chat"
@@ -165,6 +186,16 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     token = claims.acquire(peer_id, sid, bridge.owner_id, lease_sec)
     started_at = time.monotonic()
     try:
+        if account_binding is not None:
+            from peerhub.extensions import accounts
+            try:
+                snapshot = accounts.validate_launch(db, account_binding, workspace or Path.cwd())
+                cast(CliRuntimeTarget, target).bind_account_env(snapshot)
+            except (accounts.AccountError, PrespawnError) as exc:
+                failure = asdict(CycleResult("failed_not_started", certainty="NOT_STARTED"))
+                failure.update(request_id=rid, stream_id=sid, peer_id=peer_id, response=None,
+                               env_scrubbed=[], error=dict(code="account_invalid", message=str(exc)))
+                return failure
         with closing(sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
             previous = conn.execute("SELECT created_at FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?",
                                     (sid, author, key)).fetchone()
@@ -272,6 +303,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             result["error"] = (result.get("detail", {}).get("error") if isinstance(result.get("detail"), dict) else None)
             if not isinstance(result["error"], dict):
                 result["error"] = None if result["status"] in ("delivered", "recovered_terminal") else dict(code="delivery_failed", message=f"Execution ended as {result['status']}.")
+        if account_binding is not None:
+            result.setdefault("env_scrubbed", list(cast(CliRuntimeTarget, target).env_scrubbed))
         return result
     finally:
         try:

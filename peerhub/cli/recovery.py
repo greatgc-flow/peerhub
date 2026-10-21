@@ -164,6 +164,17 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
 
 
 REGISTRY: dict[str, GuidanceEntry] = {
+    "account_invalid": GuidanceEntry(
+        code="account_invalid",
+        meaning="Account binding or launch validation failed before provider execution.",
+        why="The peer identity, immutable registry entry or protected root boundary is invalid.",
+        recover=[{"argv": ["peerhub", "account", "show", "--peer", "PEER_ID", "--show-root"],
+                  "purpose": "Inspect the binding and correct the reported validation problem",
+                  "prereqs": "Use the intended peer and selected store."}],
+        avoid="Do not overwrite or reuse a binding for another login; bind a new peer and root.",
+        docs="docs/accounts.md",
+        exits=[{"code": 1, "context": "Account registration or launch validation failed."}],
+    ),
     "invalid_manifest": GuidanceEntry(
         code="invalid_manifest",
         meaning="Batch validation failed before any worker was launched.",

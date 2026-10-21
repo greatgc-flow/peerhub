@@ -56,6 +56,8 @@ peerhub explain ask_blocked_uncertain
 
 ## Everyday commands
 
+[Account-bound peers](docs/accounts.md) isolate cc/cx vendor roots behind immutable peer identities; `peerhub account list` inspects bindings.
+
 [Batch runs](docs/batch.md): `peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run` validates a flat batch before execution.
 
 ```powershell

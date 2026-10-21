@@ -1170,6 +1170,11 @@ class Bridge:
             if rec is None:
                 return CycleResult("idle", detail={"consumed_controls": consumed} if consumed else {})
         did = self.begin_attempt(token, rec, reconcile_of=reconcile_of)
+        execution_metadata = getattr(runtime, "execution_metadata", None)
+        if callable(execution_metadata):
+            metadata = cast("dict[str, Any]", execution_metadata())
+            if metadata:
+                self._note(token, did, "execution_metadata", NOT_STARTED, **metadata)
         if rec.kind == "prompt":
             selector = rec.metadata.get("session_selector")
             if selector not in ("latest", "fresh") and not (isinstance(selector, str) and re.fullmatch(r"sess:sess_[0-9a-f]{16}", selector)):
@@ -1435,6 +1440,8 @@ class Bridge:
                             conn.execute("UPDATE bridge_session_history SET bootstrap_truncated=? WHERE stream_id=? AND peer_id=? AND session_generation=?",
                                          (int(provenance["bootstrap_truncated"]), token.stream_id, token.peer_id, row["session_generation"]))
                     term_detail: dict[str, Any] = dict(digest=dig, **native)
+                    if "env_scrubbed" in result:
+                        term_detail["env_scrubbed"] = result["env_scrubbed"]
                     if result.get("output_truncated"):
                         term_detail["output_truncated"] = True
                     if result.get("display_truncated"):
@@ -1500,6 +1507,8 @@ class Bridge:
         with self.claims.transaction() as conn:
             for kind, detail in conn.execute("SELECT kind, detail FROM bridge_evidence WHERE delivery_id=? ORDER BY seq", (delivery_id,)):
                 data = json.loads(detail)
+                if kind == "execution_metadata":
+                    out["env_scrubbed"] = data["env_scrubbed"]
                 if kind == "terminal":
                     if "effective_mode" in data:
                         out.update({key: data[key] for key in ("effective_mode", "fallback_reason", "injected_record_ids")})
