@@ -30,6 +30,7 @@ ALLOWED: dict[str, set[str]] = {
     "diag_quota": {"diag", "observation_model", "quota_projection"},
     "diag_watch": {"diag"},
     # M2
+    "batch": {"process_tree"},
     "host": {"manifest", "sqlite_tx"},
     "work": {"authoritative", "sqlite_tx"},
     "skills": {"authoritative", "boundary", "sqlite_tx"},

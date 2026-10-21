@@ -56,6 +56,8 @@ peerhub explain ask_blocked_uncertain
 
 ## Everyday commands
 
+[Batch runs](docs/batch.md): `peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run` validates a flat batch before execution.
+
 ```powershell
 # Persist the prompt, execute one provider, and persist its response.
 peerhub ask cx "Summarize this repository" --stream review --request-id review-001

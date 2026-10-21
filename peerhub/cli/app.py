@@ -8,6 +8,7 @@ Commands (canonical inventory: docs/implementation/command_inventory.json, deriv
   profile list / show   (read-only effective TOML)
   session list / show   (read-only, bounded and redacted)
   ask                 (provider execution and durable delivery)
+  batch run           (flat bounded-parallel asks)
   observation refresh (provider probes and persisted evidence)
   monitor             (collection plus dashboard)
   diag                (read-only dashboard, optionally live)
@@ -213,6 +214,15 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                             help="Abort after this many seconds without stdout/stderr; execution remains uncertain")
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
     ask_parser.add_argument("--json", action="store_true")
+
+    batch_parser = subparsers.add_parser("batch", help="Flat bounded-parallel asks")
+    batch_sub = batch_parser.add_subparsers(dest="action", required=True)
+    batch_run = batch_sub.add_parser("run", help="Run a validated task manifest")
+    batch_run.add_argument("manifest")
+    batch_run.add_argument("--batch-id", required=True)
+    batch_run.add_argument("--max-parallel", required=True, type=int)
+    batch_run.add_argument("--dry-run", action="store_true")
+    batch_run.add_argument("--json", action="store_true")
 
     profile_parser = subparsers.add_parser("profile", help="Inspect effective local model profiles (read-only)")
     profile_sub = profile_parser.add_subparsers(dest="action", required=True)
@@ -933,6 +943,76 @@ def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
     return result
 
 
+def _run_batch_cli(args: argparse.Namespace) -> int:
+    import signal
+    import threading
+    from dataclasses import replace
+
+    from peerhub.extensions import batch
+    from peerhub.extensions.peer_kinds import ALIASES
+
+    db = os.path.abspath(args.db)
+
+    def kind_of(peer: str) -> str | None:
+        if peer in ALIASES:
+            return ALIASES[peer]
+        try:
+            conn = sqlite3.connect(Path(db).as_uri() + "?mode=ro", uri=True)
+            try:
+                row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id = ?", (peer,)).fetchone()
+                return ALIASES.get(row[0]) if row else None
+            finally:
+                conn.close()
+        except sqlite3.OperationalError:
+            return None
+
+    try:
+        max_parallel = batch.check_max_parallel(args.max_parallel)
+        tasks = batch.load_manifest(args.manifest, batch_id=args.batch_id)
+        batch.validate_tasks(tasks, kind_of=kind_of)
+        tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
+        if args.dry_run:
+            rows: list[dict[str, Any]] = []
+            for task in tasks:
+                stream, request = batch.derive_ids(args.batch_id, task.task_id)
+                rows.append(dict(task_id=task.task_id, peer=task.peer, stream=stream,
+                                 request_id=request, writable=task.writable))
+            if args.json:
+                print(json.dumps(dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel, tasks=rows),
+                                 indent=2, ensure_ascii=True))
+            else:
+                print(f"Dry run: {args.batch_id} (max_parallel={max_parallel})")
+                print("TASK PEER STREAM REQUEST_ID WRITABLE")
+                for row in rows:
+                    print(f"{row['task_id']} {row['peer']} {row['stream']} {row['request_id']} {row['writable']}")
+            return 0
+        cancel = threading.Event()
+
+        def request_cancel(signum: int, frame: object) -> None:
+            cancel.set()
+
+        signals = [signal.SIGINT, signal.SIGTERM]
+        if sys.platform == "win32":
+            signals.append(signal.SIGBREAK)
+        previous: dict[int, Any] = {}
+        try:
+            for signum in signals:
+                previous[signum] = signal.signal(signum, request_cancel)
+            report = batch.run_batch(tasks, batch_id=args.batch_id, max_parallel=max_parallel,
+                                     db=db, cancel=cancel, argv_builder=batch.default_argv_builder)
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
+        print(json.dumps(report, indent=2, ensure_ascii=True) if args.json else batch.render_text(report))
+        return batch.exit_code(report)
+    except batch.ManifestError as exc:
+        if args.json:
+            print(json.dumps(dict(status="error", error=dict(code="invalid_manifest", message=str(exc))), ensure_ascii=True))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     tolerant_streams()
     parser = build_parser(prog=prog)
@@ -987,6 +1067,8 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":
             return _run_ask_cli(args, parser, argv)
+        if args.subcommand == "batch":
+            return _run_batch_cli(args)
         if args.subcommand == "profile":
             return _run_profile_cli(args)
         if args.subcommand == "session":

@@ -6,6 +6,12 @@ PeerHub remains on 0.x; breaking changes are called out explicitly.
 Historical entries are reconstructed from Git tags, commit subjects and PR titles;
 they do not claim new validation or publication evidence.
 
+## [Unreleased]
+
+### Added
+
+- `peerhub batch run` validates flat task manifests, executes bounded parallel asks, and reports delivery status with cancellation and stable resume identities.
+
 ## [0.21.6] - 2026-10-20
 
 ### Fixed

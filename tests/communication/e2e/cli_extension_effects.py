@@ -431,6 +431,42 @@ def session_inspection_effect(e, command, option):
         else:
             assert result["session"]["handle"] == argv[2]
 
+def batch_effect(e, option):
+    from peerhub.extensions import batch
+
+    path = e.tmp / "batch.json"
+    path.write_text(json.dumps({"tasks": [{"task_id": "a", "peer": "cx", "prompt": "review"}]}), encoding="utf-8")
+    db = e.tmp / "unused-batch.db"
+    argv = ["batch", "run", str(path), "--batch-id", "proof", "--max-parallel", "2", "--dry-run", "--json"]
+    if option == "manifest":
+        argv[2] = str(e.tmp / "absent.json")
+        code, out, err = e.run(db, *argv)
+        assert code == 1 and json.loads(out)["error"]["code"] == "invalid_manifest" and not err
+    elif option == "--json":
+        code, out, err = e.run(db, *argv)
+        assert code == 0 and json.loads(out)["dry_run"] and not err
+        argv.remove("--json")
+        code, out, err = e.run(db, *argv)
+        assert code == 0 and "TASK PEER STREAM REQUEST_ID WRITABLE" in out and not err
+    elif option == "--dry-run":
+        def forbidden(*args, **kwargs):
+            raise AssertionError("dry run executed")
+
+        with patch.object(batch, "run_batch", forbidden):
+            assert e.j(db, *argv)["dry_run"] is True
+    else:
+        first = e.j(db, *argv)
+        argv[argv.index(option) + 1] = "other" if option == "--batch-id" else "3"
+        second = e.j(db, *argv)
+        if option == "--batch-id":
+            assert first["batch_id"] != second["batch_id"]
+            assert first["tasks"][0]["stream"] != second["tasks"][0]["stream"]
+            assert first["tasks"][0]["request_id"] != second["tasks"][0]["request_id"]
+        else:
+            assert first["max_parallel"] == 2 and second["max_parallel"] == 3
+    assert not db.exists()
+
+
 def explain_effect(e, option):
     db = e.tmp / "unused-explain.db"
     if option == "--json":
@@ -453,6 +489,8 @@ EFFECT.update({f"ask {option}": (lambda e, option=option: session_selector_effec
                for option in ("--fresh", "--session")})
 EFFECT.update({f"explain {option}": (lambda e, option=option: explain_effect(e, option))
                for option in ("code", "--json")})
+EFFECT.update({f"batch run {option}": (lambda e, option=option: batch_effect(e, option))
+               for option in ("manifest", "--batch-id", "--max-parallel", "--dry-run", "--json")})
 EFFECT["diag --json"] = diag_json
 EFFECT["diag readiness --json"] = readiness_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))

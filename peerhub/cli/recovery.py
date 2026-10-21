@@ -164,6 +164,18 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
 
 
 REGISTRY: dict[str, GuidanceEntry] = {
+    "invalid_manifest": GuidanceEntry(
+        code="invalid_manifest",
+        meaning="Batch validation failed before any worker was launched.",
+        why="The manifest, peer resolution, workspace boundaries or batch options are invalid.",
+        recover=[{"argv": ["peerhub", "batch", "run", "tasks.json", "--batch-id", "BATCH_ID",
+                           "--max-parallel", "1", "--dry-run"],
+                  "purpose": "Correct the reported validation error and validate the manifest",
+                  "prereqs": "Use the intended manifest and batch identifier."}],
+        avoid="Do not change the batch identifier to bypass an uncertain earlier execution.",
+        docs="docs/batch.md",
+        exits=[{"code": 1, "context": "Batch manifest or option validation failed."}],
+    ),
     "ask_uncertain": GuidanceEntry(
         code="ask_uncertain",
         meaning="Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort).",
