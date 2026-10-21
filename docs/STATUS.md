@@ -2,9 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.22.2 (candidate)
+## Current source: v0.22.2 (published)
 
-v0.22.2 (supersedes the unpublished-to-PyPI v0.22.1) fixes Python 3.15 installs (`requires-python <3.16`) and the first-use `workspace.generation` race (#249). Previous published release: v0.22.0.
+v0.22.2 (supersedes v0.22.1, which never reached PyPI) fixes Python 3.15 installs (`requires-python <3.16`) and the first-use `workspace.generation` race (#249). Published 2026-10-21; previous published release: v0.22.0. Open follow-up: #248 (deferred scope index); #249 is fixed.
 
 v0.22.0 adds flat parallel `batch run` and immutable account-bound peers for cc/cx. See [batch runs](batch.md) and [accounts](accounts.md). Published 2026-10-21; previous published release: v0.21.6. Open follow-ups: #248 (deferred scope index) and #249 (`workspace.generation` first-use race).
 
@@ -20,6 +20,8 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
+| **v0.22.2** | `7fa5fd06` | PR #251, #252 | Published | Published 2026-10-21; tag `v0.22.2`; G3 passed bound to 7fa5fd06 (ag canary on gemini-4-argon-medium, #191); PyPI wheel + sdist; Python 3.15 support, #249 fix |
+| **v0.22.1** | `d45d4d06` | PR #251 | NEVER PUBLISHED TO PYPI | `publish.yml` `release-evidence` refused: gate still expected 8 matrix cells, 3.15 made it 10; superseded by v0.22.2 |
 | **v0.22.0** | `697e1574` | PR #247 | Published | Published 2026-10-21; tag `v0.22.0`; G3 passed bound to 697e1574 (ag canary on gemini-4-argon-medium, #191); PyPI wheel + sdist |
 | **v0.17.0** draft | `04eab676` (`release/0.17.0-monitor-groups`) | PR #106 | NEVER PUBLISHED | Content shipped in v0.18.0 |
 | **v0.18.0** | `dc510f4f` | PR #107 | Published | Published 2026-10-16 |
@@ -37,7 +39,13 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
 
-## Latest published release: v0.22.0 (tag v0.22.0, target 697e15743b50d9f3b02fec4ed2c3ee896c21dae9; PR #247)
+## Latest published release: v0.22.2 (tag v0.22.2, target 7fa5fd06c6acf82dd5b042c132650f4b02a217e0; PR #251, #252)
+
+Published 2026-10-21. `publish.yml` succeeded through verify, build, live-validation, release-matrix (Python 3.11-3.15 x Ubuntu/Windows), release-evidence and publish. PyPI has the 0.22.2 wheel and sdist (`requires-python >=3.11,<3.16`); a clean-virtualenv install from PyPI on CPython 3.15.0 passed `peerhub --version` (0.22.2) and `batch run --help`.
+
+G3 passed bound to `7fa5fd06`. ag G pools were exhausted, so the ag canary used `gemini-4-argon-medium` via `PEERHUB_LIVE_AG_MODEL`; the packaged `ag.standard` model was **not exercised** (#191). The owner allowed ag for this gate only and banned it again afterwards. Lesson: when the supported Python matrix changes, the `-ne N` cell count in `publish.yml` must change with it (v0.22.1 failed on this).
+
+## Previous published release: v0.22.0 (tag v0.22.0, target 697e15743b50d9f3b02fec4ed2c3ee896c21dae9; PR #247)
 
 Published 2026-10-21. `publish.yml` succeeded through verify, build, live-validation, release-matrix, release-evidence and publish. PyPI has the 0.22.0 wheel and sdist; a clean-virtualenv install smoke passed `peerhub --version` (0.22.0), `batch run --help` and `account --help`.
 
@@ -289,4 +297,4 @@ These issues remain open; they are separate from the closed deferred triage find
 | Issue | Scope / status |
 |---|---|
 | #248 | Deferred batch/account/Engram scope index; implementation remains deferred. |
-| #249 | `workspace.generation` first-use race; batch has a workaround, underlying race remains open. |
+| #249 | Fixed in v0.22.1/v0.22.2 (closed). |
