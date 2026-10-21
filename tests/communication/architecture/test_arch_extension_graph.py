@@ -10,8 +10,8 @@ ROOT = Path(__file__).resolve().parents[3] / "peerhub" / "extensions"
 # Edges inside one extension family (several modules that are one unit) and edges to neutral, dependency-free helpers.
 ALLOWED: dict[str, set[str]] = {
     # M1 Session Bridge entry
-    "ask": {"bridge", "bridge_claims", "observation", "observation_model", "peer_kinds", "adapters"},
-    "adapters": {"bridge", "binary_resolution", "process_tree", "usage_normalization"},  # runtime adapters implement the Session Bridge RuntimeTarget protocol
+    "ask": {"accounts", "bridge", "bridge_claims", "observation", "observation_model", "peer_kinds", "adapters"},
+    "adapters": {"accounts", "bridge", "binary_resolution", "process_tree", "usage_normalization"},  # runtime adapters implement the Session Bridge RuntimeTarget protocol
     "bridge": {"bridge_claims", "catchup", "schema_guard", "bridge_registry", "session_receipts"},
     "bridge_registry": {"session_receipts"},
     "session_receipts": {"usage_normalization"},
@@ -30,6 +30,8 @@ ALLOWED: dict[str, set[str]] = {
     "diag_quota": {"diag", "observation_model", "quota_projection"},
     "diag_watch": {"diag"},
     # M2
+    "accounts": {"peer_kinds"},
+    "batch": {"process_tree"},
     "host": {"manifest", "sqlite_tx"},
     "work": {"authoritative", "sqlite_tx"},
     "skills": {"authoritative", "boundary", "sqlite_tx"},
@@ -96,7 +98,7 @@ def test_extension_import_graph_matches_the_documented_allowlist():
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
     m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
           "quota_types", "diag", "diag_quota", "diag_readiness", "diag_watch", "peer_kinds", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts", "monitor_read_model", "usage_normalization"}
-    helpers = {"binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules
+    helpers = {"peer_kinds", "binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:
             continue

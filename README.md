@@ -24,7 +24,7 @@ peerhub --help
 peerhub --version
 ```
 
-This describes current source (v0.21.6, published). The public command is `peerhub`; the temporary milestone-specific entrypoint has been retired. `python -m peerhub` and `python -m peerhub.cli` use the same public CLI.
+This describes current source (v0.22.0 candidate, G3 pending); the latest published release is v0.21.6. The public command is `peerhub`; the temporary milestone-specific entrypoint has been retired. `python -m peerhub` and `python -m peerhub.cli` use the same public CLI.
 
 ## Core recipe
 
@@ -55,6 +55,10 @@ peerhub explain ask_blocked_uncertain
 ```
 
 ## Everyday commands
+
+[Account-bound peers](docs/accounts.md) isolate cc/cx vendor roots behind immutable peer identities; `peerhub account list` inspects bindings.
+
+[Batch runs](docs/batch.md): `peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run` validates a flat batch before execution.
 
 ```powershell
 # Persist the prompt, execute one provider, and persist its response.

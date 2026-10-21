@@ -8,6 +8,8 @@ Commands (canonical inventory: docs/implementation/command_inventory.json, deriv
   profile list / show   (read-only effective TOML)
   session list / show   (read-only, bounded and redacted)
   ask                 (provider execution and durable delivery)
+  batch run           (flat bounded-parallel asks)
+  account bind / list / show (immutable account-bound peers)
   observation refresh (provider probes and persisted evidence)
   monitor             (collection plus dashboard)
   diag                (read-only dashboard, optionally live)
@@ -213,6 +215,31 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                             help="Abort after this many seconds without stdout/stderr; execution remains uncertain")
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
     ask_parser.add_argument("--json", action="store_true")
+
+    account_parser = subparsers.add_parser("account", help="Immutable cc/cx account roots; peer register overwrite refuses later asks",
+                                          description="Bind a new peer and root for each account. No rebind/unbind. Overwriting a bound peer with peer register makes ask refuse; recover with a new peer and root.")
+    account_sub = account_parser.add_subparsers(dest="action", required=True)
+    account_bind = account_sub.add_parser("bind", help="Bind a new peer to a cc/cx account root")
+    account_bind.add_argument("--peer", required=True)
+    account_bind.add_argument("--provider", required=True)
+    account_bind.add_argument("--alias", required=True)
+    account_bind.add_argument("--root", required=True)
+    account_bind.add_argument("--json", action="store_true")
+    for action in ("list", "show"):
+        account_read = account_sub.add_parser(action, help=f"{action.title()} account bindings (read-only)")
+        if action == "show":
+            account_read.add_argument("--peer", required=True)
+        account_read.add_argument("--json", action="store_true")
+        account_read.add_argument("--show-root", action="store_true", help="Include stored configuration root paths")
+
+    batch_parser = subparsers.add_parser("batch", help="Flat bounded-parallel asks")
+    batch_sub = batch_parser.add_subparsers(dest="action", required=True)
+    batch_run = batch_sub.add_parser("run", help="Run a validated task manifest")
+    batch_run.add_argument("manifest")
+    batch_run.add_argument("--batch-id", required=True)
+    batch_run.add_argument("--max-parallel", required=True, type=int)
+    batch_run.add_argument("--dry-run", action="store_true")
+    batch_run.add_argument("--json", action="store_true")
 
     profile_parser = subparsers.add_parser("profile", help="Inspect effective local model profiles (read-only)")
     profile_sub = profile_parser.add_subparsers(dest="action", required=True)
@@ -933,6 +960,116 @@ def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
     return result
 
 
+def _run_account_cli(args: argparse.Namespace) -> int:
+    from dataclasses import asdict
+    from peerhub.extensions import accounts
+
+    try:
+        if args.action == "bind":
+            rows = [accounts.bind_account(args.db, peer_id=args.peer, provider=args.provider, alias=args.alias, root=args.root)]
+        elif args.action == "show":
+            binding = accounts.get_binding(args.db, args.peer)
+            if binding is None:
+                raise accounts.AccountError("account peer is not bound")
+            rows = [binding]
+        else:
+            rows = accounts.list_bindings(args.db)
+        output: list[dict[str, Any]] = []
+        for row in rows:
+            item = asdict(row)
+            if not getattr(args, "show_root", False):
+                item.pop("config_root")
+            output.append(item)
+        if args.json:
+            print(json.dumps(output if args.action == "list" else output[0], indent=2, ensure_ascii=True))
+        else:
+            print("PEER PROVIDER ALIAS SLOT_ID" + (" ROOT" if getattr(args, "show_root", False) else ""))
+            for item in output:
+                print(" ".join(str(item[key]) for key in ("peer_id", "provider", "alias", "slot_id"))
+                      + (f" {item['config_root']}" if "config_root" in item else ""))
+        return 0
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        message = "account binding violates a registry constraint" if isinstance(exc, sqlite3.IntegrityError) else str(exc)
+        if args.json:
+            print(json.dumps(dict(status="error", error=dict(code="account_invalid", message=message)), ensure_ascii=True))
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 1
+
+
+def _run_batch_cli(args: argparse.Namespace) -> int:
+    import signal
+    import threading
+    from dataclasses import replace
+
+    from peerhub.extensions import batch
+    from peerhub.extensions.peer_kinds import ALIASES
+
+    db = os.path.abspath(args.db)
+
+    def kind_of(peer: str) -> str | None:
+        if peer in ALIASES:
+            return ALIASES[peer]
+        try:
+            conn = sqlite3.connect(Path(db).as_uri() + "?mode=ro", uri=True)
+            try:
+                row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id = ?", (peer,)).fetchone()
+                return ALIASES.get(row[0]) if row else None
+            finally:
+                conn.close()
+        except sqlite3.OperationalError:
+            return None
+
+    try:
+        max_parallel = batch.check_max_parallel(args.max_parallel)
+        tasks = batch.load_manifest(args.manifest, batch_id=args.batch_id)
+        batch.validate_tasks(tasks, kind_of=kind_of)
+        tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
+        if args.dry_run:
+            rows: list[dict[str, Any]] = []
+            for task in tasks:
+                stream, request = batch.derive_ids(args.batch_id, task.task_id)
+                rows.append(dict(task_id=task.task_id, peer=task.peer, stream=stream,
+                                 request_id=request, writable=task.writable))
+            if args.json:
+                print(json.dumps(dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel, tasks=rows),
+                                 indent=2, ensure_ascii=True))
+            else:
+                print(f"Dry run: {args.batch_id} (max_parallel={max_parallel})")
+                print("TASK PEER STREAM REQUEST_ID WRITABLE")
+                for row in rows:
+                    print(f"{row['task_id']} {row['peer']} {row['stream']} {row['request_id']} {row['writable']}")
+            return 0
+        # Workers race to create workspace.generation on first use of a new workspace (WinError 32): create it once here.
+        from peerhub.core.workspace import Workspace
+        Workspace(Path(db).parent)
+        cancel = threading.Event()
+
+        def request_cancel(signum: int, frame: object) -> None:
+            cancel.set()
+
+        signals = [signal.SIGINT, signal.SIGTERM]
+        if sys.platform == "win32":
+            signals.append(signal.SIGBREAK)
+        previous: dict[int, Any] = {}
+        try:
+            for signum in signals:
+                previous[signum] = signal.signal(signum, request_cancel)
+            report = batch.run_batch(tasks, batch_id=args.batch_id, max_parallel=max_parallel,
+                                     db=db, cancel=cancel, argv_builder=batch.default_argv_builder)
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
+        print(json.dumps(report, indent=2, ensure_ascii=True) if args.json else batch.render_text(report))
+        return batch.exit_code(report)
+    except batch.ManifestError as exc:
+        if args.json:
+            print(json.dumps(dict(status="error", error=dict(code="invalid_manifest", message=str(exc))), ensure_ascii=True))
+        else:
+            print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     tolerant_streams()
     parser = build_parser(prog=prog)
@@ -987,6 +1124,10 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":
             return _run_ask_cli(args, parser, argv)
+        if args.subcommand == "account":
+            return _run_account_cli(args)
+        if args.subcommand == "batch":
+            return _run_batch_cli(args)
         if args.subcommand == "profile":
             return _run_profile_cli(args)
         if args.subcommand == "session":

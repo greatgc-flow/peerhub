@@ -164,6 +164,29 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
 
 
 REGISTRY: dict[str, GuidanceEntry] = {
+    "account_invalid": GuidanceEntry(
+        code="account_invalid",
+        meaning="Account binding or launch validation failed before provider execution.",
+        why="The peer identity, immutable registry entry or protected root boundary is invalid.",
+        recover=[{"argv": ["peerhub", "account", "show", "--peer", "PEER_ID", "--show-root"],
+                  "purpose": "Inspect the binding and correct the reported validation problem",
+                  "prereqs": "Use the intended peer and selected store."}],
+        avoid="Do not overwrite or reuse a binding for another login; bind a new peer and root.",
+        docs="docs/accounts.md",
+        exits=[{"code": 1, "context": "Account registration or launch validation failed."}],
+    ),
+    "invalid_manifest": GuidanceEntry(
+        code="invalid_manifest",
+        meaning="Batch validation failed before any worker was launched.",
+        why="The manifest, peer resolution, workspace boundaries or batch options are invalid.",
+        recover=[{"argv": ["peerhub", "batch", "run", "tasks.json", "--batch-id", "BATCH_ID",
+                           "--max-parallel", "1", "--dry-run"],
+                  "purpose": "Correct the reported validation error and validate the manifest",
+                  "prereqs": "Use the intended manifest and batch identifier."}],
+        avoid="Do not change the batch identifier to bypass an uncertain earlier execution.",
+        docs="docs/batch.md",
+        exits=[{"code": 1, "context": "Batch manifest or option validation failed."}],
+    ),
     "ask_uncertain": GuidanceEntry(
         code="ask_uncertain",
         meaning="Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort).",

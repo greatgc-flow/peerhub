@@ -2,7 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.21.6 (published)
+## Current source: v0.22.0 (candidate; G3 pending)
+
+v0.22.0 candidate adds flat parallel `batch run` and immutable account-bound peers for cc/cx. See [batch runs](batch.md) and [accounts](accounts.md). Publication is blocked on full G3, which requires ag; the owner banned ag use on 2026-10-21. Latest published release remains v0.21.6.
 
 v0.21.6: seven audit fixes (#205 #210 #229 #230 #232 #239 #240) and the Known deferred defects index (#241). Previous: v0.21.5.
 
@@ -16,6 +18,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
+| **v0.22.0** | Working tree | — | Candidate - G3 pending | Batch runs and cc/cx account-bound peers; full G3 requires ag, banned by owner on 2026-10-21 |
 | **v0.17.0** draft | `04eab676` (`release/0.17.0-monitor-groups`) | PR #106 | NEVER PUBLISHED | Content shipped in v0.18.0 |
 | **v0.18.0** | `dc510f4f` | PR #107 | Published | Published 2026-10-16 |
 | **v0.18.1** draft + tag | `75677b07` | PR #109 | NEVER PUBLISHED | Content shipped in v0.18.2 |

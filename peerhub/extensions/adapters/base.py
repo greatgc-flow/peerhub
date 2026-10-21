@@ -20,11 +20,14 @@ import uuid
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Sequence, cast
 
 from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_S, BoundedProcess, ProcessResult,
                                                  SpawnFailure, check_argv, decode_stderr, run_bounded)
-from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets
+if TYPE_CHECKING:
+    from peerhub.extensions.accounts import AccountRef, AccountSnapshot
+
+from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets, path_secrets
 from peerhub.extensions.bridge import PrespawnError, RuntimeEvent, RuntimeTargetError
 
 MAX_PROMPT_BYTES = 1_000_000
@@ -880,9 +883,12 @@ class CliRuntimeTarget:
                  profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False,
                  command: Sequence[str] | None = None, timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
                  env_extra: Mapping[str, str] | None = None, extra_secrets: Iterable[str] = (),
-                 on_output: Callable[[str], None] | None = None) -> None:
+                 on_output: Callable[[str], None] | None = None,
+                 account: AccountRef | None = None, env_unset: Iterable[str] = ()) -> None:
         if kind not in SPECS:
             raise ValueError(f"unknown provider kind {kind!r}")
+        if account is not None and kind not in ("cc", "cx"):
+            raise PrespawnError("account isolation supports cc/cx only; ag authentication lives in the OS keyring")
         if silence_timeout_s is not None and (not math.isfinite(silence_timeout_s) or silence_timeout_s <= 0):
             raise ValueError("silence timeout must be finite and positive")
         if profile is not None:
@@ -914,9 +920,43 @@ class CliRuntimeTarget:
         self._on_output = on_output
         self._active_lock = threading.Lock()
         self._active: dict[str, BoundedProcess] = {}
-        self._env = {**os.environ, **(env_extra or {})}
-        self._san = Sanitizer(secrets=[*env_secrets(self._env), *extra_secrets])
+        self._account = account
+        self._parent_env = dict(os.environ)
+        self._env_extra = dict(env_extra or {})
+        self._extra_secrets = tuple(extra_secrets)
+        unset = {name.upper() for name in env_unset}
+        self._env_unset = unset
+        merged = {**self._parent_env, **self._env_extra}
+        self._child_env: dict[str, str] | None = (
+            None if account is not None else {name: value for name, value in merged.items() if name.upper() not in unset})
+        self.env_scrubbed: list[str] = []
+        self._san = Sanitizer(secrets=[*env_secrets(merged), *self._extra_secrets])
         self.evidence: deque[dict[str, Any]] = deque(maxlen=100)  # sanitized and bounded
+
+    @property
+    def _env(self) -> dict[str, str]:
+        if self._child_env is None:
+            raise PrespawnError("account environment has not been bound")
+        return self._child_env
+
+    def bind_account_env(self, snapshot: AccountSnapshot) -> None:
+        from peerhub.extensions.accounts import ROOT_VARS, scrub_names
+
+        if self._account is None or snapshot.slot_id != self._account.slot_id or snapshot.provider != self.runtime_kind:
+            raise PrespawnError("account snapshot does not match target identity")
+        root_var = ROOT_VARS[snapshot.provider]
+        merged = {**self._parent_env, **self._env_extra}
+        self.env_scrubbed = scrub_names(self._parent_env, snapshot.provider)
+        removed = {name.upper() for name in scrub_names(merged, snapshot.provider)} | self._env_unset
+        # Normalize the root variable's spelling so mixed-case keys cannot win.
+        self._child_env = {name: value for name, value in merged.items()
+                           if name.upper() not in removed and name.upper() != root_var}
+        self._child_env[root_var] = str(snapshot.root_realpath)
+        self._san = Sanitizer(secrets=[*env_secrets(self._parent_env), *env_secrets(merged),
+                                      *self._extra_secrets, *path_secrets(str(snapshot.root_realpath))])
+
+    def execution_metadata(self) -> dict[str, Any]:
+        return {"env_scrubbed": list(self.env_scrubbed)} if self._account is not None else {}
 
     @property
     def can_resume(self) -> bool:
@@ -1000,6 +1040,8 @@ class CliRuntimeTarget:
         binding = f"{self._profile}/{binding}" if self._profile is not None else binding
         # The provider cwd and write mode decide whether a native session may be reused; keep the path itself out of Records.
         scope = f"{os.path.normcase(str(Path(self._workspace).resolve()))}|{'w' if self._writable else 'r'}"
+        if self._account is not None:
+            scope += f"|acct:{self._account.slot_id}"
         return f"{binding}#{hashlib.sha256(scope.encode('utf-8')).hexdigest()[:12]}"
 
     def session_binding(self) -> dict[str, Any]:
@@ -1283,6 +1325,8 @@ class CliRuntimeTarget:
             raise RuntimeTargetError(san.clean(f"unparseable {self.runtime_kind} output: {err_msg}", EXCERPT_CHARS)) from e
         cleaned_response = self._san.clean(text)
         payload: dict[str, Any] = {"response": cleaned_response}  # secrets redacted; the prompt may legitimately be quoted
+        if self._account is not None:
+            payload["env_scrubbed"] = list(self.env_scrubbed)
         if not cleaned_response.strip():
             payload["empty_response"] = True
             payload["task_effects"] = "unverified"

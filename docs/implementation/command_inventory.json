@@ -1,6 +1,121 @@
 {
   "commands": [
     {
+      "command": "account bind",
+      "options": [
+        {
+          "default": null,
+          "dest": "alias",
+          "flags": [
+            "--alias"
+          ],
+          "positional": false,
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": false,
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "peer",
+          "flags": [
+            "--peer"
+          ],
+          "positional": false,
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "provider",
+          "flags": [
+            "--provider"
+          ],
+          "positional": false,
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "root",
+          "flags": [
+            "--root"
+          ],
+          "positional": false,
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "account list",
+      "options": [
+        {
+          "default": false,
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": false,
+          "dest": "show_root",
+          "flags": [
+            "--show-root"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
+    },
+    {
+      "command": "account show",
+      "options": [
+        {
+          "default": false,
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "peer",
+          "flags": [
+            "--peer"
+          ],
+          "positional": false,
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": false,
+          "dest": "show_root",
+          "flags": [
+            "--show-root"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
+    },
+    {
       "command": "ask",
       "options": [
         {
@@ -173,6 +288,61 @@
           ],
           "positional": true,
           "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "batch run",
+      "options": [
+        {
+          "default": null,
+          "dest": "batch_id",
+          "flags": [
+            "--batch-id"
+          ],
+          "positional": false,
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": false,
+          "dest": "dry_run",
+          "flags": [
+            "--dry-run"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": false,
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "max_parallel",
+          "flags": [
+            "--max-parallel"
+          ],
+          "positional": false,
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "manifest",
+          "flags": [
+            "manifest"
+          ],
+          "positional": true,
+          "required": true,
           "takes_value": true
         }
       ]
@@ -961,6 +1131,14 @@
     }
   ],
   "groups": [
+    {
+      "command": "account",
+      "options": []
+    },
+    {
+      "command": "batch",
+      "options": []
+    },
     {
       "command": "diag",
       "options": [

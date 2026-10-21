@@ -34,6 +34,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 | Outcome Code | Exit Code | Meaning | Safe Recovery Action | Avoid |
 |---|---|---|---|---|
+| `account_invalid` | 1 | Account binding or launch validation failed before provider execution. | `peerhub account show --peer PEER_ID --show-root` (Inspect the binding and correct the reported validation problem) | Do not overwrite or reuse a binding for another login; bind a new peer and root. |
 | `ask_blocked_uncertain` | 1 | New request on this stream is blocked because an earlier record on the stream ended in an uncertain state. | `peerhub diag health --stream STREAM_ID` (Inspect the blocked stream and review uncommitted evidence) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Abandon the blocked stream and continue genuinely new work on a new stream with a summary of prior context. If the ask used the default timeout, do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more). |
 | `ask_cas_conflict` | 3 | A compare-and-swap revision check failed. | `peerhub diag health --stream STREAM_ID` (Inspect current stream state before retrying the original request) | Do not bypass revision checks or change the request ID to force another execution; resolve uncertain delivery first. |
 | `ask_claim_held` | 1 | A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream. | `peerhub diag health --stream STREAM_ID` (Inspect store connectivity and stream activity (note: diag health checks store and stream records, not active in-memory leases or claims)) | Do not delete claim tables or database files, do not force --fresh, and do not bypass claim contention with duplicate request IDs. |
@@ -46,8 +47,19 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `ask_stream_peer_mismatch` | 2 | The target stream is already bound to a different ask target peer. | `peerhub stream list` (Inspect existing streams and select or create a stream for this peer) | Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding. |
 | `ask_uncertain` | 1 | Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort). | `peerhub diag health --stream STREAM_ID` (Inspect stream health and check for uncommitted or partial activity) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. If the ask used the default timeout, do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more). |
 | `ask_unexpected_failure` | 1 or 2 (context-dependent) | An unclassified or unexpected error occurred during ask dispatch. | `peerhub diag health` (Inspect diagnostic evidence and stream state) | Do not retry destructive actions or invent unverified recovery commands. |
+| `invalid_manifest` | 1 | Batch validation failed before any worker was launched. | `peerhub batch run tasks.json --batch-id BATCH_ID --max-parallel 1 --dry-run` (Correct the reported validation error and validate the manifest) | Do not change the batch identifier to bypass an uncertain earlier execution. |
 
 ### Detailed Recovery Advice by Outcome Code
+
+#### `account_invalid`
+
+- **Exit Code**: 1
+- **Meaning**: Account binding or launch validation failed before provider execution.
+- **Why**: The peer identity, immutable registry entry or protected root boundary is invalid.
+- **Safe Recovery Actions**:
+  1. `peerhub account show --peer PEER_ID --show-root`: Inspect the binding and correct the reported validation problem (Prerequisites: Use the intended peer and selected store.)
+- **Avoid**: Do not overwrite or reuse a binding for another login; bind a new peer and root.
+- **Documentation**: [docs/accounts.md](accounts.md)
 
 #### `ask_blocked_uncertain`
 
@@ -176,6 +188,16 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
   1. `peerhub diag health`: Inspect diagnostic evidence and stream state (Prerequisites: None.)
 - **Avoid**: Do not retry destructive actions or invent unverified recovery commands.
 - **Documentation**: [docs/remote-ask.md](remote-ask.md)
+
+#### `invalid_manifest`
+
+- **Exit Code**: 1
+- **Meaning**: Batch validation failed before any worker was launched.
+- **Why**: The manifest, peer resolution, workspace boundaries or batch options are invalid.
+- **Safe Recovery Actions**:
+  1. `peerhub batch run tasks.json --batch-id BATCH_ID --max-parallel 1 --dry-run`: Correct the reported validation error and validate the manifest (Prerequisites: Use the intended manifest and batch identifier.)
+- **Avoid**: Do not change the batch identifier to bypass an uncertain earlier execution.
+- **Documentation**: [docs/batch.md](batch.md)
 
 ## Session Lifecycle & State Definitions
 

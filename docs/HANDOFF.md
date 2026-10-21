@@ -3,7 +3,22 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-20 — post-v0.21.6)
+## 0. Current checkpoint (2026-10-21 — v0.22.0 candidate)
+
+v0.22.0 is a candidate for `batch run` and account-bound peers (cc/cx).
+Design and usage: [batch runs](batch.md) and [accounts](accounts.md).
+[STATUS](STATUS.md) tracks candidate validation; v0.21.6 remains the latest published release.
+
+- ag multi-account is unsupported: authentication lives in the OS keyring; `GEMINI_DIR` is inert.
+- Bindings are immutable: no rebind/unbind; a new login or root requires a new peer and root.
+- Bound children scrub provider override variables case-insensitively and disclose removed names, never values, in results and durable evidence.
+- Batches use one public-CLI subprocess per task with explicit bounded parallelism.
+- Launched worker outcomes default to UNCERTAIN without positive execution evidence; never retry uncertainty blindly.
+- P3 quota/monitor support for bound peers is deferred; default-account quota does not describe bound peers.
+- Engram work is deferred except the `GEMINI_DIR` correction.
+- Release is blocked on full G3, which needs ag; the owner banned ag use on 2026-10-21. No live gate is authorized by this checkpoint.
+
+### Superseded checkpoint (2026-10-20 — post-v0.21.6)
 
 - **State:** v0.21.6 is published (tag v0.21.6, PyPI confirmed). No release in preparation; no open issues. Audit triage #241: 7 applied, 2 invalid, 31 deferred (docs/STATUS.md index).
 - **Scope:** #195 denied tool actions and #189 monitor leftovers. Decision (user, 2026-10-20): NO peer-scoped live gate; full fail-closed G3 only.
