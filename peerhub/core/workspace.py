@@ -70,15 +70,26 @@ class Workspace:
         self.db_path = self.root / "core.db"
         self._gen = self.root / "workspace.generation"
         if not self._gen.exists():
-            self._write_generation(uuid.uuid4().hex)
+            self._write_generation(uuid.uuid4().hex, create_only=True)
 
-    def _write_generation(self, value: str) -> None:
-        tmp = self._gen.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.write(value)
-            f.flush()
-            os.fsync(f.fileno())  # data durable BEFORE the rename, so a power loss never leaves an empty identity file
-        os.replace(tmp, self._gen)  # atomic: readers see the old or the new identity, never a partial one
+    def _write_generation(self, value: str, create_only: bool = False) -> None:
+        tmp = self._gen.with_name(f"{self._gen.name}.{uuid.uuid4().hex}.tmp")  # unique per writer: concurrent writers never share a temp file
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(value)
+                f.flush()
+                os.fsync(f.fileno())  # data durable BEFORE the rename, so a power loss never leaves an empty identity file
+            if create_only:
+                try:
+                    os.link(tmp, self._gen)  # atomic create-if-absent: the first concurrent initializer wins
+                except OSError:
+                    if not self._gen.exists():
+                        raise
+                    return  # lost the init race; adopt the winner's identity
+            else:
+                os.replace(tmp, self._gen)  # atomic: readers see the old or the new identity, never a partial one
+        finally:
+            tmp.unlink(missing_ok=True)
         _fsync_dir(self.root)
 
     def generation(self) -> str:

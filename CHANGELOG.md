@@ -8,6 +8,13 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-10-21
+
+### Fixed
+
+- Python 3.15 support: `requires-python` cap raised to `<3.16`, 3.15 added to classifiers and the CI/publish matrices (full suite passes on CPython 3.15.0).
+- Concurrent first use of a fresh workspace no longer races on `workspace.generation` (#249): unique temp file per writer and atomic create-if-absent.
+
 ## [0.22.0] - 2026-10-21
 
 ### Added
