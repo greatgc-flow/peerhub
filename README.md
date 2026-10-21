@@ -4,7 +4,7 @@ A durable communication layer for collaborating AI peers. The Core owns only Pee
 
 ## Install
 
-Requires Python 3.11–3.14. Choose one:
+Requires Python 3.11–3.15. Choose one:
 
 ```powershell
 pipx install peerhub
@@ -16,7 +16,7 @@ A winget package is not provided.
 
 ## Develop from this checkout
 
-Requires Python 3.11–3.14.
+Requires Python 3.11–3.15.
 
 ```powershell
 python -m pip install -e ".[dev]"

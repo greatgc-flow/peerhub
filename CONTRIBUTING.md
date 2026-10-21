@@ -5,7 +5,7 @@ multiple AI peers.
 
 ## Development setup
 
-peerhub requires Python 3.11–3.14. Clone the repository, then install its
+peerhub requires Python 3.11–3.15. Clone the repository, then install its
 development dependencies with the editable install documented in the
 [README setup section](README.md#develop-from-this-checkout):
 
@@ -174,7 +174,7 @@ G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. `build` and
 `live-validation` then run in parallel: build produces and tests the wheel and
 sdist, while live-validation fetches the three release assets. After build, the
 8-cell matrix tests the built distributions on Ubuntu/Windows with Python
-3.11–3.14. `release-evidence` waits for verify, build, live-validation and the
+3.11–3.15. `release-evidence` waits for verify, build, live-validation and the
 matrix. `publish` uses PyPI OIDC and runs only for a published release.
 
 To exercise the workflow without publishing:

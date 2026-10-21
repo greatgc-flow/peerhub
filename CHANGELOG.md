@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- Python 3.15 support: `requires-python` cap raised to `<3.16`, 3.15 added to classifiers and the CI/publish matrices (full suite passes on CPython 3.15.0).
+
 ## [0.22.0] - 2026-10-21
 
 ### Added

@@ -21,7 +21,7 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     assert "schedule" in triggers and "workflow_dispatch" in triggers
     matrix = jobs["full-matrix"]["strategy"]["matrix"]
     assert matrix == {"os": ["ubuntu-latest", "windows-latest"],
-                      "python-version": ["3.11", "3.12", "3.13", "3.14"]}
+                      "python-version": ["3.11", "3.12", "3.13", "3.14", "3.15"]}
     assert "schedule" in jobs["full-matrix"]["if"] and "inputs.full_matrix" in jobs["full-matrix"]["if"]
     smoke = jobs["compatibility-smoke"]["strategy"]["matrix"]["include"]
     assert len(smoke) == 6
