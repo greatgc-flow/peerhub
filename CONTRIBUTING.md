@@ -173,7 +173,7 @@ Publishing the draft triggers `.github/workflows/publish.yml`: `verify` runs
 G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. `build` and
 `live-validation` then run in parallel: build produces and tests the wheel and
 sdist, while live-validation fetches the three release assets. After build, the
-8-cell matrix tests the built distributions on Ubuntu/Windows with Python
+10-cell matrix tests the built distributions on Ubuntu/Windows with Python
 3.11–3.15. `release-evidence` waits for verify, build, live-validation and the
 matrix. `publish` uses PyPI OIDC and runs only for a published release.
 

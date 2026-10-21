@@ -264,8 +264,8 @@ jobs:
           junit_args=(--junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml)
           for f in junit/g4-matrix-*.xml; do test ! -e "$f" || junit_args+=(--junit "$f"); done
           rc_junits=(junit/g2-rc-matrix-*.xml)
-          if [[ ! -e "${rc_junits[0]}" || ${#rc_junits[@]} -ne 8 ]]; then
-            echo "::error::Expected all 8 full release-candidate matrix JUnit files; found ${#rc_junits[@]}"
+          if [[ ! -e "${rc_junits[0]}" || ${#rc_junits[@]} -ne 10 ]]; then
+            echo "::error::Expected all 10 full release-candidate matrix JUnit files; found ${#rc_junits[@]}"
             exit 1
           fi
           for f in "${rc_junits[@]}"; do junit_args+=(--junit "$f"); done

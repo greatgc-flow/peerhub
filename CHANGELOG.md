@@ -8,6 +8,12 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-10-21
+
+### Fixed
+
+- Release workflow expects all 10 release-candidate matrix cells (Python 3.11-3.15 x Ubuntu/Windows); v0.22.1 added 3.15 but kept the 8-cell check, so its `release-evidence` job refused and nothing was uploaded to PyPI. v0.22.1 is superseded by v0.22.2, which carries the same Python 3.15 and #249 fixes.
+
 ## [0.22.1] - 2026-10-21
 
 ### Fixed

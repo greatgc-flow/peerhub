@@ -361,7 +361,7 @@ def workflow_problems(wf):
             bad.append("release-evidence must need the matrix job and read its per-cell JUnit files")
     if ("release-matrix" not in wf["jobs"]["release-evidence"].get("needs", [])
             or "release-matrix" not in wf["jobs"]["publish"].get("needs", [])
-            or "${#rc_junits[@]} -ne 8" not in ev_run or "g2-rc-matrix-" not in ev_run):
+            or "${#rc_junits[@]} -ne 10" not in ev_run or "g2-rc-matrix-" not in ev_run):
         bad.append("release evidence and publish must require all eight release-candidate matrix cells")
     pub = wf["jobs"]["publish"]
     cond = str(pub.get("if", ""))
