@@ -1,0 +1,255 @@
+{
+  "providers": {
+    "ag": {
+      "canary": {
+        "certainty": "TERMINAL",
+        "duration_s": 11.12,
+        "effort": null,
+        "error": null,
+        "evidence_kinds": [
+          "attempt_created",
+          "about_to_invoke",
+          "started",
+          "session_call",
+          "terminal",
+          "session_telemetry",
+          "response_appended",
+          "offset_acked"
+        ],
+        "model": "gemini-4-argon-medium",
+        "model_override": true,
+        "profile": "ag.standard",
+        "project_tree_changed": [],
+        "provider_ws_files_after": [],
+        "response_chars": 3,
+        "response_contains_ok": true,
+        "response_record": true,
+        "status": "delivered",
+        "workspace_outside_project": true
+      },
+      "capabilities": {
+        "interrupt": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "resume": {
+          "cli_status": "supported",
+          "fallback": "fresh session generation with Stream catch-up",
+          "reason": "explicit vendor session binding",
+          "source": "adapter",
+          "status": "supported"
+        },
+        "steer": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "terminate": {
+          "reason": "kills active local process tree and observes exit",
+          "source": "adapter",
+          "status": "supported"
+        }
+      },
+      "discovery": {
+        "available": true,
+        "capabilities": {
+          "interrupt": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "resume": {
+            "cli_status": "supported",
+            "fallback": "fresh session generation with Stream catch-up",
+            "reason": "explicit vendor session binding",
+            "source": "adapter",
+            "status": "supported"
+          },
+          "steer": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "terminate": {
+            "reason": "kills active local process tree and observes exit",
+            "source": "adapter",
+            "status": "supported"
+          }
+        },
+        "observed_at": "2026-10-21T04:12:31+00:00",
+        "reason": null,
+        "version": "1.4.3",
+        "version_line": "1.4.3"
+      }
+    },
+    "cc": {
+      "canary": {
+        "certainty": "TERMINAL",
+        "duration_s": 4.22,
+        "effort": null,
+        "error": null,
+        "evidence_kinds": [
+          "attempt_created",
+          "about_to_invoke",
+          "started",
+          "session_call",
+          "terminal",
+          "session_telemetry",
+          "response_appended",
+          "offset_acked"
+        ],
+        "model": "claude-haiku-5-5",
+        "model_override": false,
+        "profile": "cc.standard",
+        "project_tree_changed": [],
+        "provider_ws_files_after": [],
+        "response_chars": 2,
+        "response_contains_ok": true,
+        "response_record": true,
+        "status": "delivered",
+        "workspace_outside_project": true
+      },
+      "capabilities": {
+        "interrupt": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "resume": {
+          "cli_status": "supported",
+          "fallback": "fresh session generation with Stream catch-up",
+          "reason": "explicit vendor session binding",
+          "source": "adapter",
+          "status": "supported"
+        },
+        "steer": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "terminate": {
+          "reason": "kills active local process tree and observes exit",
+          "source": "adapter",
+          "status": "supported"
+        }
+      },
+      "discovery": {
+        "available": true,
+        "capabilities": {
+          "interrupt": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "resume": {
+            "cli_status": "supported",
+            "fallback": "fresh session generation with Stream catch-up",
+            "reason": "explicit vendor session binding",
+            "source": "adapter",
+            "status": "supported"
+          },
+          "steer": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "terminate": {
+            "reason": "kills active local process tree and observes exit",
+            "source": "adapter",
+            "status": "supported"
+          }
+        },
+        "observed_at": "2026-10-21T04:12:19+00:00",
+        "reason": null,
+        "version": "2.1.306",
+        "version_line": "2.1.306 (Claude Code)"
+      }
+    },
+    "cx": {
+      "canary": {
+        "certainty": "TERMINAL",
+        "duration_s": 5.46,
+        "effort": "low",
+        "error": null,
+        "evidence_kinds": [
+          "attempt_created",
+          "about_to_invoke",
+          "started",
+          "session_call",
+          "terminal",
+          "session_telemetry",
+          "response_appended",
+          "offset_acked"
+        ],
+        "model": "gpt-6-luna",
+        "model_override": false,
+        "profile": "cx.standard",
+        "project_tree_changed": [],
+        "provider_ws_files_after": [],
+        "response_chars": 2,
+        "response_contains_ok": true,
+        "response_record": true,
+        "status": "delivered",
+        "workspace_outside_project": true
+      },
+      "capabilities": {
+        "interrupt": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "resume": {
+          "cli_status": "supported",
+          "fallback": "fresh session generation with Stream catch-up",
+          "reason": "explicit vendor session binding",
+          "source": "adapter",
+          "status": "supported"
+        },
+        "steer": {
+          "reason": "not implemented by this adapter",
+          "source": "adapter",
+          "status": "unsupported"
+        },
+        "terminate": {
+          "reason": "kills active local process tree and observes exit",
+          "source": "adapter",
+          "status": "supported"
+        }
+      },
+      "discovery": {
+        "available": true,
+        "capabilities": {
+          "interrupt": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "resume": {
+            "cli_status": "supported",
+            "fallback": "fresh session generation with Stream catch-up",
+            "reason": "explicit vendor session binding",
+            "source": "adapter",
+            "status": "supported"
+          },
+          "steer": {
+            "reason": "not implemented by this adapter",
+            "source": "adapter",
+            "status": "unsupported"
+          },
+          "terminate": {
+            "reason": "kills active local process tree and observes exit",
+            "source": "adapter",
+            "status": "supported"
+          }
+        },
+        "observed_at": "2026-10-21T04:12:24+00:00",
+        "reason": null,
+        "version": "0.163.0",
+        "version_line": "codex-cli 0.163.0"
+      }
+    }
+  },
+  "schema": "peerhub-m1-live-evidence/1",
+  "updated_at": "2026-10-21T04:12:43+00:00"
+}
