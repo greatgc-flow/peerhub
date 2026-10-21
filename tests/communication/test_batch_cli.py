@@ -165,3 +165,20 @@ def test_text_output(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr(batch, "default_argv_builder", builder)
     assert main(argv(tmp_path, path)) == 0
     assert "COMPLETED" in capsys.readouterr().out
+
+
+def test_real_run_creates_workspace_generation_before_launching_workers(tmp_path, monkeypatch, capsys):
+    """First-use race: concurrent workers must never be the ones creating workspace.generation."""
+    from peerhub.cli.app import main
+    from peerhub.extensions import batch
+    seen = []
+
+    def fake_run(tasks, *, batch_id, max_parallel, db, **kw):
+        seen.append((tmp_path / "ws" / "workspace.generation").is_file())
+        return {"batch_id": batch_id, "max_parallel": max_parallel, "tasks": []}
+
+    monkeypatch.setattr(batch, "run_batch", fake_run)
+    m = tmp_path / "m.json"
+    m.write_text('{"tasks":[{"task_id":"a","peer":"cc","prompt":"x"}]}', encoding="utf-8")
+    main(["--db", str(tmp_path / "ws" / "core.db"), "batch", "run", str(m), "--batch-id", "b", "--max-parallel", "1", "--json"])
+    assert seen == [True]

@@ -38,7 +38,7 @@ def status_of(report):
 
 def events(tmp_path):
     rows = [ln.split() for p in tmp_path.glob("events-*.log") for ln in p.read_text().splitlines()]
-    return [(k, t, float(ts)) for k, t, ts in rows]
+    return sorted(((k, t, float(ts)) for k, t, ts in rows), key=lambda e: e[2])
 
 
 def alive(pid):

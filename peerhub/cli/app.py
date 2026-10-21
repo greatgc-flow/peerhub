@@ -1040,6 +1040,9 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
                 for row in rows:
                     print(f"{row['task_id']} {row['peer']} {row['stream']} {row['request_id']} {row['writable']}")
             return 0
+        # Workers race to create workspace.generation on first use of a new workspace (WinError 32): create it once here.
+        from peerhub.core.workspace import Workspace
+        Workspace(Path(db).parent)
         cancel = threading.Event()
 
         def request_cancel(signum: int, frame: object) -> None:
