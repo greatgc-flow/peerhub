@@ -157,7 +157,7 @@ def test_release_workflow_runs_full_matrix_before_pyPI_publish():
                          if step.get("uses", "").startswith("actions/checkout@")]
         if checkout_refs:
             assert all(ref == "${{ github.sha }}" for ref in checkout_refs)
-    assert "${#rc_junits[@]} -ne 8" in release_text
+    assert "${#rc_junits[@]} -ne 10" in release_text
     assert 'TAG_SHA="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"' in release_text
     for job_name in ("build", "release-matrix"):
         checkout = next(step for step in jobs[job_name]["steps"] if step.get("uses", "").startswith("actions/checkout@"))

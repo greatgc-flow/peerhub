@@ -2,9 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.22.1 (candidate)
+## Current source: v0.22.2 (candidate)
 
-v0.22.1 fixes Python 3.15 installs (`requires-python <3.16`) and the first-use `workspace.generation` race (#249). Previous published release: v0.22.0.
+v0.22.2 (supersedes the unpublished-to-PyPI v0.22.1) fixes Python 3.15 installs (`requires-python <3.16`) and the first-use `workspace.generation` race (#249). Previous published release: v0.22.0.
 
 v0.22.0 adds flat parallel `batch run` and immutable account-bound peers for cc/cx. See [batch runs](batch.md) and [accounts](accounts.md). Published 2026-10-21; previous published release: v0.21.6. Open follow-ups: #248 (deferred scope index) and #249 (`workspace.generation` first-use race).
 
