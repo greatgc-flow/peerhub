@@ -3,11 +3,11 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-21 — v0.22.0 candidate)
+## 0. Current checkpoint (2026-10-21 — post-v0.22.0)
 
-v0.22.0 is a candidate for `batch run` and account-bound peers (cc/cx).
+**State:** v0.22.0 is published (tag v0.22.0, target `697e15743b50d9f3b02fec4ed2c3ee896c21dae9`, PR #247; PyPI wheel + sdist and clean-virtualenv install smoke confirmed). No release in preparation.
 Design and usage: [batch runs](batch.md) and [accounts](accounts.md).
-[STATUS](STATUS.md) tracks candidate validation; v0.21.6 remains the latest published release.
+[STATUS](STATUS.md) records publication and validation. Open follow-ups: #248 (deferred scope index), #249 (`workspace.generation` first-use race). **Next:** none pending.
 
 - ag multi-account is unsupported: authentication lives in the OS keyring; `GEMINI_DIR` is inert.
 - Bindings are immutable: no rebind/unbind; a new login or root requires a new peer and root.
@@ -16,7 +16,7 @@ Design and usage: [batch runs](batch.md) and [accounts](accounts.md).
 - Launched worker outcomes default to UNCERTAIN without positive execution evidence; never retry uncertainty blindly.
 - P3 quota/monitor support for bound peers is deferred; default-account quota does not describe bound peers.
 - Engram work is deferred except the `GEMINI_DIR` correction.
-- Release is blocked on full G3, which needs ag; the owner banned ag use on 2026-10-21. No live gate is authorized by this checkpoint.
+- G3 passed bound to `697e1574`: ag used `gemini-4-argon-medium` via `PEERHUB_LIVE_AG_MODEL` because G pools were exhausted; packaged `ag.standard` was not exercised (#191), while cc/cx used packaged profiles. Owner decision (2026-10-21): ag banned again after G3.
 
 ### Superseded checkpoint (2026-10-20 — post-v0.21.6)
 
