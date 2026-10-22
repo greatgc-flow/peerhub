@@ -276,6 +276,11 @@ GATE_JOBS = (("verify", "G0", ["g0"]), ("verify", "G1", ["g1"]), ("verify", "G2"
 G3_FILES = ("g3", "g3-slow", "g3-e2e")  # produced and stamped locally by `python -m tools.live_gate`, fetched from the Release assets
 
 
+def _rc_cells(wf):
+    m = wf["jobs"]["release-matrix"]["strategy"]["matrix"]
+    return len(m["os"]) * len(m["python-version"])
+
+
 def workflow_problems(wf):
     """Structural contract of publish.yml for candidate evidence; returns human-readable problems (empty = ok)."""
     bad = []
@@ -361,8 +366,8 @@ def workflow_problems(wf):
             bad.append("release-evidence must need the matrix job and read its per-cell JUnit files")
     if ("release-matrix" not in wf["jobs"]["release-evidence"].get("needs", [])
             or "release-matrix" not in wf["jobs"]["publish"].get("needs", [])
-            or "${#rc_junits[@]} -ne 10" not in ev_run or "g2-rc-matrix-" not in ev_run):
-        bad.append("release evidence and publish must require all eight release-candidate matrix cells")
+            or f"${{#rc_junits[@]}} -ne {_rc_cells(wf)} ]]" not in ev_run or "g2-rc-matrix-" not in ev_run):
+        bad.append("release evidence and publish must require all release-candidate matrix cells")
     pub = wf["jobs"]["publish"]
     cond = str(pub.get("if", ""))
     if "github.event_name == 'release'" not in cond:
