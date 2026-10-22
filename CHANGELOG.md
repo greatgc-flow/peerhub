@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Release-gate guard tests derive the expected release-candidate matrix cell count from `publish.yml` instead of a literal, so a matrix change fails in PR tests rather than at release (#254).
+
 ## [0.22.2] - 2026-10-21
 
 ### Fixed

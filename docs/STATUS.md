@@ -21,7 +21,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
 | **v0.22.2** | `7fa5fd06` | PR #251, #252 | Published | Published 2026-10-21; tag `v0.22.2`; G3 passed bound to 7fa5fd06 (ag canary on gemini-4-argon-medium, #191); PyPI wheel + sdist; Python 3.15 support, #249 fix |
-| **v0.22.1** | `d45d4d06` | PR #251 | NEVER PUBLISHED TO PYPI | `publish.yml` `release-evidence` refused: gate still expected 8 matrix cells, 3.15 made it 10; superseded by v0.22.2 |
+| **v0.22.1** | `d45d4d06` | PR #251 | NEVER PUBLISHED TO PYPI | `publish.yml` `release-evidence` refused: gate still expected 8 matrix cells, 3.15 made it 10; superseded by v0.22.2; the GitHub release and tag were deleted 2026-10-22 |
 | **v0.22.0** | `697e1574` | PR #247 | Published | Published 2026-10-21; tag `v0.22.0`; G3 passed bound to 697e1574 (ag canary on gemini-4-argon-medium, #191); PyPI wheel + sdist |
 | **v0.17.0** draft | `04eab676` (`release/0.17.0-monitor-groups`) | PR #106 | NEVER PUBLISHED | Content shipped in v0.18.0 |
 | **v0.18.0** | `dc510f4f` | PR #107 | Published | Published 2026-10-16 |
