@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       full_matrix:
-        description: "Run the full 2 OS × 4 Python deterministic suite for a release-candidate SHA"
+        description: "Run the full 2 OS × 5 Python deterministic suite for a release-candidate SHA"
         required: false
         default: false
         type: boolean

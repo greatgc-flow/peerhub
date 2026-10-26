@@ -3,7 +3,13 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-21 — post-v0.22.0)
+## 0. Current checkpoint (2026-10-26 — post-v0.22.2)
+
+**State:** v0.22.2 is published; #249 is fixed. No release in preparation.
+[STATUS](STATUS.md) owns release evidence and the open #248/#256/#258/#259/#260 queue.
+**Next:** one bounded #256 fix and factual documentation cleanup; other findings remain deferred with start triggers. No version bump or release is authorized. ag remains banned.
+
+### Superseded checkpoint (2026-10-21 — post-v0.22.0)
 
 **State:** v0.22.0 is published (tag v0.22.0, target `697e15743b50d9f3b02fec4ed2c3ee896c21dae9`, PR #247; PyPI wheel + sdist and clean-virtualenv install smoke confirmed). No release in preparation.
 Design and usage: [batch runs](batch.md) and [accounts](accounts.md).
