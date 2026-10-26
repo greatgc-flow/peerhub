@@ -8,8 +8,6 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
-## [0.22.3] - 2026-10-26
-
 ### Fixed
 
 - `batch run`: a worker setup failure (query write, argv builder, spawn) no longer drops the task row and crashes the aggregate report; setup failures are `FAILED`, post-launch exceptions are `UNCERTAIN` with child tree cleanup, and every declared task always appears in the report (#256).
