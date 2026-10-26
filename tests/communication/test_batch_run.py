@@ -1,4 +1,5 @@
 """`peerhub batch run`: flat bounded-parallel asks (spec: batch B1-B10). Workers are fakes; no provider is called."""
+import errno
 import json
 import os
 import re
@@ -248,6 +249,98 @@ def test_all_completed_exit_zero_and_report_shape(tmp_path):
         assert (row["stream"], row["request_id"]) == batch.derive_ids("b1", row["task_id"])
         assert "response" not in row  # responses are never included
     assert [r["task_id"] for r in report["tasks"]] == ["a", "b"]  # manifest order, not completion order
+
+
+@pytest.mark.parametrize("fault,reason", [
+    ("write", "query_write_failed:OSError"),
+    ("argv", "worker_setup_error:ValueError"),
+    ("spawn", "spawn_failed:FileNotFoundError"),
+])
+def test_setup_failure_emits_complete_json_and_continues(tmp_path, monkeypatch, capsys, fault, reason):
+    from peerhub.cli.app import main
+
+    manifest = write(tmp_path, {"tasks": [
+        {"task_id": tid, "peer": "cx", "prompt": "mode:ok"} for tid in ("bad", "good")
+    ]})
+    real_write = Path.write_text
+    real_popen = batch.subprocess.Popen
+    build = builder(tmp_path)
+    attempted = []
+
+    def failing_write(path, *args, **kwargs):
+        if path.name == "bad.txt":
+            raise OSError(errno.ENOSPC, "injected full disk")
+        return real_write(path, *args, **kwargs)
+
+    def failing_builder(t, **kwargs):
+        attempted.append(t.task_id)
+        if fault == "argv" and t.task_id == "bad":
+            raise ValueError("injected argv failure")
+        return build(t, **kwargs)
+
+    def failing_spawn(argv, **kwargs):
+        if argv[-1] == "bad":
+            raise OSError(errno.ENOENT, "injected spawn failure")
+        return real_popen(argv, **kwargs)
+
+    if fault == "write":
+        monkeypatch.setattr(Path, "write_text", failing_write)
+    if fault == "spawn":
+        monkeypatch.setattr(batch.subprocess, "Popen", failing_spawn)
+    monkeypatch.setattr(batch, "default_argv_builder", failing_builder)
+    assert main(["--db", str(tmp_path / "x.db"), "batch", "run", str(manifest),
+                 "--batch-id", "b1", "--max-parallel", "1", "--json"]) == 1
+    report = json.loads(capsys.readouterr().out)
+    assert [r["task_id"] for r in report["tasks"]] == ["bad", "good"]
+    assert status_of(report) == {"bad": "FAILED", "good": "COMPLETED"}
+    assert report["tasks"][0]["reason"] == reason
+    assert attempted == (["good"] if fault == "write" else ["bad", "good"])
+    assert [t for k, t, _ in events(tmp_path) if k == "S"] == ["good"]
+    for row in report["tasks"]:
+        assert (row["stream"], row["request_id"]) == batch.derive_ids("b1", row["task_id"])
+        assert "elapsed_s" in row
+    assert batch.exit_code(report) == 1
+
+
+def test_exception_after_launch_cleans_up_and_continues(tmp_path, monkeypatch):
+    real_start = threading.Thread.start
+    real_popen = batch.subprocess.Popen
+    processes = []
+    failed = False
+
+    def popen(*args, **kwargs):
+        proc = real_popen(*args, **kwargs)
+        if args[0][:2] == [sys.executable, FAKE]:
+            processes.append(proc)
+        return proc
+
+    def start(thread):
+        nonlocal failed
+        if thread._target is batch._drain and not failed:
+            failed = True
+            raise RuntimeError("injected reader setup failure")
+        return real_start(thread)
+
+    monkeypatch.setattr(batch.subprocess, "Popen", popen)
+    monkeypatch.setattr(threading.Thread, "start", start)
+    report = run(tmp_path, [task("bad", mode="hang"), task("good")], n=1)
+    assert [r["task_id"] for r in report["tasks"]] == ["bad", "good"]
+    assert status_of(report) == {"bad": "UNCERTAIN", "good": "COMPLETED"}
+    assert report["tasks"][0]["reason"] == "worker_error:RuntimeError"
+    assert len(processes) == 2  # no retry
+    assert processes[0].poll() is not None
+    assert processes[0].stdout.closed and processes[0].stderr.closed
+    assert batch.exit_code(report) == 1
+
+
+def test_missing_worker_row_is_uncertain_in_manifest_order(tmp_path, monkeypatch):
+    monkeypatch.setattr(threading.Thread, "start", lambda self: None)
+    monkeypatch.setattr(threading.Thread, "join", lambda self: None)
+    report = run(tmp_path, [task("a"), task("b")])
+    assert [r["task_id"] for r in report["tasks"]] == ["a", "b"]
+    assert status_of(report) == {"a": "UNCERTAIN", "b": "UNCERTAIN"}
+    assert all(r["reason"] == "missing_worker_result:KeyError" for r in report["tasks"])
+    assert batch.exit_code(report) == 1
 
 
 def test_never_exceeds_max_parallel_and_reaches_it(tmp_path):

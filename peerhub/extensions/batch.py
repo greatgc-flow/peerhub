@@ -344,19 +344,24 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
         return {"task_id": t.task_id, "peer": t.peer, "stream": stream, "status": "BLOCKED", "request_id": request,
                 "elapsed_s": 0.0, "reason": reason}
 
-    def work(t: Task, tmp: Path) -> dict[str, Any]:
+    def work(t: Task, tmp: Path, launched: list[subprocess.Popen[Any]]) -> dict[str, Any]:
         stream, request = derive_ids(batch_id, t.task_id)
         row = {"task_id": t.task_id, "peer": t.peer, "stream": stream, "request_id": request}
         query = tmp / f"{t.task_id}.txt"
-        query.write_text(t.prompt, encoding="utf-8")
+        try:
+            query.write_text(t.prompt, encoding="utf-8")
+        except OSError as exc:
+            return {**row, "status": "FAILED", "reason": f"query_write_failed:{type(exc).__name__}", "elapsed_s": 0.0}
         started = time.monotonic()
         out, err = bytearray(), bytearray()
         overflow = threading.Event()
+        argv = list(argv_builder(t, stream=stream, request_id=request, db=db, query_file=query))
         try:
-            proc = subprocess.Popen(list(argv_builder(t, stream=stream, request_id=request, db=db, query_file=query)),
+            proc = subprocess.Popen(argv,
                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_launch_flags())
         except OSError as exc:
             return {**row, "status": "FAILED", "reason": f"spawn_failed:{type(exc).__name__}", "elapsed_s": 0.0}
+        launched.append(proc)
         readers = [threading.Thread(target=_drain, args=(proc.stdout, STDOUT_CAP, out, overflow), daemon=True),
                    threading.Thread(target=_drain, args=(proc.stderr, STDERR_CAP, err, None), daemon=True)]
         for r in readers:
@@ -394,7 +399,27 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
                     return
                 t = pending.pop(0)
                 stop = cancel.is_set()
-            rows[t.task_id] = blocked(t, "cancelled") if stop else work(t, tmp)
+            launched: list[subprocess.Popen[Any]] = []
+            started = time.monotonic()
+            try:
+                row = blocked(t, "cancelled") if stop else work(t, tmp, launched)
+            except Exception as exc:
+                reason = f"worker_error:{type(exc).__name__}" if launched else f"worker_setup_error:{type(exc).__name__}"
+                if launched:
+                    proc = launched[0]
+                    try:
+                        if kill_tree_confirmed(proc):
+                            proc.wait(timeout=5)
+                            for pipe in (proc.stdout, proc.stderr):
+                                if pipe is not None:
+                                    pipe.close()
+                        else:
+                            reason += ":kill_unconfirmed"
+                    except Exception as cleanup_exc:
+                        reason += f":cleanup_error:{type(cleanup_exc).__name__}"
+                row = {**blocked(t, ""), "status": "UNCERTAIN" if launched else "FAILED", "reason": reason,
+                       "elapsed_s": round(time.monotonic() - started, 3)}
+            rows[t.task_id] = row
 
     with tempfile.TemporaryDirectory(prefix="peerhub-batch-") as d:
         threads = [threading.Thread(target=supervisor, args=(Path(d),), daemon=True) for _ in range(min(max_parallel, len(tasks)))]
@@ -402,7 +427,13 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             th.start()
         for th in threads:
             th.join()
-    return {"batch_id": batch_id, "max_parallel": max_parallel, "tasks": [rows[t.task_id] for t in tasks]}
+    results: list[dict[str, Any]] = []
+    for t in tasks:
+        try:
+            results.append(rows[t.task_id])
+        except KeyError as exc:
+            results.append({**blocked(t, f"missing_worker_result:{type(exc).__name__}"), "status": "UNCERTAIN"})
+    return {"batch_id": batch_id, "max_parallel": max_parallel, "tasks": results}
 
 
 def render_text(report: Mapping[str, Any]) -> str:

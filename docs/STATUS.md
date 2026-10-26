@@ -4,7 +4,7 @@
 
 ## Current source: v0.22.2 (published)
 
-v0.22.2 (supersedes v0.22.1, which never reached PyPI) fixes Python 3.15 installs (`requires-python <3.16`) and the first-use `workspace.generation` race (#249). Published 2026-10-21; previous published release: v0.22.0. Open follow-up: #248 (deferred scope index); #249 is fixed.
+v0.22.2 (supersedes v0.22.1, which never reached PyPI) fixes Python 3.15 installs (`requires-python <3.16`) and the first-use `workspace.generation` race (#249). Published 2026-10-21; previous published release: v0.22.0. Open follow-ups: #248 (deferred scope index), #256 (batch worker setup failure), #258 (credit/quota specification), #259 (pricing research), #260 (review/backlog mapping); #249 is fixed.
 
 v0.22.0 adds flat parallel `batch run` and immutable account-bound peers for cc/cx. See [batch runs](batch.md) and [accounts](accounts.md). Published 2026-10-21; previous published release: v0.21.6. Open follow-ups: #248 (deferred scope index) and #249 (`workspace.generation` first-use race).
 
@@ -290,7 +290,7 @@ Valid-but-deliberately-unimplemented findings; each is closed `not planned` with
 | #238 | L: concurrent same-status evidence can be falsely acknowledged; revisit before multi-writer durable A2A use. |
 | #243 | Monitor UX v2 design spec: no demonstrated reading problem (existing monitor covers most of it). Revisit when the owner supplies a recurring confusion or a disliked capture; then one S-sized follow-up with visual signoff (SOURCE/SIGNAL columns, attention strip). |
 
-### Open post-v0.22.0 follow-ups (2026-10-21)
+### Open post-v0.22.2 follow-ups (2026-10-26)
 
 These issues remain open; they are separate from the closed deferred triage findings above.
 
@@ -298,3 +298,9 @@ These issues remain open; they are separate from the closed deferred triage find
 |---|---|
 | #248 | Deferred batch/account/Engram scope index; implementation remains deferred. |
 | #249 | Fixed in v0.22.1/v0.22.2 (closed). |
+| #256 | Confirmed batch worker setup failure can lose a task row and abort aggregation; bounded fix and offline fault-injection coverage in preparation, not released. |
+| #258 | Credit/quota specification; deferred until an owner-approved observability requirement. |
+| #259 | Dated pricing research ledger; no implementation. Revisit for an explicit pricing decision; retain separately from #258. |
+| #260 | Review findings and backlog mapping; only P0-1 (#256) and P2-1 factual documentation drift are in the current fix scope. |
+
+Backlog with triggers (#260): P0-2 (evidence chain), P0-3 (semantic outcome versus delivery), and remaining P1/P2 findings are deliberately not implemented. Keep scope indexed by #248; revisit evidence/credit/quota work with #258 and #215 only for an owner-approved consumer and evidence contract. Pricing stays research in #259, triggered by a concrete pricing decision. Routing/cost/balancing stays under #202/#203/#207 until automated routing is adopted with defined cost semantics. Monitor UX stays under #243 until recurring confusion or an owner-provided capture warrants one small change. Close #260 as review completed only after mappings and any otherwise untracked triggers are recorded; closure does not imply implementation.

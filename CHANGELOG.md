@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- `batch run`: a worker setup failure (query write, argv builder, spawn) no longer drops the task row and crashes the aggregate report; setup failures are `FAILED`, post-launch exceptions are `UNCERTAIN` with child tree cleanup, and every declared task always appears in the report (#256).
+
 ### Changed
 
 - Release-gate guard tests derive the expected release-candidate matrix cell count from `publish.yml` instead of a literal, so a matrix change fails in PR tests rather than at release (#254).
@@ -18,7 +22,7 @@ they do not claim new validation or publication evidence.
 
 - Release workflow expects all 10 release-candidate matrix cells (Python 3.11-3.15 x Ubuntu/Windows); v0.22.1 added 3.15 but kept the 8-cell check, so its `release-evidence` job refused and nothing was uploaded to PyPI. v0.22.1 is superseded by v0.22.2, which carries the same Python 3.15 and #249 fixes.
 
-## [0.22.1] - 2026-10-21
+## [0.22.1] - 2026-10-21 (superseded candidate)
 
 ### Fixed
 
