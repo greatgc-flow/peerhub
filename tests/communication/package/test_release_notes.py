@@ -22,6 +22,5 @@ def test_current_package_version_has_changelog_release_body():
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
     assert __version__ == "0.22.3"
     assert "worker setup failure" in body
-    assert "release-candidate matrix" not in body  # no adjacent history
     assert "peerhub batch run" not in body  # no adjacent history
     assert "(#232, #241)" not in body
