@@ -3,11 +3,18 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-26 — post-v0.22.2)
+## 0. Current checkpoint (2026-10-26 — post-v0.22.3)
 
-**State:** v0.22.2 is published; #249 is fixed. No release in preparation.
-[STATUS](STATUS.md) owns release evidence and the open #248/#256/#258/#259/#260 queue.
-**Next:** one bounded #256 fix and factual documentation cleanup; other findings remain deferred with start triggers. No version bump or release is authorized. ag remains banned.
+**State:** v0.22.3 is published (tag v0.22.3, target `bae1b675`; PR #261, #262; PyPI wheel + sdist; clean-virtualenv smoke passed; G3 passed with packaged ag/cc/cx profiles). #256 and #260 are closed. No release in preparation.
+[STATUS](STATUS.md) owns release evidence and the open queue: #248 (deferred scope index), #258 (credit/quota spec), #259 (pricing research) - all start-triggered, none authorized for implementation.
+**Next:** none pending. The #260 backlog (evidence chain, outcome vs delivery, advisory routing, monitor cockpit) stays deferred with triggers in STATUS.
+ag is usable again (owner lifted the ban 2026-10-26); each release still needs the G3 gate from a clean checkout of the merged commit.
+
+- Release lessons: `tests/communication/package/test_release_notes.py` pins the version and must change in the bump PR; a CHANGELOG heading for a never-published version needs `(superseded ...)`; py3.15 has no pyyaml wheel, so run the full suite in CI, not locally.
+
+### Superseded checkpoint (2026-10-26 — post-v0.22.2)
+
+v0.22.2 published; #256 fix and documentation cleanup were the next step (done in v0.22.3).
 
 ### Superseded checkpoint (2026-10-21 — post-v0.22.0)
 
