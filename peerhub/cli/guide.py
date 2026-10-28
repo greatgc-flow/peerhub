@@ -38,7 +38,9 @@ def render_guide(workspace: Path | None = None) -> str:
         return (tier_order.get(suffix, 9), name)
 
     def _layer_key(p: dict[str, Any]) -> int:
-        raw: object = (p.get("fields") or {}).get("model")
+        raw_fields: object = p.get("fields")
+        fields: dict[str, Any] = cast(dict[str, Any], raw_fields) if isinstance(raw_fields, dict) else {}
+        raw: object = fields.get("model")
         src = str(cast(dict[str, Any], raw).get("source") or "") if isinstance(raw, dict) else ""
         return 0 if src == "packaged" else 1
 
