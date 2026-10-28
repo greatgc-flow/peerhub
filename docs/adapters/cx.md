@@ -22,9 +22,8 @@ PeerHub resolves model configuration centrally (workspace binding, then global
 configuration, then packaged defaults). The adapter only translates a resolved
 binding into CLI flags.
 
-Profile models and efforts are defined in the
-[model profile manifest](../model-profiles/model-profiles.json); see its `profiles`
-object for this provider. The manifest is checked against packaged defaults.
+Profile models and efforts live in the packaged `model-defaults.toml`; list the effective ones with
+`peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them.
 
 ## Verify and troubleshoot
 

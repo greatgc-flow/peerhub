@@ -1,5 +1,6 @@
 """Codex `rateLimitResetCredits` capture: probe parsing (fake JSON-RPC) and persistence as kind `reset_credit`.
 Oracles are literals (wire values copied from a real response shape), not recomputed from the code under test."""
+import time
 import re
 import json
 import sqlite3
@@ -13,7 +14,8 @@ from peerhub.extensions.quota_capture import refresh_quota
 from peerhub.extensions.quota_probes import poll_codex_usage
 from peerhub.extensions.quota_types import ResetCreditObserved, UsageObserved
 
-GRANTED, EXPIRES = 1790707966, 1793299966  # 2026-09-29T18:52:46Z .. 2026-10-29T18:52:46Z
+_NOW = int(time.time())
+GRANTED, EXPIRES = _NOW - 30 * 86400, _NOW + 30 * 86400  # relative: a fixed expiry date turns the test into a time bomb
 RID = "RateLimitResetCredit_0123456789abcdef0123456789abcdef"
 
 

@@ -8,6 +8,14 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-10-29
+
+### Changed
+
+- Model profiles have one source: `model-defaults.toml` holds profiles, pools and observed versions; `docs/model-profiles/model-profiles.json` (now `schema_version` 2) keeps only the refresh recipe, so its `profiles`, `exact_model_pools`, `revision` and `observed_*` keys are removed and the schema no longer lists profile ids. Adding, changing or deleting a profile such as `ag.argon` is one toml table. Tests assert invariants instead of pinned values; `tools/model_ping` pings effective profiles (opt-ins included).
+- `test_reset_credits` derives its credit grant/expiry from the current time; the fixed 2026-10-29 expiry made it fail once that date approached.
+- Packaged model facts re-observed 2026-10-29 (claude 2.1.312, codex 0.165.0, agy 1.4.9): no packaged model or effort change. New cx model `gpt-6.1-terra` (tier and cost unverified) is not packaged; opt in through `~/.peerhub/config/models.toml` (see `docs/model-profiles/README.md`).
+
 ## [0.22.3] - 2026-10-26
 
 ### Fixed
