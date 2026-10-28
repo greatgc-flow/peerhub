@@ -14,12 +14,15 @@ from typing import Any
 
 import pytest
 
+from peerhub.extensions.adapters.profiles import packaged_defaults_meta
 from peerhub.extensions.observation_model import EvidenceState
 from peerhub.extensions.quota_capture import refresh_quota
 from peerhub.extensions.quota_probes import _parse_agy_usage_output
 from peerhub.core.store import CoreStore
 
 pytestmark = [pytest.mark.unit]
+
+OBS = packaged_defaults_meta()["observed_versions"]
 
 
 def test_parse_agy_usage_keeps_unknown_bucket_ids():
@@ -59,7 +62,7 @@ def test_refresh_quota_attaches_facts_report_to_observation(tmp_path):
     result = refresh_quota(
         db, ["ag"],
         pollers={"ag": lambda **kw: [reading]},
-        version_checker=lambda kind: "1.4.0",
+        version_checker=lambda kind: OBS["ag"],
     )
     assert result["status"] == "OK"
     obs = result["observations"][0]
@@ -88,7 +91,7 @@ def test_refresh_quota_detects_unknown_pool_drift(tmp_path):
     result = refresh_quota(
         db, ["ag"],
         pollers={"ag": lambda **kw: [reading]},
-        version_checker=lambda kind: "1.4.0",
+        version_checker=lambda kind: OBS["ag"],
     )
     obs = result["observations"][0]
     report = obs["payload"]["facts_report"]
@@ -108,11 +111,11 @@ def test_refresh_quota_detects_cli_version_drift(tmp_path):
                                source_tag="fake_usage", observed_at=100, captured_at=100)
     reading = SimpleNamespace(evidence=evidence, extra={})
 
-    # Expected codex-cli is 0.163.0; simulate upgraded version 0.164.0
+    # Simulate a codex-cli version that differs from the packaged observed version
     result = refresh_quota(
         db, ["cx"],
         pollers={"cx": lambda **kw: [reading]},
-        version_checker=lambda kind: "0.164.0",
+        version_checker=lambda kind: OBS["cx"] + ".drift",
     )
     obs = result["observations"][0]
     report = obs["payload"]["facts_report"]
@@ -136,7 +139,7 @@ def test_refresh_quota_partial_or_failed_refresh_preserves_prior_drift(tmp_path)
     res1 = refresh_quota(
         db, ["ag"],
         pollers={"ag": lambda **kw: [reading_ag]},
-        version_checker=lambda kind: "1.4.0",
+        version_checker=lambda kind: OBS["ag"],
     )
     assert res1["observations"][0]["payload"]["facts_report"]["status"] == "needs_recheck"
 
@@ -150,7 +153,7 @@ def test_refresh_quota_partial_or_failed_refresh_preserves_prior_drift(tmp_path)
     res2 = refresh_quota(
         db, ["cx"],
         pollers={"cx": lambda **kw: [reading_cx]},
-        version_checker=lambda kind: "0.163.0",
+        version_checker=lambda kind: OBS["cx"],
     )
     rep2 = res2["observations"][0]["payload"]["facts_report"]
     # ag_pools drift MUST be preserved from prior report!
@@ -164,7 +167,7 @@ def test_refresh_quota_partial_or_failed_refresh_preserves_prior_drift(tmp_path)
     res3 = refresh_quota(
         db, ["ag"],
         pollers={"ag": lambda **kw: [reading_ag_clean]},
-        version_checker=lambda kind: "1.4.0",
+        version_checker=lambda kind: OBS["ag"],
     )
     rep3 = res3["observations"][0]["payload"]["facts_report"]
     assert rep3["status"] == "ok"
@@ -227,7 +230,7 @@ def test_refresh_quota_with_peer_alias_agy(tmp_path):
     result = refresh_quota(
         db, ["agy"],
         pollers={"ag": lambda **kw: [reading]},
-        version_checker=lambda kind: "1.4.0",
+        version_checker=lambda kind: OBS["ag"],
     )
     obs = result["observations"][0]
     report = obs["payload"]["facts_report"]
@@ -253,7 +256,7 @@ def test_facts_report_sanitizes_and_caps_unknown_pools(tmp_path):
     result = refresh_quota(
         db, ["ag"],
         pollers={"ag": lambda **kw: [reading]},
-        version_checker=lambda kind: "1.4.0",
+        version_checker=lambda kind: OBS["ag"],
     )
     obs = result["observations"][0]
     report = obs["payload"]["facts_report"]
@@ -353,7 +356,7 @@ def test_facts_report_clears_stale_unknown_pools_when_ag_pools_ok(tmp_path):
     res = refresh_quota(
         db, ["ag"],
         pollers={"ag": lambda **kw: [reading]},
-        version_checker=lambda kind: "1.4.0",
+        version_checker=lambda kind: OBS["ag"],
     )
     rep = res["observations"][0]["payload"]["facts_report"]
     assert rep["checks"]["ag_pools"] == "ok"
@@ -399,7 +402,7 @@ def test_facts_report_clears_prior_argon_unknown_pool_warning(tmp_path):
     res = refresh_quota(
         db, ["ag"],
         pollers={"ag": lambda **kw: [reading]},
-        version_checker=lambda kind: "1.4.0",
+        version_checker=lambda kind: OBS["ag"],
     )
     rep = res["observations"][0]["payload"]["facts_report"]
     assert rep["checks"]["ag_pools"] == "ok"

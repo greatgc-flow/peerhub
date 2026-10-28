@@ -1,157 +1,6 @@
 {
   "$schema": "./model-profiles.schema.json",
-  "schema_version": 1,
-  "revision": "2026-10-20.1",
-  "observed_at": "2026-10-16",
-  "observed_versions": {
-    "ag": "1.4.0",
-    "cc": "2.1.301",
-    "cx": "0.163.0"
-  },
-  "profiles": {
-    "ag.standard": {
-      "model": "gemini-3.8-flash-low",
-      "source": "cli:agy.exe models@1.4.0 2026-10-16",
-      "checked": "2026-10-16",
-      "pools": ["G-5H", "G-7D"],
-      "pools_source": "unverified"
-    },
-    "ag.effort": {
-      "model": "gemini-3.8-flash-medium",
-      "source": "cli:agy.exe models@1.4.0 2026-10-16",
-      "checked": "2026-10-16",
-      "pools": ["G-5H", "G-7D"],
-      "pools_source": "unverified"
-    },
-    "ag.deepthink": {
-      "model": "claude-sonnet-5-5-high",
-      "source": "cli:agy.exe models@1.4.0 2026-10-16",
-      "checked": "2026-10-16",
-      "pools": ["3P-5H", "3P-7D"],
-      "pools_source": "unverified"
-    },
-    "ag.argon": {
-      "model": "gemini-4-argon-medium",
-      "source": "cli:agy.exe models@1.4.0 2026-10-16",
-      "checked": "2026-10-20",
-      "pools": ["A-7D"],
-      "pools_source": "agy /usage group (agy 1.4.0)"
-    },
-    "cc.standard": {
-      "model": "claude-haiku-5-5",
-      "source": "known-id:claude --help aliases@2.1.301 2026-10-16",
-      "checked": "2026-10-16",
-      "pools": ["C-5H", "C-7D"],
-      "pools_source": "unverified"
-    },
-    "cc.effort": {
-      "model": "claude-sonnet-5-5",
-      "reasoning_effort": "high",
-      "source": "known-id:claude --help aliases@2.1.301 2026-10-16",
-      "checked": "2026-10-16",
-      "pools": ["C-5H", "C-7D"],
-      "pools_source": "unverified"
-    },
-    "cc.deepthink": {
-      "model": "claude-opus-5-5",
-      "reasoning_effort": "high",
-      "source": "known-id:claude --help aliases@2.1.301 2026-10-16",
-      "checked": "2026-10-16",
-      "pools": ["C-5H", "C-7D"],
-      "pools_source": "unverified"
-    },
-    "cx.standard": {
-      "model": "gpt-6-luna",
-      "reasoning_effort": "low",
-      "source": "cli:codex debug models@0.163.0 2026-10-16",
-      "checked": "2026-10-16",
-      "pools": ["X-5H", "X-7D"],
-      "pools_source": "unverified"
-    },
-    "cx.effort": {
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "medium",
-      "source": "cli:codex debug models@0.163.0 2026-10-16",
-      "checked": "2026-10-16",
-      "pools": ["X-5H", "X-7D"],
-      "pools_source": "unverified"
-    },
-    "cx.deepthink": {
-      "model": "gpt-6.1-sol",
-      "reasoning_effort": "xhigh",
-      "source": "cli:codex debug models@0.163.0 2026-10-16",
-      "checked": "2026-10-16",
-      "pools": ["X-5H", "X-7D"],
-      "pools_source": "unverified"
-    }
-  },
-  "exact_model_pools": {
-    "gemini-3.8-flash-low": {
-      "pools": ["G-5H", "G-7D"],
-      "pools_source": "unverified",
-      "checked": "2026-10-20"
-    },
-    "gemini-3.8-flash-medium": {
-      "pools": ["G-5H", "G-7D"],
-      "pools_source": "unverified",
-      "checked": "2026-10-20"
-    },
-    "gemini-3.8-flash-high": {
-      "pools": ["G-5H", "G-7D"],
-      "pools_source": "unverified",
-      "checked": "2026-10-20"
-    },
-    "claude-opus-5-5-low": {
-      "pools": ["3P-5H", "3P-7D"],
-      "pools_source": "unverified",
-      "checked": "2026-10-20"
-    },
-    "claude-opus-5-5-medium": {
-      "pools": ["3P-5H", "3P-7D"],
-      "pools_source": "unverified",
-      "checked": "2026-10-20"
-    },
-    "claude-opus-5-5-high": {
-      "pools": ["3P-5H", "3P-7D"],
-      "pools_source": "unverified",
-      "checked": "2026-10-20"
-    },
-    "claude-sonnet-5-5-low": {
-      "pools": ["3P-5H", "3P-7D"],
-      "pools_source": "unverified",
-      "checked": "2026-10-20"
-    },
-    "claude-sonnet-5-5-medium": {
-      "pools": ["3P-5H", "3P-7D"],
-      "pools_source": "unverified",
-      "checked": "2026-10-20"
-    },
-    "claude-sonnet-5-5-high": {
-      "pools": ["3P-5H", "3P-7D"],
-      "pools_source": "unverified",
-      "checked": "2026-10-20"
-    },
-    "gpt-oss-120b-medium": {
-      "pools": ["3P-5H", "3P-7D"],
-      "pools_source": "unverified",
-      "checked": "2026-10-20"
-    },
-    "gemini-4-argon-low": {
-      "pools": ["A-7D"],
-      "pools_source": "agy /usage group (agy 1.4.0)",
-      "checked": "2026-10-18"
-    },
-    "gemini-4-argon-medium": {
-      "pools": ["A-7D"],
-      "pools_source": "agy /usage group (agy 1.4.0)",
-      "checked": "2026-10-18"
-    },
-    "gemini-4-argon-high": {
-      "pools": ["A-7D"],
-      "pools_source": "agy /usage group (agy 1.4.0)",
-      "checked": "2026-10-18"
-    }
-  },
+  "schema_version": 2,
   "sources": {
     "cx": {
       "command": "codex debug models",
@@ -179,16 +28,14 @@
     "docs/adapters/ag.md",
     "docs/adapters/cc.md",
     "docs/adapters/cx.md",
-    "docs/adapters/peer-cli-reference.md",
-    "docs/model-profiles/model-profiles.json"
+    "docs/adapters/peer-cli-reference.md"
   ],
   "instructions": [
     "1. Run each sources[*].command (skip a peer whose CLI is absent) and read versions with '<cli> --version'.",
-    "2. Compare against profiles using tier_rules; present a diff of proposed changes to the user and wait for approval. Observations are evidence, not policy: never change packaged defaults without approval.",
-    "3. After approval update the manifest and packaged defaults together; review the linked adapter docs in update_targets for invocation or version changes: new values, a new revision (YYYY-MM-DD.N, also defaults_revision in model-defaults.toml), observed_at and observed_versions.",
-    "4. Run: python -m pytest -q tests/communication/adapters (test_model_profiles_manifest.py fails on any drift between this file, the toml and the documentation links).",
-    "5. Optional, ask first (uses a little quota): python -m tools.model_ping [profile_id ...] pings each profile once and checks WHICH model answered (cc: modelUsage, cx: session log, ag: CLI log). Report failures verbatim.",
-    "6. Do not commit, push or release unless the user asks. Answer the user in their language; keep internal text English.",
-    "7. Observations (2026-10-16): installed CLIs are claude 2.1.301, codex-cli 0.163.0, agy 1.4.0. codex debug models: gpt-6.1-sol, gpt-6-astra, gpt-6-sol, gpt-6-luna, gpt-5.6-*; agy models adds available gemini-4-argon-{low,medium,high} (ag.argon selects medium; standard/effort keep gemini-3.8-flash-*)."
+    "2. Compare the CLI output with the effective profiles ('peerhub profile list') using tier_rules; present a diff of proposed changes to the user and wait for approval. Observations are evidence, not policy: never change packaged defaults without approval.",
+    "3. After approval edit the packaged peerhub/config_data/model-defaults.toml, the only store of profiles, exact_model_pools, observed_at, observed_versions and defaults_revision (new revision YYYY-MM-DD.N). Adding, changing or deleting a profile is one [profiles.\"<peer>.<name>\"] table (plus an exact_model_pools entry for a new model). Rewrite each touched profile 'source' as 'cli:<sources command>@<observed version> <observed_at>' (cc: 'known-id:claude --help aliases@<version> <observed_at>'). Review the linked adapter docs for invocation or version changes. Keep files LF.",
+    "4. Run: python -m pytest -q tests/communication/adapters (test_model_profiles_manifest.py checks the toml invariants and this recipe against the documentation links).",
+    "5. Optional, ask first (uses a little quota): python -m tools.model_ping [profile_id ...] pings each effective profile once (workspace/global opt-ins included) and checks WHICH model answered (cc: modelUsage, cx: session log, ag: CLI log). Report failures verbatim.",
+    "6. Do not commit, push or release unless the user asks. Answer the user in their language; keep internal text English. Record dated observations in CHANGELOG.md, not here."
   ]
 }

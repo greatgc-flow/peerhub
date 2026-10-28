@@ -1,8 +1,12 @@
 import json
+import tomllib
+from importlib import resources
 
 import pytest
 
 from peerhub.cli.app import main
+
+PACKAGED = tomllib.loads(resources.files("peerhub.config_data").joinpath("model-defaults.toml").read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("scope", ["global", "workspace"])
@@ -83,22 +87,25 @@ def test_profile_show_resolves_fields_with_source_provenance(tmp_path, monkeypat
     assert data["fields"]["selection_mode"]["source"] == "packaged"
 
 
-def test_profile_list_is_read_only_and_lists_packaged_profiles(tmp_path, capsys):
+def test_profile_list_is_read_only_and_lists_packaged_profiles(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
     code = main(["--db", str(tmp_path / "unused.db"), "profile", "list", "--workspace", str(tmp_path)])
     data = json.loads(capsys.readouterr().out)
 
     assert code == 0 and any(item["profile"] == "cx.standard" for item in data["profiles"])
-    assert len(data["profiles"]) == 10
-    assert data["known_models"]["gemini-4-argon-medium"]["pools"] == ["A-7D"]
+    assert {item["profile"] for item in data["profiles"]} == set(PACKAGED["profiles"])
+    for model, entry in PACKAGED["exact_model_pools"].items():
+        assert data["known_models"][model]["pools"] == entry["pools"]
     assert data["known_models"]["gpt-oss-120b-medium"]["pools_source"] == "unverified"
     assert not (tmp_path / "unused.db").exists()
 
 
-def test_profile_list_table_shows_known_models_and_pool_evidence(tmp_path, capsys):
+def test_profile_list_table_shows_known_models_and_pool_evidence(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
     assert main(["profile", "list", "--workspace", str(tmp_path), "--format", "table"]) == 0
     out = capsys.readouterr().out
     assert "Known models (pool)" in out
-    assert "gemini-4-argon-medium" in out and "A-7D" in out
+    assert all(model in out for model in PACKAGED["exact_model_pools"])
     assert "gpt-oss-120b-medium" in out and "unverified" in out
 
 

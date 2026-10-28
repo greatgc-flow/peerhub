@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, cast
 
 
+PROFILE_ROWS = 10  # keeps the guide within its 60-line cap however many profiles are configured
+
+
 def render_guide(workspace: Path | None = None) -> str:
     """Render the <=60 line quick reference guide."""
     from peerhub.extensions.adapters.profiles import list_profiles
@@ -34,7 +37,16 @@ def render_guide(workspace: Path | None = None) -> str:
         suffix = name.split(".")[-1] if "." in name else name
         return (tier_order.get(suffix, 9), name)
 
-    sorted_profs = sorted(profs, key=_tier_key)
+    def _layer_key(p: dict[str, Any]) -> int:
+        raw: object = (p.get("fields") or {}).get("model")
+        src = str(cast(dict[str, Any], raw).get("source") or "") if isinstance(raw, dict) else ""
+        return 0 if src == "packaged" else 1
+
+    sorted_profs = sorted(profs, key=lambda p: (_layer_key(p), *_tier_key(p)))
+    hidden = max(0, len(sorted_profs) - PROFILE_ROWS)
+    if hidden:
+        sorted_profs = sorted_profs[:PROFILE_ROWS - 1]
+        hidden += 1
     lines: list[str] = [
         "PeerHub Quick Reference & Best Practices",
         "Profiles (defaulting to .standard first):",
@@ -56,6 +68,8 @@ def render_guide(workspace: Path | None = None) -> str:
         pools_list = cast(list[object], pools_val) if isinstance(pools_val, list) else []
         pools_str = ", ".join(str(x) for x in pools_list)
         lines.append(f"{p_name:<14} {mod:<24} {pools_str:<14} {src}")
+    if hidden:
+        lines.append(f"  +{hidden} more profiles: peerhub profile list")
 
     lines.extend([
         "Two-Asks Session Reuse Example:",
