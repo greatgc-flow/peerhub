@@ -98,9 +98,10 @@ def test_context_bench_bounds_child_time_and_output(tmp_path, monkeypatch, scrip
     (["cc.standard", "--peer", "cx"], "no profiles selected"),
 ])
 def test_model_ping_rejects_invalid_selection(argv, message, tmp_path, monkeypatch, capsys):
-    manifest = tmp_path / "profiles.json"
-    manifest.write_text('{"profiles": {"cc.standard": {"model": "example"}}}', encoding="utf-8")
-    monkeypatch.setattr(model_ping, "MANIFEST", manifest)
+    from peerhub.extensions.adapters import profiles
+
+    monkeypatch.setattr(profiles, "list_profiles", lambda workspace: [
+        {"profile": "cc.standard", "fields": {"model": {"value": "example"}, "effort": {"value": None}}}])
     monkeypatch.setattr(model_ping, "PINGS", {"cc": lambda *a: pytest.fail("must not call CLI"),
                                              "cx": lambda *a: pytest.fail("must not call CLI")})
     with pytest.raises(SystemExit) as exc:

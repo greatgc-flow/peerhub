@@ -1,15 +1,16 @@
 ---
 name: refresh-model-profiles
-description: Refresh PeerHub's latest AI models and the 10 model profiles (cc/cx/ag x standard/effort/deepthink, plus ag.argon) from the installed CLIs, then ping-test them. Use when asked to update models/profiles or check which model really answers.
+description: Refresh PeerHub's latest AI models and model profiles from the installed CLIs, then ping-test them. Use when asked to update models/profiles, add/change/delete a profile, or check which model really answers.
 ---
 
-The single source of truth is `docs/model-profiles/model-profiles.json` (schema: `model-profiles.schema.json`).
+The packaged `peerhub/config_data/model-defaults.toml` is the only store of profiles and observed versions;
+`docs/model-profiles/model-profiles.json` (schema: `model-profiles.schema.json`) is the refresh recipe.
 Read it and follow its `instructions` array exactly; it names the CLI commands to query (`sources`), the selection rules (`tier_rules`), the files to edit together (`update_targets`) and the checks to run.
 
 Short form:
-1. Query each peer CLI (`codex debug models`, `agy.exe models`; `claude` has no list, use known ids) and compare with `profiles`.
+1. Query each peer CLI (`codex debug models`, `agy.exe models`; `claude` has no list, use known ids) and compare with `peerhub profile list`.
 2. Show the diff and wait for approval before changing anything.
-3. After approval edit every `update_targets` file together (new `revision` = `YYYY-MM-DD.N`, also `defaults_revision` in the toml; also bump `observed_at`/`observed_versions` and toml `observed_at`; rewrite each profile `source` in `model-profiles.json`: `'cli:<command>@<observed cli version> <observed_at>'` or `'known-id:<probe>@<version> <observed_at>'`).
-4. `python -m pytest -q tests/communication/adapters` (manifest vs toml, plus documentation links).
+3. After approval edit the toml (new `defaults_revision` = `YYYY-MM-DD.N`, `observed_at`, `observed_versions`, each touched profile `source` = `'cli:<command>@<observed cli version> <observed_at>'` or `'known-id:<probe>@<version> <observed_at>'`); review the adapter docs. Add/change/delete a profile = one `[profiles."<peer>.<name>"]` table. Keep LF.
+4. `python -m pytest -q tests/communication/adapters`.
 5. With approval (uses quota): `python -m tools.model_ping [profile ...]` shows which model actually answered.
-6. Do not commit, push or release unless asked.
+6. Do not commit, push or release unless asked. Record dated observations in CHANGELOG.md.

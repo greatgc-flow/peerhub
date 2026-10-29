@@ -2,7 +2,11 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.22.2 (published)
+## Current source: v0.23.0 (published)
+
+v0.23.0 gives model profiles one source (`model-defaults.toml`; `model-profiles.json` is only the refresh recipe, `schema_version` 2) and re-observes CLIs (claude 2.1.312, codex 0.165.0, agy 1.4.9) with no packaged model change; design: [profile-ssot](design/profile-ssot-2026-10-29.md). Published 2026-10-29 (PR #265, tag `v0.23.0`, target `c98baee9`); previous published release: v0.22.3.
+
+v0.22.3 fixes #256 (batch worker setup failure keeps one row per task) and doc drift (#260 P2-1). Published 2026-10-26; previous published release: v0.22.2. Open follow-ups: #248 (deferred scope index), #258 (credit/quota specification), #259 (pricing research).
 
 v0.22.2 (supersedes v0.22.1, which never reached PyPI) fixes Python 3.15 installs (`requires-python <3.16`) and the first-use `workspace.generation` race (#249). Published 2026-10-21; previous published release: v0.22.0. Open follow-ups: #248 (deferred scope index), #256 (batch worker setup failure), #258 (credit/quota specification), #259 (pricing research), #260 (review/backlog mapping); #249 is fixed.
 
@@ -20,6 +24,8 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
+| **v0.23.0** | `c98baee9` | PR #265 | Published | Published 2026-10-29; tag `v0.23.0`; G3 passed bound to c98baee9; PyPI wheel + sdist; clean-venv install smoke passed; profile SSOT; `test_reset_credits` time bomb fixed |
+| **v0.22.3** | `bae1b675` | PR #261, #262 | Published | Published 2026-10-26; tag `v0.22.3`; G3 passed bound to bae1b675 with packaged profiles for ag/cc/cx; PyPI wheel + sdist; clean-venv install smoke passed; #256 fix |
 | **v0.22.2** | `7fa5fd06` | PR #251, #252 | Published | Published 2026-10-21; tag `v0.22.2`; G3 passed bound to 7fa5fd06 (ag canary on gemini-4-argon-medium, #191); PyPI wheel + sdist; Python 3.15 support, #249 fix |
 | **v0.22.1** | `d45d4d06` | PR #251 | NEVER PUBLISHED TO PYPI | `publish.yml` `release-evidence` refused: gate still expected 8 matrix cells, 3.15 made it 10; superseded by v0.22.2; the GitHub release and tag were deleted 2026-10-22 |
 | **v0.22.0** | `697e1574` | PR #247 | Published | Published 2026-10-21; tag `v0.22.0`; G3 passed bound to 697e1574 (ag canary on gemini-4-argon-medium, #191); PyPI wheel + sdist |
@@ -298,7 +304,7 @@ These issues remain open; they are separate from the closed deferred triage find
 |---|---|
 | #248 | Deferred batch/account/Engram scope index; implementation remains deferred. |
 | #249 | Fixed in v0.22.1/v0.22.2 (closed). |
-| #256 | Confirmed batch worker setup failure can lose a task row and abort aggregation; bounded fix and offline fault-injection coverage in preparation, not released. |
+| #256 | Confirmed batch worker setup failure can lose a task row and abort aggregation; fixed in v0.22.3 (#261), closed. |
 | #258 | Credit/quota specification; deferred until an owner-approved observability requirement. |
 | #259 | Dated pricing research ledger; no implementation. Revisit for an explicit pricing decision; retain separately from #258. |
 | #260 | Review findings and backlog mapping; only P0-1 (#256) and P2-1 factual documentation drift are in the current fix scope. |

@@ -12,22 +12,40 @@ from __future__ import annotations
 
 import re
 import shlex
+import tomllib
+from importlib import resources
 from pathlib import Path
 
 import pytest
 
 from peerhub.cli.app import build_parser, main
 
+PACKAGED = tomllib.loads(resources.files("peerhub.config_data").joinpath("model-defaults.toml").read_text(encoding="utf-8"))
+
 pytestmark = [pytest.mark.unit]
 
 
-def test_guide_line_and_token_cap(capsys):
+def test_guide_profile_rows_are_capped_however_many_profiles_exist(capsys, monkeypatch, tmp_path):
+    home = tmp_path / "cfg"
+    home.mkdir()
+    extras = "".join(f'[profiles."cx.extra{i}"]\nselection_mode = "pinned"\nmodel = "m{i}"\npools = ["X-5H"]\n' for i in range(5))
+    (home / "models.toml").write_text("schema_version = 1\n" + extras, encoding="utf-8")
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(home))
+    assert main(["guide"]) == 0
+    out = capsys.readouterr().out
+    assert len(out.splitlines()) <= 60 and "more profiles: peerhub profile list" in out
+    assert all(pid in out for pid in ("cx.standard", "cx.effort"))
+
+
+def test_guide_line_and_token_cap(capsys, monkeypatch, tmp_path):
     """Policy 5/13: peerhub guide stays within <=60 lines and words * 1.3 <= 900 estimated tokens."""
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
     code = main(["guide"])
     assert code == 0
     out = capsys.readouterr().out
     assert "peerhub explain ag silence" in out
-    assert "ag.argon" in out and "gemini-4-argon-medium" in out
+    shown = [pid for pid in PACKAGED["profiles"] if pid in out]
+    assert len(shown) == len(PACKAGED["profiles"]) or "more profiles: peerhub profile list" in out
     assert "models: peerhub profile list; slugs: agy models; --model <slug>" in out
     lines = out.splitlines()
     assert len(lines) <= 60, f"Guide has {len(lines)} lines, exceeding cap of 60"
@@ -62,19 +80,19 @@ def test_guide_example_commands_parse_via_real_argparse(capsys):
     assert found_examples >= 6, f"Found only {found_examples} examples"
 
 
-def test_guide_generated_data_parity(capsys):
+def test_guide_generated_data_parity(capsys, monkeypatch, tmp_path):
     """Policy 13: Generated profile table exhibits 1:1 parity with packaged profile registry."""
     from peerhub.extensions.adapters.profiles import list_profiles
 
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
     code = main(["guide"])
     assert code == 0
     out = capsys.readouterr().out
 
     profs = list_profiles(".")
     assert profs, "No profiles found in registry"
-    for p in profs:
-        p_name = p["profile"]
-        assert p_name in out, f"Profile {p_name} missing from rendered guide table"
+    shown = [p["profile"] for p in profs if p["profile"] in out]
+    assert len(shown) == len(profs) or "more profiles: peerhub profile list" in out
 
     # Verify .standard ordering before higher effort tiers
     std_pos = [out.find(f"{peer}.standard") for peer in ("ag", "cc", "cx")]

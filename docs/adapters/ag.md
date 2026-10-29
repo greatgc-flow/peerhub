@@ -22,9 +22,8 @@ PeerHub resolves model configuration centrally (workspace binding, then global
 configuration, then packaged defaults). The adapter only translates a resolved
 binding into CLI flags; it does not contain model-selection policy.
 
-Profile models and efforts are defined in the
-[model profile manifest](../model-profiles/model-profiles.json); see its `profiles`
-object for this provider. The manifest is checked against packaged defaults.
+Profile models and efforts live in the packaged `model-defaults.toml`; list the effective ones with
+`peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them.
 
 `ag.argon` selects `gemini-4-argon-medium` on A-7D. Discover exact slugs and their
 declared pools with `peerhub profile list` (JSON: `known_models`), or vendor slugs

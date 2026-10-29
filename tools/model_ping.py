@@ -1,4 +1,4 @@
-"""Ping every profile in docs/model-profiles/model-profiles.json once and check WHICH model really answered.
+"""Ping every effective profile (peerhub profile list: packaged plus workspace/global opt-ins) once and check WHICH model really answered.
 
 Direct one-shot CLI calls (uses a little quota), each in an empty temp directory:
   cc  claude -p ... --output-format json   -> evidence: the `modelUsage` keys of the result
@@ -18,7 +18,6 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "docs" / "model-profiles" / "model-profiles.json"
 PROMPT = "Reply with exactly: PONG"
 TIMEOUT_S = 240
 
@@ -86,7 +85,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("profiles", nargs="*", help="profile ids such as cx.effort (default: all)")
     ap.add_argument("--peer", choices=sorted(PINGS), help="only this peer")
     args = ap.parse_args(argv)
-    profiles = json.loads(MANIFEST.read_text(encoding="utf-8"))["profiles"]
+    from peerhub.extensions.adapters.profiles import list_profiles
+
+    profiles = {item["profile"]: {"model": item["fields"]["model"]["value"], "reasoning_effort": item["fields"]["effort"]["value"]}
+                for item in list_profiles(Path.cwd())}
     unknown = sorted(set(args.profiles) - profiles.keys())
     if unknown:
         ap.error(f"unknown profile ids: {', '.join(unknown)}")
