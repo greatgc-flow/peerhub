@@ -1,0 +1,514 @@
+[
+ {
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "task": "bugfix",
+  "rep": 0,
+  "ok": true,
+  "secs": 4.5,
+  "usage": {
+   "input_tokens": 13708,
+   "cached_input_tokens": 11776,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 60,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef moving_avg(xs, k):\n    if len(xs) < k:\n        return []\n    out = []\n    for i in range(len(xs) - k + 1):\n        out.append(sum(xs[i:i+k]) / k)\n    return out\n```"
+ },
+ {
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "task": "bugfix",
+  "rep": 1,
+  "ok": true,
+  "secs": 6.9,
+  "usage": {
+   "input_tokens": 13710,
+   "cached_input_tokens": 11776,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 61,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef moving_avg(xs, k):\n    if len(xs) < k:\n        return []\n\n    out = []\n    for i in range(len(xs) - k + 1):\n        out.append(sum(xs[i:i + k]) / k)\n    return out\n```"
+ },
+ {
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "task": "count",
+  "rep": 0,
+  "ok": false,
+  "secs": 4.3,
+  "usage": {
+   "input_tokens": 13659,
+   "cached_input_tokens": 11776,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 6,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "4000"
+ },
+ {
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "task": "count",
+  "rep": 1,
+  "ok": false,
+  "secs": 4.7,
+  "usage": {
+   "input_tokens": 13653,
+   "cached_input_tokens": 11776,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 6,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "4000"
+ },
+ {
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "task": "json",
+  "rep": 0,
+  "ok": false,
+  "secs": 4.9,
+  "usage": {
+   "input_tokens": 13675,
+   "cached_input_tokens": 11776,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 19,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "{\"a\":129,\"b\":\"buhreep\",\"c\":6}"
+ },
+ {
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "task": "json",
+  "rep": 1,
+  "ok": false,
+  "secs": 4.3,
+  "usage": {
+   "input_tokens": 15176,
+   "cached_input_tokens": 14208,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 19,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "{\"a\":129,\"b\":\"buhreep\",\"c\":6}"
+ },
+ {
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "task": "merge",
+  "rep": 0,
+  "ok": true,
+  "secs": 4.3,
+  "usage": {
+   "input_tokens": 13675,
+   "cached_input_tokens": 11776,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 72,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef merge(intervals):\n    merged = []\n    for start, end in sorted(intervals):\n        if merged and start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```"
+ },
+ {
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "task": "merge",
+  "rep": 1,
+  "ok": true,
+  "secs": 8.2,
+  "usage": {
+   "input_tokens": 13675,
+   "cached_input_tokens": 11776,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 108,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef merge(intervals):\n    if not intervals:\n        return []\n\n    intervals = sorted(intervals, key=lambda interval: interval[0])\n    merged = [[intervals[0][0], intervals[0][1]]]\n\n    for start, end in intervals[1:]:\n        if start <= merged[-1][1]:\n            merged[-1][1] = max(merg"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "low",
+  "task": "bugfix",
+  "rep": 0,
+  "ok": true,
+  "secs": 5.0,
+  "usage": {
+   "input_tokens": 14340,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 51,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef moving_avg(xs, k):\n    out = []\n    for i in range(len(xs) - k + 1):\n        out.append(float(sum(xs[i:i + k]) / k))\n    return out\n```"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "low",
+  "task": "bugfix",
+  "rep": 1,
+  "ok": true,
+  "secs": 4.7,
+  "usage": {
+   "input_tokens": 14338,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 50,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef moving_avg(xs, k):\n    out = []\n    for i in range(len(xs) - k + 1):\n        out.append(sum(xs[i:i + k]) / k)\n    return out\n```"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "low",
+  "task": "count",
+  "rep": 0,
+  "ok": false,
+  "secs": 4.3,
+  "usage": {
+   "input_tokens": 14287,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 6,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "4000"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "low",
+  "task": "count",
+  "rep": 1,
+  "ok": false,
+  "secs": 5.2,
+  "usage": {
+   "input_tokens": 14285,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 6,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "4000"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "low",
+  "task": "json",
+  "rep": 0,
+  "ok": true,
+  "secs": 5.9,
+  "usage": {
+   "input_tokens": 15808,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 84,
+   "reasoning_output_tokens": 63
+  },
+  "reply": "{\"a\":129,\"b\":\"buhreep\",\"c\":5}"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "low",
+  "task": "json",
+  "rep": 1,
+  "ok": true,
+  "secs": 5.3,
+  "usage": {
+   "input_tokens": 14301,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 60,
+   "reasoning_output_tokens": 39
+  },
+  "reply": "{\"a\":129,\"b\":\"buhreep\",\"c\":5}"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "low",
+  "task": "merge",
+  "rep": 0,
+  "ok": true,
+  "secs": 4.4,
+  "usage": {
+   "input_tokens": 14301,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 72,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef merge(intervals):\n    merged = []\n    for start, end in sorted(intervals):\n        if merged and start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "low",
+  "task": "merge",
+  "rep": 1,
+  "ok": true,
+  "secs": 5.9,
+  "usage": {
+   "input_tokens": 14303,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 72,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef merge(intervals):\n    merged = []\n    for start, end in sorted(intervals):\n        if merged and start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "medium",
+  "task": "bugfix",
+  "rep": 0,
+  "ok": true,
+  "secs": 4.7,
+  "usage": {
+   "input_tokens": 14336,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 78,
+   "reasoning_output_tokens": 26
+  },
+  "reply": "```python\ndef moving_avg(xs, k):\n    out = []\n    for i in range(len(xs) - k + 1):\n        out.append(sum(xs[i:i + k]) / k)\n    return out\n```"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "medium",
+  "task": "bugfix",
+  "rep": 1,
+  "ok": true,
+  "secs": 5.6,
+  "usage": {
+   "input_tokens": 14340,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 69,
+   "reasoning_output_tokens": 17
+  },
+  "reply": "```python\ndef moving_avg(xs, k):\n    out = []\n    for i in range(len(xs) - k + 1):\n        out.append(sum(xs[i:i + k]) / k)\n    return out\n```"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "medium",
+  "task": "count",
+  "rep": 0,
+  "ok": true,
+  "secs": 4.5,
+  "usage": {
+   "input_tokens": 14287,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 25,
+   "reasoning_output_tokens": 17
+  },
+  "reply": "4001"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "medium",
+  "task": "count",
+  "rep": 1,
+  "ok": true,
+  "secs": 5.5,
+  "usage": {
+   "input_tokens": 15788,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 25,
+   "reasoning_output_tokens": 17
+  },
+  "reply": "4001"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "medium",
+  "task": "json",
+  "rep": 0,
+  "ok": true,
+  "secs": 8.3,
+  "usage": {
+   "input_tokens": 14301,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 81,
+   "reasoning_output_tokens": 60
+  },
+  "reply": "{\"a\":129,\"b\":\"buhreep\",\"c\":5}"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "medium",
+  "task": "json",
+  "rep": 1,
+  "ok": true,
+  "secs": 5.8,
+  "usage": {
+   "input_tokens": 15808,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 61,
+   "reasoning_output_tokens": 40
+  },
+  "reply": "{\"a\":129,\"b\":\"buhreep\",\"c\":5}"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "medium",
+  "task": "merge",
+  "rep": 0,
+  "ok": true,
+  "secs": 6.2,
+  "usage": {
+   "input_tokens": 14299,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 72,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef merge(intervals):\n    merged = []\n    for start, end in sorted(intervals):\n        if merged and start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```"
+ },
+ {
+  "model": "gpt-6.1-terra",
+  "effort": "medium",
+  "task": "merge",
+  "rep": 1,
+  "ok": true,
+  "secs": 5.5,
+  "usage": {
+   "input_tokens": 14299,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 72,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef merge(intervals):\n    merged = []\n\n    for start, end in sorted(intervals):\n        if merged and start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n\n    return merged\n```"
+ },
+ {
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "task": "bugfix",
+  "rep": 0,
+  "ok": true,
+  "secs": 9.6,
+  "usage": {
+   "input_tokens": 14402,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 145,
+   "reasoning_output_tokens": 80
+  },
+  "reply": "```python\ndef moving_avg(xs, k):\n    if k <= 0:\n        raise ValueError(\"k must be positive\")\n    return [\n        float(sum(xs[i:i + k]) / k)\n        for i in range(len(xs) - k + 1)\n    ]\n```"
+ },
+ {
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "task": "bugfix",
+  "rep": 1,
+  "ok": true,
+  "secs": 7.2,
+  "usage": {
+   "input_tokens": 14400,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 121,
+   "reasoning_output_tokens": 51
+  },
+  "reply": "```python\ndef moving_avg(xs, k):\n    if k <= 0:\n        raise ValueError(\"k must be positive\")\n    out = []\n    for i in range(len(xs) - k + 1):\n        out.append(float(sum(xs[i:i + k]) / k))\n    return out\n```"
+ },
+ {
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "task": "count",
+  "rep": 0,
+  "ok": true,
+  "secs": 13.1,
+  "usage": {
+   "input_tokens": 15850,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 28,
+   "reasoning_output_tokens": 20
+  },
+  "reply": "4001"
+ },
+ {
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "task": "count",
+  "rep": 1,
+  "ok": true,
+  "secs": 9.2,
+  "usage": {
+   "input_tokens": 14347,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 28,
+   "reasoning_output_tokens": 20
+  },
+  "reply": "4001"
+ },
+ {
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "task": "json",
+  "rep": 0,
+  "ok": true,
+  "secs": 8.6,
+  "usage": {
+   "input_tokens": 14363,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 103,
+   "reasoning_output_tokens": 82
+  },
+  "reply": "{\"a\":129,\"b\":\"buhreep\",\"c\":5}"
+ },
+ {
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "task": "json",
+  "rep": 1,
+  "ok": true,
+  "secs": 8.1,
+  "usage": {
+   "input_tokens": 14367,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 91,
+   "reasoning_output_tokens": 70
+  },
+  "reply": "{\"a\":129,\"b\":\"buhreep\",\"c\":5}"
+ },
+ {
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "task": "merge",
+  "rep": 0,
+  "ok": true,
+  "secs": 6.5,
+  "usage": {
+   "input_tokens": 14367,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 72,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef merge(intervals):\n    merged = []\n    for start, end in sorted(intervals):\n        if merged and start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```"
+ },
+ {
+  "model": "gpt-6.1-sol",
+  "effort": "medium",
+  "task": "merge",
+  "rep": 1,
+  "ok": true,
+  "secs": 16.8,
+  "usage": {
+   "input_tokens": 15872,
+   "cached_input_tokens": 12416,
+   "cache_write_input_tokens": 0,
+   "output_tokens": 72,
+   "reasoning_output_tokens": 0
+  },
+  "reply": "```python\ndef merge(intervals):\n    merged = []\n    for start, end in sorted(intervals):\n        if merged and start <= merged[-1][1]:\n            merged[-1][1] = max(merged[-1][1], end)\n        else:\n            merged.append([start, end])\n    return merged\n```"
+ }
+]

@@ -5,7 +5,8 @@ and coordination checkpoints.
 
 ## 0. Current checkpoint (2026-10-29 — post-v0.23.0)
 
-**State:** v0.23.0 is published (tag v0.23.0, target `c98baee9`, PR #265; PyPI confirmed; G3 passed; clean-venv smoke passed). Profiles live only in `model-defaults.toml`; the recipe is `docs/model-profiles/model-profiles.json` (schema_version 2); design `design/profile-ssot-2026-10-29.md`. Owner opt-in `cx.terra` is in `~/.peerhub/config/models.toml` (gpt-6.1-terra, tier/cost unevaluated). Open: dependabot PR #257 (actions bump, CI green, merge pending owner ack).
+**State:** v0.23.0 is published (tag v0.23.0, target `c98baee9`, PR #265; PyPI confirmed; G3 passed; clean-venv smoke passed). Profiles live only in `model-defaults.toml`; the recipe is `docs/model-profiles/model-profiles.json` (schema_version 2); design `design/profile-ssot-2026-10-29.md`. Owner opt-in `cx.terra` is in `~/.peerhub/config/models.toml` (gpt-6.1-terra, tier/cost unevaluated). Dependabot #257 and docs #266 are merged. cx.terra quick benchmark (benchmarks/cx-terra-2026-10-29.md): terra/medium matched sol/medium accuracy (8/8) with ~40% faster replies, luna/low failed arithmetic; small noisy sample, no packaged change until cost (#259) and a larger run. Windows pitfall: pass multi-line prompts to `codex.cmd` via stdin, not argv.
+**Next:** none pending; optional larger terra benchmark, then decide the cx.standard/cx.effort slot.
 
 Previous: v0.22.3 is published (tag v0.22.3, target `bae1b675`; PR #261, #262; PyPI wheel + sdist; clean-virtualenv smoke passed; G3 passed with packaged ag/cc/cx profiles). #256 and #260 are closed. No release in preparation.
 [STATUS](STATUS.md) owns release evidence and the open queue: #248 (deferred scope index), #258 (credit/quota spec), #259 (pricing research) - all start-triggered, none authorized for implementation.
