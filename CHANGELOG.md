@@ -8,6 +8,21 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-10-31
+
+### Fixed
+
+- `ask`: a request with durable `prespawn_failure` evidence (state `NOT_STARTED`) no longer blocks its stream with `pending_earlier_record` / `session_binding_mismatch` once the binding changes; the record is superseded. `STARTED`, `MAY_HAVE_STARTED` and `UNCERTAIN` records are never consumed (#270).
+
+### Changed
+
+- `peerhub guide` states that ag needs `--writable` even for read-only asks, that `-w` must be the trusted project folder, and that shell commands need allow rules (#268). The guide stays at 60 lines.
+
+### Documentation
+
+- `docs/adapters/cx.md` documents the cx sandbox workflow: no `.git` writes, installs or pytest temp dirs, so the orchestrator commits and runs the suite (#271).
+- cx.terra quick benchmark (#267); CI action bumps: setup-python 7.1.0 and pypi-publish (#257).
+
 ## [0.23.0] - 2026-10-29
 
 ### Changed
