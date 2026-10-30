@@ -2,7 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.23.0 (published)
+## Current source: v0.23.1 (candidate)
+
+v0.23.1 fixes #270 (a proven pre-spawn failure no longer blocks its stream after the binding changes), clarifies the ag approval gate and trusted `-w` in the guide (#268) and documents the cx sandbox workflow (#271); previous published release: v0.23.0. Open follow-ups: none; #248, #258 and #259 were closed as not planned with start triggers recorded.
 
 v0.23.0 gives model profiles one source (`model-defaults.toml`; `model-profiles.json` is only the refresh recipe, `schema_version` 2) and re-observes CLIs (claude 2.1.312, codex 0.165.0, agy 1.4.9) with no packaged model change; design: [profile-ssot](design/profile-ssot-2026-10-29.md). Published 2026-10-29 (PR #265, tag `v0.23.0`, target `c98baee9`); previous published release: v0.22.3.
 
@@ -24,6 +26,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
+| **v0.23.1** | pending | release PR | Candidate | Not yet published; fixes #270, guide #268, cx sandbox doc #271 |
 | **v0.23.0** | `c98baee9` | PR #265 | Published | Published 2026-10-29; tag `v0.23.0`; G3 passed bound to c98baee9; PyPI wheel + sdist; clean-venv install smoke passed; profile SSOT; `test_reset_credits` time bomb fixed |
 | **v0.22.3** | `bae1b675` | PR #261, #262 | Published | Published 2026-10-26; tag `v0.22.3`; G3 passed bound to bae1b675 with packaged profiles for ag/cc/cx; PyPI wheel + sdist; clean-venv install smoke passed; #256 fix |
 | **v0.22.2** | `7fa5fd06` | PR #251, #252 | Published | Published 2026-10-21; tag `v0.22.2`; G3 passed bound to 7fa5fd06 (ag canary on gemini-4-argon-medium, #191); PyPI wheel + sdist; Python 3.15 support, #249 fix |
