@@ -1132,6 +1132,19 @@ class Bridge:
         self._promote_unresolved(token)  # D-OWN-A4: recovery never re-invokes; a dangling invocation marker is MAY_HAVE_STARTED
         self._handle_unread_controls(token, runtime)  # durable intent first: before any session/runtime side effect
         infl = self._inflight(token)
+        if infl is not None and infl["certainty"] == NOT_STARTED:
+            rec = self._record_by_id(stream, infl["record_position"], infl["record_id"])
+            if rec.metadata.get("binding", runtime.binding()) != runtime.binding():
+                with self.claims.fenced(token) as conn:
+                    failure = conn.execute("SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='prespawn_failure' ORDER BY seq DESC LIMIT 1",
+                                           (infl["delivery_id"],)).fetchone()
+                if failure is not None:
+                    # Preserve same-binding retries, but never rerun a proven pre-spawn
+                    # failure under a different binding. The consumer rechecks certainty
+                    # and unresolved invocation markers in its fenced transaction.
+                    self._reject_selector(token, rec, infl["delivery_id"], dict(
+                        code="delivery_failed", message=json.loads(failure["detail"])["error"]))
+                    infl = None
         reconcile_of = None
         if infl is not None:
             rec = self._record_by_id(stream, infl["record_position"], infl["record_id"])
@@ -1203,7 +1216,7 @@ class Bridge:
         return self._run_runtime(token, runtime, rec, did, ext, gen, catch_up)
 
     def _reject_selector(self, token: ClaimToken, rec: Record, did: str, error: dict[str, str]) -> CycleResult:
-        """Atomically consume only definitive unstarted selector failures."""
+        """Atomically consume only definitive unstarted request failures."""
         with self.claims.fenced(token) as conn:
             row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
             if row is None:

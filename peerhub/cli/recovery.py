@@ -328,7 +328,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
                 "prereqs": "None.",
             },
         ],
-        avoid="Do not loop blind retries or pass --fresh without verifying adapter flags and availability.",
+        avoid="Do not loop blind retries or pass --fresh without verifying adapter flags and availability. After a proven pre-spawn failure, retry unchanged binding with the same request-id; a corrected binding requires a new request-id and supersedes the failed request. Uncertain execution still requires stopping that stream.",
         docs="docs/remote-ask.md",
         exits=[
             {"code": 1, "context": "Adapter invocation failure, rejected pre-spawn execution policy, or general execution error (failed_not_started status or adapter exception)."},

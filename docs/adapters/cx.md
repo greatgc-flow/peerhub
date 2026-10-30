@@ -41,3 +41,16 @@ Codex is the only adapter providing an OS/filesystem sandbox-enforced read-only 
 Environment restrictions still apply.
 Authentication, quotas, network access, and model availability also remain
 vendor-owned.
+
+## Windows sandbox workflow
+
+In restricted unelevated Windows environments, `ask cx --writable` can block
+writes to `.git` (including branch creation and commits), venv creation, and
+pip installs. Default pytest temporary directories can also hit ACL errors;
+use `--basetemp=.peerhub/work/pytest-cx` inside this ignored scratch folder.
+If pytest's owner-only directory ACLs still prevent access there, have the
+moderator run those tests outside the restricted session.
+
+Tell cx these constraints in the task prompt: cx edits files and runs focused
+tests using an existing development venv; the moderator creates branches,
+commits, pushes, and runs the full suite. Keep the sandbox restrictions in place.

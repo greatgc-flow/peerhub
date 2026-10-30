@@ -96,6 +96,78 @@ def test_prespawn_is_retryable_without_new_prompt(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM records WHERE kind='prompt'").fetchone()[0] == 1
 
 
+def test_changed_binding_supersedes_proven_prespawn_failure(tmp_path):
+    db = tmp_path / "core.db"
+    failed = FakeRuntimeTarget()
+    failed.binding = lambda: "workspace=nonexistent"
+    failed.script_deliver(("prespawn_error", "workspace is not a directory"))
+    first = ask(db, "cx", "first", stream_id="shared", request_id="R1", runtime=failed)
+    assert (first["status"], first["certainty"]) == ("failed_not_started", "NOT_STARTED")
+
+    corrected = FakeRuntimeTarget()
+    corrected.binding = lambda: "workspace=corrected"
+    second = ask(db, "cx", "second", stream_id="shared", request_id="R2", runtime=corrected)
+    assert second["status"] == "delivered"
+    assert second["record_id"] == second["requested_record_id"]
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT certainty,acked FROM bridge_deliveries WHERE record_id=?",
+                            (first["record_id"],)).fetchone() == ("NOT_STARTED", 1)
+        assert conn.execute("SELECT COUNT(*) FROM bridge_invocations WHERE delivery_id=?",
+                            (first["delivery_id"],)).fetchone()[0] == 1
+    # The abandoned request remains a failure; replay must never execute it.
+    failed.calls.clear()
+    replay = ask(db, "cx", "first", stream_id="shared", request_id="R1", runtime=failed)
+    assert replay["status"] == "failed_not_started" and failed.calls == []
+    with pytest.raises(IdempotencyConflictError):
+        ask(db, "cx", "first", stream_id="shared", request_id="R1", runtime=corrected)
+    assert ask(db, "cx", "third", stream_id="shared", request_id="R3", runtime=corrected)["status"] == "delivered"
+
+
+@pytest.mark.parametrize("started", [False, True])
+@pytest.mark.parametrize("prior_prespawn_failure", [False, True])
+def test_changed_binding_never_supersedes_uncertain_failure(tmp_path, started, prior_prespawn_failure):
+    db = tmp_path / "core.db"
+    failed = FakeRuntimeTarget()
+    if prior_prespawn_failure:
+        failed.script_deliver(("prespawn_error", "missing executable"))
+        assert ask(db, "cx", "first", request_id="R1", runtime=failed)["status"] == "failed_not_started"
+    failed.script_deliver(*([("started", "exec")] if started else []), ("timeout", 5))
+    first = ask(db, "cx", "first", request_id="R1", runtime=failed)
+    assert first["status"] == "uncertain"
+    corrected = FakeRuntimeTarget()
+    corrected.binding = lambda: "different-workspace"
+    second = ask(db, "cx", "second", request_id="R2", runtime=corrected)
+    assert second["status"] == "pending_earlier_record"
+    assert second["processed_status"] == "blocked_uncertain"
+    assert corrected.calls == []
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT acked FROM bridge_deliveries WHERE record_id=?",
+                            (first["record_id"],)).fetchone() == (0,)
+
+
+def test_changed_binding_never_supersedes_crashed_retry_after_prespawn_failure(tmp_path):
+    db = tmp_path / "core.db"
+    failed = FakeRuntimeTarget()
+    failed.script_deliver(("prespawn_error", "missing executable"))
+    first = ask(db, "cx", "first", request_id="R1", runtime=failed)
+    assert first["status"] == "failed_not_started"
+
+    def crash_before_start_evidence():
+        raise SystemExit
+
+    # Same-binding retry leaves a NEW unresolved marker, despite old failure evidence.
+    failed.script_deliver(("call", crash_before_start_evidence))
+    with pytest.raises(SystemExit):
+        ask(db, "cx", "first", request_id="R1", runtime=failed)
+    corrected = FakeRuntimeTarget(binding="corrected")
+    second = ask(db, "cx", "second", request_id="R2", runtime=corrected)
+    assert second["processed_status"] == "blocked_uncertain"
+    assert corrected.calls == []
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("SELECT certainty,acked FROM bridge_deliveries WHERE record_id=?",
+                            (first["record_id"],)).fetchone() == ("MAY_HAVE_STARTED", 0)
+
+
 def test_request_id_cannot_silently_change_model_binding(tmp_path):
     db = tmp_path / "core.db"
     rt = FakeRuntimeTarget()
