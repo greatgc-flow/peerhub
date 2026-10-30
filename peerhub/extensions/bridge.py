@@ -1143,7 +1143,7 @@ class Bridge:
                     # failure under a different binding. The consumer rechecks certainty
                     # and unresolved invocation markers in its fenced transaction.
                     self._reject_selector(token, rec, infl["delivery_id"], dict(
-                        code="delivery_failed", message=json.loads(failure["detail"])["error"]))
+                        code="delivery_failed", message=json.loads(failure["detail"]).get("error", "prespawn delivery failed")))
                     infl = None
         reconcile_of = None
         if infl is not None:
