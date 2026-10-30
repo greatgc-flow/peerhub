@@ -194,6 +194,24 @@ def test_guide_safety_scenarios_and_behaviour(capsys):
     assert re.search(r"\bno tokens/passwords\b", sec_text, re.IGNORECASE)
 
 
+def test_guide_ag_gate_distinct_from_agy_permissions(capsys):
+    """An ag read task needs PeerHub approval as well as agy's tool permissions."""
+    parser = build_parser()
+    for flags in ([], ["--writable"]):
+        args = parser.parse_args(["ask", "ag", "Read README.md", *flags])
+        assert args.writable is bool(flags)
+
+    assert main(["guide"]) == 0
+    safety = capsys.readouterr().out.split("Safety:\n", 1)[1].split("Discovery", 1)[0]
+    assert "PeerHub requires --writable for ag even for read tasks" in safety
+    assert "accept-edits (workspace-wide edit approval)" in safety
+    assert "pass --writable on every turn, including resumed turns" in safety
+    assert "ag -w must be the trusted project folder, not temp/scratch" in safety
+    assert "direct agy reads need no accept-edits" in safety
+    assert "headless prompts auto-deny" in safety
+    assert "shell needs matching command(...) or command(*) allow rules" in safety
+
+
 def test_guide_efficiency_guidance_and_transport(capsys):
     """Policy 13: Efficiency guidance <=3 lines (excluding heading); transport options parse via CLI."""
     code = main(["guide"])

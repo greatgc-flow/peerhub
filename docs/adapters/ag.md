@@ -57,4 +57,39 @@ new work on a new stream. Never blindly replay the original work.
 
 ## Empty responses and denied tools
 
-In headless mode agy auto-denies any tool that needs a permission it cannot prompt for (for example `command`) and still exits successfully with an empty `response` and a `denied_actions` list. PeerHub surfaces the names as `denied_actions` in the ask result and prints a one-line note. Read-only file tools work. Avoid shell tools in ag prompts, or add an allow-rule under `permissions.allow` in agy's `settings.json`; PeerHub never passes `--dangerously-skip-permissions` (#195).
+PeerHub's `--writable` gate and agy's tool permissions are separate. PeerHub
+requires `--writable` even for read tasks; it selects `--mode accept-edits`,
+which grants workspace-wide edit approval. Pass it on every turn, including
+resumed turns. Direct `agy` file reads need no accept-edits mode. Set ag's `-w`
+to the trusted project folder listed in `trustedWorkspaces`, not a temporary or
+scratch directory; edit approval does not establish workspace trust.
+
+In headless mode agy auto-denies tools needing an interactive permission prompt
+and can still exit successfully with an empty `response` and a `denied_actions`
+list. PeerHub surfaces those names in the ask result and prints a one-line note.
+Shell access needs a matching `command(...)` or broad `command(*)` allow rule
+under `permissions.allow` in agy's `settings.json`; accept-edits alone does not
+approve shell commands. Prefer the narrow matching rule when shell access is
+intended. PeerHub never passes `--dangerously-skip-permissions` (#195).
+
+For an empty reply, check these three causes before changing permissions:
+
+1. **Untrusted workspace:** check the actual `-w` against `trustedWorkspaces`.
+   Use the trusted project folder, even when the task only reads files.
+2. **Unreadable target:** binary, NUL-containing, or huge files may defeat the
+   normal file reader and cause a shell fallback that headless permissions deny.
+   Check `denied_actions` and inspect the target locally; use a bounded text
+   extract or explicitly approve the intended shell command rather than assuming
+   accept-edits permits it.
+3. **Wrong branch:** confirm the path exists on the checked-out branch; a path
+   present only on another branch cannot be read from this checkout.
+
+Image reads are denied through `peerhub ask ag`. If an image read is intended,
+use direct `agy` with an exact-path read allow rule; PeerHub has no
+`--allow-read PATH` option. Do not broaden workspace edit or shell approval to
+solve an image read denial.
+
+The #268 incident guidance dated **2026-10-30** also cautions that Flash image
+transcription may omit or alter text. Verify transcription against the source
+before relying on exact wording; a nonempty reply does not prove fidelity. This
+is a dated task-specific caveat, not a claim about every Flash model or version.
