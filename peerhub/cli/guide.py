@@ -28,7 +28,7 @@ def _cell(value: object, width: int) -> str:
     source = str(value)
     for raw in source:
         category = unicodedata.category(raw)
-        char = "?" if category.startswith("C") or raw in "\\r\\n\\t" else raw
+        char = "?" if category.startswith("C") else raw
         cells = 0 if unicodedata.combining(char) else (
             2 if unicodedata.east_asian_width(char) in ("F", "W") else 1
         )
