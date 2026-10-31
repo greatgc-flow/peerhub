@@ -8,9 +8,15 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-11-01
+
 ### Fixed
 
 - `guide` caps profile fields by character count, replaces terminal controls and Unicode line separators, and marks truncation with `~` (#277).
+
+### Changed
+
+- CI: the Windows full-suite job ceiling is 60 minutes (was 35) and prints the 25 slowest tests; workflow or selector changes run the full Windows suite (#280).
 
 ## [0.23.1] - 2026-10-31
 

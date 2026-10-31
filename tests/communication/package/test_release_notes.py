@@ -20,7 +20,7 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.23.1"
-    assert "no longer blocks its stream" in body
+    assert __version__ == "0.23.2"
+    assert "caps profile fields" in body
     assert "peerhub batch run" not in body  # no adjacent history
     assert "(#232, #241)" not in body
