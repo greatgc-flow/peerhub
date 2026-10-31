@@ -159,7 +159,11 @@ def test_release_workflow_runs_full_matrix_before_pyPI_publish():
             assert all(ref == "${{ github.sha }}" for ref in checkout_refs)
     rc = jobs["release-matrix"]["strategy"]["matrix"]
     cells = len(rc["os"]) * len(rc["python-version"])  # the gate must count exactly the declared cells (v0.22.1: 8 vs 10, #254)
-    assert f"${{#rc_junits[@]}} -ne {cells} ]]" in release_text
+    # Explicit exact-cell validator replaces the brittle hard-coded count.
+    from tools.release_matrix import expected_names, read_matrix
+
+    assert len(expected_names(read_matrix(), "g2-rc-matrix")) == cells
+    assert "python -m tools.release_matrix validate --junit-dir junit" in release_text
     assert 'TAG_SHA="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"' in release_text
     for job_name in ("build", "release-matrix"):
         checkout = next(step for step in jobs[job_name]["steps"] if step.get("uses", "").startswith("actions/checkout@"))
