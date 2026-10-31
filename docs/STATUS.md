@@ -48,7 +48,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
 
-## Latest published release: v0.22.2 (tag v0.22.2, target 7fa5fd06c6acf82dd5b042c132650f4b02a217e0; PR #251, #252)
+## Historical release checkpoint (2026-10-21): v0.22.2 (tag v0.22.2, target 7fa5fd06c6acf82dd5b042c132650f4b02a217e0; PR #251, #252)
 
 Published 2026-10-21. `publish.yml` succeeded through verify, build, live-validation, release-matrix (Python 3.11-3.15 x Ubuntu/Windows), release-evidence and publish. PyPI has the 0.22.2 wheel and sdist (`requires-python >=3.11,<3.16`); a clean-virtualenv install from PyPI on CPython 3.15.0 passed `peerhub --version` (0.22.2) and `batch run --help`.
 
