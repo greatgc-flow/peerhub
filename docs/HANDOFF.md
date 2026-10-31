@@ -3,7 +3,7 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Current checkpoint (2026-10-29 — post-v0.23.0)
+## 0. Historical checkpoint (2026-10-29 — post-v0.23.0); current status: [STATUS](STATUS.md)
 
 **State:** v0.23.0 is published (tag v0.23.0, target `c98baee9`, PR #265; PyPI confirmed; G3 passed; clean-venv smoke passed). Profiles live only in `model-defaults.toml`; the recipe is `docs/model-profiles/model-profiles.json` (schema_version 2); design `design/profile-ssot-2026-10-29.md`. Owner opt-in `cx.terra` is in `~/.peerhub/config/models.toml` (gpt-6.1-terra, tier/cost unevaluated). Dependabot #257 and docs #266 are merged. cx.terra quick benchmark (benchmarks/cx-terra-2026-10-29.md): terra/medium matched sol/medium accuracy (8/8) with ~40% faster replies, luna/low failed arithmetic; small noisy sample, no packaged change until cost (#259) and a larger run. Windows pitfall: pass multi-line prompts to `codex.cmd` via stdin, not argv.
 **Next:** none pending; optional larger terra benchmark, then decide the cx.standard/cx.effort slot.

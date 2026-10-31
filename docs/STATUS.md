@@ -2,7 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.23.1 (published)
+## Current source: post-v0.23.1 (unreleased main changes)
+
+The latest published package remains **v0.23.1** (tag `v0.23.1`, target `01a77631`). Subsequent main changes, including the `peerhub guide` display/permission clarification in #278, are **source-only until a new release**. The installed `peerhub guide` does not automatically update when main changes.
 
 v0.23.1 fixes #270 (a proven pre-spawn failure no longer blocks its stream after the binding changes), clarifies the ag approval gate and trusted `-w` in the guide (#268) and documents the cx sandbox workflow (#271); published 2026-10-31 (PR #273, tag `v0.23.1`, target `01a77631`); previous published release: v0.23.0. Open follow-ups: none; #248, #258 and #259 were closed as not planned with start triggers recorded.
 
@@ -48,7 +50,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 Both drafts and the v0.18.1 tag were deleted on 2026-10-17 after v0.18.2 (superseded). CHANGELOG entries 0.17.0/0.18.1 describe changes that first shipped in 0.18.0/0.18.2.
 
-## Latest published release: v0.22.2 (tag v0.22.2, target 7fa5fd06c6acf82dd5b042c132650f4b02a217e0; PR #251, #252)
+## Historical release checkpoint (2026-10-21): v0.22.2 (tag v0.22.2, target 7fa5fd06c6acf82dd5b042c132650f4b02a217e0; PR #251, #252)
 
 Published 2026-10-21. `publish.yml` succeeded through verify, build, live-validation, release-matrix (Python 3.11-3.15 x Ubuntu/Windows), release-evidence and publish. PyPI has the 0.22.2 wheel and sdist (`requires-python >=3.11,<3.16`); a clean-virtualenv install from PyPI on CPython 3.15.0 passed `peerhub --version` (0.22.2) and `batch run --help`.
 
