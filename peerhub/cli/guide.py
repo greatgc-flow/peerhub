@@ -132,7 +132,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "  Writes: cx sandbox enforced; cc enforced; ag NOT enforced (issue #140); when edits are intended, pass --writable on every turn, including resumed turns.",
         "    PeerHub requires --writable for ag even for read tasks; it maps to accept-edits (workspace-wide edit approval).",
         "    ag -w must be the trusted project folder, not temp/scratch; direct agy reads need no accept-edits.",
-        "    ag headless prompts auto-deny; shell needs matching command(...) or command(*) allow rules; details: 'peerhub explain ag silence'.",
+        "    ag headless prompts auto-deny; shell needs matching command(...) or command(*) allow rules (command(*) is broad, not exact-only); details: 'peerhub explain ag silence'.",
         "  pending_earlier_record: inspect processed_status; delivered => retry same request-id/prompt/binding/selector; uncertain => stop.",
         "  Uncertain: stop that stream, 'peerhub diag health' to check effects;",
         "    never blind-retry original prompt under a new request-id, with --fresh, or delete claims;",
