@@ -1,13 +1,9 @@
 """PeerHub Quick Reference and Best Practices Guide (S5).
 
-Static prose and generated profile table providing a concise (<=60 lines, words * 1.3 <= 900 tokens)
+Static prose and a generated profile table provide a concise (<=60 lines)
 reference for session reuse, efficiency, safety, discovery, drift recovery, and issue reporting.
-Works without store or provider access.
-
-Token-count method:
-The guide output is capped at <=60 lines and an estimated token budget of words * 1.3 <= 900 tokens.
-The budget is asserted by evaluating whitespace-delimited word count with standard ~1.3 tokens/word
-heuristics (int(len(out.split()) * 1.3) <= 900).
+Works without store or provider access. Profile fields are capped by character count;
+whitespace-based token estimates are only a heuristic, not a tokenizer guarantee.
 """
 from __future__ import annotations
 
@@ -17,34 +13,17 @@ from typing import Any, cast
 
 
 def _cell(value: object, width: int) -> str:
-    """Sanitize and bound untrusted profile metadata for terminal presentation.
-
-    The source model/profile is never modified; use 'peerhub profile list'
-    to inspect a truncated value. Limit visual width (including CJK) as well
-    as printable characters, so the quick guide cannot grow with config size.
-    """
-    chars: list[str] = []
-    used = 0
-    source = str(value)
-    for raw in source:
-        category = unicodedata.category(raw)
-        char = "?" if category.startswith("C") else raw
-        cells = 0 if unicodedata.combining(char) else (
-            2 if unicodedata.east_asian_width(char) in ("F", "W") else 1
-        )
-        if used + cells > width:
-            # Retain an explicit ellipsis without exceeding terminal width.
-            while chars and used > width - 1:
-                last = chars.pop()
-                used -= 0 if unicodedata.combining(last) else (
-                    2 if unicodedata.east_asian_width(last) in ("F", "W") else 1
-                )
-            chars.append("~")
-            used += 1
-            break
-        chars.append(char)
-        used += cells
-    return "".join(chars) + " " * max(0, width - used)
+    """Replace terminal controls; '~' marks a value truncated by character count."""
+    text = str(value)
+    cut = len(text) > width
+    text = "".join(
+        "?" if unicodedata.category(char).startswith("C")
+        or unicodedata.category(char) in {"Zl", "Zp"} else char
+        for char in text[:width]
+    )
+    if cut:
+        text = text[:width - 1] + "~"
+    return text.ljust(width)
 
 
 PROFILE_ROWS = 10  # keeps the guide within its 60-line cap however many profiles are configured
@@ -59,8 +38,7 @@ def render_guide(workspace: Path | None = None) -> str:
     try:
         profs = list_profiles(ws)
     except Exception as exc:
-        # Raw parser errors may echo user-controlled profile data or paths.
-        load_error = f"{type(exc).__name__} (details: peerhub profile list)"
+        load_error = _cell(f"{type(exc).__name__}: {exc}", 120).rstrip()
         profs = []
 
     tier_order = {"standard": 0, "effort": 1, "deepthink": 2}
@@ -85,7 +63,7 @@ def render_guide(workspace: Path | None = None) -> str:
     lines: list[str] = [
         "PeerHub Quick Reference & Best Practices",
         "Profiles (defaulting to .standard first):",
-        f"{'Profile':<14} {'Model':<24} {'Pools':<14} {'Layer'}",
+        f"{'Profile':<14} {'Model':<24} {'Pools':<14} {'Layer'} (~ = truncated; peerhub profile list)",
     ]
     if load_error:
         lines.append(f"  (error loading profiles: {load_error})")
@@ -132,7 +110,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "  Writes: cx sandbox enforced; cc enforced; ag NOT enforced (issue #140); when edits are intended, pass --writable on every turn, including resumed turns.",
         "    PeerHub requires --writable for ag even for read tasks; it maps to accept-edits (workspace-wide edit approval).",
         "    ag -w must be the trusted project folder, not temp/scratch; direct agy reads need no accept-edits.",
-        "    ag headless prompts auto-deny; shell needs matching command(...) or command(*) allow rules (command(*) is broad, not exact-only); details: 'peerhub explain ag silence'.",
+        "    ag headless prompts auto-deny; shell needs matching command(...) or command(*) allow rules; details: 'peerhub explain ag silence'.",
         "  pending_earlier_record: inspect processed_status; delivered => retry same request-id/prompt/binding/selector; uncertain => stop.",
         "  Uncertain: stop that stream, 'peerhub diag health' to check effects;",
         "    never blind-retry original prompt under a new request-id, with --fresh, or delete claims;",

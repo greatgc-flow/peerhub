@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- `guide` caps profile fields by character count, replaces terminal controls and Unicode line separators, and marks truncation with `~` (#277).
+
 ## [0.23.1] - 2026-10-31
 
 ### Fixed

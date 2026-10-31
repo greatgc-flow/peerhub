@@ -69,11 +69,8 @@ and can still exit successfully with an empty `response` and a `denied_actions`
 list. PeerHub surfaces those names in the ask result and prints a one-line note.
 Shell access needs a matching `command(...)` or broad `command(*)` allow rule
 under `permissions.allow` in agy's `settings.json`; accept-edits alone does not
-approve shell commands. The statement that **only exact command strings**
-can be authorized is misleading: `command(*)` is also supported but gives
-broad shell access. Prefer a scoped matching rule when shell access is
-intended, and verify its actual matching semantics in agy rather than assuming
-literal equality. PeerHub never passes `--dangerously-skip-permissions` (#195).
+approve shell commands. Prefer the narrow matching rule when shell access is
+intended. PeerHub never passes `--dangerously-skip-permissions` (#195).
 
 For an empty reply, check these three causes before changing permissions:
 
