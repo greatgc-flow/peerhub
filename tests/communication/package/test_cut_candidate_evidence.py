@@ -366,7 +366,8 @@ def workflow_problems(wf):
             bad.append("release-evidence must need the matrix job and read its per-cell JUnit files")
     if ("release-matrix" not in wf["jobs"]["release-evidence"].get("needs", [])
             or "release-matrix" not in wf["jobs"]["publish"].get("needs", [])
-            or f"${{#rc_junits[@]}} -ne {_rc_cells(wf)} ]]" not in ev_run or "g2-rc-matrix-" not in ev_run):
+            or "python -m tools.release_matrix validate --junit-dir junit" not in ev_run
+            or "g2-rc-matrix-" not in ev_run):
         bad.append("release evidence and publish must require all release-candidate matrix cells")
     pub = wf["jobs"]["publish"]
     cond = str(pub.get("if", ""))
@@ -450,6 +451,10 @@ def _mutate(kind):
         wf["jobs"]["matrix"]["continue-on-error"] = True
     elif kind == "evidence-ignores-matrix":
         ev_step["run"] = ev_step["run"].replace("junit/g4-matrix-", "junit/other-")
+    elif kind == "evidence-removes-rc-validator":
+        ev_step["run"] = ev_step["run"].replace(
+            "python -m tools.release_matrix validate --junit-dir junit", "true"
+        )
     elif kind == "evidence-skips-g3-slow":
         ev_step["run"] = ev_step["run"].replace("--junit junit/g3-slow.xml", "")
     return wf
@@ -460,7 +465,8 @@ def _mutate(kind):
                                   "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow", "no-gate-arg",
                                   "publish-always", "publish-no-release-event",
                                   "publish-drops-evidence-need", "evidence-continue-on-error", "matrix-dropped-from-needs",
-                                  "verify-missing", "verify-needs-build", "matrix-rebuilds-dist", "matrix-cell-dropped", "matrix-not-package-scoped", "matrix-continue-on-error", "evidence-ignores-matrix"])
+                                  "verify-missing", "verify-needs-build", "matrix-rebuilds-dist", "matrix-cell-dropped", "matrix-not-package-scoped", "matrix-continue-on-error", "evidence-ignores-matrix",
+                                  "evidence-removes-rc-validator"])
 def test_cut_022_mutated_workflows_are_caught(kind):
     assert workflow_problems(_mutate(kind)), kind
 
