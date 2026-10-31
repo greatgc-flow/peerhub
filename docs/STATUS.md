@@ -2,7 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.23.1 (published)
+## Current source: post-v0.23.1 (unreleased main changes)
+
+The latest published package remains **v0.23.1** (tag `v0.23.1`, target `01a77631`). Subsequent main changes, including the `peerhub guide` display/permission clarification in #278, are **source-only until a new release**. The installed `peerhub guide` does not automatically update when main changes.
 
 v0.23.1 fixes #270 (a proven pre-spawn failure no longer blocks its stream after the binding changes), clarifies the ag approval gate and trusted `-w` in the guide (#268) and documents the cx sandbox workflow (#271); published 2026-10-31 (PR #273, tag `v0.23.1`, target `01a77631`); previous published release: v0.23.0. Open follow-ups: none; #248, #258 and #259 were closed as not planned with start triggers recorded.
 
