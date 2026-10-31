@@ -11,8 +11,40 @@ heuristics (int(len(out.split()) * 1.3) <= 900).
 """
 from __future__ import annotations
 
+import unicodedata
 from pathlib import Path
 from typing import Any, cast
+
+
+def _cell(value: object, width: int) -> str:
+    """Sanitize and bound untrusted profile metadata for terminal presentation.
+
+    The source model/profile is never modified; use 'peerhub profile list'
+    to inspect a truncated value. Limit visual width (including CJK) as well
+    as printable characters, so the quick guide cannot grow with config size.
+    """
+    chars: list[str] = []
+    used = 0
+    source = str(value)
+    for raw in source:
+        category = unicodedata.category(raw)
+        char = "?" if category.startswith("C") or raw in "\\r\\n\\t" else raw
+        cells = 0 if unicodedata.combining(char) else (
+            2 if unicodedata.east_asian_width(char) in ("F", "W") else 1
+        )
+        if used + cells > width:
+            # Retain an explicit ellipsis without exceeding terminal width.
+            while chars and used > width - 1:
+                last = chars.pop()
+                used -= 0 if unicodedata.combining(last) else (
+                    2 if unicodedata.east_asian_width(last) in ("F", "W") else 1
+                )
+            chars.append("~")
+            used += 1
+            break
+        chars.append(char)
+        used += cells
+    return "".join(chars) + " " * max(0, width - used)
 
 
 PROFILE_ROWS = 10  # keeps the guide within its 60-line cap however many profiles are configured
@@ -27,7 +59,8 @@ def render_guide(workspace: Path | None = None) -> str:
     try:
         profs = list_profiles(ws)
     except Exception as exc:
-        load_error = f"{type(exc).__name__}: {exc}"
+        # Raw parser errors may echo user-controlled profile data or paths.
+        load_error = f"{type(exc).__name__} (details: peerhub profile list)"
         profs = []
 
     tier_order = {"standard": 0, "effort": 1, "deepthink": 2}
@@ -68,8 +101,14 @@ def render_guide(workspace: Path | None = None) -> str:
         pools_dict: dict[str, Any] = cast(dict[str, Any], raw_pools) if isinstance(raw_pools, dict) else {}
         pools_val: object = pools_dict.get("value")
         pools_list = cast(list[object], pools_val) if isinstance(pools_val, list) else []
-        pools_str = ", ".join(str(x) for x in pools_list)
-        lines.append(f"{p_name:<14} {mod:<24} {pools_str:<14} {src}")
+        # Don't materialize an unbounded joined string from a custom list.
+        pools_str = ", ".join(str(x)[:32] for x in pools_list[:3])
+        if len(pools_list) > 3:
+            pools_str += ", ..."
+        lines.append(
+            f"{_cell(p_name, 14)} {_cell(mod, 24)} "
+            f"{_cell(pools_str, 14)} {_cell(src, 12).rstrip()}"
+        )
     if hidden:
         lines.append(f"  +{hidden} more profiles: peerhub profile list")
 
