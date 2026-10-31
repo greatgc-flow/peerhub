@@ -162,18 +162,31 @@ jobs:
           name: dist
           path: dist/
 
+  support_matrix:
+    # One candidate-bound source for both release matrices and the evidence gate.
+    # No provider credentials or paid test calls are required to derive it.
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.emit.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Validate and emit support matrix
+        id: emit
+        shell: bash
+        run: echo "matrix=$(python -m tools.release_matrix emit)" >> "$GITHUB_OUTPUT"
+
   matrix:
     # G4 support matrix (REL-010/011, TD-18): every declared Python x OS cell must really pass the matrix tests for THIS candidate.
     # Each cell runs only its own environment against the downloaded dist; the results are stamped to the candidate and the exact
     # built wheels (package scope). Archived runs never count.
-    needs: [build]
+    needs: [build, support_matrix]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+      matrix: ${{ fromJSON(needs.support_matrix.outputs.matrix) }}
     defaults:
       run:
         shell: bash
@@ -207,14 +220,12 @@ jobs:
   release-matrix:
     # Run the full deterministic suite on every supported OS/Python cell for
     # this exact release candidate before publishing.
-    needs: [verify]
+    needs: [verify, support_matrix]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+      matrix: ${{ fromJSON(needs.support_matrix.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -240,7 +251,7 @@ jobs:
 
   release-evidence:
     # G5 evidence index + hashes: fails (exit 1) unless every blocking catalog test passed and every requirement is covered.
-    needs: [verify, live-validation, build, matrix, release-matrix]
+    needs: [verify, live-validation, build, matrix, release-matrix, support_matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -263,11 +274,10 @@ jobs:
         run: |
           junit_args=(--junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml)
           for f in junit/g4-matrix-*.xml; do test ! -e "$f" || junit_args+=(--junit "$f"); done
+          # Compare the exact cell identities, not a magic number. A duplicate
+          # artifact name cannot replace a missing supported OS/Python cell.
+          python -m tools.release_matrix validate --junit-dir junit
           rc_junits=(junit/g2-rc-matrix-*.xml)
-          if [[ ! -e "${rc_junits[0]}" || ${#rc_junits[@]} -ne 10 ]]; then
-            echo "::error::Expected all 10 full release-candidate matrix JUnit files; found ${#rc_junits[@]}"
-            exit 1
-          fi
           for f in "${rc_junits[@]}"; do junit_args+=(--junit "$f"); done
           python -m tools.release_evidence "${junit_args[@]}" --dist dist --out evidence --commit "$(git rev-parse HEAD)" --candidate --policy-file docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json --release-policy docs/m1_impl/release-policy.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
