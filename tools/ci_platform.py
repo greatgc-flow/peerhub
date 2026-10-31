@@ -23,6 +23,10 @@ def windows_suite(event: str, base: str, head: str, force_full: bool = False, *,
     paths = [line.replace("\\", "/") for line in proc.stdout.split("\0") if line]
     if not paths:
         return "targeted"
+    # A CI workflow or its selector cannot validate itself with a narrower
+    # Windows suite: exercise the full deterministic inventory in its PR.
+    if any(p in {".github/workflows/ci.yml", "tools/ci_platform.py"} for p in paths):
+        return "full"
     def prose_doc(path: str) -> bool:
         lowered = path.lower()
         if lowered in {"readme.md", "contributing.md", "changelog.md"}:
