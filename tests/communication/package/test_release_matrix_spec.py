@@ -59,9 +59,14 @@ def test_empty_evidence_file_not_admitted(tmp_path):
         verify_evidence_names(directory, matrix)
 
 
-def test_publish_workflow_consumes_single_manifest():
+def test_publish_workflow_matrices_match_versioned_manifest():
+    import yaml
+
     path = Path(__file__).resolve().parents[3] / ".github" / "workflows" / "publish.yml"
     workflow = path.read_text(encoding="utf-8")
-    assert workflow.count("fromJSON(needs.support_matrix.outputs.matrix)") == 2
+    jobs = yaml.safe_load(workflow)["jobs"]
+    expected = read_matrix()
+    for job in ("matrix", "release-matrix"):
+        assert jobs[job]["strategy"]["matrix"] == expected
     assert "python -m tools.release_matrix validate --junit-dir junit" in workflow
     assert "-ne 10" not in workflow
