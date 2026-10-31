@@ -83,6 +83,14 @@ def test_windows_suite_skips_only_prose_and_runs_platform_inventory_for_code(mon
     assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="docs/m1_spec/contract.md\0"))
     assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "targeted"
+    # CI workflow/selector edits require actual full-Windows coverage on that PR,
+    # not just the platform-sensitive subset.
+    for changed in (".github/workflows/ci.yml", "tools/ci_platform.py"):
+        monkeypatch.setattr(
+            ci_platform.subprocess, "run",
+            lambda *a, changed=changed, **k: SimpleNamespace(stdout=changed + "\0"),
+        )
+        assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "full"
     monkeypatch.setattr(ci_platform.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError("git unavailable")))
     assert ci_platform.windows_suite("pull_request", "base", "head", repo=tmp_path) == "full"
 
