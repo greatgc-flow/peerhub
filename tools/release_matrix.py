@@ -25,7 +25,7 @@ def read_matrix(path: Path = DEFAULT_MANIFEST) -> dict[str, list[str]]:
         raise ValueError("matrix needs exactly os and python-version arrays")
     for key, pattern in (
         ("os", r"[a-z][a-z0-9-]*"),
-        ("python-version", r"3\\.[0-9]{1,2}"),
+        ("python-version", r"3\.[0-9]{1,2}"),
     ):
         items = manifest[key]
         if (not isinstance(items, list) or not 1 <= len(items) <= 20
@@ -71,7 +71,7 @@ def main() -> int:
             verify_evidence_names(args.junit_dir, matrix)
             print("Release matrix cell identity: complete")
     except (OSError, ValueError, TypeError) as exc:
-        parser.exit(1, f"release matrix validation failed: {exc}\\n")
+        parser.exit(1, f"release matrix validation failed: {exc}\n")
     return 0
 
 
