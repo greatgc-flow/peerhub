@@ -210,6 +210,7 @@ def test_guide_ag_gate_distinct_from_agy_permissions(capsys):
     assert "direct agy reads need no accept-edits" in safety
     assert "headless prompts auto-deny" in safety
     assert "shell needs matching command(...) or command(*) allow rules" in safety
+    assert "command(*) is broad, not exact-only" in safety
 
 
 def test_guide_efficiency_guidance_and_transport(capsys):
