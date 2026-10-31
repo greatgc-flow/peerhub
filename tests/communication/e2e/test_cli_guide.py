@@ -298,7 +298,9 @@ def test_guide_shows_error_line_if_profiles_fail(monkeypatch, capsys):
     code = main(["guide"])
     assert code == 0
     out = capsys.readouterr().out
-    assert "error loading profiles: RuntimeError: disk unreadable" in out
+    assert "error loading profiles: RuntimeError (details: peerhub profile list)" in out
+    # Untrusted exceptions may contain absolute paths or credentials.
+    assert "disk unreadable" not in out
 
 
 def test_guide_works_without_store_or_providers(tmp_path, monkeypatch, capsys):
