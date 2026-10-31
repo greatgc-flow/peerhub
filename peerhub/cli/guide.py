@@ -1,18 +1,29 @@
 """PeerHub Quick Reference and Best Practices Guide (S5).
 
-Static prose and generated profile table providing a concise (<=60 lines, words * 1.3 <= 900 tokens)
+Static prose and a generated profile table provide a concise (<=60 lines)
 reference for session reuse, efficiency, safety, discovery, drift recovery, and issue reporting.
-Works without store or provider access.
-
-Token-count method:
-The guide output is capped at <=60 lines and an estimated token budget of words * 1.3 <= 900 tokens.
-The budget is asserted by evaluating whitespace-delimited word count with standard ~1.3 tokens/word
-heuristics (int(len(out.split()) * 1.3) <= 900).
+Works without store or provider access. Profile fields are capped by character count;
+whitespace-based token estimates are only a heuristic, not a tokenizer guarantee.
 """
 from __future__ import annotations
 
+import unicodedata
 from pathlib import Path
 from typing import Any, cast
+
+
+def _cell(value: object, width: int) -> str:
+    """Replace terminal controls; '~' marks a value truncated by character count."""
+    text = str(value)
+    cut = len(text) > width
+    text = "".join(
+        "?" if unicodedata.category(char).startswith("C")
+        or unicodedata.category(char) in {"Zl", "Zp"} else char
+        for char in text[:width]
+    )
+    if cut:
+        text = text[:width - 1] + "~"
+    return text.ljust(width)
 
 
 PROFILE_ROWS = 10  # keeps the guide within its 60-line cap however many profiles are configured
@@ -27,7 +38,7 @@ def render_guide(workspace: Path | None = None) -> str:
     try:
         profs = list_profiles(ws)
     except Exception as exc:
-        load_error = f"{type(exc).__name__}: {exc}"
+        load_error = _cell(f"{type(exc).__name__}: {exc}", 120).rstrip()
         profs = []
 
     tier_order = {"standard": 0, "effort": 1, "deepthink": 2}
@@ -52,7 +63,7 @@ def render_guide(workspace: Path | None = None) -> str:
     lines: list[str] = [
         "PeerHub Quick Reference & Best Practices",
         "Profiles (defaulting to .standard first):",
-        f"{'Profile':<14} {'Model':<24} {'Pools':<14} {'Layer'}",
+        f"{'Profile':<14} {'Model':<24} {'Pools':<14} {'Layer'} (~ = truncated; peerhub profile list)",
     ]
     if load_error:
         lines.append(f"  (error loading profiles: {load_error})")
@@ -68,8 +79,14 @@ def render_guide(workspace: Path | None = None) -> str:
         pools_dict: dict[str, Any] = cast(dict[str, Any], raw_pools) if isinstance(raw_pools, dict) else {}
         pools_val: object = pools_dict.get("value")
         pools_list = cast(list[object], pools_val) if isinstance(pools_val, list) else []
-        pools_str = ", ".join(str(x) for x in pools_list)
-        lines.append(f"{p_name:<14} {mod:<24} {pools_str:<14} {src}")
+        # Don't materialize an unbounded joined string from a custom list.
+        pools_str = ", ".join(str(x)[:32] for x in pools_list[:3])
+        if len(pools_list) > 3:
+            pools_str += ", ..."
+        lines.append(
+            f"{_cell(p_name, 14)} {_cell(mod, 24)} "
+            f"{_cell(pools_str, 14)} {_cell(src, 12).rstrip()}"
+        )
     if hidden:
         lines.append(f"  +{hidden} more profiles: peerhub profile list")
 
