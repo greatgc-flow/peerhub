@@ -2,11 +2,11 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: post-v0.23.1 (unreleased main changes)
+## Current source: v0.23.2 (published)
 
-The latest published package remains **v0.23.1** (tag `v0.23.1`, target `01a77631`). Subsequent main changes, including the `peerhub guide` display/permission clarification in #278, are **source-only until a new release**. The installed `peerhub guide` does not automatically update when main changes.
+The latest published package is **v0.23.2** (tag `v0.23.2`, target `e9753e18`). Later main changes are **source-only until a new release**. The installed `peerhub guide` does not automatically update when main changes.
 
-v0.23.2 bounds and sanitizes custom profile fields in `peerhub guide` (#277) and raises the Windows CI full-suite ceiling to 60 minutes (#280); previous published release: v0.23.1. Open follow-ups: none.
+v0.23.2 bounds and sanitizes custom profile fields in `peerhub guide` (#277) and raises the Windows CI full-suite ceiling to 60 minutes (#280); published 2026-11-01 (PR #283, tag `v0.23.2`, target `e9753e18`); previous published release: v0.23.1. Open follow-ups: none.
 
 v0.23.1 fixes #270 (a proven pre-spawn failure no longer blocks its stream after the binding changes), clarifies the ag approval gate and trusted `-w` in the guide (#268) and documents the cx sandbox workflow (#271); published 2026-10-31 (PR #273, tag `v0.23.1`, target `01a77631`); previous published release: v0.23.0. Open follow-ups: none; #248, #258 and #259 were closed as not planned with start triggers recorded.
 
@@ -30,7 +30,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
-| **v0.23.2** | pending | release PR | Candidate | Not yet published; guide field bounds #277, Windows CI ceiling #280 |
+| **v0.23.2** | `e9753e18` | PR #283 | Published | Published 2026-11-01; tag `v0.23.2`; G3 passed bound to e9753e18 (12 live tests, all three peers); PyPI wheel + sdist; clean-target install smoke passed; guide field bounds #277, Windows CI ceiling #280 |
 | **v0.23.1** | `01a77631` | PR #273 | Published | Published 2026-10-31; tag `v0.23.1`; G3 passed bound to 01a77631 (12 live tests, all three peers); PyPI wheel + sdist; clean-target install smoke passed; fixes #270, guide #268, cx sandbox doc #271 |
 | **v0.23.0** | `c98baee9` | PR #265 | Published | Published 2026-10-29; tag `v0.23.0`; G3 passed bound to c98baee9; PyPI wheel + sdist; clean-venv install smoke passed; profile SSOT; `test_reset_credits` time bomb fixed |
 | **v0.22.3** | `bae1b675` | PR #261, #262 | Published | Published 2026-10-26; tag `v0.22.3`; G3 passed bound to bae1b675 with packaged profiles for ag/cc/cx; PyPI wheel + sdist; clean-venv install smoke passed; #256 fix |
