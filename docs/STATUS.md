@@ -2,11 +2,11 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.23.2 (published)
+## Current source: v0.23.3 (published)
 
-The latest published package is **v0.23.2** (tag `v0.23.2`, target `e9753e18`). Later main changes are **source-only until a new release**. The installed `peerhub guide` does not automatically update when main changes.
+The latest published package is **v0.23.3** (tag `v0.23.3`, target `60220a2c`). Later main changes are **source-only until a new release**. The installed `peerhub guide` does not automatically update when main changes.
 
-v0.23.3 adds five operating lessons to `peerhub explain` (#284-#290; documentation only); previous published release: v0.23.2. Open follow-ups: none.
+v0.23.3 adds five operating lessons to `peerhub explain` (#284-#290; documentation only); published 2026-11-01 (PR #295, tag `v0.23.3`, target `60220a2c`); previous published release: v0.23.2. Open follow-ups: none.
 
 v0.23.2 bounds and sanitizes custom profile fields in `peerhub guide` (#277) and raises the Windows CI full-suite ceiling to 60 minutes (#280); published 2026-11-01 (PR #283, tag `v0.23.2`, target `e9753e18`); previous published release: v0.23.1. Open follow-ups: none.
 
@@ -32,7 +32,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
-| **v0.23.3** | pending | release PR | Candidate | Not yet published; explain lessons #284-#290 (docs only) |
+| **v0.23.3** | `60220a2c` | PR #295 | Published | Published 2026-11-01; tag `v0.23.3`; G3 passed bound to 60220a2c (12 live tests, all three peers); PyPI wheel + sdist; clean-target install smoke passed; explain lessons #284-#290 (docs only) |
 | **v0.23.2** | `e9753e18` | PR #283 | Published | Published 2026-11-01; tag `v0.23.2`; G3 passed bound to e9753e18 (12 live tests, all three peers); PyPI wheel + sdist; clean-target install smoke passed; guide field bounds #277, Windows CI ceiling #280 |
 | **v0.23.1** | `01a77631` | PR #273 | Published | Published 2026-10-31; tag `v0.23.1`; G3 passed bound to 01a77631 (12 live tests, all three peers); PyPI wheel + sdist; clean-target install smoke passed; fixes #270, guide #268, cx sandbox doc #271 |
 | **v0.23.0** | `c98baee9` | PR #265 | Published | Published 2026-10-29; tag `v0.23.0`; G3 passed bound to c98baee9; PyPI wheel + sdist; clean-venv install smoke passed; profile SSOT; `test_reset_credits` time bomb fixed |
