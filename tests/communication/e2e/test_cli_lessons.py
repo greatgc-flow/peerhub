@@ -16,7 +16,7 @@ pytestmark = [pytest.mark.unit]
     ("pip checkout", ["installed-vs-checkout"]),
     ("PYTHONPATH", ["installed-vs-checkout"]),
     ("read-only", ["ag-permission-limit"]),
-    ("ag", ["ag-permission-limit", "ag-silence-long-asks"]),
+    ("ag", ["ag-bulk-profile-heuristics", "ag-empty-reply-causes", "ag-permission-limit", "ag-silence-long-asks", "multi-peer-quota-shaping"]),
     ("ag checkout", []),
     ("", []),
     ("!!!", []),
@@ -57,7 +57,7 @@ def test_known_guidance_and_alias_take_priority(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 3
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 8
     for lesson in lessons:
         assert all(lesson.values())
         assert len(render_lesson(lesson).splitlines()) <= 5
