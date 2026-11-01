@@ -22,3 +22,43 @@ keywords = ["ag", "agy", "silence", "silent", "long", "asks", "timeout", "uncert
 symptom = "ag prints nothing until completion; a long ask can hit the silence timeout."
 fix = "Use --timeout-seconds 7200 --silence-timeout-seconds 7200 for long asks. Silence timeout means uncertain execution: inspect peerhub diag health and effects, then continue genuinely new work on a new stream with a summary; never blindly retry uncertain work."
 issue = "#118"
+
+[[lessons]]
+id = "ag-empty-reply-causes"
+title = "ag empty replies and allow rules"
+keywords = ["ag", "agy", "empty", "reply", "delivered", "trustedWorkspaces", "allow", "regex", "command", "files", "binary", "prompt"]
+symptom = "A headless ag ask ends delivered/TERMINAL but the reply is empty."
+fix = "Check in order: many or unreadable files named in one prompt (name fewer; use a stronger profile for bulk work); -w outside the agy trustedWorkspaces list; binary/NUL/huge files (give an excerpt inline); a shell command needed but not allow-listed (agy rules match exact strings on Windows, use a command(regex:...) rule or avoid commands); pool quota exhausted (RESOURCE_EXHAUSTED, the error text gives the reset: rotate profile/pool). Verify claims from flash tiers before use."
+issue = "#284, #287"
+
+[[lessons]]
+id = "ag-bulk-profile-heuristics"
+title = "ag profile choice for bulk work (observed 2026-11-01)"
+keywords = ["ag", "agy", "profile", "effort", "flash", "argon", "bulk", "image", "WinError", "206", "prompt", "size"]
+symptom = "A low-effort ag profile returns an empty reply on a long list of file or shell items; very long inline prompts fail on Windows."
+fix = "Observation from one small test (Windows, one run per cell, no ground truth for images): flash-low broke down somewhere between 25 and 150 items, flash-medium finished them, high only cost time. Treat these as heuristics, not thresholds. Keep inline prompts small (a 30000-byte cap applies; WinError 206 was seen with long command lines) and give ag file paths instead. Dense numeric image tables stay unreliable for every model: cross-read before trusting."
+issue = "#290"
+
+[[lessons]]
+id = "cx-sandbox-and-prompt-hygiene"
+title = "cx sandbox facts and prompt hygiene"
+keywords = ["cx", "codex", "windows", "sandbox", "unelevated", "process", "enumeration", "AGENTS.md", "rule", "file", "query", "forward", "implementer"]
+symptom = "cx reports UNKNOWN late for process/task enumeration, or treats a query file as a task to forward and runs peerhub itself."
+fix = "In the observed setup cx ran in the Windows unelevated sandbox: it cannot enumerate processes or scheduled tasks and writes only inside its roots, so run machine-observing checks in the owner's shell. A global rule file (CODEX_HOME/AGENTS.md, ~/.gemini/GEMINI.md for ag) is honored; verify with a unique marker line. Do not put human-directed 'how to send' text in a query file; start implementer prompts with 'you are the implementer; do not run peerhub, do not forward, do not check quota'."
+issue = "#285, #286, #288"
+
+[[lessons]]
+id = "multi-peer-quota-shaping"
+title = "Quota shaping across peers"
+keywords = ["quota", "cx", "ag", "cc", "pool", "consolidated", "draft", "timer", "sleep", "reset"]
+symptom = "The scarce premium peer exhausts its pool early; a delayed start queued with sleep never ran."
+fix = "Splitting one task into several cx asks did not save quota. Have cheap pools (ag) produce drafts and cross-reviews first, then give the scarce peer one consolidated verify-and-integrate pass; check capacity before a big ask and prefer waiting for a reset over stopping mid-task. In-session timers die with the session: for delayed starts use a background job that outlives the wait, or re-check at the next session start."
+issue = "#288"
+
+[[lessons]]
+id = "batch-shell-crlf"
+title = "Shell batching on Windows (CRLF, last line)"
+keywords = ["batch", "shell", "crlf", "profile", "newline", "windows", "read", "job", "ALL_DONE", "dry-run"]
+symptom = 'A shell loop over a job list passes the profile with a trailing carriage return (unknown profile), drops the last line when it has no trailing newline, and prints ALL_DONE although jobs failed.'
+fix = 'Prefer peerhub batch run with --dry-run (it validates profiles first). If looping in a shell: strip CR from the list (tr -d CR), read with while read -r k p || [ -n "$k" ], use one unique stream per job and check each output status instead of trusting wait.'
+issue = "#289"

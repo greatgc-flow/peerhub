@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Documentation
+
+- `peerhub explain` gains five operating lessons (ag empty replies and allow rules, ag bulk-profile heuristics, cx sandbox and prompt hygiene, quota shaping, shell batching on Windows); source-only until the next release (#284-#290).
+
 ## [0.23.2] - 2026-11-01
 
 ### Fixed
