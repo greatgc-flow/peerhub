@@ -64,7 +64,23 @@ def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> di
     if delivery["certainty"] == "TERMINAL" and isinstance(result.get("response"), str) and not result["response"].strip():
         result["empty_response"] = True
         result["task_effects"] = "unverified"
+    _mark_denied_empty(result)
     return result
+
+
+def _mark_denied_empty(result: dict[str, Any]) -> None:
+    """An empty terminal reply with denied tool actions is not a usable answer (#300).
+
+    Certainty stays TERMINAL: the turn ended. Only the public status changes, so callers cannot mistake it
+    for a delivered answer. Idempotent.
+    """
+    denied = result.get("denied_actions")
+    if (result.get("status") in ("delivered", "recovered_terminal") and result.get("certainty") == "TERMINAL"
+            and result.get("empty_response") is True and isinstance(denied, list) and denied):
+        names = ", ".join(str(n) for n in cast(list[Any], denied))
+        result["status"] = "denied_empty"
+        if not isinstance(result.get("error"), dict):
+            result["error"] = dict(code="denied_empty", message=f"ag denied tool action(s): {names}; response empty (headless cannot prompt).")
 
 
 def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None = None,
@@ -275,6 +291,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         if result.get("certainty") == "TERMINAL" and isinstance(result.get("response"), str) and not result["response"].strip():
             result["empty_response"] = True
             result["task_effects"] = "unverified"
+        _mark_denied_empty(result)
         # A conversation may have earlier pending work. Report its progress without claiming this prompt completed.
         if result.get("record_id") != rec.record_id:
             result["processed_status"] = result["status"]

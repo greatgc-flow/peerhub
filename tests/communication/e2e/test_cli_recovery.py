@@ -1340,11 +1340,59 @@ def test_ag_denied_actions_are_named_in_empty_response_note(tmp_path, monkeypatc
 
     session = {"handle": "sess_0000000000000001", "mode": "reuse", "generation": 1}
     monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
-        "status": "delivered", "response": "", "session": session, "empty_response": True,
-        "task_effects": "unverified", "denied_actions": ["command"],
+        "status": "denied_empty", "certainty": "TERMINAL", "response": "", "session": session,
+        "empty_response": True, "task_effects": "unverified", "denied_actions": ["command"],
+        "error": {"code": "denied_empty", "message": "ag denied tool action(s): command; response empty"},
     })
-    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello"]) == 0
-    assert "ag denied tool action(s): command" in capsys.readouterr().err
+    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello"]) == 1
+    err = capsys.readouterr().err
+    assert "ag denied tool action(s): command" in err
+    assert "Guidance [ask_denied_empty]" in err
+
+
+def test_ask_denied_empty_status_for_empty_response_with_denied_actions(tmp_path):
+    """#300: empty terminal + denied actions is not a usable answer; empty alone stays delivered."""
+    from peerhub.extensions.ask import ask
+    from tests.communication.fakes import FakeRuntimeTarget
+
+    rt = FakeRuntimeTarget()
+    rt.script_deliver(
+        ("started", "exec-denied"),
+        ("terminal", {"response": "", "empty_response": True, "task_effects": "unverified",
+                      "denied_actions": ["command"]}),
+    )
+    res = ask(tmp_path / "core.db", "ag", "run a command", runtime=rt)
+    assert res["status"] == "denied_empty"
+    assert res["certainty"] == "TERMINAL"
+    assert res["response"] == ""
+    assert res["denied_actions"] == ["command"]
+    assert res["error"]["code"] == "denied_empty"
+    assert "command" in res["error"]["message"]
+    replay = ask(tmp_path / "core.db", "ag", "run a command", request_id=res["request_id"], runtime=rt)
+    assert replay["status"] == "denied_empty"
+    assert replay["denied_actions"] == ["command"]
+
+
+def test_cli_denied_empty_exits_nonzero_with_json_guidance(tmp_path, monkeypatch, capsys):
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "denied_empty", "certainty": "TERMINAL", "response": "", "stream_id": "s",
+        "empty_response": True, "task_effects": "unverified", "denied_actions": ["command"],
+        "error": {"code": "denied_empty", "message": "denied"},
+    })
+    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello", "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "denied_empty"
+    assert payload["guidance"]["code"] == "ask_denied_empty"
+
+
+def test_batch_classifies_denied_empty_as_unverified():
+    from peerhub.extensions.batch import classify_worker
+    out = json.dumps({"status": "denied_empty", "certainty": "TERMINAL", "response": "",
+                      "error": {"code": "denied_empty", "message": "x"}})
+    assert classify_worker(1, out) == ("UNVERIFIED", "denied_empty")
 
 
 def test_denied_action_names_parses_agy_json_defensively():

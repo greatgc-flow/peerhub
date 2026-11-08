@@ -90,6 +90,13 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
         meaning="Request executed successfully and terminal response was committed to the stream.",
         safe_action="None required. Continue subsequent turns on the same stream to reuse the active session.",
     ),
+    "denied_empty": ResultStatusEntry(
+        status="denied_empty",
+        exit_code=1,
+        guidance_code="ask_denied_empty",
+        meaning="Turn ended (certainty TERMINAL) with an empty response after the provider denied tool action(s); not a usable answer and task effects are unverified.",
+        safe_action="Treat the reply as unusable; the denied tool names are in denied_actions. Re-ask with a prompt that avoids shell tools or add permissions.allow in agy settings.json, and verify the workspace.",
+    ),
     "failed_not_started": ResultStatusEntry(
         status="failed_not_started",
         exit_code=1,
@@ -361,6 +368,23 @@ REGISTRY: dict[str, GuidanceEntry] = {
         docs="docs/remote-ask.md",
         exits=[{"code": 3, "context": "Compare-and-swap revision conflict (CasMismatchError)."}],
     ),
+    "ask_denied_empty": GuidanceEntry(
+        code="ask_denied_empty",
+        meaning="The turn ended with an empty response after the provider denied tool action(s); this is not a usable answer.",
+        why="Headless ag cannot prompt for tool permission, so a denied shell or edit action can end the turn with no reply text. Task effects are unverified.",
+        recover=[
+            {
+                "argv": ["peerhub", "diag", "health"],
+                "purpose": "Inspect peer adapter status, then re-ask with a prompt that avoids shell tools or add permissions.allow in agy settings.json",
+                "prereqs": "None.",
+            },
+        ],
+        avoid="Do not treat the empty response as a completed answer or assume the denied action ran; check the workspace for partial effects before re-asking under a new request-id.",
+        docs="docs/remote-ask.md",
+        exits=[
+            {"code": 1, "context": "Empty response with denied tool action(s) (denied_empty result status)."}
+        ],
+    ),
     "ask_idempotency_conflict": GuidanceEntry(
         code="ask_idempotency_conflict",
         meaning="An idempotency key was reused with conflicting request data.",
@@ -505,6 +529,8 @@ def select_guidance_code(
 
     if status in ("delivered", "recovered_terminal"):
         return ""
+    if status == "denied_empty" or (status == "pending_earlier_record" and processed_status == "denied_empty"):
+        return "ask_denied_empty"
     if status == "pending_earlier_record":
         if processed_status in ("delivered", "recovered_terminal"):
             return ""

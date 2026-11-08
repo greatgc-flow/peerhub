@@ -8,6 +8,14 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- `peerhub ask` no longer reports an ag turn as `delivered` when the response is empty and the provider denied tool action(s) (#300). The result status is `denied_empty` (certainty stays `TERMINAL`, `denied_actions` kept), with guidance `ask_denied_empty`. `batch` classifies it `UNVERIFIED` (`denied_empty`).
+
+### Changed
+
+- Behavior change: `peerhub ask` exits 1 (was 0) for the `denied_empty` case above; callers that treated an empty `delivered` reply with `denied_actions` as success must handle the new status.
+
 ## [0.23.3] - 2026-11-01
 
 ### Documentation

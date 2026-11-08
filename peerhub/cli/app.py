@@ -405,10 +405,7 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:
         if result["response"] == "":
-            denied = result.get("denied_actions")
-            print("note: empty response (see --json)" if not denied else
-                  f"note: ag denied tool action(s): {', '.join(denied)} (headless cannot prompt); response empty - avoid shell tools or add permissions.allow in agy settings.json",
-                  file=sys.stderr)
+            print("note: empty response (see --json)", file=sys.stderr)
         if has_streamed and not result.get("display_truncated"):
             if not output_has_newline:
                 print()
@@ -416,6 +413,12 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
             if has_streamed:
                 print()
             print(result["response"])
+    elif result["status"] == "denied_empty":
+        denied = result.get("denied_actions") or []
+        print(f"note: ag denied tool action(s): {', '.join(str(n) for n in denied)} (headless cannot prompt); response empty - "
+              "not a usable answer; avoid shell tools or add permissions.allow in agy settings.json", file=sys.stderr)
+        if guidance_entry is not None:
+            print(render_guidance_hint(guidance_entry), file=sys.stderr)
     elif result["status"] == "not_executed":
         reason = result.get("reason", "refusal")
         if reason in ("quota_exhausted", "usage_limit"):
