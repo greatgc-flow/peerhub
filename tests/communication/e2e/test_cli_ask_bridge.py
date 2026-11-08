@@ -189,8 +189,10 @@ def test_provider_workspace_owns_default_db_even_when_cwd_has_store(tmp_path, mo
     monkeypatch.chdir(tmp_path)
     real_ask = module.ask
     monkeypatch.setattr(module, "ask", lambda *a, **kw: real_ask(*a, **kw, runtime=FakeRuntimeTarget()))
-    assert main(["ask", "cx", "hello", "--workspace", str(provider), "--json"]) == 0
-    assert (provider / ".peerhub" / "core.db").exists()
+    assert main(["ask", "cx", "hello", "--workspace", str(provider), "--json"]) == 5
+    assert not (provider / ".peerhub").exists()
+    assert main(["--db", str(provider / ".peerhub" / "core.db"),
+                 "ask", "cx", "hello", "--workspace", str(provider), "--json"]) == 0
     assert CoreStore(cwd_db).get_peer("cx") is None
 
 

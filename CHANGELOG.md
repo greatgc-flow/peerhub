@@ -8,11 +8,23 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-11-08
+
 ### Changed
 
 - Profiles (defaults revision `2026-11-08.2`; a profile change is a `binding_change`, so resumed streams start a fresh generation): `ag.effort` `gemini-3.8-flash-medium` -> `gemini-3.8-flash-high`; `cx.effort` `gpt-6.1-sol` effort medium -> high. `ag.argon` stays `gemini-4-argon-medium` (benchmark: high gave the same score for +24s). Tiers: standard = eco, effort = normal (default for implementation), deepthink = quality, top = opt-in only.
 - Added packaged top profiles `cc.fable` (`claude-fable-5-1`, high; pool F-7D (separate Fable weekly pool; shared-C draw unmeasured)) and `cx.astra` (`gpt-6-astra`, high; pools X-5H, X-7D; ultra gave the same score for +16s). Evidence: `docs/benchmarks/profiles-2026-11-08.md` (one ceiling-limited task, not a ranking). `diag readiness` lists up to 12 profiles.
 - Docs: `docs/batch.md` documents the profile balancing rule and the concurrency table (default 4 active asks, ceiling 6; cc 3 / cx 3 / ag 1); the guide gets one `Load:` line.
+
+### Changed
+
+- Store discovery misses now exit 5 with `[store_missing]` and `next:` before creating files or contacting providers (#304). Migration: `peer register` in a fresh directory requires `--db .peerhub/core.db` or `PEERHUB_DB`; creation-capable commands can still bootstrap an explicitly selected store. Git worktrees fall back to the main checkout and its parents only after ordinary discovery misses, preserving `--db > PEERHUB_DB > nearest upward` precedence.
+
+### Fixed
+
+- cc `result.permission_denials` are now surfaced as `denied_actions` (`Tool: command`, redacted with the evidence sanitizer before being cut to 120 chars, at most 20, even when the reply has text), and a cc turn that ends with an empty reply and denied tool actions gets the `denied_empty` status like ag (#300, #303). Persisted and replayed results carry the same entries.
+- The `denied_empty` error note is provider-neutral (`<peer> denied tool action(s): ...`) instead of always saying `ag`.
+- New lesson `cc-allow-rules` (`peerhub explain cc allow rules`): Bash allow rules match the exact command string, so models that shape the command differently are denied in headless runs; prefer prefix rules such as `Bash(peerhub:*)` (#303; cause not reproduced, command shape is a hypothesis).
 
 ## [0.24.0] - 2026-11-08
 

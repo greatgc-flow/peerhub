@@ -44,6 +44,13 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 - Fix: Prefer peerhub batch run with --dry-run (it validates profiles first). If looping in a shell: strip CR from the list (tr -d CR), read with while read -r k p || [ -n "$k" ], use one unique stream per job and check each output status instead of trusting wait.
 - Issue: #289
 
+## cc allow rules are exact-match and model-dependent (`cc-allow-rules`)
+
+- Keywords: cc, claude, allow, rules, rule, allowlist, bash, permission, permissions, denied, denied_actions, model, fable, haiku, headless, prefix, exact, settings
+- Symptom: A headless cc ask with one model denies a Bash command that .claude/settings.local.json allows and another model runs (observed on #303: fable denied, haiku ran; not reproduced), or cc returns no usable answer with denied_actions set.
+- Fix: Bash allow rules such as Bash(peerhub --version) match the exact command string, so a model that adds cd, 2>&1, a pipe or a different invocation is denied: headless cc cannot prompt. Read denied_actions (Tool: command, redacted to 120 chars) to see the rejected string, then prefer prefix rules such as Bash(peerhub:*) and add matching PowerShell(...) rules on Windows. Unverified hypothesis: command shape, not a model-specific permission mode. Never resume after denied_empty; start a new stream.
+- Issue: #303
+
 ## cx quota windows depend on the plan (`cx-plan-windows`)
 
 - Keywords: cx, codex, quota, plan, window, windows, pool, 5h, 7d, X-5H, X-7D, prolite, reported, monitor, incomplete

@@ -496,7 +496,9 @@ def test_missing_store_refused_before_probes(tmp_path, capsys, command):
     cap = capsys.readouterr()
     message = f"database not found: {db}"
     assert message in cap.err
-    assert f'next: peerhub --db "{db}" peer register --peer local --name local' in cap.err
+    assert "next: run from the main checkout" in cap.err
+    assert "PEERHUB_DB" in cap.err
+    assert f'peerhub --db "{db}" peer register --peer local --name local' in cap.err
     if "--json" in command:
         envelope = json.loads(cap.out)
         assert envelope["status"] == "UNAVAILABLE" and envelope["error"] == message

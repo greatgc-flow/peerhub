@@ -120,7 +120,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 - **Exit Code**: 1
 - **Meaning**: The turn ended with an empty response after the provider denied tool action(s); this is not a usable answer.
-- **Why**: Headless ag cannot prompt for tool permission, so a denied shell or edit action can end the turn with no reply text. Task effects are unverified.
+- **Why**: <peer> denied tool action(s) (headless cannot prompt), so the turn can end with no reply text. Task effects are unverified.
 - **Safe Recovery Actions**:
   1. `peerhub ask ag --query-file CONTENT_FILE --stream NEW_STREAM --writable`: Start a new stream and inline the needed content via --query-file (say "no tools"); do not resume this stream (Prerequisites: Put the content the task needs into the query file; one task per ask; check the workspace for partial effects first.)
 - **Avoid**: Do not resume this stream (a resumed turn may fabricate paths), and do not treat the empty response as a completed answer or assume the denied action ran.

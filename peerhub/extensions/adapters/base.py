@@ -120,6 +120,42 @@ def denied_action_names(stdout: str) -> list[str]:
     return names
 
 
+_CC_DENIAL_DETAIL_KEYS = ("command", "file_path", "path", "pattern", "url")
+MAX_CC_DENIALS = 20
+CC_DENIAL_CHARS = 120
+
+
+def cc_permission_denials(stdout: str) -> list[str]:
+    """`Tool: detail` strings for the tool calls cc auto-denied (`result.permission_denials`), order-preserving, de-duplicated (#303).
+
+    Strings are raw: the caller must redact (Sanitizer.clean) BEFORE truncating to CC_DENIAL_CHARS.
+    """
+    results = [e for e in _json_lines(stdout) if e.get("type") == "result"]
+    denials: Any = results[-1].get("permission_denials") if results else None
+    out: list[str] = []
+    for item in cast("list[Any]", denials) if isinstance(denials, list) else []:
+        if not isinstance(item, dict):
+            continue
+        entry = cast("dict[str, Any]", item)
+        tool: Any = entry.get("tool_name")
+        if not isinstance(tool, str) or not tool:
+            continue
+        tool_input: Any = entry.get("tool_input")
+        detail = ""
+        if isinstance(tool_input, dict):
+            for key in _CC_DENIAL_DETAIL_KEYS:
+                value: Any = cast("dict[str, Any]", tool_input).get(key)
+                if isinstance(value, str) and value:
+                    detail = value
+                    break
+        text = f"{tool}: {detail}" if detail else tool
+        if text not in out:
+            out.append(text)
+        if len(out) >= MAX_CC_DENIALS:
+            break
+    return out
+
+
 MAX_EVENT_BYTES = 262_144  # 256 KB
 
 _RESET_IN_RE = re.compile(r"(?:resets?\s+in|try\s+again\s+in)\s+([0-9]+[hdwms][0-9hdwms]*)", re.IGNORECASE)
@@ -1333,6 +1369,11 @@ class CliRuntimeTarget:
             denied = denied_action_names(res.stdout.decode("utf-8", "replace")) if self.runtime_kind == "ag" else []
             if denied:
                 payload["denied_actions"] = denied
+        if self.runtime_kind == "cc":
+            # Redact first, then cut to 120 chars; surfaced even with reply text so allow-rule mismatches are never silent (#303).
+            cc_denied = [san.clean(d, CC_DENIAL_CHARS) for d in cc_permission_denials(res.stdout.decode("utf-8", "replace"))]
+            if cc_denied:
+                payload["denied_actions"] = cc_denied
         if res.output_truncated or parser.truncated:
             payload["output_truncated"] = True
             if res.stdout_truncated or parser.truncated:
