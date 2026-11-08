@@ -219,8 +219,10 @@ def refresh_effect(e, option):
         assert captured[0]["instance_id"] == "cx" and result["observations"][0]["subject_ref"] == "cx"
     elif option == "--system-dir":
         assert captured[0]["sys_dir"] == e.tmp
-    else:
+    elif option == "--timeout-seconds":
         assert captured[0]["deadline_sec"] == 2
+    else:
+        assert captured[0]["deadline_sec"] == 15
 
 
 def monitor_effect(e, option):
@@ -431,6 +433,8 @@ def session_inspection_effect(e, command, option):
             assert len(rows) == 1 and result["next_cursor"]
         elif option == "--cursor":
             assert len(rows) == 1 and rows[0]["generation"] < 2
+        elif command == "list":
+            assert len(rows) == 2 and all(row["peer_id"] == "cx" for row in rows)
         else:
             assert result["session"]["handle"] == argv[2]
 
@@ -494,10 +498,10 @@ def batch_effect(e, option):
         assert code == 1 and json.loads(out)["error"]["code"] == "invalid_manifest" and "[invalid_manifest]" in err
     elif option == "--json":
         code, out, err = e.run(db, *argv)
-        assert code == 0 and json.loads(out)["dry_run"] and "DB:" in err
+        assert code == 0 and json.loads(out)["dry_run"] and not err
         argv.remove("--json")
         code, out, err = e.run(db, *argv)
-        assert code == 0 and "TASK PEER STREAM REQUEST_ID WRITABLE" in out and "DB:" in err
+        assert code == 0 and "TASK PEER STREAM REQUEST_ID WRITABLE" in out and not err
     elif option == "--dry-run":
         def forbidden(*args, **kwargs):
             raise AssertionError("dry run executed")

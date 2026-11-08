@@ -151,6 +151,7 @@ STATUS_FALLBACK_ALLOWLIST: dict[str, str] = {
 }
 
 STATUS_SCENARIOS: dict[str, list[tuple[dict[str, Any], str]]] = {
+    "denied_empty": [({}, "ask_denied_empty")],
     "uncertain": [
         ({}, "ask_uncertain"),
     ],
@@ -168,6 +169,7 @@ STATUS_SCENARIOS: dict[str, list[tuple[dict[str, Any], str]]] = {
         ({"detail_error": "unsupported runtime"}, "ask_delivery_failed"),
     ],
     "pending_earlier_record": [
+        ({"processed_status": "denied_empty"}, "ask_denied_empty"),
         ({"processed_status": "uncertain"}, "ask_blocked_uncertain"),
         ({"processed_status": "not_executed"}, "ask_refusal"),
         ({"processed_status": "failed_not_started", "detail_error": "executable not found"}, "ask_launch_failed"),
@@ -279,31 +281,57 @@ EXCEPTION_SCENARIOS: dict[str, list[tuple[Exception, str]]] = {
 
 
 def _standalone_validation_error_codes() -> set[str]:
-    """Drive public validation errors outside the ask path, without store creation."""
+    """Exercise non-ask errors through their real CLI emission boundaries."""
     import io
-    import os
     import tempfile
-    from contextlib import redirect_stdout
+    from contextlib import redirect_stderr, redirect_stdout
     from unittest.mock import patch
     from peerhub.cli.app import main
+    from tests.communication.harness.bridge import BridgeHarness
 
     codes: set[str] = set()
     with tempfile.TemporaryDirectory(prefix="peerhub-recovery-") as scratch:
-        db = str(Path(scratch) / "absent.db")
-        commands = [
+        h = BridgeHarness(Path(scratch) / "registry")
+        db = str(h.db_path)
+        missing = str(Path(scratch) / "absent.db")
+
+        def check(argv, expected):
+            output, errors = io.StringIO(), io.StringIO()
+            with redirect_stdout(output), redirect_stderr(errors):
+                try:
+                    code = main(argv)
+                except SystemExit as exc:
+                    code = exc.code
+            assert code != 0, argv
+            assert f"[{expected}]" in errors.getvalue(), (argv, errors.getvalue())
+            codes.add(expected)
+
+        for argv, expected in (
             (["batch", "run", "absent.json", "--batch-id", "proof", "--max-parallel", "0", "--dry-run", "--json"], "invalid_manifest"),
             (["account", "bind", "--peer", "proof", "--provider", "ag", "--alias", "work", "--root", scratch, "--json"], "account_invalid"),
-        ]
-        with patch.dict(os.environ, {"PEERHUB_DB": db}):
-            for argv, expected in commands:
-                output = io.StringIO()
-                with redirect_stdout(output):
-                    assert main(["--db", db, *argv]) == 1
-                payload = json.loads(output.getvalue())
-                assert payload["status"] == "error" and payload["error"]["code"] == expected
-                codes.add(payload["error"]["code"])
-        assert not Path(db).exists()
+            (["peer", "list", "--limit", "201"], "invalid_arguments"),
+            (["peer", "get", "--peer", "absent"], "peer_not_found"),
+            (["stream", "show", "--stream", "absent"], "stream_not_found"),
+            (["session", "show", "sess_0000000000000000"], "session_not_found"),
+            (["diag", "health", "--observation-db", missing], "diag_unavailable"),
+        ):
+            check(["--db", db, *argv], expected)
+        check(["--db", missing, "peer", "list"], "store_missing")
+        assert not Path(missing).exists()
+
+        # Inject storage/dispatch faults at the command boundary, keeping the
+        # real top-level exception translation and stderr renderer under test.
+        for exc, expected in (
+            (StorageCorruptError("corrupt store"), "storage_corrupt"),
+            (SchemaVersionError("unsupported schema"), "schema_version_error"),
+            (IdempotencyConflictError("conflicting key"), "idempotency_conflict"),
+            (CasMismatchError("stale revision"), "cas_conflict"),
+            (RuntimeError("dispatch failed"), "delivery_failed"),
+        ):
+            with patch("peerhub.cli.app._run_core_cli", side_effect=exc):
+                check(["--db", db, "peer", "list"], expected)
     return codes
+
 
 
 def test_inventory_driven_ask_path_outcomes_cover_entire_registry():
@@ -651,7 +679,7 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     assert code == 1
     err = capsys.readouterr().err
     assert "[ask_blocked_uncertain]" in err
-    assert "ask_uncertain" in err
+    assert len(err.splitlines()) == 1
     assert "do not retry on the same stream; start a new stream with explicit --timeout-seconds" in err
     assert "long reviews: 1800 or more" in err
     assert "Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims." in err

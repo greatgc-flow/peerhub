@@ -444,6 +444,15 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         error_obj: Any = result.get("error")
         detail: object = (cast(dict[str, object], error_obj).get("message") if isinstance(error_obj, dict) else error_obj) or detail_error \
             or result.get("reason") or result.get("status")
+        if result.get("status") == "not_executed":
+            refusal_reason = str(result.get("reason") or "refusal")
+            reason_label = {
+                "usage_limit": "usage limit / quota exhausted", "quota_exhausted": "usage limit / quota exhausted",
+                "invalid_model": "invalid model selection", "auth_failure": "authentication failure",
+            }.get(refusal_reason, refusal_reason.replace("_", " "))
+            reset_time = result.get("reset_time") or result.get("resets_at")
+            reset_note = f"; reset: {reset_time}" if reset_time else ""
+            detail = f"Task outcome: NOT_EXECUTED (provider refusal: {reason_label}{reset_note}; no tool execution observed)"
         pl = result.get("provider_limit")
         if pl:
             detail = (f"{detail}; provider reported {pl['reason']}" + (f" (reset: {pl['reset_time']})" if pl.get("reset_time") else "")
@@ -618,7 +627,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         result["schema_version"] = "2.0"
         _emit(result, args.json)
         if str(result.get("error", "")).startswith("SchemaVersionError"):
-            _error_line("schema_version_error", str(result["error"]), "peerhub guide")
+            _error_line("schema_version_error", f"SCHEMA VERSION ERROR: {result['error']}", "peerhub guide")
             return 6
         if result.get("status") == "NOT_FOUND":
             _error_line("stream_not_found", "The selected stream does not exist", "peerhub stream list")
@@ -1116,10 +1125,6 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             _error_line(code, message)
             if args.subcommand == "ask" and session is not None:
                 print(_session_trailer(session))
-    def finish(code: int) -> int:
-        if code == 0 and args.subcommand not in {"guide", "explain", "profile", "monitor"}:
-            print(f"DB: {args.db} (source: {args.db_source})", file=sys.stderr)
-        return code
     explicit_db = any(a == "--db" or a.startswith("--db=") for a in actual)
     try:
         if hasattr(args, "db") and args.db:
@@ -1135,19 +1140,19 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         if getattr(args, "obs_db", None):
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":
-            return finish(_run_ask_cli(args, parser, argv))
+            return _run_ask_cli(args, parser, argv)
         if args.subcommand == "account":
-            return finish(_run_account_cli(args))
+            return _run_account_cli(args)
         if args.subcommand == "batch":
-            return finish(_run_batch_cli(args))
+            return _run_batch_cli(args)
         if args.subcommand == "profile":
-            return finish(_run_profile_cli(args))
+            return _run_profile_cli(args)
         if args.subcommand == "session":
-            return finish(_run_session_cli(args))
+            return _run_session_cli(args)
         if args.subcommand in ("monitor", "observation"):
-            return finish(_run_light_command(args, parser))
+            return _run_light_command(args, parser)
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
-            return finish(_run_diag_cli(args, parser))
+            return _run_diag_cli(args, parser)
         if args.subcommand == "explain":
             from peerhub.cli.recovery import run_explain_cli
             return run_explain_cli(" ".join(args.code), json_output=bool(getattr(args, "json", False)))
@@ -1165,9 +1170,10 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             db_source = getattr(args, "db_source", None)
             if report_missing_store(args.db, json_output=use_json, selected=db_source in ("explicit", "env"), source=db_source):
                 return 5
+        if not core_read:
+            Path(args.db).parent.mkdir(parents=True, exist_ok=True)
         store = CoreStore(args.db, readonly=core_read)
-        result_code = _run_core_cli(args, store)
-        return finish(result_code)
+        return _run_core_cli(args, store)
 
     except (StorageReadOnlyError, StorageFullError, StorageCorruptError) as e:
         error_output("storage_corrupt", f"STORAGE ERROR ({type(e).__name__}): {e}", getattr(e, "session", None), exception=e)

@@ -39,13 +39,14 @@ def report_missing_store(
     """Refuse absent stores before opening storage or invoking any provider."""
     if Path(path).is_file():
         return False
+    path = Path(path).resolve()
     message = f"database not found: {path}"
-    is_selected = selected if selected is not None else (Path(path) != Path(DEFAULT_DB_PATH))
+    is_selected = selected if selected is not None else (path != Path(DEFAULT_DB_PATH).resolve())
     resolved_source = source or ("explicit" if is_selected else "default")
     hint = f'peerhub --db "{path}" peer register --peer local --name local'
     legacy = find_legacy_store(cwd) if not is_selected else None
     legacy_note = (f'; Ignored legacy store: {legacy} (no longer auto-discovered). Use --db "{legacy}" to keep using it; stores of other schema versions are refused as usual.' if legacy else "")
-    print(f"[store_missing] {message} (source: {resolved_source}){legacy_note}; next: {hint}", file=sys.stderr)
+    print(f"[store_missing] UNAVAILABLE: {message} (source: {resolved_source}){legacy_note}; next: {hint}", file=sys.stderr)
     if json_output:
         print(json.dumps({"status": "UNAVAILABLE", "error": message}, ensure_ascii=True))
     return True

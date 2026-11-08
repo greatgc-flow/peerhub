@@ -44,9 +44,10 @@ def test_parallel_limit_error(tmp_path, capsys, limit, json_output):
     if json_output:
         result = json.loads(output.out)
         assert result["status"] == "error" and result["error"]["code"] == "invalid_manifest"
-        assert "--max-parallel" in result["error"]["message"] and not output.err
+        assert "--max-parallel" in result["error"]["message"] and "[invalid_manifest]" in output.err
     else:
-        assert "ERROR:" in output.err and "--max-parallel" in output.err and not output.out
+        assert "[invalid_manifest]" in output.err and "--max-parallel" in output.err and not output.out
+    assert len(output.err.splitlines()) == 1 and "next:" in output.err
 
 
 @pytest.mark.parametrize("peer,writable", [("cx", False), ("ag", True), ("agy", True)])

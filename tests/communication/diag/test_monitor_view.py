@@ -772,8 +772,8 @@ def test_group_summaries_reserve_space_for_hidden_detail_disclosure(frame):
             {"peer_id": f"worker{i}"} for i in range(3)
         ]}
     rendered = render_grouped_frame(frame, width=100, height=6, unicode=False, expand=True)
-    assert "worker0" in rendered
-    assert "+2 rows hidden" in rendered or "+2r" in rendered
+    assert "worker0" in rendered and "worker1" in rendered
+    assert "+1 rows hidden" in rendered or "+1r" in rendered
     assert "CONTEXT [" not in rendered
     assert "--expand" in rendered
     assert len(rendered.splitlines()) <= 5

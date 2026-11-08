@@ -98,7 +98,7 @@ def test_text_default_and_explicit_json_are_tty_independent(tmp_path, capsys, mo
         assert main(["--db", str(db), "peer", "list"]) == 0
         captured = capsys.readouterr()
         assert not captured.out.lstrip().startswith("{")
-        assert str(db.resolve()) in captured.err
+        assert captured.err == ""
         assert main(["--db", str(db), "peer", "list", "--json"]) == 0
         assert json.loads(capsys.readouterr().out)["items"][0]["peer_id"] == "reader"
 

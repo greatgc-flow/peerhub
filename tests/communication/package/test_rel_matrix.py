@@ -102,7 +102,7 @@ def _smoke(installed, workdir):
     """Minimal install/workspace/append/restart smoke through the installed wheel (separate processes = restart)."""
     db = workdir / "core.db"
     def cli(*a):
-        return pkg_env.run([installed.script("peerhub"), "--db", str(db), *a], cwd=workdir)
+        return pkg_env.run([installed.script("peerhub"), "--db", str(db), *a, "--json"], cwd=workdir)
     assert cli("peer", "register", "--peer", "a").returncode == 0
     assert cli("stream", "create", "--stream", "s", "--members", "a").returncode == 0
     r = cli("record", "append", "--stream", "s", "--author-peer", "a", "--kind", "message", "--body", '"hi"', "--idempotency-key", "k",

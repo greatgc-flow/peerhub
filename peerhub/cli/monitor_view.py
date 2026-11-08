@@ -962,6 +962,17 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
 
     visible_other: list[tuple[str, int, str, list[str]]] = []
 
+    if cap_block is None and len(other_blocks) == 1 and not extra_overhead:
+        content = other_blocks[0][3]
+        budget = max_lines - len(lines)
+        if 2 <= budget < 1 + len(content):
+            shown = budget - 1  # reclaim the heading; reserve one exact omission line
+            lines.extend(content[:shown])
+            lines.append(_fit(f"+{len(content) - shown} rows hidden | --expand", target_width, unicode))
+            if not unicode:
+                lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
+            return "\n".join(lines) + "\n"
+
     def allocate_other(budget: int) -> list[tuple[str, int, str, list[str]]]:
         # Even when every summary fits, hidden details need a disclosure row.
         full_size = sum(1 + max(1, len(block[3])) for block in other_blocks)

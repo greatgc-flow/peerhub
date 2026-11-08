@@ -149,7 +149,7 @@ def test_legacy_store_absent_emits_no_hint_line(tmp_path, monkeypatch, capsys):
     assert code == 5
     _, err = capsys.readouterr()
     assert "Ignored legacy store:" not in err
-    assert f"database not found: {(ws / DEFAULT_DB_PATH).resolve()}" in err
+    assert f"database not found: {(tmp_path / DEFAULT_DB_PATH).resolve()}" in err
 
 
 def test_source_package_dir_without_store_file_emits_no_hint_line(tmp_path, monkeypatch, capsys):
@@ -164,7 +164,7 @@ def test_source_package_dir_without_store_file_emits_no_hint_line(tmp_path, monk
     assert code == 5
     _, err = capsys.readouterr()
     assert "Ignored legacy store:" not in err
-    assert f"database not found: {(ws / DEFAULT_DB_PATH).resolve()}" in err
+    assert f"database not found: {(tmp_path / DEFAULT_DB_PATH).resolve()}" in err
 
 
 def test_explicit_db_to_legacy_store_works_and_preserves_schema_gate(polluted_subfolder_workspace, monkeypatch, capsys):
@@ -255,6 +255,6 @@ def test_explicit_db_beats_env_including_literal_default(tmp_path, monkeypatch, 
         assert main(["--db", path, "peer", "register", "--peer", "chosen", "--json"]) == 0
         captured = capsys.readouterr()
         assert Path(path).is_file()
-        assert str(Path(path).resolve()) in captured.err
-        assert "explicit" in captured.err
+        assert captured.err == ""
+        assert CoreStore(Path(path)).get_peer("chosen") is not None
     assert CoreStore(other).get_peer("chosen") is None

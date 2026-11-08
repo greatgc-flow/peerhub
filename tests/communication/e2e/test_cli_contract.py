@@ -329,12 +329,13 @@ def universal_json_effect(e, command):
     )
     prefix = [] if command == "*" else command.split()
     def run(db, *argv):
+        if list(argv[:len(prefix)]) != prefix or "--json" not in argv:
+            return e.run(db, *argv)
         args = [arg for arg in argv if arg != "--json"]
-        assert args[:len(prefix)] == prefix
         args.insert(len(prefix), "--json")
         return e.run(db, *args)
     def machine(db, *argv, code=0):
-        actual, out, err = run(db, *argv)
+        actual, out, err = run(db, *argv, "--json")
         assert actual == code, err
         return json.loads(out)
     proxy = SimpleNamespace(**e.__dict__)
@@ -349,7 +350,7 @@ def universal_json_effect(e, command):
     elif root == "session":
         session_inspection_effect(proxy, "show" if command.endswith("show") else "list", "--json")
     elif root == "monitor":
-        monitor_management_effect(proxy, ["monitor", "defaults", "show"])
+        monitor_management_effect(proxy, ["monitor", "defaults", "show", "--json"])
     elif root == "profile":
         action = "show" if command.endswith("show") else "list"
         argv = ["profile", action] + (["cx.standard"] if action == "show" else [])

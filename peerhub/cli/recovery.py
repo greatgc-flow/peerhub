@@ -420,7 +420,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
 # Shared CLI errors; ask-specific guidance retains its more precise recovery policy.
 for _code, _exit, _meaning, _argv in (
     ("store_missing", 5, "The selected database does not exist.", ["peerhub", "guide"]),
-    ("invalid_arguments", 2, "The command arguments were rejected before dispatch.", ["peerhub", "--help"]),
+    ("invalid_arguments", 2, "The command arguments were rejected before dispatch.", ["peerhub", "guide"]),
     ("peer_not_found", 1, "The selected peer does not exist in this store.", ["peerhub", "peer", "list"]),
     ("stream_not_found", 1, "The selected stream does not exist in this store.", ["peerhub", "stream", "list"]),
     ("session_not_found", 1, "The selected retained session does not exist.", ["peerhub", "session", "list"]),

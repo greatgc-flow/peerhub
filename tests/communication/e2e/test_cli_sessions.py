@@ -159,7 +159,7 @@ def test_session_inspection_validates_receipt_identity_usage_and_context(tmp_pat
         conn.execute("UPDATE bridge_session_monitor_stats SET latest_telemetry_seq=?", (receipt.lastrowid,))
 
     for command in (["session", "list"], ["session", "show", handle]):
-        assert main(["--db", str(db), *command]) == 0
+        assert main(["--db", str(db), *command, "--json"]) == 0
         payload = json.loads(capsys.readouterr().out)
         session = payload["session"] if "session" in payload else payload["items"][0]
         telemetry = session["latest_telemetry"]

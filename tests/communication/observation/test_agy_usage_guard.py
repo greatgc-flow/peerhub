@@ -156,6 +156,6 @@ sleeps: list = []
 
 def test_single_refresh_prints_warning_on_stderr_exit_1(fake, tmp_path, capsys):
     fake.emit(CONSUMED)
-    assert cli(tmp_path / "w" / "core.db", fake) == 1
+    assert cli(tmp_path / "w" / "core.db", fake, "--json") == 1
     cap = capsys.readouterr()
     assert "94000" in cap.err and "agy_usage_consumed_tokens" in cap.err and json.loads(cap.out)["warnings"]

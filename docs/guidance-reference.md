@@ -53,7 +53,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `delivery_failed` | 1 | The command failed before returning a usable result. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `diag_unavailable` | 4 or 5 (context-dependent) | Diagnostic evidence is unavailable or incomplete. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `idempotency_conflict` | 2 | The request conflicts with an existing idempotency key. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
-| `invalid_arguments` | 1 or 2 (context-dependent) | The command arguments were rejected before dispatch. | `peerhub --help` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `invalid_arguments` | 1 or 2 (context-dependent) | The command arguments were rejected before dispatch. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `invalid_manifest` | 1 | Batch validation failed before any worker was launched. | `peerhub batch run tasks.json --batch-id BATCH_ID --max-parallel 1 --dry-run` (Correct the reported validation error and validate the manifest) | Do not change the batch identifier to bypass an uncertain earlier execution. |
 | `peer_not_found` | 1 | The selected peer does not exist in this store. | `peerhub peer list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `schema_version_error` | 6 | The selected store uses an unsupported schema version. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
@@ -262,7 +262,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 - **Meaning**: The command arguments were rejected before dispatch.
 - **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
 - **Safe Recovery Actions**:
-  1. `peerhub --help`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+  1. `peerhub guide`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
 - **Avoid**: Do not blindly replay provider work whose execution may already have begun.
 - **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
 

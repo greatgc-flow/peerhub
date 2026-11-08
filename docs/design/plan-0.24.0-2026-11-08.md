@@ -22,3 +22,24 @@ A1 One ag recipe (<=6 lines) first in `guide` ag section and `explain ag`: inlin
 A2 denied_empty `next:` hint = new stream + inline needed content via --query-file; do not resume.
 A3 Merge ag-empty-reply-causes + ag-permission-limit into the recipe entry; record E2 as open observation linked to its issue.
 A4 (trust-list preflight) dropped: E2 shows it would pass and give false confidence.
+
+## cx plan-window addendum (unanimous: cc.effort, Fable; 2026-11-08)
+Measured: codex app-server `account/rateLimits/read` -> planType "prolite", primary = 7-day window (usedPercent 11), secondary = null. No 5h window on this plan; peerhub kept a 2026-10-30 X-5H row and reported "cx quota: incomplete", so agents read cx as 0%.
+X1 Complete response + configured legacy pool absent and not covered by any reported duration -> record EvidenceState.ABSENT, reason "not reported by provider; plan=<planType>", normal freshness TTL. Malformed windows never produce ABSENT. Never manufacture usage.
+X2 monitor_read_model: freshest row per pool (not first match); ABSENT pools skipped, not limiting; all pools ABSENT -> unknown, never 100%.
+X3 QUOTA row "n/a not reported (plan prolite)" while fresh, then STALE; lesson `cx-plan-windows`.
+X4 Profiles keep pools ["X-5H","X-7D"]. X5 planType carried in the ABSENT reason text only (sanitised), shown in PEERS suffix.
+Tests: primary-only 7d + secondary null + planType; stale X-5H superseded; malformed primary -> no ABSENT; all-ABSENT -> unknown.
+
+## Monitor redesign addendum (unanimous ACK: Fable, ag.argon, cc.effort, cx.effort)
+Evidence: after the 300s TTL every QUOTA value rendered as '-' (screen carried no numbers); 'quota: incomplete' read as 0% by agents; pool codes had no legend; 6 low-signal blocks.
+Resolutions: S1 date+DB source tag (Fable, ag); full DB path only when not the nearest upward store or on error (cc). S2 order peer-then-window kept for row stability (cc) - limiting pool is surfaced by S4 instead of re-sorting (Fable's sort rejected). S3 reset decided from resets_at<now and shown WITHOUT a number (cc; Fable's "reset 55%" rejected as misreadable); precedence n/a > ? > reset > out > low > aged > ok, so low/out are never hidden by aged (ag); low-by-projection needs >=2 samples (cc); aged threshold = configured TTL (Fable). S4 reason vocabulary: never measured | unmapped | not reported. S5 delivery wording keeps certainty terms (terminal/started/not started) - Fable's done/running/queued would misstate certainty. S6 keep one-line legend (cc). JSON stays byte-identical, so the state words are NOT added to JSON (Fable's enum point rejected).
+Final layout:
+L1 `PeerHub Monitor 2026-11-08 10:48Z | DB:explicit | quota age 9m`
+L2 `next: peerhub observation refresh` (absent when all fresh)
+POOLS: PEER POOL MEANING LEFT RESETS AGE STATE PROFILES (one row per pool; numbers never cut; PROFILES cell truncates)
+legend: `ok low out aged reset n/a ?  |  G flash A argon 3P claude-via-ag C claude F fable X codex; 5H/7D`
+PEERS: one line per peer: profile groups + limiting pool % or `? (reason)`; plan notes e.g. `X-5H n/a (plan prolite)`
+footer: `facts ok 2026-11-08 | sessions 100 (2 active) | delivery terminal 166 / started 15 / not started 2 | telemetry 56/60 | details: --expand`
+Cut to --expand: bar, exhaust-in, pace, Columns omitted, EXECUTION, SESSIONS, USAGE, Facts lines, latest-session lines. No new flags.
+Tests: S8 + state precedence (ABSENT+reset in one peer), no-number reset, low needs 2 samples, next line absent when fresh, JSON byte-identical, width <=100 and narrow <48 path.
