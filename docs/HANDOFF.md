@@ -111,6 +111,7 @@ for coverage, remaining checks and local results.
 - Commit the generated `docs/implementation/live_evidence/<date>.json` through a docs PR.
 - Never type a SHA by hand; derive it from Git.
 - Delete a blocked/aborted release and its tag before retrying.
+- The `publish.yml` Windows release-matrix `rel_005` sandbox has no Git or provider CLIs, and its oracle forbids skips; tests needing a real Git binary must be marked E2E. This surfaced on the v0.24.1 first attempt; PR #306 moved real-Git discovery tests to E2E.
 
 Full verbatim history (checkpoints 2026-10-04 to 2026-10-11 and the owner's standing rules): [history/session-log-2026-10.md](history/session-log-2026-10.md).
 
