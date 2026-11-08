@@ -169,6 +169,7 @@ def test_poll_claude_usage_unparseable_output_fail_closed(monkeypatch):
 def test_poll_claude_usage_success_parsing(monkeypatch):
     class FakeProc:
         pid = 9999
+        returncode = 0  # a successful /usage run (ABSENT is only inferred from one)
         def communicate(self, timeout=None):
             return ("Current session: 50% used resets 12:00pm\n", "")
 
@@ -972,6 +973,7 @@ def test_claude_provider_output_with_iana_zone_is_measured(monkeypatch, output):
 
     class FakeProc:
         pid = 9999
+        returncode = 0
 
         def communicate(self, timeout=None):
             return output, ""
@@ -1162,10 +1164,9 @@ def test_poll_agy_usage_preserves_unregistered_bucket_as_drift_without_mapping_p
     for obs in observations:
         if obs.evidence.value is not None:  # every measurement still carries the drift annotation
             assert obs.extra.get("unknown_pools") == ["gemini-new-preview-5h"]
-    # The other four declared pools are not reported by this payload (ABSENT rows need no drift annotation).
-    assert sorted(obs.extra["pool_scope"] for obs in observations if obs.evidence.state == EvidenceState.ABSENT) == \
-        ["3P-5H", "3P-7D", "A-7D", "G-5H"]
-    assert len(observations) == 5
+    # Drift (unknown bucket id): the other declared pools are NOT inferred absent - they may merely be renamed.
+    assert EvidenceState.ABSENT not in [obs.evidence.state for obs in observations]
+    assert len(observations) == 1
 
 
 def test_poll_agy_usage_emits_conflict_observation_on_envelope_group_conflict(monkeypatch, tmp_path):

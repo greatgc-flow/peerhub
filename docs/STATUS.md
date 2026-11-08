@@ -4,9 +4,9 @@
 
 ## Current source: v0.24.1 candidate (PR #305)
 
-v0.24.1 is a patch on 0.24.0: cc `permission_denials` surface as `denied_actions` and an empty cc reply with denials gets `denied_empty` (provider-neutral note), plus the `cc-allow-rules` lesson (#303); #304 store-discovery fallback and fail-closed behavior are included. Plan: docs/design/plan-0.24.1-2026-11-08.md.
+v0.24.1 is a patch on 0.24.0: cc `permission_denials` surface as `denied_actions` and an empty cc reply with denials gets `denied_empty` (provider-neutral note), plus the `cc-allow-rules` lesson (#303); #304 store-discovery fallback and fail-closed behavior are included, along with every-peer plan-aware ABSENT windows (P4). Plan: docs/design/plan-0.24.1-2026-11-08.md.
 
-v0.24.0 unifies CLI human output (text by default, `--json` everywhere), store precedence (`--db` over `PEERHUB_DB`) and a redesigned at-a-glance monitor (pools with meaning, per-group limits, fresh-only `suggest:` line, plan-aware ABSENT windows for every peer), reworks profiles quality-first (`ag.effort` flash-high, `cx.effort` sol/high, packaged tops `cc.fable` and `cx.astra`), documents capability-matched quota balancing and concurrency caps (docs/batch.md), adds the ag recipe and denied-empty handling (#300). Plan: docs/design/plan-0.24.0-2026-11-08.md.
+v0.24.0 unifies CLI human output (text by default, `--json` everywhere), store precedence (`--db` over `PEERHUB_DB`) and a redesigned at-a-glance monitor (pools with meaning, per-group limits, fresh-only `suggest:` line, plan-aware ABSENT windows for cx only), reworks profiles quality-first (`ag.effort` flash-high, `cx.effort` sol/high, packaged tops `cc.fable` and `cx.astra`), documents capability-matched quota balancing and concurrency caps (docs/batch.md), adds the ag recipe and denied-empty handling (#300). Plan: docs/design/plan-0.24.0-2026-11-08.md.
 
 The latest published package is **v0.24.0** (tag `v0.24.0`, target `f07d6c49`); PyPI 0.24.0 and G3 passed are verified. Later main changes are **source-only until a new release**. The installed `peerhub guide` does not automatically update when main changes.
 
@@ -38,7 +38,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
-| **v0.24.0** | `f07d6c49` | PR #301 | Published | Published 2026-11-08; tag `v0.24.0`; PyPI 0.24.0 verified; G3 passed; [live evidence](implementation/live_evidence/2026-11-08.json) |
+| **v0.24.0** | `f07d6c49` | PR #301 | Published | Published 2026-11-08; tag `v0.24.0`; PyPI 0.24.0 verified; G3 passed, bound to f07d6c493af0 (live-gate JUnit header); [live evidence](implementation/live_evidence/2026-11-08.json) |
 | **v0.23.3** | `60220a2c` | PR #295 | Published | Published 2026-11-01; tag `v0.23.3`; G3 passed bound to 60220a2c (12 live tests, all three peers); PyPI wheel + sdist; clean-target install smoke passed; explain lessons #284-#290 (docs only) |
 | **v0.23.2** | `e9753e18` | PR #283 | Published | Published 2026-11-01; tag `v0.23.2`; G3 passed bound to e9753e18 (12 live tests, all three peers); PyPI wheel + sdist; clean-target install smoke passed; guide field bounds #277, Windows CI ceiling #280 |
 | **v0.23.1** | `01a77631` | PR #273 | Published | Published 2026-10-31; tag `v0.23.1`; G3 passed bound to 01a77631 (12 live tests, all three peers); PyPI wheel + sdist; clean-target install smoke passed; fixes #270, guide #268, cx sandbox doc #271 |

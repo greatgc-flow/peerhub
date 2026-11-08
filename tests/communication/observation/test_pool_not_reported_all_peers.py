@@ -26,10 +26,11 @@ WEEK = "Current week (all models): 10% used resets 12:00pm"
 FABLE = "Current week (Fable): 20% used resets 12:00pm"
 
 
-def run_cc(monkeypatch, text, **kw):
+def run_cc(monkeypatch, text, returncode=0, **kw):
     class FakeProc:
         pid = 9999
         def communicate(self, timeout=None):
+            self.returncode = returncode
             return (text, "")
 
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
@@ -69,6 +70,13 @@ def test_cc_malformed_report_records_no_absent(monkeypatch, text):
     assert EvidenceState.ABSENT not in [s for _, s in states(res)]
 
 
+@pytest.mark.parametrize("returncode", [1, 2, None])
+def test_cc_failed_or_unfinished_run_records_no_absent(monkeypatch, returncode):
+    """Partial output of a failed /usage run must not turn the missing session line into 'not reported'."""
+    res = run_cc(monkeypatch, "\n".join([WEEK, FABLE]), returncode=returncode)
+    assert states(res) == [("C-7D", EvidenceState.MEASURED), ("F-7D", EvidenceState.MEASURED)]
+
+
 def run_ag(monkeypatch, tmp_path, stdout, **kw):
     completed = SimpleNamespace(returncode=0, stdout=stdout, stderr="")
     monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
@@ -90,6 +98,16 @@ def test_ag_absent_follows_the_injected_configured_pools(monkeypatch, tmp_path):
     assert [r.extra["pool_scope"] for r in res if r.evidence.state == EvidenceState.ABSENT] == ["A-7D"]
     undeclared = run_ag(monkeypatch, tmp_path, AGY_USAGE_JSON, configured_pools=["G-5H"])
     assert EvidenceState.ABSENT not in [r.evidence.state for r in undeclared]
+
+
+def test_ag_unknown_bucket_drift_records_no_absent(monkeypatch, tmp_path):
+    """An unfamiliar bucket id means the report vocabulary changed: a missing known bucket may just be renamed."""
+    payload = json.loads(AGY_USAGE_JSON)
+    payload["command"]["data"]["groups"][0]["buckets"].append(
+        {"id": "gemini-new-preview-5h", "remaining_fraction": 0.5, "reset_time": "2026-09-28T09:11:04Z"})
+    res = run_ag(monkeypatch, tmp_path, json.dumps(payload))
+    assert [s for _, s in states(res)] == [EvidenceState.MEASURED] * 4  # known buckets stay measured, nothing inferred
+    assert all(r.extra.get("unknown_pools") == ["gemini-new-preview-5h"] for r in res)
 
 
 def test_ag_malformed_bucket_records_no_absent(monkeypatch, tmp_path):

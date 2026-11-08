@@ -28,13 +28,7 @@ they do not claim new validation or publication evidence.
 - Profile defaults revision `2026-11-08.2`: `ag.effort` changed to `gemini-3.8-flash-high` and `cx.effort` to `gpt-6.1-sol` high; packaged top profiles `cc.fable` (`claude-fable-5-1`, high; F-7D only, shared-C draw unverified) and `cx.astra` (`gpt-6-astra`, high; X-5H/X-7D) were added. Profile changes are binding changes, so resumed streams start a fresh generation. `ag.argon` stays `gemini-4-argon-medium` (benchmark tie rule; high scored the same for +24s). Benchmark: [profiles-2026-11-08](docs/benchmarks/profiles-2026-11-08.md) (one ceiling-limited task, not a ranking).
 - `docs/batch.md` documents capability-matched profile balancing and the concurrency table (default 4 active asks, ceiling 6; cc 3 / cx 3 / ag 1); the guide adds one `Load:` line.
 
-### Fixed
-
-- `peerhub ask` no longer reports an ag turn as `delivered` when the response is empty and the provider denied tool action(s) (#300). The result status is `denied_empty` (certainty stays `TERMINAL`, `denied_actions` kept), with guidance `ask_denied_empty`. `batch` classifies it `UNVERIFIED` (`denied_empty`).
-
-### Changed
-
-- Behavior change: `peerhub ask` exits 1 (was 0) for the `denied_empty` case above; callers that treated an empty `delivered` reply with `denied_actions` as success must handle the new status.
+- Behavior change: `peerhub ask` exits 1 (was 0) for the `denied_empty` case described below; callers that treated an empty `delivered` reply with `denied_actions` as success must handle the new status.
 
 - Breaking: compact human text is the default even on non-TTY output. Migration: add `--json` to scripts that consumed implicit JSON; `--format` remains a hidden compatibility alias.
 - Breaking: global `--db` now takes precedence over `PEERHUB_DB`, followed by the nearest upward `.peerhub/core.db`. Resolved path and selection source appear on stderr or the monitor header.
@@ -44,6 +38,10 @@ they do not claim new validation or publication evidence.
 - Guide documents `PEERHUB_DB` and the explicit ag.argon alternative while 3P is low, limited to tasks supported by measured capabilities; otherwise defer.
 - cx plan windows: when a complete `account/rateLimits/read` response omits a configured pool (e.g. no 5h window on planType `prolite`), `observation refresh` records that pool as ABSENT "not reported by provider; plan=<planType>" (never malformed or partial responses; normal freshness TTL, then STALE). The monitor skips such pools when computing a peer's quota (freshest row per pool), shows them as `n/a not reported (plan ...)`, and shows `? (not reported)` instead of `incomplete`/100% when every pool is unreported. New lesson `cx-plan-windows`. JSON keys are unchanged.
 - ag usability: `guide` and `peerhub explain ag` lead with one ag recipe (inline content via `--query-file`, "no tools", trusted `-w`, `--writable` every turn, one task per ask, never resume a stream after an empty or `denied_empty` reply). The `denied_empty` `next:` hint is now "new stream with content inlined; do not resume". Lessons `ag-empty-reply-causes` and `ag-permission-limit` merged into `ag-recipe`; the read_file denial with a trusted `-w` is recorded as an open observation (#302).
+
+### Fixed
+
+- `peerhub ask` no longer reports an ag turn as `delivered` when the response is empty and the provider denied tool action(s) (#300). The result status is `denied_empty` (certainty stays `TERMINAL`, `denied_actions` kept), with guidance `ask_denied_empty`. `batch` classifies it `UNVERIFIED` (`denied_empty`).
 
 ## [0.23.3] - 2026-11-01
 

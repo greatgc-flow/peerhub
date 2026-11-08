@@ -5,9 +5,8 @@ and coordination checkpoints.
 
 ## 0. Current status and active queue; details: [STATUS](STATUS.md)
 
-- **Current state:** See [STATUS](STATUS.md).
-- **In flight:** PR #305 (0.24.1, plan [docs/design/plan-0.24.1-2026-11-08.md](design/plan-0.24.1-2026-11-08.md)).
-- **Open:** #302, #303, #304 (#304 closed by PR #305).
+- Release status, active queue and open issues: [STATUS](STATUS.md).
+- **In flight:** PR #305 (0.24.1).
 
 - Release lessons: `tests/communication/package/test_release_notes.py` pins the version and must change in the bump PR; a CHANGELOG heading for a never-published version needs `(superseded ...)`; py3.15 has no pyyaml wheel, so run the full suite in CI, not locally.
 

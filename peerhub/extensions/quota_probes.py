@@ -754,6 +754,7 @@ def poll_claude_usage(
         )
         try:
             stdout, stderr = proc.communicate(timeout=deadline_sec)
+            run_ok = getattr(proc, "returncode", None) == 0  # a failed/unfinished run may print partial usage
         except subprocess.TimeoutExpired:
             return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl,
                                  extra={"reason": "claude_usage_timeout"}),)
@@ -816,7 +817,7 @@ def poll_claude_usage(
         )
 
     reported = {q["label"] for q in quotas}
-    if _claude_section_labels(text) <= reported:  # every section that appeared was parsed into a row
+    if run_ok and _claude_section_labels(text) <= reported:  # exit 0 and every section that appeared was parsed into a row
         for pool_scope in (_CC_CONFIGURED_POOLS if configured_pools is None else configured_pools):
             if pool_scope not in reported:
                 results.append(_absent_pool(ids, instance_id, profile_id, "cc", observed_at, freshness_ttl, pool_scope))
@@ -1298,7 +1299,8 @@ def poll_agy_usage(
             extra_err["unknown_pools"] = list(unknown_buckets)
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, evidence_observed_at, freshness_ttl, peer="ag", extra=extra_err),)
 
-    if source_tag == "agy_cli_usage" and report_clean and not malformed and all(r.evidence.state == EvidenceState.MEASURED for r in results):
+    # An unknown bucket id / drift means the vocabulary changed (a "missing" pool may only be renamed): infer nothing.
+    if source_tag == "agy_cli_usage" and report_clean and not malformed and not unknown_buckets and all(r.evidence.state == EvidenceState.MEASURED for r in results):
         reported = {r.evidence.value.quota_pool_scope for r in results if r.evidence.value is not None}
         for pool_scope in (tuple(_AG_QUOTA_LABELS.values()) if configured_pools is None else configured_pools):
             if pool_scope not in reported:

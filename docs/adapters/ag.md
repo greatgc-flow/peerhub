@@ -37,6 +37,8 @@ because headless `agy.exe` (`-p`) does not enforce a read-only sandbox. Cached
 terminal replay remains available without launching the provider. Compatible
 native resume uses `--conversation SESSION_ID` for continuing asks by default.
 
+In 0.24.1, configured pools omitted from a complete, successfully parsed usage report render as `n/a not reported (plan X)` (X is the reported plan or `unknown`).
+
 ## Verify and troubleshoot
 
 ```powershell

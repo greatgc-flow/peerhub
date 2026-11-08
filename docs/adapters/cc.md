@@ -36,6 +36,8 @@ preventing workspace edits on fresh and resumed asks (provider-controlled; no OS
 In v0.24.1, cc `result.permission_denials` are surfaced as `denied_actions`;
 an empty reply with denials is reported as `denied_empty`.
 
+In 0.24.1, configured pools omitted from a complete, successfully parsed usage report render as `n/a not reported (plan X)` (X is the reported plan or `unknown`).
+
 ## Verify and troubleshoot
 
 ```powershell

@@ -62,7 +62,7 @@ def render_guide(workspace: Path | None = None) -> str:
         hidden += 1
     lines: list[str] = [
         "PeerHub Quick Reference & Best Practices",
-        "Profiles (defaulting to .standard first):",
+        "Profiles (listed by tier):",
         f"{'Profile':<14} {'Model':<24} {'Pools':<14} {'Layer'} (~ = truncated; peerhub profile list)",
     ]
     if load_error:
@@ -97,7 +97,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "",
         "Efficiency:",
         "  Reuse: asks automatically reuse sessions; keep one --stream per peer/role with compatible store/binding (single-peer stream).",
-        "  Profiles: start with *.standard; while 3P is low, explicitly use ag.argon only for tasks its measured capabilities support, else defer.",
+        "  Profiles: pick the lowest tier meeting the task class: bulk=standard, code=effort, review/design=deepthink; see docs/batch.md.",
         "  Transport: --query-file and --json select transport/parsing format (no token saving).",
         "",
         "Long Asks:",

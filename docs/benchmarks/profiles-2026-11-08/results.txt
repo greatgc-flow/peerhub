@@ -7,3 +7,9 @@ cx-astra-high 35s SCORE 45/45
 cx-sol-xhigh 40s SCORE 45/45
 cx-astra-ultra 51s SCORE 45/45
 ag-argon-high 53s SCORE 45/45
+
+Provenance:
+source revision = main before f07d6c49 (branch fix/300-denied-empty working tree, 2026-11-08 ~21:30 KST)
+streams = bench-<config>; request-ids = bench-<config>
+model identity verified separately by model_ping 2026-11-08 (cc.fable, cx.astra PASS)
+timings are wall-clock of the peerhub ask call
