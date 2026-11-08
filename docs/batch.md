@@ -71,6 +71,8 @@ Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepth
 2. Drop candidates with any applicable pool under 5% LEFT, UNKNOWN or stale (see `peerhub monitor`).
 3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`.
 
+While 3P is low, explicitly use `ag.argon` only for tasks its measured capabilities support; otherwise defer.
+
 **I. Concurrency** (counted across batches and manual asks together)
 
 | Limit | Value |

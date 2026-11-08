@@ -47,7 +47,7 @@ Keep the same body, timestamp, and idempotency key when retrying an append.
 
 ## Quick reference & guide
 
-Run `peerhub guide` (or bare `peerhub` with no arguments) for a concise, offline reference covering profile tables (.standard first), two-asks session reuse, delivery safety, discovery commands, and drift recovery. Run `peerhub explain <CODE>` for detailed recovery guidance on any ask outcome code:
+Run `peerhub guide` (or bare `peerhub` with no arguments) for a concise, offline reference covering profile tables (by tier), two-asks session reuse, delivery safety, discovery commands, and drift recovery. Run `peerhub explain <CODE>` for detailed recovery guidance on any ask outcome code:
 
 ```powershell
 peerhub guide

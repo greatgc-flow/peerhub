@@ -70,6 +70,24 @@ def test_cc_malformed_report_records_no_absent(monkeypatch, text):
     assert EvidenceState.ABSENT not in [s for _, s in states(res)]
 
 
+@pytest.mark.parametrize("drift", [
+    "Current week (all models revised): 99% used resets 12:00pm",   # renamed section label
+    "Current week (Opus): 5% used resets 12:00pm",                   # new section
+    "Rolling hour: 7% used resets 12:00pm",                          # unrecognised "<label>: N% used" line
+    "Current extra usage: $5 of $10 spent",                          # unrecognised "Current ..." line
+])
+def test_cc_unrecognised_usage_section_is_drift_and_records_no_absent(monkeypatch, drift):
+    """Any unrecognised usage line/section means the vocabulary changed: 'missing' pools may merely be renamed."""
+    res = run_cc(monkeypatch, "\n".join([SESSION, drift]))
+    assert states(res) == [("C-5H", EvidenceState.MEASURED)]
+
+
+def test_cc_usual_ui_chrome_is_not_drift(monkeypatch):
+    chrome = "Settings: Status  Config  Usage\nCurrent session\n50% used\nResets 12:00pm\nEsc to cancel"
+    res = run_cc(monkeypatch, "\n".join([chrome, WEEK, FABLE]))
+    assert [s for _, s in states(res)] == [EvidenceState.MEASURED] * 3
+
+
 @pytest.mark.parametrize("returncode", [1, 2, None])
 def test_cc_failed_or_unfinished_run_records_no_absent(monkeypatch, returncode):
     """Partial output of a failed /usage run must not turn the missing session line into 'not reported'."""

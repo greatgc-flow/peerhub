@@ -6,7 +6,7 @@ This policy governs where operational guidance, safety facts, and recommendation
 
 1. **Installed-Release Essentials in Guide**: `peerhub guide` is reserved for installed-release essentials: safe execution, uncertainty/retry handling, session continuity, command discovery, and drift reporting/recovery.
 2. **Mechanically Backed Efficiency Only**: Include at most 3 efficiency lines in `peerhub guide`, and only where a concrete PeerHub mechanism directly supports the claim.
-3. **Reuse and Profiles Scope**: Explain session reuse with compatible peer, store, stream, and binding. Recommend `.standard` as an economical starting choice, not guaranteed cheapest or fastest.
+3. **Reuse and Profiles Scope**: Explain session reuse with compatible peer, store, stream, and binding. Follow the task-class tier floors in [docs/batch.md](batch.md): pick the lowest tier that meets the task class.
 4. **Transport vs Savings**: `--query-file` and `--json` are transport and parsing choices; make no inherent token-saving claim.
 5. **Guide Bounds and Token Count Method**: `peerhub guide` must remain within `<=60 lines` and an estimated token budget of `words * 1.3 <= 900` tokens (~900 tokens). The token count budget is evaluated via whitespace-delimited word count multiplied by standard subword expansion (`int(len(text.split()) * 1.3) <= 900`), ensuring it fits compactly in model context windows without displacing operational context.
 6. **Evidence-Dependent Lessons**: Operational lessons hold evidence-dependent advice accompanied by explicit applicability scope, target version, checked date, and verifiable source commands or logs.

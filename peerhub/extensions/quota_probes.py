@@ -289,6 +289,28 @@ def _claude_section_labels(text: str) -> set[str]:
             labels.add(spec[0])
     return labels
 
+def _claude_usage_has_drift(text: str) -> bool:
+    """True when /usage shows a usage line or section this parser does not know (renamed/new window): a pool that looks
+    missing may merely be renamed, so no ABSENT may be inferred. Ordinary UI chrome is not drift."""
+    labelled_usage = re.compile(r"^[^:]{1,60}:\s*[^\s%]+%\s+used\b", re.IGNORECASE)
+    current: bool = False  # inside a recognised section header, awaiting its "N% used" / "Resets" lines
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        label = line.split(":", 1)[0].strip().lower() if ":" in line else line.rstrip(":").strip().lower()
+        if label in _CLAUDE_USAGE_SECTIONS:
+            current = ":" not in line or not re.search(r"%\s+used\b", line, re.IGNORECASE)
+            continue
+        if re.match(r"current\b", line, re.IGNORECASE) or labelled_usage.match(line):
+            return True
+        if re.search(r"%\s+used\b", line, re.IGNORECASE) and not current:
+            return True  # a usage figure that belongs to no recognised section
+        if current and re.search(r"\bresets?\b", line, re.IGNORECASE):
+            current = False
+    return False
+
+
 def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
     names = {"ag": ("agy.exe", "agy"), "cc": (CLAUDE_CMD, "claude"), "cx": (CODEX_CMD, "codex")}
     if peer not in names:
@@ -817,7 +839,8 @@ def poll_claude_usage(
         )
 
     reported = {q["label"] for q in quotas}
-    if run_ok and _claude_section_labels(text) <= reported:  # exit 0 and every section that appeared was parsed into a row
+    # exit 0, no unrecognised usage section (drift), and every recognised section that appeared parsed into a row
+    if run_ok and not _claude_usage_has_drift(text) and _claude_section_labels(text) <= reported:
         for pool_scope in (_CC_CONFIGURED_POOLS if configured_pools is None else configured_pools):
             if pool_scope not in reported:
                 results.append(_absent_pool(ids, instance_id, profile_id, "cc", observed_at, freshness_ttl, pool_scope))

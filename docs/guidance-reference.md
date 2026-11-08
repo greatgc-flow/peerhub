@@ -59,7 +59,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `schema_version_error` | 6 | The selected store uses an unsupported schema version. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `session_not_found` | 1 | The selected retained session does not exist. | `peerhub session list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `storage_corrupt` | 4 | The selected store could not complete a storage operation. | `peerhub diag integrity` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
-| `store_missing` | 5 | The selected database does not exist. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `store_missing` | 5 | The selected database does not exist. | `peerhub explain store-missing` (Pass --db PATH, set PEERHUB_DB, or run from the main checkout; see the store-missing lesson for the recipe) | Do not create a substitute store when you intend to use existing data. |
 | `stream_not_found` | 1 | The selected stream does not exist in this store. | `peerhub stream list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 
 ### Detailed Recovery Advice by Outcome Code
@@ -320,11 +320,11 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 - **Exit Code**: 5
 - **Meaning**: The selected database does not exist.
-- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Why**: A Git worktree may have no local store while the database lives in the main checkout; see lesson store-missing.
 - **Safe Recovery Actions**:
-  1. `peerhub guide`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
-- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
-- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+  1. `peerhub explain store-missing`: Pass --db PATH, set PEERHUB_DB, or run from the main checkout; see the store-missing lesson for the recipe (Prerequisites: Identify the intended store before selecting it or explicitly creating a new one.)
+- **Avoid**: Do not create a substitute store when you intend to use existing data.
+- **Documentation**: [README.md#store-selection-and-existing-data](../README.md#store-selection-and-existing-data)
 
 #### `stream_not_found`
 

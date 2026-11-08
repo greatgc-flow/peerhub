@@ -26,7 +26,7 @@ Profile models and efforts live in the packaged `model-defaults.toml`; list the 
 `peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them.
 
 `cx.astra` (`gpt-6-astra`, high) is an opt-in top profile on X-5H/X-7D; `ultra` gave the same benchmark score
-for more latency ([benchmark](../benchmarks/profiles-2026-11-08.md)). Plans may omit a window (see lesson `cx-plan-windows`).
+for more latency ([benchmark](../benchmarks/profiles-2026-11-08.md)). Plans may omit a window (see lesson `plan-windows`).
 
 ## Verify and troubleshoot
 

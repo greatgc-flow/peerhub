@@ -12,6 +12,8 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- Guide profile advice now follows the task floors in `docs/batch.md`; the explicit ag.argon alternative while 3P is low lives in `docs/batch.md`.
+- Renamed lesson `cx-plan-windows` to `plan-windows` for all peers; the old id remains searchable via keyword.
 - Store discovery misses now exit 5 with `[store_missing]` and `next:` before creating files or contacting providers (#304). Migration: `peer register` in a fresh directory requires `--db .peerhub/core.db` or `PEERHUB_DB`; creation-capable commands can still bootstrap an explicitly selected store. Git worktrees fall back to the main checkout and its parents only after ordinary discovery misses; with `-w`/`--workspace`, fallback searches the main root only. Explicit `--db`, `PEERHUB_DB`, and nearest-upward discovery keep their precedence.
 
 ### Fixed

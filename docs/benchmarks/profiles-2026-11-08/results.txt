@@ -9,7 +9,17 @@ cx-astra-ultra 51s SCORE 45/45
 ag-argon-high 53s SCORE 45/45
 
 Provenance:
-source revision = main before f07d6c49 (branch fix/300-denied-empty working tree, 2026-11-08 ~21:30 KST)
+source revision = see "Source:" below (HEAD fd321a73 + uncommitted changes, first call 2026-11-08T12:02Z = 21:02 KST)
 streams = bench-<config>; request-ids = bench-<config>
 model identity verified separately by model_ping 2026-11-08 (cc.fable, cx.astra PASS)
 timings are wall-clock of the peerhub ask call
+
+Provenance from the peerhub store (peerhub session list, configured_binding + latest_telemetry; resolved_model is not reported by the providers, so call-level model identity stays unverified beyond the configured binding):
+Source: uncommitted working tree on branch fix/300-denied-empty whose HEAD was fd321a73 (last commit before the first call at 2026-11-08T12:02Z); exact working-tree content is not recoverable.
+bench-ag-argon-high | sess_c341bfe3266d0324 | ag.argon gemini-4-argon-high effort=None | created 2026-11-08T12:02:36Z | resolved_model=None | in=8480 out=4111 reasoning=None
+bench-ag-argon-medium | sess_4c61cb7c23245ded | ag.argon gemini-4-argon-medium effort=None | created 2026-11-08T12:02:07Z | resolved_model=None | in=8482 out=1500 reasoning=None
+bench-cc-opus-high | sess_645b357fb38f93c6 | cc.deepthink claude-opus-5-5 effort=high | created 2026-11-08T12:02:08Z | resolved_model=None | in=None out=None reasoning=None
+bench-cx-astra-high | sess_e354ce88915ba60f | cx.deepthink gpt-6-astra effort=high | created 2026-11-08T12:02:07Z | resolved_model=None | in=17262 out=750 reasoning=322
+bench-cx-astra-ultra | sess_94facf1c918dd4d2 | cx.deepthink gpt-6-astra effort=ultra | created 2026-11-08T12:02:07Z | resolved_model=None | in=17309 out=1397 reasoning=851
+bench-cx-sol-xhigh | sess_b5753f29c2b4f239 | cx.deepthink gpt-6.1-sol effort=xhigh | created 2026-11-08T12:02:07Z | resolved_model=None | in=17326 out=1467 reasoning=1034
+bench-fable-high | stream exists (peerhub stream list) | cc.fable claude-fable-5-1 effort=high | session row not in the capped 'session list' sample; /usage before/after recorded above
