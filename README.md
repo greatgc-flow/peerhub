@@ -32,7 +32,7 @@ The Core stores Peers, Streams, immutable Records, and per-peer Offsets.
 These commands use a new `core-demo` Stream in the selected store and call no provider:
 
 ```powershell
-peerhub peer register --peer reader --name "Demo reader"
+peerhub --db .peerhub/core.db peer register --peer reader --name "Demo reader"
 peerhub stream create --stream core-demo --members reader
 peerhub record append --stream core-demo --author-peer reader --kind message --body '"Hello"' --idempotency-key core-demo-001 --created-at 2026-10-10T00:00:00Z
 peerhub record read --stream core-demo --after 0 --limit 10
@@ -47,7 +47,7 @@ Keep the same body, timestamp, and idempotency key when retrying an append.
 
 ## Quick reference & guide
 
-Run `peerhub guide` (or bare `peerhub` with no arguments) for a concise, offline reference covering profile tables (.standard first), two-asks session reuse, delivery safety, discovery commands, and drift recovery. Run `peerhub explain <CODE>` for detailed recovery guidance on any ask outcome code:
+Run `peerhub guide` (or bare `peerhub` with no arguments) for a concise, offline reference covering profile tables (by tier), two-asks session reuse, delivery safety, discovery commands, and drift recovery. Run `peerhub explain <CODE>` for detailed recovery guidance on any ask outcome code:
 
 ```powershell
 peerhub guide
@@ -159,9 +159,9 @@ colour while retaining supported cursor controls.
 
 ## Store selection and existing data
 
-The store is `.peerhub/core.db`. Discovery picks the nearest one (current directory, then parents); `--db PATH` takes precedence over `PEERHUB_DB`, then discovery (nearest wins). `peerhub diag health` reports `store_selection` (the path and how it was chosen: `explicit`, `env`, `discovered`, `default`). Developer scratch (live-gate JUnit etc.) goes under `.peerhub/work/`; the top of `.peerhub/` holds the database and its `restore.epoch` metadata.
+The store is `.peerhub/core.db`. Discovery picks the nearest one (current directory, then parents); `--db PATH` takes precedence over `PEERHUB_DB`, then discovery (nearest wins). If discovery misses inside a Git worktree, PeerHub asks Git for the common directory and searches the main checkout and its parents. This fallback requires Git >=2.36. A local store still wins. `peerhub diag health` reports `store_selection` (the path and how it was chosen: `explicit`, `env`, `discovered`, `default`). Developer scratch (live-gate JUnit etc.) goes under `.peerhub/work/`; the top of `.peerhub/` holds the database and its `restore.epoch` metadata.
 
-Use global `--db PATH` before the command, or `PEERHUB_DB`, to select a store explicitly. An explicit missing path is never redirected to another store. `ask --workspace DIR` uses that directory's store unless a database was explicitly selected. Read-only commands do not create a missing store.
+Use global `--db PATH` before the command, or `PEERHUB_DB`, to select a store explicitly. An explicit missing path is never redirected to another store. `ask --workspace DIR` searches only that directory, then Git's main checkout root on a miss (never its parents), unless a database was explicitly selected. A main root already searched is skipped. Without an explicit selection, a discovery miss exits 5 with `[store_missing]` and a `next:` hint before creating files or contacting providers. To bootstrap a new store, including with `peer register` in a fresh directory, pass `--db .peerhub/core.db` or set `PEERHUB_DB`. Read-only commands do not create a missing store even when explicitly selected.
 
 Stop clients before restoring a store and reopen them afterward. Snapshot and
 bundle restores fence old CoreStore instances from reads and writes using
@@ -294,7 +294,7 @@ Milestones describe development progress, not runtime ownership. Frozen specific
 
 ## Where model facts come from and how to refresh them
 
-Model facts shown by `monitor` come from `docs/model-profiles/model-profiles.json` and `peerhub/config_data/model-defaults.toml`.
+Profiles (model, effort, pools) and observed CLI versions live in `peerhub/config_data/model-defaults.toml` (the single source); `docs/model-profiles/model-profiles.json` is the refresh recipe (sources, tier rules, update targets).
 Run the `refresh-model-profiles` skill (or query installed CLIs per manifest instructions) to verify models, update `observed_at`/`observed_versions`, and bump the defaults revision.
 Observations are evidence, not policy: profile model and effort definitions require explicit review and approval.
 
@@ -303,7 +303,7 @@ Observations are evidence, not policy: profile model and effort definitions requ
 - [Documentation map](docs/index.md): Single documentation map and navigation index.
 - [CONTRIBUTING.md](CONTRIBUTING.md): maintainer setup, tests, feedback, and release gates.
 - [Adapter guide](docs/adapters/README.md) and [CLI reference](docs/adapters/peer-cli-reference.md): provider invocation and troubleshooting.
-- [Configuration](docs/config-hierarchy.md) and [model profiles](docs/model-profiles/model-profiles.json): store selection and profile defaults.
+- [Configuration](docs/config-hierarchy.md), [profile defaults](peerhub/config_data/model-defaults.toml) and the [refresh recipe](docs/model-profiles/model-profiles.json): store selection, profiles and how to refresh them.
 - [Usage/evolution guide](docs/m1_spec/USAGE_GUIDE.md): Core flow and milestone scope.
 - [Structure cleanup](docs/implementation/STRUCTURE_CLEANUP.md): current ownership and retired surfaces.
 - [M2 contracts](docs/m2/README.md): extension host and durable continuity contracts.

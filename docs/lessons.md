@@ -44,12 +44,12 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 - Fix: Prefer peerhub batch run with --dry-run (it validates profiles first). If looping in a shell: strip CR from the list (tr -d CR), read with while read -r k p || [ -n "$k" ], use one unique stream per job and check each output status instead of trusting wait.
 - Issue: #289
 
-## cx quota windows depend on the plan (`cx-plan-windows`)
+## cc allow rules are exact-match and model-dependent (`cc-allow-rules`)
 
-- Keywords: cx, codex, quota, plan, window, windows, pool, 5h, 7d, X-5H, X-7D, prolite, reported, monitor, incomplete
-- Symptom: peerhub monitor shows cx X-5H as n/a (not reported) or an older cx quota as incomplete, and agents read cx as 0% or unusable.
-- Fix: Pools come from the provider response, not from a fixed table: a plan may report only the 7-day window (observed 2026-11-08: planType prolite, primary = 7-day, secondary = null, no 5h window). PeerHub records a configured pool the provider left out of a complete response as n/a (not reported, plan shown) and skips it when it computes the peer's quota; it is neither exhausted nor unlimited, and it turns unknown after the freshness TTL until probed again. Check peerhub monitor (or peerhub observation refresh --peers cx) and read the reported pools before assuming 0%. Other plans still report 5h, so profile pools stay X-5H and X-7D.
-- Issue: 0.24.0
+- Keywords: cc, claude, allow, rules, rule, allowlist, bash, permission, permissions, denied, denied_actions, model, fable, haiku, headless, prefix, exact, settings
+- Symptom: A headless cc ask with one model denies a Bash command that .claude/settings.local.json allows and another model runs (observed on #303: fable denied, haiku ran; not reproduced), or cc returns no usable answer with denied_actions set.
+- Fix: Bash allow rules such as Bash(peerhub --version) match the exact command string, so a model that adds cd, 2>&1, a pipe or a different invocation is denied: headless cc cannot prompt. Read denied_actions (Tool: command, redacted to 120 chars) to see the rejected string, then prefer prefix rules such as Bash(peerhub:*) and add matching PowerShell(...) rules on Windows. Unverified hypothesis: command shape, not a model-specific permission mode. Never resume after denied_empty; start a new stream.
+- Issue: #303
 
 ## cx sandbox facts and prompt hygiene (`cx-sandbox-and-prompt-hygiene`)
 
@@ -135,6 +135,13 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 - Fix: Run a read-only pin census before the implementation pass and include its results in the prompt.
 - Issue: #298
 
+## Quota windows depend on the peer plan (`plan-windows`)
+
+- Keywords: cc, ag, cx, absent, not reported, plan, window, windows, cx-plan-windows, codex, claude, agy, quota, pool, 5h, 7d, X-5H, X-7D, prolite, reported, monitor, incomplete
+- Symptom: peerhub monitor shows a cc, ag or cx pool as n/a not reported (plan X), and agents read the peer as 0% or unusable.
+- Fix: Pools come from the provider response: a plan may omit a configured window (observed cx prolite: 7-day only, no 5h window). Since 0.24.1, all peers record omitted configured pools from complete, successfully parsed reports as ABSENT; malformed or partial reports do not establish absence. The monitor shows n/a not reported (plan X), where X is the reported plan or unknown, and skips those pools when computing peer quota: neither exhausted nor unlimited. Normal freshness TTL applies, then STALE. Run peerhub observation refresh --peers cc ag cx and read the reported pools before assuming 0%; profile pool declarations stay unchanged.
+- Issue: 0.24.0 (cx); 0.24.1 (all peers)
+
 ## Quota-aware peer runs (`quota-aware-peer-runs`)
 
 - Keywords: quota, 429, reset, stream, pool, parallel, flash, workers, capacity
@@ -146,5 +153,5 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 
 - Keywords: store_missing
 - Symptom: The selected database does not exist.
-- Fix: Check the resolved path and source. --db overrides PEERHUB_DB; explicitly create the intended store with peerhub --db PATH peer register --peer local --name local.
+- Fix: Check the resolved path and source: a Git worktree may have no local store while the database lives in the main checkout. Run from the main checkout or select the intended store with --db PATH / PEERHUB_DB (--db takes precedence); to create a new store, explicitly select it with peerhub --db PATH peer register --peer local --name local.
 - Issue: 0.24.0

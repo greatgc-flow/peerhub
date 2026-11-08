@@ -37,7 +37,7 @@ def test_custom_profile_cannot_extend_or_inject_guide(
 
     assert main(["guide"]) == 0
     output = capsys.readouterr().out
-    table = output.split("Profiles (defaulting to .standard first):\n", 1)[1].split(
+    table = output.split("Profiles (listed by tier):\n", 1)[1].split(
         "Two-Asks Session Reuse Example:", 1
     )[0]
     assert len(output.splitlines()) <= 60

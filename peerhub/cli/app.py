@@ -371,19 +371,9 @@ def _session_trailer(session: dict[str, Any]) -> str:
     return f"session: {session['handle']} {session['mode']} gen{session['generation']}{suffix}"
 
 
-def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv: list[str] | None) -> int:
+def _run_ask_cli(args: argparse.Namespace) -> int:
     from peerhub.extensions.ask import ask
-    from peerhub.extensions.bridge import normalize_session_selector
-    normalize_session_selector(fresh=args.fresh, session=args.session)
-    if (args.prompt is None) == (args.query_file is None):
-        parser.error("ask requires exactly one of prompt or --query-file")
     prompt = Path(args.query_file).read_text(encoding="utf-8-sig") if args.query_file else args.prompt
-    # An explicit provider workspace owns its default store, even when cwd has another store.
-    import os
-    actual = sys.argv[1:] if argv is None else argv
-    explicit_db = any(a == "--db" or a.startswith("--db=") for a in actual) or "PEERHUB_DB" in os.environ
-    if args.workspace and not explicit_db:
-        args.db = _resolve_db_path(DEFAULT_DB_PATH, workspace_root=Path(args.workspace))
     has_streamed = False
     output_has_newline = False
     def show_output(text: str) -> None:
@@ -476,12 +466,10 @@ def _run_observation_cli(args: argparse.Namespace) -> int:
     is_explicit = db_source in ("explicit", "env")
     if not is_explicit and report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
         return 5
-    from peerhub.extensions.quota_capture import refresh_quota
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
     CoreStore(args.db)  # explicit --db/PEERHUB_DB retains collection bootstrap semantics
-    from peerhub.cli.support import configured_cx_pools
-    result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds,
-                           cx_pools=configured_cx_pools(args.db, args.peers))
+    from peerhub.cli.support import refresh_with_profile_pools
+    result = refresh_with_profile_pools(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
     _emit(result, args.json)
     _print_warnings(result)
     return 0 if result["status"] == "OK" else 1
@@ -1059,6 +1047,11 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
                 for row in rows:
                     print(f"{row['task_id']} {row['peer']} {row['stream']} {row['request_id']} {row['writable']}")
             return 0
+        if getattr(args, "db_source", "default") not in ("explicit", "env"):
+            from peerhub.cli.store_select import report_missing_store
+            if report_missing_store(db, json_output=bool(getattr(args, "json", False)),
+                                    selected=False, source=getattr(args, "db_source", "default")):
+                return 5
         # Workers race to create workspace.generation on first use of a new workspace (WinError 32): create it once here.
         from peerhub.core.workspace import Workspace
         Workspace(Path(db).parent)
@@ -1129,20 +1122,37 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 print(_session_trailer(session))
     explicit_db = any(a == "--db" or a.startswith("--db=") for a in actual)
     try:
+        # Pure ask usage errors must win over store discovery and missing stores.
+        if args.subcommand == "ask":
+            from peerhub.extensions.bridge import normalize_session_selector
+            normalize_session_selector(fresh=args.fresh, session=args.session)
+            if (args.prompt is None) == (args.query_file is None):
+                parser.error("ask requires exactly one of prompt or --query-file")
         if hasattr(args, "db") and args.db:
-            selection = _select_db(args.db, discover=not explicit_db)
+            workspace = Path(args.workspace) if args.subcommand == "ask" and args.workspace else None
+            selection = _select_db(args.db, discover=not explicit_db, workspace_root=workspace)
             args.db, args.db_source = selection.path, selection.source
-        if args.json and hasattr(args, "format"):
+        if getattr(args, "json", False) and hasattr(args, "format"):
             args.format = "json"
-        if args.subcommand == "ask" and args.workspace and not explicit_db and "PEERHUB_DB" not in os.environ:
-            selection = _select_db(DEFAULT_DB_PATH, workspace_root=Path(args.workspace))
-            args.db, args.db_source = selection.path, selection.source
+        # Configuration/help commands remain usable without a store. Store consumers
+        # must never turn an implicit discovery miss into a new database.
+        store_command = args.subcommand in {
+            "ask", "account", "session", "observation",
+            "peer", "stream", "record", "offset", "collection",
+        } or (args.subcommand == "monitor" and getattr(args, "monitor_action", None) in (None, "repair"))
+        # Diag owns its read-only missing-store reports; batch validates its
+        # manifest and supports dry runs before checking the execution store.
+        if store_command and getattr(args, "db_source", None) not in ("explicit", "env"):
+            from peerhub.cli.store_select import report_missing_store
+            if report_missing_store(args.db, json_output=bool(getattr(args, "json", False) or getattr(args, "format", None) == "json"),
+                                    selected=False, source=args.db_source):
+                return 5
         if args.subcommand == "monitor":
             args._provided_options = {item.split("=", 1)[0] for item in actual if item.startswith("--")}
         if getattr(args, "obs_db", None):
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":
-            return _run_ask_cli(args, parser, argv)
+            return _run_ask_cli(args)
         if args.subcommand == "account":
             return _run_account_cli(args)
         if args.subcommand == "batch":

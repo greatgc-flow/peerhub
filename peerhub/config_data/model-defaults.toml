@@ -116,8 +116,8 @@ pools_source = "unverified"
 [profiles."ag.argon"]
 selection_mode = "pinned"
 model = "gemini-4-argon-medium"
-source = "cli:agy.exe models@1.5.3 2026-11-08"
-checked = "2026-10-20"
+source = "cli:agy.exe models@1.5.3 2026-11-08"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
+checked = "2026-11-08"
 pools = ["A-7D"]
 pools_source = "agy /usage group (agy 1.4.0)"
 

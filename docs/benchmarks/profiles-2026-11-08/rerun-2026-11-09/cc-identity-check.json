@@ -1,0 +1,16 @@
+{
+ "checked_utc": "2026-11-08T15:16:00.989745Z",
+ "cmd": "claude -p - --output-format stream-json --verbose --model claude-fable-5-1",
+ "model_fields": [
+  {
+   "type": "system",
+   "subtype": "init",
+   "model": "claude-fable-5-1"
+  },
+  {
+   "type": "assistant",
+   "subtype": null,
+   "model": "claude-fable-5-1"
+  }
+ ]
+}

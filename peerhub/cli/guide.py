@@ -62,7 +62,7 @@ def render_guide(workspace: Path | None = None) -> str:
         hidden += 1
     lines: list[str] = [
         "PeerHub Quick Reference & Best Practices",
-        "Profiles (defaulting to .standard first):",
+        "Profiles (listed by tier):",
         f"{'Profile':<14} {'Model':<24} {'Pools':<14} {'Layer'} (~ = truncated; peerhub profile list)",
     ]
     if load_error:
@@ -97,7 +97,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "",
         "Efficiency:",
         "  Reuse: asks automatically reuse sessions; keep one --stream per peer/role with compatible store/binding (single-peer stream).",
-        "  Profiles: start with *.standard; while 3P is low, explicitly use ag.argon only for tasks its measured capabilities support, else defer.",
+        "  Profiles: pick the lowest tier meeting the task class: bulk=standard, code=effort, review/design=deepthink; see docs/batch.md.",
         "  Transport: --query-file and --json select transport/parsing format (no token saving).",
         "",
         "Long Asks:",
@@ -117,7 +117,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "    Default-timeout ask: do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more); continue genuinely new work on a new stream with a summary; details: 'peerhub explain <code>'.",
         "  Store hazards: --db > PEERHUB_DB > nearest upward .peerhub/core.db; back up core.db before upgrading; new schema not openable by old versions;",
         "    stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor (running monitor locks peerhub.exe on Windows; also wait for running asks, else a broken install: reinstall, check results before re-sending);",
-        "    don't run dev builds on the real store; after restore, reopen stores (old instances are fenced).",
+        "    don't run dev builds on the real store; after restore, reopen stores (old instances are fenced). Git >=2.36 fallback: main checkout then parents (ask -w: main only); discovery misses exit 5; create explicitly with --db .peerhub/core.db peer register --peer local (or PEERHUB_DB).",
         "  Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only); uncertain streams may remain quota-blocked after reset. Aged quota numbers are last-known; refresh before relying on them.",
         "  Batch: executes asks (spends quota); ag tasks always writable; overlapping writers rejected.",
         "    Cancel: Windows tree termination; POSIX best-effort. Inspect UNCERTAIN; keep manifest + batch-id for resume.",

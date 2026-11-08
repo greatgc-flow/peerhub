@@ -35,7 +35,7 @@ class StreamPeerMismatchError(ValueError):
     code = "stream_peer_mismatch"
 
 
-def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> dict[str, Any]:
+def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row, peer_id: str | None = None) -> dict[str, Any]:
     stored = json.loads(delivery["result_json"])
     refused = stored.get("task_outcome") == "NOT_EXECUTED"
     status = "failed_not_started" if delivery["certainty"] == "NOT_STARTED" else "not_executed" if refused else "recovered_terminal"
@@ -64,11 +64,11 @@ def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row) -> di
     if delivery["certainty"] == "TERMINAL" and isinstance(result.get("response"), str) and not result["response"].strip():
         result["empty_response"] = True
         result["task_effects"] = "unverified"
-    _mark_denied_empty(result)
+    _mark_denied_empty(result, peer_id)
     return result
 
 
-def _mark_denied_empty(result: dict[str, Any]) -> None:
+def _mark_denied_empty(result: dict[str, Any], peer_id: str | None = None) -> None:
     """An empty terminal reply with denied tool actions is not a usable answer (#300).
 
     Certainty stays TERMINAL: the turn ended. Only the public status changes, so callers cannot mistake it
@@ -80,7 +80,7 @@ def _mark_denied_empty(result: dict[str, Any]) -> None:
         names = ", ".join(str(n) for n in cast(list[Any], denied))
         result["status"] = "denied_empty"
         if not isinstance(result.get("error"), dict):
-            result["error"] = dict(code="denied_empty", message=f"ag denied tool action(s): {names}; response empty (headless cannot prompt).")
+            result["error"] = dict(code="denied_empty", message=f"{peer_id or result.get('peer_id') or 'provider'} denied tool action(s): {names}; response empty (headless cannot prompt).")
 
 
 def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None = None,
@@ -175,7 +175,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                     settled = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND record_id=? AND acked=1 AND result_json IS NOT NULL ORDER BY attempt DESC LIMIT 1",
                                            (sid, peer_id, previous["record_id"])).fetchone()
                     if settled is not None:
-                        replay = _read_delivery_result(conn, settled)
+                        replay = _read_delivery_result(conn, settled, peer_id)
                         replay.update(request_id=rid, stream_id=sid, peer_id=peer_id, requested_record_id=previous["record_id"])
                         return replay
     validate_policy: Callable[[], None] | None = getattr(target, "validate_execution_policy", None)
@@ -270,8 +270,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                 conn.row_factory = sqlite3.Row
                 delivered = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result["delivery_id"],)).fetchone()
                 if delivered is not None and delivered["acked"] and delivered["result_json"] and delivered["certainty"] in ("NOT_STARTED", "STARTED", "TERMINAL"):
-                    result.update(_read_delivery_result(conn, delivered))
-                    if not terminal and not refused and delivered["certainty"] == "TERMINAL":
+                    result.update(_read_delivery_result(conn, delivered, peer_id))
+                    if not terminal and not refused and delivered["certainty"] == "TERMINAL" and result.get("status") != "denied_empty":
                         result["status"] = "delivered"
         result.update(bridge.delivery_details(result.get("delivery_id")))
         if isinstance(result.get("detail"), dict):
@@ -291,7 +291,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         if result.get("certainty") == "TERMINAL" and isinstance(result.get("response"), str) and not result["response"].strip():
             result["empty_response"] = True
             result["task_effects"] = "unverified"
-        _mark_denied_empty(result)
+        _mark_denied_empty(result, peer_id)
         # A conversation may have earlier pending work. Report its progress without claiming this prompt completed.
         if result.get("record_id") != rec.record_id:
             result["processed_status"] = result["status"]

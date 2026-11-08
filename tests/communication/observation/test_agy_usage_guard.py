@@ -56,7 +56,11 @@ def poll(f, **kw):
 def test_proper_usage_json_is_measured_and_runs_in_workspace_root(fake):
     fake.emit(GOOD)
     res = poll(fake)
-    assert len(res) == 2 and all(r.evidence.state == EvidenceState.MEASURED for r in res)
+    measured = [r for r in res if r.evidence.state == EvidenceState.MEASURED]
+    absent = [r for r in res if r.evidence.state == EvidenceState.ABSENT]  # declared pools the report omits (P4)
+    assert sorted(r.evidence.value.quota_pool_scope for r in measured) == ["G-5H", "G-7D"]
+    assert sorted(r.extra["pool_scope"] for r in absent) == ["3P-5H", "3P-7D", "A-7D"]
+    assert len(res) == 5
     (line,) = fake.spawns()
     assert Path(line.split("|")[0]).resolve() == fake.root.resolve() and "-p /usage" in line
 

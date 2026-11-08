@@ -16,10 +16,15 @@ pytestmark = [pytest.mark.unit]
     ("pip checkout", ["installed-vs-checkout"]),
     ("PYTHONPATH", ["installed-vs-checkout"]),
     ("read-only", ["ag-recipe"]),
-    ("cx plan window", ["cx-plan-windows"]),
+    ("cx plan window", ["plan-windows"]),
+    ("cx-plan-windows", ["plan-windows"]),
+    ("cc absent", ["plan-windows"]),
+    ("ag not reported", ["plan-windows"]),
     ("ag empty reply", ["ag-recipe"]),
     ("denied_empty", ["ag-recipe"]),
-    ("ag", ["ag-recipe", "ag-bulk-profile-heuristics", "ag-silence-long-asks", "multi-peer-quota-shaping"]),
+    ("ag", ["ag-recipe", "ag-bulk-profile-heuristics", "ag-silence-long-asks", "multi-peer-quota-shaping", "plan-windows"]),
+    ("cc allow rules", ["cc-allow-rules"]),
+    ("fable haiku", ["cc-allow-rules"]),
     ("ag checkout", []),
     ("", []),
     ("!!!", []),
@@ -56,6 +61,14 @@ def test_explain_ag_leads_with_recipe_and_records_open_observation(capsys):
     assert "#302" in recipe["issue"] and "#140" in recipe["issue"]
 
 
+def test_cc_allow_rules_lesson_states_exact_match_and_prefix_fix():
+    """#303 B2: exact-match Bash rules vs model command shape; prefix rules are the fix."""
+    lesson = next(lesson for lesson in load_lessons() if lesson["id"] == "cc-allow-rules")
+    for needle in ("exact command string", "Bash(peerhub:*)", "denied_actions", "Unverified hypothesis"):
+        assert needle in lesson["fix"], needle
+    assert lesson["issue"] == "#303"
+
+
 def test_no_match_hint(capsys):
     assert main(["explain", "ag", "checkout"]) == 1
     captured = capsys.readouterr()
@@ -73,7 +86,7 @@ def test_known_guidance_and_alias_take_priority(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 20
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 21
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & {lesson["id"] for lesson in lessons}
     for lesson in lessons:
         assert all(lesson.values())

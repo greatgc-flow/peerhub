@@ -19,6 +19,26 @@ def manifest(tmp_path, *, peer="cx", prompt="mode:ok", rows=None):
     return path
 
 
+@pytest.mark.parametrize("mode", ["invalid", "dry-run", "execute"])
+def test_implicit_miss_is_checked_after_manifest_validation(tmp_path, monkeypatch, capsys, mode):
+    monkeypatch.chdir(tmp_path)
+    path = manifest(tmp_path)
+    if mode == "invalid":
+        path.write_text("invalid", encoding="utf-8")
+    monkeypatch.setattr(batch, "run_batch", lambda *a, **kw: pytest.fail("unexpected workers"))
+    command = ["batch", "run", str(path), "--batch-id", "b", "--max-parallel", "1", "--json"]
+    assert main(command + (["--dry-run"] if mode == "dry-run" else [])) == {
+        "invalid": 1, "dry-run": 0, "execute": 5}[mode]
+    output = capsys.readouterr()
+    if mode == "invalid":
+        assert json.loads(output.out)["error"]["code"] == "invalid_manifest"
+    elif mode == "dry-run":
+        assert json.loads(output.out)["dry_run"] is True
+    else:
+        assert "[store_missing]" in output.err
+    assert not (tmp_path / ".peerhub").exists()
+
+
 def argv(tmp_path, path, *options):
     return ["--db", str(tmp_path / "missing" / "core.db"), "batch", "run", str(path),
             "--batch-id", "b1", "--max-parallel", "2", *options]

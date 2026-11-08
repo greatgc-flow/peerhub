@@ -79,6 +79,20 @@ def test_quota_json_exact_values_and_states(ws, capsys):
     assert (ws.full_state(), fhash(ws.db_path)) == before  # no write, no refresh
 
 
+def test_observation_db_does_not_require_implicit_core_store(ws, tmp_path, monkeypatch, capsys):
+    cwd = tmp_path / "no-core-store"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    before = fhash(ws.db_path)
+    assert main(["diag", "quota", "--observation-db", str(ws.db_path), "--json"]) == 0
+    output = capsys.readouterr()
+    report = json.loads(output.out)
+    assert report["source_db"] == str(ws.db_path) and report["status"] == "OK"
+    assert "[store_missing]" not in output.err
+    assert fhash(ws.db_path) == before
+    assert not (cwd / ".peerhub").exists()
+
+
 def test_quota_table_and_filters(ws, capsys):
     code, out, _ = run(capsys, ws.db_path, "diag", "quota")
     assert code == 0 and "STALE" in out and "UNKNOWN" in out and "used_fraction=0.75 (derived)" in out and "remaining_tokens=1000" in out

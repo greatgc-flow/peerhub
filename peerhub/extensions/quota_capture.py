@@ -81,7 +81,8 @@ def _read_latest_facts_report(store: ObservationStore) -> dict[str, Any] | None:
 def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None = None,
                   deadline_sec: float = 15, pollers: dict[str, Callable[..., Any]] | None = None,
                   version_checker: Callable[[str], str | None] | None = None,
-                  cx_pools: Sequence[str] | None = None) -> dict[str, Any]:
+                  cx_pools: Sequence[str] | None = None, cc_pools: Sequence[str] | None = None,
+                  ag_pools: Sequence[str] | None = None) -> dict[str, Any]:
     if not peers or not math.isfinite(deadline_sec) or deadline_sec <= 0:
         raise ValueError("provide peers and a positive probe timeout")
     if not Path(db_path).is_file():
@@ -123,16 +124,20 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
 
     for peer, kind in zip(peers, kinds):
         try:
+            injected = {"cx": cx_pools, "cc": cc_pools, "ag": ag_pools}[kind]
             readings = pollers[kind](ids=_Ids(), instance_id=peer, profile_id="default",
                                     deadline_sec=deadline_sec, sys_dir=sys_dir,
-                                    **({"configured_pools": cx_pools} if kind == "cx" and cx_pools is not None else {}))
+                                    **({"configured_pools": injected} if injected is not None else {}))
             if not readings:
                 raise ValueError("probe returned no evidence")
             if kind == "ag":
+                # "not reported by provider" ABSENT rows come from a complete report, so they do not make the probe incomplete.
                 ag_probed_ok = all(
                     not isinstance(r, ResetCreditObserved)
                     and r.evidence.state == EvidenceState.MEASURED and r.evidence.value is not None
                     for r in readings
+                    if not (not isinstance(r, ResetCreditObserved) and r.evidence.state == EvidenceState.ABSENT
+                            and isinstance(getattr(r, "extra", None), dict) and "pool_scope" in r.extra)
                 )
                 for r in readings:
                     extra_obj: object = getattr(r, "extra", None)

@@ -36,6 +36,17 @@ def _plan_label(value: object) -> str:
     return text[:24] or "unknown"
 
 
+# P4: pools each peer's profiles declare; a complete, successfully parsed report that omits one records it ABSENT.
+# Callers may inject the profile-derived list (configured_pools); the probes import no profile code.
+_CC_CONFIGURED_POOLS = ("C-5H", "C-7D", "F-7D")
+
+
+def _absent_pool(ids: IdSource, instance_id: str, profile_id: str, peer: str, observed_at: int, freshness_ttl: int,
+                 pool_scope: str, plan: str = "unknown") -> UsageObserved:
+    return _fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at, freshness_ttl, peer=peer,
+                        extra={"pool_scope": pool_scope, "reason": f"{NOT_REPORTED_REASON}; plan={plan}"})
+
+
 def resolve_sys_dir(sys_dir: Optional[Path] = None) -> Path:
     """Resolve the _sys directory from explicit parameter, env var, or workspace-relative default.
 
@@ -264,6 +275,41 @@ def _parse_claude_usage(text: str, now: Optional[datetime] = None) -> list[Claud
                 current_section = None
                 current_pct = None
     return rows
+
+
+def _claude_section_labels(text: str) -> set[str]:
+    """Pool labels of every recognised /usage section mentioned in the output, parsed or not."""
+    inline = re.compile(r"^(Current session|Current week \(all models\)|Current week \(Fable\)):", re.IGNORECASE)
+    labels: set[str] = set()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        m = inline.match(line)
+        spec = _CLAUDE_USAGE_SECTIONS.get((m.group(1) if m else line.rstrip(":")).strip().lower())
+        if spec is not None:
+            labels.add(spec[0])
+    return labels
+
+def _claude_usage_has_drift(text: str) -> bool:
+    """True when /usage shows a usage line or section this parser does not know (renamed/new window): a pool that looks
+    missing may merely be renamed, so no ABSENT may be inferred. Ordinary UI chrome is not drift."""
+    labelled_usage = re.compile(r"^[^:]{1,60}:\s*[^\s%]+%\s+used\b", re.IGNORECASE)
+    current: bool = False  # inside a recognised section header, awaiting its "N% used" / "Resets" lines
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        label = line.split(":", 1)[0].strip().lower() if ":" in line else line.rstrip(":").strip().lower()
+        if label in _CLAUDE_USAGE_SECTIONS:
+            current = ":" not in line or not re.search(r"%\s+used\b", line, re.IGNORECASE)
+            continue
+        if re.match(r"current\b", line, re.IGNORECASE) or labelled_usage.match(line):
+            return True
+        if re.search(r"%\s+used\b", line, re.IGNORECASE) and not current:
+            return True  # a usage figure that belongs to no recognised section
+        if current and re.search(r"\bresets?\b", line, re.IGNORECASE):
+            current = False
+    return False
+
 
 def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
     names = {"ag": ("agy.exe", "agy"), "cc": (CLAUDE_CMD, "claude"), "cx": (CODEX_CMD, "codex")}
@@ -519,6 +565,28 @@ def _agy_envelope(text: str) -> Optional[dict[str, Any]]:
     return None
 
 
+def _agy_report_is_clean(text: str) -> bool:
+    """True only if every group/bucket of the `/usage` payload is well formed (the parser silently skips malformed ones),
+    so a bucket missing from the parsed dict really means the provider did not report it."""
+    env = _agy_envelope(text)
+    command = env.get("command") if env else None
+    data = cast(dict[str, Any], command).get("data") if isinstance(command, dict) else None
+    groups = cast(dict[str, Any], data).get("groups") if isinstance(data, dict) else None
+    if not isinstance(groups, list):
+        return False
+    for group in cast(list[Any], groups):
+        buckets = cast(dict[str, Any], group).get("buckets") if isinstance(group, dict) else None
+        if not isinstance(buckets, list):
+            return False
+        for bucket in cast(list[Any], buckets):
+            if not isinstance(bucket, dict):
+                return False
+            b = cast(dict[str, Any], bucket)
+            if not isinstance(b.get("id"), str) or not _valid_fraction(b.get("remaining_fraction")) or not isinstance(b.get("reset_time"), str):
+                return False
+    return True
+
+
 def _agy_usage_violation(text: str) -> Optional[tuple[str, dict[str, Any]]]:
     """Evaluate the RAW print-mode envelope of `agy -p /usage`: a proper slash-command run has command.name == "usage", zero tokens and
     zero turns. Anything else means the text may have gone to a real model turn (quota burn) or is not the command: (evidence_ref, extra)
@@ -668,8 +736,12 @@ def poll_claude_usage(
     deadline_sec: float = 15.0,
     freshness_ttl: int = 60,
     sys_dir: Optional[Path] = None,
+    configured_pools: Sequence[str] | None = None,
 ) -> Sequence[UsageObserved]:
-    """Poll claude.cmd /usage and return observations for each quota pool."""
+    """Poll claude.cmd /usage and return observations for each quota pool.
+
+    A declared pool whose section is absent from a fully parsed report is recorded ABSENT (never zero/unlimited);
+    any malformed or unrecognised-but-present section means no ABSENT rows at all."""
     resolved_sys = resolve_sys_dir(sys_dir)
     workspace_root = _resolve_workspace_root(resolved_sys)
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
@@ -704,6 +776,7 @@ def poll_claude_usage(
         )
         try:
             stdout, stderr = proc.communicate(timeout=deadline_sec)
+            run_ok = getattr(proc, "returncode", None) == 0  # a failed/unfinished run may print partial usage
         except subprocess.TimeoutExpired:
             return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl,
                                  extra={"reason": "claude_usage_timeout"}),)
@@ -764,7 +837,14 @@ def poll_claude_usage(
                 evidence=evidence,
             )
         )
-        
+
+    reported = {q["label"] for q in quotas}
+    # exit 0, no unrecognised usage section (drift), and every recognised section that appeared parsed into a row
+    if run_ok and not _claude_usage_has_drift(text) and _claude_section_labels(text) <= reported:
+        for pool_scope in (_CC_CONFIGURED_POOLS if configured_pools is None else configured_pools):
+            if pool_scope not in reported:
+                results.append(_absent_pool(ids, instance_id, profile_id, "cc", observed_at, freshness_ttl, pool_scope))
+
     return tuple(results)
 
 def poll_codex_usage(
@@ -1037,12 +1117,16 @@ def poll_agy_usage(
     freshness_ttl: int = 60,
     log_path: Optional[str | Path] = None,
     sys_dir: Optional[Path] = None,
+    configured_pools: Sequence[str] | None = None,
 ) -> Sequence[UsageObserved]:
     """Poll Agy's local ``/usage`` command, with explicitly configured statusline fallback.
 
     The slash command returns account quota without dispatching a model turn.
     Current Agy reports zero input/output/thinking tokens for this operation.
     An explicitly supplied ``log_path`` skips the executable probe.
+
+    A declared pool whose bucket is missing from a fully parsed ``/usage`` report is recorded ABSENT; the statusline
+    fallback, conflicts and any present-but-unusable bucket never produce ABSENT rows.
     """
     
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
@@ -1052,6 +1136,7 @@ def poll_agy_usage(
     
     resolved_sys = resolve_sys_dir(sys_dir)
     quota_dict_typed: dict[str, Any] | None = None
+    report_clean = False  # the live /usage payload had no malformed bucket (needed before any ABSENT pool)
     evidence_observed_at = observed_at_now
     source_tag = "agy_cli_usage"
     evidence_ref = EvidenceRef("probe:ag:usage")
@@ -1093,6 +1178,7 @@ def poll_agy_usage(
                     parsed = _parse_agy_usage_output(completed.stdout)
                     if parsed:
                         quota_dict_typed = parsed
+                        report_clean = _agy_report_is_clean(completed.stdout)
             except (OSError, subprocess.SubprocessError, ValueError):
                 pass
     if quota_dict_typed is None:
@@ -1134,10 +1220,13 @@ def poll_agy_usage(
                     unknown_buckets.append(key)
 
     results: list[UsageObserved] = []
+    malformed = False
 
     for key, label in _AG_QUOTA_LABELS.items():
         q_raw = quota_dict_typed.get(key)
         if not isinstance(q_raw, dict):
+            if key in quota_dict_typed:
+                malformed = True  # present but unusable: completeness cannot be claimed
             continue
         q = cast(dict[str, Any], q_raw)
 
@@ -1189,10 +1278,11 @@ def poll_agy_usage(
                 pass
                 
         if reset_at_ts is None:
+            malformed = True
             continue
-            
+
         window_started_at = reset_at_ts - window_sec
-        
+
         measurement = UsageMeasurement(
             quota_pool_scope=label,
             used_fraction=float(used_frac),
@@ -1231,5 +1321,12 @@ def poll_agy_usage(
         if unknown_buckets:
             extra_err["unknown_pools"] = list(unknown_buckets)
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, evidence_observed_at, freshness_ttl, peer="ag", extra=extra_err),)
-        
+
+    # An unknown bucket id / drift means the vocabulary changed (a "missing" pool may only be renamed): infer nothing.
+    if source_tag == "agy_cli_usage" and report_clean and not malformed and not unknown_buckets and all(r.evidence.state == EvidenceState.MEASURED for r in results):
+        reported = {r.evidence.value.quota_pool_scope for r in results if r.evidence.value is not None}
+        for pool_scope in (tuple(_AG_QUOTA_LABELS.values()) if configured_pools is None else configured_pools):
+            if pool_scope not in reported:
+                results.append(_absent_pool(ids, instance_id, profile_id, "ag", observed_at_now, freshness_ttl, pool_scope))
+
     return tuple(results)

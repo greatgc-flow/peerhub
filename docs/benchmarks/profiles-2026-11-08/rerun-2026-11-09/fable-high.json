@@ -1,0 +1,40 @@
+{
+  "status": "delivered",
+  "record_id": "rec-ecbec854d35c",
+  "delivery_id": "rerun-fable-high:cc:rec-ecbec854d35c:1",
+  "certainty": "TERMINAL",
+  "response_record_id": "rec-d990580d57bf",
+  "session_generation": 1,
+  "detail": {},
+  "session": {
+    "generation": 1,
+    "handle": "sess_0429ed7ac09e5e2d",
+    "mode": "fresh",
+    "prior_handle": null,
+    "reason": "no_prior",
+    "telemetry": {
+      "context_pct": null,
+      "context_window": null,
+      "last_input_tokens": null,
+      "quota": null,
+      "source": "unknown"
+    }
+  },
+  "response": "```python\nimport re\nfrom fractions import Fraction\n\n_NUM = r'(\\d+(?:[.,]\\d+)?)'\n_RE = re.compile(\n    r'^([+-]?)P'\n    r'(?:' + _NUM + r'Y)?'\n    r'(?:' + _NUM + r'M)?'\n    r'(?:' + _NUM + r'W)?'\n    r'(?:' + _NUM + r'D)?'\n    r'(?:T'\n    r'(?:' + _NUM + r'H)?'\n    r'(?:' + _NUM + r'M)?'\n    r'(?:' + _NUM + r'S)?'\n    r')?$'\n)\n\n_FACTORS = (\n    365 * 86400,  # Y\n    30 * 86400,   # M (months)\n    7 * 86400,    # W\n    86400,        # D\n    3600,         # H\n    60,           # M (minutes)\n    1,            # S\n)\n\n\ndef parse_duration(s: str) -> Fraction:\n    if not isinstance(s, str):\n        raise ValueError(\"duration must be a string\")\n    m = _RE.fullmatch(s)\n    if not m:\n        raise ValueError(f\"invalid duration: {s!r}\")\n    sign = m.group(1)\n    parts = m.groups()[1:]\n    present = [(i, p) for i, p in enumerate(parts) if p is not None]\n    if not present:\n        raise ValueError(f\"invalid duration (no components): {s!r}\")\n    # 'T' must be followed by at least one time component\n    if 'T' in s and not any(i >= 4 for i, _ in present):\n        raise ValueError(f\"invalid duration ('T' without time components): {s!r}\")\n    total = Fraction(0)\n    last_idx = present[-1][0]\n    for i, p in present:\n        if ('.' in p or ',' in p) and i != last_idx:\n            raise ValueError(f\"invalid duration (fraction not in last component): {s!r}\")\n        val = Fraction(p.replace(',', '.'))\n        total += val * _FACTORS[i]\n    if sign == '-':\n        total = -total\n    return total\n```",
+  "error": null,
+  "effective_mode": "fresh",
+  "fallback_reason": null,
+  "injected_record_ids": [],
+  "usage": {
+    "cache_write_tokens": 7049,
+    "cached_input_tokens": 17844,
+    "input_tokens": 24895,
+    "output_tokens": 709
+  },
+  "usage_scope": "session_cumulative",
+  "usage_attribution": "unattributed",
+  "request_id": "rerun-fable-high",
+  "stream_id": "rerun-fable-high",
+  "peer_id": "cc",
+  "requested_record_id": "rec-ecbec854d35c"
+}

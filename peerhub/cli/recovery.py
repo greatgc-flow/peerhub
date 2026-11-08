@@ -370,10 +370,10 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_denied_empty": GuidanceEntry(
         code="ask_denied_empty",
         meaning="The turn ended with an empty response after the provider denied tool action(s); this is not a usable answer.",
-        why="Headless ag cannot prompt for tool permission, so a denied shell or edit action can end the turn with no reply text. Task effects are unverified.",
+        why="The provider denied tool action(s) (headless cannot prompt), so the turn can end with no reply text; the denied names or commands are in denied_actions. Task effects are unverified.",
         recover=[
             {
-                "argv": ["peerhub", "ask", "ag", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM", "--writable"],
+                "argv": ["peerhub", "ask", "PEER_ID", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM", "--writable"],
                 "purpose": "Start a new stream and inline the needed content via --query-file (say \"no tools\"); do not resume this stream",
                 "prereqs": "Put the content the task needs into the query file; one task per ask; check the workspace for partial effects first.",
             },
@@ -417,9 +417,23 @@ REGISTRY: dict[str, GuidanceEntry] = {
     ),
 }
 
+# The store-missing lesson owns the detailed store-selection recovery recipe.
+REGISTRY["store_missing"] = GuidanceEntry(
+    code="store_missing",
+    meaning="The selected database does not exist.",
+    why="A Git worktree may have no local store while the database lives in the main checkout; see lesson store-missing.",
+    recover=[{
+        "argv": ["peerhub", "explain", "store-missing"],
+        "purpose": "Pass --db PATH, set PEERHUB_DB, or run from the main checkout; see the store-missing lesson for the recipe",
+        "prereqs": "Identify the intended store before selecting it or explicitly creating a new one.",
+    }],
+    avoid="Do not create a substitute store when you intend to use existing data.",
+    docs="README.md#store-selection-and-existing-data",
+    exits=[{"code": 5, "context": "The selected database does not exist."}],
+)
+
 # Shared CLI errors; ask-specific guidance retains its more precise recovery policy.
 for _code, _exit, _meaning, _argv in (
-    ("store_missing", 5, "The selected database does not exist.", ["peerhub", "guide"]),
     ("invalid_arguments", 2, "The command arguments were rejected before dispatch.", ["peerhub", "guide"]),
     ("peer_not_found", 1, "The selected peer does not exist in this store.", ["peerhub", "peer", "list"]),
     ("stream_not_found", 1, "The selected stream does not exist in this store.", ["peerhub", "stream", "list"]),
@@ -732,7 +746,7 @@ def render_guidance_reference() -> str:
 
     for code in sorted(REGISTRY.keys()):
         entry = REGISTRY[code]
-        doc_rel = entry.docs[len("docs/"):] if entry.docs.startswith("docs/") else entry.docs
+        doc_rel = entry.docs[len("docs/"):] if entry.docs.startswith("docs/") else "../" + entry.docs
         lines.extend([
             f"#### `{code}`",
             "",

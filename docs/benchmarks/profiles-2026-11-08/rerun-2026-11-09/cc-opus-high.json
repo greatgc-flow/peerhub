@@ -1,0 +1,40 @@
+{
+  "status": "delivered",
+  "record_id": "rec-9021fb5e4088",
+  "delivery_id": "rerun-cc-opus-high:cc:rec-9021fb5e4088:1",
+  "certainty": "TERMINAL",
+  "response_record_id": "rec-652d8aa9510c",
+  "session_generation": 1,
+  "detail": {},
+  "session": {
+    "generation": 1,
+    "handle": "sess_3a3b9d1e6092f77b",
+    "mode": "fresh",
+    "prior_handle": null,
+    "reason": "no_prior",
+    "telemetry": {
+      "context_pct": null,
+      "context_window": null,
+      "last_input_tokens": null,
+      "quota": null,
+      "source": "unknown"
+    }
+  },
+  "response": "```python\nimport re\nfrom fractions import Fraction\n\n_NUM = r\"([0-9]+(?:[.,][0-9]+)?)\"\n_PATTERN = re.compile(\n    r\"([+-])?P\"\n    r\"(?:\" + _NUM + r\"Y)?\"\n    r\"(?:\" + _NUM + r\"M)?\"\n    r\"(?:\" + _NUM + r\"W)?\"\n    r\"(?:\" + _NUM + r\"D)?\"\n    r\"(T\"\n    r\"(?:\" + _NUM + r\"H)?\"\n    r\"(?:\" + _NUM + r\"M)?\"\n    r\"(?:\" + _NUM + r\"S)?\"\n    r\")?\"\n)\n\n_DAY = 86400\n# Group indices (1-based) of each numeric component and its multiplier in seconds.\n_COMPONENTS = [\n    (2, 365 * _DAY),  # Y\n    (3, 30 * _DAY),   # M (months)\n    (4, 7 * _DAY),    # W\n    (5, _DAY),        # D\n    (7, 3600),        # H\n    (8, 60),          # M (minutes)\n    (9, 1),           # S\n]\n\n\ndef _to_fraction(text: str) -> Fraction:\n    text = text.replace(\",\", \".\")\n    if \".\" in text:\n        int_part, frac_part = text.split(\".\")\n        return Fraction(int(int_part)) + Fraction(int(frac_part), 10 ** len(frac_part))\n    return Fraction(int(text))\n\n\ndef parse_duration(s: str) -> Fraction:\n    if not isinstance(s, str):\n        raise ValueError(\"duration must be a string\")\n    m = _PATTERN.fullmatch(s)\n    if m is None:\n        raise ValueError(f\"invalid duration: {s!r}\")\n\n    present = [(m.group(g), mult) for g, mult in _COMPONENTS if m.group(g) is not None]\n    if not present:\n        raise ValueError(f\"duration has no components: {s!r}\")\n\n    if m.group(6) is not None and all(m.group(g) is None for g in (7, 8, 9)):\n        raise ValueError(f\"'T' must be followed by H, M or S: {s!r}\")\n\n    for text, _ in present[:-1]:\n        if \".\" in text or \",\" in text:\n            raise ValueError(f\"only the last component may have a fraction: {s!r}\")\n\n    total = Fraction(0)\n    for text, mult in present:\n        total += _to_fraction(text) * mult\n\n    if m.group(1) == \"-\":\n        total = -total\n    return total\n```",
+  "error": null,
+  "effective_mode": "fresh",
+  "fallback_reason": null,
+  "injected_record_ids": [],
+  "usage": {
+    "cache_write_tokens": 8845,
+    "cached_input_tokens": 14190,
+    "input_tokens": 23037,
+    "output_tokens": 1284
+  },
+  "usage_scope": "session_cumulative",
+  "usage_attribution": "unattributed",
+  "request_id": "rerun-cc-opus-high",
+  "stream_id": "rerun-cc-opus-high",
+  "peer_id": "cc",
+  "requested_record_id": "rec-9021fb5e4088"
+}

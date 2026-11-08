@@ -1,0 +1,8 @@
+source: clean checkout 67541b29d54dc828f4159aba21b43a8f8d8decbe (git status empty); peerhub 0.23.3 (installed CLI at run time); started 2026-11-08T15:11:23Z
+fable-high | 11s | SCORE 45/45 | session sess_0429ed7ac09e5e2d
+cc-opus-high | 14s | SCORE 45/45 | session sess_3a3b9d1e6092f77b
+cx-astra-high | 27s | SCORE 45/45 | session sess_324b0413c75c9d71
+ag-argon-medium | 32s | SCORE 45/45 | session sess_3d9da5b011d7f7c0
+cx-sol-xhigh | 48s | SCORE 45/45 | session sess_e3a17b0ffa12a17d
+cx-astra-ultra | 61s | SCORE 45/45 | session sess_a313c9088134b392
+ag-argon-high | 59s | SCORE 45/45 | session sess_1e65c743741f6094

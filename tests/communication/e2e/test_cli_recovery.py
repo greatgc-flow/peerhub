@@ -57,7 +57,8 @@ def test_registry_well_formedness():
         assert entry.meaning and isinstance(entry.meaning, str) and len(entry.meaning.strip()) > 10
         assert entry.why and isinstance(entry.why, str) and len(entry.why.strip()) > 10
         assert entry.avoid and isinstance(entry.avoid, str) and len(entry.avoid.strip()) > 10
-        assert entry.docs and isinstance(entry.docs, str) and entry.docs.startswith("docs/")
+        assert entry.docs and isinstance(entry.docs, str)
+        assert entry.docs.startswith("docs/") or entry.docs == "README.md#store-selection-and-existing-data"
         assert isinstance(entry.recover, list) and len(entry.recover) > 0
         for step in entry.recover:
             assert isinstance(step, dict)
@@ -1267,7 +1268,7 @@ def test_guidance_reference_relative_links_validity():
         assert not link.startswith("docs/"), (
             f"Link {link!r} in docs/guidance-reference.md should be relative to docs/ without 'docs/' prefix"
         )
-        resolved_target = (doc_path.parent / link).resolve()
+        resolved_target = (doc_path.parent / link.split("#", 1)[0]).resolve()
         assert resolved_target.is_file(), (
             f"Link {link!r} in docs/guidance-reference.md does not resolve to an existing file ({resolved_target})"
         )
@@ -1393,7 +1394,7 @@ def test_denied_empty_next_hint_is_new_stream_with_inlined_content(tmp_path, mon
     assert len(err.splitlines()) == 1
     assert "new stream" in err and "--query-file" in err and "do not resume this stream" in err
     entry = REGISTRY["ask_denied_empty"]
-    assert entry.recover[0]["argv"][:3] == ["peerhub", "ask", "ag"] and "--stream" in entry.recover[0]["argv"]
+    assert entry.recover[0]["argv"][:3] == ["peerhub", "ask", "PEER_ID"] and "--stream" in entry.recover[0]["argv"]
     assert "diag health" not in err
 
 

@@ -496,7 +496,9 @@ def test_missing_store_refused_before_probes(tmp_path, capsys, command):
     cap = capsys.readouterr()
     message = f"database not found: {db}"
     assert message in cap.err
-    assert f'next: peerhub --db "{db}" peer register --peer local --name local' in cap.err
+    assert "next: run from the main checkout" in cap.err
+    assert "PEERHUB_DB" in cap.err
+    assert f'peerhub --db "{db}" peer register --peer local --name local' in cap.err
     if "--json" in command:
         envelope = json.loads(cap.out)
         assert envelope["status"] == "UNAVAILABLE" and envelope["error"] == message
@@ -1095,8 +1097,8 @@ def test_monitor_forwards_system_dir(tmp_path):
     from pathlib import Path
     calls = []
 
-    def fake_refresh(db, peers, sys_dir=None, deadline_sec=15.0, cx_pools=None):
-        assert cx_pools is not None
+    def fake_refresh(db, peers, sys_dir=None, deadline_sec=15.0, cx_pools=None, cc_pools=None, ag_pools=None):
+        assert cx_pools is not None and cc_pools is not None and ag_pools is not None
         calls.append(sys_dir)
         return {"status": "OK", "observations": [], "warnings": []}
 
@@ -1105,6 +1107,29 @@ def test_monitor_forwards_system_dir(tmp_path):
         assert _run(_db(tmp_path), "--cycles", "1", "--system-dir", str(sys_path)) in (0, 4)
 
     assert calls == [Path(sys_path)]
+
+
+@pytest.mark.parametrize("extra", [(), ("--json",), ("--json", "--schema-version", "1.1")])
+def test_monitor_refresh_injects_the_same_profile_pools_as_observation_refresh(tmp_path, extra, capsys):
+    """P4: monitor's refresh path declares the cx/cc/ag pools exactly like `observation refresh` (one shared helper)."""
+    def profiles(_root):
+        return [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
+            ("cx.effort", ["X-5H", "X-7D"]), ("cc.fable", ["F-7D"]), ("cc.standard", ["C-5H", "C-7D"]),
+            ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]))]
+    seen = []
+
+    def refresh(*args, **kwargs):
+        seen.append({key: kwargs.get(key) for key in ("cx_pools", "cc_pools", "ag_pools")})
+        return {"status": "OK", "observations": [], "warnings": []}
+
+    db = _db(tmp_path)
+    with patch("peerhub.extensions.adapters.profiles.list_profiles", profiles), \
+         patch("peerhub.extensions.quota_capture.refresh_quota", refresh):
+        main(["--db", str(db), "monitor", "--cycles", "1", *extra])
+        main(["--db", str(db), "observation", "refresh"])
+    capsys.readouterr()
+    expected = {"cx_pools": ["X-5H", "X-7D"], "cc_pools": ["C-5H", "C-7D", "F-7D"], "ag_pools": ["A-7D", "G-5H", "G-7D"]}
+    assert seen == [expected, expected]  # monitor and observation refresh pass identical pools
 
 
 def test_monitor_json_carries_projection_per_item(tmp_path, capsys):

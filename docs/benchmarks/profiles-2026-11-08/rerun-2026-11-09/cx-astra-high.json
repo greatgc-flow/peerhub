@@ -1,0 +1,40 @@
+{
+  "status": "delivered",
+  "record_id": "rec-a702275e9e06",
+  "delivery_id": "rerun-cx-astra-high:cx:rec-a702275e9e06:1",
+  "certainty": "TERMINAL",
+  "response_record_id": "rec-7d2cd0bb8914",
+  "session_generation": 1,
+  "detail": {},
+  "session": {
+    "generation": 1,
+    "handle": "sess_324b0413c75c9d71",
+    "mode": "fresh",
+    "prior_handle": null,
+    "reason": "no_prior",
+    "telemetry": {
+      "context_pct": null,
+      "context_window": null,
+      "last_input_tokens": null,
+      "quota": null,
+      "source": "unknown"
+    }
+  },
+  "response": "```python\nimport re\nfrom fractions import Fraction\n\n_NUMBER = r\"[0-9]+(?:[.,][0-9]+)?\"\n_DURATION = re.compile(\n    rf\"([+-]?)P\"\n    rf\"(?:({_NUMBER})Y)?\"\n    rf\"(?:({_NUMBER})M)?\"\n    rf\"(?:({_NUMBER})W)?\"\n    rf\"(?:({_NUMBER})D)?\"\n    rf\"(?:T\"\n    rf\"(?:({_NUMBER})H)?\"\n    rf\"(?:({_NUMBER})M)?\"\n    rf\"(?:({_NUMBER})S)?\"\n    rf\")?\"\n)\n_SECONDS = (31536000, 2592000, 604800, 86400, 3600, 60, 1)\n\n\ndef parse_duration(s: str) -> Fraction:\n    if not isinstance(s, str):\n        raise ValueError(\"Duration must be a string\")\n\n    match = _DURATION.fullmatch(s)\n    if match is None:\n        raise ValueError(\"Invalid duration\")\n\n    sign, *values = match.groups()\n    components = [\n        (value, seconds)\n        for value, seconds in zip(values, _SECONDS)\n        if value is not None\n    ]\n\n    if not components:\n        raise ValueError(\"At least one component is required\")\n    if \"T\" in s and all(value is None for value in values[4:]):\n        raise ValueError(\"T requires a time component\")\n    if any(\".\" in value or \",\" in value for value, _ in components[:-1]):\n        raise ValueError(\"Only the last component may have a fraction\")\n\n    total = sum(\n        (Fraction(value.replace(\",\", \".\")) * seconds\n         for value, seconds in components),\n        Fraction(0),\n    )\n    return -total if sign == \"-\" else total\n```",
+  "error": null,
+  "effective_mode": "fresh",
+  "fallback_reason": null,
+  "injected_record_ids": [],
+  "usage": {
+    "cache_write_tokens": 0,
+    "cached_input_tokens": 12416,
+    "input_tokens": 17262,
+    "output_tokens": 691
+  },
+  "usage_scope": "session_cumulative",
+  "usage_attribution": "unattributed",
+  "request_id": "rerun-cx-astra-high",
+  "stream_id": "rerun-cx-astra-high",
+  "peer_id": "cx",
+  "requested_record_id": "rec-a702275e9e06"
+}
