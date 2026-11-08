@@ -414,7 +414,7 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
                 print()
             print(result["response"])
     elif result["status"] == "denied_empty":
-        denied = result.get("denied_actions") or []
+        denied: list[object] = list(result.get("denied_actions") or [])
         print(f"note: ag denied tool action(s): {', '.join(str(n) for n in denied)} (headless cannot prompt); response empty - "
               "not a usable answer; avoid shell tools or add permissions.allow in agy settings.json", file=sys.stderr)
         if guidance_entry is not None:
