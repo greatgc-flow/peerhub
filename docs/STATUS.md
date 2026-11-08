@@ -4,7 +4,7 @@
 
 ## Current source: v0.24.0 (unreleased)
 
-v0.24.0 unifies CLI human output, store precedence and monitor presentation, refreshes model observations without changing profiles, and includes denied-empty handling (#300). Deterministic CI and release gates are pending.
+v0.24.0 unifies CLI human output (text by default, `--json` everywhere), store precedence (`--db` over `PEERHUB_DB`) and a redesigned at-a-glance monitor (pools with meaning, per-group limits, fresh-only `suggest:` line, plan-aware ABSENT windows for every peer), reworks profiles quality-first (`ag.effort` flash-high, `cx.effort` sol/high, packaged tops `cc.fable` and `cx.astra`), documents capability-matched quota balancing and concurrency caps (docs/batch.md), adds the ag recipe and denied-empty handling (#300). Plan: docs/design/plan-0.24.0-2026-11-08.md.
 
 The latest published package is **v0.23.3** (tag `v0.23.3`, target `60220a2c`). Later main changes are **source-only until a new release**. The installed `peerhub guide` does not automatically update when main changes.
 
