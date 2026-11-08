@@ -28,7 +28,6 @@ import sqlite3
 import sys
 from pathlib import Path
 from typing import Any, NoReturn, cast
-from pydantic import BaseModel
 
 from peerhub._console import tolerant_streams
 from peerhub.cli.store_select import DEFAULT_DB_PATH, StoreSelection, select_store
@@ -321,9 +320,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                               help="Machine-readable JSON output")
         node._option_string_actions["--json"].default = argparse.SUPPRESS
         for action in node._actions:
-            if isinstance(action, argparse._SubParsersAction):
-                for child in action.choices.values():
-                    add_json(child)
+            if isinstance(action.choices, dict):
+                for child in cast(dict[str, object], action.choices).values():
+                    if isinstance(child, argparse.ArgumentParser):
+                        add_json(child)
     subparsers._choices_actions[:] = [action for action in subparsers._choices_actions
                                      if action.dest not in {"stream", "record", "offset"}]
     add_json(parser)
@@ -331,19 +331,14 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     return parser
 
 
-def _dump(model: BaseModel) -> str:
-    """JSON with ASCII escapes only: lossless for every Unicode text whatever the console encoding (no encoding is forced on the user)."""
-    return json.dumps(model.model_dump(mode="json"), indent=2, ensure_ascii=True)
-
-
 def _emit(payload: Any, json_output: bool) -> None:
     if json_output:
         print(json.dumps(payload, indent=2, ensure_ascii=True))
     elif isinstance(payload, dict):
-        for key, value in payload.items():
+        for key, value in cast(dict[str, object], payload).items():
             print(f"{key}: {json.dumps(value, ensure_ascii=True) if isinstance(value, (dict, list)) else value}")
     elif isinstance(payload, list):
-        for item in payload:
+        for item in cast(list[object], payload):
             _emit(item, False)
         if not payload:
             print("(no results)")
@@ -446,7 +441,7 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
         code = guidance_entry.code if guidance_entry is not None else str(result.get("status") or "delivery_failed")
         hint = render_guidance_hint(guidance_entry) if guidance_entry is not None else f"peerhub explain {code}"
         error_obj: Any = result.get("error")
-        detail = (error_obj.get("message") if isinstance(error_obj, dict) else error_obj) or detail_error \
+        detail: object = (cast(dict[str, object], error_obj).get("message") if isinstance(error_obj, dict) else error_obj) or detail_error \
             or result.get("reason") or result.get("status")
         pl = result.get("provider_limit")
         if pl:

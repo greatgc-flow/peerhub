@@ -799,12 +799,12 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     for profile in _items(payload.get("configured_profiles")):
         fields = _obj(profile.get("fields"))
         name = str(profile.get("profile") or "")
-        for pool in _obj(fields.get("pools")).get("value") or []:
+        for pool in cast(list[object], _obj(fields.get("pools")).get("value") or []):
             consumers.setdefault(f"{name.split('.')[0]}:{pool}", []).append(name)
     # Explicit pure-render fixtures may supply configured pool membership directly.
     for peer in _items(_obj(_obj(groups.get("peers")).get("data")).get("peers")):
         profile = _obj(peer.get("profile"))
-        for pool in profile.get("pools") or []:
+        for pool in cast(list[object], profile.get("pools") or []):
             consumers.setdefault(f"{peer.get('peer_id')}:{pool}", []).append(str(profile.get("name") or profile.get("profile")))
     cap = _obj(groups.get("capacity"))
     data = _obj(cap.get("data"))
@@ -846,7 +846,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
             lines[i] = f"\x1b[{code}m{line}\x1b[0m"
     report = _obj(_obj(_obj(groups.get("peers")).get("data")).get("facts_report"))
     # Every facts_report reason is a drift reason ("ag: unknown_pool", "cc: version_drift").
-    drift_peers = sorted({str(reason).split(":")[0] for reason in report.get("reasons") or []})
+    drift_peers = sorted({str(reason).split(":")[0] for reason in cast(list[object], report.get("reasons") or [])})
     if drift_peers:
         footer += "; DRIFT:" + ",".join(drift_peers)
     if db_line:
