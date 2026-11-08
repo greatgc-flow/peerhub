@@ -1,0 +1,39 @@
+{
+  "status": "delivered",
+  "record_id": "rec-06987c20e5a7",
+  "delivery_id": "rerun-ag-argon-high:ag:rec-06987c20e5a7:1",
+  "certainty": "TERMINAL",
+  "response_record_id": "rec-6f6cdfad9c73",
+  "session_generation": 1,
+  "detail": {},
+  "session": {
+    "generation": 1,
+    "handle": "sess_1e65c743741f6094",
+    "mode": "fresh",
+    "prior_handle": null,
+    "reason": "no_prior",
+    "telemetry": {
+      "context_pct": null,
+      "context_window": null,
+      "last_input_tokens": null,
+      "quota": null,
+      "source": "unknown"
+    }
+  },
+  "response": "```python\nfrom fractions import Fraction\nimport re\n\n_HEAD_RE = re.compile(r\"\\A([+-])?P(.*)\\Z\", re.DOTALL)\n_DATE_RE = re.compile(\n    r\"\\A\"\n    r\"(?:([0-9]+(?:[.,][0-9]+)?)Y)?\"\n    r\"(?:([0-9]+(?:[.,][0-9]+)?)M)?\"\n    r\"(?:([0-9]+(?:[.,][0-9]+)?)W)?\"\n    r\"(?:([0-9]+(?:[.,][0-9]+)?)D)?\"\n    r\"\\Z\"\n)\n_TIME_RE = re.compile(\n    r\"\\A\"\n    r\"(?:([0-9]+(?:[.,][0-9]+)?)H)?\"\n    r\"(?:([0-9]+(?:[.,][0-9]+)?)M)?\"\n    r\"(?:([0-9]+(?:[.,][0-9]+)?)S)?\"\n    r\"\\Z\"\n)\n\n_UNIT_SECONDS = (\n    365 * 86400,  # Y\n    30 * 86400,   # M (month)\n    7 * 86400,    # W\n    86400,        # D\n    3600,         # H\n    60,           # M (minute)\n    1,            # S\n)\n\n\ndef parse_duration(s: str) -> Fraction:\n    if not isinstance(s, str):\n        raise ValueError(\"Duration must be a string\")\n\n    head_match = _HEAD_RE.match(s)\n    if not head_match:\n        raise ValueError(f\"Invalid duration: {s!r}\")\n\n    sign, body = head_match.groups()\n    if \"T\" in body:\n        if body.count(\"T\") > 1:\n            raise ValueError(f\"Multiple 'T' designators in duration: {s!r}\")\n        date_part, time_part = body.split(\"T\")\n        if not time_part:\n            raise ValueError(f\"Empty time part after 'T' in duration: {s!r}\")\n    else:\n        date_part, time_part = body, \"\"\n\n    date_match = _DATE_RE.match(date_part)\n    time_match = _TIME_RE.match(time_part)\n    if not date_match or not time_match:\n        raise ValueError(f\"Invalid duration components: {s!r}\")\n\n    raw_values = date_match.groups() + time_match.groups()\n    present = [\n        (val, unit)\n        for val, unit in zip(raw_values, _UNIT_SECONDS)\n        if val is not None\n    ]\n\n    if not present:\n        raise ValueError(f\"Duration has no components: {s!r}\")\n\n    for val, _ in present[:-1]:\n        if \".\" in val or \",\" in val:\n            raise ValueError(\n                f\"Only the last component may be fractional: {s!r}\"\n            )\n\n    total = sum(\n        (Fraction(val.replace(\",\", \".\")) * unit for val, unit in present),\n        Fraction(0),\n    )\n    return -total if sign == \"-\" else total\n```\n",
+  "error": null,
+  "effective_mode": "fresh",
+  "fallback_reason": null,
+  "injected_record_ids": [],
+  "usage": {
+    "cached_input_tokens": 0,
+    "input_tokens": 8481,
+    "output_tokens": 4109
+  },
+  "usage_scope": "session_cumulative",
+  "usage_attribution": "unattributed",
+  "request_id": "rerun-ag-argon-high",
+  "stream_id": "rerun-ag-argon-high",
+  "peer_id": "ag",
+  "requested_record_id": "rec-06987c20e5a7"
+}
