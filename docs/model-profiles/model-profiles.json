@@ -17,9 +17,9 @@
   },
   "tier_rules": [
     "standard = cheap/fast triage (cc: haiku, cx: *-luna low, ag: newest flash low).",
-    "effort = daily driver (cc: newest sonnet high, cx: newest *-sol medium, ag: newest flash medium).",
+    "effort = daily driver and default for implementation (cc: newest sonnet high, cx: newest *-sol high, ag: newest flash high).",
     "deepthink = deliberate escalation (cc: newest opus high, cx: newest *-sol xhigh, ag: claude-sonnet-5-5 high while gemini pro absent).",
-    "ag.argon = explicit gemini-4-argon-medium alternative on A-7D; standard/effort/deepthink remain unchanged.",
+    "top = opt-in, never a default: cc.fable (fable high), cx.astra (astra high), ag.argon (gemini-4-argon-medium on A-7D). Keep a top profile at the effort a benchmark showed no gain above (docs/benchmarks/profiles-2026-11-08.md).",
     "max/ultra efforts are explicit per-call overrides, never a default tier.",
     "Never pick models with visibility 'hide'. Keep an effort only if the model lists it as supported."
   ],

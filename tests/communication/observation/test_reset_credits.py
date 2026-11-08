@@ -75,6 +75,29 @@ def test_one_credit_measured(monkeypatch):
     assert "description" not in json.dumps(rc[0].payload)
 
 
+@pytest.mark.parametrize("secondary", [[], "broken", "missing", {}, {"usedPercent": 10},
+                                      {"usedPercent": 10, "resetsAt": 1787200158}])
+def test_incomplete_windows_are_unknown_never_absent(monkeypatch, secondary):
+    env = envelope()
+    if secondary == "missing":
+        del env["rateLimits"]["secondary"]
+    else:
+        env["rateLimits"]["secondary"] = secondary
+    usage, _ = run_probe(monkeypatch, env)
+    assert not any(u.evidence.state == EvidenceState.ABSENT for u in usage)
+    assert any(u.evidence.state == EvidenceState.UNKNOWN for u in usage)
+    assert len([u for u in usage if u.evidence.state == EvidenceState.MEASURED]) == 1
+
+
+def test_absent_pool_inventory_follows_configured_profiles(monkeypatch):
+    monkeypatch.setattr("peerhub.extensions.adapters.profiles.list_profiles", lambda root: [
+        {"profile": "cx.effort", "fields": {"pools": {"value": ["X-5H", "X-30D"]}}}])
+    usage, _ = run_probe(monkeypatch, envelope())
+    absent = [u for u in usage if u.evidence.state == EvidenceState.ABSENT]
+    assert len(absent) == 1 and absent[0].evidence.value is None
+    assert absent[0].extra["pool_scope"] == "X-30D"
+
+
 def test_zero_credits_is_measured_zero(monkeypatch):
     _, rc = run_probe(monkeypatch, envelope(rateLimitResetCredits={"availableCount": 0, "credits": []}))
     assert rc[0].state == EvidenceState.MEASURED
@@ -178,5 +201,5 @@ def test_monitor_reset_credits_from_wire_are_read_only(tmp_path, monkeypatch, va
     frame = render_monitor_frame(str(db), ["capacity"], read_at=credits[0].captured_at)
     frame["selected_groups"] = ["capacity"]
     for view in ("plain", "rich"):
-        assert re.search(expected, render_grouped_frame(frame, view=view, width=120, height=30))
+        assert re.search(expected, render_grouped_frame(frame, view=view, width=120, height=30, expand=True))
     assert db.read_bytes() == before

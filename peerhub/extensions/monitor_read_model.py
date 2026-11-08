@@ -238,7 +238,7 @@ def public_telemetry(raw: object, *, handle: str, generation: int, provider: str
 
 def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | None = None,
                          trace_callback: Callable[[str], None] | None = None,
-                         workspace: str | Path | None = None) -> dict[str, Any]:
+                         workspace: str | Path | None = None, human: bool = False) -> dict[str, Any]:
     """Read grouped monitor facts from one query-only SQLite snapshot (five bounded query families)."""
     import time
     now = time.time() if read_at is None else read_at
@@ -737,9 +737,29 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 "sample_size": sample_size, "truncated": is_truncated,
                 "reason": "query_error" if group_status == "ERROR" else "sample_cap" if is_truncated else None,
             }
+        human_observations: list[dict[str, Any]] = []
+        if human and observations:
+            # One batch within this read snapshot; redraws reuse these immutable facts.
+            ids = [item["observation_id"] for item in observations]
+            evidence = conn.execute(
+                "SELECT o.observation_id, o.payload_json, (SELECT COUNT(*) FROM "
+                "(SELECT DISTINCT s.effective_at_us FROM observations s "
+                "WHERE s.subject_ref=o.subject_ref AND s.resource_pool_ref IS o.resource_pool_ref "
+                "AND s.kind='quota' AND s.state='MEASURED' "
+                "AND json_extract(s.payload_json,'$.resets_at') IS json_extract(o.payload_json,'$.resets_at') "
+                "ORDER BY s.effective_at_us DESC LIMIT 2)) AS samples "
+                "FROM observations o WHERE o.observation_id IN (" + ",".join("?" for _ in ids) + ")", ids,
+            ).fetchall()
+            by_id = {row["observation_id"]: row for row in evidence}
+            for item in observations:
+                row = by_id.get(item["observation_id"])
+                raw: dict[str, Any] = json.loads(row["payload_json"]) if row is not None else {}
+                human_observations.append({**item, "last_measurements": raw,
+                    "resets_at": raw.get("resets_at"), "projection_samples": row["samples"] if row else 0})
         conn.execute("ROLLBACK")
         return {"schema_version": "2.0", "status": "PARTIAL" if errors else "OK", "read_at": now,
-                "groups": output, "errors": errors, "query_families": select_count}
+                "groups": output, "errors": errors, "query_families": select_count,
+                **({"_human_observations": human_observations} if human else {})}
     finally:
         if conn.in_transaction:
             conn.execute("ROLLBACK")

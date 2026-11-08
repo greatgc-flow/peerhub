@@ -93,7 +93,8 @@ def test_bare_monitor_renders_default_session_and_execution_groups(tmp_path, mon
             assert frame["snapshot"]["available_groups"] == list(GROUP_IDS)
             assert {"sessions", "execution"} <= set(frame["snapshot"]["groups"])
     else:
-        assert "SESSIONS [" in output and "EXECUTION [" in output
+        assert "sessions " in output and "delivery (sampled): terminal " in output
+        assert "SESSIONS [" not in output and "EXECUTION [" not in output
         assert '"groups"' not in output
 
 
@@ -199,10 +200,10 @@ def test_monitor_reset_countdown_tty_plain_parity(tmp_path, monkeypatch, tty):
     monkeypatch.setenv("COLUMNS", "120")
     monkeypatch.setenv("LINES", "24")
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame",
-                        lambda db, groups: render_monitor_frame(db, groups, read_at=T0 + 120))
+                        lambda db, groups, **kw: render_monitor_frame(db, groups, read_at=T0 + 120, **kw))
 
     assert main(["--db", str(h.db_path), "monitor", "--snapshot", "--group", "capacity"]) in (0, 4)
-    assert "RESET-IN" in output.getvalue()
+    assert "RESETS" in output.getvalue()
     assert "4h58m" in output.getvalue()
 
 
@@ -255,7 +256,7 @@ def test_monitor_reset_countdown_posix_pty_plain_parity(tmp_path):
             process.kill()
             process.wait(timeout=5)
     for rendered in (plain.stdout, output.decode("utf-8")):
-        assert "RESET-IN" in rendered
+        assert "RESETS" in rendered
         assert "4h58m" in rendered
 
 
@@ -281,7 +282,8 @@ def test_bare_monitor_default_tty_uses_grouped_sections(tmp_path, monkeypatch):
     db = _db(tmp_path)
     assert main(["--db", str(db), "monitor", "--view", "rich", "--cycles", "1"]) in (0, 4)
     rendered = output.getvalue()
-    assert "SESSIONS [" in rendered and "EXECUTION [" in rendered
+    assert "sessions " in rendered and "delivery (sampled): terminal " in rendered
+    assert "SESSIONS [" not in rendered and "EXECUTION [" not in rendered
     assert '"groups"' not in rendered
 
 
@@ -304,7 +306,7 @@ def test_bare_monitor_grouped_output_supports_ascii_stdout(tmp_path, monkeypatch
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
     assert main(["--db", str(_db(tmp_path)), "monitor", "--view", "plain", "--cycles", "1"]) in (0, 4)
-    assert "EXECUTION [" in output.getvalue()
+    assert "delivery (sampled): terminal " in output.getvalue()
 
 
 def test_monitor_snapshot_does_not_refresh_providers(tmp_path, monkeypatch, capsys):
@@ -373,7 +375,8 @@ def test_monitor_snapshot_plain_view_renders_group_heading(tmp_path, capsys):
     db = _db(tmp_path)
     assert _run(db, "--snapshot", "--group", "store", "--view", "plain") == 0
     output = capsys.readouterr().out
-    assert "STORE [OK]" in output
+    assert "details: --expand" in output
+    assert "STORE [OK]" not in output
     assert '"groups"' not in output
 
 
@@ -442,7 +445,7 @@ def test_snapshot_explicit_groups_override_invalid_defaults(tmp_path, monkeypatc
         assert payload["preference"] == {"status": "OK", "source": "command", "reason": None}
         assert payload["selected_groups"] == (list(GROUP_IDS) if groups == ["all"] else groups)
     else:
-        assert "QUOTA" in output
+        assert "POOLS" in output
     with patch("peerhub.extensions.quota_capture.refresh_quota", side_effect=AssertionError("probe")):
         assert _run(db, "--snapshot", "--json") == 1
     assert json.loads(capsys.readouterr().out)["preference"]["source"] == layer
@@ -672,12 +675,11 @@ def test_redirected_snapshot_keeps_full_human_group_frame(tmp_path, capsys):
     output = capsys.readouterr().out
 
     assert code in (0, 4)
-    assert all((group.upper() in output if group != "capacity" else ("QUOTA" in output or "CAPACITY" in output)) for group in
-               ("execution", "sessions", "usage", "capacity", "runtime", "store"))
-    assert "OVERVIEW [" not in output and "CONTEXT [" not in output
-    assert output.count("Coverage:") == 1
+    assert "POOLS" in output and "PEERS" in output
+    assert "sessions " in output and "delivery (sampled): terminal " in output
+    assert "SESSIONS [" not in output and "EXECUTION [" not in output
+    assert "details: --expand" in output
     assert "groups omitted" not in output.lower()
-    assert "No scope evidence" in output and "Schema 4" in output
     assert "\x1b" not in output
     assert output.endswith("\n") and not output.endswith("\n\n")
 
@@ -723,7 +725,7 @@ def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
     rendered = output.decode("utf-8", errors="replace")
     lines = rendered.rstrip("\r\n").splitlines()
     assert len(lines) <= 7
-    assert "6g hidden" in rendered
+    assert "details: --expand" in rendered
     assert "--expand" in rendered
     assert "COLUMNS" not in rendered
     assert "\x1b" not in rendered
@@ -765,7 +767,7 @@ def test_tty_countdown_redraw_reuses_snapshot_without_database_or_provider_calls
     reads = []
     refreshes = []
 
-    def render(db, groups):
+    def render(db, groups, **kw):
         reads.append((db, tuple(groups)))
         return real_render(db, groups)
 
@@ -913,9 +915,9 @@ def _spy_render(calls):
 def _spy_group_frame(calls):
     from peerhub.extensions.monitor_read_model import render_monitor_frame
 
-    def render(db, groups):
+    def render(db, groups, **kw):
         calls.append("snapshot")
-        return render_monitor_frame(db, groups)
+        return render_monitor_frame(db, groups, **kw)
     return render
 
 
@@ -1276,11 +1278,12 @@ def test_monitor_expand_snapshot_human_renders_all_rows(tmp_path, capsys):
     conn.commit()
     conn.close()
 
-    # Snapshot default (expand=False): capped at 2 rows
+    # Compact default summarizes sessions without exposing handles.
     code = main(["--db", str(db), "monitor", "--snapshot", "--group", "sessions", "--view", "plain"])
     assert code == 0
     out = capsys.readouterr().out
-    assert "+2 sessions not shown" in out
+    assert "sessions >=4 retained (sampled)" in out
+    assert "details: --expand" in out
     assert "sess_0001" not in out
 
     # Snapshot with --expand: all 4 rows rendered with handle, no not shown

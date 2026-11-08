@@ -194,7 +194,7 @@ def test_poll_claude_usage_success_parsing(monkeypatch):
 
 def test_poll_codex_usage_timeout_fail_closed(monkeypatch):
     import time
-    
+
     class FakeProc:
         def __init__(self):
             self.stdin = None
@@ -205,20 +205,20 @@ def test_poll_codex_usage_timeout_fail_closed(monkeypatch):
             return ""
         def poll(self):
             return None
-            
+
     def fake_popen(*args, **kwargs):
         return FakeProc()
-        
+
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         "peerhub.extensions.quota_probes._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
-    
+
     ids = DummyIdSource()
     res = poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=0.1)
-    
+
     assert len(res) == 1
     obs = res[0]
     assert obs.evidence.state == EvidenceState.ERROR
@@ -236,7 +236,7 @@ def test_poll_codex_usage_malformed_response(monkeypatch):
             if not self.lines:
                 return ""
             return self.lines.pop(0)
-            
+
     class FakeProc:
         def __init__(self):
             class FakeStdin:
@@ -247,17 +247,17 @@ def test_poll_codex_usage_malformed_response(monkeypatch):
             self.pid = 9999
         def poll(self):
             return None
-            
+
     def fake_popen(*args, **kwargs):
         return FakeProc()
-        
+
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         "peerhub.extensions.quota_probes._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
-    
+
     ids = DummyIdSource()
     res = poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=0.5)
 
@@ -320,7 +320,7 @@ def test_poll_codex_usage_success_parsing(monkeypatch, used):
     assert len(res) == (2 if used == 100 else 1)
     obs = res[0]
     if used != 100:
-        assert obs.evidence.state == EvidenceState.ERROR and obs.evidence.value is None
+        assert obs.evidence.state == EvidenceState.UNKNOWN and obs.evidence.value is None
         return
     assert obs.evidence.state == EvidenceState.MEASURED
     assert obs.evidence.value.quota_pool_scope == "X-7D"
@@ -525,10 +525,10 @@ def test_poll_agy_usage_stale_file(tmp_path, monkeypatch):
     import time
     log_file = tmp_path / "ag.json"
     log_file.write_text('{"quota": {}}', encoding="utf-8")
-    
+
     # fake clock to be far in the future
     clock = lambda: time.time() + 1000
-    
+
     ids = DummyIdSource()
     res = poll_agy_usage(ids, "inst-1", "prof-1", clock=clock, freshness_ttl=60, log_path=log_file)
     assert len(res) == 1
@@ -537,7 +537,7 @@ def test_poll_agy_usage_stale_file(tmp_path, monkeypatch):
 def test_poll_agy_usage_malformed_json(tmp_path):
     log_file = tmp_path / "ag.json"
     log_file.write_text('{not valid json', encoding="utf-8")
-    
+
     ids = DummyIdSource()
     res = poll_agy_usage(ids, "inst-1", "prof-1", log_path=log_file)
     assert len(res) == 1
@@ -557,18 +557,18 @@ def test_poll_agy_usage_success(tmp_path):
             }
         }
     }), encoding="utf-8")
-    
+
     ids = DummyIdSource()
     res = poll_agy_usage(ids, "inst-1", "prof-1", log_path=log_file)
     assert len(res) == 2
-    
+
     scopes = {obs.evidence.value.quota_pool_scope: obs for obs in res}
-    
+
     assert "G-5H" in scopes
     obs_g = scopes["G-5H"]
     assert obs_g.evidence.state == EvidenceState.MEASURED
     assert obs_g.evidence.value.used_fraction == pytest.approx(0.8)
-    
+
     assert "3P-7D" in scopes
     obs_3p = scopes["3P-7D"]
     assert obs_3p.evidence.state == EvidenceState.MEASURED

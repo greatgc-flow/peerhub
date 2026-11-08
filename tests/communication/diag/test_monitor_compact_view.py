@@ -1,0 +1,394 @@
+"""Compact human monitor contract; JSON and expanded detail remain separate."""
+from __future__ import annotations
+
+from copy import deepcopy
+import json
+from pathlib import Path
+
+import pytest
+
+from peerhub.cli.monitor_view import render_grouped_frame, _width
+
+NOW = 1794134880.0  # 2026-11-08 10:48Z
+
+
+@pytest.fixture
+def compact_frame():
+    def pool(peer, name, remaining, *, state="MEASURED", age=60, reset=3600):
+        return {"observation_id": f"{peer}-{name}", "peer_id": peer, "pool_ref": f"quota:{peer}:{name}",
+                "state": state, "stored_state": "MEASURED", "age_seconds": age, "ttl_seconds": 300,
+                "measurements": {"remaining_fraction": remaining} if state == "MEASURED" else None,
+                "last_measurements": {"remaining_fraction": remaining}, "resets_at": NOW + reset,
+                "projection": {"state": "insufficient"}}
+    rows = [pool("ag", "3P-5H", .01, state="STALE", age=540),
+            pool("ag", "3P-7D", 0, state="STALE", age=540),
+            pool("ag", "A-7D", .55, state="STALE", age=540),
+            pool("ag", "G-5H", .80),
+            pool("ag", "G-7D", .55, state="STALE", age=540, reset=-1),
+            pool("cc", "F-7D", None),
+            pool("cx", "X-5H", None, state="ABSENT", reset=-1),
+            pool("cx", "X-7D", .89)]
+    rows[6].update(stored_state="ABSENT", reason="not reported by provider; plan=prolite")
+    profiles = [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
+        ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]),
+        ("ag.deepthink", ["3P-5H", "3P-7D"]), ("cc.effort", ["C-5H", "C-7D"]),
+        ("cx.effort", ["X-5H", "X-7D"]))]
+    return {"schema_version": "2.0", "status": "PARTIAL", "read_at": NOW,
+            "selected_groups": ["capacity", "peers", "sessions", "execution", "usage"],
+            "store_selection": {"path": "/work/.peerhub/core.db", "source": "discovered"},
+            "_nearest_store_path": "/work/.peerhub/core.db",
+            "configured_profiles": profiles, "groups": {
+                "capacity": {"status": "OK", "data": {"observations": rows}},
+                "peers": {"status": "OK", "data": {"peers": [{"peer_id": p} for p in ("ag", "cc", "cx")],
+                    "facts_report": {"status": "ok", "checked_at": "2026-11-08T10:45:00Z"}}},
+                "sessions": {"status": "OK", "data": {"items": [{"state": "ACTIVE"}, {"state": "ACTIVE"}],
+                    "retained_sessions_by_peer": {"ag": {"value": 100, "complete": True}}}},
+                "execution": {"status": "OK", "data": {"scopes": [{"certainty": {
+                    "terminal": 166, "started": 15, "not_started": 2, "may_have_started": 1}}]}},
+                "usage": {"status": "OK", "data": {"coverage_by_scope": [{"measured": 56, "terminal": 60}]}}
+            }}
+
+
+def _row(screen, pool):
+    return next(line for line in screen.splitlines() if pool in line and line.lstrip().startswith(("ag ", "cc ", "cx ")))
+
+
+def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_frame):
+    screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=100)
+    assert "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m" in screen
+    assert "/work/.peerhub/core.db" not in screen
+    assert "next: peerhub observation refresh" in screen
+    for heading in ("PEER", "POOL", "MEANING", "LEFT", "RESETS", "AGE", "STATE", "PROFILES"):
+        assert heading in screen
+    for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "out", "0%"),
+                                ("A-7D", "aged", "55%"), ("G-5H", "ok", "80%"),
+                                ("G-7D", "reset", None), ("F-7D", "?", None),
+                                ("X-5H", "n/a", None), ("X-7D", "ok", "89%")):
+        row = _row(screen, name)
+        assert state in row.split()
+        assert "%" not in row if value is None else value in row
+    positions = [screen.index(_row(screen, name)) for name in ("3P-5H", "3P-7D", "A-7D", "G-5H", "G-7D")]
+    assert positions == sorted(positions)  # peer, family, then window (F10')
+    assert "ok low out aged reset n/a ?" in screen
+    assert "G flash A argon" not in screen
+    assert "X-5H n/a (plan prolite)" in screen
+    assert "deepthink 0% (3P-7D)" in screen
+    assert "unmapped" in _row(screen, "F-7D")
+    for text in ("facts ok 2026-11-08", "sessions >=100 retained (sampled)",
+                 "delivery (sampled): terminal 166 / started 15 / not started 2",
+                 "telemetry 56/60", "details: --expand"):
+        assert text in screen
+    for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:", "PACE"):
+        assert old not in screen
+
+
+@pytest.mark.parametrize("samples, expected", [(None, "ok"), (1, "ok"), (2, "low")])
+def test_projection_low_requires_two_samples(compact_frame, samples, expected):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row.update(projection={"state": "threat"}, projection_samples=samples)
+    assert expected in _row(render_grouped_frame(compact_frame, width=100), "G-5H").split()
+
+
+def test_ttl_boundary_and_next_absent_when_fresh(compact_frame):
+    compact_frame["groups"]["capacity"]["data"]["observations"] = [
+        compact_frame["groups"]["capacity"]["data"]["observations"][3]]
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][0]
+    compact_frame["configured_profiles"] = [{"profile": "ag.standard", "fields": {"pools": {"value": ["G-5H"]}}}]
+    row.update(age_seconds=599, ttl_seconds=600)
+    assert "next:" not in render_grouped_frame(compact_frame)
+    row["age_seconds"] = 600
+    screen = render_grouped_frame(compact_frame)
+    assert "aged" in _row(screen, "G-5H").split()
+    assert "next: peerhub observation refresh" in screen
+
+
+@pytest.mark.parametrize("source", ["discovered", "explicit", "env", "default"])
+@pytest.mark.parametrize("same,status", [(True, "OK"), (False, "OK"), (True, "FAILED"), (True, "ERROR")])
+def test_database_path_selection(compact_frame, source, same, status):
+    compact_frame.update(status=status, store_selection={"path": "/work/.peerhub/core.db", "source": source},
+                         _nearest_store_path="/work/.peerhub/core.db" if same else "/other/.peerhub/core.db")
+    screen = render_grouped_frame(compact_frame, width=100)
+    assert ("/work/.peerhub/core.db" in screen) == (not same or status != "OK")
+
+
+@pytest.mark.parametrize("errors,show_path", [({"scope_cap": "truncated"}, False),
+    ({"capacity": "OperationalError"}, True)])
+def test_database_path_ignores_sampling_caps_but_shows_read_errors(compact_frame, errors, show_path):
+    compact_frame["errors"] = errors
+    screen = render_grouped_frame(compact_frame, view="plain")
+    assert ("/work/.peerhub/core.db" in screen) == show_path
+
+
+@pytest.mark.parametrize("width", [20, 32, 47, 48, 64, 80, 100])
+def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
+    compact_frame["configured_profiles"][0]["profile"] = "ag." + "long" * 60
+    screen = render_grouped_frame(compact_frame, width=width, unicode=False)
+    assert all(_width(line) <= width for line in screen.splitlines())
+    assert "55%" in screen and "89%" in screen
+    assert "--expand" in screen
+    if width < 48:
+        assert "PEER  POOL" not in screen  # labelled vertical pool rows on narrow terminals
+
+
+def test_unknown_and_all_absent_are_never_zero_or_unlimited(compact_frame):
+    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
+    compact_frame["groups"]["capacity"]["data"]["observations"] = [rows[6]]
+    screen = render_grouped_frame(compact_frame, width=100)
+    assert "? (not reported)" in screen and "? (never measured)" in screen
+    assert "100%" not in screen and "0%" not in screen
+
+
+def test_human_render_does_not_mutate_json_and_expand_keeps_details(compact_frame):
+    before = json.dumps(compact_frame, ensure_ascii=True, separators=(",", ":")).encode()
+    original = deepcopy(compact_frame)
+    render_grouped_frame(compact_frame, width=100)
+    expanded = render_grouped_frame(compact_frame, width=100, expand=True)
+    assert "EXHAUST-IN" in expanded or "Columns omitted" in expanded
+    assert "SESSIONS [" in expanded and "USAGE [" in expanded
+    assert json.dumps(compact_frame, ensure_ascii=True, separators=(",", ":")).encode() == before
+    assert compact_frame == original
+
+
+def test_human_only_last_measurements_are_read_only_and_json_bytes_unchanged(tmp_path, capsys, monkeypatch):
+    from peerhub.cli.app import main
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool, epoch_to_iso
+    from tests.communication.harness.observation import ObservationHarness
+    h = ObservationHarness(tmp_path / "evidence")
+    h.obs.register_resource_pool(ResourcePool(resource_pool_id="quota:ag:A-7D", provider="ag", kind="QUOTA"))
+    h.obs.persist(Observation(observation_id="old", subject_ref="ag", resource_pool_ref="quota:ag:A-7D",
+        kind="quota", source="test", state=EvidenceState.MEASURED,
+        observed_at=epoch_to_iso(NOW - 540), captured_at=epoch_to_iso(NOW - 540),
+        payload={"remaining_fraction": .55, "resets_at": NOW + 3600}))
+    payload = render_monitor_frame(str(h.db_path), ["capacity"], read_at=NOW)
+    assert payload["groups"]["capacity"]["data"]["observations"][0]["measurements"] is None
+    human = render_monitor_frame(str(h.db_path), ["capacity"], read_at=NOW, human=True)
+    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame",
+                        lambda *a, **kw: deepcopy(human if kw.get("human") else payload))
+    baseline = h.db_path.read_bytes()
+    from peerhub.cli.monitor_preferences import GROUP_IDS
+    expected = {**payload, "selected_groups": ["capacity"], "available_groups": list(GROUP_IDS),
+                "preference": {"status": "OK", "source": "command", "reason": None},
+                "store_selection": {"path": str(h.db_path.resolve()), "source": "explicit"}}
+    expected_wire = json.dumps(expected, ensure_ascii=True, separators=(",", ":")) + "\n"
+    for _ in range(2):
+        assert main(["--db", str(h.db_path), "monitor", "--snapshot", "--group", "capacity", "--json"]) == 0
+        wire = capsys.readouterr().out
+        assert wire == expected_wire
+    assert main(["--db", str(h.db_path), "monitor", "--snapshot", "--group", "capacity", "--view", "plain"]) == 0
+    assert "55%" in capsys.readouterr().out
+    assert h.db_path.read_bytes() == baseline
+    from unittest.mock import patch
+    from peerhub.cli.monitor import _render_human_frame
+    with patch("sqlite3.connect", side_effect=AssertionError("redraw queried the database")):
+        assert "55%" in _render_human_frame(human, view="plain", width=100, height=None, color=False)
+
+
+
+@pytest.mark.parametrize("evidence", ["ERROR", "UNKNOWN", "UNAVAILABLE", "ABSENT"])
+def test_unavailable_evidence_never_becomes_a_healthy_number(compact_frame, evidence):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row.update(state=evidence, stored_state=evidence)
+    screen = render_grouped_frame(compact_frame, width=100)
+    assert "?" in _row(screen, "G-5H").split()
+    assert "80%" not in _row(screen, "G-5H")
+
+
+@pytest.mark.parametrize("remaining", [None, float("nan"), float("inf"), False, -0.1, 1.1])
+def test_invalid_measurements_are_unknown(compact_frame, remaining):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row.update(last_measurements={"remaining_fraction": remaining}, measurements={"remaining_fraction": remaining})
+    assert "?" in _row(render_grouped_frame(compact_frame), "G-5H").split()
+
+
+def test_stopped_token_use_warning_is_visible(compact_frame):
+    compact_frame["refresh_state"] = "STOPPED · AGY TOKEN USE"
+    screen = render_grouped_frame(compact_frame, width=100)
+    assert "STOPPED" in screen and "--allow-agy-token-use" in screen
+
+
+def test_projection_samples_only_count_the_current_window(tmp_path):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool, epoch_to_iso
+    from tests.communication.harness.observation import ObservationHarness
+    h = ObservationHarness(tmp_path / "samples")
+    h.obs.register_resource_pool(ResourcePool(resource_pool_id="quota:ag:G-5H", provider="ag", kind="QUOTA"))
+    def persist(name, at, reset):
+        h.obs.persist(Observation(observation_id=name, subject_ref="ag", resource_pool_ref="quota:ag:G-5H",
+            kind="quota", source="test", state=EvidenceState.MEASURED,
+            observed_at=epoch_to_iso(at), captured_at=epoch_to_iso(at),
+            payload={"remaining_fraction": .8, "resets_at": reset}))
+    persist("prior-window", NOW - 7200, NOW - 3600)
+    persist("current-1", NOW - 60, NOW + 3600)
+    def count():
+        trace = []
+        frame = render_monitor_frame(str(h.db_path), ["peers"], read_at=NOW, human=True, trace_callback=trace.append)
+        batch = [q for q in trace if "WHERE o.observation_id IN (" in q]
+        assert len(batch) == 1
+        assert trace.index(batch[0]) < trace.index("ROLLBACK")
+        assert "capacity" not in frame["groups"]
+        return frame["_human_observations"][0]["projection_samples"]
+    assert count() == 1
+    persist("current-2", NOW - 30, NOW + 3600)
+    assert count() == 2
+
+
+def test_unknown_frame_time_is_not_fabricated(compact_frame):
+    compact_frame.pop("read_at")
+    assert "time unknown" in render_grouped_frame(compact_frame)
+
+
+def test_tick_advances_header_age_and_ttl_without_mutation(compact_frame):
+    compact_frame["display_elapsed_seconds"] = 60
+    screen = render_grouped_frame(compact_frame, view="plain")
+    assert "2026-11-08 10:49Z" in screen and "quota age 10m" in screen
+    assert compact_frame["read_at"] == NOW
+
+
+def test_absent_and_reset_windows_on_one_peer_do_not_hide_each_other(compact_frame):
+    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
+    absent, reset = rows[6], rows[7]
+    reset.update(resets_at=NOW - 1, age_seconds=540, state="STALE")
+    compact_frame["groups"]["capacity"]["data"]["observations"] = [absent, reset]
+    screen = render_grouped_frame(compact_frame, view="plain", width=100)
+    assert "n/a" in _row(screen, "X-5H").split()
+    assert "reset" in _row(screen, "X-7D").split()
+    assert "%" not in _row(screen, "X-5H") and "%" not in _row(screen, "X-7D")
+    assert "89%" not in screen and "0%" not in screen
+
+
+def test_poolless_probe_does_not_poison_quota_age_or_refresh(compact_frame):
+    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
+    compact_frame["configured_profiles"] = [{"profile": "ag.standard", "fields": {"pools": {"value": ["G-5H"]}}}]
+    rows[:] = [rows[3], {"peer_id": "ag", "pool_ref": None, "state": "ERROR",
+                         "age_seconds": 86400 * 8}]
+    screen = render_grouped_frame(compact_frame, view="plain")
+    assert "quota age 1m" in screen and "next:" not in screen
+    assert "probe error" not in screen  # later successful pool evidence supersedes this failed attempt
+    assert len([line for line in screen.splitlines() if line.startswith("ag ")]) == 2
+    rows[1]["age_seconds"] = 30
+    screen = render_grouped_frame(compact_frame, view="plain")
+    assert screen.count("probe error (30s)") == 1
+    assert "quota age 1m" in screen and "next:" not in screen
+
+
+def test_missing_configured_pool_requests_refresh(compact_frame):
+    compact_frame["groups"]["capacity"]["data"]["observations"] = []
+    assert "no quota evidence; next: peerhub observation refresh" in render_grouped_frame(compact_frame)
+    compact_frame["selected_groups"] = ["peers"]
+    assert "next: peerhub observation refresh" in render_grouped_frame(compact_frame)
+
+
+def test_prefix_free_profiles_and_unknown_family(compact_frame):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][7]
+    row["pool_ref"] = "quota:cx:X-UNK"
+    screen = render_grouped_frame(compact_frame, view="plain")
+    assert "ag.standard" not in screen
+    assert "?" in _row(screen, "X-UNK").split()
+
+
+def test_expired_absent_is_aged_not_na(compact_frame):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][6]
+    row.update(state="STALE", age_seconds=301)
+    screen = render_grouped_frame(compact_frame, view="plain")
+    assert "n/a" not in _row(screen, "X-5H").split()
+    assert "aged" in _row(screen, "X-5H").split()
+
+
+@pytest.mark.parametrize("bad", ["aged", "reset", "unknown", "low", "missing", "na-only"])
+def test_suggestions_exclude_unusable_profiles(compact_frame, bad):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    compact_frame["configured_profiles"] = [{"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
+    if bad == "aged": row.update(state="STALE", age_seconds=301)
+    if bad == "reset": row.update(resets_at=NOW - 1)
+    if bad == "unknown": row.update(state="UNKNOWN")
+    if bad == "low": row.update(last_measurements={"remaining_fraction": .049})
+    if bad == "missing": row.update(pool_ref="quota:ag:G-7D")
+    if bad == "na-only": row.update(state="ABSENT", reason="not reported by provider")
+    screen = render_grouped_frame(compact_frame)
+    assert "suggest: no eligible profiles; next: peerhub observation refresh" in screen.splitlines()
+    assert "eco=- normal=- quality=- top=-" not in screen
+
+
+@pytest.mark.parametrize("aged", [True, False])
+def test_peers_age_suffix_once_at_end(compact_frame, aged):
+    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
+    if not aged:
+        for row in rows:
+            row.update(age_seconds=60, state=row["stored_state"])
+    screen = render_grouped_frame(compact_frame, view="plain", width=100)
+    peers = screen.split("PEERS\n", 1)[1].split("suggest:", 1)[0].splitlines()
+    ag = next(line for line in peers if line.startswith("ag "))
+    assert ag.count("(aged)") == int(aged)
+    assert ag.endswith("(aged)") == aged
+
+
+def test_peers_age_suffix_follows_plan_notes(compact_frame):
+    compact_frame["groups"]["capacity"]["data"]["observations"][7].update(age_seconds=301, state="STALE")
+    screen = render_grouped_frame(compact_frame, view="plain", width=100)
+    cx = screen.split("PEERS\n", 1)[1].split("suggest:", 1)[0]
+    cx = next(line for line in cx.splitlines() if line.startswith("cx "))
+    assert cx.endswith("X-5H n/a (plan prolite) (aged)")
+
+
+def test_suggestions_min_score_na_skip_and_fable_own_pool(compact_frame):
+    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
+    rows[5].update(last_measurements={"remaining_fraction": .7})
+    compact_frame["configured_profiles"] = [
+        {"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
+            ("ag.standard", ["G-5H"]), ("ag.effort", ["G-5H", "A-7D"]),
+            ("cx.effort", ["X-5H", "X-7D"]), ("cc.fable", ["F-7D"]))]
+    screen = render_grouped_frame(compact_frame)
+    assert "suggest: eco=ag.standard normal=cx.effort quality=- top=cc.fable" in screen
+    assert "fable 70% (F-7D)" in screen
+
+
+def test_suggestions_use_the_worst_pool_score_and_keep_five_percent(compact_frame):
+    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
+    rows[2].update(state="MEASURED", age_seconds=60, last_measurements={"remaining_fraction": .05},
+                   resets_at=NOW + 86400)
+    rows[7].update(last_measurements={"remaining_fraction": .5}, resets_at=NOW + 86400)
+    compact_frame["configured_profiles"] = [
+        {"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
+            ("ag.effort", ["A-7D", "G-5H"]), ("cx.effort", ["X-7D"]))]
+    assert "normal=cx.effort" in render_grouped_frame(compact_frame)
+    rows[7].update(state="UNKNOWN")
+    assert "normal=ag.effort" in render_grouped_frame(compact_frame)
+
+
+def test_peers_only_uses_snapshot_capacity_support(compact_frame):
+    standard = compact_frame["configured_profiles"][0]
+    compact_frame["configured_profiles"].append({**standard, "profile": "ag.effort"})
+    compact_frame["selected_groups"] = ["peers"]
+    compact_frame["_human_observations"] = compact_frame["groups"].pop("capacity")["data"]["observations"]
+    screen = render_grouped_frame(compact_frame, view="plain")
+    assert "POOLS" not in screen
+    assert "argon 55% (A-7D)" in screen
+    assert "effort/standard 80% (G-5H)" in screen
+
+
+def test_profile_cache_reuses_parse_and_invalidates_overlay(tmp_path, monkeypatch):
+    from peerhub.cli.monitor import _render_human_frame
+    calls = []
+    monkeypatch.setattr("peerhub.extensions.adapters.profiles.list_profiles", lambda root: calls.append(root) or [])
+    frame = {"store_selection": {"path": str(tmp_path / ".peerhub/core.db")}, "groups": {}}
+    for _ in range(2):
+        _render_human_frame(frame, view="plain", width=100, height=None, color=False)
+    assert len(calls) == 1
+    overlay = tmp_path / ".peerhub/config/models.toml"
+    overlay.parent.mkdir(parents=True)
+    overlay.write_text("schema_version=1\n", encoding="utf-8")
+    _render_human_frame(frame, view="plain", width=100, height=None, color=False)
+    assert len(calls) == 2
+
+
+def test_footer_never_claims_active_or_bare_unknown_counts(compact_frame):
+    screen = render_grouped_frame(compact_frame)
+    assert "active" not in screen
+    assert "sessions >=100 retained (sampled)" in screen
+    assert "delivery (sampled): terminal 166" in screen
+    compact_frame["groups"].pop("sessions")
+    compact_frame["groups"].pop("execution")
+    compact_frame["groups"].pop("usage")
+    screen = render_grouped_frame(compact_frame)
+    assert "sessions ?" not in screen and "delivery ?" not in screen and "telemetry ?" not in screen

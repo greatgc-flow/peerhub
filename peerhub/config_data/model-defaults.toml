@@ -7,7 +7,7 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-11-08.1"
+defaults_revision = "2026-11-08.2"
 observed_at = "2026-11-08"
 
 [observed_versions]
@@ -27,9 +27,9 @@ pools_source = "unverified"
 [profiles."cx.effort"]
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
-reasoning_effort = "medium"
+reasoning_effort = "high"
 source = "cli:codex debug models@0.167.0 2026-11-08"
-checked = "2026-10-29"
+checked = "2026-11-08"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 
@@ -39,6 +39,16 @@ model = "gpt-6.1-sol"
 reasoning_effort = "xhigh"
 source = "cli:codex debug models@0.167.0 2026-11-08"
 checked = "2026-10-29"
+pools = ["X-5H", "X-7D"]
+pools_source = "unverified"
+
+# Top tier (opt-in, never a default): measured by docs/benchmarks/profiles-2026-11-08.md (45/45 at high, ultra adds latency only).
+[profiles."cx.astra"]
+selection_mode = "pinned"
+model = "gpt-6-astra"
+reasoning_effort = "high"
+source = "cli:codex debug models@0.167.0 2026-11-08"
+checked = "2026-11-08"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 
@@ -68,6 +78,17 @@ checked = "2026-10-29"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
 
+# Top tier (opt-in, never a default). F-7D is the Fable weekly window; whether Fable also draws on the shared
+# C-5H/C-7D pools is unverified (a /usage before/after one call showed no change at integer rounding, 2026-11-08).
+[profiles."cc.fable"]
+selection_mode = "pinned"
+model = "claude-fable-5-1"
+reasoning_effort = "high"
+source = "known-id:claude --help aliases@2.1.319 2026-11-08"
+checked = "2026-11-08"
+pools = ["F-7D"]  # owner 2026-11-08: Fable has its own weekly pool; whether it also draws C-5H/C-7D is unmeasured
+pools_source = "unverified"
+
 [profiles."ag.standard"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-low"
@@ -78,9 +99,9 @@ pools_source = "unverified"
 
 [profiles."ag.effort"]
 selection_mode = "pinned"
-model = "gemini-3.8-flash-medium"
+model = "gemini-3.8-flash-high"
 source = "cli:agy.exe models@1.5.3 2026-11-08"
-checked = "2026-10-29"
+checked = "2026-11-08"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 

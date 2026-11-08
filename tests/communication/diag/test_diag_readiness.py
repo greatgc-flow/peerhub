@@ -277,7 +277,7 @@ def test_cli_actions_parser_overflow_and_no_probe(store, capsys, monkeypatch):
     assert profile(rep)["next"]["argv"][-2:] == ["--stream", "s1"]
     text = format_readiness(rep)
     assert "PROFILE POOLS STATE LAST NEXT" in text
-    # All ten packaged profiles fit; JSON has no size promise.
+    # All twelve packaged profiles fit; JSON has no size promise.
     assert "ag.argon" in text and "+1 profiles" not in text
     assert len(text.split()) < 200
     rep["profiles"].extend([rep["profiles"][0]] * 3)

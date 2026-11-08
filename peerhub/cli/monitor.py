@@ -6,6 +6,8 @@ Composition root for the combined quota refresh and read-only diagnostic dashboa
 from __future__ import annotations
 
 import argparse
+from functools import lru_cache
+from importlib import resources
 import json
 import math
 import os
@@ -105,19 +107,41 @@ def _legacy_alias_available(version: str | None = None) -> bool:
     return (major, minor) < (0, 20)
 
 
+@lru_cache(maxsize=32)
+def _cached_profiles(workspace: str, fingerprints: tuple[tuple[str, int, int], ...]) -> list[dict[str, Any]]:
+    from peerhub.extensions.adapters.profiles import list_profiles
+    return list_profiles(Path(workspace))
+
+
+def _profile_fingerprints(workspace: Path) -> tuple[tuple[str, int, int], ...]:
+    paths = [Path(str(resources.files("peerhub.config_data").joinpath("model-defaults.toml"))),
+             Path(os.environ.get("PEERHUB_CONFIG_HOME") or Path.home() / ".peerhub/config") / "models.toml",
+             workspace / ".peerhub/config/models.toml"]
+    result: list[tuple[str, int, int]] = []
+    for path in paths:
+        try:
+            stat = path.stat()
+            result.append((str(path), stat.st_mtime_ns, stat.st_size))
+        except FileNotFoundError:
+            result.append((str(path), 0, 0))
+    return tuple(result)
+
+
 def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                         height: int | None, color: bool, expand: bool = False) -> str:
     from peerhub.cli.monitor_view import render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
-    from peerhub.extensions.adapters.profiles import list_profiles
+    from peerhub.cli.store_select import DEFAULT_DB_PATH, select_store
     store_path = Path(str(payload.get("store_selection", {}).get("path") or ".peerhub/core.db")).resolve()
     workspace = store_path.parent.parent if store_path.parent.name == ".peerhub" else store_path.parent
     try:
-        profiles = list_profiles(workspace)
+        profiles = _cached_profiles(str(workspace), _profile_fingerprints(workspace))
     except (OSError, ValueError):
         profiles = []
-    payload = {**payload, "configured_profiles": profiles}
+    nearest = select_store(DEFAULT_DB_PATH, use_env=False)
+    payload = {**payload, "configured_profiles": profiles,
+               "_nearest_store_path": nearest.path if nearest.source == "discovered" else None}
     return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
                                 color=color, unicode=unicode_ok, width=width, height=height,
                                 expand=expand)
@@ -188,7 +212,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     def emit(cycle: int, phase: str, refresh: dict[str, Any]) -> int:
         nonlocal last_payload, last_frame_monotonic
         try:
-            payload: dict[str, Any] = render_monitor_frame(args.db, selected)
+            payload: dict[str, Any] = (render_monitor_frame(args.db, selected, human=True) if not args.json and not expand
+                       else render_monitor_frame(args.db, selected))
         except SchemaVersionError:
             payload = {"schema_version": "2.0", "status": "FAILED", "groups": {},
                        "errors": {"schema": "SchemaVersionError"}}
@@ -325,7 +350,8 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     from peerhub.core.schema_version import SchemaVersionError
     expand = bool(getattr(args, "expand", False))
     try:
-        payload = render_monitor_frame(args.db, selected)
+        payload = (render_monitor_frame(args.db, selected, human=True) if not args.json and not expand
+                       else render_monitor_frame(args.db, selected))
     except SchemaVersionError:
         payload = {"schema_version": "2.0", "status": "FAILED", "selected_groups": selected,
                    "errors": {"schema": "SchemaVersionError"}}

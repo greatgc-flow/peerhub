@@ -126,9 +126,9 @@ mean the model answered the task successfully. PeerHub does not currently
 classify semantic task success/error. Context occupancy intentionally stays 'unknown' because it is not validated by PeerHub (the CLIs do not report it in a form PeerHub accepts; cx 'debug models' exposes a context window but runtime occupancy is not reported in an accepted form). `runtime` and `store` remain available with
 `--group` or `--snapshot --group`.
 
-Human monitor output omits OVERVIEW and unknown context, shows configured consumer profiles beside measured quota, and ends with one Coverage footer. `peerhub explain <code>` covers `INSUFF`, `STALE:window`, `PROBE:<age>` and `DRIFT:<peers>`. The header shows the resolved store path and source.
+The default human monitor shows POOLS (meaning, last recorded capacity, reset, age, state and configured profiles), one PEERS line per peer, and a facts/session/delivery/telemetry footer. `aged` numbers are last-known evidence, not current capacity; refresh before relying on them. Passed reset windows show no capacity number. The header shows the date and DB source; the full path appears for explicit/default selections or errors. `--expand` retains the detailed grouped view, bars, pace, forecasts and coverage footer; `peerhub explain <code>` covers its short codes.
 
-The bare `monitor` command shows a grouped human dashboard on a TTY and aligned
+The bare `monitor` command shows the compact human dashboard on a TTY and aligned
 plain sections when redirected. `--view rich` requests visual panels and meters;
 `--view plain` selects ASCII-safe output. Add repeatable `--group` options to
 watch one or more groups, or `--group all` to include all ten. `monitor groups`

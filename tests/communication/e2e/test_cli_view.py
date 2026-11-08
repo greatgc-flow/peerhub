@@ -141,7 +141,7 @@ def test_advance_report_moves_clock_and_ages_without_rereading(tmp_path):
 def test_resize_relayouts_grouped_frame_and_erases_shrunken_frame(monkeypatch):
     import io
     import os
-    from peerhub.cli.monitor_view import render_grouped_frame
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
     from peerhub.cli.view import FrameOutput
 
     class Output(io.StringIO):

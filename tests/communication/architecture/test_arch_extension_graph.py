@@ -22,7 +22,7 @@ ALLOWED: dict[str, set[str]] = {
     # M1 Observation
     "observation": {"schema_guard", "observation_model"},
     "quota_capture": {"observation", "observation_model", "peer_kinds", "quota_probes", "quota_types"},
-    "quota_probes": {"quota_types", "binary_resolution", "process_tree"},
+    "quota_probes": {"quota_types", "binary_resolution", "process_tree", "adapters"},
     "quota_types": {"observation_model"},
     # M1 Diag
     "diag": {"observation_model"},

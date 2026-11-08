@@ -3,15 +3,11 @@ Reference notes for maintainers. Not an instruction file: open it only when need
 and the active development queue; this document provides maintainer operating guidance
 and coordination checkpoints.
 
-## 0. Historical checkpoint (2026-10-29 — post-v0.23.0); current status: [STATUS](STATUS.md)
+## 0. Current status and active queue; details: [STATUS](STATUS.md)
 
-**State:** v0.23.0 is published (tag v0.23.0, target `c98baee9`, PR #265; PyPI confirmed; G3 passed; clean-venv smoke passed). Profiles live only in `model-defaults.toml`; the recipe is `docs/model-profiles/model-profiles.json` (schema_version 2); design `design/profile-ssot-2026-10-29.md`. Owner opt-in `cx.terra` is in `~/.peerhub/config/models.toml` (gpt-6.1-terra, tier/cost unevaluated). Dependabot #257 and docs #266 are merged. cx.terra quick benchmark (benchmarks/cx-terra-2026-10-29.md): terra/medium matched sol/medium accuracy (8/8) with ~40% faster replies, luna/low failed arithmetic; small noisy sample, no packaged change until cost (#259) and a larger run. Windows pitfall: pass multi-line prompts to `codex.cmd` via stdin, not argv.
-**Next:** none pending; optional larger terra benchmark, then decide the cx.standard/cx.effort slot.
-
-Previous: v0.22.3 is published (tag v0.22.3, target `bae1b675`; PR #261, #262; PyPI wheel + sdist; clean-virtualenv smoke passed; G3 passed with packaged ag/cc/cx profiles). #256 and #260 are closed. No release in preparation.
-[STATUS](STATUS.md) owns release evidence and the open queue: #248 (deferred scope index), #258 (credit/quota spec), #259 (pricing research) - all start-triggered, none authorized for implementation.
-**Next:** none pending. The #260 backlog (evidence chain, outcome vs delivery, advisory routing, monitor cockpit) stays deferred with triggers in STATUS.
-ag is usable again (owner lifted the ban 2026-10-26); each release still needs the G3 gate from a clean checkout of the merged commit.
+- **Current state:** See [STATUS](STATUS.md).
+- **In flight:** PR #301 (0.24.0, plan [docs/design/plan-0.24.0-2026-11-08.md](design/plan-0.24.0-2026-11-08.md)).
+- **Open:** #302.
 
 - Release lessons: `tests/communication/package/test_release_notes.py` pins the version and must change in the bump PR; a CHANGELOG heading for a never-published version needs `(superseded ...)`; py3.15 has no pyyaml wheel, so run the full suite in CI, not locally.
 

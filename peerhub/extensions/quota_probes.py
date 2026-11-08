@@ -30,8 +30,11 @@ _RATE_LIMITS_READ_METHOD = "account/rateLimits/read"
 already reuses other private helpers from this module -- see its own
 import comment)."""
 
-# Pools the cx profiles are configured with; other plans still report both windows.
-_CX_CONFIGURED_POOLS = ("X-5H", "X-7D")
+def _cx_configured_pools() -> list[str]:
+    from peerhub.extensions.adapters.profiles import list_profiles
+    profiles = list_profiles(Path.cwd())
+    return sorted({str(pool) for profile in profiles if str(profile["profile"]).startswith("cx.")
+                   for pool in cast(list[object], profile["fields"]["pools"]["value"] or [])})
 
 
 def _plan_label(value: object) -> str:
@@ -881,6 +884,7 @@ def poll_codex_usage(
         rate_limits_raw = rate_limits_envelope.get("rateLimits")
         rate_limits_by_id_raw = rate_limits_envelope.get("rateLimitsByLimitId")
 
+        malformed_envelope = False
         limits_to_process: list[tuple[str, Any]]
         if isinstance(rate_limits_raw, dict):
             # Extract from primary/secondary
@@ -888,6 +892,8 @@ def poll_codex_usage(
             limits_to_process = []
             for key in ("primary", "secondary"):
                 q_limit_raw = rate_limits.get(key)
+                if key not in rate_limits or (q_limit_raw is not None and not isinstance(q_limit_raw, dict)):
+                    malformed_envelope = True
                 if isinstance(q_limit_raw, dict):
                     limits_to_process.append((key, cast(dict[str, Any], q_limit_raw)))
         elif isinstance(rate_limits_by_id_raw, dict):
@@ -901,23 +907,19 @@ def poll_codex_usage(
             return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"), credit_reading)
 
         results: list[UsageObserved | ResetCreditObserved] = []
-        legacy_windows = {
-            "primary": ("X-5H", 5.0),
-            "secondary": ("X-7D", 168.0),
-        }
         # X1: a configured pool may be recorded ABSENT only from a complete response; any window that is
         # present but unusable (or whose duration cannot be trusted) makes the whole response incomplete.
-        malformed = False
+        malformed = malformed_envelope
         reported_labels: set[str] = set()
         for key, q_limit_raw in limits_to_process:
             q_limit = cast(dict[str, Any], q_limit_raw)
-            label, window_hours = legacy_windows.get(key, ("X-UNK", 0.0))
+            label, window_hours = "X-UNK", 0.0
             duration_mins: object | None = q_limit.get("windowDurationMins")
             duration_ok = False
             if duration_mins is not None:
                 try:
                     reported_hours = float(str(duration_mins)) / 60.0
-                    if reported_hours > 0:
+                    if math.isfinite(reported_hours) and reported_hours > 0:
                         window_hours = reported_hours
                         duration_ok = True
                         if reported_hours <= 24:
@@ -928,12 +930,17 @@ def poll_codex_usage(
                     pass
             if not duration_ok:
                 malformed = True
+                continue
 
             used_val: object | None = q_limit.get("usedPercent")
             if used_val is None:
                 malformed = True
                 continue  # absent usage is never manufactured as zero
-            used = float(str(used_val))
+            try:
+                used = float(str(used_val))
+            except (ValueError, TypeError):
+                malformed = True
+                continue
             if not math.isfinite(used) or not 0 <= used <= 100:
                 malformed = True
                 continue
@@ -1005,12 +1012,14 @@ def poll_codex_usage(
             )
             reported_labels.add(label)
 
+        if malformed:
+            results.append(_fail_closed(ids, instance_id, profile_id, EvidenceState.UNKNOWN, observed_at, freshness_ttl, peer="cx"))
         if not results:
             return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"), credit_reading)
 
         if isinstance(rate_limits_raw, dict) and not malformed:
             plan = _plan_label(cast(dict[str, Any], rate_limits_raw).get("planType"))
-            for pool_scope in _CX_CONFIGURED_POOLS:
+            for pool_scope in _cx_configured_pools():
                 if pool_scope in reported_labels:
                     continue
                 results.append(_fail_closed(
