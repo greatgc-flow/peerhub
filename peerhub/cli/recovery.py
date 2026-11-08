@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import shlex
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -89,6 +88,13 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
         guidance_code="(none)",
         meaning="Request executed successfully and terminal response was committed to the stream.",
         safe_action="None required. Continue subsequent turns on the same stream to reuse the active session.",
+    ),
+    "denied_empty": ResultStatusEntry(
+        status="denied_empty",
+        exit_code=1,
+        guidance_code="ask_denied_empty",
+        meaning="Turn ended (certainty TERMINAL) with an empty response after the provider denied tool action(s); not a usable answer and task effects are unverified.",
+        safe_action="Treat the reply as unusable; the denied tool names are in denied_actions. Do not resume the stream: start a new stream with the needed content inlined via --query-file, and verify the workspace.",
     ),
     "failed_not_started": ResultStatusEntry(
         status="failed_not_started",
@@ -361,6 +367,23 @@ REGISTRY: dict[str, GuidanceEntry] = {
         docs="docs/remote-ask.md",
         exits=[{"code": 3, "context": "Compare-and-swap revision conflict (CasMismatchError)."}],
     ),
+    "ask_denied_empty": GuidanceEntry(
+        code="ask_denied_empty",
+        meaning="The turn ended with an empty response after the provider denied tool action(s); this is not a usable answer.",
+        why="Headless ag cannot prompt for tool permission, so a denied shell or edit action can end the turn with no reply text. Task effects are unverified.",
+        recover=[
+            {
+                "argv": ["peerhub", "ask", "ag", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM", "--writable"],
+                "purpose": "Start a new stream and inline the needed content via --query-file (say \"no tools\"); do not resume this stream",
+                "prereqs": "Put the content the task needs into the query file; one task per ask; check the workspace for partial effects first.",
+            },
+        ],
+        avoid="Do not resume this stream (a resumed turn may fabricate paths), and do not treat the empty response as a completed answer or assume the denied action ran.",
+        docs="docs/remote-ask.md",
+        exits=[
+            {"code": 1, "context": "Empty response with denied tool action(s) (denied_empty result status)."}
+        ],
+    ),
     "ask_idempotency_conflict": GuidanceEntry(
         code="ask_idempotency_conflict",
         meaning="An idempotency key was reused with conflicting request data.",
@@ -393,6 +416,28 @@ REGISTRY: dict[str, GuidanceEntry] = {
         ],
     ),
 }
+
+# Shared CLI errors; ask-specific guidance retains its more precise recovery policy.
+for _code, _exit, _meaning, _argv in (
+    ("store_missing", 5, "The selected database does not exist.", ["peerhub", "guide"]),
+    ("invalid_arguments", 2, "The command arguments were rejected before dispatch.", ["peerhub", "guide"]),
+    ("peer_not_found", 1, "The selected peer does not exist in this store.", ["peerhub", "peer", "list"]),
+    ("stream_not_found", 1, "The selected stream does not exist in this store.", ["peerhub", "stream", "list"]),
+    ("session_not_found", 1, "The selected retained session does not exist.", ["peerhub", "session", "list"]),
+    ("diag_unavailable", 5, "Diagnostic evidence is unavailable or incomplete.", ["peerhub", "diag", "health"]),
+    ("schema_version_error", 6, "The selected store uses an unsupported schema version.", ["peerhub", "guide"]),
+    ("storage_corrupt", 4, "The selected store could not complete a storage operation.", ["peerhub", "diag", "integrity"]),
+    ("idempotency_conflict", 2, "The request conflicts with an existing idempotency key.", ["peerhub", "diag", "health"]),
+    ("cas_conflict", 3, "The offset revision changed before the update.", ["peerhub", "offset", "get", "--peer", "PEER", "--stream", "STREAM"]),
+    ("delivery_failed", 1, "The command failed before returning a usable result.", ["peerhub", "diag", "health"]),
+):
+    REGISTRY[_code] = GuidanceEntry(
+        code=_code, meaning=_meaning,
+        why="The selected store, command arguments or persisted state did not satisfy the operation's requirements.",
+        recover=[{"argv": _argv, "purpose": "Inspect the reported state and correct the command or store selection", "prereqs": "Use the intended store and inspect uncertain effects before retrying."}],
+        avoid="Do not blindly replay provider work whose execution may already have begun.",
+        docs="docs/config-hierarchy.md", exits=[{"code": value, "context": _meaning} for value in ((1, 2) if _code == "invalid_arguments" else (4, 5) if _code == "diag_unavailable" else (_exit,))],
+    )
 
 ALIASES: dict[str, str] = {
     "uncertain": "ask_uncertain",
@@ -505,6 +550,8 @@ def select_guidance_code(
 
     if status in ("delivered", "recovered_terminal"):
         return ""
+    if status == "denied_empty" or (status == "pending_earlier_record" and processed_status == "denied_empty"):
+        return "ask_denied_empty"
     if status == "pending_earlier_record":
         if processed_status in ("delivered", "recovered_terminal"):
             return ""
@@ -550,14 +597,8 @@ def render_guidance_hint(entry: GuidanceEntry) -> str:
     """Format concise human stderr hint."""
     first_recover = entry.recover[0] if entry.recover else None
     action_text = f"{first_recover['purpose']} ({shlex.join(first_recover['argv'])})" if first_recover else "Inspect diagnostics."
-    return (
-        f"Guidance [{entry.code}]:\n"
-        f"  What happened:  {entry.meaning}\n"
-        f"  Rationale:      {entry.why}\n"
-        f"  Next action:    {action_text}\n"
-        f"  What NOT to do: {entry.avoid}\n"
-        f"  Details:        peerhub explain {entry.code}"
-    )
+    return f"{action_text}; {entry.avoid}; details: peerhub explain {entry.code}"
+
 
 
 def render_explain(entry: GuidanceEntry) -> str:
@@ -603,9 +644,9 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
         known = sorted(REGISTRY.keys())
         msg = f"No matching lessons for {code!r}. Try fewer keywords or 'peerhub guide'."
         if json_output:
-            print(json.dumps({"error": f"Unknown guidance code: {code!r}", "known_codes": known}, indent=2, ensure_ascii=True), file=sys.stderr)
-        else:
-            print(msg, file=sys.stderr)
+            print(json.dumps({"error": f"Unknown guidance code: {code!r}", "known_codes": known}, indent=2, ensure_ascii=True))
+        from peerhub.cli.support import error_line
+        error_line("invalid_arguments", msg, "peerhub guide")
         return 1
 
     if json_output:

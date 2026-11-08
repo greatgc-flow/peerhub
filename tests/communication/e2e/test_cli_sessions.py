@@ -24,14 +24,14 @@ def test_session_list_is_bounded_stable_and_redacted(tmp_path, capsys):
     db = tmp_path / "core.db"
     _seed(db, capsys)
 
-    assert main(["--db", str(db), "session", "list", "--limit", "1"]) == 0
+    assert main(["--db", str(db), "session", "list", "--limit", "1", "--json"]) == 0
     first = json.loads(capsys.readouterr().out)
     assert len(first["items"]) == 1 and first["next_cursor"]
     assert "vendor_session_id" not in first["items"][0] and "external_session_id" not in first["items"][0]
 
     # A newer generation inserted after page one is outside its captured high-water.
     _seed(db, capsys, count=1)
-    assert main(["--db", str(db), "session", "list", "--limit", "1", "--cursor", first["next_cursor"]]) == 0
+    assert main(["--db", str(db), "session", "list", "--limit", "1", "--cursor", first["next_cursor"], "--json"]) == 0
     second = json.loads(capsys.readouterr().out)
     assert len(second["items"]) == 1 and second["next_cursor"]
     assert second["items"][0]["handle"] != first["items"][0]["handle"]
@@ -40,15 +40,15 @@ def test_session_list_is_bounded_stable_and_redacted(tmp_path, capsys):
 def test_session_show_is_read_only_and_not_found_is_structured(tmp_path, capsys):
     db = tmp_path / "core.db"
     _seed(db, capsys, count=1)
-    listed = json.loads((lambda: (main(["--db", str(db), "session", "list"]), capsys.readouterr().out)[1])())
+    listed = json.loads((lambda: (main(["--db", str(db), "session", "list", "--json"]), capsys.readouterr().out)[1])())
     handle = listed["items"][0]["handle"]
 
-    assert main(["--db", str(db), "session", "show", handle]) == 0
+    assert main(["--db", str(db), "session", "show", handle, "--json"]) == 0
     shown = json.loads(capsys.readouterr().out)
     assert shown["session"]["handle"] == handle
     assert "vendor_session_id" not in shown["session"] and "external_session_id" not in shown["session"]
 
-    assert main(["--db", str(db), "session", "show", "sess_0000000000000000"]) == 1
+    assert main(["--db", str(db), "session", "show", "sess_0000000000000000", "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["status"] == "NOT_FOUND"
 
 
@@ -81,10 +81,10 @@ def test_session_show_links_configured_profile_and_scoped_usage(tmp_path, capsys
     assert ask_result["usage"] == {"input_tokens": 40, "output_tokens": 4}
     assert ask_result["usage_scope"] == "session_cumulative"
     assert ask_result["usage_attribution"] == "unattributed"
-    listed = json.loads((lambda: (main(["--db", str(db), "session", "list"]), capsys.readouterr().out)[1])())
+    listed = json.loads((lambda: (main(["--db", str(db), "session", "list", "--json"]), capsys.readouterr().out)[1])())
     handle = listed["items"][0]["handle"]
 
-    assert main(["--db", str(db), "session", "show", handle]) == 0
+    assert main(["--db", str(db), "session", "show", handle, "--json"]) == 0
     session = json.loads(capsys.readouterr().out)["session"]
     assert session["configured_binding"] == {
         "profile": "cx.standard", "model": "gpt-6-luna", "effort": "low", "writable": False,
@@ -106,10 +106,10 @@ def test_session_show_links_configured_profile_and_scoped_usage(tmp_path, capsys
 def test_session_cursor_rejects_changed_filter(tmp_path, capsys):
     db = tmp_path / "core.db"
     _seed(db, capsys, count=2)
-    assert main(["--db", str(db), "session", "list", "--limit", "1", "--peer", "cx"]) == 0
+    assert main(["--db", str(db), "session", "list", "--limit", "1", "--peer", "cx", "--json"]) == 0
     cursor = json.loads(capsys.readouterr().out)["next_cursor"]
 
-    assert main(["--db", str(db), "session", "list", "--limit", "1", "--peer", "ag", "--cursor", cursor]) == 1
+    assert main(["--db", str(db), "session", "list", "--limit", "1", "--peer", "ag", "--cursor", cursor, "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["status"] == "ERROR"
 
 
@@ -127,10 +127,10 @@ def test_hidden_store_uses_database_directory_for_lineage(tmp_path, capsys):
         assert metadata["workspace_generation"] == lineage
         assert conn.execute("SELECT DISTINCT workspace_generation FROM bridge_session_history").fetchall() == [(lineage,)]
     assert _monitor_workspace(str(db), None) == tmp_path
-    assert main(["--db", str(db), "session", "list", "--limit", "1"]) == 0
+    assert main(["--db", str(db), "session", "list", "--limit", "1", "--json"]) == 0
     cursor = json.loads(capsys.readouterr().out)["next_cursor"]
     Workspace(root).replace_generation()
-    assert main(["--db", str(db), "session", "list", "--limit", "1", "--cursor", cursor]) == 1
+    assert main(["--db", str(db), "session", "list", "--limit", "1", "--cursor", cursor, "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["status"] == "ERROR"
 
 
@@ -159,7 +159,7 @@ def test_session_inspection_validates_receipt_identity_usage_and_context(tmp_pat
         conn.execute("UPDATE bridge_session_monitor_stats SET latest_telemetry_seq=?", (receipt.lastrowid,))
 
     for command in (["session", "list"], ["session", "show", handle]):
-        assert main(["--db", str(db), *command]) == 0
+        assert main(["--db", str(db), *command, "--json"]) == 0
         payload = json.loads(capsys.readouterr().out)
         session = payload["session"] if "session" in payload else payload["items"][0]
         telemetry = session["latest_telemetry"]
@@ -179,5 +179,5 @@ def test_session_inspection_refuses_future_schema(tmp_path, capsys):
     with sqlite3.connect(db) as conn:
         conn.execute("PRAGMA user_version = 999")
 
-    assert main(["--db", str(db), "session", "list"]) == 6
+    assert main(["--db", str(db), "session", "list", "--json"]) == 6
     assert json.loads(capsys.readouterr().out)["status"] == "SCHEMA_VERSION_ERROR"

@@ -14,7 +14,7 @@ from typing import Sequence, Optional, TypedDict, Callable, cast, Any, TypeGuard
 
 from peerhub.extensions.binary_resolution import CLAUDE_CMD, CODEX_CMD
 from peerhub.extensions.process_tree import kill_process_tree
-from peerhub.extensions.quota_types import IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement, ResetCreditObserved
+from peerhub.extensions.quota_types import NOT_REPORTED_REASON, IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement, ResetCreditObserved
 
 AGY_QUOTA_FAMILIES = (
     ("gemini-5h", "G-5H"),
@@ -29,6 +29,11 @@ _RATE_LIMITS_READ_METHOD = "account/rateLimits/read"
 """Codex app-server JSON-RPC constants, shared with codex_credit.py (which
 already reuses other private helpers from this module -- see its own
 import comment)."""
+
+def _plan_label(value: object) -> str:
+    """planType is display data only (X5): sanitised, bounded, never branched on."""
+    text = re.sub(r"[^A-Za-z0-9_.-]", "", value) if isinstance(value, str) else ""
+    return text[:24] or "unknown"
 
 
 def resolve_sys_dir(sys_dir: Optional[Path] = None) -> Path:
@@ -770,6 +775,7 @@ def poll_codex_usage(
     deadline_sec: float = 12.0,
     freshness_ttl: int = 60,
     sys_dir: Optional[Path] = None,
+    configured_pools: Sequence[str] | None = None,
 ) -> Sequence[UsageObserved | ResetCreditObserved]:
     """Poll codex app-server (JSON-RPC `account/rateLimits/read`, no model turn) and return observations for each quota pool,
     plus one reset-credit observation from the same response."""
@@ -872,6 +878,7 @@ def poll_codex_usage(
         rate_limits_raw = rate_limits_envelope.get("rateLimits")
         rate_limits_by_id_raw = rate_limits_envelope.get("rateLimitsByLimitId")
 
+        malformed_envelope = False
         limits_to_process: list[tuple[str, Any]]
         if isinstance(rate_limits_raw, dict):
             # Extract from primary/secondary
@@ -879,6 +886,8 @@ def poll_codex_usage(
             limits_to_process = []
             for key in ("primary", "secondary"):
                 q_limit_raw = rate_limits.get(key)
+                if key not in rate_limits or (q_limit_raw is not None and not isinstance(q_limit_raw, dict)):
+                    malformed_envelope = True
                 if isinstance(q_limit_raw, dict):
                     limits_to_process.append((key, cast(dict[str, Any], q_limit_raw)))
         elif isinstance(rate_limits_by_id_raw, dict):
@@ -892,36 +901,48 @@ def poll_codex_usage(
             return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"), credit_reading)
 
         results: list[UsageObserved | ResetCreditObserved] = []
-        legacy_windows = {
-            "primary": ("X-5H", 5.0),
-            "secondary": ("X-7D", 168.0),
-        }
+        # X1: a configured pool may be recorded ABSENT only from a complete response; any window that is
+        # present but unusable (or whose duration cannot be trusted) makes the whole response incomplete.
+        malformed = malformed_envelope
+        reported_labels: set[str] = set()
         for key, q_limit_raw in limits_to_process:
             q_limit = cast(dict[str, Any], q_limit_raw)
-            label, window_hours = legacy_windows.get(key, ("X-UNK", 0.0))
+            label, window_hours = "X-UNK", 0.0
             duration_mins: object | None = q_limit.get("windowDurationMins")
+            duration_ok = False
             if duration_mins is not None:
                 try:
                     reported_hours = float(str(duration_mins)) / 60.0
-                    if reported_hours > 0:
+                    if math.isfinite(reported_hours) and reported_hours > 0:
                         window_hours = reported_hours
+                        duration_ok = True
                         if reported_hours <= 24:
                             label = f"X-{round(reported_hours)}H"
                         else:
                             label = f"X-{round(reported_hours / 24.0)}D"
                 except (TypeError, ValueError, OverflowError):
                     pass
+            if not duration_ok:
+                malformed = True
+                continue
 
             used_val: object | None = q_limit.get("usedPercent")
             if used_val is None:
+                malformed = True
                 continue  # absent usage is never manufactured as zero
-            used = float(str(used_val))
+            try:
+                used = float(str(used_val))
+            except (ValueError, TypeError):
+                malformed = True
+                continue
             if not math.isfinite(used) or not 0 <= used <= 100:
+                malformed = True
                 continue
             used_frac = used / 100.0
 
             resets_at: object | None = q_limit.get("resetsAt")
             if resets_at is None:
+                malformed = True
                 continue
 
             reset_at_ts = None
@@ -949,6 +970,7 @@ def poll_codex_usage(
                     pass
             
             if reset_at_ts is None:
+                malformed = True
                 continue
 
             window_sec = int(window_hours * 3600)
@@ -982,9 +1004,22 @@ def poll_codex_usage(
                     evidence=evidence,
                 )
             )
+            reported_labels.add(label)
 
+        if malformed:
+            results.append(_fail_closed(ids, instance_id, profile_id, EvidenceState.UNKNOWN, observed_at, freshness_ttl, peer="cx"))
         if not results:
             return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"), credit_reading)
+
+        if isinstance(rate_limits_raw, dict) and not malformed:
+            plan = _plan_label(cast(dict[str, Any], rate_limits_raw).get("planType"))
+            for pool_scope in (("X-5H", "X-7D") if configured_pools is None else configured_pools):
+                if pool_scope in reported_labels:
+                    continue
+                results.append(_fail_closed(
+                    ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at, freshness_ttl, peer="cx",
+                    extra={"pool_scope": pool_scope, "reason": f"{NOT_REPORTED_REASON}; plan={plan}"},
+                ))
 
         return (*results, credit_reading)
     except Exception:

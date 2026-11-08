@@ -12,11 +12,14 @@ pytestmark = [pytest.mark.unit]
 
 @pytest.mark.parametrize(("query", "expected"), [
     ("AG SILENCE", ["ag-silence-long-asks"]),
-    ("permission ag", ["ag-permission-limit"]),
+    ("permission ag", ["ag-recipe"]),
     ("pip checkout", ["installed-vs-checkout"]),
     ("PYTHONPATH", ["installed-vs-checkout"]),
-    ("read-only", ["ag-permission-limit"]),
-    ("ag", ["ag-bulk-profile-heuristics", "ag-empty-reply-causes", "ag-permission-limit", "ag-silence-long-asks", "multi-peer-quota-shaping"]),
+    ("read-only", ["ag-recipe"]),
+    ("cx plan window", ["cx-plan-windows"]),
+    ("ag empty reply", ["ag-recipe"]),
+    ("denied_empty", ["ag-recipe"]),
+    ("ag", ["ag-recipe", "ag-bulk-profile-heuristics", "ag-silence-long-asks", "multi-peer-quota-shaping"]),
     ("ag checkout", []),
     ("", []),
     ("!!!", []),
@@ -40,6 +43,19 @@ def test_free_words_cli(capsys, tmp_path):
     assert json.loads(capsys.readouterr().out)["lessons"][0]["id"] == "ag-silence-long-asks"
 
 
+def test_explain_ag_leads_with_recipe_and_records_open_observation(capsys):
+    """ag usability A1/A3: the merged recipe is listed first; E2 stays an open observation linked to #302."""
+    assert main(["explain", "ag"]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[0].startswith("ag-recipe:")
+    recipe = next(lesson for lesson in load_lessons() if lesson["id"] == "ag-recipe")
+    for needle in ('--query-file and say "no tools"', "trusted project root", "--writable on every turn",
+                   "one task per ask", "verify claims from flash tiers", "never resume that stream",
+                   "start a new stream with the content inlined", "Open observation (E2, #302)"):
+        assert needle in recipe["fix"], needle
+    assert "#302" in recipe["issue"] and "#140" in recipe["issue"]
+
+
 def test_no_match_hint(capsys):
     assert main(["explain", "ag", "checkout"]) == 1
     captured = capsys.readouterr()
@@ -57,7 +73,8 @@ def test_known_guidance_and_alias_take_priority(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 8
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 20
+    assert not {"ag-empty-reply-causes", "ag-permission-limit"} & {lesson["id"] for lesson in lessons}
     for lesson in lessons:
         assert all(lesson.values())
         assert len(render_lesson(lesson).splitlines()) <= 5

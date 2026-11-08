@@ -33,6 +33,8 @@ def seed(db, pools=(), rows=()):
 
 
 def run(capsys, db, *args):
+    if args[:2] == ("diag", "health"):
+        args = (*args, "--json")
     code = main(["--db", str(db), *args])
     cap = capsys.readouterr()
     return code, cap.out, cap.err
@@ -104,7 +106,7 @@ def test_quota_missing_database_is_unavailable_and_never_created(tmp_path, capsy
     assert code == 5 and json.loads(out)["status"] == "UNAVAILABLE" and not db.exists() and list(tmp_path.iterdir()) == []
     code, out, err = run(capsys, db, "diag", "quota")
     assert code == 5 and "UNAVAILABLE" in err and "UNKNOWN" in out and not db.exists()
-    assert "  note: database not found: " + str(db) in out and "DIAG QUOTA UNAVAILABLE: database not found" in err
+    assert "  note: database not found: " + str(db) in out and "[store_missing] UNAVAILABLE: database not found" in err
 
 
 def test_health_is_read_only_never_creates_or_migrates(tmp_path, capsys):

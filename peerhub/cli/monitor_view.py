@@ -7,11 +7,12 @@ import re
 import unicodedata
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timezone
-from pathlib import Path
 from typing import Any, cast
 
 from peerhub.cli.monitor_preferences import GROUPS
 
+# Mirrors peerhub.extensions.observation_model.NOT_REPORTED_REASON (the human renderer imports no extension code).
+_NOT_REPORTED = "not reported by provider"
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
@@ -94,7 +95,7 @@ def _alert_exhaustion_at(item: dict[str, Any]) -> float | None:
 
 def _quota_label(status: str, group: dict[str, Any], read_at: float | None,
                  elapsed_seconds: float) -> str:
-    label = f"QUOTA [{status}]"
+    label = f"QUOTA [{status}] | measured remaining"
     candidates: list[tuple[float, str]] = []
     for item in _items(_obj(group.get("data")).get("observations")):
         exhaustion = _alert_exhaustion_at(item)
@@ -241,7 +242,10 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
                 q_scope = _clean(q_obj.get("scope") or "")
 
-                if q_state == "INCOMPLETE" or q_pool == "incomplete":
+                if q_pool == "not_reported":  # every configured pool omitted by the provider: unknown, never 100% free
+                    q_wide = "? (not reported)"
+                    q_narr = "? not reported"
+                elif q_state == "INCOMPLETE" or q_pool == "incomplete":
                     q_wide = "incomplete"
                     q_narr = "incomplete"
                 elif q_state == "STALE":
@@ -258,7 +262,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     else:
                         pool_label = q_pool
                     pool_str = f" ({pool_label})" if pool_label else ""
-                    q_wide = f"{_pct(q_rem)}{pool_str}{age_str}"
+                    plan_note = _clean(_obj(data.get("plan_notes")).get(pid) or "")
+                    q_wide = f"{_pct(q_rem)}{pool_str}{age_str}" + (f" [{plan_note}]" if plan_note else "")
                     q_narr = f"{_pct(q_rem)}{pool_str}"
 
             if p_obj is None:
@@ -325,10 +330,10 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     c_narr = "unk"
 
             if width < 48:
-                rows.append(_fit(f"{pid}: quota {q_narr} | {p_narr} | {s_narr} | ctx: {c_narr}", max(0, width - 1), unicode))
+                rows.append(_fit(f"{pid}: quota {q_narr} | {p_narr} | {s_narr}{' | ctx: ' + c_narr if c_narr != 'unk' else ''}", max(0, width - 1), unicode))
             else:
                 rows.append(f"{pid:<4}quota: {q_wide} -> {p_wide}")
-                rows.append(f"    -> latest session: {s_wide} -> context: {c_wide}")
+                rows.append(f"    -> latest session: {s_wide}{' -> context: ' + c_wide if c_wide != 'unknown' else ''}")
 
         defaults_rev: object = data.get("defaults_revision")
         observed_at: object = data.get("observed_at")
@@ -481,17 +486,19 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 return (p, w_sec, pid.lower())
 
             sorted_obs = sorted(observations, key=_quota_sort_key)
-            probe_notes: dict[str, str] = {}
+            probe_notes: dict[str, set[str]] = {}
+            na_notes: list[str] = []
             # Remove optional columns before fitting any quota identity/state.
             column_widths = {"PEER": 4, "POOL": 8, "REM": 5, "[BAR]": 10,
                              "RESET-IN": 9, "EXHAUST-IN": 13, "PACE": 8,
-                             "STATE": 10, "AGE": 5}
+                             "STATE": 12, "AGE": 5, "PROFILES (configured)": 24}
             columns = list(column_widths)
             omitted_cols: list[str] = []
             if width < 99:
                 columns.remove("EXHAUST-IN")
                 omitted_cols.append("exhaust-in")
-            for optional in ("[BAR]", "EXHAUST-IN", "AGE", "PACE", "RESET-IN"):
+            optional_columns = (["PROFILES (configured)"] if width < 80 else []) + ["[BAR]", "EXHAUST-IN", "AGE", "PACE", "RESET-IN", "PROFILES (configured)"]
+            for optional in optional_columns:
                 needed = sum(column_widths[c] for c in columns) + 2 * (len(columns) - 1)
                 if needed <= width:
                     break
@@ -500,10 +507,12 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     omitted_cols.append("bar" if optional == "[BAR]" else optional.lower())
 
             def quota_row(values: dict[str, str]) -> str:
-                return "  ".join(
-                    f"{values[c]:>{column_widths[c]}}" if c in {"REM", "AGE"}
-                    else f"{values[c]:<{column_widths[c]}}" for c in columns
-                )
+                cells: list[str] = []
+                for column in columns:
+                    value = _fit(values[column], column_widths[column], unicode)
+                    padding = " " * max(0, column_widths[column] - _width(value))
+                    cells.append(padding + value if column in {"REM", "AGE"} else value + padding)
+                return "  ".join(cells)
 
             rows.append(_fit(quota_row({c: c for c in columns}), width, unicode))
 
@@ -517,14 +526,31 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 age = _number(item.get("age_seconds"))
                 age_str = f"{max(0.0, age + elapsed_seconds):.0f}s" if age is not None else "-"
 
-                if pool_id == "quota" and state != "MEASURED":
-                    reason = _clean(item.get("reason") or item.get("condition") or projection.get("reason") or "")
-                    detail = _fit(f"{state} {reason}".strip(), 40, unicode)
-                    probe_age = max(0.0, age + elapsed_seconds) if age is not None else 0.0
-                    ago = "" if age is None else f" ({_format_duration(probe_age) if probe_age >= 60 else age_str} ago)"
-                    probe_notes.setdefault(peer, f"{peer} probe: {detail}{ago}")
+                reason_text = _clean(item.get("reason") or "")
+                if reason_text.startswith(_NOT_REPORTED) and state in {"ABSENT", "STALE"}:
+                    # The provider answered completely but has no such window (plan-dependent): n/a, not 0% and not unlimited.
+                    plan = _clean(reason_text.split("plan=", 1)[1]) if "plan=" in reason_text else "unknown"
+                    fresh = state == "ABSENT"
+                    na_notes.append(f"{peer} {pool_id} n/a not reported (plan {plan})" if fresh else
+                                    f"{peer} {pool_id} ? not reported (plan {plan}), aged; next: peerhub observation refresh --peers {peer}")
+                    rows.append(_fit(quota_row({
+                        "PEER": peer, "POOL": pool_id, "REM": "n/a" if fresh else "-",
+                        "[BAR]": f"[{('░' if unicode else '.') * 8}]", "RESET-IN": "-", "EXHAUST-IN": "-", "PACE": "-",
+                        "STATE": "n/a" if fresh else "?", "AGE": age_str,
+                        "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")}),
+                        width, unicode))
                     continue
 
+                if pool_id == "quota" and state != "MEASURED":
+                    probe_age = max(0.0, age + elapsed_seconds) if age is not None else 0.0
+                    probe_code = f"PROBE:{int(probe_age // 86400)}d" if probe_age >= 86400 else f"PROBE:{int(probe_age // 3600)}h" if probe_age >= 3600 else f"PROBE:{int(probe_age // 60)}m"
+                    if age is None:
+                        probe_code = "PROBE:unknown"
+                    probe_notes.setdefault(peer, set()).add(probe_code)
+                    continue
+
+                if state == "STALE":
+                    probe_notes.setdefault(peer, set()).add("STALE:window")
                 is_usable = (state == "MEASURED")
                 if is_usable:
                     rem = _number(measurements.get("remaining_fraction"))
@@ -556,7 +582,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     pace_str = f"{pace:+.1f}pp" if pace is not None else "-"
 
                     proj_state = _clean(projection.get("state") or "").upper()
-                    state_str = proj_state if proj_state else "MEASURED"
+                    state_str = "INSUFF" if proj_state == "INSUFFICIENT" else proj_state or "MEASURED"
                 else:
                     # STALE/UNKNOWN rows keep identity+reason, no usable capacity shown
                     rem_str = "-"
@@ -564,16 +590,17 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     reset_str = "-"
                     exhaust_str = "-"
                     pace_str = "-"
-                    reason = _clean(item.get("reason") or item.get("condition") or projection.get("reason") or "")
-                    state_str = f"{state}:{reason}" if reason else state
+                    state_str = "STALE:window" if state == "STALE" else state
 
                 row_str = quota_row({"PEER": peer, "POOL": pool_id, "REM": rem_str,
                                      "[BAR]": bar_str, "RESET-IN": reset_str,
                                      "EXHAUST-IN": exhaust_str, "PACE": pace_str,
-                                     "STATE": state_str, "AGE": age_str})
+                                     "STATE": state_str, "AGE": age_str,
+                                     "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
                 rows.append(_fit(row_str, width, unicode))
 
-            rows.extend(_fit(note, width, unicode) for note in probe_notes.values())
+            rows.extend(_fit(note, width, unicode) for note in na_notes)
+            rows.extend(_fit(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}", width, unicode) for peer, codes in probe_notes.items())
             if len(omitted_cols) > 1:
                 # Wrap disclosure so narrow displays do not hide column names.
                 note = "Columns omitted:"
@@ -626,7 +653,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
         # Keep future fields visible without exposing a JSON-shaped dump.
         rows.extend(_fallback_rows(data))
 
-    return rows or ["No data"]
+    return [row for row in rows if not row.startswith("Coverage:")] or ["No data"]
 
 
 def _safe_error_reason(value: object) -> str:
@@ -706,7 +733,7 @@ def _fallback_rows(data: dict[str, Any], prefix: str = "", depth: int = 0) -> li
             rows.append(f"{label}: unknown")
         else:
             rows.append(f"{label}: {_clean(value)}")
-    return rows or ["No data"]
+    return [row for row in rows if not row.startswith("Coverage:")] or ["No data"]
 
 
 def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
@@ -742,15 +769,6 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
         except (OverflowError, OSError, ValueError):
             title += " | time unknown"
 
-    store = _obj(payload.get("store_selection"))
-    db_path = _clean(store.get("path") or "")
-    db_source = _clean(store.get("source") or "")
-    if db_source and target_width >= 48:
-        if db_path and target_width >= 64:
-            title += f" | DB:{db_source} ({Path(db_path).name})"
-        else:
-            title += f" | DB:{db_source}"
-
     lines: list[str] = [_fit(title, target_width, unicode)]
     descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
 
@@ -766,10 +784,6 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
 
         group_data = _group_lines(group_id, group, width=target_width, unicode=unicode,
                                   elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand)
-        coverage = _obj(group.get("coverage"))
-        if coverage.get("read") == "partial" and not any("partial" in line.lower() or "truncated" in line.lower()
-                                                         for line in group_data):
-            group_data.append(f"Coverage: partial {'·' if unicode else '|'} {_clean(coverage.get('reason') or 'incomplete evidence')}")
         for content in group_data:
             if group_id == "capacity":
                 lines.append(_fit(content, target_width, unicode))
@@ -781,31 +795,386 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
     return "\n".join(lines) + "\n"
 
 
+def _compact_wrap(text: str, width: int) -> list[str]:
+    """Wrap prose and paths without ellipsizing measurements or counter values."""
+    lines: list[str] = []
+    line = ""
+    for word in re.findall(r"details: --expand|\S+", _clean(text)):
+        if line and _width(line + " " + word) > width:
+            lines.append(line)
+            line = ""
+        while _width(word) > width:
+            chunk = ""
+            for char in word:
+                if _width(chunk + char) > width:
+                    break
+                chunk += char
+            if not chunk:
+                chunk = "?"
+                word = word[1:]
+            else:
+                word = word[len(chunk):]
+            lines.append(chunk)
+        line = f"{line} {word}".strip()
+    if line:
+        lines.append(line)
+    return lines
+
+
+def _compact_age(seconds: float | None) -> str:
+    if seconds is None:
+        return "?"
+    if seconds < 60:
+        return f"{max(0, int(seconds))}s"
+    return _format_duration(max(0, seconds))
+
+
+FAMILIES = {"G": "flash", "A": "argon", "3P": "claude-via-ag", "C": "claude",
+            "F": "fable", "X": "codex"}
+
+
+def _pool_family(pool: str) -> str:
+    family, _, window = pool.partition("-")
+    return family if family in FAMILIES and re.fullmatch(r"[0-9]+[HD]", window) else "?"
+
+
+def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
+                  consumers: dict[str, list[str]]) -> dict[str, Any]:
+    peer = _clean(item.get("peer_id") or "?")
+    pool = _clean(item.get("pool_ref") or item.get("pool_kind") or "?").split(":")[-1]
+    family = _pool_family(pool)
+    meaning = FAMILIES.get(family, "?")
+    measurements = _obj(item.get("last_measurements")) or _obj(item.get("measurements"))
+    remaining = _number(measurements.get("remaining_fraction"))
+    if item.get("state") not in {"MEASURED", "STALE"} or (remaining is not None and not 0 <= remaining <= 1):
+        remaining = None
+    age = _number(item.get("age_seconds"))
+    age = max(0, age + elapsed) if age is not None else None
+    ttl = _number(item.get("ttl_seconds"))
+    aged = (age is not None and ttl is not None and age >= ttl) or (ttl is None and item.get("state") == "STALE")
+    resets_at = _number(item.get("resets_at"))
+    reset_in = _number(item.get("reset_in_seconds"))
+    if resets_at is not None:
+        reset_in = resets_at - now - elapsed
+    elif reset_in is not None:
+        reset_in -= elapsed
+    reason = _clean(item.get("reason") or "")
+    not_reported = (item.get("state") == "ABSENT" and not aged
+                    and reason.startswith(_NOT_REPORTED))
+    projection = _obj(item.get("projection"))
+    samples = _number(item.get("projection_samples")) or 0
+    if not_reported:
+        state = "n/a"
+    elif remaining is None:
+        state = "aged" if item.get("stored_state") == "ABSENT" and aged else "?"
+    elif resets_at is not None and resets_at < now + elapsed:
+        state = "reset"
+    elif reset_in is not None and reset_in < 0:
+        state = "reset"
+    elif remaining == 0:
+        state = "out"
+    elif remaining <= .10 or (samples >= 2 and projection.get("state") == "threat"):
+        state = "low"
+    else:
+        state = "aged" if aged else "ok"
+    left = _pct(remaining) if remaining is not None and state not in {"n/a", "?", "reset"} else "-"
+    resets = ("-" if state in {"n/a", "?"} or reset_in is None else
+              "passed" if reset_in < 0 else _compact_age(reset_in))
+    return {"peer": peer, "pool": pool, "meaning": meaning, "remaining": remaining, "left": left,
+            "resets": resets, "reset_seconds": reset_in, "family": family, "age": _compact_age(age), "state": state, "aged": aged,
+            "needs_refresh": aged or age is None or state in {"?", "reset"}, "reason": reason,
+            "profiles": ",".join(consumers.get(f"{peer}:{pool}", [])) or "unmapped"}
+
+
+def _compact_footer(groups: dict[str, Any]) -> list[str]:
+    peers = _obj(_obj(groups.get("peers")).get("data"))
+    facts = _obj(peers.get("facts_report"))
+    checked = _clean(facts.get("checked_at") or peers.get("observed_at") or "unavailable")[:10]
+    parts = [f"facts {_clean(facts.get('status') or 'unverified')} {checked}"]
+    sessions = _obj(_obj(groups.get("sessions")).get("data"))
+    retained = _obj(sessions.get("retained_sessions_by_peer"))
+    counts = [_number(_obj(value).get("value")) for value in retained.values()]
+    if counts and all(value is not None for value in counts):
+        total = sum(int(value) for value in counts if value is not None)
+        parts.append(f"sessions >={total} retained (sampled)")
+    elif "items" in sessions:
+        parts.append(f"sessions >={len(_items(sessions['items']))} retained (sampled)")
+    else:
+        parts.append("sessions unavailable")
+    usage = _obj(_obj(groups.get("usage")).get("data"))
+    coverage = _items(usage.get("coverage_by_scope"))
+    measured = sum(int(_number(item.get("measured")) or 0) for item in coverage)
+    terminal = sum(int(_number(item.get("terminal")) or 0) for item in coverage)
+    parts.append(f"telemetry {measured}/{terminal}" if coverage else "telemetry unavailable")
+    parts.append("details: --expand")
+    execution = _obj(_obj(groups.get("execution")).get("data"))
+    if "scopes" in execution:
+        totals = {key: sum(int(_number(_obj(scope.get("certainty")).get(key)) or 0)
+                           for scope in _items(execution["scopes"]))
+                  for key in ("terminal", "started", "not_started")}
+        delivery = (f"delivery (sampled): terminal {totals['terminal']} / started {totals['started']} "
+                    f"/ not started {totals['not_started']}")
+    else:
+        delivery = "delivery unavailable"
+    return [" | ".join(parts), delivery]
+
+
+def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, Any]]) -> str:
+    choices: dict[str, list[tuple[float, str]]] = {tier: [] for tier in ("eco", "normal", "quality", "top")}
+    by_pool = {f"{row['peer']}:{row['pool']}": row for row in rows}
+    for profile in profiles:
+        name = _clean(profile.get("profile") or "")
+        peer, _, suffix = name.partition(".")
+        pools = cast(list[str], _obj(_obj(profile.get("fields")).get("pools")).get("value") or [])
+        scores: list[float] = []
+        for pool in pools:
+            row = by_pool.get(f"{peer}:{pool}")
+            if row is None or row["aged"] or row["state"] in {"?", "reset", "aged"}:
+                break
+            if row["state"] == "n/a":
+                continue
+            remaining = _number(row["remaining"])
+            reset = _number(row["reset_seconds"])
+            if remaining is None or remaining < .05 or reset is None or reset < 0:
+                break
+            scores.append(remaining * 100 / max(reset / 86400, .2))
+        else:
+            if scores:
+                tier = {"standard": "eco", "effort": "normal", "deepthink": "quality"}.get(suffix, "top")
+                choices[tier].append((min(scores), name))
+    if not any(choices.values()):
+        return "suggest: no eligible profiles; next: peerhub observation refresh"
+    return "suggest: " + " ".join(f"{tier}={min(items, key=lambda item: (-item[0], item[1]))[1] if items else '-'}"
+                                  for tier, items in choices.items())
+
+
+def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: bool,
+                          width: int, height: int | None) -> str:
+    width = max(1, min(100, width) - 1)  # leave the terminal's autowrap column unused
+    groups = _obj(payload.get("groups"))
+    selected = payload.get("selected_groups")
+    selected_ids = set(cast(list[str], selected)) if isinstance(selected, list) else set(groups)
+    read_at = _number(payload.get("read_at"))
+    now = read_at if read_at is not None else 0
+    elapsed = _number(payload.get("display_elapsed_seconds")) or 0
+    consumers: dict[str, list[str]] = {}
+    profile_groups: dict[str, dict[tuple[str, ...], list[str]]] = {}
+    configured_profiles = _items(payload.get("configured_profiles"))
+    for profile in configured_profiles:
+        name = _clean(profile.get("profile") or "?")
+        peer, _, suffix = name.partition(".")
+        pools = cast(list[object], _obj(_obj(profile.get("fields")).get("pools")).get("value") or [])
+        for raw_pool in pools:
+            pool = _clean(raw_pool)
+            consumers.setdefault(f"{peer}:{pool}", []).append(suffix)
+        pool_group = tuple(sorted((_clean(pool) for pool in pools), key=lambda pool: (_pool_family(pool), _parse_window(pool)[0], pool)))
+        profile_groups.setdefault(peer, {}).setdefault(pool_group, []).append(suffix)
+    observations = _items(payload.get("_human_observations")) if "_human_observations" in payload else _items(_obj(_obj(groups.get("capacity")).get("data")).get("observations"))
+    quota = [item for item in observations if item.get("kind", "quota") == "quota" and item.get("pool_ref")]
+    rows = [_compact_pool(item, now, elapsed, consumers) for item in quota]
+    rows.sort(key=lambda row: (str(row["peer"]), str(row["family"]), _parse_window(str(row["pool"]))[0], str(row["pool"])))
+    store = _obj(payload.get("store_selection"))
+    source = _clean(store.get("source") or "unknown")
+    try:
+        stamp = datetime.fromtimestamp(now + elapsed, timezone.utc).strftime("%Y-%m-%d %H:%MZ") if read_at is not None else "time unknown"
+    except (ValueError, OverflowError, OSError):
+        stamp = "time unknown"
+    ages = [_number(item.get("age_seconds")) for item in quota]
+    known_ages = [age + elapsed for age in ages if age is not None]
+    age_label = _compact_age(max(known_ages) if known_ages else None)
+    title = f"PeerHub Monitor {stamp} | DB:{source} | quota age {age_label}"
+    refresh_state = _clean(payload.get("refresh_state") or "")
+    if refresh_state:
+        title += f" | {refresh_state}"
+    next_refresh = _number(payload.get("next_refresh_in"))
+    if next_refresh is not None:
+        title += f" | refresh in {max(0, math.ceil(next_refresh))}s"
+    lines = _compact_wrap(title, width)
+    errors = _obj(payload.get("errors"))
+    nearest = payload.get("_nearest_store_path")
+    same_store = bool(nearest and store.get("path") and os.path.normcase(os.path.abspath(str(nearest))) == os.path.normcase(os.path.abspath(str(store["path"]))))
+    read_errors = any(value != "truncated" for value in errors.values())
+    if not same_store or payload.get("status") in {"FAILED", "ERROR"} or read_errors:
+        if store.get("path"):
+            lines.extend(_compact_wrap(f"DB: {_clean(store['path'])}", width))
+    if "STOPPED" in str(payload.get("refresh_state") or ""):
+        lines.extend(_compact_wrap("STOPPED: AGY TOKEN USE; next: --allow-agy-token-use to continue", width))
+    for warning in _safe_refresh_warning_labels(payload.get("refresh_warnings")):
+        lines.extend(_compact_wrap(f"Warning: {warning}", width))
+    evidenced = {f"{row['peer']}:{row['pool']}" for row in rows}
+    missing_pool = any(key not in evidenced for key in consumers)
+    if (selected_ids & {"capacity", "peers"} and (missing_pool or any(row["needs_refresh"] for row in rows))
+            and (rows or "capacity" not in selected_ids)):
+        lines.extend(_compact_wrap("next: peerhub observation refresh", width))
+    if "capacity" in selected_ids:
+        lines.append(_section_rule("POOLS", width, True, color and "NO_COLOR" not in os.environ)
+                     if view == "rich" and unicode else "POOLS")
+        if not rows:
+            lines.extend(_compact_wrap("no quota evidence; next: peerhub observation refresh", width))
+        headers = ["PEER", "POOL", "MEANING", "LEFT", "RESETS", "AGE", "STATE"]
+        fields = ["peer", "pool", "meaning", "left", "resets", "age", "state"]
+        sizes = [max(len(label), max((_width(str(row[key])) for row in rows), default=0))
+                 for label, key in zip(headers, fields)]
+        base = sum(sizes) + len(sizes)
+        if width >= 48 and base + len("PROFILES") <= width:
+            def table_line(cells: list[str], profiles: str) -> str:
+                return " ".join(value + " " * (size - _width(value)) for value, size in zip(cells, sizes)) + " " + _fit(profiles, width - base, unicode)
+            lines.append(table_line(headers, "PROFILES"))
+            for row in rows:
+                text = table_line([str(row[key]) for key in fields], str(row["profiles"]))
+                if color and view == "rich" and "NO_COLOR" not in os.environ:
+                    palette = {"low": "31", "out": "31", "reset": "33", "aged": "33", "?": "2", "n/a": "2"}
+                    code = palette.get(str(row["state"]))
+                    if code:
+                        text = f"\x1b[{code}m{text}\x1b[0m"
+                lines.append(text)
+        else:
+            for row in rows:
+                lines.extend(_compact_wrap(f"{row['peer']} {row['pool']} {row['meaning']} {row['left']} {row['state']}", width))
+                lines.extend(_compact_wrap(f"resets {row['resets']} age {row['age']}", width))
+                lines.append("profiles " + _fit(str(row["profiles"]), max(0, width - 9), unicode))
+        legend = "ok low out aged reset n/a ?"
+        lines.append(_fit(legend, width, unicode))
+    if "peers" in selected_ids:
+        lines.append(_section_rule("PEERS", width, True, color and "NO_COLOR" not in os.environ)
+                     if view == "rich" and unicode else "PEERS")
+        peer_items = _items(_obj(_obj(groups.get("peers")).get("data")).get("peers"))
+        peers = sorted({str(item.get("peer_id") or "?") for item in peer_items}
+                       | {str(item.get("peer_id") or "?") for item in observations if item.get("kind", "quota") == "quota"})
+        for peer in peers:
+            peer_rows = [row for row in rows if row["peer"] == peer]
+            summaries: list[str] = []
+            peer_aged = False
+            for pools, names in sorted(profile_groups.get(peer, {}).items()):
+                mapped = [row for row in peer_rows if row["pool"] in pools]
+                candidates = [row for row in mapped if row["remaining"] is not None and row["state"] not in {"?", "reset", "n/a"}]
+                if candidates:
+                    limit = min(candidates, key=lambda row: float(row["remaining"]))
+                    quota_label = f"{limit['left']} ({limit['pool']})"
+                    peer_aged = peer_aged or bool(limit["aged"])
+                else:
+                    reason = "not reported" if mapped and all(row["state"] == "n/a" for row in mapped) else "never measured"
+                    quota_label = f"? ({reason})"
+                summaries.append(f"{'/'.join(sorted(names))} {quota_label}")
+            if not summaries:
+                summaries.append("? (unmapped)" if peer_rows else "? (never measured)")
+            notes: list[str] = []
+            for row in peer_rows:
+                if row["state"] == "n/a":
+                    match = re.search(r"(?:^|;)\s*plan=([^;]+)", str(row["reason"]))
+                    notes.append(f"{row['pool']} n/a" + (f" (plan {match[1]})" if match else ""))
+            probes = [item for item in observations if item.get("peer_id") == peer and item.get("kind", "quota") == "quota"]
+            if probes:
+                latest = max(probes, key=lambda item: _number(item.get("effective_at_us")) or
+                             (now - (_number(item.get("age_seconds")) or 0)) * 1_000_000)
+                if not latest.get("pool_ref") and (latest.get("state") in {"ERROR", "UNAVAILABLE", "UNKNOWN"}
+                        or latest.get("stored_state") in {"ERROR", "UNAVAILABLE", "UNKNOWN"}):
+                    age = _number(latest.get("age_seconds"))
+                    notes.append(f"probe error ({_compact_age(age + elapsed if age is not None else None)})")
+            lines.extend(_compact_wrap(f"{peer} " + " | ".join(summaries + notes)
+                                       + (" (aged)" if peer_aged else ""), width))
+        lines.extend(_compact_wrap(_compact_suggestions(configured_profiles, rows), width))
+    for footer in _compact_footer(groups):
+        lines.extend(_compact_wrap(footer, width))
+    if height is not None and len(lines) > max(0, height - 1):
+        budget = max(0, height - 1)
+        if budget == 0:
+            return ""
+        lines = lines[:budget - 1] + [_fit("details: --expand", width, unicode)]
+    if not unicode:
+        lines = [line.encode("ascii", errors="replace").decode("ascii") for line in lines]
+    return "\n".join(lines) + "\n"
+
+
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
+                         unicode: bool = True, width: int = 100, height: int | None = None,
+                         expand: bool = False) -> str:
+    """Compact human default; the established renderer supplies expanded detail."""
+    if expand:
+        return _render_expanded_frame(payload, view=view, color=color, unicode=unicode,
+                                      width=width, height=height, expand=True)
+    return _render_compact_frame(payload, view=view, color=color, unicode=unicode,
+                                 width=width, height=height)
+
+
+def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
                          expand: bool = False) -> str:
     """Fit text first, then apply the optional quota palette without changing alignment."""
     color = color and view == "rich" and "NO_COLOR" not in os.environ
-    rendered = _render_grouped_frame(payload, view=view, color=color, unicode=unicode,
-                                     width=width, height=height, expand=expand)
+    groups = _obj(payload.get("groups"))
+    selected_raw = payload.get("selected_groups")
+    selected = ([str(g) for g in cast(Sequence[Any], selected_raw)]
+                if isinstance(selected_raw, Sequence) and not isinstance(selected_raw, str) else list(groups))
+    selected = [g for g in selected if g not in {"overview", "coverage"}]
+    context_sessions = _items(_obj(_obj(groups.get("context")).get("data")).get("sessions"))
+    if not any(_obj(item.get("context")).get("state") == "MEASURED" for item in context_sessions):
+        selected = [g for g in selected if g != "context"]
+    coverage_partial = any(_obj(group).get("status") not in {"OK", None}
+                           or _group_has_uncertain_measurement(_obj(group).get("data"), depth=0)
+                           or _obj(_obj(group).get("data")).get("truncated")
+                           or _obj(_obj(group).get("coverage")).get("read") == "partial"
+                           for group in groups.values())
+    coverage_data = _obj(_obj(groups.get("coverage")).get("data"))
+    scope_note = "No scope evidence" if "scopes" in coverage_data and not coverage_data["scopes"] else ""
+    footer = "Coverage: " + (scope_note or ("partial" if coverage_partial else "complete")) + "; peerhub explain <code>"
+    store = _obj(payload.get("store_selection"))
+    db_line = f"DB:{_clean(store.get('source'))} ({_clean(store.get('path'))})" if store.get("path") else ""
+    consumers: dict[str, list[str]] = {}
+    for profile in _items(payload.get("configured_profiles")):
+        fields = _obj(profile.get("fields"))
+        name = str(profile.get("profile") or "")
+        for pool in cast(list[object], _obj(fields.get("pools")).get("value") or []):
+            consumers.setdefault(f"{name.split('.')[0]}:{pool}", []).append(name)
+    # Explicit pure-render fixtures may supply configured pool membership directly.
+    for peer in _items(_obj(_obj(groups.get("peers")).get("data")).get("peers")):
+        profile = _obj(peer.get("profile"))
+        for pool in cast(list[object], profile.get("pools") or []):
+            consumers.setdefault(f"{peer.get('peer_id')}:{pool}", []).append(str(profile.get("name") or profile.get("profile")))
+    cap = _obj(groups.get("capacity"))
+    data = _obj(cap.get("data"))
+    display_groups = {**groups,
+        "capacity": {**cap, "data": {**data, "consumers": {key: ",".join(sorted(set(names))) for key, names in consumers.items()}}}}
+    # X5: the plan the provider reports is display text only, shown beside the peer's quota in the PEERS block.
+    plan_windows: dict[str, tuple[str, list[str]]] = {}
+    for obs in _items(data.get("observations")):
+        reason = _clean(obs.get("reason") or "")
+        if obs.get("state") == "ABSENT" and reason.startswith(_NOT_REPORTED):
+            pool = _clean(obs.get("pool_ref") or "").split(":")[-1]
+            plan = _clean(reason.split("plan=", 1)[1]) if "plan=" in reason else "unknown"
+            window = pool.split("-", 1)[-1].lower() if "-" in pool else pool.lower()
+            plan_windows.setdefault(_clean(obs.get("peer_id") or "?"), (plan, []))[1].append(window)
+    peers_group = _obj(groups.get("peers"))
+    if plan_windows and peers_group:
+        display_groups["peers"] = {**peers_group, "data": {**_obj(peers_group.get("data")), "plan_notes": {
+            peer: f"plan {plan}: no {', '.join(windows)} window" for peer, (plan, windows) in plan_windows.items()}}}
+    display = {**payload, "selected_groups": selected, "groups": display_groups}
+    if height is not None and height <= 3:
+        text = "+" + str(len(selected)) + " groups; --expand"
+        return (_fit(text, max(0, width - 1), unicode) + "\n") if height > 1 else ""
+    overhead = 1 + bool(db_line)
+    rendered = _render_grouped_frame(display, view=view, color=color, unicode=unicode,
+                                     width=width, height=max(1, height - overhead) if height else None, expand=expand)
     lines = rendered.splitlines()
     start = next((i for i, line in enumerate(lines) if "QUOTA [" in line), None)
     if start is None:
-        return rendered
+        start = 0
     end = next((i for i in range(start + 1, len(lines))
                 if _ANSI.sub("", lines[i]).startswith(("-- ", "── "))
                 or "rows hidden" in lines[i] or "groups omitted" in lines[i]
                 or lines[i].startswith(("Warning:", "Next:", "+"))), len(lines))
-    legend = "STATE: INSUFFICIENT=insufficient projection data; THREAT=exhausts before reset"
-    if (_width(legend) <= width - 1 and (height is None or len(lines) < height - 1)
+    legend = "STATE: INSUFF=insufficient projection data; THREAT=exhausts before reset"
+    if (_width(legend) <= width - 1 and (height is None or len(lines) < height - 1 - overhead)
             and any("PEER" in line and "POOL" in line for line in lines[start:end])):
         lines.insert(end, legend)
     if color:
         for i in range(start, end):
             line = _ANSI.sub("", lines[i])
-            if " probe:" in line or re.search(r"\b(UNKNOWN|STALE|INSUFFICIENT)\b", line):
+            if re.search(r"\b(THREAT|STALE)\b", line):
+                code = "31"
+            elif re.search(r"\b(UNKNOWN|INSUFF|PROBE)\b", line):
                 code = "2"
-            elif re.search(r"\b(THREAT|EXHAUSTED|ERROR|FAILED)\b", line):
+            elif re.search(r"\b(THREAT|STALE|EXHAUSTED|ERROR|FAILED)\b", line):
                 code = "31"
             elif re.search(r"\b(WATCH|PARTIAL)\b", line):
                 code = "33"
@@ -814,6 +1183,16 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
             else:
                 continue
             lines[i] = f"\x1b[{code}m{line}\x1b[0m"
+    report = _obj(_obj(_obj(groups.get("peers")).get("data")).get("facts_report"))
+    # Every facts_report reason is a drift reason ("ag: unknown_pool", "cc: version_drift").
+    drift_peers = sorted({str(reason).split(":")[0] for reason in cast(list[object], report.get("reasons") or [])})
+    if drift_peers:
+        footer += "; DRIFT:" + ",".join(drift_peers)
+    if db_line:
+        lines.insert(1 if lines else 0, _fit(db_line, max(0, width - 1), unicode))
+    lines.append(_fit(footer, max(0, width - 1), unicode))
+    if height is not None:
+        lines = lines[:max(0, height - 1)]
     return "\n".join(lines) + ("\n" if lines else "")
 
 
@@ -871,15 +1250,6 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         except (OverflowError, OSError, ValueError):
             pass
 
-    store = _obj(payload.get("store_selection"))
-    db_path = _clean(store.get("path") or "")
-    db_source = _clean(store.get("source") or "")
-    if db_source:
-        if db_path and width >= 64:
-            title += f" | DB:{db_source} ({Path(db_path).name})"
-        else:
-            title += f" | DB:{db_source}"
-
     lines: list[str] = [_fit(title, target_width, unicode)]
 
     descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
@@ -913,10 +1283,6 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         if st in {"ERROR", "FAILED"}:
             data_rows.insert(0, _safe_error_reason(error_val))
 
-        cov = _obj(grp.get("coverage"))
-        if cov.get("read") == "partial" and not any("partial" in r.lower() or "truncated" in r.lower() for r in data_rows):
-            data_rows.append(f"Coverage: partial {'·' if unicode else '|'} {_clean(cov.get('reason') or 'incomplete evidence')}")
-
         content_lines: list[str] = []
         for r in data_rows:
             if gid == "capacity":
@@ -934,6 +1300,17 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
     other_blocks = [b for b in blocks if b[0] != "capacity"]
 
     visible_other: list[tuple[str, int, str, list[str]]] = []
+
+    if cap_block is None and len(other_blocks) == 1 and not extra_overhead:
+        content = other_blocks[0][3]
+        budget = max_lines - len(lines)
+        if 2 <= budget < 1 + len(content):
+            shown = budget - 1  # reclaim the heading; reserve one exact omission line
+            lines.extend(content[:shown])
+            lines.append(_fit(f"+{len(content) - shown} rows hidden | --expand", target_width, unicode))
+            if not unicode:
+                lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
+            return "\n".join(lines) + "\n"
 
     def allocate_other(budget: int) -> list[tuple[str, int, str, list[str]]]:
         # Even when every summary fits, hidden details need a disclosure row.

@@ -54,6 +54,8 @@ peerhub guide
 peerhub explain ask_blocked_uncertain
 ```
 
+CLI output defaults to compact human text, including when redirected. Use `--json` for scripts; `--format` is a hidden compatibility alias. Errors carry an outcome code and `next:` hint.
+
 ## Everyday commands
 
 [Account-bound peers](docs/accounts.md) isolate cc/cx vendor roots behind immutable peer identities; `peerhub account list` inspects bindings.
@@ -124,7 +126,9 @@ mean the model answered the task successfully. PeerHub does not currently
 classify semantic task success/error. Context occupancy intentionally stays 'unknown' because it is not validated by PeerHub (the CLIs do not report it in a form PeerHub accepts; cx 'debug models' exposes a context window but runtime occupancy is not reported in an accepted form). `runtime` and `store` remain available with
 `--group` or `--snapshot --group`.
 
-The bare `monitor` command shows a grouped human dashboard on a TTY and aligned
+The default human monitor shows POOLS (meaning, last recorded capacity, reset, age, state and configured profiles), one PEERS line per peer, and a facts/session/delivery/telemetry footer. `aged` numbers are last-known evidence, not current capacity; refresh before relying on them. Passed reset windows show no capacity number. The header shows the date and DB source; the full path appears for explicit/default selections or errors. `--expand` retains the detailed grouped view, bars, pace, forecasts and coverage footer; `peerhub explain <code>` covers its short codes.
+
+The bare `monitor` command shows the compact human dashboard on a TTY and aligned
 plain sections when redirected. `--view rich` requests visual panels and meters;
 `--view plain` selects ASCII-safe output. Add repeatable `--group` options to
 watch one or more groups, or `--group all` to include all ten. `monitor groups`
@@ -155,7 +159,7 @@ colour while retaining supported cursor controls.
 
 ## Store selection and existing data
 
-The store is `.peerhub/core.db`. Discovery picks the nearest one (current directory, then parents); `--db PATH` or `PEERHUB_DB` choose explicitly. `peerhub diag health` reports `store_selection` (the path and how it was chosen: `env`, `explicit`, `discovered`, `workspace-default`, `default`). Developer scratch (live-gate JUnit etc.) goes under `.peerhub/work/`; the top of `.peerhub/` holds the database and its `restore.epoch` metadata.
+The store is `.peerhub/core.db`. Discovery picks the nearest one (current directory, then parents); `--db PATH` takes precedence over `PEERHUB_DB`, then discovery (nearest wins). `peerhub diag health` reports `store_selection` (the path and how it was chosen: `explicit`, `env`, `discovered`, `default`). Developer scratch (live-gate JUnit etc.) goes under `.peerhub/work/`; the top of `.peerhub/` holds the database and its `restore.epoch` metadata.
 
 Use global `--db PATH` before the command, or `PEERHUB_DB`, to select a store explicitly. An explicit missing path is never redirected to another store. `ask --workspace DIR` uses that directory's store unless a database was explicitly selected. Read-only commands do not create a missing store.
 

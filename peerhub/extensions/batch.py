@@ -189,6 +189,8 @@ def classify_worker(returncode: int | None, stdout: str, *, overflow: bool = Fal
             return "UNCERTAIN", f"certainty_{result.get('certainty')}"
         response = result.get("response")
         return ("COMPLETED", None) if isinstance(response, str) and response.strip() else ("UNVERIFIED", "empty_response")
+    if status == "denied_empty":
+        return "UNVERIFIED", "denied_empty"
     if result.get("certainty") == "NOT_STARTED":
         return "FAILED", "not_started"
     if status == "not_executed" or result.get("task_outcome") == "NOT_EXECUTED":

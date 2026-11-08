@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 import math
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable, Sequence, cast
 
 from peerhub.extensions.peer_kinds import ALIASES
 from peerhub.extensions.observation import ObservationStore
@@ -80,7 +80,8 @@ def _read_latest_facts_report(store: ObservationStore) -> dict[str, Any] | None:
 
 def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None = None,
                   deadline_sec: float = 15, pollers: dict[str, Callable[..., Any]] | None = None,
-                  version_checker: Callable[[str], str | None] | None = None) -> dict[str, Any]:
+                  version_checker: Callable[[str], str | None] | None = None,
+                  cx_pools: Sequence[str] | None = None) -> dict[str, Any]:
     if not peers or not math.isfinite(deadline_sec) or deadline_sec <= 0:
         raise ValueError("provide peers and a positive probe timeout")
     if not Path(db_path).is_file():
@@ -123,7 +124,8 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     for peer, kind in zip(peers, kinds):
         try:
             readings = pollers[kind](ids=_Ids(), instance_id=peer, profile_id="default",
-                                    deadline_sec=deadline_sec, sys_dir=sys_dir)
+                                    deadline_sec=deadline_sec, sys_dir=sys_dir,
+                                    **({"configured_pools": cx_pools} if kind == "cx" and cx_pools is not None else {}))
             if not readings:
                 raise ValueError("probe returned no evidence")
             if kind == "ag":
@@ -167,6 +169,13 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                 store.register_resource_pool(ResourcePool(resource_pool_id=pool_ref, provider=kind, kind="QUOTA"))
                 payload.update(remaining_fraction=measurement.remaining_fraction,
                                window_started_at=measurement.window_started_at, resets_at=measurement.resets_at)
+            elif state == EvidenceState.ABSENT:
+                absent_extra: dict[str, Any] = getattr(reading, "extra", None) or {}
+                scope, reason = absent_extra.get("pool_scope"), absent_extra.get("reason")
+                if isinstance(scope, str) and scope and isinstance(reason, str):  # X1: pool the provider did not report
+                    pool_ref = f"quota:{kind}:{scope}"
+                    store.register_resource_pool(ResourcePool(resource_pool_id=pool_ref, provider=kind, kind="QUOTA"))
+                    payload["reason"] = reason
             elif state in (EvidenceState.ERROR, EvidenceState.UNAVAILABLE):
                 payload["condition"] = "provider_probe_" + state.value.lower()
                 extra_data: dict[str, Any] = getattr(reading, "extra", None) or {}

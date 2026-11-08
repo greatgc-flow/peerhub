@@ -151,6 +151,7 @@ STATUS_FALLBACK_ALLOWLIST: dict[str, str] = {
 }
 
 STATUS_SCENARIOS: dict[str, list[tuple[dict[str, Any], str]]] = {
+    "denied_empty": [({}, "ask_denied_empty")],
     "uncertain": [
         ({}, "ask_uncertain"),
     ],
@@ -168,6 +169,7 @@ STATUS_SCENARIOS: dict[str, list[tuple[dict[str, Any], str]]] = {
         ({"detail_error": "unsupported runtime"}, "ask_delivery_failed"),
     ],
     "pending_earlier_record": [
+        ({"processed_status": "denied_empty"}, "ask_denied_empty"),
         ({"processed_status": "uncertain"}, "ask_blocked_uncertain"),
         ({"processed_status": "not_executed"}, "ask_refusal"),
         ({"processed_status": "failed_not_started", "detail_error": "executable not found"}, "ask_launch_failed"),
@@ -279,31 +281,57 @@ EXCEPTION_SCENARIOS: dict[str, list[tuple[Exception, str]]] = {
 
 
 def _standalone_validation_error_codes() -> set[str]:
-    """Drive public validation errors outside the ask path, without store creation."""
+    """Exercise non-ask errors through their real CLI emission boundaries."""
     import io
-    import os
     import tempfile
-    from contextlib import redirect_stdout
+    from contextlib import redirect_stderr, redirect_stdout
     from unittest.mock import patch
     from peerhub.cli.app import main
+    from tests.communication.harness.bridge import BridgeHarness
 
     codes: set[str] = set()
     with tempfile.TemporaryDirectory(prefix="peerhub-recovery-") as scratch:
-        db = str(Path(scratch) / "absent.db")
-        commands = [
+        h = BridgeHarness(Path(scratch) / "registry")
+        db = str(h.db_path)
+        missing = str(Path(scratch) / "absent.db")
+
+        def check(argv, expected):
+            output, errors = io.StringIO(), io.StringIO()
+            with redirect_stdout(output), redirect_stderr(errors):
+                try:
+                    code = main(argv)
+                except SystemExit as exc:
+                    code = exc.code
+            assert code != 0, argv
+            assert f"[{expected}]" in errors.getvalue(), (argv, errors.getvalue())
+            codes.add(expected)
+
+        for argv, expected in (
             (["batch", "run", "absent.json", "--batch-id", "proof", "--max-parallel", "0", "--dry-run", "--json"], "invalid_manifest"),
             (["account", "bind", "--peer", "proof", "--provider", "ag", "--alias", "work", "--root", scratch, "--json"], "account_invalid"),
-        ]
-        with patch.dict(os.environ, {"PEERHUB_DB": db}):
-            for argv, expected in commands:
-                output = io.StringIO()
-                with redirect_stdout(output):
-                    assert main(["--db", db, *argv]) == 1
-                payload = json.loads(output.getvalue())
-                assert payload["status"] == "error" and payload["error"]["code"] == expected
-                codes.add(payload["error"]["code"])
-        assert not Path(db).exists()
+            (["peer", "list", "--limit", "201"], "invalid_arguments"),
+            (["peer", "get", "--peer", "absent"], "peer_not_found"),
+            (["stream", "show", "--stream", "absent"], "stream_not_found"),
+            (["session", "show", "sess_0000000000000000"], "session_not_found"),
+            (["diag", "health", "--observation-db", missing], "diag_unavailable"),
+        ):
+            check(["--db", db, *argv], expected)
+        check(["--db", missing, "peer", "list"], "store_missing")
+        assert not Path(missing).exists()
+
+        # Inject storage/dispatch faults at the command boundary, keeping the
+        # real top-level exception translation and stderr renderer under test.
+        for exc, expected in (
+            (StorageCorruptError("corrupt store"), "storage_corrupt"),
+            (SchemaVersionError("unsupported schema"), "schema_version_error"),
+            (IdempotencyConflictError("conflicting key"), "idempotency_conflict"),
+            (CasMismatchError("stale revision"), "cas_conflict"),
+            (RuntimeError("dispatch failed"), "delivery_failed"),
+        ):
+            with patch("peerhub.cli.app._run_core_cli", side_effect=exc):
+                check(["--db", db, "peer", "list"], expected)
     return codes
+
 
 
 def test_inventory_driven_ask_path_outcomes_cover_entire_registry():
@@ -481,11 +509,9 @@ def test_guidance_payload_structure():
 def test_render_guidance_hint_contains_all_components():
     entry = REGISTRY["ask_uncertain"]
     hint = render_guidance_hint(entry)
-    assert "What happened:" in hint
-    assert "Rationale:" in hint
-    assert entry.why in hint
-    assert "Next action:" in hint
-    assert "What NOT to do:" in hint
+    assert len(hint.splitlines()) == 1
+    assert entry.recover[0]["purpose"] in hint
+    assert entry.avoid in hint
     assert "peerhub explain ask_uncertain" in hint
 
 
@@ -580,8 +606,9 @@ def test_explain_cli_output_and_exit_codes(capsys):
 
     # Unknown - json
     assert run_explain_cli("non_existent_code", json_output=True) == 1
-    err_json = capsys.readouterr().err
-    err_data = json.loads(err_json)
+    captured = capsys.readouterr()
+    assert "[invalid_arguments]" in captured.err and "next:" in captured.err
+    err_data = json.loads(captured.out)
     assert "Unknown guidance code" in err_data["error"]
     assert "known_codes" in err_data
 
@@ -625,14 +652,14 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     code = main(["--db", str(db), "ask", "cx", "first question (text)", "--stream", "s2"])
     assert code == 1
     err = capsys.readouterr().err
-    assert "Guidance [ask_uncertain]:" in err
-    assert "default timeout" in err
+    assert "[ask_uncertain]" in err
+    assert "ask_uncertain" in err
     assert "do not retry on the same stream; start a new stream with explicit --timeout-seconds" in err
     assert "long reviews: 1800 or more" in err
     assert "Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims." in err
-    assert "What happened:" in err
-    assert "Next action:" in err
-    assert "What NOT to do:" in err
+    assert len(err.splitlines()) == 1
+    assert "next:" in err
+    assert "peerhub explain" in err
     assert "peerhub explain ask_uncertain" in err
 
     # 2. Subsequent ask is blocked as pending_earlier_record
@@ -651,8 +678,8 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     code = main(["--db", str(db), "ask", "cx", "second question (text)", "--stream", "s1"])
     assert code == 1
     err = capsys.readouterr().err
-    assert "Guidance [ask_blocked_uncertain]:" in err
-    assert "default timeout" in err
+    assert "[ask_blocked_uncertain]" in err
+    assert len(err.splitlines()) == 1
     assert "do not retry on the same stream; start a new stream with explicit --timeout-seconds" in err
     assert "long reviews: 1800 or more" in err
     assert "Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims." in err
@@ -694,10 +721,10 @@ def test_scenario_claim_held(tmp_path, monkeypatch, capsys):
     assert code == 1
     err = capsys.readouterr().err
     assert "ERROR: claim for (cx, peer:cx:chat) held by 'active_worker'" in err
-    assert "Guidance [ask_claim_held]:" in err
-    assert "What happened:" in err
-    assert "Next action:" in err
-    assert "What NOT to do:" in err
+    assert "[ask_claim_held]" in err
+    assert len(err.splitlines()) == 1
+    assert "next:" in err
+    assert "peerhub explain" in err
     assert "peerhub explain ask_claim_held" in err
 
 
@@ -778,7 +805,7 @@ def test_scenario_session_selector_errors(tmp_path, capsys):
     code = main(["--db", str(db), "ask", "cx", "hello", "--session", "invalid_handle"])
     assert code == 2
     err = capsys.readouterr().err
-    assert "Guidance [ask_selector_error]:" in err
+    assert "[ask_selector_error]" in err
     assert "peerhub explain ask_selector_error" in err
 
 
@@ -817,7 +844,7 @@ def test_scenario_refusal_and_cached_replay(tmp_path, monkeypatch, capsys):
     assert code == 1
     err = capsys.readouterr().err
     assert "Task outcome: NOT_EXECUTED" in err
-    assert "Guidance [ask_refusal]:" in err
+    assert "[ask_refusal]" in err
     assert "peerhub explain ask_refusal" in err
 
     # 2. Cached replay of refusal (early return at ask.py line 134)
@@ -862,7 +889,7 @@ def test_bare_peerhub_prints_guide_and_missing_store_guidance(tmp_path, capsys):
     assert str(missing_db) in err
     assert "(source: explicit)" in err
     assert f'peerhub --db "{missing_db}" peer register --peer local --name local' in err
-    assert "Learn: peerhub guide" in err
+    assert "[store_missing]" in err and "next:" in err
 
 
 def test_scenario_stream_peer_mismatch_and_launch_failed(tmp_path, monkeypatch, capsys):
@@ -1340,11 +1367,79 @@ def test_ag_denied_actions_are_named_in_empty_response_note(tmp_path, monkeypatc
 
     session = {"handle": "sess_0000000000000001", "mode": "reuse", "generation": 1}
     monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
-        "status": "delivered", "response": "", "session": session, "empty_response": True,
-        "task_effects": "unverified", "denied_actions": ["command"],
+        "status": "denied_empty", "certainty": "TERMINAL", "response": "", "session": session,
+        "empty_response": True, "task_effects": "unverified", "denied_actions": ["command"],
+        "error": {"code": "denied_empty", "message": "ag denied tool action(s): command; response empty"},
     })
-    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello"]) == 0
-    assert "ag denied tool action(s): command" in capsys.readouterr().err
+    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello"]) == 1
+    err = capsys.readouterr().err
+    assert "ag denied tool action(s): command" in err
+    assert "[ask_denied_empty]" in err
+    assert "{'code'" not in err  # detail is the error message, not a dict repr
+
+
+def test_denied_empty_next_hint_is_new_stream_with_inlined_content(tmp_path, monkeypatch, capsys):
+    """ag usability A2: never resume the stream; start a new one with the needed content inlined."""
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "denied_empty", "certainty": "TERMINAL", "response": "", "stream_id": "s",
+        "empty_response": True, "task_effects": "unverified", "denied_actions": ["read_file"],
+        "error": {"code": "denied_empty", "message": "ag denied tool action(s): read_file; response empty"},
+    })
+    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello"]) == 1
+    err = capsys.readouterr().err
+    assert len(err.splitlines()) == 1
+    assert "new stream" in err and "--query-file" in err and "do not resume this stream" in err
+    entry = REGISTRY["ask_denied_empty"]
+    assert entry.recover[0]["argv"][:3] == ["peerhub", "ask", "ag"] and "--stream" in entry.recover[0]["argv"]
+    assert "diag health" not in err
+
+
+def test_ask_denied_empty_status_for_empty_response_with_denied_actions(tmp_path):
+    """#300: empty terminal + denied actions is not a usable answer; empty alone stays delivered."""
+    from peerhub.extensions.ask import ask
+    from tests.communication.fakes import FakeRuntimeTarget
+
+    rt = FakeRuntimeTarget()
+    rt.script_deliver(
+        ("started", "exec-denied"),
+        ("terminal", {"response": "", "empty_response": True, "task_effects": "unverified",
+                      "denied_actions": ["command"]}),
+    )
+    res = ask(tmp_path / "core.db", "ag", "run a command", runtime=rt)
+    assert res["status"] == "denied_empty"
+    assert res["certainty"] == "TERMINAL"
+    assert res["response"] == ""
+    assert res["denied_actions"] == ["command"]
+    assert res["error"]["code"] == "denied_empty"
+    assert "command" in res["error"]["message"]
+    replay = ask(tmp_path / "core.db", "ag", "run a command", request_id=res["request_id"], runtime=rt)
+    assert replay["status"] == "denied_empty"
+    assert replay["denied_actions"] == ["command"]
+
+
+def test_cli_denied_empty_exits_nonzero_with_json_guidance(tmp_path, monkeypatch, capsys):
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "denied_empty", "certainty": "TERMINAL", "response": "", "stream_id": "s",
+        "empty_response": True, "task_effects": "unverified", "denied_actions": ["command"],
+        "error": {"code": "denied_empty", "message": "denied"},
+    })
+    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello", "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "denied_empty"
+    assert payload["guidance"]["code"] == "ask_denied_empty"
+
+
+def test_batch_classifies_denied_empty_as_unverified():
+    from peerhub.extensions.batch import classify_worker
+    out = json.dumps({"status": "denied_empty", "certainty": "TERMINAL", "response": "",
+                      "error": {"code": "denied_empty", "message": "x"}})
+    assert classify_worker(1, out) == ("UNVERIFIED", "denied_empty")
 
 
 def test_denied_action_names_parses_agy_json_defensively():

@@ -5,6 +5,8 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 ## Core & Everyday Guides
 - [Account-bound Peers](accounts.md): Immutable cc/cx roots, environment isolation, and quota limitations.
 - [Batch Runs](batch.md): Validate and execute flat parallel asks, interpret statuses, cancel and resume.
+- [Remote Ask](remote-ask.md): Running peerhub ask against peers on remote hosts over SSH.
+- [Knowledge Placement Policy](knowledge-placement.md): Policy governing guidance placement across docs, CLI guide, and lessons.
 - `peerhub diag readiness [--json]` reports cached criteria for every effective configured profile, sorted by ID. `READY` means fresh positive verified quota and a matching terminal delivery; it proves neither current provider availability, actual model identity, authorization, nor semantic task success. Shared pools appear once with remaining quota, reset and evidence age. Missing/stale mappings or corrupt evidence stay `UNKNOWN`; absent success, changed binding, failed/uncertain delivery or required native ag writable consent stays unverified. Native ag consent still requires explicit `--writable`. Global `--db` selection applies; a missing store exits 5 without creation. This command never calls providers or writes, and rejects `--probe`. Human overflow is disclosed; JSON schema 1.0 includes every profile without a size guarantee. Issue #145 remains partially open for later work.
 - [Profile Smoke Recipe](smoke-recipe.md): Installed-CLI nonce pings and one result matrix (#148).
 - [Peer Sandbox Limits](peer-limits.md): Per-peer restrictions, operating knobs, and deferred capability probe (#134).
@@ -16,8 +18,11 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 
 ## Architecture & Specifications
 - [M1 Very Simple Spec](m1_spec/USAGE_GUIDE.md): Architectural boundaries, frozen catalog requirements, and SQLite storage invariants.
+- [M1 Implementation Records](m1_impl/): Wave execution reports, verification matrices, and delivery checklists for milestone 1.
 - [M2 Extension Contracts](m2/README.md): Specifications for work tracking, skill catalog, artifact store, and runtime adapters.
+- [M3 Extension Contracts](m3/): Specifications and test catalogs for federated intelligent collaboration (Search, Memory, A2A, Routing).
 - [MCP Surface Contract](m2/M2_4_MCP_CONTRACT.md): Integration protocols, JSON-RPC stdio boundary, and session lifecycle.
+- [Database Migrations](migrations.md): CoreStore schema versioning, upgrade policies, and historical v0 migration workflow.
 - [Structure Cleanup](implementation/STRUCTURE_CLEANUP.md): Current component ownership and legacy surface retirement.
 
 ## Configuration & Adapters
@@ -25,12 +30,14 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Model Profiles](model-profiles/model-profiles.json): Provider model defaults, profiles, and refresh schemas.
 - [Adapter Guide](adapters/README.md): Vendor CLI prerequisites, authentication, and execution flags (`cc`, `cx`, `ag`).
 - [CLI Reference](adapters/peer-cli-reference.md): Low-level adapter options and platform constraints.
+- [Compatibility Archive](compatibility/): Historical observations and external peer CLI binary compatibility records.
 - [Operational lessons](lessons.md): Searchable troubleshooting lessons for `peerhub explain <free words>`.
 - [Guidance & Session Reference](guidance-reference.md): Status outcome codes, safe recovery actions, and session lifecycle state definitions.
 - [Windows Operations](windows.md): Tested PowerShell recipes for parallel asks, quoting, and Unicode paths.
 
 ## Active Design & Plans
 - [Design Documents Index](design/README.md): Overview of active design specifications, deferred proposals, and history pointers.
+- [Plan 0.24.0 (November 2026)](design/plan-0.24.0-2026-11-08.md): Monitor and CLI unification, model observation refresh, and denied-empty handling.
 - [Pre-TDD Renewal (October 2026)](design/peerhub-pre-tdd-renewal-2026-10-14.md): Reconciled architecture and numbered RED contracts; no implementation authorized by this design stage.
 - [CLI, Monitoring, and Inspection Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md): MECE command boundaries, profile/session inspection, read-only guarantees, bounded snapshots, human/AI defaults, and PH-T095–105.
 - [Monitor Groups Usability Review](design/monitor-groups-usability-review-2026-10-16.md): Unanimous peer decision, group discovery, default/legacy contract, delivery certainty semantics, and TDD acceptance plan.
@@ -46,5 +53,6 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 
 ## Archives & Evidence
 - [Archival Ledger](history/ledger-2026-10-17.md): Ledger of archived debate documents and obsolete production call-map preserved in git history.
+- [Benchmarks](benchmarks/): Release-to-release performance and comparative analysis benchmarks.
 - [Implementation Evidence](implementation/live_evidence/): Live provider canary verification receipts.
 - [History Archive](history/): Pre-v0.10 architecture debates, historical design specs, and retired review records.

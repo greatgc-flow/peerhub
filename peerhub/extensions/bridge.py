@@ -199,7 +199,7 @@ class SteerableTarget(Protocol):
 
 @dataclass
 class CycleResult:
-    status: str  # idle|delivered|recovered_terminal|not_executed|failed_not_started|uncertain|blocked_uncertain|session_unavailable|fenced|paused|cancelled
+    status: str  # idle|delivered|recovered_terminal|denied_empty|not_executed|failed_not_started|uncertain|blocked_uncertain|session_unavailable|fenced|paused|cancelled
     record_id: str | None = None
     delivery_id: str | None = None
     certainty: str | None = None

@@ -31,6 +31,9 @@ KNOWN_KINDS = ("reachability", "cli_version", "runtime_capability", "session", "
 MEASUREMENT_KEYS = frozenset({"remaining", "remaining_fraction", "remaining_tokens", "remaining_requests", "used", "limit",
                               "requests_per_minute", "tokens_per_minute", "reset_in_seconds", "retry_after_seconds"})
 CONDITION_STATES = frozenset({"UNAVAILABLE", "ERROR"})  # must identify the source condition
+# An ABSENT pool row whose reason starts with this was recorded from a complete provider response that
+# omitted the window (e.g. a plan without a 5h window); it ages like a measurement (see `evaluate`).
+NOT_REPORTED_REASON = "not reported by provider"
 
 
 class EvidenceState(str, Enum):
@@ -181,6 +184,9 @@ def evaluate(obs: Observation, capture_seq: int, read_us: int, policy: Freshness
     age = age_us / 1e6 if age_us >= 0 else None  # a negative age is never reported as freshness
     if obs.state != EvidenceState.MEASURED:
         state = obs.state  # evidence is reported as stored; freshness never upgrades it
+        if (obs.state == EvidenceState.ABSENT and age_us >= round(ttl * 1_000_000)
+                and str(obs.payload.get("reason") or "").startswith(NOT_REPORTED_REASON)):
+            state = EvidenceState.STALE  # a "not reported" fact must be re-probed, never read as "no limit" forever
     elif age_us < 0:
         state = EvidenceState.UNKNOWN  # source/reader clocks disagree: no synthetic freshness
     elif age_us >= round(ttl * 1_000_000):

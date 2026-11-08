@@ -8,6 +8,31 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Profiles (defaults revision `2026-11-08.2`; a profile change is a `binding_change`, so resumed streams start a fresh generation): `ag.effort` `gemini-3.8-flash-medium` -> `gemini-3.8-flash-high`; `cx.effort` `gpt-6.1-sol` effort medium -> high. `ag.argon` stays `gemini-4-argon-medium` (benchmark: high gave the same score for +24s). Tiers: standard = eco, effort = normal (default for implementation), deepthink = quality, top = opt-in only.
+- Added packaged top profiles `cc.fable` (`claude-fable-5-1`, high; pool F-7D (separate Fable weekly pool; shared-C draw unmeasured)) and `cx.astra` (`gpt-6-astra`, high; pools X-5H, X-7D; ultra gave the same score for +16s). Evidence: `docs/benchmarks/profiles-2026-11-08.md` (one ceiling-limited task, not a ranking). `diag readiness` lists up to 12 profiles.
+- Docs: `docs/batch.md` documents the profile balancing rule and the concurrency table (default 4 active asks, ceiling 6; cc 3 / cx 3 / ag 1); the guide gets one `Load:` line.
+
+## [0.24.0] - 2026-11-08
+
+### Fixed
+
+- `peerhub ask` no longer reports an ag turn as `delivered` when the response is empty and the provider denied tool action(s) (#300). The result status is `denied_empty` (certainty stays `TERMINAL`, `denied_actions` kept), with guidance `ask_denied_empty`. `batch` classifies it `UNVERIFIED` (`denied_empty`).
+
+### Changed
+
+- Behavior change: `peerhub ask` exits 1 (was 0) for the `denied_empty` case above; callers that treated an empty `delivered` reply with `denied_actions` as success must handle the new status.
+
+- Breaking: compact human text is the default even on non-TTY output. Migration: add `--json` to scripts that consumed implicit JSON; `--format` remains a hidden compatibility alias.
+- Breaking: global `--db` now takes precedence over `PEERHUB_DB`, followed by the nearest upward `.peerhub/core.db`. Resolved path and selection source appear on stderr or the monitor header.
+- Monitor defaults to a compact POOLS/PEERS screen with a facts/session/delivery/telemetry footer. Last-known quota remains visible with configured-TTL aging; reset windows show no capacity number, and projected low capacity requires two samples in the same window. `--expand` preserves the detailed grouped renderer and its short codes. JSON output remains byte-identical; human-only history reads are read-only and cached for redraws.
+- CLI errors include an outcome code and `next:` hint on one stderr line; command roots, verbs and batch contracts stay stable.
+- Model observations refreshed to 2026-11-08, defaults revision `2026-11-08.1`: ag 1.5.3, cc 2.1.319, cx 0.167.0. Existing P0 evidence: model_ping 9/9 PASS; ag.deepthink skipped because 3P-7D was below 1%. No profile models or efforts changed; no new model pings were run.
+- Guide documents `PEERHUB_DB` and the explicit ag.argon alternative while 3P is low, limited to tasks supported by measured capabilities; otherwise defer.
+- cx plan windows: when a complete `account/rateLimits/read` response omits a configured pool (e.g. no 5h window on planType `prolite`), `observation refresh` records that pool as ABSENT "not reported by provider; plan=<planType>" (never malformed or partial responses; normal freshness TTL, then STALE). The monitor skips such pools when computing a peer's quota (freshest row per pool), shows them as `n/a not reported (plan ...)`, and shows `? (not reported)` instead of `incomplete`/100% when every pool is unreported. New lesson `cx-plan-windows`. JSON keys are unchanged.
+- ag usability: `guide` and `peerhub explain ag` lead with one ag recipe (inline content via `--query-file`, "no tools", trusted `-w`, `--writable` every turn, one task per ask, never resume a stream after an empty or `denied_empty` reply). The `denied_empty` `next:` hint is now "new stream with content inlined; do not resume". Lessons `ag-empty-reply-causes` and `ag-permission-limit` merged into `ag-recipe`; the read_file denial with a trusted `-w` is recorded as an open observation (#302).
+
 ## [0.23.3] - 2026-11-01
 
 ### Documentation

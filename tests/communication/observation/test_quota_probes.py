@@ -194,7 +194,7 @@ def test_poll_claude_usage_success_parsing(monkeypatch):
 
 def test_poll_codex_usage_timeout_fail_closed(monkeypatch):
     import time
-    
+
     class FakeProc:
         def __init__(self):
             self.stdin = None
@@ -205,20 +205,20 @@ def test_poll_codex_usage_timeout_fail_closed(monkeypatch):
             return ""
         def poll(self):
             return None
-            
+
     def fake_popen(*args, **kwargs):
         return FakeProc()
-        
+
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         "peerhub.extensions.quota_probes._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
-    
+
     ids = DummyIdSource()
     res = poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=0.1)
-    
+
     assert len(res) == 1
     obs = res[0]
     assert obs.evidence.state == EvidenceState.ERROR
@@ -236,7 +236,7 @@ def test_poll_codex_usage_malformed_response(monkeypatch):
             if not self.lines:
                 return ""
             return self.lines.pop(0)
-            
+
     class FakeProc:
         def __init__(self):
             class FakeStdin:
@@ -247,17 +247,17 @@ def test_poll_codex_usage_malformed_response(monkeypatch):
             self.pid = 9999
         def poll(self):
             return None
-            
+
     def fake_popen(*args, **kwargs):
         return FakeProc()
-        
+
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         "peerhub.extensions.quota_probes._real_binary",
         lambda _peer, _sys_dir=None: "dummy.exe",
     )
-    
+
     ids = DummyIdSource()
     res = poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=0.5)
 
@@ -316,15 +316,83 @@ def test_poll_codex_usage_success_parsing(monkeypatch, used):
     ids = DummyIdSource()
     res = [r for r in poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=1.0) if hasattr(r, "evidence")]  # reset credits: test_reset_credits.py
 
-    assert len(res) == 1
+    # A malformed window never yields ABSENT; a complete 7d-only response also records X-5H as not reported (X1).
+    assert len(res) == (2 if used == 100 else 1)
     obs = res[0]
     if used != 100:
-        assert obs.evidence.state == EvidenceState.ERROR and obs.evidence.value is None
+        assert obs.evidence.state == EvidenceState.UNKNOWN and obs.evidence.value is None
         return
     assert obs.evidence.state == EvidenceState.MEASURED
     assert obs.evidence.value.quota_pool_scope == "X-7D"
     assert obs.evidence.value.used_fraction == 1.0
     assert obs.evidence.value.resets_at == 1787200158
+    assert res[1].evidence.state == EvidenceState.ABSENT and res[1].extra["pool_scope"] == "X-5H"
+
+
+def _poll_cx(monkeypatch, rate_limits):
+    """Run poll_codex_usage against a fake app-server answering account/rateLimits/read with `rate_limits`."""
+    class FakeStdout:
+        def __init__(self):
+            self.lines = [
+                '{"id": 0, "result": {"codexHome": "/whatever"}}\n',
+                json.dumps({"id": 1, "result": {"rateLimits": rate_limits, "rateLimitsByLimitId": {}}}) + "\n",
+                "",
+            ]
+        def readline(self):
+            return self.lines.pop(0) if self.lines else ""
+
+    class FakeProc:
+        def __init__(self):
+            class FakeStdin:
+                def write(self, _): pass
+                def flush(self): pass
+            self.stdin = FakeStdin()
+            self.stdout = FakeStdout()
+            self.pid = 9999
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: FakeProc())
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr("peerhub.extensions.quota_probes._real_binary", lambda _peer, _sys_dir=None: "dummy.exe")
+    return [r for r in poll_codex_usage(DummyIdSource(), "inst-1", "prof-1", deadline_sec=1.0) if hasattr(r, "evidence")]
+
+
+def test_poll_codex_usage_records_unreported_5h_pool_as_absent_with_plan(monkeypatch):
+    """X1/X5: primary-only 7d window + secondary null on plan prolite -> MEASURED X-7D plus ABSENT X-5H."""
+    res = _poll_cx(monkeypatch, {"planType": "prolite", "primary": {"usedPercent": 11, "windowDurationMins": 10080,
+                                                                    "resetsAt": 1787200158}, "secondary": None})
+    assert [r.evidence.state for r in res] == [EvidenceState.MEASURED, EvidenceState.ABSENT]
+    assert res[0].evidence.value.quota_pool_scope == "X-7D" and res[0].evidence.value.used_fraction == pytest.approx(0.11)
+    absent = res[1]
+    assert absent.evidence.value is None and absent.evidence.freshness_ttl == res[0].evidence.freshness_ttl
+    assert absent.extra == {"pool_scope": "X-5H", "reason": "not reported by provider; plan=prolite"}
+
+
+def test_poll_codex_usage_absent_plan_is_sanitised_and_defaults_to_unknown(monkeypatch):
+    window = {"usedPercent": 11, "windowDurationMins": 10080, "resetsAt": 1787200158}
+    res = _poll_cx(monkeypatch, {"planType": "pro\x1b[31m lite\n", "primary": window, "secondary": None})
+    assert res[1].extra["reason"] == "not reported by provider; plan=pro31mlite"
+    res = _poll_cx(monkeypatch, {"primary": window, "secondary": None})
+    assert res[1].extra["reason"] == "not reported by provider; plan=unknown"
+
+
+def test_poll_codex_usage_both_windows_reported_records_no_absent(monkeypatch):
+    res = _poll_cx(monkeypatch, {"planType": "pro",
+                                 "primary": {"usedPercent": 10, "windowDurationMins": 300, "resetsAt": 1787200158},
+                                 "secondary": {"usedPercent": 20, "windowDurationMins": 10080, "resetsAt": 1787200158}})
+    assert [r.evidence.value.quota_pool_scope for r in res] == ["X-5H", "X-7D"]
+
+
+@pytest.mark.parametrize("secondary", [
+    {"usedPercent": None, "windowDurationMins": 300, "resetsAt": 1787200158},   # malformed present window
+    {"usedPercent": 10, "resetsAt": 1787200158},                                  # duration cannot be trusted
+])
+def test_poll_codex_usage_incomplete_response_never_records_absent(monkeypatch, secondary):
+    res = _poll_cx(monkeypatch, {"planType": "pro",
+                                 "primary": {"usedPercent": 10, "windowDurationMins": 10080, "resetsAt": 1787200158},
+                                 "secondary": secondary})
+    assert res and EvidenceState.ABSENT not in [r.evidence.state for r in res]
 
 def test_poll_codex_usage_fallback_rate_limits_by_limit_id(monkeypatch):
     class FakeStdout:
@@ -457,10 +525,10 @@ def test_poll_agy_usage_stale_file(tmp_path, monkeypatch):
     import time
     log_file = tmp_path / "ag.json"
     log_file.write_text('{"quota": {}}', encoding="utf-8")
-    
+
     # fake clock to be far in the future
     clock = lambda: time.time() + 1000
-    
+
     ids = DummyIdSource()
     res = poll_agy_usage(ids, "inst-1", "prof-1", clock=clock, freshness_ttl=60, log_path=log_file)
     assert len(res) == 1
@@ -469,7 +537,7 @@ def test_poll_agy_usage_stale_file(tmp_path, monkeypatch):
 def test_poll_agy_usage_malformed_json(tmp_path):
     log_file = tmp_path / "ag.json"
     log_file.write_text('{not valid json', encoding="utf-8")
-    
+
     ids = DummyIdSource()
     res = poll_agy_usage(ids, "inst-1", "prof-1", log_path=log_file)
     assert len(res) == 1
@@ -489,18 +557,18 @@ def test_poll_agy_usage_success(tmp_path):
             }
         }
     }), encoding="utf-8")
-    
+
     ids = DummyIdSource()
     res = poll_agy_usage(ids, "inst-1", "prof-1", log_path=log_file)
     assert len(res) == 2
-    
+
     scopes = {obs.evidence.value.quota_pool_scope: obs for obs in res}
-    
+
     assert "G-5H" in scopes
     obs_g = scopes["G-5H"]
     assert obs_g.evidence.state == EvidenceState.MEASURED
     assert obs_g.evidence.value.used_fraction == pytest.approx(0.8)
-    
+
     assert "3P-7D" in scopes
     obs_3p = scopes["3P-7D"]
     assert obs_3p.evidence.state == EvidenceState.MEASURED

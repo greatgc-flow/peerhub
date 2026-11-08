@@ -56,3 +56,29 @@ Never change batch ID to bypass uncertainty or a live claim; wait or reconcile.
 Only flat tasks are supported: no dependencies, retries, quota gating, budgets or
 failover. Parallelism is explicit because the caller controls resource use;
 check available quota before execution. COMPLETED proves delivery, not task success.
+
+## Choosing profiles and concurrency (manual)
+
+Both rules are advice for the caller; PeerHub never selects a profile or throttles for you.
+Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepthink` = quality,
+`<peer>.<top>` (`cc.fable`, `cx.astra`, `ag.argon`) = top: opt-in, never a default.
+
+**H. Balancing rule**
+
+1. Pick the lowest tier that meets the task class: bulk/mechanical = `standard`; docs = `standard`
+   (formatting), `effort` (writing) or `deepthink` (technical claims); code = `effort`, escalate to
+   `deepthink`; review = `deepthink` from an independent reviewer; design/debate = `deepthink` or an explicit top.
+2. Drop candidates with any applicable pool under 5% LEFT, UNKNOWN or stale (see `peerhub monitor`).
+3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`.
+
+**I. Concurrency** (counted across batches and manual asks together)
+
+| Limit | Value |
+| --- | --- |
+| Active asks, default | 4 (`--max-parallel 4`; the option stays required) |
+| Active asks, ceiling | 6 |
+| Per peer | cc 3, cx 3, ag 1 (use 2 for ag only after seeing no G-5H spike) |
+| pytest | one run at a time, never alongside more than 3 asks |
+| Free RAM | keep at least 6 GB |
+
+If a provider throttles, reduce concurrency; do not reroute the same work to another peer.

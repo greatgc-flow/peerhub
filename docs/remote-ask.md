@@ -92,7 +92,7 @@ workspace; this recipe specifies no automatic file transfer.
 | PeerHub exit | Meaning (`peerhub/cli/app.py:204,398–412`) |
 |---|---|
 | 0 | delivered or recovered terminal |
-| 1 | other ask status or generic error |
+| 1 | other ask status (including `denied_empty`: empty ag reply after denied tool action(s)) or generic error |
 | 2 | idempotency conflict; argument parsing also uses argparse |
 | 3 / 4 / 6 | CAS lost / storage error / schema version error |
 

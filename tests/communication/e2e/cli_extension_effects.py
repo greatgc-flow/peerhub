@@ -219,8 +219,10 @@ def refresh_effect(e, option):
         assert captured[0]["instance_id"] == "cx" and result["observations"][0]["subject_ref"] == "cx"
     elif option == "--system-dir":
         assert captured[0]["sys_dir"] == e.tmp
-    else:
+    elif option == "--timeout-seconds":
         assert captured[0]["deadline_sec"] == 2
+    else:
+        assert captured[0]["deadline_sec"] == 15
 
 
 def monitor_effect(e, option):
@@ -373,7 +375,7 @@ def profile_effect(e, command, option):
         argv += [option, str(workspace)]
     elif option == "--format":
         argv += [option, "table"]
-    code, out, _ = e.run(e.tmp / "unused-profile.db", *argv)
+    code, out, _ = e.run(e.tmp / "unused-profile.db", *argv, *([] if option == "--format" else ["--json"]))
     assert code == 0 and not (e.tmp / "unused-profile.db").exists()
     if option == "--format":
         assert "PROFILE" in out if command == "list" else "FIELD" in out
@@ -401,7 +403,7 @@ def session_inspection_effect(e, command, option):
             code, _, _ = e.run(db, "ask", "cx", f"prompt {index}", "--fresh", "--json")
             assert code == 0
     if command == "show":
-        sessions = json.loads(e.run(db, "session", "list")[1])["items"]
+        sessions = json.loads(e.run(db, "session", "list", "--json")[1])["items"]
         argv = ["session", "show", sessions[0]["handle"]]
     else:
         argv = ["session", "list"]
@@ -412,11 +414,11 @@ def session_inspection_effect(e, command, option):
     elif option == "--limit":
         argv += [option, "1"]
     elif option == "--cursor":
-        first = json.loads(e.run(db, "session", "list", "--limit", "1")[1])
+        first = json.loads(e.run(db, "session", "list", "--limit", "1", "--json")[1])
         argv += ["--limit", "1", option, first["next_cursor"]]
     elif option == "--format":
         argv += [option, "table"]
-    code, out, _ = e.run(db, *argv)
+    code, out, _ = e.run(db, *argv, *([] if option == "--format" else ["--json"]))
     assert code == 0
     if option == "--format":
         assert "HANDLE" in out if command == "list" else "handle:" in out
@@ -431,6 +433,8 @@ def session_inspection_effect(e, command, option):
             assert len(rows) == 1 and result["next_cursor"]
         elif option == "--cursor":
             assert len(rows) == 1 and rows[0]["generation"] < 2
+        elif command == "list":
+            assert len(rows) == 2 and all(row["peer_id"] == "cx" for row in rows)
         else:
             assert result["session"]["handle"] == argv[2]
 
@@ -491,7 +495,7 @@ def batch_effect(e, option):
     if option == "manifest":
         argv[2] = str(e.tmp / "absent.json")
         code, out, err = e.run(db, *argv)
-        assert code == 1 and json.loads(out)["error"]["code"] == "invalid_manifest" and not err
+        assert code == 1 and json.loads(out)["error"]["code"] == "invalid_manifest" and "[invalid_manifest]" in err
     elif option == "--json":
         code, out, err = e.run(db, *argv)
         assert code == 0 and json.loads(out)["dry_run"] and not err

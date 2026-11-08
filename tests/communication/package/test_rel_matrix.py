@@ -102,7 +102,7 @@ def _smoke(installed, workdir):
     """Minimal install/workspace/append/restart smoke through the installed wheel (separate processes = restart)."""
     db = workdir / "core.db"
     def cli(*a):
-        return pkg_env.run([installed.script("peerhub"), "--db", str(db), *a], cwd=workdir)
+        return pkg_env.run([installed.script("peerhub"), "--db", str(db), *a, "--json"], cwd=workdir)
     assert cli("peer", "register", "--peer", "a").returncode == 0
     assert cli("stream", "create", "--stream", "s", "--members", "a").returncode == 0
     r = cli("record", "append", "--stream", "s", "--author-peer", "a", "--kind", "message", "--body", '"hi"', "--idempotency-key", "k",
@@ -224,7 +224,7 @@ def test_rel_011_os_matrix_cell_path_and_newline_smoke(py, os_, installed, tmp_p
     db = work / "core é.db"
 
     def cli(*a):
-        return pkg_env.run([installed.script("peerhub"), "--db", str(db), *a], cwd=work)  # NO PYTHONUTF8: default console encoding
+        return pkg_env.run([installed.script("peerhub"), "--db", str(db), *a, "--json"], cwd=work)  # NO PYTHONUTF8: default console encoding
 
     assert cli("peer", "register", "--peer", "a").returncode == 0
     assert cli("stream", "create", "--stream", "s", "--members", "a").returncode == 0

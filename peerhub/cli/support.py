@@ -2,7 +2,20 @@
 from __future__ import annotations
 
 import sys
-from typing import Any
+from pathlib import Path
+from typing import Any, Sequence, cast
+
+
+def configured_cx_pools(db_path: str | Path, peers: Sequence[str]) -> list[str] | None:
+    """Resolve profile configuration at the CLI boundary, outside Observation probes."""
+    if not any(peer in {"cx", "codex"} for peer in peers):
+        return None
+    from peerhub.extensions.adapters.profiles import list_profiles
+    database = Path(db_path).resolve()
+    workspace = database.parent.parent if database.parent.name == ".peerhub" else database.parent
+    profiles = list_profiles(workspace)
+    return sorted({str(pool) for profile in profiles if str(profile["profile"]).startswith("cx.")
+                   for pool in cast(list[object], profile["fields"]["pools"]["value"] or [])})
 
 
 def print_warnings(result: dict[str, Any]) -> None:
@@ -12,3 +25,8 @@ def print_warnings(result: dict[str, Any]) -> None:
 
 def agy_token_use(result: dict[str, Any]) -> bool:
     return any(o.get("payload", {}).get("evidence_ref") == "agy_usage_consumed_tokens" for o in result.get("observations", []))
+
+
+def error_line(code: str, message: str, hint: str | None = None) -> None:
+    hint = hint or f"peerhub explain {code}"
+    print(f"[{code}] {' '.join(str(message).split())}; next: {' '.join(hint.split())}", file=sys.stderr)

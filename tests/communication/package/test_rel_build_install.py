@@ -124,7 +124,7 @@ CRASH_SNIPPET = textwrap.dedent("""
 
 
 def _cli(installed, outside, db, *args):
-    return pkg_env.run([installed.script("peerhub"), "--db", str(db), *args], cwd=outside)
+    return pkg_env.run([installed.script("peerhub"), "--db", str(db), *args, "--json"], cwd=outside)
 
 
 def test_rel_003_fresh_workspace_smoke_with_restart_and_crash(installed, outside, tmp_path):

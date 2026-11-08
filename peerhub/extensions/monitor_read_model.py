@@ -12,12 +12,79 @@ from typing import Any, Callable, cast
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.extensions.observation_model import (
     MEASUREMENT_KEYS,
+    NOT_REPORTED_REASON,
     FreshnessPolicy,
     ObservationCorruptError,
     evaluate as evaluate_observation,
     row_to_observation,
 )
 from peerhub.extensions.quota_projection import project_exhaustion
+
+
+def mapped_quota(configured_pools: list[str], peer_observations: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Peer quota over its profile's configured pools: the freshest row per pool, the most constrained wins.
+
+    A pool the provider explicitly did not report (ABSENT "not reported by provider") is skipped, never
+    limiting; if every configured pool is not reported the peer is UNKNOWN, never 100% free. Anything else
+    that is not a fresh valid measurement makes the peer INCOMPLETE (fail closed)."""
+    mapped_measured: list[tuple[float, dict[str, Any]]] = []
+    not_reported_pools = 0
+    for p_req in configured_pools:
+        matching_obs = [
+            o for o in peer_observations
+            if (str(o.get("pool_ref") or o.get("pool_kind") or "").split(":")[-1]) == p_req
+        ]
+        if not matching_obs:
+            return _incomplete_quota()
+        best_matching = max(matching_obs, key=lambda o: int(o.get("effective_at_us") or 0))  # freshest, not first
+        if (best_matching.get("state") == "ABSENT"
+                and str(best_matching.get("reason") or "").startswith(NOT_REPORTED_REASON)):
+            not_reported_pools += 1  # the provider says this window does not exist: never limiting
+            continue
+        raw_m_val = best_matching.get("measurements")
+        q_m_dict = cast(dict[str, Any], raw_m_val) if isinstance(raw_m_val, dict) else {}
+        rem_val = q_m_dict.get("remaining_fraction")
+        is_valid = (
+            isinstance(rem_val, (int, float)) and not isinstance(rem_val, bool)
+            and math.isfinite(float(rem_val)) and 0.0 <= float(rem_val) <= 1.0
+        )
+        if best_matching.get("state") != "MEASURED" or not is_valid:
+            return _incomplete_quota()
+        mapped_measured.append((float(cast(float, rem_val)), best_matching))
+    if mapped_measured:
+        lowest_rem, best_obs = min(mapped_measured, key=lambda x: (x[0], str(x[1].get("pool_ref") or "")))
+        return {
+            "pool_ref": best_obs.get("pool_ref") or best_obs.get("pool_kind"),
+            "remaining_fraction": lowest_rem,
+            "percent": round(lowest_rem * 100),
+            "state": "MEASURED",
+            "source": best_obs.get("source"),
+            "age_seconds": best_obs.get("age_seconds"),
+            "scope": "mapped",
+        }
+    if not_reported_pools:
+        return {
+            "pool_ref": "not_reported",
+            "remaining_fraction": None,
+            "percent": None,
+            "state": "UNKNOWN",
+            "source": "derived",
+            "age_seconds": None,
+            "scope": "mapped",
+        }
+    return None
+
+
+def _incomplete_quota() -> dict[str, Any]:
+    return {
+        "pool_ref": "incomplete",
+        "remaining_fraction": None,
+        "percent": None,
+        "state": "INCOMPLETE",
+        "source": "derived",
+        "age_seconds": None,
+        "scope": "mapped",
+    }
 
 
 def _filters(peer_id: str | None, stream_id: str | None, alias: str = "s") -> tuple[str, list[Any]]:
@@ -171,7 +238,7 @@ def public_telemetry(raw: object, *, handle: str, generation: int, provider: str
 
 def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | None = None,
                          trace_callback: Callable[[str], None] | None = None,
-                         workspace: str | Path | None = None) -> dict[str, Any]:
+                         workspace: str | Path | None = None, human: bool = False) -> dict[str, Any]:
     """Read grouped monitor facts from one query-only SQLite snapshot (five bounded query families)."""
     import time
     now = time.time() if read_at is None else read_at
@@ -538,50 +605,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         stale_candidates.append(o)
 
                 if is_mapped:
-                    mapped_measured: list[tuple[float, dict[str, Any]]] = []
-                    is_incomplete = False
-                    for p_req in configured_pools:
-                        matching_obs = [
-                            o for o in peer_observations
-                            if (str(o.get("pool_ref") or o.get("pool_kind") or "").split(":")[-1]) == p_req
-                        ]
-                        if not matching_obs:
-                            is_incomplete = True
-                            break
-                        best_matching = matching_obs[0]
-                        raw_m_val = best_matching.get("measurements")
-                        q_m_dict = cast(dict[str, Any], raw_m_val) if isinstance(raw_m_val, dict) else {}
-                        rem_val = q_m_dict.get("remaining_fraction")
-                        is_valid = (
-                            isinstance(rem_val, (int, float)) and not isinstance(rem_val, bool)
-                            and math.isfinite(float(rem_val)) and 0.0 <= float(rem_val) <= 1.0
-                        )
-                        if best_matching.get("state") != "MEASURED" or not is_valid:
-                            is_incomplete = True
-                            break
-                        mapped_measured.append((float(cast(float, rem_val)), best_matching))
-
-                    if is_incomplete:
-                        q_data = {
-                            "pool_ref": "incomplete",
-                            "remaining_fraction": None,
-                            "percent": None,
-                            "state": "INCOMPLETE",
-                            "source": "derived",
-                            "age_seconds": None,
-                            "scope": "mapped",
-                        }
-                    elif mapped_measured:
-                        lowest_rem, best_obs = min(mapped_measured, key=lambda x: (x[0], str(x[1].get("pool_ref") or "")))
-                        q_data = {
-                            "pool_ref": best_obs.get("pool_ref") or best_obs.get("pool_kind"),
-                            "remaining_fraction": lowest_rem,
-                            "percent": round(lowest_rem * 100),
-                            "state": "MEASURED",
-                            "source": best_obs.get("source"),
-                            "age_seconds": best_obs.get("age_seconds"),
-                            "scope": "mapped",
-                        }
+                    q_data = mapped_quota(configured_pools, peer_observations)
                 else:
                     unmapped_scope = "unmapped" if s_item is not None else None
                     if measured_candidates:
@@ -713,9 +737,29 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 "sample_size": sample_size, "truncated": is_truncated,
                 "reason": "query_error" if group_status == "ERROR" else "sample_cap" if is_truncated else None,
             }
+        human_observations: list[dict[str, Any]] = []
+        if human and observations:
+            # One batch within this read snapshot; redraws reuse these immutable facts.
+            ids = [item["observation_id"] for item in observations]
+            evidence = conn.execute(
+                "SELECT o.observation_id, o.payload_json, (SELECT COUNT(*) FROM "
+                "(SELECT DISTINCT s.effective_at_us FROM observations s "
+                "WHERE s.subject_ref=o.subject_ref AND s.resource_pool_ref IS o.resource_pool_ref "
+                "AND s.kind='quota' AND s.state='MEASURED' "
+                "AND json_extract(s.payload_json,'$.resets_at') IS json_extract(o.payload_json,'$.resets_at') "
+                "ORDER BY s.effective_at_us DESC LIMIT 2)) AS samples "
+                "FROM observations o WHERE o.observation_id IN (" + ",".join("?" for _ in ids) + ")", ids,
+            ).fetchall()
+            by_id = {row["observation_id"]: row for row in evidence}
+            for item in observations:
+                row = by_id.get(item["observation_id"])
+                raw: dict[str, Any] = json.loads(row["payload_json"]) if row is not None else {}
+                human_observations.append({**item, "last_measurements": raw,
+                    "resets_at": raw.get("resets_at"), "projection_samples": row["samples"] if row else 0})
         conn.execute("ROLLBACK")
         return {"schema_version": "2.0", "status": "PARTIAL" if errors else "OK", "read_at": now,
-                "groups": output, "errors": errors, "query_families": select_count}
+                "groups": output, "errors": errors, "query_families": select_count,
+                **({"_human_observations": human_observations} if human else {})}
     finally:
         if conn.in_transaction:
             conn.execute("ROLLBACK")

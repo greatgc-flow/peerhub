@@ -79,10 +79,10 @@ def test_default_refresh_in_non_repository_refuses_missing_store(tmp_path, monke
     monkeypatch.setattr("peerhub.cli.app._select_db", lambda *a, **kw: StoreSelection(".peerhub/core.db", "default"))
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: pytest.fail("missing-store refresh must not probe"))
-    assert main(["observation", "refresh", "--peers", "cx"]) == 5
+    assert main(["observation", "refresh", "--peers", "cx", "--json"]) == 5
     cap = capsys.readouterr()
     assert json.loads(cap.out)["status"] == "UNAVAILABLE"
-    assert "database not found: .peerhub/core.db" in cap.err
+    assert f"database not found: {tmp_path / '.peerhub' / 'core.db'}" in cap.err
     assert not (tmp_path / ".peerhub").exists()
 
 
@@ -126,3 +126,20 @@ def test_first_refresh_bootstraps_a_usable_workspace(tmp_path, monkeypatch, caps
     db = tmp_path / ".peerhub" / "core.db"
     assert main(["--db", str(db), "observation", "refresh", "--peers", "cx"]) == 0
     assert main(["--db", str(db), "diag"]) == 0
+
+
+def test_automatic_missing_store_uses_selected_output_format(tmp_path, capsys, monkeypatch):
+    from peerhub.cli.app import main
+    from peerhub.cli.store_select import StoreSelection
+    missing = tmp_path / "absent.db"
+    monkeypatch.setattr("peerhub.cli.app._select_db", lambda *a, **kw: StoreSelection(str(missing), "default"))
+    for flags in ([], ["--json"]):
+        assert main(["observation", "refresh", *flags]) == 5
+        output = capsys.readouterr()
+        assert len(output.err.splitlines()) == 1
+        assert "[store_missing]" in output.err and "next:" in output.err
+        if flags:
+            assert json.loads(output.out)["status"] == "UNAVAILABLE"
+        else:
+            assert output.out == ""
+        assert not missing.exists()
