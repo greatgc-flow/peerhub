@@ -479,7 +479,9 @@ def _run_observation_cli(args: argparse.Namespace) -> int:
     from peerhub.extensions.quota_capture import refresh_quota
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
     CoreStore(args.db)  # explicit --db/PEERHUB_DB retains collection bootstrap semantics
-    result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
+    from peerhub.cli.support import configured_cx_pools
+    result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds,
+                           cx_pools=configured_cx_pools(args.db, args.peers))
     _emit(result, args.json)
     _print_warnings(result)
     return 0 if result["status"] == "OK" else 1

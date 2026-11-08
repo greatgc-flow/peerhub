@@ -38,7 +38,7 @@ def envelope(**extra):
     return env
 
 
-def run_probe(monkeypatch, env):
+def run_probe(monkeypatch, env, **options):
     lines = ['{"id": 0, "result": {"codexHome": "/x"}}\n', json.dumps({"id": 1, "result": env}) + "\n", ""]
 
     class Out:
@@ -56,7 +56,7 @@ def run_probe(monkeypatch, env):
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: Proc())
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: None)
     monkeypatch.setattr("peerhub.extensions.quota_probes._real_binary", lambda _p, _s=None: "dummy.exe")
-    res = poll_codex_usage(Ids(), "cx", "default", deadline_sec=1.0)
+    res = poll_codex_usage(Ids(), "cx", "default", deadline_sec=1.0, **options)
     return [r for r in res if isinstance(r, UsageObserved)], [r for r in res if isinstance(r, ResetCreditObserved)]
 
 
@@ -89,13 +89,49 @@ def test_incomplete_windows_are_unknown_never_absent(monkeypatch, secondary):
     assert len([u for u in usage if u.evidence.state == EvidenceState.MEASURED]) == 1
 
 
-def test_absent_pool_inventory_follows_configured_profiles(monkeypatch):
-    monkeypatch.setattr("peerhub.extensions.adapters.profiles.list_profiles", lambda root: [
-        {"profile": "cx.effort", "fields": {"pools": {"value": ["X-5H", "X-30D"]}}}])
-    usage, _ = run_probe(monkeypatch, envelope())
+@pytest.mark.parametrize("configured,expected", [(None, ["X-7D"]), (["X-5H", "X-30D"], ["X-30D"]), ([], [])])
+def test_absent_pool_inventory_is_injected_with_legacy_default(monkeypatch, configured, expected):
+    def forbidden(_):
+        raise AssertionError("probe must not load profiles")
+    monkeypatch.setattr("peerhub.extensions.adapters.profiles.list_profiles", forbidden)
+    options = {} if configured is None else {"configured_pools": configured}
+    usage, _ = run_probe(monkeypatch, envelope(), **options)
+    assert usage[0].evidence.state == EvidenceState.MEASURED
     absent = [u for u in usage if u.evidence.state == EvidenceState.ABSENT]
-    assert len(absent) == 1 and absent[0].evidence.value is None
-    assert absent[0].extra["pool_scope"] == "X-30D"
+    assert [u.extra["pool_scope"] for u in absent] == expected
+    assert all(u.evidence.value is None for u in absent)
+
+
+def test_refresh_forwards_injected_pools_only_to_cx(tmp_path):
+    db = tmp_path / "core.db"
+    CoreStore(db)
+    calls = []
+    def poll(**options):
+        calls.append(options)
+        return []
+    refresh_quota(db, ["cx", "cc"], cx_pools=["X-30D"], pollers={"cx": poll, "cc": poll},
+                  version_checker=lambda _: None)
+    assert calls[0]["configured_pools"] == ["X-30D"]
+    assert "configured_pools" not in calls[1]
+
+
+def test_observation_cli_loads_and_injects_profile_pools(tmp_path, monkeypatch, capsys):
+    from peerhub.cli.app import main
+    db = tmp_path / ".peerhub/core.db"
+    roots, calls = [], []
+    def profiles(root):
+        roots.append(root)
+        return [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
+            ("cx.effort", ["X-5H", "X-30D"]), ("cx.standard", ["X-30D"]), ("cc.effort", ["C-7D"]))]
+    def refresh(*args, **options):
+        calls.append(options)
+        return {"status": "OK", "observations": [], "warnings": []}
+    monkeypatch.setattr("peerhub.extensions.adapters.profiles.list_profiles", profiles)
+    monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
+    assert main(["--db", str(db), "observation", "refresh", "--peers", "cx"]) == 0
+    capsys.readouterr()
+    assert roots == [tmp_path]
+    assert calls[0]["cx_pools"] == ["X-30D", "X-5H"]
 
 
 def test_zero_credits_is_measured_zero(monkeypatch):

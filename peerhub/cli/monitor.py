@@ -17,7 +17,7 @@ from time import monotonic, sleep
 from pathlib import Path
 from typing import Any, cast
 
-from peerhub.cli.support import agy_token_use, error_line, print_warnings
+from peerhub.cli.support import agy_token_use, configured_cx_pools, error_line, print_warnings
 from peerhub.cli.monitor_preferences import GROUP_IDS
 
 def register_monitor_parser(subparsers: Any) -> None:
@@ -266,7 +266,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                     output.write(_render_human_frame(display, view=effective_view, width=width,
                                                      height=height, color=color, expand=expand))
                 result = refresh_quota(args.db, args.peers, sys_dir=getattr(args, "sys_dir", None),
-                                       deadline_sec=args.timeout)
+                                       deadline_sec=args.timeout, cx_pools=configured_cx_pools(args.db, args.peers))
                 last_refresh_code = 1 if result["status"] != "OK" else 0
                 refresh = {"status": result["status"], "warnings": result.get("warnings", []),
                            "observations": len(result.get("observations", []))}

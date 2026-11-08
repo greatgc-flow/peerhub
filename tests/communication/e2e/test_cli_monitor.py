@@ -1095,7 +1095,8 @@ def test_monitor_forwards_system_dir(tmp_path):
     from pathlib import Path
     calls = []
 
-    def fake_refresh(db, peers, sys_dir=None, deadline_sec=15.0):
+    def fake_refresh(db, peers, sys_dir=None, deadline_sec=15.0, cx_pools=None):
+        assert cx_pools is not None
         calls.append(sys_dir)
         return {"status": "OK", "observations": [], "warnings": []}
 

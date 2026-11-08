@@ -30,13 +30,6 @@ _RATE_LIMITS_READ_METHOD = "account/rateLimits/read"
 already reuses other private helpers from this module -- see its own
 import comment)."""
 
-def _cx_configured_pools() -> list[str]:
-    from peerhub.extensions.adapters.profiles import list_profiles
-    profiles = list_profiles(Path.cwd())
-    return sorted({str(pool) for profile in profiles if str(profile["profile"]).startswith("cx.")
-                   for pool in cast(list[object], profile["fields"]["pools"]["value"] or [])})
-
-
 def _plan_label(value: object) -> str:
     """planType is display data only (X5): sanitised, bounded, never branched on."""
     text = re.sub(r"[^A-Za-z0-9_.-]", "", value) if isinstance(value, str) else ""
@@ -782,6 +775,7 @@ def poll_codex_usage(
     deadline_sec: float = 12.0,
     freshness_ttl: int = 60,
     sys_dir: Optional[Path] = None,
+    configured_pools: Sequence[str] | None = None,
 ) -> Sequence[UsageObserved | ResetCreditObserved]:
     """Poll codex app-server (JSON-RPC `account/rateLimits/read`, no model turn) and return observations for each quota pool,
     plus one reset-credit observation from the same response."""
@@ -1019,7 +1013,7 @@ def poll_codex_usage(
 
         if isinstance(rate_limits_raw, dict) and not malformed:
             plan = _plan_label(cast(dict[str, Any], rate_limits_raw).get("planType"))
-            for pool_scope in _cx_configured_pools():
+            for pool_scope in (("X-5H", "X-7D") if configured_pools is None else configured_pools):
                 if pool_scope in reported_labels:
                     continue
                 results.append(_fail_closed(
