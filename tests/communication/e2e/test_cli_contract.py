@@ -70,7 +70,7 @@ def env(tmp_path, capsys):
         return db
 
     def j(db, *a, code=0):
-        c, out, err = run(capsys, db, *a)
+        c, out, err = run(capsys, db, *a, "--json")
         assert c == code, (a, c, err[-300:])
         return json.loads(out) if out.strip() else None
 
@@ -319,6 +319,80 @@ from tests.communication.e2e.cli_extension_effects import EFFECT as EXTENSION_EF
 EFFECT.update(EXTENSION_EFFECT)
 
 
+
+def universal_json_effect(e, command):
+    """Exercise JSON at its declared parser level, without a leaf flag masking it."""
+    from types import SimpleNamespace
+    from tests.communication.e2e.cli_extension_effects import (
+        account_effect, batch_effect, refresh_effect, session_inspection_effect,
+        monitor_management_effect,
+    )
+    prefix = [] if command == "*" else command.split()
+    def run(db, *argv):
+        args = [arg for arg in argv if arg != "--json"]
+        assert args[:len(prefix)] == prefix
+        args.insert(len(prefix), "--json")
+        return e.run(db, *args)
+    def machine(db, *argv, code=0):
+        actual, out, err = run(db, *argv)
+        assert actual == code, err
+        return json.loads(out)
+    proxy = SimpleNamespace(**e.__dict__)
+    proxy.run, proxy.j = run, machine
+    root = prefix[0] if prefix else "peer"
+    if root == "account":
+        account_effect(proxy, "list", "--json")
+    elif root == "batch":
+        batch_effect(proxy, "--dry-run")
+    elif root == "observation":
+        refresh_effect(proxy, "--json")
+    elif root == "session":
+        session_inspection_effect(proxy, "show" if command.endswith("show") else "list", "--json")
+    elif root == "monitor":
+        monitor_management_effect(proxy, ["monitor", "defaults", "show"])
+    elif root == "profile":
+        action = "show" if command.endswith("show") else "list"
+        argv = ["profile", action] + (["cx.standard"] if action == "show" else [])
+        result = machine(e.tmp / "unused.db", *argv)
+        assert result["schema_version"] == "1.0"
+    else:
+        db = e.fresh()
+        commands = {
+            "*": ["peer", "get", "--peer", "a"],
+            "peer": ["peer", "get", "--peer", "a"],
+            "peer register": ["peer", "register", "--peer", "json-worker"],
+            "peer get": ["peer", "get", "--peer", "a"],
+            "peer list": ["peer", "list"],
+            "stream": ["stream", "show", "--stream", "s"],
+            "stream create": ["stream", "create", "--stream", "json-stream"],
+            "stream show": ["stream", "show", "--stream", "s"],
+            "stream list": ["stream", "list"],
+            "record": ["record", "read", "--stream", "s"],
+            "record append": APPEND,
+            "record read": ["record", "read", "--stream", "s"],
+            "offset": ["offset", "get", "--peer", "a", "--stream", "s"],
+            "offset get": ["offset", "get", "--peer", "a", "--stream", "s"],
+            "offset advance": ["offset", "advance", "--peer", "a", "--stream", "s", "--position", "1", "--revision", "1"],
+            "diag health": ["diag", "health"],
+            "diag integrity": ["diag", "integrity"],
+            "guide": ["guide"],
+        }
+        result = machine(db, *commands[command], code=4 if command == "diag health" else 0)
+        assert result
+
+
+# Hidden --format aliases remain accepted, but leave the published inventory.
+for _hidden in ("peer list", "stream list", "profile list", "profile show", "session list", "session show"):
+    EFFECT.pop(f"{_hidden} --format")
+for _command in (
+    "*", "account", "batch", "diag health", "diag integrity", "guide", "monitor defaults",
+    "observation", "observation refresh", "offset", "offset advance", "offset get", "peer",
+    "peer get", "peer list", "peer register", "profile", "profile list", "profile show",
+    "record", "record append", "record read", "session", "session list", "session show",
+    "stream", "stream create", "stream list", "stream show",
+):
+    EFFECT[f"{_command} --json"] = lambda e, command=_command: universal_json_effect(e, command)
+
 def test_every_published_option_has_an_effect_proof():
     assert inv.option_keys(inv.derive()) == sorted(EFFECT)  # a new option/positional/alias at any level without a behavioural proof (or a stale proof) fails here
 
@@ -415,7 +489,7 @@ def test_store_selection_failure_uses_normal_cli_error(monkeypatch, capsys):
         raise ValueError("invalid store selection")
     monkeypatch.setattr("peerhub.cli.app._select_db", fail)
     assert main(["peer", "get", "--peer", "a"]) == 1
-    assert capsys.readouterr().err == "ERROR: invalid store selection\n"
+    assert "[invalid_arguments] ERROR: invalid store selection; next:" in capsys.readouterr().err
 
 
 def test_core_read_missing_store_emits_json_when_requested(tmp_path, capsys, monkeypatch):
@@ -428,12 +502,11 @@ def test_core_read_missing_store_emits_json_when_requested(tmp_path, capsys, mon
     assert payload["status"] == "UNAVAILABLE"
     assert "database not found" in payload["error"]
 
-    # When --format auto and stdout is not a tty, json is also emitted
+    # --format auto remains human text on non-TTY output
     monkeypatch.setattr("sys.stdout.isatty", lambda: False)
     code_auto = main(["--db", missing_db, "peer", "list", "--format", "auto"])
     assert code_auto == 5
     out_auto, err_auto = capsys.readouterr()
-    payload_auto = json.loads(out_auto)
-    assert payload_auto["status"] == "UNAVAILABLE"
-    assert "database not found" in payload_auto["error"]
+    assert out_auto == ""
+    assert "[store_missing]" in err_auto and "next:" in err_auto
 

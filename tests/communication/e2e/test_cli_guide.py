@@ -204,12 +204,31 @@ def test_guide_ag_gate_distinct_from_agy_permissions(capsys):
     assert main(["guide"]) == 0
     safety = capsys.readouterr().out.split("Safety:\n", 1)[1].split("Discovery", 1)[0]
     assert "PeerHub requires --writable for ag even for read tasks" in safety
-    assert "accept-edits (workspace-wide edit approval)" in safety
+    assert "accept-edits, workspace-wide" in safety
     assert "pass --writable on every turn, including resumed turns" in safety
-    assert "ag -w must be the trusted project folder, not temp/scratch" in safety
-    assert "direct agy reads need no accept-edits" in safety
-    assert "headless prompts auto-deny" in safety
+    assert "-w = trusted project folder, not temp/scratch (prerequisite, not a guarantee)" in safety
+    assert "Headless prompts auto-deny" in safety
     assert "shell needs matching command(...) or command(*) allow rules" in safety
+
+
+def test_guide_ag_recipe_comes_first_and_forbids_resume_after_empty(capsys):
+    """ag usability A1: one short recipe leads the ag guidance; empty/denied_empty replies are never resumed."""
+    assert main(["guide"]) == 0
+    safety = capsys.readouterr().out.split("Safety:\n", 1)[1].split("Discovery", 1)[0]
+    lines = safety.splitlines()
+    assert lines[0].startswith("  ag recipe")
+    assert lines[3].startswith("  Writes:")
+    recipe = "\n".join(lines[:3])  # recipe stays within 6 lines
+    assert "--query-file" in recipe and '"no tools"' in recipe
+    assert "one task per ask" in recipe and "verify flash claims" in recipe
+    assert "never resume that stream" in recipe and "new stream, content inlined" in recipe
+    assert "peerhub explain ag'" in recipe
+
+
+def test_guide_documents_db_precedence(capsys):
+    assert main(["guide"]) == 0
+    out = capsys.readouterr().out
+    assert "--db > PEERHUB_DB > nearest upward .peerhub/core.db" in out
 
 
 def test_guide_efficiency_guidance_and_transport(capsys):

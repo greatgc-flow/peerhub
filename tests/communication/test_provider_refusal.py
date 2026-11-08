@@ -436,7 +436,7 @@ def test_cli_ask_formatting_text_and_json(tmp_path, capsys):
         code = main(["--db", str(db), "ask", "cx", "Build feature"])
         assert code == 1
         captured = capsys.readouterr()
-        assert "Task outcome: NOT_EXECUTED" in captured.err
+        assert "[ask_refusal]" in captured.err and "next:" in captured.err
         assert "usage limit / quota exhausted" in captured.err
         assert "12:24 PM" in captured.err
 

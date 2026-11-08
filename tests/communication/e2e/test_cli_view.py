@@ -264,7 +264,7 @@ def test_dashboard_flags_are_honoured_or_rejected_never_silently_ignored(tmp_pat
     capsys.readouterr()
     assert cli(["--db", db, "diag", "--json", "quota"]) in (0, 5)  # parent --json is no longer lost
     assert _json.loads(capsys.readouterr().out)["schema_version"] == "1.0"
-    for argv in (["diag", "--view", "rich", "health"], ["diag", "--json", "health"]):
+    for argv in (["diag", "--view", "rich", "health"],):
         with pytest.raises(SystemExit) as exc:
             cli(["--db", db, *argv])
         assert exc.value.code == 2
@@ -279,7 +279,7 @@ def test_diag_health_reports_how_the_store_was_chosen(tmp_path, capsys):
     db = tmp_path / "w.db"
     assert cli(["--db", str(db), "peer", "register", "--peer", "a"]) == 0
     capsys.readouterr()
-    assert cli(["--db", str(db), "diag", "health"]) == 4
+    assert cli(["--db", str(db), "diag", "health", "--json"]) == 4
     assert _json.loads(capsys.readouterr().out)["store_selection"] == {"path": str(db), "source": "explicit"}
 
 

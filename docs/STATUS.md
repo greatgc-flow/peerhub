@@ -2,7 +2,9 @@
 
 > **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
-## Current source: v0.23.3 (published)
+## Current source: v0.24.0 (unreleased)
+
+v0.24.0 unifies CLI human output, store precedence and monitor presentation, refreshes model observations without changing profiles, and includes denied-empty handling (#300). Deterministic CI and release gates are pending.
 
 The latest published package is **v0.23.3** (tag `v0.23.3`, target `60220a2c`). Later main changes are **source-only until a new release**. The installed `peerhub guide` does not automatically update when main changes.
 

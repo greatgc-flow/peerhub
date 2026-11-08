@@ -1,14 +1,16 @@
 PeerHub Monitor | OK | 1970-01-01 00:16:40Z
-── QUOTA [OK] | soonest exhaust: ag P-3H 1% in 30m ────────────────────────────
-PEER  POOL        REM  [BAR]       RESET-IN   PACE      STATE         AGE
-ag    P-1H       100%  [████████]  2h00m      -         ON_PACE       30s
-ag    P-2H        50%  [████░░░░]  2h00m      -         WATCH         30s
-ag    P-3H         1%  [▏░░░░░░░]  2h00m      -         THREAT        30s
-ag    P-4H         0%  [░░░░░░░░]  2h00m      -         EXHAUSTED     30s
-ag    P-5H          -  [░░░░░░░░]  -          -         ERROR         30s
-ag    P-6H          -  [░░░░░░░░]  -          -         UNKNOWN       30s
-ag    P-7H          -  [░░░░░░░░]  -          -         STALE         30s
-ag    P-8H        90%  [███████░]  2h00m      -         INSUFFICIENT    30s
-ag probe: UNKNOWN fresh measured evidence is requ… (34m ago)
-cc probe: ERROR claude_usage_timeout (2h57m ago)
-STATE: INSUFFICIENT=insufficient projection data; THREAT=exhausts before reset
+── QUOTA [OK] | measured remaining | soonest exhaust: ag P-3H 1% in 30m ───────
+PEER  POOL        REM  [BAR]       RESET-IN   PACE      STATE           AGE
+ag    P-1H       100%  [████████]  2h00m      -         ON_PACE         30s
+ag    P-2H        50%  [████░░░░]  2h00m      -         WATCH           30s
+ag    P-3H         1%  [▏░░░░░░░]  2h00m      -         THREAT          30s
+ag    P-4H         0%  [░░░░░░░░]  2h00m      -         EXHAUSTED       30s
+ag    P-5H          -  [░░░░░░░░]  -          -         ERROR           30s
+ag    P-6H          -  [░░░░░░░░]  -          -         UNKNOWN         30s
+ag    P-7H          -  [░░░░░░░░]  -          -         STALE:window    30s
+ag    P-8H        90%  [███████░]  2h00m      -         INSUFF          30s
+ag PROBE:34m STALE:window; next: peerhub observation refresh --peers ag
+cc PROBE:2h PROBE:unknown; next: peerhub observation refresh --peers cc
+Columns omitted: exhaust-in profiles (configured)
+STATE: INSUFF=insufficient projection data; THREAT=exhausts before reset
+Coverage: partial; peerhub explain <code>

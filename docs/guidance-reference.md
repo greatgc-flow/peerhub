@@ -10,7 +10,7 @@ The table below maps actual result statuses (`result["status"]` returned by `pee
 |---|---|---|---|---|
 | `blocked_uncertain` | 1 | `ask_blocked_uncertain` | New request on this stream is blocked because an earlier record on the stream ended in an uncertain state. | Inspect stream health and uncommitted evidence via `peerhub diag health --stream STREAM_ID`. Abandon the blocked stream and continue on a new stream. |
 | `delivered` | 0 | (none) | Request executed successfully and terminal response was committed to the stream. | None required. Continue subsequent turns on the same stream to reuse the active session. |
-| `denied_empty` | 1 | `ask_denied_empty` | Turn ended (certainty TERMINAL) with an empty response after the provider denied tool action(s); not a usable answer and task effects are unverified. | Treat the reply as unusable; the denied tool names are in denied_actions. Re-ask with a prompt that avoids shell tools or add permissions.allow in agy settings.json, and verify the workspace. |
+| `denied_empty` | 1 | `ask_denied_empty` | Turn ended (certainty TERMINAL) with an empty response after the provider denied tool action(s); not a usable answer and task effects are unverified. | Treat the reply as unusable; the denied tool names are in denied_actions. Do not resume the stream: start a new stream with the needed content inlined via --query-file, and verify the workspace. |
 | `failed_not_started` | 1 | `ask_launch_failed` | Provider process failed before execution started (missing executable or OS spawn rejection). | Inspect peer adapter availability and PATH configuration via `peerhub diag health`. |
 | `not_executed` | 1 | `ask_refusal` | Provider explicitly refused execution before performing tool calls (e.g. quota exhausted, auth failure, invalid model). | Inspect quota pools and reset times via `peerhub diag quota` or verify profile configuration via `peerhub profile list`. |
 | `pending_earlier_record` | 1 | `context-dependent` | Cycle processed an earlier record on the stream rather than this prompt. Meaning and guidance depend on processed_status (earlier may have delivered, refused, failed, or ended uncertain). | Inspect processed_status: if earlier delivered, retry this queued prompt with the same request-id, prompt, binding and selector; check quota/health if refused/failed; abandon stream if uncertain. |
@@ -40,7 +40,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `ask_cas_conflict` | 3 | A compare-and-swap revision check failed. | `peerhub diag health --stream STREAM_ID` (Inspect current stream state before retrying the original request) | Do not bypass revision checks or change the request ID to force another execution; resolve uncertain delivery first. |
 | `ask_claim_held` | 1 | A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream. | `peerhub diag health --stream STREAM_ID` (Inspect store connectivity and stream activity (note: diag health checks store and stream records, not active in-memory leases or claims)) | Do not delete claim tables or database files, do not force --fresh, and do not bypass claim contention with duplicate request IDs. |
 | `ask_delivery_failed` | 1 or 4 (context-dependent) | Adapter invocation failed before execution started or failed critically during delivery. | `peerhub diag health` (Inspect peer adapter status and diagnostic health) | Do not loop blind retries or pass --fresh without verifying adapter flags and availability. After a proven pre-spawn failure, retry unchanged binding with the same request-id; a corrected binding requires a new request-id and supersedes the failed request. Uncertain execution still requires stopping that stream. |
-| `ask_denied_empty` | 1 | The turn ended with an empty response after the provider denied tool action(s); this is not a usable answer. | `peerhub diag health` (Inspect peer adapter status, then re-ask with a prompt that avoids shell tools or add permissions.allow in agy settings.json) | Do not treat the empty response as a completed answer or assume the denied action ran; check the workspace for partial effects before re-asking under a new request-id. |
+| `ask_denied_empty` | 1 | The turn ended with an empty response after the provider denied tool action(s); this is not a usable answer. | `peerhub ask ag --query-file CONTENT_FILE --stream NEW_STREAM --writable` (Start a new stream and inline the needed content via --query-file (say "no tools"); do not resume this stream) | Do not resume this stream (a resumed turn may fabricate paths), and do not treat the empty response as a completed answer or assume the denied action ran. |
 | `ask_idempotency_conflict` | 2 | An idempotency key was reused with conflicting request data. | `peerhub record read --stream STREAM_ID` (Inspect the original request and reuse its prompt, binding, and session selector for a retry) | Do not change request IDs to bypass a conflict or retry uncertain execution blindly. |
 | `ask_launch_failed` | 1 | Provider CLI executable could not be found or failed to spawn before execution started. | `peerhub diag health` (Inspect peer adapter availability and PATH configuration) | Do not loop retries or pass --fresh until the provider CLI executable is installed and reachable on PATH. |
 | `ask_refusal` | 1 | The provider explicitly refused execution before performing any tool calls (task outcome NOT_EXECUTED). | `peerhub diag quota` (Inspect provider quota pools and reset times) | Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue. |
@@ -49,7 +49,18 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `ask_stream_peer_mismatch` | 2 | The target stream is already bound to a different ask target peer. | `peerhub stream list` (Inspect existing streams and select or create a stream for this peer) | Do not mix multiple target peers on the same ask stream or force --fresh to override stream peer binding. |
 | `ask_uncertain` | 1 | Request started execution on the peer adapter but ended without terminal certainty (e.g. timeout or abort). | `peerhub diag health --stream STREAM_ID` (Inspect stream health and check for uncommitted or partial activity) | Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. If the ask used the default timeout, do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more). |
 | `ask_unexpected_failure` | 1 or 2 (context-dependent) | An unclassified or unexpected error occurred during ask dispatch. | `peerhub diag health` (Inspect diagnostic evidence and stream state) | Do not retry destructive actions or invent unverified recovery commands. |
+| `cas_conflict` | 3 | The offset revision changed before the update. | `peerhub offset get --peer PEER --stream STREAM` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `delivery_failed` | 1 | The command failed before returning a usable result. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `diag_unavailable` | 4 or 5 (context-dependent) | Diagnostic evidence is unavailable or incomplete. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `idempotency_conflict` | 2 | The request conflicts with an existing idempotency key. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `invalid_arguments` | 1 or 2 (context-dependent) | The command arguments were rejected before dispatch. | `peerhub --help` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `invalid_manifest` | 1 | Batch validation failed before any worker was launched. | `peerhub batch run tasks.json --batch-id BATCH_ID --max-parallel 1 --dry-run` (Correct the reported validation error and validate the manifest) | Do not change the batch identifier to bypass an uncertain earlier execution. |
+| `peer_not_found` | 1 | The selected peer does not exist in this store. | `peerhub peer list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `schema_version_error` | 6 | The selected store uses an unsupported schema version. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `session_not_found` | 1 | The selected retained session does not exist. | `peerhub session list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `storage_corrupt` | 4 | The selected store could not complete a storage operation. | `peerhub diag integrity` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `store_missing` | 5 | The selected database does not exist. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `stream_not_found` | 1 | The selected stream does not exist in this store. | `peerhub stream list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 
 ### Detailed Recovery Advice by Outcome Code
 
@@ -111,8 +122,8 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 - **Meaning**: The turn ended with an empty response after the provider denied tool action(s); this is not a usable answer.
 - **Why**: Headless ag cannot prompt for tool permission, so a denied shell or edit action can end the turn with no reply text. Task effects are unverified.
 - **Safe Recovery Actions**:
-  1. `peerhub diag health`: Inspect peer adapter status, then re-ask with a prompt that avoids shell tools or add permissions.allow in agy settings.json (Prerequisites: None.)
-- **Avoid**: Do not treat the empty response as a completed answer or assume the denied action ran; check the workspace for partial effects before re-asking under a new request-id.
+  1. `peerhub ask ag --query-file CONTENT_FILE --stream NEW_STREAM --writable`: Start a new stream and inline the needed content via --query-file (say "no tools"); do not resume this stream (Prerequisites: Put the content the task needs into the query file; one task per ask; check the workspace for partial effects first.)
+- **Avoid**: Do not resume this stream (a resumed turn may fabricate paths), and do not treat the empty response as a completed answer or assume the denied action ran.
 - **Documentation**: [docs/remote-ask.md](remote-ask.md)
 
 #### `ask_idempotency_conflict`
@@ -201,6 +212,60 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 - **Avoid**: Do not retry destructive actions or invent unverified recovery commands.
 - **Documentation**: [docs/remote-ask.md](remote-ask.md)
 
+#### `cas_conflict`
+
+- **Exit Code**: 3
+- **Meaning**: The offset revision changed before the update.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub offset get --peer PEER --stream STREAM`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `delivery_failed`
+
+- **Exit Code**: 1
+- **Meaning**: The command failed before returning a usable result.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub diag health`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `diag_unavailable`
+
+- **Exit Codes** (context-dependent):
+  - `4`: Diagnostic evidence is unavailable or incomplete.
+  - `5`: Diagnostic evidence is unavailable or incomplete.
+- **Meaning**: Diagnostic evidence is unavailable or incomplete.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub diag health`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `idempotency_conflict`
+
+- **Exit Code**: 2
+- **Meaning**: The request conflicts with an existing idempotency key.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub diag health`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `invalid_arguments`
+
+- **Exit Codes** (context-dependent):
+  - `1`: The command arguments were rejected before dispatch.
+  - `2`: The command arguments were rejected before dispatch.
+- **Meaning**: The command arguments were rejected before dispatch.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub --help`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
 #### `invalid_manifest`
 
 - **Exit Code**: 1
@@ -210,6 +275,66 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
   1. `peerhub batch run tasks.json --batch-id BATCH_ID --max-parallel 1 --dry-run`: Correct the reported validation error and validate the manifest (Prerequisites: Use the intended manifest and batch identifier.)
 - **Avoid**: Do not change the batch identifier to bypass an uncertain earlier execution.
 - **Documentation**: [docs/batch.md](batch.md)
+
+#### `peer_not_found`
+
+- **Exit Code**: 1
+- **Meaning**: The selected peer does not exist in this store.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub peer list`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `schema_version_error`
+
+- **Exit Code**: 6
+- **Meaning**: The selected store uses an unsupported schema version.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub guide`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `session_not_found`
+
+- **Exit Code**: 1
+- **Meaning**: The selected retained session does not exist.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub session list`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `storage_corrupt`
+
+- **Exit Code**: 4
+- **Meaning**: The selected store could not complete a storage operation.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub diag integrity`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `store_missing`
+
+- **Exit Code**: 5
+- **Meaning**: The selected database does not exist.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub guide`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `stream_not_found`
+
+- **Exit Code**: 1
+- **Meaning**: The selected stream does not exist in this store.
+- **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
+- **Safe Recovery Actions**:
+  1. `peerhub stream list`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
+- **Avoid**: Do not blindly replay provider work whose execution may already have begun.
+- **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
 
 ## Session Lifecycle & State Definitions
 

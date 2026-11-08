@@ -14,7 +14,7 @@
           "takes_value": true
         },
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -59,7 +59,7 @@
       "command": "account list",
       "options": [
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -84,7 +84,7 @@
       "command": "account show",
       "options": [
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -149,7 +149,7 @@
           "takes_value": false
         },
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -316,7 +316,7 @@
           "takes_value": false
         },
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -351,6 +351,16 @@
       "command": "diag health",
       "options": [
         {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": null,
           "dest": "obs_db",
           "flags": [
@@ -374,7 +384,18 @@
     },
     {
       "command": "diag integrity",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "diag quota",
@@ -440,7 +461,7 @@
       "command": "explain",
       "options": [
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -463,7 +484,18 @@
     },
     {
       "command": "guide",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "monitor defaults reset",
@@ -479,7 +511,7 @@
           "takes_value": false
         },
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -514,7 +546,7 @@
           "takes_value": true
         },
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -529,7 +561,7 @@
       "command": "monitor defaults show",
       "options": [
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -544,7 +576,7 @@
       "command": "monitor groups",
       "options": [
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -569,7 +601,7 @@
           "takes_value": true
         },
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -583,6 +615,16 @@
     {
       "command": "observation refresh",
       "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
         {
           "default": "['cx', 'cc', 'ag']",
           "dest": "peers",
@@ -618,6 +660,16 @@
     {
       "command": "offset advance",
       "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
         {
           "default": null,
           "dest": "peer_id",
@@ -664,6 +716,16 @@
       "command": "offset get",
       "options": [
         {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": null,
           "dest": "peer_id",
           "flags": [
@@ -688,6 +750,16 @@
     {
       "command": "peer get",
       "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
         {
           "default": null,
           "dest": "peer_id",
@@ -714,14 +786,14 @@
           "takes_value": true
         },
         {
-          "default": "auto",
-          "dest": "format",
+          "default": "==SUPPRESS==",
+          "dest": "json",
           "flags": [
-            "--format"
+            "--json"
           ],
           "positional": false,
           "required": false,
-          "takes_value": true
+          "takes_value": false
         },
         {
           "default": 50,
@@ -749,6 +821,16 @@
           "takes_value": true
         },
         {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": null,
           "dest": "display_name",
           "flags": [
@@ -774,14 +856,14 @@
       "command": "profile list",
       "options": [
         {
-          "default": "auto",
-          "dest": "format",
+          "default": "==SUPPRESS==",
+          "dest": "json",
           "flags": [
-            "--format"
+            "--json"
           ],
           "positional": false,
           "required": false,
-          "takes_value": true
+          "takes_value": false
         },
         {
           "default": null,
@@ -799,14 +881,14 @@
       "command": "profile show",
       "options": [
         {
-          "default": "auto",
-          "dest": "format",
+          "default": "==SUPPRESS==",
+          "dest": "json",
           "flags": [
-            "--format"
+            "--json"
           ],
           "positional": false,
           "required": false,
-          "takes_value": true
+          "takes_value": false
         },
         {
           "default": null,
@@ -874,6 +956,16 @@
           "takes_value": true
         },
         {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": null,
           "dest": "kind",
           "flags": [
@@ -919,6 +1011,16 @@
           "takes_value": true
         },
         {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": 50,
           "dest": "limit",
           "flags": [
@@ -954,14 +1056,14 @@
           "takes_value": true
         },
         {
-          "default": "auto",
-          "dest": "format",
+          "default": "==SUPPRESS==",
+          "dest": "json",
           "flags": [
-            "--format"
+            "--json"
           ],
           "positional": false,
           "required": false,
-          "takes_value": true
+          "takes_value": false
         },
         {
           "default": 20,
@@ -999,14 +1101,14 @@
       "command": "session show",
       "options": [
         {
-          "default": "auto",
-          "dest": "format",
+          "default": "==SUPPRESS==",
+          "dest": "json",
           "flags": [
-            "--format"
+            "--json"
           ],
           "positional": false,
           "required": false,
-          "takes_value": true
+          "takes_value": false
         },
         {
           "default": null,
@@ -1023,6 +1125,16 @@
     {
       "command": "stream create",
       "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
         {
           "default": "[]",
           "dest": "members",
@@ -1069,14 +1181,14 @@
           "takes_value": true
         },
         {
-          "default": "auto",
-          "dest": "format",
+          "default": "==SUPPRESS==",
+          "dest": "json",
           "flags": [
-            "--format"
+            "--json"
           ],
           "positional": false,
           "required": false,
-          "takes_value": true
+          "takes_value": false
         },
         {
           "default": 50,
@@ -1093,6 +1205,16 @@
     {
       "command": "stream show",
       "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
         {
           "default": null,
           "dest": "stream_id",
@@ -1118,6 +1240,16 @@
       "takes_value": true
     },
     {
+      "default": false,
+      "dest": "json",
+      "flags": [
+        "--json"
+      ],
+      "positional": false,
+      "required": false,
+      "takes_value": false
+    },
+    {
       "default": "==SUPPRESS==",
       "dest": "version",
       "flags": [
@@ -1133,11 +1265,33 @@
   "groups": [
     {
       "command": "account",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "batch",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "diag",
@@ -1163,7 +1317,7 @@
           "takes_value": true
         },
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -1258,7 +1412,7 @@
           "takes_value": true
         },
         {
-          "default": false,
+          "default": "==SUPPRESS==",
           "dest": "json",
           "flags": [
             "--json"
@@ -1331,35 +1485,123 @@
     },
     {
       "command": "monitor defaults",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "observation",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "offset",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "peer",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "profile",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "record",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "session",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     },
     {
       "command": "stream",
-      "options": []
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     }
   ],
   "program": "peerhub"

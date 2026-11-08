@@ -32,7 +32,7 @@ from pydantic import BaseModel
 
 from peerhub._console import tolerant_streams
 from peerhub.cli.store_select import DEFAULT_DB_PATH, StoreSelection, select_store
-from peerhub.cli.support import print_warnings as _print_warnings
+from peerhub.cli.support import error_line as _error_line, print_warnings as _print_warnings
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SchemaVersionError
 from peerhub.core.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
@@ -114,16 +114,15 @@ def _decode_session_cursor(raw_cursor: str, *, store_id: str, lineage: str, filt
 
 class _ArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
-        try:
-            super().error(message)
-        except SystemExit as exc:
-            setattr(exc, "argument_error", message)
-            raise
+        _error_line("invalid_arguments", message)
+        exc = SystemExit(2)
+        setattr(exc, "argument_error", message)
+        raise exc
 
 
 def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     description = "PeerHub CLI"
-    parser = _ArgumentParser(prog=prog, description=description)
+    parser = _ArgumentParser(prog=prog, description=description, epilog="Advanced: stream, record, offset")
     from peerhub._version import __version__
     parser.add_argument("--version", "-v", "-V", action="version", version=f"peerhub {__version__}")
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Path to SQLite database")
@@ -144,7 +143,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     p_list = peer_sub.add_parser("list", help="List peers (read-only, bounded)")
     p_list.add_argument("--limit", type=_page_limit, default=50)
     p_list.add_argument("--cursor")
-    p_list.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+    p_list.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
 
     # stream
     stream_parser = subparsers.add_parser("stream", help="Stream commands")
@@ -161,7 +160,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     s_list = st_sub.add_parser("list", help="List streams (read-only, bounded)")
     s_list.add_argument("--limit", type=_page_limit, default=50)
     s_list.add_argument("--cursor")
-    s_list.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+    s_list.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
 
     # record
     record_parser = subparsers.add_parser("record", help="Record commands")
@@ -245,11 +244,11 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     profile_sub = profile_parser.add_subparsers(dest="action", required=True)
     profile_list = profile_sub.add_parser("list", help="List configured profiles")
     profile_list.add_argument("--workspace", type=Path, default=None)
-    profile_list.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+    profile_list.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
     profile_show = profile_sub.add_parser("show", help="Show effective profile values and source layers")
     profile_show.add_argument("profile")
     profile_show.add_argument("--workspace", type=Path, default=None)
-    profile_show.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+    profile_show.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
 
     session_parser = subparsers.add_parser("session", help="Inspect retained sessions (read-only)")
     session_sub = session_parser.add_subparsers(dest="action", required=True)
@@ -258,10 +257,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     session_list.add_argument("--peer")
     session_list.add_argument("--limit", type=_session_page_limit, default=20)
     session_list.add_argument("--cursor")
-    session_list.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+    session_list.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
     session_show = session_sub.add_parser("show", help="Show a retained session by PeerHub handle")
     session_show.add_argument("handle")
-    session_show.add_argument("--format", choices=["auto", "table", "json"], default="auto")
+    session_show.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
 
     observation_parser = subparsers.add_parser("observation", help="Explicit observation collection (mutating)")
     observation_sub = observation_parser.add_subparsers(dest="action", required=True)
@@ -316,12 +315,41 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     guide_parser = subparsers.add_parser("guide", help="Quick reference, profile tables, and best practices")
     guide_parser.description = "Print the quick reference guide, model profile table, and operational best practices."
 
+    def add_json(node: argparse.ArgumentParser) -> None:
+        if "--json" not in node._option_string_actions:
+            node.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                              help="Machine-readable JSON output")
+        node._option_string_actions["--json"].default = argparse.SUPPRESS
+        for action in node._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for child in action.choices.values():
+                    add_json(child)
+    subparsers._choices_actions[:] = [action for action in subparsers._choices_actions
+                                     if action.dest not in {"stream", "record", "offset"}]
+    add_json(parser)
+    parser.set_defaults(json=False)
     return parser
 
 
 def _dump(model: BaseModel) -> str:
     """JSON with ASCII escapes only: lossless for every Unicode text whatever the console encoding (no encoding is forced on the user)."""
     return json.dumps(model.model_dump(mode="json"), indent=2, ensure_ascii=True)
+
+
+def _emit(payload: Any, json_output: bool) -> None:
+    if json_output:
+        print(json.dumps(payload, indent=2, ensure_ascii=True))
+    elif isinstance(payload, dict):
+        for key, value in payload.items():
+            print(f"{key}: {json.dumps(value, ensure_ascii=True) if isinstance(value, (dict, list)) else value}")
+    elif isinstance(payload, list):
+        for item in payload:
+            _emit(item, False)
+        if not payload:
+            print("(no results)")
+    else:
+        print(payload)
+
 
 
 
@@ -381,12 +409,13 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
     from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
     is_success = result.get("status") in ("delivered", "recovered_terminal") and result.get("error") is None
     guidance_entry = None
+    detail_error: str | None = None
     if not is_success:
         detail_obj: Any = result.get("detail")
         raw_detail_err: Any = cast(dict[str, Any], detail_obj).get("error") if isinstance(detail_obj, dict) else None
         if not raw_detail_err and isinstance(result.get("error"), dict):
             raw_detail_err = result["error"].get("message")
-        detail_error: str | None = raw_detail_err if isinstance(raw_detail_err, str) else None
+        detail_error = raw_detail_err if isinstance(raw_detail_err, str) else None
         guidance_code = select_guidance_code(
             status=result.get("status"),
             processed_status=result.get("processed_status"),
@@ -413,35 +442,17 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
             if has_streamed:
                 print()
             print(result["response"])
-    elif result["status"] == "denied_empty":
-        denied: list[object] = list(result.get("denied_actions") or [])
-        print(f"note: ag denied tool action(s): {', '.join(str(n) for n in denied)} (headless cannot prompt); response empty - "
-              "not a usable answer; avoid shell tools or add permissions.allow in agy settings.json", file=sys.stderr)
-        if guidance_entry is not None:
-            print(render_guidance_hint(guidance_entry), file=sys.stderr)
-    elif result["status"] == "not_executed":
-        reason = result.get("reason", "refusal")
-        if reason in ("quota_exhausted", "usage_limit"):
-            reason_str = "usage limit / quota exhausted"
-        elif reason == "invalid_model":
-            reason_str = "invalid model selection"
-        elif reason == "auth_failure":
-            reason_str = "authentication failure"
-        else:
-            reason_str = reason.replace("_", " ")
-        reset_time = result.get("reset_time") or result.get("resets_at")
-        reset_suffix = f"; reset: {reset_time}" if reset_time else ""
-        print(f"Task outcome: NOT_EXECUTED (provider refusal: {reason_str}{reset_suffix}; no tool execution observed)", file=sys.stderr)
-        if guidance_entry is not None:
-            print(render_guidance_hint(guidance_entry), file=sys.stderr)
-    else:
-        print(json.dumps(result, ensure_ascii=True), file=sys.stderr)
-        if "provider_limit" in result:
-            pl = result["provider_limit"]
-            print(f"note: provider reported {pl['reason']}" + (f" (reset: {pl['reset_time']})" if pl.get("reset_time") else "")
-                  + "; the stream may remain quota-blocked after reset; check the workspace for partial edits and follow uncertain-stream recovery.", file=sys.stderr)
-        if guidance_entry is not None:
-            print(render_guidance_hint(guidance_entry), file=sys.stderr)
+    if not is_success:
+        code = guidance_entry.code if guidance_entry is not None else str(result.get("status") or "delivery_failed")
+        hint = render_guidance_hint(guidance_entry) if guidance_entry is not None else f"peerhub explain {code}"
+        error_obj: Any = result.get("error")
+        detail = (error_obj.get("message") if isinstance(error_obj, dict) else error_obj) or detail_error \
+            or result.get("reason") or result.get("status")
+        pl = result.get("provider_limit")
+        if pl:
+            detail = (f"{detail}; provider reported {pl['reason']}" + (f" (reset: {pl['reset_time']})" if pl.get("reset_time") else "")
+                      + "; the stream may remain quota-blocked after reset; check the workspace for partial edits and follow uncertain-stream recovery")
+        _error_line(code, str(detail), hint)
     session = result.get("session")
     if not args.json and isinstance(session, dict):
         session = cast("dict[str, Any]", session)
@@ -451,20 +462,20 @@ def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser, argv
     error: dict[str, Any] | None = result.get("error")
     if error is not None and error.get("code") != "session_lost" and (error.get("code") == "legacy_selector_unsupported" or str(error.get("code", "")).startswith("session_")):
         return 2
-    return 0 if result["status"] in ("delivered", "recovered_terminal") else 1
+    return 0 if is_success else 1
 
 
 def _run_observation_cli(args: argparse.Namespace) -> int:
     from peerhub.cli.store_select import report_missing_store
     db_source = getattr(args, "db_source", "default")
     is_explicit = db_source in ("explicit", "env")
-    if not is_explicit and report_missing_store(args.db, json_output=True, selected=is_explicit, source=db_source):
+    if not is_explicit and report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
         return 5
     from peerhub.extensions.quota_capture import refresh_quota
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
     CoreStore(args.db)  # explicit --db/PEERHUB_DB retains collection bootstrap semantics
     result = refresh_quota(args.db, args.peers, sys_dir=args.sys_dir, deadline_sec=args.timeout_seconds)
-    print(json.dumps(result, indent=2, ensure_ascii=True))
+    _emit(result, args.json)
     _print_warnings(result)
     return 0 if result["status"] == "OK" else 1
 
@@ -475,8 +486,6 @@ def _reject_dashboard_flags_on_subcommand(parser: argparse.ArgumentParser, args:
         return
     if args.view != "plain":
         parser.error("diag --view applies to the dashboard, not to diag subcommands")
-    if args.json and args.action == "health":
-        parser.error("diag health always prints JSON; --json applies to the dashboard and `diag quota`")
 
 
 def _run_light_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -508,7 +517,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         from peerhub.extensions.diag import ReadonlyDiag
         from peerhub.extensions import diag_quota
     except ImportError as e:
-        print(f"ERROR: the diagnostics extension is unavailable ({e})", file=sys.stderr)
+        _error_line("diag_unavailable", f"The diagnostics extension is unavailable ({e})", "peerhub guide")
         return 5
     if args.action is None:
         from peerhub.extensions.diag_watch import dashboard_snapshots
@@ -553,34 +562,37 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool)
         code = {**diag_quota.EXIT_BY_STATUS, "PARTIAL": 4}[rep["status"]]
         print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else diag_quota.format_quota_table(rep))
-        if code and not args.json:
-            print(f"DIAG QUOTA {rep['status']}: {rep['error']}", file=sys.stderr)
+        if code and Path(args.obs_db or args.db).is_file():
+            _error_line("diag_unavailable", str(rep.get("error") or rep["status"]), "peerhub observation refresh")
         return code
     if args.action == "integrity":
         if not Path(args.db).is_file():
             report_missing_store(args.db, selected=is_explicit, source=db_source)
             result = {"status": "UNAVAILABLE", "error": f"database not found: {args.db}"}
-            print(json.dumps(result, indent=2, ensure_ascii=True))
+            if args.json:
+                _emit(result, True)
             return 5
         try:
             from peerhub.extensions.diag import integrity_check
             result = integrity_check(args.db)
         except SchemaVersionError as exc:
             result = {"status": "SCHEMA_VERSION_ERROR", "error": str(exc)}
-            print(json.dumps(result, indent=2, ensure_ascii=True))
+            _emit(result, args.json)
+            _error_line("schema_version_error", str(exc), "peerhub guide")
             return 6
         except sqlite3.Error as exc:
             result = {"status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
-            print(json.dumps(result, indent=2, ensure_ascii=True))
+            _emit(result, args.json)
+            _error_line("storage_corrupt", str(result["error"]), "peerhub diag health")
             return 4
-        print(json.dumps(result, indent=2, ensure_ascii=True))
+        _emit(result, args.json)
         return 0 if result["status"] == "OK" else 4
     if args.action == "health":  # pure reader as well: never CoreStore (no create, no migration of a missing/old --db)
         if not Path(args.db).is_file():
             report_missing_store(args.db, selected=is_explicit, source=db_source)
             result: dict[str, object] = {"status": "UNAVAILABLE", "stream_id": args.stream_id, "error": f"database not found: {args.db}"}
-            print(json.dumps(result, indent=2, ensure_ascii=True))
-            print(f"DIAG HEALTH UNAVAILABLE: {result['error']}", file=sys.stderr)
+            if args.json:
+                _emit(result, True)
             return 5
         diag = ReadonlyDiag(args.db)
         if args.stream_id:
@@ -608,13 +620,15 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         if args.obs_db is not None and result["observations"]["status"] != "OK" and result.get("status") == "OK":
             result["status"] = "PARTIAL"
         result["schema_version"] = "2.0"
-        print(json.dumps(result, indent=2, ensure_ascii=True))
+        _emit(result, args.json)
         if str(result.get("error", "")).startswith("SchemaVersionError"):
-            print(f"SCHEMA VERSION ERROR: {result['error']}", file=sys.stderr)
+            _error_line("schema_version_error", str(result["error"]), "peerhub guide")
             return 6
         if result.get("status") == "NOT_FOUND":
+            _error_line("stream_not_found", "The selected stream does not exist", "peerhub stream list")
             return 1
         if result.get("status") in ("ERROR", "PARTIAL"):
+            _error_line("diag_unavailable", str(result.get("error") or result["status"]), "peerhub diag quota")
             return 4
         return 0
     return 0
@@ -630,7 +644,7 @@ def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
                     adapter_ref=args.adapter_ref,
                 )
             )
-            print(_dump(p))
+            _emit(p.model_dump(mode="json"), args.json)
         elif args.action == "list":
             after = _page_cursor("peer", args.cursor)
             fetched = store.list_peers_page(after_peer_id=after, limit=args.limit + 1)
@@ -641,9 +655,9 @@ def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
         elif args.action == "get":
             p = store.get_peer(args.peer_id)
             if not p:
-                print(f"Peer not found: {args.peer_id}", file=sys.stderr)
+                _error_line("peer_not_found", f"Peer not found: {args.peer_id}", "peerhub peer list")
                 return 1
-            print(_dump(p))
+            _emit(p.model_dump(mode="json"), args.json)
 
     elif args.subcommand == "stream":
         if args.action == "create":
@@ -654,13 +668,13 @@ def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
                     members=args.members,
                 )
             )
-            print(_dump(s))
+            _emit(s.model_dump(mode="json"), args.json)
         elif args.action == "show":
             s = store.get_stream(args.stream_id)
             if not s:
-                print(f"Stream not found: {args.stream_id}", file=sys.stderr)
+                _error_line("stream_not_found", f"Stream not found: {args.stream_id}", "peerhub stream list")
                 return 1
-            print(_dump(s))
+            _emit(s.model_dump(mode="json"), args.json)
         elif args.action == "list":
             after = _page_cursor("stream", args.cursor)
             fetched = store.list_streams_page(after_stream_id=after, limit=args.limit + 1)
@@ -686,7 +700,7 @@ def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
                 targets=args.targets,
                 created_at=args.created_at or utc_now_iso(),
             )
-            print(_dump(rec))
+            _emit(rec.model_dump(mode="json"), args.json)
 
         elif args.action == "read":
             records = store.read_records(
@@ -695,12 +709,12 @@ def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
                 limit=args.limit,
             )
             out = [r.model_dump() for r in records]
-            print(json.dumps(out, indent=2, ensure_ascii=True))
+            _emit(out, args.json)
 
     elif args.subcommand == "offset":
         if args.action == "get":
             off = store.get_offset(args.peer_id, args.stream_id)
-            print(_dump(off))
+            _emit(off.model_dump(mode="json"), args.json)
         elif args.action == "advance":
             off = store.advance_offset_cas(
                 peer_id=args.peer_id,
@@ -708,14 +722,14 @@ def _run_core_cli(args: argparse.Namespace, store: CoreStore) -> int:
                 new_position=args.new_position,
                 expected_revision=args.expected_revision,
             )
-            print(_dump(off))
+            _emit(off.model_dump(mode="json"), args.json)
 
     return 0
 
 
 def _print_page(items: list[dict[str, Any]], next_cursor: str | None, output_format: str,
                 *columns: str, store_selection: dict[str, str]) -> None:
-    use_json = output_format == "json" or (output_format == "auto" and not sys.stdout.isatty())
+    use_json = output_format == "json"
     if use_json:
         print(json.dumps({"schema_version": "1.0", "store_selection": store_selection,
                           "items": items, "next_cursor": next_cursor}, ensure_ascii=True, indent=2))
@@ -747,14 +761,13 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
             profile = inspect_profile(args.profile, workspace)
             payload = {"schema_version": "1.0", "workspace": str(workspace), **profile}
     except (OSError, ValueError) as exc:
-        use_json = args.format == "json" or (args.format == "auto" and not sys.stdout.isatty())
+        use_json = args.format == "json"
         error = {"schema_version": "1.0", "status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
-        else:
-            print(f"ERROR: {error['error']}", file=sys.stderr)
+        _error_line("invalid_arguments", str(error["error"]))
         return 1
-    use_json = args.format == "json" or (args.format == "auto" and not sys.stdout.isatty())
+    use_json = args.format == "json"
     if use_json:
         print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0
@@ -786,7 +799,7 @@ def _run_session_cli(args: argparse.Namespace) -> int:
     if not db_path.is_file():
         from peerhub.cli.store_select import report_missing_store
         db_source = getattr(args, "db_source", None)
-        report_missing_store(args.db, json_output=True, selected=db_source in ("explicit", "env"), source=db_source)
+        report_missing_store(args.db, json_output=args.format == "json", selected=db_source in ("explicit", "env"), source=db_source)
         return 5
     from contextlib import closing
     from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
@@ -798,17 +811,17 @@ def _run_session_cli(args: argparse.Namespace) -> int:
     generation_path = db_path.parent / "workspace.generation"
     lineage = generation_path.read_text(encoding="utf-8").strip() if generation_path.is_file() else ""
     filters = {"stream": getattr(args, "stream", None), "peer": getattr(args, "peer", None)}
-    use_json = args.format == "json" or (args.format == "auto" and not sys.stdout.isatty())
+    use_json = args.format == "json"
 
     def emit(payload: dict[str, Any]) -> int:
         if use_json:
             print(json.dumps(payload, ensure_ascii=True, indent=2))
-        elif payload.get("status") == "NOT_FOUND":
-            print(f"Session not found: {args.handle}", file=sys.stderr)
-        elif args.action == "show":
+        if payload.get("status") == "NOT_FOUND":
+            _error_line("session_not_found", f"Session not found: {args.handle}", "peerhub session list")
+        elif not use_json and args.action == "show":
             for key, value in payload.get("session", {}).items():
                 print(f"{key}: {value}")
-        else:
+        elif not use_json:
             rows = payload.get("items", [])
             if not rows:
                 print("(no sessions)")
@@ -902,22 +915,19 @@ def _run_session_cli(args: argparse.Namespace) -> int:
         error = {"schema_version": "1.0", "status": "SCHEMA_VERSION_ERROR", "error": str(exc)}
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
-        else:
-            print(f"SCHEMA VERSION ERROR: {exc}", file=sys.stderr)
+        _error_line("schema_version_error", str(exc), "peerhub guide")
         return 6
     except ValueError as exc:
         error = {"schema_version": "1.0", "status": "ERROR", "error": str(exc)}
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
-        else:
-            print(f"ERROR: {exc}", file=sys.stderr)
+        _error_line("invalid_arguments", str(exc))
         return 1
     except sqlite3.Error as exc:
         error = {"schema_version": "1.0", "status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
-        else:
-            print(f"ERROR: {error['error']}", file=sys.stderr)
+        _error_line("invalid_arguments", str(error["error"]))
         return 4
 
 
@@ -995,8 +1005,7 @@ def _run_account_cli(args: argparse.Namespace) -> int:
         message = "account binding violates a registry constraint" if isinstance(exc, sqlite3.IntegrityError) else str(exc)
         if args.json:
             print(json.dumps(dict(status="error", error=dict(code="account_invalid", message=message)), ensure_ascii=True))
-        else:
-            print(f"ERROR: {message}", file=sys.stderr)
+        _error_line("account_invalid", message)
         return 1
 
 
@@ -1068,8 +1077,7 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
     except batch.ManifestError as exc:
         if args.json:
             print(json.dumps(dict(status="error", error=dict(code="invalid_manifest", message=str(exc))), ensure_ascii=True))
-        else:
-            print(f"ERROR: {exc}", file=sys.stderr)
+        _error_line("invalid_manifest", str(exc), "peerhub batch run --help")
         return 1
 
 
@@ -1095,7 +1103,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         raise
     def error_output(code: str, message: str, session: dict[str, Any] | None = None, exception: BaseException | None = None) -> None:
         if args.subcommand == "ask":
-            from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
+            from peerhub.cli.recovery import make_guidance_payload, select_guidance_code
             guidance_code = select_guidance_code(exception=exception)
             db_arg = getattr(args, "db", None)
             sid = getattr(args, "stream_id", None) or (f"peer:{args.peer}:chat" if getattr(args, "peer", None) else None)
@@ -1104,47 +1112,52 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 if guidance_code:
                     payload["guidance"] = make_guidance_payload(guidance_code, db_path=db_arg, stream_id=sid)
                 print(json.dumps(payload, ensure_ascii=True))
-            else:
-                print(message, file=sys.stderr)
+            _error_line(guidance_code or code, message, f"peerhub explain {guidance_code or code}")
+            if not args.json:
                 if session is not None:
                     print(_session_trailer(session))
-                if guidance_code:
-                    entry = get_guidance(guidance_code, db_path=db_arg, stream_id=sid)
-                    if entry is not None:
-                        print(render_guidance_hint(entry), file=sys.stderr)
         else:
-            print(message, file=sys.stderr)
+            _error_line(code, message)
             if args.subcommand == "ask" and session is not None:
                 print(_session_trailer(session))
+    def finish(code: int) -> int:
+        if code == 0 and args.subcommand not in {"guide", "explain", "profile", "monitor"}:
+            print(f"DB: {args.db} (source: {args.db_source})", file=sys.stderr)
+        return code
     explicit_db = any(a == "--db" or a.startswith("--db=") for a in actual)
     try:
         if hasattr(args, "db") and args.db:
             selection = _select_db(args.db, discover=not explicit_db)
+            args.db, args.db_source = selection.path, selection.source
+        if args.json and hasattr(args, "format"):
+            args.format = "json"
+        if args.subcommand == "ask" and args.workspace and not explicit_db and "PEERHUB_DB" not in os.environ:
+            selection = _select_db(DEFAULT_DB_PATH, workspace_root=Path(args.workspace))
             args.db, args.db_source = selection.path, selection.source
         if args.subcommand == "monitor":
             args._provided_options = {item.split("=", 1)[0] for item in actual if item.startswith("--")}
         if getattr(args, "obs_db", None):
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":
-            return _run_ask_cli(args, parser, argv)
+            return finish(_run_ask_cli(args, parser, argv))
         if args.subcommand == "account":
-            return _run_account_cli(args)
+            return finish(_run_account_cli(args))
         if args.subcommand == "batch":
-            return _run_batch_cli(args)
+            return finish(_run_batch_cli(args))
         if args.subcommand == "profile":
-            return _run_profile_cli(args)
+            return finish(_run_profile_cli(args))
         if args.subcommand == "session":
-            return _run_session_cli(args)
+            return finish(_run_session_cli(args))
         if args.subcommand in ("monitor", "observation"):
-            return _run_light_command(args, parser)
+            return finish(_run_light_command(args, parser))
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
-            return _run_diag_cli(args, parser)
+            return finish(_run_diag_cli(args, parser))
         if args.subcommand == "explain":
             from peerhub.cli.recovery import run_explain_cli
             return run_explain_cli(" ".join(args.code), json_output=bool(getattr(args, "json", False)))
         if args.subcommand == "guide":
             from peerhub.cli.guide import render_guide
-            print(render_guide())
+            _emit({"guide": render_guide()}, True) if args.json else print(render_guide())
             return 0
         core_read = ((args.subcommand, args.action) in {
             ("peer", "get"), ("peer", "list"), ("stream", "show"), ("stream", "list"),
@@ -1152,12 +1165,13 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         })
         if core_read:
             from peerhub.cli.store_select import report_missing_store
-            use_json = bool(getattr(args, "json", False) or getattr(args, "format", None) == "json" or (getattr(args, "format", None) == "auto" and not sys.stdout.isatty()))
+            use_json = bool(getattr(args, "json", False) or getattr(args, "format", None) == "json")
             db_source = getattr(args, "db_source", None)
             if report_missing_store(args.db, json_output=use_json, selected=db_source in ("explicit", "env"), source=db_source):
                 return 5
         store = CoreStore(args.db, readonly=core_read)
-        return _run_core_cli(args, store)
+        result_code = _run_core_cli(args, store)
+        return finish(result_code)
 
     except (StorageReadOnlyError, StorageFullError, StorageCorruptError) as e:
         error_output("storage_corrupt", f"STORAGE ERROR ({type(e).__name__}): {e}", getattr(e, "session", None), exception=e)

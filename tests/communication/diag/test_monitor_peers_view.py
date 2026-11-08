@@ -208,7 +208,7 @@ def test_2_renderer_prints_one_block_per_peer_with_4_links(peers_frame):
     # cc block: quota -> profile/model [ws] -> latest session -> context
     assert "cc" in rendered
     assert re.search(r"cc\s+quota:\s*82%\s*\(5h\).*->\s*cc\.effort/claude-sonnet-5-5\s*\[workspace\]", rendered)
-    assert re.search(r"->\s*latest session:\s*reused\s+gen\s+1\s*->\s*context:\s*unknown", rendered)
+    assert re.search(r"->\s*latest session:\s*reused\s+gen\s+1", rendered)
 
     # cx block: quota -> profile/model [glob] -> latest session -> context
     assert "cx" in rendered
@@ -218,7 +218,7 @@ def test_2_renderer_prints_one_block_per_peer_with_4_links(peers_frame):
     # ag block: quota unknown (doc does not establish unlim) -> profile/model [pkg] -> latest session none -> context unknown
     assert "ag" in rendered
     assert re.search(r"ag\s+quota:\s*unknown.*->\s*ag\.effort/gemini-3\.8-flash-med\s*\[packaged\]", rendered)
-    assert re.search(r"->\s*latest session:\s*none\s*->\s*context:\s*unknown", rendered)
+    assert re.search(r"->\s*latest session:\s*none", rendered)
 
     # Only peers present in snapshot are rendered: when filtering to only cx
     cx_only_frame = dict(peers_frame)
@@ -254,7 +254,7 @@ def test_3_missing_facts_render_as_unknown_never_blank_or_zero(peers_frame):
     assert "quota: unknown" in rendered
     assert re.search(r"->\s*unknown\s*\[unknown\]", rendered) or "profile unknown" in rendered
     assert "latest session: unknown" in rendered
-    assert "context: unknown" in rendered
+    assert "context: unknown" not in rendered
 
     # Never false zero or blank
     assert "0%" not in rendered
@@ -354,7 +354,8 @@ def test_7_height_limited_tty_keeps_severity_based_omission(peers_frame):
     peers_frame["groups"]["peers"]["status"] = "OK"
     peers_frame["groups"]["overview"]["status"] = "ERROR"
     rendered_ok = render_grouped_frame(peers_frame, view="plain", width=80, height=5)
-    assert "OVERVIEW [ERROR]" in rendered_ok
+    assert "OVERVIEW [ERROR]" not in rendered_ok
+    assert rendered_ok.count("Coverage:") == 1
     assert "PEERS [" not in rendered_ok
     assert "[unrecognized group]" not in rendered_ok
 

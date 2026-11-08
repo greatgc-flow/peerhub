@@ -481,11 +481,9 @@ def test_guidance_payload_structure():
 def test_render_guidance_hint_contains_all_components():
     entry = REGISTRY["ask_uncertain"]
     hint = render_guidance_hint(entry)
-    assert "What happened:" in hint
-    assert "Rationale:" in hint
-    assert entry.why in hint
-    assert "Next action:" in hint
-    assert "What NOT to do:" in hint
+    assert len(hint.splitlines()) == 1
+    assert entry.recover[0]["purpose"] in hint
+    assert entry.avoid in hint
     assert "peerhub explain ask_uncertain" in hint
 
 
@@ -580,8 +578,9 @@ def test_explain_cli_output_and_exit_codes(capsys):
 
     # Unknown - json
     assert run_explain_cli("non_existent_code", json_output=True) == 1
-    err_json = capsys.readouterr().err
-    err_data = json.loads(err_json)
+    captured = capsys.readouterr()
+    assert "[invalid_arguments]" in captured.err and "next:" in captured.err
+    err_data = json.loads(captured.out)
     assert "Unknown guidance code" in err_data["error"]
     assert "known_codes" in err_data
 
@@ -625,14 +624,14 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     code = main(["--db", str(db), "ask", "cx", "first question (text)", "--stream", "s2"])
     assert code == 1
     err = capsys.readouterr().err
-    assert "Guidance [ask_uncertain]:" in err
-    assert "default timeout" in err
+    assert "[ask_uncertain]" in err
+    assert "ask_uncertain" in err
     assert "do not retry on the same stream; start a new stream with explicit --timeout-seconds" in err
     assert "long reviews: 1800 or more" in err
     assert "Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims." in err
-    assert "What happened:" in err
-    assert "Next action:" in err
-    assert "What NOT to do:" in err
+    assert len(err.splitlines()) == 1
+    assert "next:" in err
+    assert "peerhub explain" in err
     assert "peerhub explain ask_uncertain" in err
 
     # 2. Subsequent ask is blocked as pending_earlier_record
@@ -651,8 +650,8 @@ def test_scenario_uncertain_and_pending_earlier_record(tmp_path, monkeypatch, ca
     code = main(["--db", str(db), "ask", "cx", "second question (text)", "--stream", "s1"])
     assert code == 1
     err = capsys.readouterr().err
-    assert "Guidance [ask_blocked_uncertain]:" in err
-    assert "default timeout" in err
+    assert "[ask_blocked_uncertain]" in err
+    assert "ask_uncertain" in err
     assert "do not retry on the same stream; start a new stream with explicit --timeout-seconds" in err
     assert "long reviews: 1800 or more" in err
     assert "Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims." in err
@@ -694,10 +693,10 @@ def test_scenario_claim_held(tmp_path, monkeypatch, capsys):
     assert code == 1
     err = capsys.readouterr().err
     assert "ERROR: claim for (cx, peer:cx:chat) held by 'active_worker'" in err
-    assert "Guidance [ask_claim_held]:" in err
-    assert "What happened:" in err
-    assert "Next action:" in err
-    assert "What NOT to do:" in err
+    assert "[ask_claim_held]" in err
+    assert len(err.splitlines()) == 1
+    assert "next:" in err
+    assert "peerhub explain" in err
     assert "peerhub explain ask_claim_held" in err
 
 
@@ -778,7 +777,7 @@ def test_scenario_session_selector_errors(tmp_path, capsys):
     code = main(["--db", str(db), "ask", "cx", "hello", "--session", "invalid_handle"])
     assert code == 2
     err = capsys.readouterr().err
-    assert "Guidance [ask_selector_error]:" in err
+    assert "[ask_selector_error]" in err
     assert "peerhub explain ask_selector_error" in err
 
 
@@ -817,7 +816,7 @@ def test_scenario_refusal_and_cached_replay(tmp_path, monkeypatch, capsys):
     assert code == 1
     err = capsys.readouterr().err
     assert "Task outcome: NOT_EXECUTED" in err
-    assert "Guidance [ask_refusal]:" in err
+    assert "[ask_refusal]" in err
     assert "peerhub explain ask_refusal" in err
 
     # 2. Cached replay of refusal (early return at ask.py line 134)
@@ -862,7 +861,7 @@ def test_bare_peerhub_prints_guide_and_missing_store_guidance(tmp_path, capsys):
     assert str(missing_db) in err
     assert "(source: explicit)" in err
     assert f'peerhub --db "{missing_db}" peer register --peer local --name local' in err
-    assert "Learn: peerhub guide" in err
+    assert "[store_missing]" in err and "next:" in err
 
 
 def test_scenario_stream_peer_mismatch_and_launch_failed(tmp_path, monkeypatch, capsys):
@@ -1347,7 +1346,27 @@ def test_ag_denied_actions_are_named_in_empty_response_note(tmp_path, monkeypatc
     assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello"]) == 1
     err = capsys.readouterr().err
     assert "ag denied tool action(s): command" in err
-    assert "Guidance [ask_denied_empty]" in err
+    assert "[ask_denied_empty]" in err
+    assert "{'code'" not in err  # detail is the error message, not a dict repr
+
+
+def test_denied_empty_next_hint_is_new_stream_with_inlined_content(tmp_path, monkeypatch, capsys):
+    """ag usability A2: never resume the stream; start a new one with the needed content inlined."""
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "denied_empty", "certainty": "TERMINAL", "response": "", "stream_id": "s",
+        "empty_response": True, "task_effects": "unverified", "denied_actions": ["read_file"],
+        "error": {"code": "denied_empty", "message": "ag denied tool action(s): read_file; response empty"},
+    })
+    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello"]) == 1
+    err = capsys.readouterr().err
+    assert len(err.splitlines()) == 1
+    assert "new stream" in err and "--query-file" in err and "do not resume this stream" in err
+    entry = REGISTRY["ask_denied_empty"]
+    assert entry.recover[0]["argv"][:3] == ["peerhub", "ask", "ag"] and "--stream" in entry.recover[0]["argv"]
+    assert "diag health" not in err
 
 
 def test_ask_denied_empty_status_for_empty_response_with_denied_actions(tmp_path):

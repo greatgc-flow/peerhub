@@ -13,7 +13,7 @@ CT = "2026-10-01T00:00:00Z"
 
 def cli(db, *args, block=True, timeout=120):
     mod = ["-m", "tests.communication.harness.core_only"] if block else ["-m", "peerhub.cli.app"]
-    return subprocess.run([sys.executable, *mod, "--db", str(db), *args], cwd=ROOT, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run([sys.executable, *mod, "--db", str(db), *args, "--json"], cwd=ROOT, capture_output=True, text=True, timeout=timeout)
 
 
 def ok(r):

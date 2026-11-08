@@ -1,6 +1,6 @@
 """Which database file a CLI call uses, and why.
 
-Order: PEERHUB_DB (when allowed) > explicit --db > a discovered workspace store > the default path.
+Order: explicit --db > PEERHUB_DB (when allowed) > a discovered workspace store > the default path.
 Discovery looks for `.peerhub/core.db` in the current directory, then every parent.
 """
 
@@ -42,19 +42,10 @@ def report_missing_store(
     message = f"database not found: {path}"
     is_selected = selected if selected is not None else (Path(path) != Path(DEFAULT_DB_PATH))
     resolved_source = source or ("explicit" if is_selected else "default")
-    print(f"{message} (source: {resolved_source})", file=sys.stderr)
-    print(f"Create one explicitly: peerhub --db {path} peer register --peer <id> --name <name>", file=sys.stderr)
-    print(f'Example: peerhub --db "{path}" peer register --peer local --name local', file=sys.stderr)
-    print("Learn: peerhub guide", file=sys.stderr)
-    if not is_selected:
-        legacy = find_legacy_store(cwd)
-        if legacy is not None:
-            legacy_path = str(legacy.resolve())
-            print(
-                f'Ignored legacy store: {legacy_path} (no longer auto-discovered). '
-                f'Use --db "{legacy_path}" to keep using it; stores of other schema versions are refused as usual.',
-                file=sys.stderr,
-            )
+    hint = f'peerhub --db "{path}" peer register --peer local --name local'
+    legacy = find_legacy_store(cwd) if not is_selected else None
+    legacy_note = (f'; Ignored legacy store: {legacy} (no longer auto-discovered). Use --db "{legacy}" to keep using it; stores of other schema versions are refused as usual.' if legacy else "")
+    print(f"[store_missing] {message} (source: {resolved_source}){legacy_note}; next: {hint}", file=sys.stderr)
     if json_output:
         print(json.dumps({"status": "UNAVAILABLE", "error": message}, ensure_ascii=True))
     return True
@@ -64,16 +55,17 @@ def report_missing_store(
 @dataclass(frozen=True)
 class StoreSelection:
     path: str
-    source: str  # env | explicit | discovered | workspace-default | default
+    source: str  # env | explicit | discovered | default
 
 
 def select_store(configured_path: str, *, use_env: bool = True, discover: bool = True, workspace_root: Path | None = None,
                  env: Mapping[str, str] | None = None, cwd: Path | None = None) -> StoreSelection:
     env = os.environ if env is None else env
-    if use_env and "PEERHUB_DB" in env:
-        return StoreSelection(env["PEERHUB_DB"], "env")
+    base = (cwd or Path.cwd()).resolve()
     if configured_path != DEFAULT_DB_PATH or not discover:
-        return StoreSelection(configured_path, "explicit")
+        return StoreSelection(str((base / configured_path).resolve()), "explicit")
+    if use_env and "PEERHUB_DB" in env:
+        return StoreSelection(str((base / env["PEERHUB_DB"]).resolve()), "env")
     if workspace_root is not None:
         roots = [workspace_root.resolve()]
     else:
@@ -84,5 +76,5 @@ def select_store(configured_path: str, *, use_env: bool = True, discover: bool =
         if candidate.is_file():
             return StoreSelection(str(candidate), "discovered")
     if workspace_root is not None:
-        return StoreSelection(str(workspace_root / DEFAULT_DB_PATH), "workspace-default")
-    return StoreSelection(configured_path, "default")
+        return StoreSelection(str((workspace_root / DEFAULT_DB_PATH).resolve()), "default")
+    return StoreSelection(str(base / configured_path), "default")

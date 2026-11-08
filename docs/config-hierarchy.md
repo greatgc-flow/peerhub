@@ -8,7 +8,7 @@ retained in [the design index](design/README.md). See the
 ## Store
 
 The workspace store is `.peerhub/core.db`. Select a path with global `--db PATH`
-before the subcommand, or `PEERHUB_DB`. An explicit missing path is never
+before the subcommand. Precedence: `--db` > `PEERHUB_DB` > nearest upward `.peerhub/core.db` > default path. An explicit missing path is never
 redirected to another store. `ask --workspace DIR` selects that workspace's
 store unless a database was explicitly selected. Read-only commands do not
 create a missing store. `peerhub diag health` reports the selection and path.

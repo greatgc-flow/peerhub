@@ -8,12 +8,12 @@ fix = "Run python -m peerhub from the checkout (or set PYTHONPATH to it), or ins
 issue = "#117"
 
 [[lessons]]
-id = "ag-permission-limit"
-title = "ag permission limit"
-keywords = ["ag", "agy", "permission", "permissions", "writable", "read-only", "sandbox", "limit", "failed_not_started"]
-symptom = "Native ag execution refuses to start without explicit write permission."
-fix = "ag needs --writable on every turn, including resumed turns. There is no read-only ag sandbox; use a provider with enforced read-only execution when writes are not allowed."
-issue = "#140"
+id = "ag-recipe"
+title = "ag recipe (empty replies, permissions, trusted -w)"
+keywords = ["ag", "agy", "recipe", "permission", "permissions", "writable", "read-only", "sandbox", "limit", "failed_not_started", "empty", "reply", "denied_empty", "delivered", "trustedWorkspaces", "allow", "regex", "command", "files", "binary", "prompt", "query-file", "resume"]
+symptom = "ag fails or returns an empty reply: delivered/TERMINAL with no text, denied_empty after a denied shell or read_file, a resumed stream that fabricates paths, or failed_not_started without write permission."
+fix = "Recipe: put the content the task needs inline via --query-file and say \"no tools\"; -w is the trusted project root (a prerequisite, not a guarantee); pass --writable on every turn, including resumed turns (#140, no read-only ag sandbox: use a provider with enforced read-only execution when writes are not allowed); one task per ask; verify claims from flash tiers; after an empty or denied_empty reply never resume that stream (this overrides stream reuse): start a new stream with the content inlined. If a fresh ask is still empty, check in order: many or unreadable files named in one prompt (name fewer, or use a stronger profile for bulk work); -w outside the agy trustedWorkspaces list; binary/NUL/huge files (give an excerpt inline); a shell command not allow-listed (agy rules match exact strings on Windows: use a command(regex:...) rule or avoid commands); pool quota exhausted (RESOURCE_EXHAUSTED; the error text gives the reset: rotate profile/pool). Open observation (E2, #302): read_file was denied even with a trusted -w, so do not rely on file reads working; inline the content."
+issue = "#140, #284, #287, #300, #302"
 
 [[lessons]]
 id = "ag-silence-long-asks"
@@ -22,14 +22,6 @@ keywords = ["ag", "agy", "silence", "silent", "long", "asks", "timeout", "uncert
 symptom = "ag prints nothing until completion; a long ask can hit the silence timeout."
 fix = "Use --timeout-seconds 7200 --silence-timeout-seconds 7200 for long asks. Silence timeout means uncertain execution: inspect peerhub diag health and effects, then continue genuinely new work on a new stream with a summary; never blindly retry uncertain work."
 issue = "#118"
-
-[[lessons]]
-id = "ag-empty-reply-causes"
-title = "ag empty replies and allow rules"
-keywords = ["ag", "agy", "empty", "reply", "delivered", "trustedWorkspaces", "allow", "regex", "command", "files", "binary", "prompt"]
-symptom = "A headless ag ask ends delivered/TERMINAL but the reply is empty."
-fix = "Check in order: many or unreadable files named in one prompt (name fewer; use a stronger profile for bulk work); -w outside the agy trustedWorkspaces list; binary/NUL/huge files (give an excerpt inline); a shell command needed but not allow-listed (agy rules match exact strings on Windows, use a command(regex:...) rule or avoid commands); pool quota exhausted (RESOURCE_EXHAUSTED, the error text gives the reset: rotate profile/pool). Verify claims from flash tiers before use."
-issue = "#284, #287"
 
 [[lessons]]
 id = "ag-bulk-profile-heuristics"
@@ -110,3 +102,51 @@ keywords = ["shell", "wait", "loop", "until", "condition", "python", "gate"]
 symptom = "A shell until-loop exits early because its compound condition does not check every completion signal."
 fix = "Use a small script that explicitly checks each condition and reports the result."
 issue = "#299"
+
+[[lessons]]
+id = "monitor-insuff"
+title = "INSUFF projection data"
+keywords = ["INSUFF"]
+symptom = "A measured quota window has too few samples or too little use for projection."
+fix = "Capacity remains measured; forecast is unavailable until the projection support gates are met. Do not interpret INSUFF as healthy or unlimited."
+issue = "0.24.0"
+
+[[lessons]]
+id = "monitor-stale-window"
+title = "STALE:window"
+keywords = ["STALE", "window"]
+symptom = "Quota evidence has expired."
+fix = "Run peerhub observation refresh --peers PEER to collect fresh evidence. Expired capacity is unavailable, never zero or unlimited."
+issue = "0.24.0"
+
+[[lessons]]
+id = "monitor-probe-age"
+title = "PROBE age"
+keywords = ["PROBE", "age"]
+symptom = "A provider probe failed or has no current usable evidence; the suffix is its age."
+fix = "Run peerhub observation refresh --peers PEER. Inspect authentication and installed CLI if the probe still fails."
+issue = "0.24.0"
+
+[[lessons]]
+id = "monitor-drift"
+title = "DRIFT peers"
+keywords = ["DRIFT"]
+symptom = "Observed provider CLI or model facts differ from configured observations."
+fix = "Run the refresh-model-profiles skill or upgrade PeerHub. Review model facts before changing profile policy; observation refresh alone does not approve defaults."
+issue = "0.24.0"
+
+[[lessons]]
+id = "store-missing"
+title = "store_missing database selection"
+keywords = ["store_missing"]
+symptom = "The selected database does not exist."
+fix = "Check the resolved path and source. --db overrides PEERHUB_DB; explicitly create the intended store with peerhub --db PATH peer register --peer local --name local."
+issue = "0.24.0"
+
+[[lessons]]
+id = "invalid-arguments"
+title = "invalid_arguments CLI input"
+keywords = ["invalid_arguments"]
+symptom = "The command arguments were rejected."
+fix = "Run peerhub COMMAND --help, correct the arguments and retry only if no execution began."
+issue = "0.24.0"

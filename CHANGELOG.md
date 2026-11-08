@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-08
+
 ### Fixed
 
 - `peerhub ask` no longer reports an ag turn as `delivered` when the response is empty and the provider denied tool action(s) (#300). The result status is `denied_empty` (certainty stays `TERMINAL`, `denied_actions` kept), with guidance `ask_denied_empty`. `batch` classifies it `UNVERIFIED` (`denied_empty`).
@@ -15,6 +17,14 @@ they do not claim new validation or publication evidence.
 ### Changed
 
 - Behavior change: `peerhub ask` exits 1 (was 0) for the `denied_empty` case above; callers that treated an empty `delivered` reply with `denied_actions` as success must handle the new status.
+
+- Breaking: compact human text is the default even on non-TTY output. Migration: add `--json` to scripts that consumed implicit JSON; `--format` remains a hidden compatibility alias.
+- Breaking: global `--db` now takes precedence over `PEERHUB_DB`, followed by the nearest upward `.peerhub/core.db`. Resolved path and selection source appear on stderr or the monitor header.
+- Monitor removes OVERVIEW and repeated coverage, uses one Coverage footer, compact STATE codes (`INSUFF`, `STALE:window`, `PROBE:<age>`, `DRIFT:<peers>`) with offline explain entries, configured consumer profiles beside measured quota, and one freshness action per peer. Unknown context is hidden in human output; JSON schemas are unchanged.
+- CLI errors include an outcome code and `next:` hint on one stderr line; command roots, verbs and batch contracts stay stable.
+- Model observations refreshed to 2026-11-08, defaults revision `2026-11-08.1`: ag 1.5.3, cc 2.1.319, cx 0.167.0. Existing P0 evidence: model_ping 9/9 PASS; ag.deepthink skipped because 3P-7D was below 1%. No profile models or efforts changed; no new model pings were run.
+- Guide documents `PEERHUB_DB` and the explicit ag.argon alternative while 3P is low, limited to tasks supported by measured capabilities; otherwise defer.
+- ag usability: `guide` and `peerhub explain ag` lead with one ag recipe (inline content via `--query-file`, "no tools", trusted `-w`, `--writable` every turn, one task per ask, never resume a stream after an empty or `denied_empty` reply). The `denied_empty` `next:` hint is now "new stream with content inlined; do not resume". Lessons `ag-empty-reply-causes` and `ag-permission-limit` merged into `ag-recipe`; the read_file denial with a trusted `-w` is recorded as an open observation (#302).
 
 ## [0.23.3] - 2026-11-01
 

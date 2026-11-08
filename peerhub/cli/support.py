@@ -12,3 +12,8 @@ def print_warnings(result: dict[str, Any]) -> None:
 
 def agy_token_use(result: dict[str, Any]) -> bool:
     return any(o.get("payload", {}).get("evidence_ref") == "agy_usage_consumed_tokens" for o in result.get("observations", []))
+
+
+def error_line(code: str, message: str, hint: str | None = None) -> None:
+    hint = hint or f"peerhub explain {code}"
+    print(f"[{code}] {' '.join(str(message).split())}; next: {' '.join(hint.split())}", file=sys.stderr)

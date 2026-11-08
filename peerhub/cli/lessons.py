@@ -26,12 +26,16 @@ def _tokens(text: str) -> set[str]:
 
 
 def lookup_lessons(query: str) -> list[Lesson]:
-    """Require every query token in the title/keywords; return stable ID order."""
+    """Require every query token in the title/keywords; recipes first, then stable ID order."""
+    short_code = query.split(":", 1)[0].upper()
+    if short_code in {"PROBE", "DRIFT"} and ":" in query:
+        query = short_code
     tokens = _tokens(query)
     if not tokens:
         return []
-    return [lesson for lesson in load_lessons()
-            if tokens <= _tokens(" ".join([lesson["title"], *lesson["keywords"]]))]
+    matches = [lesson for lesson in load_lessons()
+               if tokens <= _tokens(" ".join([lesson["title"], *lesson["keywords"]]))]
+    return sorted(matches, key=lambda lesson: not lesson["id"].endswith("-recipe"))  # stable: ID order within groups
 
 
 def render_lesson(lesson: Lesson) -> str:
@@ -55,7 +59,7 @@ def render_lessons_reference() -> str:
         "```",
         "",
         "Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.",
-        "Known guidance codes and aliases take priority. Matches are ordered by lesson ID.",
+        "Known guidance codes and aliases take priority. Matches list recipes first, then lesson ID order.",
     ]
     for lesson in load_lessons():
         lines.extend([

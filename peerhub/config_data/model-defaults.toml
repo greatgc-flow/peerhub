@@ -7,19 +7,19 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-10-29.1"
-observed_at = "2026-10-29"
+defaults_revision = "2026-11-08.1"
+observed_at = "2026-11-08"
 
 [observed_versions]
-ag = "1.4.9"
-cc = "2.1.312"
-cx = "0.165.0"
+ag = "1.5.3"
+cc = "2.1.319"
+cx = "0.167.0"
 
 [profiles."cx.standard"]
 selection_mode = "pinned"
 model = "gpt-6-luna"
 reasoning_effort = "low"
-source = "cli:codex debug models@0.165.0 2026-10-29"
+source = "cli:codex debug models@0.167.0 2026-11-08"
 checked = "2026-10-29"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -28,7 +28,7 @@ pools_source = "unverified"
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
 reasoning_effort = "medium"
-source = "cli:codex debug models@0.165.0 2026-10-29"
+source = "cli:codex debug models@0.167.0 2026-11-08"
 checked = "2026-10-29"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -37,7 +37,7 @@ pools_source = "unverified"
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
 reasoning_effort = "xhigh"
-source = "cli:codex debug models@0.165.0 2026-10-29"
+source = "cli:codex debug models@0.167.0 2026-11-08"
 checked = "2026-10-29"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -45,7 +45,7 @@ pools_source = "unverified"
 [profiles."cc.standard"]
 selection_mode = "pinned"
 model = "claude-haiku-5-5"
-source = "known-id:claude --help aliases@2.1.312 2026-10-29"
+source = "known-id:claude --help aliases@2.1.319 2026-11-08"
 checked = "2026-10-29"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -54,7 +54,7 @@ pools_source = "unverified"
 selection_mode = "pinned"
 model = "claude-sonnet-5-5"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.312 2026-10-29"
+source = "known-id:claude --help aliases@2.1.319 2026-11-08"
 checked = "2026-10-29"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -63,7 +63,7 @@ pools_source = "unverified"
 selection_mode = "pinned"
 model = "claude-opus-5-5"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.312 2026-10-29"
+source = "known-id:claude --help aliases@2.1.319 2026-11-08"
 checked = "2026-10-29"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -71,7 +71,7 @@ pools_source = "unverified"
 [profiles."ag.standard"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-low"
-source = "cli:agy.exe models@1.4.9 2026-10-29"
+source = "cli:agy.exe models@1.5.3 2026-11-08"
 checked = "2026-10-29"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
@@ -79,7 +79,7 @@ pools_source = "unverified"
 [profiles."ag.effort"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-medium"
-source = "cli:agy.exe models@1.4.9 2026-10-29"
+source = "cli:agy.exe models@1.5.3 2026-11-08"
 checked = "2026-10-29"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
@@ -87,7 +87,7 @@ pools_source = "unverified"
 [profiles."ag.deepthink"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5-high"
-source = "cli:agy.exe models@1.4.9 2026-10-29"
+source = "cli:agy.exe models@1.5.3 2026-11-08"
 checked = "2026-10-29"
 pools = ["3P-5H", "3P-7D"]
 pools_source = "unverified"
@@ -95,7 +95,7 @@ pools_source = "unverified"
 [profiles."ag.argon"]
 selection_mode = "pinned"
 model = "gemini-4-argon-medium"
-source = "cli:agy.exe models@1.4.9 2026-10-29"
+source = "cli:agy.exe models@1.5.3 2026-11-08"
 checked = "2026-10-20"
 pools = ["A-7D"]
 pools_source = "agy /usage group (agy 1.4.0)"

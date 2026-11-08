@@ -15,7 +15,7 @@ from time import monotonic, sleep
 from pathlib import Path
 from typing import Any, cast
 
-from peerhub.cli.support import agy_token_use, print_warnings
+from peerhub.cli.support import agy_token_use, error_line, print_warnings
 from peerhub.cli.monitor_preferences import GROUP_IDS
 
 def register_monitor_parser(subparsers: Any) -> None:
@@ -110,6 +110,14 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
     from peerhub.cli.monitor_view import render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
+    from peerhub.extensions.adapters.profiles import list_profiles
+    store_path = Path(str(payload.get("store_selection", {}).get("path") or ".peerhub/core.db")).resolve()
+    workspace = store_path.parent.parent if store_path.parent.name == ".peerhub" else store_path.parent
+    try:
+        profiles = list_profiles(workspace)
+    except (OSError, ValueError):
+        profiles = []
+    payload = {**payload, "configured_profiles": profiles}
     return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
                                 color=color, unicode=unicode_ok, width=width, height=height,
                                 expand=expand)
@@ -151,8 +159,9 @@ def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
         if preference["status"] != "OK":
             payload = {"schema_version": "2.0", "status": "ERROR", "groups": {},
                        "preference": {key: preference.get(key) for key in ("status", "source", "reason")}}
-            print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")) if args.json else
-                  f"PeerHub monitor defaults are invalid ({preference.get('reason') or 'unknown reason'}). Run 'peerhub monitor defaults show' to inspect them.")
+            if args.json:
+                print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
+            error_line("invalid_arguments", "Monitor defaults are invalid", "peerhub monitor defaults show")
             return 1
         selected = cast(list[str], preference["selected_groups"])
     return _run_monitor_grouped_watch(args, cast(list[str], selected), cast(dict[str, Any], preference))
@@ -206,6 +215,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         groups_obj: object = payload.get("groups")
         groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
         if any(isinstance(v, dict) and cast(dict[str, Any], v).get("status") == "ERROR" for v in groups.values()):
+            error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
             return 4
         errors_obj: object = payload.get("errors")
         errors = cast(dict[str, Any], errors_obj) if isinstance(errors_obj, dict) else {}
@@ -300,8 +310,9 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     if preference["status"] != "OK":
         payload = {"schema_version": "2.0", "status": "ERROR", "selected_groups": None,
                    "preference": {key: preference[key] for key in ("status", "source", "reason")}}
-        print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")) if args.json else
-              f"PeerHub monitor defaults are invalid ({preference.get('reason') or 'unknown reason'}). Run 'peerhub monitor defaults show' to inspect them.")
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
+        error_line("invalid_arguments", "Monitor defaults are invalid", "peerhub monitor defaults show")
         return 1
     selected: list[str] = (list(GROUP_IDS) if unique_requested == ["all"] else
                            sorted(set(cast(list[str], unique_requested)), key=GROUP_IDS.index) if unique_requested else
@@ -322,6 +333,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
             print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
         else:
             _print_grouped_snapshot(payload, args.view, expand=expand)
+        error_line("schema_version_error", "Unsupported database schema", "peerhub guide")
         return 6
     payload["selected_groups"] = selected
     payload["available_groups"] = list(GROUP_IDS)
@@ -338,7 +350,10 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
         if isinstance(value, dict) and cast(dict[str, Any], value).get("status") == "ERROR":
             group_errors = True
             break
-    return 4 if group_errors or payload["status"] == "FAILED" else 0
+    if group_errors or payload["status"] == "FAILED":
+        error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
+        return 4
+    return 0
 
 
 def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = False) -> None:
@@ -370,7 +385,9 @@ def run_monitor_repair(args: argparse.Namespace) -> int:
         result = rebuild_delivery_projections(args.db, chunk_size=args.chunk_size)
     except (OSError, ValueError, sqlite3.Error) as exc:
         result = {"status": "ERROR", "reason": type(exc).__name__}
-        print(json.dumps(result, ensure_ascii=True, separators=(",", ":")) if args.json else f"ERROR: {result['reason']}")
+        if args.json:
+            print(json.dumps(result, ensure_ascii=True, separators=(",", ":")))
+        error_line("storage_corrupt", str(result["reason"]), "peerhub diag health")
         return 4
-    print(json.dumps(result, ensure_ascii=True, separators=(",", ":")) if args.json else json.dumps(result, indent=2))
+    print(json.dumps(result, ensure_ascii=True, separators=(",", ":")) if args.json else "\n".join(f"{key}: {value}" for key, value in result.items()))
     return 0
