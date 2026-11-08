@@ -16,6 +16,7 @@ pytestmark = [pytest.mark.unit]
     ("pip checkout", ["installed-vs-checkout"]),
     ("PYTHONPATH", ["installed-vs-checkout"]),
     ("read-only", ["ag-recipe"]),
+    ("cx plan window", ["cx-plan-windows"]),
     ("ag empty reply", ["ag-recipe"]),
     ("denied_empty", ["ag-recipe"]),
     ("ag", ["ag-recipe", "ag-bulk-profile-heuristics", "ag-silence-long-asks", "multi-peer-quota-shaping"]),
@@ -72,7 +73,7 @@ def test_known_guidance_and_alias_take_priority(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 19
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 20
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & {lesson["id"] for lesson in lessons}
     for lesson in lessons:
         assert all(lesson.values())

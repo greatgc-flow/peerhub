@@ -11,6 +11,8 @@ from typing import Any, cast
 
 from peerhub.cli.monitor_preferences import GROUPS
 
+# Mirrors peerhub.extensions.observation_model.NOT_REPORTED_REASON (the human renderer imports no extension code).
+_NOT_REPORTED = "not reported by provider"
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
@@ -240,7 +242,10 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
                 q_scope = _clean(q_obj.get("scope") or "")
 
-                if q_state == "INCOMPLETE" or q_pool == "incomplete":
+                if q_pool == "not_reported":  # every configured pool omitted by the provider: unknown, never 100% free
+                    q_wide = "? (not reported)"
+                    q_narr = "? not reported"
+                elif q_state == "INCOMPLETE" or q_pool == "incomplete":
                     q_wide = "incomplete"
                     q_narr = "incomplete"
                 elif q_state == "STALE":
@@ -257,7 +262,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     else:
                         pool_label = q_pool
                     pool_str = f" ({pool_label})" if pool_label else ""
-                    q_wide = f"{_pct(q_rem)}{pool_str}{age_str}"
+                    plan_note = _clean(_obj(data.get("plan_notes")).get(pid) or "")
+                    q_wide = f"{_pct(q_rem)}{pool_str}{age_str}" + (f" [{plan_note}]" if plan_note else "")
                     q_narr = f"{_pct(q_rem)}{pool_str}"
 
             if p_obj is None:
@@ -481,6 +487,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
             sorted_obs = sorted(observations, key=_quota_sort_key)
             probe_notes: dict[str, set[str]] = {}
+            na_notes: list[str] = []
             # Remove optional columns before fitting any quota identity/state.
             column_widths = {"PEER": 4, "POOL": 8, "REM": 5, "[BAR]": 10,
                              "RESET-IN": 9, "EXHAUST-IN": 13, "PACE": 8,
@@ -518,6 +525,21 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 projection = _obj(item.get("projection"))
                 age = _number(item.get("age_seconds"))
                 age_str = f"{max(0.0, age + elapsed_seconds):.0f}s" if age is not None else "-"
+
+                reason_text = _clean(item.get("reason") or "")
+                if reason_text.startswith(_NOT_REPORTED) and state in {"ABSENT", "STALE"}:
+                    # The provider answered completely but has no such window (plan-dependent): n/a, not 0% and not unlimited.
+                    plan = _clean(reason_text.split("plan=", 1)[1]) if "plan=" in reason_text else "unknown"
+                    fresh = state == "ABSENT"
+                    na_notes.append(f"{peer} {pool_id} n/a not reported (plan {plan})" if fresh else
+                                    f"{peer} {pool_id} ? not reported (plan {plan}), aged; next: peerhub observation refresh --peers {peer}")
+                    rows.append(_fit(quota_row({
+                        "PEER": peer, "POOL": pool_id, "REM": "n/a" if fresh else "-",
+                        "[BAR]": f"[{('░' if unicode else '.') * 8}]", "RESET-IN": "-", "EXHAUST-IN": "-", "PACE": "-",
+                        "STATE": "n/a" if fresh else "?", "AGE": age_str,
+                        "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")}),
+                        width, unicode))
+                    continue
 
                 if pool_id == "quota" and state != "MEASURED":
                     probe_age = max(0.0, age + elapsed_seconds) if age is not None else 0.0
@@ -577,6 +599,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                                      "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
                 rows.append(_fit(row_str, width, unicode))
 
+            rows.extend(_fit(note, width, unicode) for note in na_notes)
             rows.extend(_fit(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}", width, unicode) for peer, codes in probe_notes.items())
             if len(omitted_cols) > 1:
                 # Wrap disclosure so narrow displays do not hide column names.
@@ -808,8 +831,22 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
             consumers.setdefault(f"{peer.get('peer_id')}:{pool}", []).append(str(profile.get("name") or profile.get("profile")))
     cap = _obj(groups.get("capacity"))
     data = _obj(cap.get("data"))
-    display = {**payload, "selected_groups": selected, "groups": {**groups,
-        "capacity": {**cap, "data": {**data, "consumers": {key: ",".join(sorted(set(names))) for key, names in consumers.items()}}}}}
+    display_groups = {**groups,
+        "capacity": {**cap, "data": {**data, "consumers": {key: ",".join(sorted(set(names))) for key, names in consumers.items()}}}}
+    # X5: the plan the provider reports is display text only, shown beside the peer's quota in the PEERS block.
+    plan_windows: dict[str, tuple[str, list[str]]] = {}
+    for obs in _items(data.get("observations")):
+        reason = _clean(obs.get("reason") or "")
+        if obs.get("state") == "ABSENT" and reason.startswith(_NOT_REPORTED):
+            pool = _clean(obs.get("pool_ref") or "").split(":")[-1]
+            plan = _clean(reason.split("plan=", 1)[1]) if "plan=" in reason else "unknown"
+            window = pool.split("-", 1)[-1].lower() if "-" in pool else pool.lower()
+            plan_windows.setdefault(_clean(obs.get("peer_id") or "?"), (plan, []))[1].append(window)
+    peers_group = _obj(groups.get("peers"))
+    if plan_windows and peers_group:
+        display_groups["peers"] = {**peers_group, "data": {**_obj(peers_group.get("data")), "plan_notes": {
+            peer: f"plan {plan}: no {', '.join(windows)} window" for peer, (plan, windows) in plan_windows.items()}}}
+    display = {**payload, "selected_groups": selected, "groups": display_groups}
     if height is not None and height <= 3:
         text = "+" + str(len(selected)) + " groups; --expand"
         return (_fit(text, max(0, width - 1), unicode) + "\n") if height > 1 else ""

@@ -66,7 +66,8 @@ def test_kind_is_registered():
 
 def test_one_credit_measured(monkeypatch):
     usage, rc = run_probe(monkeypatch, envelope(rateLimitResetCredits={"availableCount": 1, "credits": [credit()]}))
-    assert len(usage) == 1 and usage[0].evidence.state == EvidenceState.MEASURED  # quota path unchanged (positive control)
+    assert usage[0].evidence.state == EvidenceState.MEASURED  # quota path unchanged (positive control)
+    assert [u.evidence.state for u in usage[1:]] == [EvidenceState.ABSENT]  # X-7D not reported by this response (X1)
     assert len(rc) == 1 and rc[0].state == EvidenceState.MEASURED
     assert rc[0].payload["available_count"] == 1 and rc[0].payload["nearest_expires_at"] == EXPIRES
     assert rc[0].payload["credits"] == [{"id_ref": RID, "reset_type": "codexRateLimits", "status": "available",

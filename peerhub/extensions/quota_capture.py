@@ -167,6 +167,13 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                 store.register_resource_pool(ResourcePool(resource_pool_id=pool_ref, provider=kind, kind="QUOTA"))
                 payload.update(remaining_fraction=measurement.remaining_fraction,
                                window_started_at=measurement.window_started_at, resets_at=measurement.resets_at)
+            elif state == EvidenceState.ABSENT:
+                absent_extra: dict[str, Any] = getattr(reading, "extra", None) or {}
+                scope, reason = absent_extra.get("pool_scope"), absent_extra.get("reason")
+                if isinstance(scope, str) and scope and isinstance(reason, str):  # X1: pool the provider did not report
+                    pool_ref = f"quota:{kind}:{scope}"
+                    store.register_resource_pool(ResourcePool(resource_pool_id=pool_ref, provider=kind, kind="QUOTA"))
+                    payload["reason"] = reason
             elif state in (EvidenceState.ERROR, EvidenceState.UNAVAILABLE):
                 payload["condition"] = "provider_probe_" + state.value.lower()
                 extra_data: dict[str, Any] = getattr(reading, "extra", None) or {}

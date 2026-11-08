@@ -44,6 +44,13 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 - Fix: Prefer peerhub batch run with --dry-run (it validates profiles first). If looping in a shell: strip CR from the list (tr -d CR), read with while read -r k p || [ -n "$k" ], use one unique stream per job and check each output status instead of trusting wait.
 - Issue: #289
 
+## cx quota windows depend on the plan (`cx-plan-windows`)
+
+- Keywords: cx, codex, quota, plan, window, windows, pool, 5h, 7d, X-5H, X-7D, prolite, reported, monitor, incomplete
+- Symptom: peerhub monitor shows cx X-5H as n/a (not reported) or an older cx quota as incomplete, and agents read cx as 0% or unusable.
+- Fix: Pools come from the provider response, not from a fixed table: a plan may report only the 7-day window (observed 2026-11-08: planType prolite, primary = 7-day, secondary = null, no 5h window). PeerHub records a configured pool the provider left out of a complete response as n/a (not reported, plan shown) and skips it when it computes the peer's quota; it is neither exhausted nor unlimited, and it turns unknown after the freshness TTL until probed again. Check peerhub monitor (or peerhub observation refresh --peers cx) and read the reported pools before assuming 0%. Other plans still report 5h, so profile pools stay X-5H and X-7D.
+- Issue: 0.24.0
+
 ## cx sandbox facts and prompt hygiene (`cx-sandbox-and-prompt-hygiene`)
 
 - Keywords: cx, codex, windows, sandbox, unelevated, process, enumeration, AGENTS.md, rule, file, query, forward, implementer
