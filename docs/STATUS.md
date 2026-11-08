@@ -10,7 +10,7 @@ v0.24.0 unifies CLI human output (text by default, `--json` everywhere), store p
 
 The latest published package is **v0.24.0** (tag `v0.24.0`, target `f07d6c49`); PyPI 0.24.0 and G3 passed are verified. Later main changes are **source-only until a new release**. The installed `peerhub guide` does not automatically update when main changes.
 
-v0.24.0 published 2026-11-08 (PR #301, tag `v0.24.0`, target `f07d6c49`); PyPI 0.24.0 verified and G3 passed. See [live evidence](implementation/live_evidence/2026-11-08.json). Previous published release: v0.23.3.
+v0.24.0 published 2026-11-08 (PR #301, tag `v0.24.0`, target `f07d6c49`); PyPI 0.24.0 verified and G3 passed; release body = `python -m tools.release_notes --version 0.24.0` output (byte-identical after CR stripping except the trailing newline GitHub appends; verified 2026-11-09). See [live evidence](implementation/live_evidence/2026-11-08.json). Previous published release: v0.23.3.
 
 v0.23.3 adds five operating lessons to `peerhub explain` (#284-#290; documentation only); published 2026-11-01 (PR #295, tag `v0.23.3`, target `60220a2c`); previous published release: v0.23.2. Open follow-ups: none.
 
