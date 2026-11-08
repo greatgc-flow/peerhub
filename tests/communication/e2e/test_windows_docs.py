@@ -1,6 +1,7 @@
 """Tests for docs/windows.md (PowerShell operations, quoting, parallel asks, non-ASCII paths)."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import shlex
@@ -86,11 +87,52 @@ def test_windows_docs_ask_examples_pass_runtime_argument_validation():
             normalize_session_selector(fresh=parsed.fresh, session=parsed.session)
 
 
-def test_ask_rejects_simultaneous_prompt_and_query_file_at_runtime():
-    """app.py:300 rejects invocation providing both positional prompt and --query-file."""
+def test_ask_rejects_simultaneous_prompt_and_query_file_at_runtime(tmp_path, monkeypatch, capsys):
+    """A usage error takes precedence over a missing implicitly selected store."""
     from peerhub.cli.app import main
 
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
     with pytest.raises(SystemExit) as exc_info:
         main(["ask", "cc", "prompt here", "--query-file", "query.txt"])
     assert exc_info.value.code == 2
+    captured = capsys.readouterr()
+    assert "ask requires exactly one of prompt or --query-file" in captured.err
+    assert "store_missing" not in captured.out + captured.err
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("options,raises,expected", [
+    ([], True, "ask requires exactly one of prompt or --query-file"),
+    (["prompt", "--query-file", "query.txt", "--json"], False, "Invalid ask arguments"),
+    (["--json"], False, "Invalid ask arguments"),
+    (["prompt", "--fresh", "--session", "sess_0123456789abcdef"], False, "fresh and session are mutually exclusive"),
+    (["prompt", "--timeout-seconds", "invalid"], True, "invalid_arguments"),
+    (["prompt", "--session", "invalid"], False, "session must be a full handle"),
+    (["prompt", "--session", "invalid", "--json"], False, "session must be a full handle"),
+])
+def test_ask_usage_errors_precede_store_resolution(tmp_path, monkeypatch, capsys, options, raises, expected):
+    from peerhub.cli import app
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+
+    def unexpected_resolution(*args, **kwargs):
+        pytest.fail("ask usage validation must precede store resolution")
+
+    monkeypatch.setattr(app, "_select_db", unexpected_resolution)
+    if raises:
+        with pytest.raises(SystemExit) as exc_info:
+            app.main(["ask", "cc", *options])
+        assert exc_info.value.code == 2
+    else:
+        assert app.main(["ask", "cc", *options]) == 2
+    captured = capsys.readouterr()
+    assert expected in captured.out + captured.err
+    assert "store_missing" not in captured.out + captured.err
+    if "--json" in options:
+        payload = json.loads(captured.out)
+        assert payload["error"]["code"] in ("invalid_arguments", "invalid_session_handle_syntax")
+        assert payload["session"] is None
+    assert not list(tmp_path.iterdir())
 

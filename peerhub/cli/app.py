@@ -371,12 +371,8 @@ def _session_trailer(session: dict[str, Any]) -> str:
     return f"session: {session['handle']} {session['mode']} gen{session['generation']}{suffix}"
 
 
-def _run_ask_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+def _run_ask_cli(args: argparse.Namespace) -> int:
     from peerhub.extensions.ask import ask
-    from peerhub.extensions.bridge import normalize_session_selector
-    normalize_session_selector(fresh=args.fresh, session=args.session)
-    if (args.prompt is None) == (args.query_file is None):
-        parser.error("ask requires exactly one of prompt or --query-file")
     prompt = Path(args.query_file).read_text(encoding="utf-8-sig") if args.query_file else args.prompt
     has_streamed = False
     output_has_newline = False
@@ -1126,6 +1122,12 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 print(_session_trailer(session))
     explicit_db = any(a == "--db" or a.startswith("--db=") for a in actual)
     try:
+        # Pure ask usage errors must win over store discovery and missing stores.
+        if args.subcommand == "ask":
+            from peerhub.extensions.bridge import normalize_session_selector
+            normalize_session_selector(fresh=args.fresh, session=args.session)
+            if (args.prompt is None) == (args.query_file is None):
+                parser.error("ask requires exactly one of prompt or --query-file")
         if hasattr(args, "db") and args.db:
             workspace = Path(args.workspace) if args.subcommand == "ask" and args.workspace else None
             selection = _select_db(args.db, discover=not explicit_db, workspace_root=workspace)
@@ -1150,7 +1152,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         if getattr(args, "obs_db", None):
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":
-            return _run_ask_cli(args, parser)
+            return _run_ask_cli(args)
         if args.subcommand == "account":
             return _run_account_cli(args)
         if args.subcommand == "batch":
