@@ -51,6 +51,7 @@ def test_truncated_output_marks_provider_telemetry_unknown(monkeypatch, tmp_path
         refusal_evidence_incomplete = False
         oversized_count = 0
         refusal_event = None
+        cc_results: list[dict[str, object]] = []
 
         def __init__(self, *args: object, **kwargs: object) -> None: pass
         def feed(self, chunk: bytes) -> None: pass

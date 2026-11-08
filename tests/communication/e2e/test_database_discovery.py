@@ -286,7 +286,11 @@ def test_linked_worktree_discovers_main_store(linked_checkout, ancestor):
     for start in (linked, nested):
         selection = select_store(DEFAULT_DB_PATH, env={}, cwd=start)
         assert selection == type(selection)(str(expected), "discovered")
-        assert select_store(DEFAULT_DB_PATH, env={}, workspace_root=start).path == str(expected)
+        workspace_selection = select_store(DEFAULT_DB_PATH, env={}, workspace_root=start)
+        if ancestor:
+            assert workspace_selection.source == "default"
+        else:
+            assert workspace_selection.path == str(expected)
     local = seed(linked / DEFAULT_DB_PATH)
     assert select_store(DEFAULT_DB_PATH, env={}, cwd=nested).path == str(local)
 
@@ -352,7 +356,6 @@ def test_explicit_and_env_choices_skip_git(linked_checkout, monkeypatch):
     ["stream", "create", "--stream", "new", "--members", "new"],
     ["ask", "cx", "hello"],
     ["account", "list"],
-    ["batch", "run", "missing.json", "--batch-id", "test", "--max-parallel", "1"],
     ["observation", "refresh", "--peers", "cx"],
     ["monitor"],
 ])
@@ -413,3 +416,82 @@ def test_ask_workspace_uses_linked_main_store(linked_checkout, tmp_path, monkeyp
     assert main(["ask", "cx", "hello", "-w", str(linked), "--json"]) == 0
     assert seen == [expected]
     assert not (linked / ".peerhub").exists()
+
+
+def test_git_environment_cannot_redirect_discovery(linked_checkout, tmp_path, monkeypatch):
+    root, linked = linked_checkout
+    expected = seed(root / DEFAULT_DB_PATH)
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    git("init", unrelated)
+    for key, value in {"GIT_DIR": str(unrelated / ".git"), "GIT_WORK_TREE": str(unrelated),
+                       "GIT_INDEX_FILE": str(tmp_path / "bad-index")}.items():
+        monkeypatch.setenv(key, value)
+    original = subprocess.run
+    calls = []
+    def checked(*a, **kw):
+        calls.append(kw.get("env", {}))
+        return original(*a, **kw)
+    monkeypatch.setattr(subprocess, "run", checked)
+    assert select_store(DEFAULT_DB_PATH, env={}, cwd=linked).path == str(expected)
+    assert len(calls) == 2
+    assert all(not ({"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"} & set(env)) for env in calls)
+
+
+@pytest.mark.parametrize("workspace", [False, True])
+def test_main_root_already_searched_does_not_repeat_discovery(tmp_path, monkeypatch, workspace):
+    import peerhub.cli.store_select as module
+    monkeypatch.setattr(module, "_main_worktree", lambda base: tmp_path)
+    original = Path.is_file
+    visits = []
+    def checked(path):
+        if path == tmp_path / DEFAULT_DB_PATH:
+            visits.append(path)
+        return original(path)
+    monkeypatch.setattr(Path, "is_file", checked)
+    assert select_store(DEFAULT_DB_PATH, env={}, cwd=tmp_path,
+                        workspace_root=tmp_path if workspace else None).source == "default"
+    assert len(visits) == 1
+
+
+@pytest.mark.parametrize("command", [["diag", "readiness"], ["diag", "quota"],
+                                     ["diag", "health"], ["diag", "integrity"]])
+def test_implicit_missing_diag_keeps_explicit_missing_report(tmp_path, monkeypatch, capsys, command):
+    monkeypatch.chdir(tmp_path)
+    implicit = main(command + ["--json"])
+    implicit_output = capsys.readouterr()
+    explicit = main(["--db", DEFAULT_DB_PATH, *command, "--json"])
+    explicit_output = capsys.readouterr()
+    assert implicit == explicit
+    implicit_report = json.loads(implicit_output.out)
+    explicit_report = json.loads(explicit_output.out)
+    implicit_report.pop("read_at", None)
+    explicit_report.pop("read_at", None)
+    assert implicit_report == explicit_report
+    assert not (tmp_path / ".peerhub").exists()
+
+
+def test_missing_guard_accepts_namespace_without_json(tmp_path, monkeypatch, capsys):
+    import peerhub.cli.app as app
+    parser = app.build_parser()
+    args = parser.parse_args(["peer", "register", "--peer", "local"])
+    del args.json
+    monkeypatch.setattr(parser, "parse_args", lambda argv: args)
+    monkeypatch.setattr(app, "build_parser", lambda **kw: parser)
+    monkeypatch.chdir(tmp_path)
+    assert main(["peer", "register", "--peer", "local"]) == 5
+    assert "[store_missing]" in capsys.readouterr().err
+    assert not (tmp_path / ".peerhub").exists()
+
+
+def test_collection_miss_is_guarded_before_corestore(tmp_path, monkeypatch, capsys):
+    import argparse
+    import peerhub.cli.app as app
+    parser = app.build_parser()
+    args = argparse.Namespace(db=DEFAULT_DB_PATH, subcommand="collection", action="create", json=False)
+    monkeypatch.setattr(parser, "parse_args", lambda argv: args)
+    monkeypatch.setattr(app, "build_parser", lambda **kw: parser)
+    monkeypatch.chdir(tmp_path)
+    assert main(["collection", "create"]) == 5
+    assert "[store_missing]" in capsys.readouterr().err
+    assert not (tmp_path / ".peerhub").exists()

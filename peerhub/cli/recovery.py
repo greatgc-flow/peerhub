@@ -370,10 +370,10 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_denied_empty": GuidanceEntry(
         code="ask_denied_empty",
         meaning="The turn ended with an empty response after the provider denied tool action(s); this is not a usable answer.",
-        why="<peer> denied tool action(s) (headless cannot prompt), so the turn can end with no reply text. Task effects are unverified.",
+        why="The provider denied tool action(s) (headless cannot prompt), so the turn can end with no reply text; the denied names or commands are in denied_actions. Task effects are unverified.",
         recover=[
             {
-                "argv": ["peerhub", "ask", "ag", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM", "--writable"],
+                "argv": ["peerhub", "ask", "PEER_ID", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM", "--writable"],
                 "purpose": "Start a new stream and inline the needed content via --query-file (say \"no tools\"); do not resume this stream",
                 "prereqs": "Put the content the task needs into the query file; one task per ask; check the workspace for partial effects first.",
             },

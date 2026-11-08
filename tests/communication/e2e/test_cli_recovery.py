@@ -1393,7 +1393,7 @@ def test_denied_empty_next_hint_is_new_stream_with_inlined_content(tmp_path, mon
     assert len(err.splitlines()) == 1
     assert "new stream" in err and "--query-file" in err and "do not resume this stream" in err
     entry = REGISTRY["ask_denied_empty"]
-    assert entry.recover[0]["argv"][:3] == ["peerhub", "ask", "ag"] and "--stream" in entry.recover[0]["argv"]
+    assert entry.recover[0]["argv"][:3] == ["peerhub", "ask", "PEER_ID"] and "--stream" in entry.recover[0]["argv"]
     assert "diag health" not in err
 
 

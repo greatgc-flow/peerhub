@@ -186,6 +186,8 @@ def test_poll_claude_usage_success_parsing(monkeypatch):
     ids = DummyIdSource()
     res = poll_claude_usage(ids, "inst-1", "prof-1")
 
+    assert [r.extra["pool_scope"] for r in res if r.evidence.state == EvidenceState.ABSENT] == ["C-7D", "F-7D"]  # P4
+    res = [r for r in res if r.evidence.state == EvidenceState.MEASURED]
     assert len(res) == 1
     obs = res[0]
     assert obs.evidence.state == EvidenceState.MEASURED
@@ -509,6 +511,8 @@ def test_poll_agy_usage_prefers_live_slash_command(monkeypatch, tmp_path):
     )
 
     assert captured["argv"][1:4] == ["-p", "/usage", "--output-format"]
+    assert [obs.extra["pool_scope"] for obs in res if obs.evidence.state == EvidenceState.ABSENT] == ["A-7D"]
+    res = [obs for obs in res if obs.evidence.state == EvidenceState.MEASURED]
     assert len(res) == 4
     scopes = {obs.evidence.value.quota_pool_scope: obs for obs in res}
     assert scopes["G-7D"].evidence.value.remaining_fraction == pytest.approx(0.0938)
@@ -979,8 +983,11 @@ def test_claude_provider_output_with_iana_zone_is_measured(monkeypatch, output):
         DummyIdSource(), "inst-1", "prof-1", clock=lambda: now.timestamp()
     )
 
-    assert len(observations) == (2 if "Current week" in output else 1)
-    assert all(obs.evidence.state == EvidenceState.MEASURED for obs in observations)
+    measured = [obs for obs in observations if obs.evidence.state == EvidenceState.MEASURED]
+    assert len(measured) == (2 if "Current week" in output else 1)
+    absent = sorted(obs.extra["pool_scope"] for obs in observations if obs.evidence.state == EvidenceState.ABSENT)
+    assert absent == (["F-7D"] if "Current week" in output else ["C-7D", "F-7D"])  # exactly the declared pools the report omits (P4)
+    assert len(observations) == len(measured) + len(absent)  # nothing else (no ERROR/UNKNOWN rows)
     measurement = observations[0].evidence.value
     assert measurement is not None
     assert measurement.quota_pool_scope == "C-5H"
@@ -1153,7 +1160,12 @@ def test_poll_agy_usage_preserves_unregistered_bucket_as_drift_without_mapping_p
     scopes = [obs.evidence.value.quota_pool_scope for obs in observations if obs.evidence.value is not None]
     assert scopes == ["G-7D"]
     for obs in observations:
-        assert obs.extra.get("unknown_pools") == ["gemini-new-preview-5h"]
+        if obs.evidence.value is not None:  # every measurement still carries the drift annotation
+            assert obs.extra.get("unknown_pools") == ["gemini-new-preview-5h"]
+    # The other four declared pools are not reported by this payload (ABSENT rows need no drift annotation).
+    assert sorted(obs.extra["pool_scope"] for obs in observations if obs.evidence.state == EvidenceState.ABSENT) == \
+        ["3P-5H", "3P-7D", "A-7D", "G-5H"]
+    assert len(observations) == 5
 
 
 def test_poll_agy_usage_emits_conflict_observation_on_envelope_group_conflict(monkeypatch, tmp_path):

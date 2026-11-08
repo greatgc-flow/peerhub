@@ -99,3 +99,35 @@ def test_cc_empty_reply_with_denials_becomes_denied_empty_and_replays(tmp_path):
     replay = ask(tmp_path / "core.db", "cc", "run it", request_id=res["request_id"], runtime=rt)
     assert replay["status"] == "denied_empty" and replay["denied_actions"] == ["Bash: peerhub --version"]
     assert replay["error"]["message"].startswith("cc denied tool action(s)")
+
+
+def test_cc_denials_survive_stdout_truncation(bridge_h, tmp_path):
+    """The result event is parsed incrementally; a flood after it that evicts it from the retained window must not lose denials."""
+    result = json.loads(_result([{"tool_name": "Bash", "tool_input": {"command": "peerhub --version"}}]).splitlines()[1])
+    script = textwrap.dedent(f"""
+        import sys, json
+        chunk = ("log line " * 10 + "\\n") * 2000
+        for _ in range(3):
+            sys.stdout.write(chunk)
+        sys.stdout.write(json.dumps({result!r}) + "\\n")
+        for _ in range(3):
+            sys.stdout.write(chunk)
+        sys.stdout.flush()
+    """)
+    ws = tmp_path / "ws_trunc"
+    ws.mkdir()
+    target = CliRuntimeTarget("cc", ws, command=[PY, "-c", script], timeout_s=15.0, max_bytes=100_000)
+    (rec,) = bseed(bridge_h, stream="s_den_trunc")
+    res = bridge_h.delivery_cycle("b", "s_den_trunc", target)
+    assert res.certainty == "TERMINAL"
+    (stored,) = [json.loads(r[0]) for r in sql(bridge_h, "SELECT result_json FROM bridge_deliveries WHERE record_id=?", (rec.record_id,))]
+    assert stored["denied_actions"] == ["Bash: peerhub --version"]
+
+
+def test_ask_denied_empty_guidance_is_provider_neutral():
+    from peerhub.cli.recovery import REGISTRY
+
+    entry = REGISTRY["ask_denied_empty"]
+    assert "<peer>" not in entry.why
+    argv = entry.recover[0]["argv"]
+    assert argv[:3] == ["peerhub", "ask", "PEER_ID"] and "ag" not in argv

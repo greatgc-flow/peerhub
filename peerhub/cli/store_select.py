@@ -2,8 +2,9 @@
 
 Order: explicit --db > PEERHUB_DB (when allowed) > a discovered workspace store > the default path.
 Discovery looks for `.peerhub/core.db` in the current directory, then every parent.
-On a miss, Git's main worktree and its parents are searched. An implicit default
-is only a diagnostic path; CLI store consumers must refuse to create it.
+On a miss, Git's main worktree and its parents are searched (workspace_root:
+main root only). An implicit default is only a diagnostic path; CLI store
+consumers must refuse to create it.
 """
 
 from __future__ import annotations
@@ -65,16 +66,18 @@ class StoreSelection:
 
 def _main_worktree(base: Path) -> Path | None:
     """Ask the innermost Git repository for a verifiable main worktree."""
+    git_env = {key: value for key, value in os.environ.items()
+               if key.upper() not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"}}
     try:
         common = subprocess.run(
             ["git", "-C", str(base), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            check=True, capture_output=True, timeout=2,
+            check=True, capture_output=True, timeout=2, env=git_env,
         ).stdout.decode("utf-8").rstrip("\r\n")
         if not common or not Path(common).is_absolute() or not Path(common).is_dir():
             return None
         listing = subprocess.run(
             ["git", "--git-dir", common, "worktree", "list", "--porcelain", "-z"],
-            check=True, capture_output=True, timeout=2,
+            check=True, capture_output=True, timeout=2, env=git_env,
         ).stdout.decode("utf-8")
         # Git lists the main worktree first. NUL framing preserves spaces and Unicode.
         fields = listing.split("\0\0", 1)[0].split("\0")
@@ -114,8 +117,9 @@ def select_store(configured_path: str, *, use_env: bool = True, discover: bool =
         if candidate.is_file():
             return StoreSelection(str(candidate), "discovered")
     main_root = _main_worktree(workspace_root.resolve() if workspace_root is not None else base)
-    if main_root is not None:
-        for root in (main_root, *main_root.parents):
+    if main_root is not None and main_root not in roots:
+        fallback_roots = [main_root] if workspace_root is not None else [main_root, *main_root.parents]
+        for root in fallback_roots:
             candidate = root / DEFAULT_DB_PATH
             if candidate.is_file():
                 return StoreSelection(str(candidate), "discovered")

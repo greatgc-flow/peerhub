@@ -7,7 +7,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Batch Runs](batch.md): Validate and execute flat parallel asks, interpret statuses, cancel and resume.
 - [Remote Ask](remote-ask.md): Running peerhub ask against peers on remote hosts over SSH.
 - [Knowledge Placement Policy](knowledge-placement.md): Policy governing guidance placement across docs, CLI guide, and lessons.
-- `peerhub diag readiness [--json]` reports cached criteria for every effective configured profile, sorted by ID. `READY` means fresh positive verified quota and a matching terminal delivery; it proves neither current provider availability, actual model identity, authorization, nor semantic task success. Shared pools appear once with remaining quota, reset and evidence age. Missing/stale mappings or corrupt evidence stay `UNKNOWN`; absent success, changed binding, failed/uncertain delivery or required native ag writable consent stays unverified. Native ag consent still requires explicit `--writable`. Global `--db` selection applies; a missing store exits 5 without creation. This command never calls providers or writes, and rejects `--probe`. Human overflow is disclosed; JSON schema 1.0 includes every profile without a size guarantee. Issue #145 remains partially open for later work.
+- `peerhub diag readiness [--json]` reports cached criteria for every effective configured profile, sorted by ID. `READY` means fresh positive verified quota and a matching terminal delivery; it proves neither current provider availability, actual model identity, authorization, nor semantic task success. Shared pools appear once with remaining quota, reset and evidence age. Missing/stale mappings or corrupt evidence stay `UNKNOWN`; absent success, changed binding, failed/uncertain delivery or required native ag writable consent stays unverified. Native ag consent still requires explicit `--writable`. Global `--db` selection applies; a missing store exits 5 without creation. This command never calls providers or writes, and rejects `--probe`. Human overflow is disclosed; JSON schema 1.0 includes every profile without a size guarantee. Issue #145 is closed; deferred scope is recorded in [STATUS](STATUS.md#deferred-backlog-start-triggers).
 - [Profile Smoke Recipe](smoke-recipe.md): Installed-CLI nonce pings and one result matrix (#148).
 - [Peer Sandbox Limits](peer-limits.md): Per-peer restrictions, operating knobs, and deferred capability probe (#134).
 - [README.md](../README.md): Quick start, installation (`pipx`/`uv`/`pip`), core usage, and everyday operational commands.
@@ -27,7 +27,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 
 ## Configuration & Adapters
 - [Config Hierarchy](config-hierarchy.md): Workspace, global, and packaged configuration tiers.
-- [Model Profiles](model-profiles/model-profiles.json): Provider model defaults, profiles, and refresh schemas.
+- [Model Profiles](../peerhub/config_data/model-defaults.toml): Profiles SSOT since v0.23.0. [model-profiles.json](model-profiles/model-profiles.json) is the refresh recipe.
 - [Adapter Guide](adapters/README.md): Vendor CLI prerequisites, authentication, and execution flags (`cc`, `cx`, `ag`).
 - [CLI Reference](adapters/peer-cli-reference.md): Low-level adapter options and platform constraints.
 - [Compatibility Archive](compatibility/): Historical observations and external peer CLI binary compatibility records.
@@ -38,6 +38,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 ## Active Design & Plans
 - [Design Documents Index](design/README.md): Overview of active design specifications, deferred proposals, and history pointers.
 - [Plan 0.24.0 (November 2026)](design/plan-0.24.0-2026-11-08.md): Monitor and CLI unification, model observation refresh, and denied-empty handling.
+- [Plan 0.24.1 (November 2026)](design/plan-0.24.1-2026-11-08.md): Store discovery recovery and cc permission-denial handling.
 - [Pre-TDD Renewal (October 2026)](design/peerhub-pre-tdd-renewal-2026-10-14.md): Reconciled architecture and numbered RED contracts; no implementation authorized by this design stage.
 - [CLI, Monitoring, and Inspection Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md): MECE command boundaries, profile/session inspection, read-only guarantees, bounded snapshots, human/AI defaults, and PH-T095–105.
 - [Monitor Groups Usability Review](design/monitor-groups-usability-review-2026-10-16.md): Unanimous peer decision, group discovery, default/legacy contract, delivery certainty semantics, and TDD acceptance plan.

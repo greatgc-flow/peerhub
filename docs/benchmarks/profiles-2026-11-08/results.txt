@@ -1,0 +1,9 @@
+before fable: Current session: 7% used · resets Nov 9, 1:29am (Asia/Seoul) | Current week (all models): 2% used · resets Nov 10, 9:59pm (Asia/Seoul) | Current week (Fable): 2% used · resets Nov 10, 9:59pm (Asia/Seoul)
+fable-high 12s SCORE 45/45
+after fable: Current session: 7% used · resets Nov 9, 1:29am (Asia/Seoul) | Current week (all models): 2% used · resets Nov 10, 9:59pm (Asia/Seoul) | Current week (Fable): 2% used · resets Nov 10, 9:59pm (Asia/Seoul)
+cc-opus-high 15s SCORE 45/45
+ag-argon-medium 29s SCORE 45/45
+cx-astra-high 35s SCORE 45/45
+cx-sol-xhigh 40s SCORE 45/45
+cx-astra-ultra 51s SCORE 45/45
+ag-argon-high 53s SCORE 45/45

@@ -126,12 +126,17 @@ CC_DENIAL_CHARS = 120
 
 
 def cc_permission_denials(stdout: str) -> list[str]:
+    """`cc_result_denials` of the final result event in `stdout`."""
+    results = [e for e in _json_lines(stdout) if e.get("type") == "result"]
+    return cc_result_denials(results[-1] if results else None)
+
+
+def cc_result_denials(result: dict[str, Any] | None) -> list[str]:
     """`Tool: detail` strings for the tool calls cc auto-denied (`result.permission_denials`), order-preserving, de-duplicated (#303).
 
     Strings are raw: the caller must redact (Sanitizer.clean) BEFORE truncating to CC_DENIAL_CHARS.
     """
-    results = [e for e in _json_lines(stdout) if e.get("type") == "result"]
-    denials: Any = results[-1].get("permission_denials") if results else None
+    denials: Any = result.get("permission_denials") if result else None
     out: list[str] = []
     for item in cast("list[Any]", denials) if isinstance(denials, list) else []:
         if not isinstance(item, dict):
@@ -1371,7 +1376,8 @@ class CliRuntimeTarget:
                 payload["denied_actions"] = denied
         if self.runtime_kind == "cc":
             # Redact first, then cut to 120 chars; surfaced even with reply text so allow-rule mismatches are never silent (#303).
-            cc_denied = [san.clean(d, CC_DENIAL_CHARS) for d in cc_permission_denials(res.stdout.decode("utf-8", "replace"))]
+            # The incrementally parsed final result survives stdout truncation (the retained window may have evicted it).
+            cc_denied = [san.clean(d, CC_DENIAL_CHARS) for d in cc_result_denials(parser.cc_results[-1] if parser.cc_results else None)]
             if cc_denied:
                 payload["denied_actions"] = cc_denied
         if res.output_truncated or parser.truncated:

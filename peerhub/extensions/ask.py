@@ -271,7 +271,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                 delivered = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (result["delivery_id"],)).fetchone()
                 if delivered is not None and delivered["acked"] and delivered["result_json"] and delivered["certainty"] in ("NOT_STARTED", "STARTED", "TERMINAL"):
                     result.update(_read_delivery_result(conn, delivered, peer_id))
-                    if not terminal and not refused and delivered["certainty"] == "TERMINAL":
+                    if not terminal and not refused and delivered["certainty"] == "TERMINAL" and result.get("status") != "denied_empty":
                         result["status"] = "delivered"
         result.update(bridge.delivery_details(result.get("delivery_id")))
         if isinstance(result.get("detail"), dict):

@@ -6,8 +6,8 @@ and coordination checkpoints.
 ## 0. Current status and active queue; details: [STATUS](STATUS.md)
 
 - **Current state:** See [STATUS](STATUS.md).
-- **In flight:** PR #301 (0.24.0, plan [docs/design/plan-0.24.0-2026-11-08.md](design/plan-0.24.0-2026-11-08.md)).
-- **Open:** #302.
+- **In flight:** PR #305 (0.24.1, plan [docs/design/plan-0.24.1-2026-11-08.md](design/plan-0.24.1-2026-11-08.md)).
+- **Open:** #302, #303, #304 (#304 closed by PR #305).
 
 - Release lessons: `tests/communication/package/test_release_notes.py` pins the version and must change in the bump PR; a CHANGELOG heading for a never-published version needs `(superseded ...)`; py3.15 has no pyyaml wheel, so run the full suite in CI, not locally.
 
@@ -79,11 +79,7 @@ for coverage, remaining checks and local results.
 - **Owner top rule & COMPACT:** so-very-simple. Apply COMPACT: minimize abstraction and document duplication; all claims require exact empirical evidence.
 - **Unanimity & debate:** Involve cc, cx, and ag. Unlimited critical rounds until unanimity; no feature implementation before complete design and consensus. Cross-critique objectively; encode objections honestly and never fabricate agreement.
 - **Role proposals:** Propose roles until unanimity (`ag.effort` sole editor, `cx.effort` independent control-flow/safety reviewer, `cc.effort` concise veto/reviewer). Configuration and observed task outcomes are not comparative ability benchmarks; do not assert universal limits or unsupported model superiority/throughput claims.
-- **Profile facts & shared pools:**
-  - `ag standard flash-low / effort flash-medium` share Google (G) pools; `deepthink sonnet-high` consumes Anthropic 3P.
-  - `cc standard haiku / effort sonnet high / deepthink opus high` share Claude (C) pools.
-  - `cx standard luna low / effort 6.1-sol medium / deepthink 6.1-sol xhigh` share Codex (X) pools.
-  - Note: Facts require periodic recheck due to unconfirmed models (e.g., `gemini-argon-wtu-weekly`) and CLI drift. Standard profile is not guaranteed cheapest; no benchmarks at this time.
+- **Profile facts & shared pools:** packaged profiles and pool assignments are defined in [`model-defaults.toml`](../peerhub/config_data/model-defaults.toml); balancing guidance is in [`docs/batch.md`](batch.md). Benchmark evidence: [`profiles-2026-11-08.md`](benchmarks/profiles-2026-11-08.md).
 - **Quota balance & conservation:** Monitor 7-day and 5-hour pools (`peerhub diag quota` / `peerhub monitor`). Zero provider calls or live probes unless explicitly authorized for memory preservation; no profile hopping or deepthink to evade pool limits.
 - **Sandboxing & execution constraints:** Peer sandboxes cannot run pytest reliably due to temp-directory ACL restrictions (observed on cx); headless ag read-only is not enforced at engine level (issue #140). Verify drafts and run tests/typing locally.
 - **Delegation of edits:** Delegate even small edits via `peerhub ask <peer> --writable`; verify drafts and run pytest / Pyright yourself.

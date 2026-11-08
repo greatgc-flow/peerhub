@@ -25,14 +25,16 @@ binding into CLI flags.
 Profile models and efforts live in the packaged `model-defaults.toml`; list the effective ones with
 `peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them.
 
-`cc.fable` (`claude-fable-5-1`, high) is an opt-in top profile with pools C-5H, C-7D and F-7D.
-Whether Fable also draws on the shared C pools is unverified ([benchmark](../benchmarks/profiles-2026-11-08.md)).
+`cc.fable` (`claude-fable-5-1`, high) is an opt-in top profile with pool F-7D only;
+whether it also draws on shared C pools is unverified ([benchmark](../benchmarks/profiles-2026-11-08.md)).
 
 `ask --writable` adds `--permission-mode acceptEdits`. Compatible native resume
 uses `--resume SESSION_ID` for compatible continuing asks by default.
 Without `--writable`, `--permission-mode acceptEdits` is omitted; in headless
 mode (`-p -`), Claude Code refuses tool calls that require write permissions,
 preventing workspace edits on fresh and resumed asks (provider-controlled; no OS sandbox).
+In v0.24.1, cc `result.permission_denials` are surfaced as `denied_actions`;
+an empty reply with denials is reported as `denied_empty`.
 
 ## Verify and troubleshoot
 

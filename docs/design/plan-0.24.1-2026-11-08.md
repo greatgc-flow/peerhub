@@ -1,6 +1,6 @@
 # 0.24.1 plan (vote: ACK or NACK:<item> <reason>, <=4 lines; you may read the code)
 #304 (cx design, read .peerhub/work/ph304-r1.txt for detail):
-A1 Keep C6 precedence --db > PEERHUB_DB > nearest upward .peerhub/core.db. Only when that misses: ask git (argument-list subprocess, bounded timeout) for the common dir of the effective workspace/cwd, derive the MAIN worktree root, search it and its parents; source = discovered.
+A1 Keep C6 precedence --db > PEERHUB_DB > nearest upward .peerhub/core.db. Only when that misses: ask git (argument-list subprocess, bounded timeout) for the common dir of the effective workspace/cwd, derive the MAIN worktree root, search it and its parents; with -w/--workspace, search the main root only (review); source = discovered.
 A2 An implicit selection that finds no store never creates one: before any directory/lineage/DB/provider work, exit 5 `[store_missing]` + `next:` (pass --db or set PEERHUB_DB, or run from the main checkout). Creation only with explicit --db / PEERHUB_DB on creation-capable commands.
 A3 Tests: linked worktree + subdirectory + ask -w; local store wins; nested repos; non-git / git missing / malformed metadata; Windows spaces/Unicode; implicit miss leaves no artifacts and makes no provider call; explicit bootstrap still works.
 #303 (cc triage, not reproduced; comment posted):
