@@ -294,7 +294,7 @@ Milestones describe development progress, not runtime ownership. Frozen specific
 
 ## Where model facts come from and how to refresh them
 
-Model facts shown by `monitor` come from `docs/model-profiles/model-profiles.json` and `peerhub/config_data/model-defaults.toml`.
+Profiles (model, effort, pools) and observed CLI versions live in `peerhub/config_data/model-defaults.toml` (the single source); `docs/model-profiles/model-profiles.json` is the refresh recipe (sources, tier rules, update targets).
 Run the `refresh-model-profiles` skill (or query installed CLIs per manifest instructions) to verify models, update `observed_at`/`observed_versions`, and bump the defaults revision.
 Observations are evidence, not policy: profile model and effort definitions require explicit review and approval.
 
@@ -303,7 +303,7 @@ Observations are evidence, not policy: profile model and effort definitions requ
 - [Documentation map](docs/index.md): Single documentation map and navigation index.
 - [CONTRIBUTING.md](CONTRIBUTING.md): maintainer setup, tests, feedback, and release gates.
 - [Adapter guide](docs/adapters/README.md) and [CLI reference](docs/adapters/peer-cli-reference.md): provider invocation and troubleshooting.
-- [Configuration](docs/config-hierarchy.md) and [model profiles](docs/model-profiles/model-profiles.json): store selection and profile defaults.
+- [Configuration](docs/config-hierarchy.md), [profile defaults](peerhub/config_data/model-defaults.toml) and the [refresh recipe](docs/model-profiles/model-profiles.json): store selection, profiles and how to refresh them.
 - [Usage/evolution guide](docs/m1_spec/USAGE_GUIDE.md): Core flow and milestone scope.
 - [Structure cleanup](docs/implementation/STRUCTURE_CLEANUP.md): current ownership and retired surfaces.
 - [M2 contracts](docs/m2/README.md): extension host and durable continuity contracts.
