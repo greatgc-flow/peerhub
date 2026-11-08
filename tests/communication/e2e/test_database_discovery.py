@@ -277,6 +277,7 @@ def linked_checkout(tmp_path):
     return root, linked
 
 
+@pytest.mark.e2e  # The linked_checkout fixture creates real Git repositories/worktrees.
 @pytest.mark.parametrize("ancestor", [False, True])
 def test_linked_worktree_discovers_main_store(linked_checkout, ancestor):
     root, linked = linked_checkout
@@ -295,6 +296,7 @@ def test_linked_worktree_discovers_main_store(linked_checkout, ancestor):
     assert select_store(DEFAULT_DB_PATH, env={}, cwd=nested).path == str(local)
 
 
+@pytest.mark.e2e
 def test_nested_repo_does_not_follow_outer_worktree(linked_checkout):
     root, linked = linked_checkout
     seed(root / DEFAULT_DB_PATH)
@@ -305,11 +307,15 @@ def test_nested_repo_does_not_follow_outer_worktree(linked_checkout):
 
 
 @pytest.mark.parametrize("failure", [FileNotFoundError(), subprocess.TimeoutExpired("git", 2)])
-def test_git_failure_is_a_discovery_miss(tmp_path, monkeypatch, failure):
+def test_git_failure_is_a_discovery_miss(tmp_path, monkeypatch, capsys, failure):
     def fail(*a, **kw):
         raise failure
     monkeypatch.setattr(subprocess, "run", fail)
     assert select_store(DEFAULT_DB_PATH, env={}, cwd=tmp_path).source == "default"
+    monkeypatch.chdir(tmp_path)
+    assert main(["peer", "register", "--peer", "new"]) == 5
+    assert "[store_missing]" in capsys.readouterr().err
+    assert not list(tmp_path.iterdir())
 
 
 def test_malformed_git_metadata_is_a_discovery_miss(tmp_path):
@@ -317,6 +323,7 @@ def test_malformed_git_metadata_is_a_discovery_miss(tmp_path):
     assert select_store(DEFAULT_DB_PATH, env={}, cwd=tmp_path).source == "default"
 
 
+@pytest.mark.e2e
 def test_separate_git_dir_does_not_guess_main_checkout(tmp_path):
     root = tmp_path / "owner" / "main"
     root.mkdir(parents=True)
@@ -331,6 +338,7 @@ def test_separate_git_dir_does_not_guess_main_checkout(tmp_path):
     assert select_store(DEFAULT_DB_PATH, env={}, cwd=linked).source == "default"
 
 
+@pytest.mark.e2e
 def test_bare_repository_has_no_main_checkout_fallback(tmp_path):
     bare = tmp_path / "bare"
     git("init", "--bare", bare)
@@ -339,6 +347,7 @@ def test_bare_repository_has_no_main_checkout_fallback(tmp_path):
     assert select_store(DEFAULT_DB_PATH, env={}, workspace_root=bare).source == "default"
 
 
+@pytest.mark.e2e
 def test_explicit_and_env_choices_skip_git(linked_checkout, monkeypatch):
     root, linked = linked_checkout
     seed(root / DEFAULT_DB_PATH)
@@ -397,6 +406,7 @@ def test_explicit_selection_still_bootstraps_ask(tmp_path, monkeypatch, capsys, 
     assert (tmp_path / DEFAULT_DB_PATH).is_file()
 
 
+@pytest.mark.e2e
 @pytest.mark.parametrize("subdirectory", [False, True])
 def test_ask_workspace_uses_linked_main_store(linked_checkout, tmp_path, monkeypatch, capsys, subdirectory):
     from peerhub.extensions import ask as module
@@ -418,6 +428,7 @@ def test_ask_workspace_uses_linked_main_store(linked_checkout, tmp_path, monkeyp
     assert not (linked / ".peerhub").exists()
 
 
+@pytest.mark.e2e
 def test_git_environment_cannot_redirect_discovery(linked_checkout, tmp_path, monkeypatch):
     root, linked = linked_checkout
     expected = seed(root / DEFAULT_DB_PATH)
