@@ -320,8 +320,9 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                               help="Machine-readable JSON output")
         node._option_string_actions["--json"].default = argparse.SUPPRESS
         for action in node._actions:
-            if isinstance(action.choices, dict):
-                for child in cast(dict[str, object], action.choices).values():
+            choices = cast(object, action.choices)
+            if isinstance(choices, dict):
+                for child in cast(dict[str, object], choices).values():
                     if isinstance(child, argparse.ArgumentParser):
                         add_json(child)
     subparsers._choices_actions[:] = [action for action in subparsers._choices_actions
