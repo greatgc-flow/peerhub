@@ -4,7 +4,9 @@
 
 Dates are UTC.
 
-## Current source: v0.24.2 (published)
+## Current source: v0.24.3 (unreleased)
+
+v0.24.3 adds actionable oversized-prompt guidance with byte counts (#309) and explains the #312 claim-held symptom (caller tool timeout while the ask kept running; replay with the same `--request-id`) in guidance and a lesson.
 
 v0.24.2 separates compact monitor `low` capacity from `fast` pace, explains states in the legend, adds eligible alternative peers to tier suggestions, and defaults non-TTY monitor watch to one cycle. JSON values and schemas are unchanged (PR #310, unanimous cx+ag+cc review).
 

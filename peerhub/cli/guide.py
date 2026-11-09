@@ -107,7 +107,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "  set it >= --timeout-seconds (long tasks: --timeout-seconds 7200); uncertain/timeout => diag.",
         "",
         "Safety:",
-        "  ag recipe (details: 'peerhub explain ag'): inline needed content via --query-file and say \"no tools\"; one task per ask; verify flash claims.",
+        "  ag recipe (details: 'peerhub explain ag'): inline needed content via --query-file and say \"no tools\"; one task per ask; verify flash claims; ag argv: 30kB Windows/120kB POSIX; oversize: split/cc/cx; changed prompt=new request-id.",
         "    -w = trusted project folder, not temp/scratch (prerequisite, not a guarantee); PeerHub requires --writable for ag even for read tasks (accept-edits, workspace-wide).",
         "    After an empty/denied_empty reply never resume that stream (overrides reuse): new stream, content inlined. Headless prompts auto-deny; shell needs matching command(...) or command(*) allow rules.",
         "  Writes: cx sandbox enforced; cc enforced; ag NOT enforced (issue #140); when edits are intended, pass --writable on every turn, including resumed turns.",

@@ -88,7 +88,7 @@ def test_known_guidance_and_alias_take_priority(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 22
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 23
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & {lesson["id"] for lesson in lessons}
     for lesson in lessons:
         assert all(lesson.values())

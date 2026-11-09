@@ -11,6 +11,7 @@ Maps non-success outcome codes to structured guidance and recovery advice:
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -99,9 +100,9 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
     "failed_not_started": ResultStatusEntry(
         status="failed_not_started",
         exit_code=1,
-        guidance_code="ask_launch_failed",
-        meaning="Provider process failed before execution started (missing executable or OS spawn rejection).",
-        safe_action="Inspect peer adapter availability and PATH configuration via `peerhub diag health`.",
+        guidance_code="ask_prompt_too_large / ask_launch_failed / ask_delivery_failed",
+        meaning="Provider execution failed before starting (prompt limit, missing executable, OS spawn rejection or pre-spawn policy check).",
+        safe_action="For ask_prompt_too_large, split the prompt or use cc/cx with a new request-id; otherwise inspect peer adapter availability and PATH configuration via `peerhub diag health`.",
     ),
     "not_executed": ResultStatusEntry(
         status="not_executed",
@@ -131,9 +132,9 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
             },
             {
                 "processed_status": "failed_not_started",
-                "guidance_code": "ask_launch_failed / ask_delivery_failed",
-                "meaning": "Earlier record failed before execution started (missing executable or pre-spawn policy check).",
-                "safe_action": "Inspect provider binary and PATH configuration via peerhub diag health.",
+                "guidance_code": "ask_prompt_too_large / ask_launch_failed / ask_delivery_failed",
+                "meaning": "Earlier record failed before execution started (prompt limit, missing executable or pre-spawn policy check).",
+                "safe_action": "For ask_prompt_too_large, split the prompt or use cc/cx with a new request-id; otherwise inspect provider binary and PATH configuration via peerhub diag health.",
             },
             {
                 "processed_status": "uncertain / blocked_uncertain",
@@ -235,7 +236,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_claim_held": GuidanceEntry(
         code="ask_claim_held",
         meaning="A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream.",
-        why="Only one caller can execute an ask turn per peer and stream at a time to prevent concurrent dispatch races. Wait for the active turn to finish, or use a distinct --stream for genuinely separate parallel work.",
+        why="Only one caller can execute an ask turn per peer and stream at a time to prevent concurrent dispatch races. Wait for the active turn to finish, or use a distinct --stream for genuinely separate parallel work. If your own earlier ask looked cut off (tool timeout), it is still running: wait, then rerun it with the same --request-id to replay the stored reply (lesson caller-timeout-claim-held).",
         recover=[
             {
                 "argv": ["peerhub", "diag", "health", "--stream", "STREAM_ID"],
@@ -288,6 +289,19 @@ REGISTRY: dict[str, GuidanceEntry] = {
         exits=[
             {"code": 1, "context": "Provider refused execution before starting (quota exhaustion, invalid model, auth failure; not_executed status)."}
         ],
+    ),
+    "ask_prompt_too_large": GuidanceEntry(
+        code="ask_prompt_too_large",
+        meaning="The prompt exceeds the provider inline byte limit; no provider process started.",
+        why="ag passes the prompt in argv (30,000 bytes on Windows, 120,000 bytes on POSIX); the byte count includes injected catch-up history. cc/cx use stdin and do not have this argv limit.",
+        recover=[{
+            "argv": ["peerhub", "profile", "list"],
+            "purpose": "split the prompt into parts under the limit (one ask each), or send it to cc/cx (stdin transport, no argv limit); a changed prompt needs a new request-id",
+            "prereqs": "Use the byte count and limit in the error detail, including any catch-up history.",
+        }],
+        avoid="Do not retry an unchanged over-limit prompt or reuse its request-id for a changed prompt.",
+        docs="docs/remote-ask.md",
+        exits=[{"code": 1, "context": "Prompt exceeds the provider inline limit before spawn (PrespawnError or failed_not_started status)."}],
     ),
     "ask_launch_failed": GuidanceEntry(
         code="ask_launch_failed",
@@ -461,6 +475,7 @@ ALIASES: dict[str, str] = {
     "selector_error": "ask_selector_error",
     "refusal": "ask_refusal",
     "launch_failed": "ask_launch_failed",
+    "prompt_too_large": "ask_prompt_too_large",
     "stream_peer_mismatch": "ask_stream_peer_mismatch",
     "delivery_failed": "ask_delivery_failed",
     "unexpected_failure": "ask_unexpected_failure",
@@ -520,6 +535,10 @@ def _is_launch_failure_text(text: object) -> bool:
     return "executable not found" in low or "cannot spawn" in low
 
 
+def _is_prompt_too_large_text(text: object) -> bool:
+    return isinstance(text, str) and re.search(r"exceeding the \w+ inline limit", text) is not None
+
+
 def select_guidance_code(
     *,
     status: str | None = None,
@@ -555,6 +574,8 @@ def select_guidance_code(
         if isinstance(exception, (SessionBridgeError, LegacySelectorUnsupported, ConflictingSessionFlagsError, InvalidSessionHandleSyntaxError)):
             return "ask_selector_error"
         if isinstance(exception, PrespawnError):
+            if _is_prompt_too_large_text(str(exception)):
+                return "ask_prompt_too_large"
             return "ask_launch_failed" if _is_launch_failure_text(str(exception)) else "ask_delivery_failed"
         if isinstance(exception, (StorageReadOnlyError, StorageFullError, StorageCorruptError)):
             return "ask_delivery_failed"
@@ -572,6 +593,8 @@ def select_guidance_code(
         if processed_status == "not_executed":
             return "ask_refusal"
         if processed_status == "failed_not_started":
+            if _is_prompt_too_large_text(detail_error):
+                return "ask_prompt_too_large"
             return "ask_launch_failed" if _is_launch_failure_text(detail_error) else "ask_delivery_failed"
         return "ask_blocked_uncertain"
     if status == "blocked_uncertain" or processed_status in ("uncertain", "blocked_uncertain"):
@@ -583,6 +606,8 @@ def select_guidance_code(
     if status == "session_unavailable":
         return "ask_selector_error"
     if status == "failed_not_started":
+        if _is_prompt_too_large_text(detail_error):
+            return "ask_prompt_too_large"
         if _is_launch_failure_text(detail_error):
             return "ask_launch_failed"
         return "ask_delivery_failed"
