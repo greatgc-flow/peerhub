@@ -44,6 +44,9 @@ def test_guide_line_and_token_cap(capsys, monkeypatch, tmp_path):
     assert code == 0
     out = capsys.readouterr().out
     assert "peerhub explain ag silence" in out
+    assert "compact pools/peers dashboard" in out
+    assert "TTY: watch; non-TTY: one cycle; --cycles 0: watch" in out
+    assert "suggest a|b = best + alternative peer; peerhub explain monitor" in out
     shown = [pid for pid in PACKAGED["profiles"] if pid in out]
     assert len(shown) == len(PACKAGED["profiles"]) or "more profiles: peerhub profile list" in out
     assert "models: peerhub profile list; slugs: agy models; --model <slug>" in out

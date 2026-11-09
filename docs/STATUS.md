@@ -6,15 +6,15 @@ Dates are UTC.
 
 ## Current source: v0.24.2 (unreleased)
 
-v0.24.2 separates compact monitor `low` capacity from `fast` pace, explains states in the legend, adds eligible alternative peers to tier suggestions, and defaults non-TTY monitor watch to one cycle. JSON values and schemas are unchanged.
+v0.24.2 separates compact monitor `low` capacity from `fast` pace, explains states in the legend, adds eligible alternative peers to tier suggestions, and defaults non-TTY monitor watch to one cycle. JSON values and schemas are unchanged (PR #310, unanimous cx+ag+cc review).
 
 v0.24.1 is a patch on 0.24.0: cc `permission_denials` surface as `denied_actions` and an empty cc reply with denials gets `denied_empty` (provider-neutral note), plus the `cc-allow-rules` lesson (#303); #304 store-discovery fallback and fail-closed behavior are included, along with every-peer plan-aware ABSENT windows (P4). Plan: docs/design/plan-0.24.1-2026-11-08.md.
 
 v0.24.0 unifies CLI human output (text by default, `--json` everywhere), store precedence (`--db` over `PEERHUB_DB`) and a redesigned at-a-glance monitor (pools with meaning, per-group limits, fresh-only `suggest:` line, plan-aware ABSENT windows for cx only), reworks profiles quality-first (`ag.effort` flash-high, `cx.effort` sol/high, packaged tops `cc.fable` and `cx.astra`), documents capability-matched quota balancing and concurrency caps (docs/batch.md), adds the ag recipe and denied-empty handling (#300). Plan: docs/design/plan-0.24.0-2026-11-08.md.
 
-The latest published package is **v0.24.1** (tag `v0.24.1`, target `b0b2b240`); PyPI 0.24.1 verified 2026-11-09 KST and G3 passed bound to `b0b2b24050bd`. The installed `peerhub guide` does not automatically update when main changes.
+The latest published package is **v0.24.1** (tag `v0.24.1`, target `b0b2b240`); PyPI 0.24.1 verified 2026-11-08 UTC and G3 passed bound to `b0b2b24050bd`. The installed `peerhub guide` does not automatically update when main changes.
 
-v0.24.1 published 2026-11-08 (UTC; tag `v0.24.1`, target `b0b2b240`, PyPI 0.24.1 verified 2026-11-09 KST); G3 passed bound to `b0b2b24050bd`. See [live evidence](implementation/live_evidence/2026-11-08-v0.24.1.json) and the release JUnit assets.
+v0.24.1 published 2026-11-08 (UTC; tag `v0.24.1`, target `b0b2b240`, PyPI 0.24.1 verified 2026-11-08 UTC); G3 passed bound to `b0b2b24050bd`. See [live evidence](implementation/live_evidence/2026-11-08-v0.24.1.json) and the release JUnit assets.
 
 v0.24.0 published 2026-11-08 (PR #301, tag `v0.24.0`, target `f07d6c49`); PyPI 0.24.0 verified and G3 passed; release body = `python -m tools.release_notes --version 0.24.0` output (byte-identical after CR stripping except the trailing newline GitHub appends; verified 2026-11-09). See [live evidence](implementation/live_evidence/2026-11-08.json). Previous published release: v0.23.3.
 
@@ -44,6 +44,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
+| **v0.24.2 first attempt** | `5e575697` | PR #310/#311 | 2026-11-09: publish run 42553283723 cancelled before PyPI; release and tag deleted | owner: release only after every audit axis is 100; PyPI stays 0.24.1; [attempt evidence](implementation/live_evidence/2026-11-09-v0.24.2-attempt1.json) |
 | **v0.24.1 first attempt** | `0705619e` | PR #305 | Aborted; release and tag deleted | Failed publish run 42496572307; Windows release-matrix failed in `rel_005`: sandbox lacked Git; real-Git discovery tests moved to E2E in PR #306; release and tag recreated per CONTRIBUTING |
 | **v0.24.1** | `b0b2b240` | PR #305 | Published | Published 2026-11-08; tag `v0.24.1`; PyPI verified; G3 passed bound to `b0b2b24050bd`; JUnit assets attached to release; [live evidence](implementation/live_evidence/2026-11-08-v0.24.1.json) |
 | **v0.24.0** | `f07d6c49` | PR #301 | Published | Published 2026-11-08; tag `v0.24.0`; PyPI 0.24.0 verified; G3 passed, bound to f07d6c493af0 (live-gate JUnit header); [live evidence](implementation/live_evidence/2026-11-08.json) |

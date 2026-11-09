@@ -126,7 +126,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "  Secrets: prompts/streams persist in local store; no tokens/passwords.",
         "Discovery & Inspection Commands:",
         "  peerhub explain ag silence   # look up operational lessons",
-        "  peerhub monitor              # TTY: watch; non-TTY: one cycle; --cycles 0: watch everywhere",
+        "  peerhub monitor              # compact pools/peers dashboard; TTY: watch; non-TTY: one cycle; --cycles 0: watch; suggest a|b = best + alternative peer; peerhub explain monitor",
         "  peerhub monitor --expand     # expand sessions/usage/context/runtime rows (or with --snapshot)",
         "  peerhub diag                 # read-only diagnostics across all peers",
         "  models: peerhub profile list; slugs: agy models; --model <slug>",

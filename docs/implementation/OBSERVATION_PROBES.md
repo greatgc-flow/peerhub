@@ -35,26 +35,21 @@ The `reset_credit` kind extends the Observation kind list of the frozen M1 contr
 A convenience command that restores the old `diag --live` experience in ONE process: each cycle collects quota evidence (the same collector as `observation refresh`) and then renders ONE read-only dashboard frame (the same renderer as `diag --live`), then sleeps. The composition lives in the CLI layer (`peerhub/cli/monitor.py`): Diag stays strictly read-only and never refreshes, Observation stays the only writer, and extension imports are limited to the allowlist enforced by `tests/communication/architecture/test_arch_extension_graph.py`.
 
 ```
-peerhub monitor [--interval-seconds SECONDS=60] [--cycles N=0] [--peers cx cc ag] [--timeout-seconds SECONDS=15]
+peerhub monitor [--interval-seconds SECONDS=60] [--cycles N] [--peers cx cc ag] [--timeout-seconds SECONDS=15]
                 [--collect-every K=1] [--view auto|rich|plain] [--json] [--allow-agy-token-use]
 ```
 
-- `--cycles 0` runs until Ctrl-C (clean exit 0). `--collect-every K` collects every Kth cycle but redraws every cycle.
-- `--json` prints NDJSON: `{"cycle": n, "refresh": {"status", "warnings", "observations"} | {"skipped": true}, "snapshot": <diag --json object>}`.
-- Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when `--cycles` ended the run; 2 usage error (nothing is collected, no database is created).
+- Omitted `--cycles` defaults to one cycle off-TTY and runs until interrupted on a TTY. `--cycles 0` watches until Ctrl-C everywhere (clean exit 0). `--collect-every K` collects every Kth cycle but redraws every cycle.
+- `--json` prints NDJSON (schema 2.0): `{"schema_version": "2.0", "cycle": n, "phase": "initial"|"complete", "refresh": {...} | {"skipped": true}, "snapshot": <grouped monitor object>}`; one `initial` frame, then one `complete` frame per cycle (so the default off-TTY run prints two lines). `--schema-version 1.1` keeps the legacy diag snapshot.
+- Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when the cycle limit ended the run (including the implicit single cycle off-TTY); 2 usage error (nothing is collected, no database is created).
 - Every cycle costs one `/usage` read per peer (no model turn; see the probe table above). Do not set intervals of a few seconds.
 
 ### `peerhub monitor --view {auto,rich,plain}`
 
-`rich` (default on a terminal) draws one screen: header (status, time, db, cycle, next refresh), a `Threats:` summary,
-a quota table (`PEER POOL USAGE-bar USED PACE(pt) RESET FORECAST FRESH`), optional `Credits` and `Asks` lines,
-`Probes` outcomes, and a pace/forecast legend. `plain` shares the same layout and decisions using ASCII without colour.
-`NO_COLOR` disables colour; colour otherwise requires a terminal. Non-UTF-8 terminals get an ASCII layout.
-The view is a pure renderer over the read-only diag snapshot (`peerhub/cli/view.py`); it never writes evidence.
+The default view is the compact POOLS/PEERS screen (states, legend and `suggest:` are described in the [README](../../README.md) and `peerhub explain monitor`). `--expand` shows the grouped detail view: a header (status, time, DB source), then one section per selected group (`QUOTA` with `PEER POOL REM [BAR] RESET-IN EXHAUST-IN PACE STATE AGE PROFILES (configured)` — narrow terminals omit optional columns and list them under `Columns omitted:` — plus refresh hints and a state key; `PEERS`; `EXECUTION`; `SESSIONS`; and the other groups from `peerhub monitor groups`). `rich` (default on a terminal) and `plain` share the same layout; `plain` is ASCII without colour. `NO_COLOR` disables colour; colour otherwise requires a terminal. Non-UTF-8 terminals get an ASCII layout. Both views are pure renderers over the read-only grouped snapshot (`peerhub/cli/monitor_view.py`); they never write evidence.
 
-#### Reading the rich view
-- **PACE** = `used% - window elapsed%`, in percentage points at measurement time. A 5-hour window that is 40% elapsed with 60% used reads `+20.0`: usage is 20 points ahead of an even burn. Pace has no independent risk colour; forecasts are conditional window-average estimates shown inline in `FORECAST`.
-- **Threats** reports evaluated forecasts. Missing or stale evidence yields `Threats: unknown`; an expired window can show `expired` in its row while the summary says the evidence is stale. `No threats` requires at least one fresh evaluated pool.
-- **Asks** comes from recorded `ask` activity evidence, with one line per peer showing the latest outcome, age and actual duration, e.g. `Asks cx delivered 54s ago, took 4m`. It is omitted without ask evidence.
-- On a terminal the screen redraws every second between cycles (clock, evidence ages, reset countdowns and "next in" move; nothing is re-read until the next cycle). Piped output stays one frame per cycle.
+#### Reading the expanded view
+- **PACE** = `used% - window elapsed%`, in percentage points at measurement time. A 5-hour window that is 40% elapsed with 60% used reads `+20.0`: usage is 20 points ahead of an even burn. Pace has no independent risk colour; the compact view turns a supported threat into `fast`.
+- **STATE** `THREAT` means the projection exhausts the pool before reset; `INSUFF` means too little projection data; `STALE:*` marks aged evidence.
+- On a terminal the screen redraws every second between cycles (clock, evidence ages, reset countdowns and "next in" move; nothing is re-read until the next cycle). Piped output prints the initial frame, then one frame per completed cycle.
 - A claude `/usage` probe that fails now stores a reason in the ERROR evidence (`claude_usage_timeout`, `claude_usage_spawn_failed:<ExceptionType>`, `claude_usage_unparseable`), and the dashboard shows it next to `ERROR`. Timeouts usually mean the machine was busy (raise `--timeout-seconds`), unparseable output means the CLI output format changed.
