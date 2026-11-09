@@ -8,7 +8,7 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
-## [0.24.2] (unreleased)
+## [0.24.2] - 2026-11-09
 
 ### Changed
 
