@@ -58,7 +58,7 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
     assert "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m" in screen
     assert "/work/.peerhub/core.db" not in screen
     assert "next: peerhub observation refresh" in screen
-    for heading in ("PEER", "POOL", "MEANING", "LEFT", "RESETS", "AGE", "STATE", "PROFILES"):
+    for heading in ("PEER", "POOL", "MEANING", "LEFT", "RESETS", "PACE", "AGE", "STATE", "PROFILES"):
         assert heading in screen
     for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "out", "0%"),
                                 ("A-7D", "aged", "55%"), ("G-5H", "ok", "80%"),
@@ -78,8 +78,103 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
                  "delivery (sampled): terminal 166 / started 15 / not started 2",
                  "telemetry 56/60", "details: --expand"):
         assert text in screen
-    for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:", "PACE"):
+    for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:"):
         assert old not in screen
+
+
+@pytest.mark.parametrize("width", [80, 100])
+@pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True)])
+@pytest.mark.parametrize("pace,expected", [(46.4, "+46"), (-12.4, "-12"), (0, "0"), (-.1, "0")])
+@pytest.mark.parametrize("aged", [False, True])
+def test_compact_pace_cells_keep_signed_measurement_for_aged_rows(
+        compact_frame, width, view, unicode_mode, pace, expected, aged):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row.update(projection={"state": "stale" if aged else "on_pace", "pace_pt": pace},
+               state="STALE" if aged else "MEASURED", age_seconds=540 if aged else 60)
+    screen = render_grouped_frame(compact_frame, width=width, view=view, unicode=unicode_mode)
+    header = next(line for line in screen.splitlines() if line.startswith("PEER "))
+    assert header.index("RESETS") < header.index("PACE") < header.index("AGE")
+    assert _row(screen, "G-5H")[header.index("PACE"):header.index("AGE")].strip() == expected
+    assert "80%" in _row(screen, "G-5H")
+
+
+@pytest.mark.parametrize("width", [80, 100])
+@pytest.mark.parametrize("unusable", ["n/a", "?", "reset", "missing", "nan", "inf", "bool", "invalid"])
+def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unusable):
+    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
+    row = rows[6] if unusable == "n/a" else rows[3]
+    row["projection"] = {"pace_pt": 46}
+    if unusable == "?": row.update(state="UNKNOWN")
+    if unusable == "reset": row.update(resets_at=NOW - 1)
+    if unusable == "missing": row["projection"] = {}
+    if unusable == "nan": row["projection"]["pace_pt"] = float("nan")
+    if unusable == "inf": row["projection"]["pace_pt"] = float("inf")
+    if unusable == "bool": row["projection"]["pace_pt"] = True
+    if unusable == "invalid": row.update(last_measurements={"remaining_fraction": 1.1})
+    screen = render_grouped_frame(compact_frame, width=width, view="plain")
+    header = next(line for line in screen.splitlines() if line.startswith("PEER "))
+    pool = row["pool_ref"].split(":")[-1]
+    assert _row(screen, pool)[header.index("PACE"):header.index("AGE")].strip() == "-"
+
+
+@pytest.mark.parametrize("width", [80, 100])
+@pytest.mark.parametrize("elapsed", [0, 60])
+@pytest.mark.parametrize("reset_field", ["resets_at", "reset_in_seconds"])
+def test_exact_reset_expires_state_pace_and_suggestion(compact_frame, width, elapsed, reset_field):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row.update(projection={"state": "on_pace", "pace_pt": 46})
+    row.pop("resets_at")
+    row[reset_field] = NOW + elapsed if reset_field == "resets_at" else elapsed
+    compact_frame["groups"]["capacity"]["data"]["observations"] = [row]
+    compact_frame["configured_profiles"] = [
+        {"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
+    compact_frame["display_elapsed_seconds"] = elapsed
+    screen = render_grouped_frame(compact_frame, width=width, view="plain")
+    header = next(line for line in screen.splitlines() if line.startswith("PEER "))
+    pool = _row(screen, "G-5H")
+    assert "reset" in pool.split() and "80%" not in pool
+    assert pool[header.index("PACE"):header.index("AGE")].strip() == "-"
+    assert "suggest: no eligible profiles; next: peerhub observation refresh" in screen
+
+
+def test_suggestions_reject_zero_reset_seconds():
+    from peerhub.cli.monitor_view import _compact_suggestions
+
+    profiles = [{"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
+    rows = [{"peer": "ag", "pool": "G-5H", "remaining": .8, "reset_seconds": 0,
+             "aged": False, "state": "ok"}]
+    assert _compact_suggestions(profiles, rows) == "suggest: no eligible profiles; next: peerhub observation refresh"
+
+
+@pytest.mark.parametrize("width", [20, 32, 47])
+def test_narrow_wrapped_pool_keeps_pace_and_quota_facts(compact_frame, width):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row["projection"] = {"pace_pt": 46}
+    screen = render_grouped_frame(compact_frame, width=width, view="plain", unicode=False)
+    pool = screen.split("ag G-5H", 1)[1].split("ag G-7D", 1)[0]
+    assert "80%" in pool and "ok" in pool
+    assert "resets 1h" in pool and "age 1m" in pool
+    assert "PACE +46" in " ".join(pool.split())
+    assert all(_width(line) <= width for line in screen.splitlines())
+
+
+@pytest.fixture
+def ten_pool_frame(compact_frame):
+    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
+    for name in ("C-5H", "C-7D"):
+        rows.append({**deepcopy(rows[3]), "observation_id": f"cc-{name}",
+                     "peer_id": "cc", "pool_ref": f"quota:cc:{name}"})
+    for index, row in enumerate(rows):
+        row["projection"] = {"pace_pt": 46 if index % 2 else -12}
+    return compact_frame
+
+
+@pytest.mark.parametrize("width", [80, 100])
+def test_ten_pool_compact_frame_stays_within_1800_bytes(ten_pool_frame, width):
+    screen = render_grouped_frame(ten_pool_frame, width=width, view="plain", unicode=False)
+    assert len(ten_pool_frame["groups"]["capacity"]["data"]["observations"]) == 10
+    assert len(screen.encode("utf-8")) <= 1800
+    assert "PACE" in screen and "precedence:" not in screen
 
 
 @pytest.mark.parametrize("samples, expected", [(None, "ok"), (1, "ok"), (2, "fast")])
@@ -125,7 +220,8 @@ def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unic
     screen = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width)
     legend_lines = screen.split("ok enough", 1)[1].split("PEERS", 1)[0]
     assert legend in " ".join(("ok enough" + legend_lines).split())
-    assert "precedence: n/a ? reset out low fast aged ok; stale plan-omitted pool shows aged; other missing numbers show ?" in " ".join(legend_lines.split())
+    assert "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable" in " ".join(legend_lines.split())
+    assert "precedence:" not in screen
     assert all(_width(line) <= min(99, width - 1) for line in screen.splitlines())
 
 
@@ -410,6 +506,35 @@ def test_suggestions_use_the_worst_pool_score_and_keep_five_percent(compact_fram
     assert "normal=cx.effort|ag.effort" in render_grouped_frame(compact_frame)
     rows[7].update(state="UNKNOWN")
     assert "normal=ag.effort" in render_grouped_frame(compact_frame)
+
+
+@pytest.mark.parametrize("all_fast", [False, True])
+def test_suggestions_prefer_non_fast_but_still_pick_when_all_fast(compact_frame, all_fast):
+    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
+    # ag has the better H score; its second applicable pool makes it fast.
+    rows[2].update(state="MEASURED", age_seconds=60, resets_at=NOW + 86400,
+                   last_measurements={"remaining_fraction": .8})
+    rows[3].update(projection={"state": "threat"}, projection_samples=2)
+    rows[7].update(resets_at=NOW + 86400, last_measurements={"remaining_fraction": .5},
+                   projection={"state": "threat" if all_fast else "on_pace"}, projection_samples=2)
+    compact_frame["configured_profiles"] = [
+        {"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
+            ("ag.effort", ["A-7D", "G-5H"]), ("cx.effort", ["X-5H", "X-7D"]))]
+    screen = render_grouped_frame(compact_frame, width=100)
+    pick = "ag.effort|cx.effort" if all_fast else "cx.effort|ag.effort"
+    assert f"normal={pick}" in screen
+    assert "no eligible profiles" not in screen
+
+
+@pytest.mark.parametrize("remaining,eligible", [(.049, False), (.05, True), (.075, True), (.10, True)])
+def test_suggestions_keep_low_pools_at_or_above_five_percent(compact_frame, remaining, eligible):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row.update(last_measurements={"remaining_fraction": remaining})
+    compact_frame["configured_profiles"] = [
+        {"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
+    screen = render_grouped_frame(compact_frame)
+    assert ("normal=ag.effort" in screen) == eligible
+    assert ("no eligible profiles; next: peerhub observation refresh" in screen) != eligible
 
 
 @pytest.mark.parametrize("tier,suffix", [("eco", "standard"), ("normal", "effort"),

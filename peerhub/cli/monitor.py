@@ -39,7 +39,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--allow-agy-token-use", action="store_true",
                    help="Keep collecting after agy /usage consumed model tokens")
     p.add_argument("--view", choices=["auto", "rich", "plain"], default="auto",
-                   help="Dashboard style: rich (bars, colour, pace), plain (ASCII); auto = rich on a TTY. TTY with VT redraws in place at most 1 Hz; non-TTY or no VT appends once every N s without escapes")
+                   help="Dashboard style: rich (colour), plain (ASCII); both show PACE; auto = rich on a TTY. TTY with VT redraws in place at most 1 Hz; non-TTY appends one completed frame every N s; a TTY without VT appends without escapes")
     p.add_argument("--collect-every", type=int, default=1,
                    help="Collect only every Kth cycle (K>=1)")
     p.add_argument("--system-dir", dest="sys_dir", type=Path,
@@ -47,7 +47,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--group", action="append", choices=(*GROUP_IDS, "all"), default=None,
                    help="Select monitor groups for a read-only snapshot or grouped watch")
     p.add_argument("--snapshot", action="store_true", help="Render one read-only grouped snapshot without refreshing providers")
-    p.add_argument("--expand", action="store_true", help="Render all loaded detail rows instead of capping at default limits")
+    p.add_argument("--expand", action="store_true", help="Render detailed grouped sections with bars, pace and forecasts")
 
     actions = p.add_subparsers(dest="monitor_action")
     groups = actions.add_parser("groups", help="List monitor groups and default selection")
@@ -248,9 +248,10 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         return 6 if "schema" in errors else 0
 
     try:
-        code = emit(0, "initial", {"status": "NOT_STARTED"})
-        if code == 6:
-            return code
+        if args.json or sys.stdout.isatty():
+            code = emit(0, "initial", {"status": "NOT_STARTED"})
+            if code == 6:
+                return code
         done = 0
         last_refresh_code = 0
         next_deadline = monotonic() + args.interval

@@ -1,9 +1,9 @@
 """PeerHub Quick Reference and Best Practices Guide (S5).
 
-Static prose and a generated profile table provide a concise (<=60 lines)
-reference for session reuse, efficiency, safety, discovery, drift recovery, and issue reporting.
-Works without store or provider access. Profile fields are capped by character count;
-whitespace-based token estimates are only a heuristic, not a tokenizer guarantee.
+Static prose and a generated profile table provide a concise (<=60 lines, <=5600 B LF-normalized
+for packaged default profiles) reference for session reuse, efficiency, safety, discovery, drift
+recovery, and issue reporting. Works without store or provider access. Profile fields are capped
+by character count (overlay model names can be longer in UTF-8 bytes; character caps only).
 """
 from __future__ import annotations
 
@@ -96,15 +96,15 @@ def render_guide(workspace: Path | None = None) -> str:
         '  peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002',
         "",
         "Efficiency:",
-        "  Reuse: asks automatically reuse sessions; keep one --stream per peer/role with compatible store/binding (single-peer stream).",
-        "  Profiles: pick the lowest tier meeting the task class: bulk=standard, code=effort, review/design=deepthink; see docs/batch.md.",
-        "  Transport: --query-file and --json select transport/parsing format (no token saving).",
+        "  Reuse: asks auto-reuse sessions; keep one --stream per peer/role with compatible store/binding (1 peer/stream).",
+        "  Profiles: lowest tier for task: bulk=standard, code=effort, review/design=deepthink (docs/batch.md).",
+        "  Transport: --query-file and --json select transport/format (no token saving).",
         "",
         "Long Asks:",
-        "  'peerhub ask' blocks until the peer finishes and then prints reply + 'session:' line;",
-        "  run foreground/background-with-exit-notification and wait for exit, never detach and poll;",
-        "  ag prints nothing until done: for ag leave --silence-timeout-seconds unset or",
-        "  set it >= --timeout-seconds (long tasks: --timeout-seconds 7200); uncertain/timeout => diag.",
+        "  'peerhub ask' blocks until the peer finishes, then prints reply + 'session:';",
+        "  run foreground/background-with-exit-notification and wait, never detach/poll;",
+        "  ag prints nothing until done: leave --silence-timeout-seconds unset or",
+        "  >= --timeout-seconds (long: --timeout-seconds 7200); uncertain/timeout => diag.",
         "",
         "Safety:",
         "  ag recipe (details: 'peerhub explain ag'): inline needed content via --query-file and say \"no tools\"; one task per ask; verify flash claims; ag argv: 30kB Windows/120kB POSIX; oversize: split/cc/cx; changed prompt=new request-id.",
@@ -116,23 +116,23 @@ def render_guide(workspace: Path | None = None) -> str:
         "    never blind-retry original prompt under a new request-id, with --fresh, or delete claims;",
         "    Default-timeout ask: do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more); continue genuinely new work on a new stream with a summary; details: 'peerhub explain <code>'.",
         "  Store hazards: --db > PEERHUB_DB > nearest upward .peerhub/core.db; back up core.db before upgrading; new schema not openable by old versions;",
-        "    stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor (running monitor locks peerhub.exe on Windows; also wait for running asks, else a broken install: reinstall, check results before re-sending);",
-        "    don't run dev builds on the real store; after restore, reopen stores (old instances are fenced). Git >=2.36 fallback: main checkout then parents (ask -w: main only); discovery misses exit 5; create explicitly with --db .peerhub/core.db peer register --peer local (or PEERHUB_DB).",
-        "  Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only); uncertain streams may remain quota-blocked after reset. Aged quota numbers are last-known; refresh before relying on them.",
+        "    stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor (locks peerhub.exe on Windows; also wait for running asks, else broken install: reinstall, check results before resend);",
+        "    don't run dev builds on the real store; after restore, reopen stores (old instances fenced). Git >=2.36 fallback: main checkout then parents (ask -w: main only); discovery miss exits 5; create with --db .peerhub/core.db peer register --peer local (or PEERHUB_DB).",
+        "  Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only); uncertain streams may stay quota-blocked after reset. Aged quota is last-known; refresh first.",
         "  Batch: executes asks (spends quota); ag tasks always writable; overlapping writers rejected.",
         "    Cancel: Windows tree termination; POSIX best-effort. Inspect UNCERTAIN; keep manifest + batch-id for resume.",
-        "  Load: 4 active asks (max 6; cc 3/cx 3/ag 1), lowest fitting tier, skip pools <5% left; docs/batch.md",
-        "  Accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names retained for failures/replay); bound quota unobserved; backups contain roots.",
+        "  Load: 4 active asks (max 6; cc 3/cx 3/ag 1). Balance: suggest: is advisory (rule H); reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer; compare 7D PACE (5H only gates); PACE (pp, used%-elapsed%) needs fresh AGE; + = ahead of even burn.",
+        "  Accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots.",
         "  Secrets: prompts/streams persist in local store; no tokens/passwords.",
         "Discovery & Inspection Commands:",
-        "  peerhub explain ag silence   # look up operational lessons",
-        "  peerhub monitor              # compact pools/peers dashboard; TTY: watch; non-TTY: one cycle; --cycles 0: watch; suggest a|b = best + alternative peer; peerhub explain monitor",
-        "  peerhub monitor --expand     # expand sessions/usage/context/runtime rows (or with --snapshot)",
-        "  peerhub diag                 # read-only diagnostics across all peers",
+        "  peerhub explain ag silence   # operational lessons",
+        "  peerhub monitor              # compact pools/peers dashboard; suggest a|b = best + alternative peer; peerhub explain monitor",
+        "  peerhub monitor --expand     # sessions/usage/context/runtime rows (or --snapshot)",
+        "  peerhub diag                 # read-only diagnostics",
         "  models: peerhub profile list; slugs: agy models; --model <slug>",
-        "  peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run  # validate before execution",
+        "  peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run  # validate batch",
         "  peerhub session list         # retained sessions; accounts: peerhub account list",
-        "  peerhub observation refresh  # re-probe provider quota observations",
+        "  peerhub observation refresh  # re-probe provider quota",
         "",
         "Model facts: 'Facts: needs_recheck' clears via refresh-model-profiles skill or release upgrade.",
         "Report Issues:",

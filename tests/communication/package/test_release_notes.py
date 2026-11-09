@@ -20,9 +20,9 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.24.3"
-    assert "ask_prompt_too_large" in body and "30,000" in body and "120,000" in body
-    assert "caller-timeout-claim-held" in body and "#312" in body
+    assert __version__ == "0.24.4"
+    assert "`PACE` column" in body and "exact reset instant" in body
+    assert "ask_prompt_too_large" not in body  # no adjacent history (0.24.3)
     assert "yellow `fast`" not in body  # no adjacent history (0.24.2)
     assert "permission_denials" not in body  # no adjacent history (0.24.1)
     assert "Breaking: compact human text" not in body  # no adjacent history (0.24.0)

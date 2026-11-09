@@ -867,9 +867,9 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
         state = "n/a"
     elif remaining is None:
         state = "aged" if item.get("stored_state") == "ABSENT" and aged else "?"
-    elif resets_at is not None and resets_at < now + elapsed:
+    elif resets_at is not None and resets_at <= now + elapsed:
         state = "reset"
-    elif reset_in is not None and reset_in < 0:
+    elif reset_in is not None and reset_in <= 0:
         state = "reset"
     elif remaining == 0:
         state = "out"
@@ -881,9 +881,14 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
         state = "aged" if aged else "ok"
     left = _pct(remaining) if remaining is not None and state not in {"n/a", "?", "reset"} else "-"
     resets = ("-" if state in {"n/a", "?"} or reset_in is None else
-              "passed" if reset_in < 0 else _compact_age(reset_in))
+              "passed" if reset_in <= 0 else _compact_age(reset_in))
+    pace = _number(projection.get("pace_pt"))
+    pace_text = "-"
+    if pace is not None and remaining is not None and state not in {"n/a", "?", "reset"}:
+        rounded = round(pace)
+        pace_text = f"{rounded:+d}" if rounded else "0"
     return {"peer": peer, "pool": pool, "meaning": meaning, "remaining": remaining, "left": left,
-            "resets": resets, "reset_seconds": reset_in, "family": family, "age": _compact_age(age), "state": state, "aged": aged,
+            "resets": resets, "pace": pace_text, "reset_seconds": reset_in, "family": family, "age": _compact_age(age), "state": state, "aged": aged,
             "needs_refresh": aged or age is None or state in {"?", "reset"}, "reason": reason,
             "profiles": ",".join(consumers.get(f"{peer}:{pool}", [])) or "unmapped"}
 
@@ -922,13 +927,14 @@ def _compact_footer(groups: dict[str, Any]) -> list[str]:
 
 
 def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, Any]]) -> str:
-    choices: dict[str, list[tuple[float, str]]] = {tier: [] for tier in ("eco", "normal", "quality", "top")}
+    choices: dict[str, list[tuple[bool, float, str]]] = {tier: [] for tier in ("eco", "normal", "quality", "top")}
     by_pool = {f"{row['peer']}:{row['pool']}": row for row in rows}
     for profile in profiles:
         name = _clean(profile.get("profile") or "")
         peer, _, suffix = name.partition(".")
         pools = cast(list[str], _obj(_obj(profile.get("fields")).get("pools")).get("value") or [])
         scores: list[float] = []
+        fast = False
         for pool in pools:
             row = by_pool.get(f"{peer}:{pool}")
             if row is None or row["aged"] or row["state"] in {"?", "reset", "aged"}:
@@ -937,21 +943,22 @@ def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, An
                 continue
             remaining = _number(row["remaining"])
             reset = _number(row["reset_seconds"])
-            if remaining is None or remaining < .05 or reset is None or reset < 0:
+            if remaining is None or remaining < .05 or reset is None or reset <= 0:
                 break
             scores.append(remaining * 100 / max(reset / 86400, .2))
+            fast = fast or row["state"] == "fast"
         else:
             if scores:
                 tier = {"standard": "eco", "effort": "normal", "deepthink": "quality"}.get(suffix, "top")
-                choices[tier].append((min(scores), name))
+                choices[tier].append((fast, min(scores), name))
     if not any(choices.values()):
         return "suggest: no eligible profiles; next: peerhub observation refresh"
     suggestions: list[str] = []
     for tier, items in choices.items():
-        ranked = sorted(items, key=lambda item: (-item[0], item[1]))
-        pick = ranked[0][1] if ranked else "-"
+        ranked = sorted(items, key=lambda item: (item[0], -item[1], item[2]))
+        pick = ranked[0][2] if ranked else "-"
         peer = pick.partition(".")[0]
-        alternative = next((name for _, name in ranked if name.partition(".")[0] != peer), None)
+        alternative = next((name for _, _, name in ranked if name.partition(".")[0] != peer), None)
         if alternative is not None:
             pick += f"|{alternative}"
         suggestions.append(f"{tier}={pick}")
@@ -1021,8 +1028,8 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
                      if view == "rich" and unicode else "POOLS")
         if not rows:
             lines.extend(_compact_wrap("no quota evidence; next: peerhub observation refresh", width))
-        headers = ["PEER", "POOL", "MEANING", "LEFT", "RESETS", "AGE", "STATE"]
-        fields = ["peer", "pool", "meaning", "left", "resets", "age", "state"]
+        headers = ["PEER", "POOL", "MEANING", "LEFT", "RESETS", "PACE", "AGE", "STATE"]
+        fields = ["peer", "pool", "meaning", "left", "resets", "pace", "age", "state"]
         sizes = [max(len(label), max((_width(str(row[key])) for row in rows), default=0))
                  for label, key in zip(headers, fields)]
         base = sum(sizes) + len(sizes)
@@ -1041,11 +1048,11 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
         else:
             for row in rows:
                 lines.extend(_compact_wrap(f"{row['peer']} {row['pool']} {row['meaning']} {row['left']} {row['state']}", width))
-                lines.extend(_compact_wrap(f"resets {row['resets']} age {row['age']}", width))
+                lines.extend(_compact_wrap(f"resets {row['resets']} PACE {row['pace']} age {row['age']}", width))
                 lines.append("profiles " + _fit(str(row["profiles"]), max(0, width - 9), unicode))
         legend = "ok enough | low >0-10% | fast >10% but ahead of pace | out 0% | aged stale | reset passed | n/a plan omits | ? unknown"
         lines.extend(_compact_wrap(legend, width))
-        lines.extend(_compact_wrap("precedence: n/a ? reset out low fast aged ok; stale plan-omitted pool shows aged; other missing numbers show ?", width))
+        lines.extend(_compact_wrap("PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable", width))
     if "peers" in selected_ids:
         lines.append(_section_rule("PEERS", width, True, color and "NO_COLOR" not in os.environ)
                      if view == "rich" and unicode else "PEERS")

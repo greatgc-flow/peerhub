@@ -112,7 +112,7 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`. Custom Peer ide
 `--writable` is off by default. It maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` (default `-s read-only`), and ag `--mode accept-edits`. Because the `agy` CLI does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution fails closed pre-spawn unless `--writable` is explicitly passed (`#140`). cx resume passes `-c sandbox_mode="workspace-write"` (default `read-only`) because resume does not accept `-s`; writable mode is therefore part of the session binding, and changing it starts a fresh generation.
 
 Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
-`--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. To inspect per-peer quota/profile/session chains in the monitor, use `peerhub monitor --snapshot --group peers` (`diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
+`--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`); to inspect expanded per-peer quota/profile/session chains, bars, `EXHAUST-IN`, or `sessions` rows, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
 
 `diag --live` repeatedly reads committed snapshots only and keeps its `--cycles 0` default (until interrupted, including non-TTY stdout). `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
@@ -126,12 +126,11 @@ mean the model answered the task successfully. PeerHub does not currently
 classify semantic task success/error. Context occupancy intentionally stays 'unknown' because it is not validated by PeerHub (the CLIs do not report it in a form PeerHub accepts; cx 'debug models' exposes a context window but runtime occupancy is not reported in an accepted form). `runtime` and `store` remain available with
 `--group` or `--snapshot --group`.
 
-The default human monitor shows POOLS (meaning, last recorded capacity, reset, age, state and configured profiles), one PEERS line per peer, and a facts/session/delivery/telemetry footer. `low` means more than 0% and at most 10% remaining (0% is `out`); `fast` means ahead of pace with a threat projection supported by at least two samples and more than 10% remaining. `aged` numbers are last-known evidence, not current capacity; refresh before relying on them. Passed reset windows show no capacity number. The `suggest:` line picks an eligible profile per tier; `|<profile>` adds the best eligible alternative from a different peer in that tier (see [balancing guidance](docs/batch.md)). The header shows the date and DB source; the full path appears for explicit/default selections or errors. `--expand` retains the detailed grouped view, bars, pace, forecasts and coverage footer; `peerhub explain <code>` covers its short codes.
+The default human monitor shows POOLS (meaning, last recorded capacity, reset, `PACE`, age, state and configured profiles), one PEERS line per peer, and a facts/session/delivery/telemetry footer. `low` means more than 0% and at most 10% remaining (0% is `out`); `fast` means ahead of pace with a threat projection supported by at least two samples and more than 10% remaining. `aged` numbers are last-known evidence, not current capacity; refresh before relying on them. Passed reset windows show no capacity number. The `suggest:` line picks an eligible profile per tier; `|<profile>` adds the best eligible alternative from a different peer in that tier (see [balancing guidance](docs/batch.md)). The header always shows the date and `DB:<source>`; the full DB path appears only when it differs from the nearest upward store or on error. `--expand` renders the detailed grouped sections, bars, `EXHAUST-IN` forecasts, `sessions` rows and coverage footer; `peerhub explain <code>` covers its short codes.
 
 `low`/`fast` take precedence over `aged`; staleness still shows in AGE and the PEERS `(aged)` tag. See `peerhub explain monitor` for state meanings and precedence.
 
-The bare `monitor` command shows the compact human dashboard on a TTY and aligned
-plain sections when redirected. `--view rich` requests visual panels and meters;
+The bare `monitor` command shows the compact human dashboard (with `PACE`), redrawing in place on a VT TTY and printing one completed frame per cycle when redirected; use `--expand` for bars, `EXHAUST-IN` and detailed `sessions`/group sections. `--view rich` adds colour; `--expand` adds bars in both views;
 `--view plain` selects ASCII-safe output. Add repeatable `--group` options to
 watch one or more groups, or `--group all` to include all ten. `monitor groups`
 lists group IDs and meanings; `monitor defaults show|set|reset` inspects and
@@ -158,8 +157,8 @@ stdout on a TTY watches until interrupted; non-TTY stdout runs one cycle.
 Explicit `--cycles 0` watches until interrupted everywhere; positive values
 bound collection cycles. The legacy dashboard and
 live diagnostics update countdowns at most 1 Hz; PACE and forecast ETA remain
-anchored to the measurement. Non-TTY or unavailable VT output appends one frame
-per cycle without escapes; schema 2.0 JSON watch emits one `initial` frame plus
+anchored to the measurement. Non-TTY human watch prints one completed frame
+per cycle without escapes (skipping the initial pre-refresh frame), while unavailable VT on a TTY appends without escapes; schema 2.0 JSON watch emits one `initial` frame plus
 one `complete` frame per cycle (default non-TTY JSON = two lines). `NO_COLOR` suppresses
 colour while retaining supported cursor controls.
 

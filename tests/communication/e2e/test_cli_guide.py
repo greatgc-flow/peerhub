@@ -1,7 +1,7 @@
 """Unit and E2E tests for Slice 5: peerhub guide subcommand.
 
 Tests:
-- Line and token caps (<=60 lines, ~900 tokens)
+- Line and size caps (<=60 lines, <=5600 B LF-normalized)
 - Every example `peerhub ...` parses via real argparse
 - Printed profile IDs exist and .standard is listed first
 - Required guidance: two-asks reuse, no blind retry, discovery cmds, single recovery step
@@ -38,23 +38,23 @@ def test_guide_profile_rows_are_capped_however_many_profiles_exist(capsys, monke
 
 
 def test_guide_line_and_token_cap(capsys, monkeypatch, tmp_path):
-    """Policy 5/13: peerhub guide stays within <=60 lines and words * 1.3 <= 900 estimated tokens."""
+    """Policy 5/13: peerhub guide stays within <=60 lines and <=5600 UTF-8 bytes (LF-normalized)."""
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
     code = main(["guide"])
     assert code == 0
     out = capsys.readouterr().out
     assert "peerhub explain ag silence" in out
     assert "compact pools/peers dashboard" in out
-    assert "TTY: watch; non-TTY: one cycle; --cycles 0: watch" in out
     assert "suggest a|b = best + alternative peer; peerhub explain monitor" in out
+    assert "Balance: suggest: is advisory (rule H)" in out
+    assert "compare 7D PACE (5H only gates)" in out
     shown = [pid for pid in PACKAGED["profiles"] if pid in out]
     assert len(shown) == len(PACKAGED["profiles"]) or "more profiles: peerhub profile list" in out
     assert "models: peerhub profile list; slugs: agy models; --model <slug>" in out
     lines = out.splitlines()
     assert len(lines) <= 60, f"Guide has {len(lines)} lines, exceeding cap of 60"
-    words = len(out.split())
-    estimated_tokens = int(words * 1.3)
-    assert estimated_tokens <= 900, f"Guide has {estimated_tokens} estimated tokens ({words} words * 1.3), exceeding cap of 900"
+    size_bytes = len(out.replace("\r\n", "\n").encode("utf-8"))
+    assert size_bytes <= 5600, f"Guide has {size_bytes} LF-normalized UTF-8 bytes, exceeding cap of 5600"
 
 
 def test_guide_example_commands_parse_via_real_argparse(capsys):

@@ -128,12 +128,12 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 - Fix: Run peerhub observation refresh --peers PEER to collect fresh evidence. Expired capacity is unavailable, never zero or unlimited.
 - Issue: 0.24.0
 
-## Monitor states, suggestions and cycles (`monitor-states`)
+## Monitor states, PACE, suggestions and cycles (`monitor-states`)
 
-- Keywords: monitor, low, fast, aged, suggest, alternative, cycles, tty, legend
-- Symptom: Monitor states, stale evidence, alternative profiles or redirected watch behavior need explanation.
-- Fix: States: ok = enough capacity; low = positive remaining <=10%; fast = >10% remaining but ahead of pace (threat projection, at least two samples); out = 0%; aged = stale; reset = reset passed; n/a = plan omits; ? = unknown. Precedence: n/a ? reset out low fast aged ok; a plan-omitted (ABSENT) pool whose evidence went stale shows aged; other rows without a number show ?. low/fast win over aged; staleness still shows in AGE and the PEERS (aged) tag. suggest: tier=a|b means a is the best eligible pick and b is the best eligible alternative in the same tier from a different peer. Omitted monitor --cycles: non-TTY one cycle, TTY until interrupted; --cycles 0 watches everywhere. diag --live keeps its 0 default (until interrupted).
-- Issue: #310, #311
+- Keywords: monitor, pace, low, fast, aged, suggest, alternative, cycles, tty, legend
+- Symptom: Monitor states, PACE, stale evidence, alternative profiles or redirected watch behavior need explanation.
+- Fix: States: ok = enough capacity; low = positive remaining <=10%; fast = >10% remaining but ahead of pace (threat projection, at least two samples); out = 0%; aged = stale; reset = reset passed; n/a = plan omits; ? = unknown. Precedence: n/a ? reset out low fast aged ok; a plan-omitted (ABSENT) pool whose evidence went stale shows aged; other rows without a number show ?. low/fast win over aged; staleness still shows in AGE and the PEERS (aged) tag. PACE (percentage points, pp) = used% - elapsed% of the window (cumulative vs even burn, not recent activity): + = ahead of even burn (over-use), - = behind (under-use), - cell when no valid anchor (n/a, ?, reset, unusable); shown on aged rows like LEFT, so verify fresh AGE before relying on PACE. suggest: tier=a|b is advisory (rule H): a is the best eligible pick and b is the best eligible alternative in the same tier from a different peer; eligible candidates without an applicable fast pool rank first, then worst-pool score LEFT% / max(days_to_reset, 0.2), then profile name (compare 7D PACE manually across eligible peers; 5H only gates; all-fast = slow down or defer). Omitted monitor --cycles: non-TTY one cycle (one completed human frame), TTY until interrupted; --cycles 0 watches everywhere. diag --live keeps its 0 default (until interrupted).
+- Issue: #310, #311, 0.24.4
 
 ## Quota shaping across peers (`multi-peer-quota-shaping`)
 
