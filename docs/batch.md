@@ -68,11 +68,12 @@ Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepth
 1. Pick the lowest tier that meets the task class: bulk/mechanical = `standard`; docs = `standard`
    (formatting), `effort` (writing) or `deepthink` (technical claims); code = `effort`, escalate to
    `deepthink`; review = `deepthink` from an independent reviewer; design/debate = `deepthink` or an explicit top.
-2. Drop candidates with any applicable pool under 5% LEFT, UNKNOWN or stale (see `peerhub monitor`).
+2. Drop candidates with any applicable pool that has stale evidence (regardless of `STATE` shown, since a stale pool can display `low` or `fast`; check `AGE` and the `PEERS` `(aged)` tag) or is `?`, `aged`, `reset`, or under 5% LEFT, and prefer candidates without a `fast` pool (see `peerhub monitor`).
 3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`.
 
-The monitor's `suggest:` line lists the best eligible profile per tier using the
-lowest applicable pool score, with profile-name tie-breaking. A `|` separates
+The monitor's `suggest:` line lists the best eligible profile per tier. Among
+eligible candidates, those without an applicable `fast` pool rank first, then
+the existing worst-pool score, then profile name. A `|` separates
 the best eligible alternative from a different peer in the same tier, for
 example `eco=cc.standard|ag.standard`. With no eligible alternative, only the
 primary appears. These suggestions do not execute asks or reroute work.

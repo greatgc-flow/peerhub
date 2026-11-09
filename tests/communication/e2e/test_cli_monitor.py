@@ -555,7 +555,7 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
     else:
         assert "\x1b" not in out
     assert len(calls) == (2 if ending == "normal" else 1)
-    assert out.count("PeerHub") >= (3 if ending == "normal" else 1)
+    assert out.count("PeerHub") >= ((3 if tty else 2) if ending == "normal" else 1)
 
 
 def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch):
@@ -971,7 +971,7 @@ def test_sleep_called_count_minus_1_times(tmp_path, capsys):
          patch("peerhub.cli.monitor.sleep", lambda s: sleeps.append(s)):
         assert _run(_db(tmp_path), "--cycles", "3", "--interval-seconds", "42") in (0, 4)
     assert sleeps == pytest.approx([42.0, 42.0], abs=0.2)
-    assert calls == ["snapshot", "refresh", "snapshot", "refresh", "snapshot", "refresh", "snapshot"]
+    assert calls == ["refresh", "snapshot", "refresh", "snapshot", "refresh", "snapshot"]
 
 
 def test_collect_every_honoured(tmp_path, capsys):
@@ -983,7 +983,7 @@ def test_collect_every_honoured(tmp_path, capsys):
          patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--cycles", "4", "--collect-every", "2") in (0, 4)
-    assert calls == ["snapshot", "refresh", "snapshot", "snapshot", "refresh", "snapshot", "snapshot"]
+    assert calls == ["refresh", "snapshot", "snapshot", "refresh", "snapshot", "snapshot"]
 
 
 def test_guard_stop_after_first_violation(tmp_path, capsys):
@@ -1000,7 +1000,7 @@ def test_guard_stop_after_first_violation(tmp_path, capsys):
          patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--cycles", "5") == 1
-    assert calls == ["snapshot", "refresh"]
+    assert calls == ["refresh"]
     err = capsys.readouterr().err
     assert "agy /usage consumed model tokens" in err
 
@@ -1019,7 +1019,7 @@ def test_guard_continue_with_flag(tmp_path, capsys):
          patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
         assert _run(_db(tmp_path), "--cycles", "2", "--allow-agy-token-use") == 4
-    assert calls == ["snapshot", "refresh", "snapshot", "refresh", "snapshot"]
+    assert calls == ["refresh", "snapshot", "refresh", "snapshot"]
 
 
 def test_keyboard_interrupt_exit_0(tmp_path, capsys):
@@ -1328,5 +1328,5 @@ def test_monitor_expand_help_wording(capsys):
     out = capsys.readouterr().out
     assert "--expand" in out
     clean_out = " ".join(out.split())
-    assert "Render all loaded detail rows instead of capping at default limits" in clean_out
+    assert "Render detailed grouped sections with bars, pace and forecasts" in clean_out
 

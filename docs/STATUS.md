@@ -4,9 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.3 (published)
+## Current source: v0.24.4 (release candidate)
 
-v0.24.3 adds actionable oversized-prompt guidance with byte counts (#309) and explains the #312 claim-held symptom (caller tool timeout while the ask kept running; replay with the same `--request-id`) in guidance and a lesson (#312 root cause from the store; no parser change).
+v0.24.4 puts pace back on the compact monitor: a `PACE` column (used% - elapsed% of the window, signed whole pp), a legend that defines it, `suggest:` ordering that prefers pools without `fast`, one human frame on non-TTY runs (was two), exact-reset-instant handling, and a guide balance recipe bounded by bytes (<=60 lines, <=5,600 B). JSON values and schemas are unchanged. Plan: docs/design/plan-0.24.4-2026-11-09.md (cx.astra, cc.fable, ag.argon: two independent audit rounds, cross-critique vote, review round). Publication pending the release gates.
+
+v0.24.3 (published) adds actionable oversized-prompt guidance with byte counts (#309) and explains the #312 claim-held symptom (caller tool timeout while the ask kept running; replay with the same `--request-id`) in guidance and a lesson (#312 root cause from the store; no parser change).
 
 v0.24.2 separates compact monitor `low` capacity from `fast` pace, explains states in the legend, adds eligible alternative peers to tier suggestions, and defaults non-TTY monitor watch to one cycle. JSON values and schemas are unchanged (PR #310, unanimous cx+ag+cc review).
 

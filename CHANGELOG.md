@@ -8,9 +8,20 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.4] - 2026-11-09
+
 ### Changed
 
+- The compact monitor shows a `PACE` column (signed whole percentage points, `used% - elapsed%` of the window; `+` ahead of even burn, `-` behind; `-` without a valid anchor, also on aged rows) beside LEFT and RESETS, and the legend defines it. AIs balancing quota no longer need `--expand` for pace. JSON output is unchanged.
+- `suggest:` ranks candidates without an applicable `fast` pool first, then the existing worst-pool score, then profile name; eligibility is unchanged and an all-fast tier still yields a pick.
+- `peerhub guide` carries a balance recipe (suggest is advisory; reject stale/unknown/reset/<5% pools; prefer non-`fast`; compare 7D PACE, 5H only gates; PACE needs fresh AGE), drops monitor TTY/cycle trivia, merges duplicate lines and is bounded by bytes (<=60 lines, <=5,600 B LF-normalized) instead of the word heuristic. `explain pace` and `explain monitor pace` resolve to the monitor lesson, which defines PACE and the ordering. Rule H in `docs/batch.md`, the README and the `monitor` help match.
+- The compact legend drops the `precedence:` line (kept in `explain monitor`).
 - The `ag-recipe` lesson marks #302 (read_file denied with a trusted `-w`) as a past observation, closed 2026-11-09 as not reproducible; inlining content stays the recipe.
+
+### Fixed
+
+- Non-TTY human `monitor` output printed two frames (a pre-refresh `initial` frame and the completed one); it now prints only the completed frame (about half the bytes; `--expand` 32.7 KB to 16.3 KB). TTY redraw and `--json` framing (`initial` + `complete`) are unchanged.
+- A pool at its exact reset instant now counts as reset (no capacity, PACE or suggestion).
 
 ## [0.24.3] - 2026-11-09
 
