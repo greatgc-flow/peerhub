@@ -20,8 +20,9 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.24.1"
-    assert "permission_denials" in body and "denied_actions" in body and "cc-allow-rules" in body
+    assert __version__ == "0.24.2"
+    assert "--cycles 0" in body and "|<profile>" in body and "yellow `fast`" in body
+    assert "permission_denials" not in body  # no adjacent history (0.24.1)
     assert "Breaking: compact human text" not in body  # no adjacent history (0.24.0)
     assert "five operating lessons" not in body  # no adjacent history
     assert "(#232, #241)" not in body

@@ -4,7 +4,9 @@
 
 Dates are UTC.
 
-## Current source: v0.24.1 (published)
+## Current source: v0.24.2 (unreleased)
+
+v0.24.2 separates compact monitor `low` capacity from `fast` pace, explains states in the legend, adds eligible alternative peers to tier suggestions, and defaults non-TTY monitor watch to one cycle. JSON values and schemas are unchanged.
 
 v0.24.1 is a patch on 0.24.0: cc `permission_denials` surface as `denied_actions` and an empty cc reply with denials gets `denied_empty` (provider-neutral note), plus the `cc-allow-rules` lesson (#303); #304 store-discovery fallback and fail-closed behavior are included, along with every-peer plan-aware ABSENT windows (P4). Plan: docs/design/plan-0.24.1-2026-11-08.md.
 

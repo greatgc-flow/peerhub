@@ -8,6 +8,17 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.2] (unreleased)
+
+### Changed
+
+- Monitor watch defaults to one collection cycle when stdout is not a TTY, and watches until interrupted on a TTY. Explicit `--cycles 0` watches until interrupted everywhere.
+- Compact monitor suggestions append `|<profile>` for the best eligible alternative in the same tier from a different peer, keeping the primary ranking unchanged.
+
+### Fixed
+
+- Compact monitor `low` now means at most 10% remaining; a threat projection with at least two samples and more than 10% remaining shows yellow `fast`. The legend explains each state. JSON values and schemas are unchanged.
+
 ## [0.24.1] - 2026-11-08
 
 ### Changed
