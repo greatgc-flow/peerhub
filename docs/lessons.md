@@ -125,7 +125,7 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 
 - Keywords: monitor, low, fast, aged, suggest, alternative, cycles, tty, legend
 - Symptom: Monitor states, stale evidence, alternative profiles or redirected watch behavior need explanation.
-- Fix: States: ok = enough capacity; low = positive remaining <=10%; fast = >10% remaining but ahead of pace (threat projection, at least two samples); out = 0%; aged = stale; reset = reset passed; n/a = plan omits; ? = unknown. Precedence: n/a ? reset out low fast aged ok; stale evidence with no number shows aged. low/fast win over aged; staleness still shows in AGE and the PEERS (aged) tag. suggest: tier=a|b means a is the best eligible pick and b is the best eligible alternative in the same tier from a different peer. Omitted monitor --cycles: non-TTY one cycle, TTY until interrupted; --cycles 0 watches everywhere. diag --live keeps its 0 default (until interrupted).
+- Fix: States: ok = enough capacity; low = positive remaining <=10%; fast = >10% remaining but ahead of pace (threat projection, at least two samples); out = 0%; aged = stale; reset = reset passed; n/a = plan omits; ? = unknown. Precedence: n/a ? reset out low fast aged ok; a plan-omitted (ABSENT) pool whose evidence went stale shows aged; other rows without a number show ?. low/fast win over aged; staleness still shows in AGE and the PEERS (aged) tag. suggest: tier=a|b means a is the best eligible pick and b is the best eligible alternative in the same tier from a different peer. Omitted monitor --cycles: non-TTY one cycle, TTY until interrupted; --cycles 0 watches everywhere. diag --live keeps its 0 default (until interrupted).
 - Issue: #310, #311
 
 ## Quota shaping across peers (`multi-peer-quota-shaping`)

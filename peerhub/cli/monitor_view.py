@@ -1045,7 +1045,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
                 lines.append("profiles " + _fit(str(row["profiles"]), max(0, width - 9), unicode))
         legend = "ok enough | low >0-10% | fast >10% but ahead of pace | out 0% | aged stale | reset passed | n/a plan omits | ? unknown"
         lines.extend(_compact_wrap(legend, width))
-        lines.extend(_compact_wrap("precedence: n/a ? reset out low fast aged ok; stale with no number shows aged", width))
+        lines.extend(_compact_wrap("precedence: n/a ? reset out low fast aged ok; stale plan-omitted pool shows aged; other missing numbers show ?", width))
     if "peers" in selected_ids:
         lines.append(_section_rule("PEERS", width, True, color and "NO_COLOR" not in os.environ)
                      if view == "rich" and unicode else "PEERS")

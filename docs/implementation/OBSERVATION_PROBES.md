@@ -46,15 +46,10 @@ peerhub monitor [--interval-seconds SECONDS=60] [--cycles N] [--peers cx cc ag] 
 
 ### `peerhub monitor --view {auto,rich,plain}`
 
-The default view is the compact POOLS/PEERS screen (states, legend and `suggest:` are described in the [README](../../README.md) and `peerhub explain monitor`). With `--expand`, `rich` (default on a terminal) draws the detailed screen: header (status, time, db, cycle, next refresh), a `Threats:` summary,
-a quota table (`PEER POOL USAGE-bar USED PACE(pt) RESET FORECAST FRESH`), optional `Credits` and `Asks` lines,
-`Probes` outcomes, and a pace/forecast legend. `plain` shares the same layout and decisions using ASCII without colour.
-`NO_COLOR` disables colour; colour otherwise requires a terminal. Non-UTF-8 terminals get an ASCII layout.
-The view is a pure renderer over the read-only diag snapshot (`peerhub/cli/view.py`); it never writes evidence.
+The default view is the compact POOLS/PEERS screen (states, legend and `suggest:` are described in the [README](../../README.md) and `peerhub explain monitor`). `--expand` shows the grouped detail view: a header (status, time, DB source), then one section per selected group (`QUOTA` with `PEER POOL REM RESET-IN PACE STATE AGE PROFILES`, refresh hints and a state key; `PEERS`; `EXECUTION`; `SESSIONS`; and the other groups from `peerhub monitor groups`). `rich` (default on a terminal) and `plain` share the same layout; `plain` is ASCII without colour. `NO_COLOR` disables colour; colour otherwise requires a terminal. Non-UTF-8 terminals get an ASCII layout. Both views are pure renderers over the read-only grouped snapshot (`peerhub/cli/monitor_view.py`); they never write evidence.
 
-#### Reading the rich view
-- **PACE** = `used% - window elapsed%`, in percentage points at measurement time. A 5-hour window that is 40% elapsed with 60% used reads `+20.0`: usage is 20 points ahead of an even burn. Pace has no independent risk colour; forecasts are conditional window-average estimates shown inline in `FORECAST`.
-- **Threats** reports evaluated forecasts. Missing or stale evidence yields `Threats: unknown`; an expired window can show `expired` in its row while the summary says the evidence is stale. `No threats` requires at least one fresh evaluated pool.
-- **Asks** comes from recorded `ask` activity evidence, with one line per peer showing the latest outcome, age and actual duration, e.g. `Asks cx delivered 54s ago, took 4m`. It is omitted without ask evidence.
+#### Reading the expanded view
+- **PACE** = `used% - window elapsed%`, in percentage points at measurement time. A 5-hour window that is 40% elapsed with 60% used reads `+20.0`: usage is 20 points ahead of an even burn. Pace has no independent risk colour; the compact view turns a supported threat into `fast`.
+- **STATE** `THREAT` means the projection exhausts the pool before reset; `INSUFF` means too little projection data; `STALE:*` marks aged evidence.
 - On a terminal the screen redraws every second between cycles (clock, evidence ages, reset countdowns and "next in" move; nothing is re-read until the next cycle). Piped output prints the initial frame, then one frame per completed cycle.
 - A claude `/usage` probe that fails now stores a reason in the ERROR evidence (`claude_usage_timeout`, `claude_usage_spawn_failed:<ExceptionType>`, `claude_usage_unparseable`), and the dashboard shows it next to `ERROR`. Timeouts usually mean the machine was busy (raise `--timeout-seconds`), unparseable output means the CLI output format changed.

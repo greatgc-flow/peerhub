@@ -110,6 +110,14 @@ def test_low_fast_and_higher_priority_states(compact_frame, remaining, projectio
     assert compact_frame == original
 
 
+@pytest.mark.parametrize("stored_state,expected", [("ABSENT", "aged"), ("UNKNOWN", "?"), ("ERROR", "?")])
+def test_stale_row_without_number_is_aged_only_for_absent(compact_frame, stored_state, expected):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row.update(last_measurements={"remaining_fraction": None}, stored_state=stored_state, age_seconds=99999,
+               resets_at=NOW + 3600)
+    assert expected in _row(render_grouped_frame(compact_frame, view="plain", width=100), "G-5H").split()
+
+
 @pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True)])
 @pytest.mark.parametrize("width", [48, 80, 100])
 def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unicode_mode, width):
@@ -117,7 +125,7 @@ def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unic
     screen = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width)
     legend_lines = screen.split("ok enough", 1)[1].split("PEERS", 1)[0]
     assert legend in " ".join(("ok enough" + legend_lines).split())
-    assert "precedence: n/a ? reset out low fast aged ok; stale with no number shows aged" in " ".join(legend_lines.split())
+    assert "precedence: n/a ? reset out low fast aged ok; stale plan-omitted pool shows aged; other missing numbers show ?" in " ".join(legend_lines.split())
     assert all(_width(line) <= min(99, width - 1) for line in screen.splitlines())
 
 
