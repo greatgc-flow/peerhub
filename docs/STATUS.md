@@ -4,7 +4,7 @@
 
 Dates are UTC.
 
-## Current source: v0.24.2 (unreleased)
+## Current source: v0.24.2 (published)
 
 v0.24.2 separates compact monitor `low` capacity from `fast` pace, explains states in the legend, adds eligible alternative peers to tier suggestions, and defaults non-TTY monitor watch to one cycle. JSON values and schemas are unchanged (PR #310, unanimous cx+ag+cc review).
 
@@ -12,7 +12,9 @@ v0.24.1 is a patch on 0.24.0: cc `permission_denials` surface as `denied_actions
 
 v0.24.0 unifies CLI human output (text by default, `--json` everywhere), store precedence (`--db` over `PEERHUB_DB`) and a redesigned at-a-glance monitor (pools with meaning, per-group limits, fresh-only `suggest:` line, plan-aware ABSENT windows for cx only), reworks profiles quality-first (`ag.effort` flash-high, `cx.effort` sol/high, packaged tops `cc.fable` and `cx.astra`), documents capability-matched quota balancing and concurrency caps (docs/batch.md), adds the ag recipe and denied-empty handling (#300). Plan: docs/design/plan-0.24.0-2026-11-08.md.
 
-The latest published package is **v0.24.1** (tag `v0.24.1`, target `b0b2b240`); PyPI 0.24.1 verified 2026-11-08 UTC and G3 passed bound to `b0b2b24050bd`. The installed `peerhub guide` does not automatically update when main changes.
+The latest published package is **v0.24.2** (tag `v0.24.2`, target `a5b61f9a`); PyPI 0.24.2 verified 2026-11-09 UTC and G3 passed bound to `a5b61f9a354a`. The installed `peerhub guide` does not automatically update when main changes.
+
+v0.24.2 published 2026-11-09 (UTC; PRs #310/#311/#314, tag `v0.24.2`, target `a5b61f9a`, publish run 42557525466); completeness audit Fable/Astra 100 on every axis before release; G3 passed bound to `a5b61f9a354a`. See [live evidence](implementation/live_evidence/2026-11-09-v0.24.2.json) and the release JUnit assets.
 
 v0.24.1 published 2026-11-08 (UTC; tag `v0.24.1`, target `b0b2b240`, PyPI 0.24.1 verified 2026-11-08 UTC); G3 passed bound to `b0b2b24050bd`. See [live evidence](implementation/live_evidence/2026-11-08-v0.24.1.json) and the release JUnit assets.
 
@@ -44,6 +46,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
+| **v0.24.2** | `a5b61f9a` | PR #310/#311/#314 | Published | Published 2026-11-09; tag `v0.24.2`; publish run 42557525466; PyPI verified; G3 passed bound to `a5b61f9a354a`; JUnit assets attached; [live evidence](implementation/live_evidence/2026-11-09-v0.24.2.json) |
 | **v0.24.2 first attempt** | `5e575697` | PR #310/#311 | 2026-11-09: publish run 42553283723 cancelled before PyPI; release and tag deleted | owner: release only after every audit axis is 100; PyPI stays 0.24.1; [attempt evidence](implementation/live_evidence/2026-11-09-v0.24.2-attempt1.json) |
 | **v0.24.1 first attempt** | `0705619e` | PR #305 | Aborted; release and tag deleted | Failed publish run 42496572307; Windows release-matrix failed in `rel_005`: sandbox lacked Git; real-Git discovery tests moved to E2E in PR #306; release and tag recreated per CONTRIBUTING |
 | **v0.24.1** | `b0b2b240` | PR #305 | Published | Published 2026-11-08; tag `v0.24.1`; PyPI verified; G3 passed bound to `b0b2b24050bd`; JUnit assets attached to release; [live evidence](implementation/live_evidence/2026-11-08-v0.24.1.json) |
