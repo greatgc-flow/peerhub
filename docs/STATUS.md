@@ -172,7 +172,7 @@ Operational design ratified (S1-S4 consensus): [issue-resolution-2026-10-18](des
 | Slice S3 (Monitor UX & Telemetry Display) | **Done on `fix/issue-resolution-020`**: Contiguous `CAPACITY` rendering under `CAPACITY [OK]`, bar fill aligned with remaining %, reset countdown separated from burn `ETA` (#146), and `USAGE` display fallback (`provider_input_tokens + output_tokens`) + cache hit % when `provider_total_tokens` is absent (#147). | Issues #146, #147 |
 | Slice S4 (Docs & Guide Alignment) | **Done on `fix/issue-resolution-020`**: Updated `peerhub/cli/guide.py`, `README.md`, `docs/remote-ask.md`, `docs/migrations.md`, `docs/STATUS.md`, `docs/HANDOFF.md`, and `CHANGELOG.md` (#118, #123, #130, #134-#136, #148). | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #118, #123, #130, #134-#136, #148 |
 | Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, arbitrary-model monitor/readiness integration (`ag.argon` profile and exact registry delivered in #194), TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #145, #194 |
-| Open | #302: ag `read_file` denied with trusted `-w`; cause unknown, tracked. | [Issue #302](https://github.com/greatgc-flow/peerhub/issues/302) |
+| Open | None. #302 (ag `read_file` denied with trusted `-w`) closed 2026-11-09 as not reproducible (3 re-tests incl. the original ag.argon shape); reopen with `--json` output if it recurs. #313 is deferred (see below). | [Issue #302](https://github.com/greatgc-flow/peerhub/issues/302) |
 
 ### Deferred backlog (start triggers)
 
@@ -183,6 +183,7 @@ Operational design ratified (S1-S4 consensus): [issue-resolution-2026-10-18](des
 | DB lineage/provenance | Cross-store comparison becomes a recurring need. |
 | `peerhub diag peers` capability probe | [Peer limits](peer-limits.md) drifts too often. |
 | `peerhub diag readiness --probe`: paid active probe + before/after benchmark (#145 part 2) | NOT implemented on purpose: diag stays read-only; the manual [smoke recipe](smoke-recipe.md) is enough. Revisit if the all-profile ping recurs often. |
+| View monitor quota on a phone (Telegram bot, #313) | Owner decision plus a BotFather token; keep it outside the peerhub package unless a real need appears. |
 | cx/ag/cc response `final` field separating narration from the final answer (#164 part B) | NOT implemented on purpose: v0.20.0 keeps the aggregate cx response unless explicit phase metadata marks commentary; a final-only response could drop answer content. Revisit with a concrete mismatch case and a schema decision. |
 
 Operational lessons and coordinator handoff: [HANDOFF](HANDOFF.md).
