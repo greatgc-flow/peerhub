@@ -107,6 +107,7 @@ for coverage, remaining checks and local results.
 ## 4. Release lessons
 
 - Release sequence, CHANGELOG-derived notes and required assets: [CONTRIBUTING](../CONTRIBUTING.md#releasing).
+- Owner rule: release only after the completeness audit scores 100 on every axis; G3 re-runs on the final target.
 - Serial tests, opt-in xdist and disposable development venvs: [development setup](../CONTRIBUTING.md#development-setup).
 - Commit the generated `docs/implementation/live_evidence/<date>.json` through a docs PR.
 - Never type a SHA by hand; derive it from Git.

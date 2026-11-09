@@ -35,13 +35,13 @@ The `reset_credit` kind extends the Observation kind list of the frozen M1 contr
 A convenience command that restores the old `diag --live` experience in ONE process: each cycle collects quota evidence (the same collector as `observation refresh`) and then renders ONE read-only dashboard frame (the same renderer as `diag --live`), then sleeps. The composition lives in the CLI layer (`peerhub/cli/monitor.py`): Diag stays strictly read-only and never refreshes, Observation stays the only writer, and extension imports are limited to the allowlist enforced by `tests/communication/architecture/test_arch_extension_graph.py`.
 
 ```
-peerhub monitor [--interval-seconds SECONDS=60] [--cycles N=0] [--peers cx cc ag] [--timeout-seconds SECONDS=15]
+peerhub monitor [--interval-seconds SECONDS=60] [--cycles N] [--peers cx cc ag] [--timeout-seconds SECONDS=15]
                 [--collect-every K=1] [--view auto|rich|plain] [--json] [--allow-agy-token-use]
 ```
 
-- `--cycles 0` runs until Ctrl-C (clean exit 0). `--collect-every K` collects every Kth cycle but redraws every cycle.
+- Omitted `--cycles` defaults to one cycle off-TTY and runs until interrupted on a TTY. `--cycles 0` watches until Ctrl-C everywhere (clean exit 0). `--collect-every K` collects every Kth cycle but redraws every cycle.
 - `--json` prints NDJSON: `{"cycle": n, "refresh": {"status", "warnings", "observations"} | {"skipped": true}, "snapshot": <diag --json object>}`.
-- Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when `--cycles` ended the run; 2 usage error (nothing is collected, no database is created).
+- Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when the cycle limit ended the run (including the implicit single cycle off-TTY); 2 usage error (nothing is collected, no database is created).
 - Every cycle costs one `/usage` read per peer (no model turn; see the probe table above). Do not set intervals of a few seconds.
 
 ### `peerhub monitor --view {auto,rich,plain}`
