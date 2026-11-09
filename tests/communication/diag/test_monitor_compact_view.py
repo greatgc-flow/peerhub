@@ -117,7 +117,7 @@ def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unic
     screen = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width)
     legend_lines = screen.split("ok enough", 1)[1].split("PEERS", 1)[0]
     assert legend in " ".join(("ok enough" + legend_lines).split())
-    assert "precedence: n/a ? reset out low fast aged ok" in legend_lines
+    assert "precedence: n/a ? reset out low fast aged ok; stale with no number shows aged" in " ".join(legend_lines.split())
     assert all(_width(line) <= min(99, width - 1) for line in screen.splitlines())
 
 

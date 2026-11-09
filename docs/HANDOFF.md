@@ -109,7 +109,7 @@ for coverage, remaining checks and local results.
 - Release sequence, CHANGELOG-derived notes and required assets: [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 - Owner rule: release only after the completeness audit scores 100 on every axis; G3 re-runs on the final target.
 - Serial tests, opt-in xdist and disposable development venvs: [development setup](../CONTRIBUTING.md#development-setup).
-- Commit the generated `docs/implementation/live_evidence/<date>.json` through a docs PR.
+- Commit the generated `docs/implementation/live_evidence/<date>.json` through a docs PR, renamed `<date>-v<version>[-attemptN].json` (dates UTC).
 - Never type a SHA by hand; derive it from Git.
 - Delete a blocked/aborted release and its tag before retrying.
 - The `publish.yml` Windows release-matrix `rel_005` sandbox has no Git or provider CLIs, and its oracle forbids skips; tests needing a real Git binary must be marked E2E. This surfaced on the v0.24.1 first attempt; PR #306 moved real-Git discovery tests to E2E.

@@ -26,3 +26,5 @@ peerhub/extensions/schemas/*.json -text
 /tests/communication/package/test_rel005_oracle.py text eol=lf
 /tests/communication/package/test_rel_ci_dag.py text eol=lf
 /tests/communication/package/test_ci_workflow.py text eol=lf
+/docs/implementation/live_evidence/*.json text eol=lf
+/README.md text eol=lf

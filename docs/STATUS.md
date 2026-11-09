@@ -44,7 +44,7 @@ v0.21.3 (live gate ran the ag canary on the Argon model because the default ag p
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
-| **v0.24.2 first attempt** | `5e575697` | PR #310/#311 | Publish run 42553283723 cancelled before PyPI; release and tag deleted | owner: release only after every audit axis is 100; PyPI stays 0.24.1; [attempt evidence](implementation/live_evidence/2026-11-09-v0.24.2-attempt1.json) |
+| **v0.24.2 first attempt** | `5e575697` | PR #310/#311 | 2026-11-09: publish run 42553283723 cancelled before PyPI; release and tag deleted | owner: release only after every audit axis is 100; PyPI stays 0.24.1; [attempt evidence](implementation/live_evidence/2026-11-09-v0.24.2-attempt1.json) |
 | **v0.24.1 first attempt** | `0705619e` | PR #305 | Aborted; release and tag deleted | Failed publish run 42496572307; Windows release-matrix failed in `rel_005`: sandbox lacked Git; real-Git discovery tests moved to E2E in PR #306; release and tag recreated per CONTRIBUTING |
 | **v0.24.1** | `b0b2b240` | PR #305 | Published | Published 2026-11-08; tag `v0.24.1`; PyPI verified; G3 passed bound to `b0b2b24050bd`; JUnit assets attached to release; [live evidence](implementation/live_evidence/2026-11-08-v0.24.1.json) |
 | **v0.24.0** | `f07d6c49` | PR #301 | Published | Published 2026-11-08; tag `v0.24.0`; PyPI 0.24.0 verified; G3 passed, bound to f07d6c493af0 (live-gate JUnit header); [live evidence](implementation/live_evidence/2026-11-08.json) |

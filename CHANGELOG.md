@@ -18,7 +18,7 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
-- Compact monitor `low` now means at most 10% remaining; a threat projection with at least two samples and more than 10% remaining shows yellow `fast`. The legend wraps to keep every state visible and lists precedence; `low`/`fast` win over `aged`. JSON values and schemas are unchanged.
+- Compact monitor `low` now means more than 0% and at most 10% remaining (0% is `out`); a threat projection with at least two samples and more than 10% remaining shows yellow `fast`. The legend wraps to keep every state visible and lists precedence; `low`/`fast` win over `aged`. JSON values and schemas are unchanged.
 
 ## [0.24.1] - 2026-11-08
 
