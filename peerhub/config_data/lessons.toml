@@ -36,8 +36,8 @@ id = "ag-bulk-profile-heuristics"
 title = "ag profile choice for bulk work (observed 2026-11-01)"
 keywords = ["ag", "agy", "profile", "effort", "flash", "argon", "bulk", "image", "WinError", "206", "prompt", "size"]
 symptom = "A low-effort ag profile returns an empty reply on a long list of file or shell items; very long inline prompts fail on Windows."
-fix = "Observation from one small test (Windows, one run per cell, no ground truth for images): flash-low broke down somewhere between 25 and 150 items, flash-medium finished them, high only cost time. Treat these as heuristics, not thresholds. Keep inline prompts small (a 30000-byte cap applies; WinError 206 was seen with long command lines) and give ag file paths instead. Dense numeric image tables stay unreliable for every model: cross-read before trusting."
-issue = "#290"
+fix = "Observation from one small test (Windows, one run per cell, no ground truth for images): flash-low broke down somewhere between 25 and 150 items, flash-medium finished them, high only cost time. Treat these as heuristics, not thresholds. ag argv prompts, including catch-up history, are limited to 30,000 bytes (30 KB) on Windows and 120,000 bytes (120 KB) on POSIX; --query-file still uses argv. For ask_prompt_too_large, split into parts under the limit (one ask each), or use cc/cx on a separate stream (stdin, 1,000,000-byte maximum); if the prompt alone is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id. File paths do not bypass the limit and ag file reads may be denied; inline small excerpts. Dense numeric image tables stay unreliable for every model: cross-read before trusting."
+issue = "#290, #309"
 
 [[lessons]]
 id = "cx-sandbox-and-prompt-hygiene"
@@ -174,3 +174,11 @@ keywords = ["cc", "claude", "allow", "rules", "rule", "allowlist", "bash", "perm
 symptom = "A headless cc ask with one model denies a Bash command that .claude/settings.local.json allows and another model runs (observed on #303: fable denied, haiku ran; not reproduced), or cc returns no usable answer with denied_actions set."
 fix = "Bash allow rules such as Bash(peerhub --version) match the exact command string, so a model that adds cd, 2>&1, a pipe or a different invocation is denied: headless cc cannot prompt. Read denied_actions (Tool: command, redacted to 120 chars) to see the rejected string, then prefer prefix rules such as Bash(peerhub:*) and add matching PowerShell(...) rules on Windows. Unverified hypothesis: command shape, not a model-specific permission mode. Never resume after denied_empty; start a new stream."
 issue = "#303"
+
+[[lessons]]
+id = "caller-timeout-claim-held"
+title = "A cut-off reply usually means your tool timed out, not peerhub"
+keywords = ["claim", "claim_held", "ask_claim_held", "preamble", "cut off", "partial", "timeout", "timed out", "background", "request-id", "replay", "cx", "long"]
+symptom = "An ask shows only a preamble (\"I'll audit ...\"), then the next ask on the same stream fails with ask_claim_held."
+fix = "Confirmed in #312 from the store: the ask finished with a full reply and released its claim when the turn ended; only the caller had stopped waiting. If this happens, do not open a new stream or retry with a new request-id. Wait for the claim to end, then rerun the identical command with the same --request-id: a completed turn replays the stored reply without a new provider call; otherwise follow the returned uncertainty guidance (ask_uncertain or ask_blocked_uncertain). Run long asks in the background and wait for completion."
+issue = "#312"

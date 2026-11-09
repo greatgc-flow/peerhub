@@ -434,6 +434,8 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
         error_obj: Any = result.get("error")
         detail: object = (cast(dict[str, object], error_obj).get("message") if isinstance(error_obj, dict) else error_obj) or detail_error \
             or result.get("reason") or result.get("status")
+        if code == "ask_prompt_too_large" and detail_error:
+            detail = detail_error
         if result.get("status") == "not_executed":
             refusal_reason = str(result.get("reason") or "refusal")
             reason_label = {
@@ -1103,7 +1105,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         raise
     def error_output(code: str, message: str, session: dict[str, Any] | None = None, exception: BaseException | None = None) -> None:
         if args.subcommand == "ask":
-            from peerhub.cli.recovery import make_guidance_payload, select_guidance_code
+            from peerhub.cli.recovery import REGISTRY, make_guidance_payload, render_guidance_hint, select_guidance_code
             guidance_code = select_guidance_code(exception=exception)
             db_arg = getattr(args, "db", None)
             sid = getattr(args, "stream_id", None) or (f"peer:{args.peer}:chat" if getattr(args, "peer", None) else None)
@@ -1112,7 +1114,9 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 if guidance_code:
                     payload["guidance"] = make_guidance_payload(guidance_code, db_path=db_arg, stream_id=sid)
                 print(json.dumps(payload, ensure_ascii=True))
-            _error_line(guidance_code or code, message, f"peerhub explain {guidance_code or code}")
+            hint = (render_guidance_hint(REGISTRY[guidance_code]) if guidance_code == "ask_prompt_too_large"
+                    else f"peerhub explain {guidance_code or code}")
+            _error_line(guidance_code or code, message, hint)
             if not args.json:
                 if session is not None:
                     print(_session_trailer(session))

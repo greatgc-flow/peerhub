@@ -48,6 +48,8 @@ from peerhub.core.store import (
 
 pytestmark = [pytest.mark.unit]
 
+PROMPT_LIMIT_ERROR = "prompt is 31000 bytes, exceeding the ag inline limit of 30000 bytes (catch-up history is never truncated silently; lower the catch-up budget)"
+
 def test_registry_well_formedness():
     """Every registered guidance entry satisfies structural well-formedness contracts."""
     assert len(REGISTRY) >= 9
@@ -166,10 +168,12 @@ STATUS_SCENARIOS: dict[str, list[tuple[dict[str, Any], str]]] = {
         ({}, "ask_refusal"),
     ],
     "failed_not_started": [
+        ({"detail_error": PROMPT_LIMIT_ERROR}, "ask_prompt_too_large"),
         ({"detail_error": "executable not found"}, "ask_launch_failed"),
         ({"detail_error": "unsupported runtime"}, "ask_delivery_failed"),
     ],
     "pending_earlier_record": [
+        ({"processed_status": "failed_not_started", "detail_error": PROMPT_LIMIT_ERROR}, "ask_prompt_too_large"),
         ({"processed_status": "denied_empty"}, "ask_denied_empty"),
         ({"processed_status": "uncertain"}, "ask_blocked_uncertain"),
         ({"processed_status": "not_executed"}, "ask_refusal"),
@@ -263,6 +267,7 @@ EXCEPTION_SCENARIOS: dict[str, list[tuple[Exception, str]]] = {
         (SessionDeltaOverflowError("session delta overflow"), "ask_selector_error"),
     ],
     "PrespawnError": [
+        (PrespawnError(PROMPT_LIMIT_ERROR), "ask_prompt_too_large"),
         (PrespawnError("executable not found on PATH"), "ask_launch_failed"),
         (PrespawnError("ag execution requires --writable"), "ask_delivery_failed"),
     ],
@@ -1080,6 +1085,7 @@ def test_failure_exit_contexts(tmp_path, monkeypatch, capsys, exception, error_c
     ("not_executed", None, "ask_refusal"),
     ("failed_not_started", "executable not found", "ask_launch_failed"),
     ("failed_not_started", "execution policy rejected", "ask_delivery_failed"),
+    ("failed_not_started", PROMPT_LIMIT_ERROR, "ask_prompt_too_large"),
     ("uncertain", None, "ask_blocked_uncertain"),
     ("blocked_uncertain", None, "ask_blocked_uncertain"),
 ])
@@ -1196,6 +1202,42 @@ def test_actual_cli_exit_codes_across_contexts(tmp_path, monkeypatch, capsys):
     data = json.loads(capsys.readouterr().out)
     assert data["status"] == "not_executed"
     assert data["guidance"]["code"] == "ask_refusal"
+
+
+@pytest.mark.parametrize("path", ["exception", "failed_not_started", "pending_earlier_record"])
+@pytest.mark.parametrize("peer,limit", [("ag", 30_000), ("ag", 120_000), ("cx", 1_000_000), ("cc", 1_000_000)])
+@pytest.mark.parametrize("json_output", [False, True])
+def test_oversized_prompt_guidance_preserves_sizes_and_recovery(tmp_path, monkeypatch, capsys, path, peer, limit, json_output):
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    size = limit + 1000
+    detail = f"prompt is {size} bytes, exceeding the {peer} inline limit of {limit} bytes (catch-up history is never truncated silently; lower the catch-up budget)"
+
+    def fail(*args, **kwargs):
+        if path == "exception":
+            raise PrespawnError(detail)
+        return {
+            "status": path, "certainty": "NOT_STARTED",
+            "processed_status": "failed_not_started" if path == "pending_earlier_record" else None,
+            "detail": {"error": detail},
+            "error": {"code": "delivery_failed", "message": f"Execution ended as {path}."},
+        }
+
+    monkeypatch.setattr(ask_mod, "ask", fail)
+    argv = ["--db", str(tmp_path / "core.db"), "ask", peer, "oversized"] + (["--writable"] if peer == "ag" else [])
+    assert main(argv + (["--json"] if json_output else [])) == 1
+    captured = capsys.readouterr()
+    assert "[ask_prompt_too_large]" in captured.err
+    assert f"prompt is {size} bytes" in captured.err and f"limit of {limit} bytes" in captured.err
+    assert "split the prompt into parts under the limit (one ask each)" in captured.err
+    assert "send it to cc/cx instead (stdin, 1,000,000-byte maximum) on a separate stream" in captured.err
+    assert "a changed prompt needs a new request-id" in captured.err
+    assert "retry unchanged" not in captured.err
+    if json_output:
+        payload = json.loads(captured.out)
+        assert payload["guidance"]["code"] == "ask_prompt_too_large"
+        assert payload["guidance"]["explain_cmd"] == "peerhub explain ask_prompt_too_large"
 
 
 def test_guidance_reference_doc_parity():

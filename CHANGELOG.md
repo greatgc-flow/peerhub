@@ -8,6 +8,17 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.3] - 2026-11-09
+
+### Changed
+
+- ag operational guidance documents the 30,000-byte Windows / 120,000-byte POSIX argv prompt limit, including catch-up history; split oversized prompts or use cc/cx, with a new request-id for a changed prompt (#309).
+
+### Fixed
+
+- Oversized prompts now report `ask_prompt_too_large`, the actual byte count and limit, and actionable recovery instead of an unchanged retry; exception and returned-status paths share the guidance (#309).
+- `ask_claim_held` guidance and the new `caller-timeout-claim-held` lesson explain the #312 symptom: the store shows that ask completed with a full 6,327-character reply and released its claim at completion; the caller's tool had stopped waiting after the preamble, so later asks hit the still-running turn. Recovery: wait, then replay with the same `--request-id` (#312).
+
 ## [0.24.2] - 2026-11-09
 
 ### Changed
