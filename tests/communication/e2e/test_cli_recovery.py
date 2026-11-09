@@ -1205,14 +1205,14 @@ def test_actual_cli_exit_codes_across_contexts(tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("path", ["exception", "failed_not_started", "pending_earlier_record"])
-@pytest.mark.parametrize("limit", [30_000, 120_000])
+@pytest.mark.parametrize("peer,limit", [("ag", 30_000), ("ag", 120_000), ("cx", 1_000_000), ("cc", 1_000_000)])
 @pytest.mark.parametrize("json_output", [False, True])
-def test_oversized_prompt_guidance_preserves_sizes_and_recovery(tmp_path, monkeypatch, capsys, path, limit, json_output):
+def test_oversized_prompt_guidance_preserves_sizes_and_recovery(tmp_path, monkeypatch, capsys, path, peer, limit, json_output):
     from peerhub.cli.app import main
     from peerhub.extensions import ask as ask_mod
 
     size = limit + 1000
-    detail = f"prompt is {size} bytes, exceeding the ag inline limit of {limit} bytes (catch-up history is never truncated silently; lower the catch-up budget)"
+    detail = f"prompt is {size} bytes, exceeding the {peer} inline limit of {limit} bytes (catch-up history is never truncated silently; lower the catch-up budget)"
 
     def fail(*args, **kwargs):
         if path == "exception":
@@ -1225,13 +1225,14 @@ def test_oversized_prompt_guidance_preserves_sizes_and_recovery(tmp_path, monkey
         }
 
     monkeypatch.setattr(ask_mod, "ask", fail)
-    argv = ["--db", str(tmp_path / "core.db"), "ask", "ag", "oversized", "--writable"]
+    argv = ["--db", str(tmp_path / "core.db"), "ask", peer, "oversized"] + (["--writable"] if peer == "ag" else [])
     assert main(argv + (["--json"] if json_output else [])) == 1
     captured = capsys.readouterr()
     assert "[ask_prompt_too_large]" in captured.err
     assert f"prompt is {size} bytes" in captured.err and f"limit of {limit} bytes" in captured.err
     assert "split the prompt into parts under the limit (one ask each)" in captured.err
-    assert "cc/cx (stdin transport, no argv limit); a changed prompt needs a new request-id" in captured.err
+    assert "send it to cc/cx instead (stdin, 1,000,000-byte maximum) on a separate stream" in captured.err
+    assert "a changed prompt needs a new request-id" in captured.err
     assert "retry unchanged" not in captured.err
     if json_output:
         payload = json.loads(captured.out)

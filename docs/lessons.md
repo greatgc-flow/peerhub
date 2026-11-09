@@ -13,7 +13,7 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 
 - Keywords: ag, agy, profile, effort, flash, argon, bulk, image, WinError, 206, prompt, size
 - Symptom: A low-effort ag profile returns an empty reply on a long list of file or shell items; very long inline prompts fail on Windows.
-- Fix: Observation from one small test (Windows, one run per cell, no ground truth for images): flash-low broke down somewhere between 25 and 150 items, flash-medium finished them, high only cost time. Treat these as heuristics, not thresholds. ag argv prompts, including catch-up history, are limited to 30,000 bytes (30 KB) on Windows and 120,000 bytes (120 KB) on POSIX; --query-file still uses argv. For ask_prompt_too_large, split into parts under the limit (one ask each), or use cc/cx (stdin transport, no argv limit); a changed prompt needs a new request-id. File paths do not bypass the limit and ag file reads may be denied; inline small excerpts. Dense numeric image tables stay unreliable for every model: cross-read before trusting.
+- Fix: Observation from one small test (Windows, one run per cell, no ground truth for images): flash-low broke down somewhere between 25 and 150 items, flash-medium finished them, high only cost time. Treat these as heuristics, not thresholds. ag argv prompts, including catch-up history, are limited to 30,000 bytes (30 KB) on Windows and 120,000 bytes (120 KB) on POSIX; --query-file still uses argv. For ask_prompt_too_large, split into parts under the limit (one ask each), or use cc/cx on a separate stream (stdin, 1,000,000-byte maximum); if the prompt alone is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id. File paths do not bypass the limit and ag file reads may be denied; inline small excerpts. Dense numeric image tables stay unreliable for every model: cross-read before trusting.
 - Issue: #290, #309
 
 ## ag recipe (empty replies, permissions, trusted -w) (`ag-recipe`)
@@ -48,7 +48,7 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 
 - Keywords: claim, claim_held, ask_claim_held, preamble, cut off, partial, timeout, timed out, background, request-id, replay, cx, long
 - Symptom: An ask shows only a preamble ("I'll audit ..."), then the next ask on the same stream fails with ask_claim_held.
-- Fix: Your shell or agent tool stopped waiting while the ask kept running; it still holds the stream claim and stores the full reply when it finishes. Do not open a new stream or retry with a new request-id. Wait (the claim ends when the turn ends), then rerun the identical command with the same --request-id: it replays the stored reply without a new provider call. Run long asks in the background and wait for completion.
+- Fix: Confirmed in #312 from the store: the ask finished with a full reply and released its claim when the turn ended; only the caller had stopped waiting. If this happens, do not open a new stream or retry with a new request-id. Wait for the claim to end, then rerun the identical command with the same --request-id: a completed turn replays the stored reply without a new provider call; an uncertain one returns ask_uncertain, so follow that recovery. Run long asks in the background and wait for completion.
 - Issue: #312
 
 ## cc allow rules are exact-match and model-dependent (`cc-allow-rules`)

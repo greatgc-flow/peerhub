@@ -236,7 +236,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_claim_held": GuidanceEntry(
         code="ask_claim_held",
         meaning="A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream.",
-        why="Only one caller can execute an ask turn per peer and stream at a time to prevent concurrent dispatch races. Wait for the active turn to finish, or use a distinct --stream for genuinely separate parallel work. If your own earlier ask looked cut off (tool timeout), it is still running: wait, then rerun it with the same --request-id to replay the stored reply (lesson caller-timeout-claim-held).",
+        why="Only one caller can execute an ask turn per peer and stream at a time to prevent concurrent dispatch races. Wait for the active turn to finish, or use a distinct --stream for genuinely separate parallel work. If your own earlier ask looked cut off because your tool stopped waiting, it may still be running: wait for the claim to end, then rerun the identical command with the same --request-id; a completed turn replays its stored reply, and an uncertain one returns ask_uncertain recovery (lesson caller-timeout-claim-held).",
         recover=[
             {
                 "argv": ["peerhub", "diag", "health", "--stream", "STREAM_ID"],
@@ -293,14 +293,14 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_prompt_too_large": GuidanceEntry(
         code="ask_prompt_too_large",
         meaning="The prompt exceeds the provider inline byte limit; no provider process started.",
-        why="ag passes the prompt in argv (30,000 bytes on Windows, 120,000 bytes on POSIX); the byte count includes injected catch-up history. cc/cx use stdin and do not have this argv limit.",
+        why="Every provider has a 1,000,000-byte inline maximum; ag passes the prompt in argv, so its limit is lower (30,000 bytes on Windows, 120,000 bytes on POSIX). The byte count includes injected catch-up history. cc/cx use stdin and only have the 1,000,000-byte maximum.",
         recover=[{
-            "argv": ["peerhub", "profile", "list"],
-            "purpose": "split the prompt into parts under the limit (one ask each), or send it to cc/cx (stdin transport, no argv limit); a changed prompt needs a new request-id",
-            "prereqs": "Use the byte count and limit in the error detail, including any catch-up history.",
+            "argv": ["peerhub", "ask", "cc", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM_ID", "--request-id", "NEW_REQUEST_ID"],
+            "purpose": "split the prompt into parts under the limit (one ask each); for an ag argv limit, send it to cc/cx instead (stdin, 1,000,000-byte maximum) on a separate stream, since a stream belongs to one peer; if the prompt itself is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id",
+            "prereqs": "Use the byte count and limit in the error detail; switching providers does not help above the shared 1,000,000-byte maximum.",
         }],
         avoid="Do not retry an unchanged over-limit prompt or reuse its request-id for a changed prompt.",
-        docs="docs/remote-ask.md",
+        docs="docs/adapters/ag.md",
         exits=[{"code": 1, "context": "Prompt exceeds the provider inline limit before spawn (PrespawnError or failed_not_started status)."}],
     ),
     "ask_launch_failed": GuidanceEntry(
