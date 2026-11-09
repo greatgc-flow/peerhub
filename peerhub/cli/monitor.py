@@ -39,7 +39,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--allow-agy-token-use", action="store_true",
                    help="Keep collecting after agy /usage consumed model tokens")
     p.add_argument("--view", choices=["auto", "rich", "plain"], default="auto",
-                   help="Dashboard style: rich (colour), plain (ASCII); both show PACE; auto = rich on a TTY. TTY with VT redraws in place at most 1 Hz; non-TTY or no-VT TTY appends one completed frame every N s without escapes")
+                   help="Dashboard style: rich (colour), plain (ASCII); both show PACE; auto = rich on a TTY. TTY with VT redraws in place at most 1 Hz; non-TTY appends one completed frame every N s; a TTY without VT appends without escapes")
     p.add_argument("--collect-every", type=int, default=1,
                    help="Collect only every Kth cycle (K>=1)")
     p.add_argument("--system-dir", dest="sys_dir", type=Path,

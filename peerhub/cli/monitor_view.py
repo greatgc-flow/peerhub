@@ -1052,7 +1052,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
                 lines.append("profiles " + _fit(str(row["profiles"]), max(0, width - 9), unicode))
         legend = "ok enough | low >0-10% | fast >10% but ahead of pace | out 0% | aged stale | reset passed | n/a plan omits | ? unknown"
         lines.extend(_compact_wrap(legend, width))
-        lines.extend(_compact_wrap("PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = no anchor", width))
+        lines.extend(_compact_wrap("PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable", width))
     if "peers" in selected_ids:
         lines.append(_section_rule("PEERS", width, True, color and "NO_COLOR" not in os.environ)
                      if view == "rich" and unicode else "PEERS")

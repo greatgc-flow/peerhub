@@ -220,7 +220,7 @@ def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unic
     screen = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width)
     legend_lines = screen.split("ok enough", 1)[1].split("PEERS", 1)[0]
     assert legend in " ".join(("ok enough" + legend_lines).split())
-    assert "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = no anchor" in " ".join(legend_lines.split())
+    assert "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable" in " ".join(legend_lines.split())
     assert "precedence:" not in screen
     assert all(_width(line) <= min(99, width - 1) for line in screen.splitlines())
 

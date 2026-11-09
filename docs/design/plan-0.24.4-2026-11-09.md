@@ -22,7 +22,7 @@ EXH column in compact, new flags, new score formula, JSON changes, auto-routing/
 1 Pace visibility: tests - PACE cell correct/`-` at widths 80 and 100 for MEASURED, STALE(aged), n/a, ?, reset rows; narrow path keeps quota facts.
 2 Balancing: suggest scenarios - non-fast before fast, all-fast still picks, <5% excluded, low(5-10%) eligible, aged/?/reset excluded, name tie.
 3 Guide accuracy: <=60 lines, every claim maps to code/docs, recipe present.
-4 Guide size: `peerhub guide` <= 5600 B (LF-normalized).
+4 Guide size: `peerhub guide` <= 5600 B (LF-normalized) for the packaged default profiles (overlay model names are character-capped only).
 5 Monitor size: fixed 10-pool fixture <= 1800 B at widths 80/100, exactly one human frame on non-TTY success.
 6 AI-readability: legend defines every state word + PACE sign/unit; `precedence:` absent.
 7 Docs consistency: zero hits for "Render all loaded detail rows", "appends once every N s", "UNKNOWN or stale"; `explain pace` and `explain monitor pace` resolve; docs/lessons.md regenerated.
