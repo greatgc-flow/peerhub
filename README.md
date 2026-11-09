@@ -126,7 +126,7 @@ mean the model answered the task successfully. PeerHub does not currently
 classify semantic task success/error. Context occupancy intentionally stays 'unknown' because it is not validated by PeerHub (the CLIs do not report it in a form PeerHub accepts; cx 'debug models' exposes a context window but runtime occupancy is not reported in an accepted form). `runtime` and `store` remain available with
 `--group` or `--snapshot --group`.
 
-The default human monitor shows POOLS (meaning, last recorded capacity, reset, age, state and configured profiles), one PEERS line per peer, and a facts/session/delivery/telemetry footer. `aged` numbers are last-known evidence, not current capacity; refresh before relying on them. Passed reset windows show no capacity number. The header shows the date and DB source; the full path appears for explicit/default selections or errors. `--expand` retains the detailed grouped view, bars, pace, forecasts and coverage footer; `peerhub explain <code>` covers its short codes.
+The default human monitor shows POOLS (meaning, last recorded capacity, reset, age, state and configured profiles), one PEERS line per peer, and a facts/session/delivery/telemetry footer. `low` means at most 10% remaining; `fast` means ahead of pace with a threat projection supported by at least two samples and more than 10% remaining. `aged` numbers are last-known evidence, not current capacity; refresh before relying on them. Passed reset windows show no capacity number. The `suggest:` line picks an eligible profile per tier; `|<profile>` adds the best eligible alternative from a different peer in that tier (see [balancing guidance](docs/batch.md)). The header shows the date and DB source; the full path appears for explicit/default selections or errors. `--expand` retains the detailed grouped view, bars, pace, forecasts and coverage footer; `peerhub explain <code>` covers its short codes.
 
 The bare `monitor` command shows the compact human dashboard on a TTY and aligned
 plain sections when redirected. `--view rich` requests visual panels and meters;
@@ -151,7 +151,10 @@ data”. Inferred anchors remain conditional and predictive accuracy is not
 established.
 
 Monitor runs collection cycles every N seconds (`--interval-seconds`), collecting
-initially and then every Kth cycle (`--collect-every`). The legacy dashboard and
+initially and then every Kth cycle (`--collect-every`). With `--cycles` omitted,
+stdout on a TTY watches until interrupted; non-TTY stdout runs one cycle.
+Explicit `--cycles 0` watches until interrupted everywhere; positive values
+bound collection cycles. The legacy dashboard and
 live diagnostics update countdowns at most 1 Hz; PACE and forecast ETA remain
 anchored to the measurement. Non-TTY or unavailable VT output appends one frame
 per cycle without escapes; JSON emits one object per cycle. `NO_COLOR` suppresses

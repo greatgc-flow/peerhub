@@ -24,8 +24,8 @@ def register_monitor_parser(subparsers: Any) -> None:
     p = subparsers.add_parser("monitor", help="Watch quota evidence and diagnostic dashboard")
     p.add_argument("--interval-seconds", dest="interval", type=float, default=60.0,
                    help="Collection cycles every N s (positive float); supported TTY countdown redraw at most 1 Hz")
-    p.add_argument("--cycles", type=int, default=0,
-                   help="Number of cycles to run (0 = until interrupted)")
+    p.add_argument("--cycles", type=int, default=None,
+                   help="Number of cycles (default: 1 when stdout is not a TTY, until interrupted on a TTY; 0 = until interrupted everywhere)")
     p.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"],
                    help="Peers to refresh quota for")
     p.add_argument("--timeout-seconds", dest="timeout", type=float, default=15.0,
@@ -71,7 +71,7 @@ def register_monitor_parser(subparsers: Any) -> None:
 def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     if not math.isfinite(args.interval) or not args.interval > 0:
         parser.error("--interval-seconds must be a finite positive number")
-    if args.cycles < 0:
+    if args.cycles is not None and args.cycles < 0:
         parser.error("--cycles must be >= 0")
     if not math.isfinite(args.timeout) or not args.timeout > 0:
         parser.error("--timeout-seconds must be a finite positive number")
@@ -149,6 +149,8 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
 
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     validate_monitor_args(parser, args)
+    if args.cycles is None:
+        args.cycles = 0 if sys.stdout.isatty() else 1
     legacy = bool(getattr(args, "legacy", False))
     schema = getattr(args, "schema_version", None) or ("1.1" if legacy and args.json else "2.0")
     if args.json and schema == "1.1":

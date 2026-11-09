@@ -69,7 +69,7 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
         assert "%" not in row if value is None else value in row
     positions = [screen.index(_row(screen, name)) for name in ("3P-5H", "3P-7D", "A-7D", "G-5H", "G-7D")]
     assert positions == sorted(positions)  # peer, family, then window (F10')
-    assert "ok low out aged reset n/a ?" in screen
+    assert "ok | low <=10% | fast ahead of pace | out 0% | aged stale" in screen
     assert "G flash A argon" not in screen
     assert "X-5H n/a (plan prolite)" in screen
     assert "deepthink 0% (3P-7D)" in screen
@@ -82,11 +82,51 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
         assert old not in screen
 
 
-@pytest.mark.parametrize("samples, expected", [(None, "ok"), (1, "ok"), (2, "low")])
-def test_projection_low_requires_two_samples(compact_frame, samples, expected):
+@pytest.mark.parametrize("samples, expected", [(None, "ok"), (1, "ok"), (2, "fast")])
+def test_projection_fast_requires_two_samples(compact_frame, samples, expected):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "threat"}, projection_samples=samples)
     assert expected in _row(render_grouped_frame(compact_frame, width=100), "G-5H").split()
+
+
+@pytest.mark.parametrize("remaining,projection,samples,age,reset,expected", [
+    (.10, "safe", 0, 60, 3600, "low"),
+    (.10, "threat", 2, 301, 3600, "low"),
+    (.100001, "threat", 2, 60, 3600, "fast"),
+    (.8, "threat", 2, 301, 3600, "fast"),
+    (.8, "threat", 1, 301, 3600, "aged"),
+    (.8, "safe", 2, 60, 3600, "ok"),
+    (0, "threat", 2, 301, 3600, "out"),
+    (.05, "threat", 2, 301, -1, "reset"),
+    (None, "threat", 2, 60, -1, "?"),
+])
+def test_low_fast_and_higher_priority_states(compact_frame, remaining, projection, samples, age, reset, expected):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row.update(last_measurements={"remaining_fraction": remaining}, projection={"state": projection},
+               projection_samples=samples, age_seconds=age, resets_at=NOW + reset)
+    original = deepcopy(compact_frame)
+    screen = render_grouped_frame(compact_frame, view="plain", width=100)
+    assert expected in _row(screen, "G-5H").split()
+    assert compact_frame == original
+
+
+@pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True)])
+@pytest.mark.parametrize("width", [48, 100])
+def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unicode_mode, width):
+    from peerhub.cli.monitor_view import _fit
+
+    legend = "ok | low <=10% | fast ahead of pace | out 0% | aged stale | reset passed | n/a plan omits | ? unknown"
+    screen = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width)
+    assert _fit(legend, width - 1, unicode_mode) in screen.splitlines()
+
+
+def test_fast_is_yellow_in_rich_output(compact_frame, monkeypatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row.update(projection={"state": "threat"}, projection_samples=2)
+    screen = render_grouped_frame(compact_frame, view="rich", color=True, width=100)
+    line = next(line for line in screen.splitlines() if "G-5H" in line and "fast" in line)
+    assert line.startswith("\x1b[33m") and line.endswith("\x1b[0m")
 
 
 def test_ttl_boundary_and_next_absent_when_fresh(compact_frame):
@@ -135,13 +175,20 @@ def test_unknown_and_all_absent_are_never_zero_or_unlimited(compact_frame):
     compact_frame["groups"]["capacity"]["data"]["observations"] = [rows[6]]
     screen = render_grouped_frame(compact_frame, width=100)
     assert "? (not reported)" in screen and "? (never measured)" in screen
-    assert "100%" not in screen and "0%" not in screen
+    assert "100%" not in screen and "%" not in _row(screen, "X-5H")
 
 
 def test_human_render_does_not_mutate_json_and_expand_keeps_details(compact_frame):
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    row.update(projection={"state": "threat"}, projection_samples=2)
+    compact_frame["configured_profiles"].extend([
+        {"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
+            ("ag.effort", ["G-5H"]), ("cx.standard", ["X-7D"]))])
     before = json.dumps(compact_frame, ensure_ascii=True, separators=(",", ":")).encode()
     original = deepcopy(compact_frame)
-    render_grouped_frame(compact_frame, width=100)
+    screen = render_grouped_frame(compact_frame, width=100)
+    assert "fast" in _row(screen, "G-5H").split()
+    assert "normal=cx.effort|ag.effort" in screen
     expanded = render_grouped_frame(compact_frame, width=100, expand=True)
     assert "EXHAUST-IN" in expanded or "Columns omitted" in expanded
     assert "SESSIONS [" in expanded and "USAGE [" in expanded
@@ -254,7 +301,7 @@ def test_absent_and_reset_windows_on_one_peer_do_not_hide_each_other(compact_fra
     assert "n/a" in _row(screen, "X-5H").split()
     assert "reset" in _row(screen, "X-7D").split()
     assert "%" not in _row(screen, "X-5H") and "%" not in _row(screen, "X-7D")
-    assert "89%" not in screen and "0%" not in screen
+    assert "89%" not in screen
 
 
 def test_poolless_probe_does_not_poison_quota_age_or_refresh(compact_frame):
@@ -351,9 +398,42 @@ def test_suggestions_use_the_worst_pool_score_and_keep_five_percent(compact_fram
     compact_frame["configured_profiles"] = [
         {"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
             ("ag.effort", ["A-7D", "G-5H"]), ("cx.effort", ["X-7D"]))]
-    assert "normal=cx.effort" in render_grouped_frame(compact_frame)
+    assert "normal=cx.effort|ag.effort" in render_grouped_frame(compact_frame)
     rows[7].update(state="UNKNOWN")
     assert "normal=ag.effort" in render_grouped_frame(compact_frame)
+
+
+@pytest.mark.parametrize("tier,suffix", [("eco", "standard"), ("normal", "effort"),
+                                        ("quality", "deepthink"), ("top", "custom")])
+def test_suggestions_alternative_uses_same_ranking_with_name_ties(tier, suffix):
+    from peerhub.cli.monitor_view import _compact_suggestions
+
+    profiles = [{"profile": f"{peer}.{suffix}", "fields": {"pools": {"value": ["P-7D"]}}}
+                for peer in ("cx", "cc", "ag")]
+    rows = [{"peer": peer, "pool": "P-7D", "remaining": remaining, "reset_seconds": 86400,
+             "aged": False, "state": "ok"} for peer, remaining in (("cx", .5), ("cc", .8), ("ag", .5))]
+    result = _compact_suggestions(profiles, rows)
+    assert f"{tier}=cc.{suffix}|ag.{suffix}" in result
+    assert result == _compact_suggestions(list(reversed(profiles)), list(reversed(rows)))
+
+
+@pytest.mark.parametrize("alternative", ["eligible", "absent", "same-peer", "ineligible"])
+def test_suggestions_only_append_eligible_different_peer(alternative):
+    from peerhub.cli.monitor_view import _compact_suggestions
+
+    profiles = [{"profile": "cc.fable", "fields": {"pools": {"value": ["F-7D"]}}},
+                {"profile": "cc.other", "fields": {"pools": {"value": ["F-7D"]}}}]
+    rows = [{"peer": "cc", "pool": "F-7D", "remaining": .8, "reset_seconds": 86400,
+             "aged": False, "state": "ok"}]
+    if alternative != "same-peer":
+        profiles.append({"profile": "ag.argon", "fields": {"pools": {"value": ["A-7D"]}}})
+    if alternative in {"eligible", "ineligible"}:
+        rows.append({"peer": "ag", "pool": "A-7D", "remaining": .5, "reset_seconds": 86400,
+                     "aged": alternative == "ineligible", "state": "ok"})
+    expected = "suggest: eco=- normal=- quality=- top=cc.fable"
+    if alternative == "eligible":
+        expected += "|ag.argon"
+    assert _compact_suggestions(profiles, rows) == expected
 
 
 def test_peers_only_uses_snapshot_capacity_support(compact_frame):

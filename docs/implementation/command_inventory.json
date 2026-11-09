@@ -1372,7 +1372,7 @@
           "takes_value": true
         },
         {
-          "default": 0,
+          "default": null,
           "dest": "cycles",
           "flags": [
             "--cycles"

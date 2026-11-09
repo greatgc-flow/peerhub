@@ -45,7 +45,7 @@ under parallelism, rerun it serially before treating it as a bug.
 
 ## Quota forecast backtesting
 
-Collect an opt-in trace with `peerhub monitor --json >> quota-trace.ndjson`
+Collect an opt-in trace with `peerhub monitor --json --cycles 0 >> quota-trace.ndjson`
 (Ctrl-C stops it); this may contact providers and spend quota. Quota observations
 also accumulate in the selected store. Replay them read-only with
 `python -m tools.quota_backtest --db <store> [--json]`. The report groups by pool

@@ -873,8 +873,10 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
         state = "reset"
     elif remaining == 0:
         state = "out"
-    elif remaining <= .10 or (samples >= 2 and projection.get("state") == "threat"):
+    elif remaining <= .10:
         state = "low"
+    elif samples >= 2 and projection.get("state") == "threat":
+        state = "fast"
     else:
         state = "aged" if aged else "ok"
     left = _pct(remaining) if remaining is not None and state not in {"n/a", "?", "reset"} else "-"
@@ -944,8 +946,16 @@ def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, An
                 choices[tier].append((min(scores), name))
     if not any(choices.values()):
         return "suggest: no eligible profiles; next: peerhub observation refresh"
-    return "suggest: " + " ".join(f"{tier}={min(items, key=lambda item: (-item[0], item[1]))[1] if items else '-'}"
-                                  for tier, items in choices.items())
+    suggestions: list[str] = []
+    for tier, items in choices.items():
+        ranked = sorted(items, key=lambda item: (-item[0], item[1]))
+        pick = ranked[0][1] if ranked else "-"
+        peer = pick.partition(".")[0]
+        alternative = next((name for _, name in ranked if name.partition(".")[0] != peer), None)
+        if alternative is not None:
+            pick += f"|{alternative}"
+        suggestions.append(f"{tier}={pick}")
+    return "suggest: " + " ".join(suggestions)
 
 
 def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: bool,
@@ -1023,7 +1033,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
             for row in rows:
                 text = table_line([str(row[key]) for key in fields], str(row["profiles"]))
                 if color and view == "rich" and "NO_COLOR" not in os.environ:
-                    palette = {"low": "31", "out": "31", "reset": "33", "aged": "33", "?": "2", "n/a": "2"}
+                    palette = {"low": "31", "fast": "33", "out": "31", "reset": "33", "aged": "33", "?": "2", "n/a": "2"}
                     code = palette.get(str(row["state"]))
                     if code:
                         text = f"\x1b[{code}m{text}\x1b[0m"
@@ -1033,7 +1043,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
                 lines.extend(_compact_wrap(f"{row['peer']} {row['pool']} {row['meaning']} {row['left']} {row['state']}", width))
                 lines.extend(_compact_wrap(f"resets {row['resets']} age {row['age']}", width))
                 lines.append("profiles " + _fit(str(row["profiles"]), max(0, width - 9), unicode))
-        legend = "ok low out aged reset n/a ?"
+        legend = "ok | low <=10% | fast ahead of pace | out 0% | aged stale | reset passed | n/a plan omits | ? unknown"
         lines.append(_fit(legend, width, unicode))
     if "peers" in selected_ids:
         lines.append(_section_rule("PEERS", width, True, color and "NO_COLOR" not in os.environ)
