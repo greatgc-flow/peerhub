@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- The `ag-recipe` lesson marks #302 (read_file denied with a trusted `-w`) as a past observation, closed 2026-11-09 as not reproducible; inlining content stays the recipe.
+
 ## [0.24.3] - 2026-11-09
 
 ### Changed

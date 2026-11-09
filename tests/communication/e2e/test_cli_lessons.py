@@ -58,7 +58,7 @@ def test_explain_ag_leads_with_recipe_and_records_open_observation(capsys):
     recipe = next(lesson for lesson in load_lessons() if lesson["id"] == "ag-recipe")
     for needle in ('--query-file and say "no tools"', "trusted project root", "--writable on every turn",
                    "one task per ask", "verify claims from flash tiers", "never resume that stream",
-                   "start a new stream with the content inlined", "Open observation (E2, #302)"):
+                   "start a new stream with the content inlined", "Past observation (E2, #302, closed 2026-11-09"):
         assert needle in recipe["fix"], needle
     assert "#302" in recipe["issue"] and "#140" in recipe["issue"]
 
