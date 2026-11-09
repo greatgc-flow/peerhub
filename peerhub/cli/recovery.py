@@ -102,7 +102,7 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
         exit_code=1,
         guidance_code="ask_prompt_too_large / ask_launch_failed / ask_delivery_failed",
         meaning="Provider execution failed before starting (prompt limit, missing executable, OS spawn rejection or pre-spawn policy check).",
-        safe_action="For ask_prompt_too_large, split the prompt or use cc/cx with a new request-id; otherwise inspect peer adapter availability and PATH configuration via `peerhub diag health`.",
+        safe_action="For ask_prompt_too_large, split the prompt under the limit, or for an ag argv limit use cc/cx on a separate stream, with a new request-id; otherwise inspect peer adapter availability and PATH configuration via `peerhub diag health`.",
     ),
     "not_executed": ResultStatusEntry(
         status="not_executed",
@@ -134,7 +134,7 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
                 "processed_status": "failed_not_started",
                 "guidance_code": "ask_prompt_too_large / ask_launch_failed / ask_delivery_failed",
                 "meaning": "Earlier record failed before execution started (prompt limit, missing executable or pre-spawn policy check).",
-                "safe_action": "For ask_prompt_too_large, split the prompt or use cc/cx with a new request-id; otherwise inspect provider binary and PATH configuration via peerhub diag health.",
+                "safe_action": "For ask_prompt_too_large, split the prompt under the limit, or for an ag argv limit use cc/cx on a separate stream, with a new request-id; otherwise inspect provider binary and PATH configuration via peerhub diag health.",
             },
             {
                 "processed_status": "uncertain / blocked_uncertain",
@@ -236,7 +236,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_claim_held": GuidanceEntry(
         code="ask_claim_held",
         meaning="A concurrent ask operation or active lease currently holds the delivery claim for this peer and stream.",
-        why="Only one caller can execute an ask turn per peer and stream at a time to prevent concurrent dispatch races. Wait for the active turn to finish, or use a distinct --stream for genuinely separate parallel work. If your own earlier ask looked cut off because your tool stopped waiting, it may still be running: wait for the claim to end, then rerun the identical command with the same --request-id; a completed turn replays its stored reply, and an uncertain one returns ask_uncertain recovery (lesson caller-timeout-claim-held).",
+        why="Only one caller can execute an ask turn per peer and stream at a time to prevent concurrent dispatch races. Wait for the active turn to finish, or use a distinct --stream for genuinely separate parallel work. If your own earlier ask looked cut off because your tool stopped waiting, it may still be running: wait for the claim to end, then rerun the identical command with the same --request-id; a completed turn replays its stored reply; otherwise follow the returned uncertainty guidance (ask_uncertain or ask_blocked_uncertain) (lesson caller-timeout-claim-held).",
         recover=[
             {
                 "argv": ["peerhub", "diag", "health", "--stream", "STREAM_ID"],
@@ -387,7 +387,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
         why="The provider denied tool action(s) (headless cannot prompt), so the turn can end with no reply text; the denied names or commands are in denied_actions. Task effects are unverified.",
         recover=[
             {
-                "argv": ["peerhub", "ask", "PEER_ID", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM", "--writable"],
+                "argv": ["peerhub", "ask", "PEER_ID", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM_ID", "--writable"],
                 "purpose": "Start a new stream and inline the needed content via --query-file (say \"no tools\"); do not resume this stream",
                 "prereqs": "Put the content the task needs into the query file; one task per ask; check the workspace for partial effects first.",
             },
