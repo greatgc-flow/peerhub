@@ -87,7 +87,7 @@ peerhub monitor --snapshot --group sessions --group execution
 
 # Watch the eight default groups: overview, peers, execution, sessions, usage,
 # context, capacity, and coverage. Collection may call provider CLIs
-# (including agy /usage) and consume provider quota.
+# (including agy /usage and /credits) and consume provider quota.
 peerhub monitor --interval-seconds 60
 peerhub monitor --view plain --cycles 1
 

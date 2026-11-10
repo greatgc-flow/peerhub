@@ -37,7 +37,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     if _legacy_alias_available():
         p.add_argument("--legacy", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--allow-agy-token-use", action="store_true",
-                   help="Keep collecting after agy /usage consumed model tokens")
+                   help="Keep collecting after agy /usage or /credits consumed model tokens")
     p.add_argument("--view", choices=["auto", "rich", "plain"], default="auto",
                    help="Dashboard style: rich (colour), plain (ASCII); both show PACE; auto = rich on a TTY. TTY with VT redraws in place at most 1 Hz; non-TTY appends one completed frame every N s; a TTY without VT appends without escapes")
     p.add_argument("--collect-every", type=int, default=1,

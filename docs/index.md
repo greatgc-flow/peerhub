@@ -40,6 +40,8 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Design Documents Index](design/README.md): Overview of active design specifications, deferred proposals, and history pointers.
 - [Plan 0.24.0 (November 2026)](design/plan-0.24.0-2026-11-08.md): Monitor and CLI unification, model observation refresh, and denied-empty handling.
 - [Plan 0.24.1 (November 2026)](design/plan-0.24.1-2026-11-08.md): Store discovery recovery and cc permission-denial handling.
+- [Plan 0.24.4 (November 2026)](design/plan-0.24.4-2026-11-09.md): Previous plan: PACE in the compact monitor and AI-readable quota balancing.
+- [Plan 0.24.5 (November 2026)](design/plan-0.24.5-2026-11-10.md): Latest plan: profile cards, quota utilization report and model re-observation; its decision log also covers the 0.24.6 follow-up (`diag running`, #327 items).
 - [Pre-TDD Renewal (October 2026)](design/peerhub-pre-tdd-renewal-2026-10-14.md): Reconciled architecture and numbered RED contracts; no implementation authorized by this design stage.
 - [CLI, Monitoring, and Inspection Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md): MECE command boundaries, profile/session inspection, read-only guarantees, bounded snapshots, human/AI defaults, and PH-T095–105.
 - [Monitor Groups Usability Review](design/monitor-groups-usability-review-2026-10-16.md): Unanimous peer decision, group discovery, default/legacy contract, delivery certainty semantics, and TDD acceptance plan.
@@ -57,5 +59,6 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Archival Ledger](history/ledger-2026-10-17.md): Ledger of archived debate documents and obsolete production call-map preserved in git history.
 - [Benchmarks](benchmarks/): Release-to-release performance and comparative analysis benchmarks.
 - [Hard profile benchmark, 2026-11-10](benchmarks/profiles-hard-2026-11-10/README.md): task, grader, reference and first per-profile results; follow-up to the 2026-11-08 ceiling effect, which it only partly resolves (top profiles still tie at 100).
+- [Top-tier profile benchmark, 2026-11-10](benchmarks/profiles-top-2026-11-10/README.md): regex-matcher task (115 hidden cases), grader, reference and first results; the cc tiers tie at 115/115 again and `ag.effort` scores below `ag.standard`.
 - [Implementation Evidence](implementation/live_evidence/): Live provider canary verification receipts.
 - [History Archive](history/): Pre-v0.10 architecture debates, historical design specs, and retired review records.

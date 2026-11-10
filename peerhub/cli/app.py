@@ -263,7 +263,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     observation_parser = subparsers.add_parser("observation", help="Explicit observation collection (mutating)")
     observation_sub = observation_parser.add_subparsers(dest="action", required=True)
-    refresh = observation_sub.add_parser("refresh", help="Collect provider quota into append-only Observation evidence")
+    refresh = observation_sub.add_parser("refresh", help="Collect provider quota and account evidence into append-only Observations")
     refresh.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"])
     refresh.add_argument("--system-dir", dest="sys_dir", type=Path, help="Explicit portable provider installation directory")
     refresh.add_argument("--timeout-seconds", type=float, default=15)

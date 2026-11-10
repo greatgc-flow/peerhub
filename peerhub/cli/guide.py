@@ -116,7 +116,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "    never blind-retry original prompt under a new request-id, with --fresh, or delete claims;",
         "    Default-timeout ask: do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more); continue genuinely new work on a new stream with a summary; details: 'peerhub explain <code>'.",
         "  Store hazards: --db > PEERHUB_DB > nearest upward .peerhub/core.db; back up core.db before upgrading; new schema not openable by old versions;",
-        "    stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor (locks peerhub.exe on Windows; also wait for running asks, else broken install: reinstall, check results before resend);",
+        "    stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor (locks peerhub.exe on Windows; also wait for running asks (diag running), else broken install: reinstall, check results before resend);",
         "    don't run dev builds on the real store; after restore, reopen stores (old instances fenced). Git >=2.36 fallback: main checkout then parents (ask -w: main only); discovery miss exits 5; create with --db .peerhub/core.db peer register --peer local (or PEERHUB_DB).",
         "  Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only); uncertain streams may stay quota-blocked after reset. Aged quota is last-known; refresh first.",
         "  Batch: executes asks (spends quota); ag tasks always writable; overlapping writers rejected.",

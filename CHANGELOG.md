@@ -23,9 +23,12 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
-- The `ask_refusal` guidance (`peerhub explain ask_refusal`, `docs/guidance-reference.md`) links to the adapter guide instead of an unshipped Engram-era document.
-- The README "Doc map" is now one link to `docs/index.md`, and its repository layout lists the actual `tools/` scripts.
-- `source_records` reuses `CoreStore._row_to_record` instead of building `Record` by hand; behavior is unchanged.
+- The `ask_refusal` guidance (`peerhub explain ask_refusal`, `docs/guidance-reference.md`) links to the adapter guide instead of an unshipped Engram-era document (#327).
+- The README "Doc map" is now one link to `docs/index.md`, and its repository layout lists the actual `tools/` scripts (#327).
+- `source_records` reuses `CoreStore._row_to_record` instead of building `Record` by hand; behavior is unchanged (#327).
+- Profile cards carry the 2026-11-10 benchmark evidence: `cx.standard`, `cc.standard`, `cc.effort`, `cc.deepthink`, `ag.standard` and `ag.effort` gain benchmark traits and evidence paths. `cc.standard` gets a new `use_for` (adds self-contained code) and `avoid_for` (design decisions, code review, not benchmarked; "multi-step reasoning" dropped), `cx.standard` and `ag.effort` get updated `avoid_for` text, and the `ag.effort` pool-mentioning trait is replaced.
+- Two benchmarks with graded runs: [hard](docs/benchmarks/profiles-hard-2026-11-10/README.md) (integer interpreter, 100 cases; separates the low tiers, the top profiles still tie at 100) and [top-tier](docs/benchmarks/profiles-top-2026-11-10/README.md) (regex matcher, 115 cases; the cc tiers tie at 115/115 and `ag.effort` scores below `ag.standard`).
+- `--allow-agy-token-use` and `observation refresh` help and the README name `/credits` and account evidence besides `/usage` quota; the guide's upgrade hint points to `peerhub diag running`.
 
 ## [0.24.5] - 2026-11-10
 
