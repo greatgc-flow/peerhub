@@ -15,6 +15,7 @@ they do not claim new validation or publication evidence.
 ### Changed
 
 - `cc.fable` declares pools `F-7D` and `C-7D`: the `claude /usage` payload (`weekly_scoped_shares`) shows Fable use counts in the weekly all-models window (Fable allowance 50% of weekly). No monitor code changes: the monitor maps profiles to pools from this data, so the C-7D row now lists `fable` in PROFILES and suggest eligibility checks both pools (observed in `monitor --snapshot`; #334).
+- `tools/quota_backtest.py` is merged into `tools/quota_report.py`: one read-only quota replay tool. Run the forecast backtest with `python -m tools.quota_report --backtest --db <store> [--json]` (same output fields and exit codes; #327 item 6).
 
 ### Fixed
 
