@@ -48,7 +48,7 @@ under parallelism, rerun it serially before treating it as a bug.
 Collect an opt-in trace with `peerhub monitor --json --cycles 0 >> quota-trace.ndjson`
 (Ctrl-C stops it); this may contact providers and spend quota. Quota observations
 also accumulate in the selected store. Replay them read-only with
-`python -m tools.quota_backtest --db <store> [--json]`. The report groups by pool
+`python -m tools.quota_report --backtest --db <store> [--json]`. The report groups by pool
 and stable reset, skipping fewer than five distinct samples or less than 5%
 maximum use (idle windows move their reset until first use). Completed windows
 are classified as threat/exhausted, false alarm, missed or quiet/ok; only threats

@@ -297,8 +297,8 @@ tests/
 tools/           maintainer scripts
   a2a_sdk_echo_server.py  a2a_sdk_interop.py      ci_platform.py
   command_inventory.py    lint_changelog.py       live_gate.py
-  model_ping.py           quota_backtest.py       quota_report.py
-  release_evidence.py     release_notes.py        traceability.py
+  model_ping.py           quota_report.py         release_evidence.py
+  release_notes.py        traceability.py
 ```
 
 Milestones describe development progress, not runtime ownership. Frozen specifications, historical evidence and existing durable wire/storage identifiers retain their original names. See [the cleanup decisions and AG review](docs/implementation/STRUCTURE_CLEANUP.md).
