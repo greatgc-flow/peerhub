@@ -39,7 +39,8 @@ def _valid(sample: dict[str, Any], now: float) -> bool:
 
 
 def _windows(samples: list[dict[str, Any]]) -> dict[str, list[list[dict[str, Any]]]]:
-    """Cluster samples per pool by reset time; anchors drifting by <10% of the window are one window."""
+    """Cluster samples per pool by reset time: a reset within 10% of the window of the cluster's FIRST reset
+    joins it (bounded, so slowly drifting idle anchors cannot chain distinct windows together)."""
     by_pool: dict[str, list[dict[str, Any]]] = {}
     for sample in samples:
         by_pool.setdefault(str(sample["pool"]), []).append(sample)
@@ -48,7 +49,7 @@ def _windows(samples: list[dict[str, Any]]) -> dict[str, list[list[dict[str, Any
         tolerance = 0.1 * _window_seconds(pool)
         clusters: list[list[dict[str, Any]]] = []
         for sample in sorted(items, key=lambda x: (x["resets_at"], x["measured_at"])):
-            if clusters and sample["resets_at"] - clusters[-1][-1]["resets_at"] <= tolerance:
+            if clusters and sample["resets_at"] - clusters[-1][0]["resets_at"] <= tolerance:
                 clusters[-1].append(sample)
             else:
                 clusters.append([sample])
@@ -67,7 +68,8 @@ def _closed(pool: str, series: list[dict[str, Any]], since: float | None) -> dic
     if first_zero and reset - first_zero["measured_at"] > EARLY_HOURS * H:
         before = [x for x in series if x["measured_at"] < first_zero["measured_at"]]
         row.update(verdict="EXHAUSTED_EARLY",
-                   first_zero_between=[before[-1]["measured_at"] if before else None, first_zero["measured_at"]])
+                   first_zero_between=[before[-1]["measured_at"] if before else None, first_zero["measured_at"]],
+                   observed_exhausted_hours=round((zeros[-1]["measured_at"] - first_zero["measured_at"]) / H, 1))
     elif reset - last["measured_at"] <= NEAR_RESET_HOURS * H:
         left = round(1 - last["used_fraction"], 4)
         row.update(verdict="POSSIBLY_UNUSED" if left > UNUSED_LEFT else "USED", left_at_last_sample=left,
@@ -83,13 +85,13 @@ def _open(pool: str, series: list[dict[str, Any]], now: float) -> dict[str, Any]
     row: dict[str, Any] = dict(pool=pool, resets_at=reset, left=round(1 - last["used_fraction"], 4),
                                age_hours=round((now - last["measured_at"]) / H, 1))
     start = last.get("window_start")
-    zero = next((x for x in series if x["used_fraction"] >= EXHAUSTED), None)
-    if zero is not None:
-        hours = round((reset - zero["measured_at"]) / H, 1)
-        return {**row, "pace_state": "EXHAUSTED_EARLY" if hours > EARLY_HOURS else "USED",
-                "reason": f"first sampled 0% {_ts(zero['measured_at'])}, {hours}h before reset"}
     if now - last["measured_at"] > FRESH_HOURS * H:
         return {**row, "pace_state": "UNKNOWN", "reason": f"stale: last sample older than {FRESH_HOURS:g}h"}
+    if last["used_fraction"] >= EXHAUSTED:
+        zero = next(x for x in series if x["used_fraction"] >= EXHAUSTED)
+        hours = round((reset - zero["measured_at"]) / H, 1)
+        return {**row, "pace_state": "EXHAUSTED_EARLY" if hours > EARLY_HOURS else "USED",
+                "reason": f"first sampled exhausted {_ts(zero['measured_at'])}, {hours}h before reset"}
     if not isinstance(start, (int, float)) or not start < last["measured_at"] < reset:
         return {**row, "pace_state": "UNKNOWN", "reason": "no valid window anchor"}
     pace = 100 * (last["used_fraction"] - (last["measured_at"] - start) / (reset - start))
@@ -124,15 +126,15 @@ def _ts(value: float | None) -> str:
 
 def render_markdown(report: dict[str, Any]) -> str:
     lines = [f"Generated {_ts(report['generated_at'])}; since {_ts(report['since'])}; invalid samples ignored: {report['invalid_samples']}.",
-             f"Thresholds: exhausted = used >= {EXHAUSTED}; EXHAUSTED_EARLY = sampled 0% with > {EARLY_HOURS:g}h to reset; "
+             f"Thresholds: exhausted = used >= {EXHAUSTED} (under 0.5% left, provider rounding); EXHAUSTED_EARLY = sampled exhaustion with > {EARLY_HOURS:g}h to reset; "
              f"POSSIBLY_UNUSED / USED = last sample within {NEAR_RESET_HOURS:g}h of reset shows > / <= {UNUSED_LEFT:.0%} left; "
              f"otherwise UNKNOWN. Open-window PACE = used% - elapsed% (fast > +{PACE_PP:g}, slow < -{PACE_PP:g}; "
              f"needs a sample <= {FRESH_HOURS:g}h old). Sampled evidence only; pools are shared by all sessions on the account.",
              "", "## Closed 7D windows", "", "| Pool | Reset | Samples | Verdict | Evidence |", "|---|---|---|---|---|"]
     for w in report["closed_7d"]:
         if w["verdict"] == "EXHAUSTED_EARLY":
-            ev = (f"first 0% between {_ts(w['first_zero_between'][0])} and {_ts(w['first_zero_between'][1])}, "
-                  f"{(w['resets_at'] - w['first_zero_between'][1]) / H:.1f}h before reset")
+            ev = (f"first sampled exhaustion between {_ts(w['first_zero_between'][0])} and {_ts(w['first_zero_between'][1])}, "
+                  f"{(w['resets_at'] - w['first_zero_between'][1]) / H:.1f}h before reset; sampled exhausted span {w['observed_exhausted_hours']}h")
         elif w["verdict"] == "UNKNOWN":
             ev = w["reason"]
         else:
@@ -141,7 +143,7 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"| {w['pool']} | {_ts(w['resets_at'])} | {w['samples']} | {w['verdict']} | {ev} |")
     lines += ["", "## Open 7D windows", "", "| Pool | Resets | Left | PACE pp | State | Note |", "|---|---|---|---|---|---|"]
     for w in report["open_7d"]:
-        lines.append(f"| {w['pool']} | {_ts(w['resets_at'])} | {w['left']:.0%} | {w.get('pace_pp', '-')} | {w['pace_state']} | "
+        lines.append(f"| {w['pool']} | {_ts(w['resets_at'])} | {w['left']:.1%} | {w.get('pace_pp', '-')} | {w['pace_state']} | "
                      f"{w.get('reason', f'sample age {w['age_hours']}h')} |")
     lines += ["", "## 5H windows", "", "| Pool | Observed windows | Observed exhausted windows |", "|---|---|---|"]
     for pool, c in report["five_hour"].items():

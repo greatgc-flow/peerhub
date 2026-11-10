@@ -22,6 +22,7 @@ def test_exhausted_early_wins_and_reports_bounds():
     w = out[("quota:ag:A-7D", r)]
     assert w["verdict"] == "EXHAUSTED_EARLY"
     assert w["first_zero_between"] == [r - 60 * H, r - 50 * H]
+    assert w["observed_exhausted_hours"] == 49.0
 
 
 def test_possibly_unused_used_and_unknown():
@@ -88,13 +89,34 @@ def test_open_window_exhausted_near_reset_is_used():
 
 
 def test_since_honours_an_explicit_offset(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
     import tools.quota_report as qr
 
-    seen = {}
+    seen: dict[str, float | None] = {}
+
+    def fake_build(samples, *, now, since=None):
+        seen["since"] = since
+        return {}
+
     monkeypatch.setattr(qr, "read_samples", lambda db: [])
-    monkeypatch.setattr(qr, "build_report", lambda samples, now, since: seen.setdefault("since", since) and {} or {})
+    monkeypatch.setattr(qr, "build_report", fake_build)
     monkeypatch.setattr(qr, "render_markdown", lambda report: "")
     db = tmp_path / "x.db"
     db.write_bytes(b"")
-    main(["--db", str(db), "--since", "2026-11-10T09:00+09:00"])
-    assert seen["since"] == main.__globals__["datetime"](2026, 11, 10, 0, 0, tzinfo=main.__globals__["UTC"]).timestamp()
+    assert main(["--db", str(db), "--since", "2026-11-10T09:00+09:00"]) == 0
+    assert seen["since"] == datetime(2026, 11, 10, 0, 0, tzinfo=UTC).timestamp()
+
+
+def test_slowly_drifting_resets_do_not_chain_into_one_window():
+    r = 10 * D7
+    step = 0.09 * D7  # each step is inside the 10% tolerance, the chain is not
+    samples = [s("quota:cx:X-7D", r + k * step - 2 * H, 0.5, r + k * step) for k in range(4)]
+    assert len(build_report(samples, now=r + 4 * D7)["closed_7d"]) == 2
+
+
+def test_stale_open_window_is_unknown_even_after_exhaustion():
+    r = 10 * D7
+    now = r - 50 * H
+    rep = build_report([s("quota:ag:3P-7D", now - 24 * H, 0.0, r)], now=now)
+    assert rep["open_7d"][0]["pace_state"] == "UNKNOWN"

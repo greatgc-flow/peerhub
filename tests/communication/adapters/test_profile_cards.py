@@ -125,3 +125,28 @@ def test_card_is_never_older_than_the_binding_check():
     """A packaged model or effort change must re-check the card (claims were measured on the old binding)."""
     for pid, p in PACKAGED.items():
         assert p["card_checked"] >= p["checked"], pid
+
+
+@pytest.mark.parametrize("pid", ONE_PER_PEER)
+def test_explain_profile_id_prints_the_effective_card(tmp_path, monkeypatch, capsys, pid):
+    from peerhub.cli.recovery import run_explain_cli
+
+    monkeypatch.chdir(tmp_path)
+    assert run_explain_cli(pid) == 0
+    out = capsys.readouterr().out
+    assert out.startswith(f"Profile: {pid}") and PACKAGED[pid]["use_for"] in out and "[packaged]" in out
+    assert run_explain_cli(pid, json_output=True) == 0
+    assert json.loads(capsys.readouterr().out)["profile"]["card"]["use_for"]["value"] == PACKAGED[pid]["use_for"]
+
+
+def test_explain_distinguishes_unknown_profile_and_no_card(tmp_path, monkeypatch, capsys):
+    from peerhub.cli.recovery import run_explain_cli
+
+    ws = _overlay(tmp_path, monkeypatch, '[profiles."cx.extra"]\nselection_mode = "pinned"\nmodel = "m"\npools = ["X-7D"]\n'
+                  'pools_source = "unverified"\n')
+    monkeypatch.chdir(ws)
+    assert run_explain_cli("cx.extra") == 0
+    assert "No card" in capsys.readouterr().out
+    assert run_explain_cli("cc.does-not-exist") == 1
+    assert "unknown profile" in capsys.readouterr().err
+    assert run_explain_cli("ag recipe") == 0  # lessons fallback unchanged

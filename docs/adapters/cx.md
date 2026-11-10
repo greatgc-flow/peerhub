@@ -5,7 +5,7 @@ This page documents the current production contract. Historical migration notes 
 
 ## Current contract
 
-- Executable: `codex.cmd` (observed version `0.162.1` on 2026-10-15; local probe)
+- Executable: `codex.cmd` (observed version `0.167.0` on 2026-11-10; local probe)
 - Transport: process pipe; the UTF-8 prompt is written to standard input (`-`)
 - Output: JSON Lines events; completed `agent_message` items form canonical
   text.
@@ -23,7 +23,7 @@ configuration, then packaged defaults). The adapter only translates a resolved
 binding into CLI flags.
 
 Profile models and efforts live in the packaged `model-defaults.toml`; list the effective ones with
-`peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them.
+`peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them. `python -m tools.model_ping` proves the answering model and effort (session log). Each profile has an evidence card: `peerhub explain cx.<profile>`.
 
 `cx.astra` (`gpt-6-astra`, high) is an opt-in top profile on X-5H/X-7D; `ultra` gave the same benchmark score
 for more latency ([benchmark](../benchmarks/profiles-2026-11-08.md)). Plans may omit a window (see lesson `plan-windows`).

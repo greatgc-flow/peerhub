@@ -11,7 +11,7 @@ spent quota produced value is out of scope.
   unless cc carries the work until then.
 - Too fast: `cx X-7D` (+25 pp, 18% left for 3 days: about 6%/day), `ag A-7D` (argon, +45 pp, 27% left for 5 days:
   about 5%/day).
-- Exhausted early: `cc F-7D` (Fable) hit 0% 22.7h before reset; `ag 3P-7D` (ag.deepthink, Claude via ag) hit 0%
+- Exhausted early: `cc F-7D` (Fable) was exhausted 22.7h before reset; `ag 3P-7D` (ag.deepthink, Claude via ag) was exhausted
   83.6h before reset, so ag.deepthink is unusable until 2026-11-11 21:20Z.
 - On pace: `ag G-7D` (flash) is the main spare 7D capacity, gated by `G-5H` (observed exhausted in 2 windows).
 - History: most closed windows are UNKNOWN because quota was not sampled near their resets (gaps 10-21..10-30 and
@@ -22,8 +22,8 @@ spent quota produced value is out of scope.
 
 ## Generated tables
 
-Generated 2026-11-10 08:48Z; since -; invalid samples ignored: 538.
-Thresholds: exhausted = used >= 0.995; EXHAUSTED_EARLY = sampled 0% with > 12h to reset; POSSIBLY_UNUSED / USED = last sample within 12h of reset shows > / <= 15% left; otherwise UNKNOWN. Open-window PACE = used% - elapsed% (fast > +10, slow < -10; needs a sample <= 6h old). Sampled evidence only; pools are shared by all sessions on the account.
+Generated 2026-11-10 08:54Z; since -; invalid samples ignored: 538.
+Thresholds: exhausted = used >= 0.995 (under 0.5% left, provider rounding); EXHAUSTED_EARLY = sampled exhaustion with > 12h to reset; POSSIBLY_UNUSED / USED = last sample within 12h of reset shows > / <= 15% left; otherwise UNKNOWN. Open-window PACE = used% - elapsed% (fast > +10, slow < -10; needs a sample <= 6h old). Sampled evidence only; pools are shared by all sessions on the account.
 
 ### Closed 7D windows
 
@@ -35,7 +35,7 @@ Thresholds: exhausted = used >= 0.995; EXHAUSTED_EARLY = sampled 0% with > 12h t
 | quota:ag:A-7D | 2026-10-24 16:47Z | 743 | UNKNOWN | no sample within 12h of reset |
 | quota:ag:A-7D | 2026-11-02 09:17Z | 3 | UNKNOWN | no sample within 12h of reset |
 | quota:ag:G-7D | 2026-10-23 00:09Z | 814 | UNKNOWN | no sample within 12h of reset |
-| quota:ag:G-7D | 2026-10-24 00:19Z | 1813 | EXHAUSTED_EARLY | first 0% between 2026-10-18 08:55Z and 2026-10-18 08:56Z, 135.4h before reset |
+| quota:ag:G-7D | 2026-10-24 00:19Z | 1813 | EXHAUSTED_EARLY | first sampled exhaustion between 2026-10-18 08:55Z and 2026-10-18 08:56Z, 135.4h before reset; sampled exhausted span 71.8h |
 | quota:ag:G-7D | 2026-11-02 04:10Z | 3 | UNKNOWN | no sample within 12h of reset |
 | quota:cc:C-7D | 2026-10-20 13:00Z | 2232 | UNKNOWN | no sample within 12h of reset |
 | quota:cc:C-7D | 2026-10-27 13:00Z | 381 | UNKNOWN | no sample within 12h of reset |
@@ -50,18 +50,18 @@ Thresholds: exhausted = used >= 0.995; EXHAUSTED_EARLY = sampled 0% with > 12h t
 
 | Pool | Resets | Left | PACE pp | State | Note |
 |---|---|---|---|---|---|
-| quota:ag:3P-7D | 2026-11-11 21:20Z | 0% | - | EXHAUSTED_EARLY | first sampled 0% 2026-11-08 09:44Z, 83.6h before reset |
-| quota:ag:A-7D | 2026-11-15 09:25Z | 27% | 45.0 | fast | sample age 0.0h |
-| quota:ag:G-7D | 2026-11-14 03:08Z | 54% | -0.3 | on-pace | sample age 0.0h |
-| quota:cc:C-7D | 2026-11-10 12:59Z | 18% | -15.5 | slow | sample age 0.0h |
-| quota:cc:F-7D | 2026-11-10 12:59Z | 0% | - | EXHAUSTED_EARLY | first sampled 0% 2026-11-09 14:17Z, 22.7h before reset |
-| quota:cx:X-7D | 2026-11-13 09:26Z | 18% | 25.2 | fast | sample age 0.0h |
+| quota:ag:3P-7D | 2026-11-11 21:20Z | 0.0% | - | EXHAUSTED_EARLY | first sampled exhausted 2026-11-08 09:44Z, 83.6h before reset |
+| quota:ag:A-7D | 2026-11-15 09:25Z | 25.9% | 45.8 | fast | sample age 0.0h |
+| quota:ag:G-7D | 2026-11-14 03:08Z | 54.2% | -0.5 | on-pace | sample age 0.0h |
+| quota:cc:C-7D | 2026-11-10 13:00Z | 18.0% | -15.6 | slow | sample age 0.0h |
+| quota:cc:F-7D | 2026-11-10 13:00Z | 0.0% | - | EXHAUSTED_EARLY | first sampled exhausted 2026-11-09 14:17Z, 22.7h before reset |
+| quota:cx:X-7D | 2026-11-13 09:26Z | 18.0% | 25.2 | fast | sample age 0.0h |
 
 ### 5H windows
 
 | Pool | Observed windows | Observed exhausted windows |
 |---|---|---|
-| quota:ag:3P-5H | 29 | 0 |
-| quota:ag:G-5H | 26 | 2 |
+| quota:ag:3P-5H | 97 | 0 |
+| quota:ag:G-5H | 42 | 2 |
 | quota:cc:C-5H | 19 | 3 |
-| quota:cx:X-5H | 17 | 3 |
+| quota:cx:X-5H | 23 | 3 |

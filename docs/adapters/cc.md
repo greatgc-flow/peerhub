@@ -5,7 +5,7 @@ This page documents the current production contract. Historical migration notes 
 
 ## Current contract
 
-- Executable: `claude.cmd` (observed version `2.1.299` on 2026-10-15; local probe)
+- Executable: `claude.cmd` (observed version `2.1.322` on 2026-11-10; local probe)
 - Transport: process pipe; the prompt is written to standard input
 - Output: stream JSON; `result` is canonical text, `is_error` marks vendor
   failure.
@@ -23,7 +23,7 @@ configuration, then packaged defaults). The adapter only translates a resolved
 binding into CLI flags.
 
 Profile models and efforts live in the packaged `model-defaults.toml`; list the effective ones with
-`peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them.
+`peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them. `python -m tools.model_ping` proves the answering model (stream `modelUsage`), not the effort. Each profile has an evidence card: `peerhub explain cc.<profile>`.
 
 `cc.fable` (`claude-fable-5-1`, high) is an opt-in top profile with pool F-7D only;
 whether it also draws on shared C pools is unverified ([benchmark](../benchmarks/profiles-2026-11-08.md)).

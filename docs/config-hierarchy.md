@@ -40,8 +40,9 @@ Each packaged profile carries a short card for AIs choosing a profile: `use_for`
 Setting any card key requires `evidence` and `card_checked`. Cards hold evidence, never pools.
 A card is bound to the binding it was checked against: when a higher layer changes
 `selection_mode`, `model` or `reasoning_effort` (a different value, not a repeated one), the
-inherited card is dropped and only that layer's own card keys apply. `peerhub profile show ID`
-prints the effective card with the layer of each key, `profile list` shows a truncated `USE FOR`
+inherited card is dropped and only that layer's own card keys apply. `peerhub explain ID` (an exact
+profile id is matched before lessons) and `peerhub profile show ID` print the effective card with the
+layer of each key, `profile list` shows a truncated `USE FOR`
 column, and `--format json` carries the full `card`. The loader checks card format only; the repository
 test suite checks that packaged evidence paths and lesson ids exist (issue refs: format only) and that
 `card_checked` is not older than the profile's `checked` date.
