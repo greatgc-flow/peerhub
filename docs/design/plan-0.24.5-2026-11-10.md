@@ -54,3 +54,24 @@ Total applicable cells = 27 + 7 = 34. Gate A (publish): all pre-publication cell
 APPROVE. Gate B (complete): 34/34 after publication. M5 may be one parametrized test using each provider's real profile.
 Post-publication memory/STATUS evidence never changes the released commit.
 Roles: cc implements (C-7D expires ~4h, 19% left), cx reviews diffs, ag reviews cards + report text.
+
+## Decision log (2026-11-10, UTC)
+
+| Step | Decision | Votes |
+|---|---|---|
+| R1 plan | Cards in model-defaults.toml; one-off read-only quota report script; Fable 5.2 only with identity + benchmark | cc.deepthink, cx.effort (with amendments) |
+| R2-R4 spec | Frozen spec v1 -> v2 (overlay "changes" = differs; format-only loader; release gates A/B) | cc.deepthink, cx.effort, ag.effort: unanimous |
+| Scope | Add #325 (cc oversized-line gap resolved by a later intact result) | cc.deepthink (design), cx.effort, ag.effort: unanimous |
+| Scope | #323 batch shared ag workspace: deferred (issue comment has the design) | cx APPROVE with conditions, ag DISAGREE: no unanimity |
+| Follow-up | 0.24.6 (separate PR after 0.24.5): #327 items 1/5/9 + read-only `diag running` without progress fields | cx, ag: unanimous on the narrowed scope |
+
+Completeness matrix (score = PASS / applicable non-pending cells):
+
+| Round | cc.deepthink | cx.effort | ag.effort |
+|---|---|---|---|
+| 1 (audit) | 26/28 (93%) | - | spec + cards approved |
+| 2 | 21/27 (78%) | 17/25 (68%) | - |
+| 3 | 29/29 (100%) | 23/27 (85%) | - |
+| 4 | - | 27/27 (100%) | 29/29 (100%) |
+
+Pending at round 4 (not defects): cc.fable check after the F-7D reset, full serial pytest, CI, merged-HEAD live gate, publication (G3-G7).
