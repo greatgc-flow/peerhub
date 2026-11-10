@@ -10,3 +10,8 @@ cc.deepthink r2 61s SCORE 100/100
 cc.standard r3 60s SCORE 98/100
 cc.effort r3 41s SCORE 100/100
 cc.deepthink r3 56s SCORE 100/100
+cc.deepthink r4 41s SCORE 100/100
+cc.effort r4 29s SCORE 100/100
+cc.standard r4 66s SCORE 100/100
+cc.fable r1 58s SCORE 100/100
+cc.fable52 r1 75s SCORE 100/100
