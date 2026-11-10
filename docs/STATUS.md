@@ -4,9 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.6 (release candidate)
+## Current source: v0.24.6 (published)
 
 v0.24.6 adds the read-only `peerhub diag running [--json]` (lease-active asks from existing tables; no progress or staleness fields; a lease is not proof a process is alive) and an `ACCOUNTS` line in `peerhub monitor` (#329: plan, login state and login-token expiry per peer, with compact, `--expand` and JSON parity from one stored snapshot; only normalized fields are stored, no email, organization, id, token or identity hash; collected by `observation refresh` / monitor cycles with bounded no-model-turn probes: `claude auth status`, codex app-server `account/read`, `agy /credits`). It fixes #328 (a provider-disabled agy bucket renders `n/a`; superseded peer-level probe failures no longer show `PROBE`; `peerhub explain <lesson id>` matches the exact id) and lands the #327 items 1, 5 and 9 (guidance link to the adapter guide, `source_records` reuse of the Core row mapper, README doc map and layout). It adds the hard (integer interpreter) and top-tier (regex matcher) profile benchmarks (docs/benchmarks/profiles-hard-2026-11-10, profiles-top-2026-11-10) and their evidence on the profile cards. cc.fable switches to `claude-fable-5-2` under the frozen rule (identity ping PASS, 45/45 on the 2026-11-08 task, hard 100/100, top 115/115; slower in one run: 946 s vs 169 s), checked 2026-11-10. Plan and decision log: docs/design/plan-0.24.5-2026-11-10.md (rows "Follow-up"). Notes: see CHANGELOG [0.24.6].
+
+Published 2026-11-10 (UTC; PR #331, tag `v0.24.6`, target `15fcd356`, publish run 42828266303: the first attempt failed only on the wall-clock test `test_sleep_called_count_minus_1_times` in release-matrix windows-latest 3.11; the failed jobs were rerun and passed, and the test is now deterministic, PR #333); G3 passed bound to `15fcd35611ef` (live gate 2026-11-10, three stages). PyPI 0.24.6 verified 2026-11-10 UTC (clean venv `pip install --no-cache-dir peerhub==0.24.6`: `peerhub --version` 0.24.6, `diag running`, `explain cc.fable` = claude-fable-5-2, ACCOUNTS line, 3P-5H `n/a (disabled)` after one refresh).
 
 ### v0.24.5 (published)
 
@@ -26,7 +28,7 @@ v0.24.1 is a patch on 0.24.0: cc `permission_denials` surface as `denied_actions
 
 v0.24.0 unifies CLI human output (text by default, `--json` everywhere), store precedence (`--db` over `PEERHUB_DB`) and a redesigned at-a-glance monitor (pools with meaning, per-group limits, fresh-only `suggest:` line, plan-aware ABSENT windows for cx only), reworks profiles quality-first (`ag.effort` flash-high, `cx.effort` sol/high, packaged tops `cc.fable` and `cx.astra`), documents capability-matched quota balancing and concurrency caps (docs/batch.md), adds the ag recipe and denied-empty handling (#300). Plan: docs/design/plan-0.24.0-2026-11-08.md.
 
-The latest published package is **v0.24.5** (tag `v0.24.5`, target `8fd00491`); PyPI 0.24.5 verified 2026-11-10 UTC (clean upgrade with --no-cache-dir, `peerhub --version` 0.24.5, `peerhub explain cc.effort` prints the card); G3 passed bound to `8fd00491632d`. The previous verified package is v0.24.4 (tag `v0.24.4`, target `bedf6d52`; PyPI 0.24.4 verified 2026-11-09 UTC: clean upgrade, `peerhub --version`, compact monitor PACE column, `explain pace`; G3 passed bound to `bedf6d52f008`). The installed `peerhub guide` does not automatically update when main changes.
+The latest published package is **v0.24.6** (tag `v0.24.6`, target `15fcd356`; PyPI verified 2026-11-10 UTC). The previous one is **v0.24.5** (tag `v0.24.5`, target `8fd00491`); PyPI 0.24.5 verified 2026-11-10 UTC (clean upgrade with --no-cache-dir, `peerhub --version` 0.24.5, `peerhub explain cc.effort` prints the card); G3 passed bound to `8fd00491632d`. The previous verified package is v0.24.4 (tag `v0.24.4`, target `bedf6d52`; PyPI 0.24.4 verified 2026-11-09 UTC: clean upgrade, `peerhub --version`, compact monitor PACE column, `explain pace`; G3 passed bound to `bedf6d52f008`). The installed `peerhub guide` does not automatically update when main changes.
 
 v0.24.3 published 2026-11-09 (UTC; PR #316, tag `v0.24.3`, target `ad5d1b25`, publish run 42569582779; closes #309 and #312); completeness audit Fable/Astra 100 on every axis before release; G3 passed bound to `ad5d1b25ec37`. See [live evidence](implementation/live_evidence/2026-11-09-v0.24.3.json) and the release JUnit assets.
 
@@ -42,6 +44,7 @@ Earlier releases (v0.23.x and older, including never-published attempts such as 
 
 | Attempt | Target commit / ref | PR | Status | Notes |
 |---|---|---|---|---|
+| **v0.24.6** | `15fcd356` | PR #331 | Published | Published 2026-11-10; tag `v0.24.6`; publish run 42828266303 (failed-job rerun after a flaky wall-clock test, fixed in #333); PyPI 0.24.6 verified 2026-11-10 UTC; G3 bound to `15fcd35611ef`. |
 | **v0.24.5** | `8fd00491` | PR #326 | Published | Published 2026-11-10; tag `v0.24.5`; publish run 42816004629; PyPI 0.24.5 verified 2026-11-10 UTC (clean upgrade with --no-cache-dir, `peerhub --version` 0.24.5, `peerhub explain cc.effort` prints the card); G3 passed bound to `8fd00491632d` (live gate 2026-11-10, three stages) |
 | **v0.24.4** | `bedf6d52` | PR #320 | Published | Published 2026-11-09; tag `v0.24.4`; publish run 42605365707; PyPI verified; G3 passed bound to `bedf6d52f008`; JUnit assets attached |
 | **v0.24.3** | `ad5d1b25` | PR #316 | Published | Published 2026-11-09; tag `v0.24.3`; publish run 42569582779; PyPI verified; G3 passed bound to `ad5d1b25ec37`; JUnit assets attached; [live evidence](implementation/live_evidence/2026-11-09-v0.24.3.json) |
