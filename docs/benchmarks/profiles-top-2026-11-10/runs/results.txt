@@ -1,0 +1,6 @@
+cc.effort r1 155s SCORE 115/115
+cc.standard r1 201s SCORE 115/115
+cc.deepthink r1 202s SCORE 115/115
+cx.standard r1 52s SCORE 110/115
+ag.standard r1 32s SCORE 111/115
+ag.effort r1 442s SCORE 101/115

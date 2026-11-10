@@ -7,7 +7,7 @@ import sys
 from typing import Any
 
 from peerhub.cli.store_select import report_missing_store
-from peerhub.cli.support import agy_token_use, refresh_with_profile_pools
+from peerhub.cli.support import agy_token_command, agy_token_stop_message, refresh_with_profile_pools
 
 
 def _cycle_exit_code(report: Any, refresh_code: int) -> int:
@@ -54,9 +54,9 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
                 last_refresh_status_code = 1 if result["status"] != "OK" else 0
                 refresh_info = {"status": result["status"], "warnings": result.get("warnings", []),
                                 "observations": len(result.get("observations", []))}
-                if agy_token_use(result) and not args.allow_agy_token_use:
-                    print("error: agy /usage consumed model tokens; stopping watch mode so quota is not burned every interval "
-                          "(pass --allow-agy-token-use to continue)", file=sys.stderr, flush=True)
+                token_command = agy_token_command(result)
+                if token_command and not args.allow_agy_token_use:
+                    print(agy_token_stop_message(token_command), file=sys.stderr, flush=True)
                     return 1
             else:
                 refresh_info = {"skipped": True}

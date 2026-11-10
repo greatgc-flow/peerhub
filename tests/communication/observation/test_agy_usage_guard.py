@@ -129,7 +129,7 @@ def test_refresh_quota_reports_warning_and_payload(fake, tmp_path):
     (tmp_path / "w").mkdir()
     CoreStore(tmp_path / "w" / "core.db")
     fake.emit(CONSUMED)
-    res = refresh_quota(tmp_path / "w" / "core.db", ["ag"], sys_dir=fake.sys_dir)
+    res = refresh_quota(tmp_path / "w" / "core.db", ["ag"], sys_dir=fake.sys_dir, account_pollers={})  # quota guard only
     o = res["observations"][0]
     assert res["status"] == "PARTIAL" and o["state"] == "ERROR"
     assert o["payload"]["evidence_ref"] == "agy_usage_consumed_tokens" and o["payload"]["consumed_tokens"] == 94000
@@ -142,7 +142,7 @@ def test_refresh_quota_without_warnings_has_empty_list(fake, tmp_path):
     (tmp_path / "w").mkdir()
     CoreStore(tmp_path / "w" / "core.db")
     fake.emit(GOOD)
-    res = refresh_quota(tmp_path / "w" / "core.db", ["ag"], sys_dir=fake.sys_dir)
+    res = refresh_quota(tmp_path / "w" / "core.db", ["ag"], sys_dir=fake.sys_dir, account_pollers={})  # quota guard only
     assert res["warnings"] == [] and res["status"] == "OK"
 
 

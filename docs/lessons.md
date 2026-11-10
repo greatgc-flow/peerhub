@@ -7,7 +7,7 @@ python -c "from pathlib import Path; from peerhub.cli.lessons import render_less
 ```
 
 Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.
-Known guidance codes and aliases take priority. Matches list recipes first, then lesson ID order.
+Known guidance codes and aliases take priority, then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order.
 
 ## ag profile choice for bulk work (observed 2026-11-01) (`ag-bulk-profile-heuristics`)
 
@@ -118,8 +118,8 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 
 - Keywords: PROBE, age
 - Symptom: A provider probe failed or has no current usable evidence; the suffix is its age.
-- Fix: Run peerhub observation refresh --peers PEER. Inspect authentication and installed CLI if the probe still fails.
-- Issue: 0.24.0
+- Fix: Run peerhub observation refresh --peers PEER. Inspect authentication and installed CLI if the probe still fails. A peer-level probe failure is hidden once a strictly newer MEASURED pool row exists for the same peer and the same probe source (a poller is one source: ag /usage and its statusline fallback, and a poller that raised); another probe source, another peer, a failure from the same run, or an agy refusal / token-use / conflict row still shows. Stored history is kept.
+- Issue: 0.24.0, #328
 
 ## STALE:window (`monitor-stale-window`)
 
@@ -132,8 +132,8 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 
 - Keywords: monitor, pace, low, fast, aged, suggest, alternative, cycles, tty, legend
 - Symptom: Monitor states, PACE, stale evidence, alternative profiles or redirected watch behavior need explanation.
-- Fix: States: ok = enough capacity; low = positive remaining <=10%; fast = >10% remaining but ahead of pace (threat projection, at least two samples); out = 0%; aged = stale; reset = reset passed; n/a = plan omits; ? = unknown. Precedence: n/a ? reset out low fast aged ok; a plan-omitted (ABSENT) pool whose evidence went stale shows aged; other rows without a number show ?. low/fast win over aged; staleness still shows in AGE and the PEERS (aged) tag. PACE (percentage points, pp) = used% - elapsed% of the window (cumulative vs even burn, not recent activity): + = ahead of even burn (over-use), - = behind (under-use), - cell when no valid anchor (n/a, ?, reset, unusable); shown on aged rows like LEFT, so verify fresh AGE before relying on PACE. suggest: tier=a|b is advisory (rule H): a is the best eligible pick and b is the best eligible alternative in the same tier from a different peer; eligible candidates without an applicable fast pool rank first, then worst-pool score LEFT% / max(days_to_reset, 0.2), then profile name (compare 7D PACE manually across eligible peers; 5H only gates; all-fast = slow down or defer). Omitted monitor --cycles: non-TTY one cycle (one completed human frame), TTY until interrupted; --cycles 0 watches everywhere. diag --live keeps its 0 default (until interrupted).
-- Issue: #310, #311, 0.24.4
+- Fix: States: ok = enough capacity; low = positive remaining <=10%; fast = >10% remaining but ahead of pace (threat projection, at least two samples); out = 0%; aged = stale; reset = reset passed; n/a = plan omits; ? = unknown. Precedence: n/a ? reset out low fast aged ok; a plan-omitted (ABSENT) pool whose evidence went stale shows aged; other rows without a number show ?. low/fast win over aged; staleness still shows in AGE and the PEERS (aged) tag. PACE (percentage points, pp) = used% - elapsed% of the window (cumulative vs even burn, not recent activity): + = ahead of even burn (over-use), - = behind (under-use), - cell when no valid anchor (n/a, ?, reset, unusable); shown on aged rows like LEFT, so verify fresh AGE before relying on PACE. suggest: tier=a|b is advisory (rule H): a is the best eligible pick and b is the best eligible alternative in the same tier from a different peer; eligible candidates without an applicable fast pool rank first, then worst-pool score LEFT% / max(days_to_reset, 0.2), then profile name (compare 7D PACE manually across eligible peers; 5H only gates; all-fast = slow down or defer). Omitted monitor --cycles: non-TTY one cycle (one completed human frame), TTY until interrupted; --cycles 0 watches everywhere. diag --live keeps its 0 default (until interrupted). ACCOUNTS (compact line, --expand rows, JSON capacity.accounts) shows each peer's plan, login state and, when within 14 days, the LOGIN token expiry (not billing), collected only by observation refresh / monitor collection from claude auth status, codex app-server account/read and agy /credits (endpoint access only, plan n/a): ? = could not be determined, n/a = the provider does not expose it, aged = stale (6 hours; a failed probe keeps the last good reading aged with a probe error note); a missing expiry does not mean logged out; API-key/Bedrock/Vertex logins are n/a; emails, org names, ids, tokens and identity hashes are never stored. When a fresh account plan fills an unknown 5H plan note, JSON keeps the stored reason and adds display_plan with plan_source account.
+- Issue: #310, #311, 0.24.4, #329
 
 ## Quota shaping across peers (`multi-peer-quota-shaping`)
 
@@ -153,8 +153,8 @@ Known guidance codes and aliases take priority. Matches list recipes first, then
 
 - Keywords: cc, ag, cx, absent, not reported, plan, window, windows, cx-plan-windows, codex, claude, agy, quota, pool, 5h, 7d, X-5H, X-7D, prolite, reported, monitor, incomplete
 - Symptom: peerhub monitor shows a cc, ag or cx pool as n/a not reported (plan X), and agents read the peer as 0% or unusable.
-- Fix: Pools come from the provider response: a plan may omit a configured window (observed cx prolite: 7-day only, no 5h window; cc ultra still reports its 5h window C-5H, measured 2026-11-09). Since 0.24.1, all peers record omitted configured pools from complete, successfully parsed reports as ABSENT; malformed or partial reports do not establish absence. The monitor shows n/a not reported (plan X), where X is the reported plan or unknown, and skips those pools when computing peer quota: neither exhausted nor unlimited. Normal freshness TTL applies, then STALE. Run peerhub observation refresh --peers cc ag cx and read the reported pools before assuming 0%; profile pool declarations stay unchanged.
-- Issue: 0.24.0 (cx); 0.24.1 (all peers)
+- Fix: Pools come from the provider response: a plan may omit a configured window (observed cx prolite: 7-day only, no 5h window; cc ultra still reports its 5h window C-5H, measured 2026-11-09). Since 0.24.1, all peers record omitted configured pools from complete, successfully parsed reports as ABSENT; malformed or partial reports do not establish absence. The monitor shows n/a not reported (plan X), where X is the reported plan or unknown, and skips those pools when computing peer quota: neither exhausted nor unlimited. Normal freshness TTL applies, then STALE. An ag bucket the provider flags disabled (for example the 5h limit while the weekly limit is hit) is recorded ABSENT with reason disabled by provider plus its bounded description, shown as n/a with no capacity or reset, and skipped the same way; it returns to MEASURED when the provider re-enables it. Run peerhub observation refresh --peers cc ag cx and read the reported pools before assuming 0%; profile pool declarations stay unchanged.
+- Issue: 0.24.0 (cx); 0.24.1 (all peers); #328 (disabled)
 
 ## Quota-aware peer runs (`quota-aware-peer-runs`)
 

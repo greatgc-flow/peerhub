@@ -304,6 +304,16 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                              help="Machine-readable cached readiness (schema_version 1.0)")
     d_readiness.epilog = "examples: peerhub diag readiness | peerhub --db ws.db diag readiness --json"
 
+    d_running = diag_sub.add_parser("running", help="Lease-active asks (read-only; a lease is not proof a process is alive)",
+                                    description="Read-only. Deliveries whose claim lease has not expired and that are not acknowledged "
+                                                "(certainty NOT_STARTED or STARTED), read from the store only: no provider is contacted "
+                                                "and nothing is written or refreshed. A lease is not proof a process is alive; "
+                                                "elapsed time comes from recorded start evidence and is null without it. "
+                                                "Claims are matched to the workspace.generation file beside the database; without that file all generations match. "
+                                                "Query cost grows with the delivery history of the live streams themselves (observed: about 45k SQLite VM steps at 9,000 rows in one stream). At most 20 rows, oldest first. Exit: 0 ok, 4 storage fault, 5 database unavailable, 6 schema version.")
+    d_running.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Machine-readable output (schema_version 1.0)")
+    d_running.epilog = "examples: peerhub diag running | peerhub --db ws.db diag running --json"
+
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
     d_integrity.epilog = "example: peerhub diag integrity"
 
@@ -554,6 +564,17 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
                     profile["next"] = {"code": action, "argv": entry.recover[0]["argv"]}
         print(json.dumps(rep, separators=(",", ":"), ensure_ascii=True) if args.json else format_readiness(rep))
         return diag_quota.EXIT_BY_STATUS[rep["status"]]
+    if args.action == "running":  # pure reader: no CoreStore, no provider, no refresh
+        from peerhub.extensions.diag_running import format_running, running_report
+        if not Path(args.db).is_file():
+            report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source)
+            return 5
+        rep = running_report(args.db)
+        print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else format_running(rep))
+        code = diag_quota.EXIT_BY_STATUS[rep["status"]]
+        if code and not args.json:
+            _error_line("diag_unavailable", str(rep["error"] or rep["status"]), "peerhub diag health")
+        return code
     if args.action == "quota":  # pure reader: no CoreStore (it would create/migrate the database)
         report_missing_store(args.obs_db or args.db, selected=is_explicit or bool(args.obs_db), source="explicit" if args.obs_db else db_source)
         rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool)

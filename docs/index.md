@@ -8,6 +8,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Remote Ask](remote-ask.md): Running peerhub ask against peers on remote hosts over SSH.
 - [Knowledge Placement Policy](knowledge-placement.md): Policy governing guidance placement across docs, CLI guide, and lessons.
 - `peerhub diag readiness [--json]` reports cached criteria for every effective configured profile, sorted by ID. `READY` means fresh positive verified quota and a matching terminal delivery; it proves neither current provider availability, actual model identity, authorization, nor semantic task success. Shared pools appear once with remaining quota, reset and evidence age. Missing/stale mappings or corrupt evidence stay `UNKNOWN`; absent success, changed binding, failed/uncertain delivery or required native ag writable consent stays unverified. Native ag consent still requires explicit `--writable`. Global `--db` selection applies; a missing store exits 5 without creation. This command never calls providers or writes, and rejects `--probe`. Human overflow is disclosed; JSON schema 1.0 includes every profile without a size guarantee. Issue #145 is closed; deferred scope is recorded in [STATUS](STATUS.md#deferred-backlog-start-triggers).
+- `peerhub diag running [--json]` lists lease-active asks: unexpired claim lease matching the delivery's claim generation, unacknowledged, certainty `NOT_STARTED` or `STARTED`. A lease is not proof a process is alive. Rows carry peer, profile/binding, stream, request id, delivery id, certainty, `started_at`/`elapsed_s` (null without valid start evidence) and `lease_expires_in_s`; at most 20 rows with a `truncated` flag. It reads the store only (no provider calls, refresh or writes); a missing store exits 5 without creation.
 - [Profile Smoke Recipe](smoke-recipe.md): Installed-CLI nonce pings and one result matrix (#148).
 - [Peer Sandbox Limits](peer-limits.md): Per-peer restrictions, operating knobs, and deferred capability probe (#134).
 - [README.md](../README.md): Quick start, installation (`pipx`/`uv`/`pip`), core usage, and everyday operational commands.
@@ -55,5 +56,6 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 ## Archives & Evidence
 - [Archival Ledger](history/ledger-2026-10-17.md): Ledger of archived debate documents and obsolete production call-map preserved in git history.
 - [Benchmarks](benchmarks/): Release-to-release performance and comparative analysis benchmarks.
+- [Hard profile benchmark, 2026-11-10](benchmarks/profiles-hard-2026-11-10/README.md): task, grader, reference and first per-profile results; follow-up to the 2026-11-08 ceiling effect, which it only partly resolves (top profiles still tie at 100).
 - [Implementation Evidence](implementation/live_evidence/): Live provider canary verification receipts.
 - [History Archive](history/): Pre-v0.10 architecture debates, historical design specs, and retired review records.

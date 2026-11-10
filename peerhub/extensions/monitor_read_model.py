@@ -12,8 +12,11 @@ from typing import Any, Callable, cast
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.extensions.observation_model import (
     MEASUREMENT_KEYS,
+    ABSENT_FACT_REASONS,
     NOT_REPORTED_REASON,
     FreshnessPolicy,
+    account_text as _account_text,  # stored account strings are display data: re-sanitized when read back
+    valid_epoch_seconds,
     ObservationCorruptError,
     evaluate as evaluate_observation,
     row_to_observation,
@@ -38,8 +41,8 @@ def mapped_quota(configured_pools: list[str], peer_observations: list[dict[str, 
             return _incomplete_quota()
         best_matching = max(matching_obs, key=lambda o: int(o.get("effective_at_us") or 0))  # freshest, not first
         if (best_matching.get("state") == "ABSENT"
-                and str(best_matching.get("reason") or "").startswith(NOT_REPORTED_REASON)):
-            not_reported_pools += 1  # the provider says this window does not exist: never limiting
+                and str(best_matching.get("reason") or "").startswith(ABSENT_FACT_REASONS)):
+            not_reported_pools += 1  # the provider says this window does not exist or is disabled: never limiting
             continue
         raw_m_val = best_matching.get("measurements")
         q_m_dict = cast(dict[str, Any], raw_m_val) if isinstance(raw_m_val, dict) else {}
@@ -73,6 +76,115 @@ def mapped_quota(configured_pools: list[str], peer_observations: list[dict[str, 
             "scope": "mapped",
         }
     return None
+
+
+# One poller is one probe source even when its rows carry different refs: ag falls back from /usage to the statusline log inside
+# a run, and a poller that raised is stored by refresh_quota as source `quota_probe:<kind>` without an evidence_ref.
+# Deliberately NOT mapped (they stay visible after a later success): agy_usage_cwd_refused, agy_usage_consumed_tokens,
+# agy_usage_unverifiable_tokens, agy_usage_not_a_command and probe:ag:conflict. They are safety signals about that run (a refusal,
+# possible token spend, a vocabulary conflict), not transient probe failures.
+_PROBE_SOURCE_FAMILY = {"probe:ag:statusline": "probe:ag:usage", "quota_probe:cx": "probe:cx:app-server",
+                        "quota_probe:cc": "probe:cc:usage", "quota_probe:ag": "probe:ag:usage"}
+
+
+def _probe_source(payload: dict[str, Any], source: str) -> str:
+    ref = str(payload.get("evidence_ref") or "") or source
+    return _PROBE_SOURCE_FAMILY.get(ref, ref)
+
+
+def _superseded(item: dict[str, Any], newest_success_us: int) -> bool:
+    """A peer-level (pool-less) quota failure is superseded by a strictly newer MEASURED pool row of the same peer (the account
+    key: quota rows are stored per peer) and probe source. Successful probes write pool rows only, so they never replace the
+    failure row themselves. Other sources, other peers and same-instant rows of one partial run never hide it; history is kept."""
+    return (item["kind"] == "quota" and item["pool_ref"] is None and item["stored_state"] != "MEASURED"
+            and newest_success_us > int(item["effective_at_us"]))
+
+
+_ACCOUNT_TRI = {"reported", "n/a", "UNKNOWN"}
+_ACCOUNT_ORDER = {"cc": 0, "cx": 1, "ag": 2}  # builtin peers first in the documented order, then the rest by id
+
+
+def _account_item(observation: Any, freshness: Any, last_good: tuple[Any, Any] | None = None) -> dict[str, Any]:
+    """One account observation -> the monitor's account fields. Only normalized stored fields are read (no identity exists to leak).
+
+    A failed probe carries no account facts. When an earlier MEASURED reading exists (`last_good`: observation, freshness) it stays
+    shown, forced to aged (STALE), with the failure as `probe_error`; otherwise every fact is UNKNOWN."""
+    failed = freshness.stored_state.value != "MEASURED"
+    probe_error = (_account_text(observation.payload.get("reason"), 40) or "unknown") if failed else None
+    state_override = None
+    if failed and last_good is not None:
+        observation, freshness = last_good
+        failed, state_override = False, "STALE"
+    payload: dict[str, Any] = observation.payload
+    ok = not failed
+    login = payload.get("logged_in")
+    expires = payload.get("login_token_expires_at")
+    plan_status, expiry_status = payload.get("plan_status"), payload.get("login_expiry_status")
+    plan = _account_text(payload.get("plan")) if ok and plan_status == "reported" else None
+    expires_ok = ok and expiry_status == "reported" and valid_epoch_seconds(expires)  # re-validated: stored values may come from anywhere
+    return {
+        "peer_id": observation.subject_ref,
+        "state": state_override or freshness.state.value,
+        "stored_state": freshness.stored_state.value,
+        "age_seconds": freshness.age_seconds,
+        "ttl_seconds": freshness.ttl_seconds,
+        "logged_in": login if ok and isinstance(login, bool) else "UNKNOWN",
+        "plan": plan,
+        "plan_status": "reported" if plan else (plan_status if ok and plan_status in {"n/a", "UNKNOWN"} else "UNKNOWN"),
+        "login_token_expires_at": expires if expires_ok else None,
+        "login_expiry_status": "reported" if expires_ok else ("n/a" if ok and expiry_status == "n/a" else "UNKNOWN"),
+        "auth_method": _account_text(payload.get("auth_method")) if ok else None,
+        "endpoint_access": "ok" if ok and payload.get("endpoint_access") == "ok" else None,
+        "probe_error": probe_error,
+    }
+
+
+def _read_accounts(conn: sqlite3.Connection, latest_rows: list[sqlite3.Row], now: float) -> list[dict[str, Any]]:
+    """Account items, builtin peers first. For a peer whose latest probe failed, one extra query fetches its last MEASURED reading."""
+    def parsed(row: sqlite3.Row) -> tuple[Any, Any]:
+        try:
+            observation, capture_seq = row_to_observation(row)
+        except ObservationCorruptError as exc:
+            raise sqlite3.DataError(f"invalid account observation at capture_seq={row['capture_seq']}") from exc
+        return observation, evaluate_observation(observation, capture_seq, round(now * 1_000_000), FreshnessPolicy())
+
+    latest = [parsed(row) for row in latest_rows]
+    failed = sorted({obs.subject_ref for obs, view in latest if view.stored_state.value != "MEASURED"})
+    good: dict[str, tuple[Any, Any]] = {}
+    if failed:
+        marks = ",".join("?" for _ in failed)
+        for row in conn.execute(
+                "SELECT * FROM (SELECT " + _ROW_COLUMNS + ",ROW_NUMBER() OVER (PARTITION BY o.subject_ref ORDER BY o.effective_at_us DESC,"
+                "o.capture_seq DESC) AS rn FROM observations o LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref "
+                f"WHERE o.kind='account' AND o.state='MEASURED' AND o.subject_ref IN ({marks})) WHERE rn=1", failed):
+            observation, view = parsed(row)
+            good[observation.subject_ref] = (observation, view)
+    items = [_account_item(obs, view, good.get(obs.subject_ref)) for obs, view in latest]
+    return sorted(items, key=lambda a: (_ACCOUNT_ORDER.get(str(a["peer_id"]), len(_ACCOUNT_ORDER)), str(a["peer_id"])))
+
+
+def _fill_unknown_plans(observations: list[dict[str, Any]], accounts: list[dict[str, Any]]) -> None:
+    """A "not reported ... plan=unknown" pool note gets `display_plan` (+ `plan_source: "account"`) from a FRESH account observation of
+    the same peer; the stored `reason` is never rewritten, a plan the quota probe itself reported is never replaced, and without a fresh
+    account plan the note stays "unknown". The renderers read these fields, so every view agrees."""
+    plans = {str(a["peer_id"]): str(a["plan"]) for a in accounts if a["state"] == "MEASURED" and a["plan_status"] == "reported" and a["plan"]}
+    for item in observations:
+        reason = item.get("reason")
+        plan = plans.get(str(item["peer_id"]))
+        if plan and item["pool_ref"] is not None and isinstance(reason, str) and reason.startswith(NOT_REPORTED_REASON) \
+                and reason.endswith("plan=unknown"):
+            item["display_plan"], item["plan_source"] = plan, "account"  # `reason` stays exactly as stored
+
+
+_ROW_COLUMNS = ("o.capture_seq,o.observation_id,o.subject_ref,o.resource_pool_ref,o.kind,o.source,o.state,"
+                "o.payload_json,o.observed_at,o.captured_at,o.effective_at_us,p.provider,p.kind AS pool_kind ")
+_ROW_JOINS = ("FROM observation_rollups r JOIN observations o ON o.capture_seq=r.latest_capture_seq "
+              "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref ")
+# Quota rows keep their 100-row cap; account rows ride in the same statement with a cap of their own, so neither starves the other.
+_CAPACITY_SQL = ("SELECT * FROM (SELECT " + _ROW_COLUMNS + _ROW_JOINS + "WHERE r.kind IN ('quota','rate_limit','reset_credit') "
+                 "ORDER BY o.subject_ref,r.pool_key LIMIT 101) UNION ALL SELECT * FROM (SELECT " + _ROW_COLUMNS + _ROW_JOINS +
+                 "WHERE r.kind='account' ORDER BY o.subject_ref LIMIT 51)")  # 51 = one past ACCOUNT_ROW_CAP, to detect truncation
+ACCOUNT_ROW_CAP = 50
 
 
 def _incomplete_quota() -> dict[str, Any]:
@@ -449,17 +561,16 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             if len(scope_rows) > 0 and max((int(row[22]) for row in scope_rows), default=0) > 3:
                 sessions_data["peer_sample_truncated"] = True
         observations: list[dict[str, Any]] = []
+        staged: list[tuple[tuple[str, str], dict[str, Any]]] = []  # (peer, probe source) with its row, in query order
+        newest_success: dict[tuple[str, str], int] = {}  # newest MEASURED pool row per (peer, probe source)
         reset_credits: list[dict[str, Any]] = []
+        accounts: list[dict[str, Any]] = []
         latest_facts_report: dict[str, Any] | None = None
         if bool(set(groups) & {"capacity", "peers"}):
             try:
-                rows = conn.execute(
-                    "SELECT o.capture_seq,o.observation_id,o.subject_ref,o.resource_pool_ref,o.kind,o.source,o.state,"
-                    "o.payload_json,o.observed_at,o.captured_at,o.effective_at_us,p.provider,p.kind AS pool_kind "
-                    "FROM observation_rollups r JOIN observations o ON o.capture_seq=r.latest_capture_seq "
-                    "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref "
-                    "WHERE r.kind IN ('quota','rate_limit','reset_credit') ORDER BY o.subject_ref,r.pool_key LIMIT 101"
-                ).fetchall()
+                all_rows = conn.execute(_CAPACITY_SQL).fetchall()
+                rows = [row for row in all_rows if row["kind"] != "account"]
+                account_rows = [row for row in all_rows if row["kind"] == "account"]
                 for row in rows[:100]:
                     try:
                         observation, capture_seq = row_to_observation(row)
@@ -511,7 +622,10 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                                 measured[key] = value
                         measurements = measured
                     pool_ref = observation.resource_pool_ref
-                    observations.append({
+                    probe = (str(observation.subject_ref), _probe_source(observation.payload, observation.source))  # account key = peer id
+                    if observation.kind == "quota" and pool_ref is not None and freshness.stored_state.value == "MEASURED":
+                        newest_success[probe] = max(newest_success.get(probe, 0), int(row["effective_at_us"]))
+                    staged.append((probe, {
                         "observation_id": observation.observation_id,
                         "peer_id": observation.subject_ref,
                         "provider": row["provider"],
@@ -533,10 +647,15 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         "measurements": measurements,
                         "reset_in_seconds": reset_in_seconds,
                         "reason": observation.payload.get("reason") or observation.payload.get("condition"),
-                    })
+                    }))
+                observations = [item for probe, item in staged if not _superseded(item, newest_success.get(probe, 0))]
+                accounts = _read_accounts(conn, account_rows[:ACCOUNT_ROW_CAP], now)
+                _fill_unknown_plans(observations, accounts)
                 if "capacity" in groups:
                     output["capacity"] = {"status": "OK", "data": {"observations": observations,
                         "reset_credits": reset_credits,
+                        **({"accounts": accounts} if accounts else {}),
+                        **({"accounts_truncated": True} if len(account_rows) > ACCOUNT_ROW_CAP else {}),
                         "sample_size": min(len(rows), 100), "truncated": len(rows) > 100}}
             except sqlite3.Error as exc:
                 errors["capacity"] = type(exc).__name__
