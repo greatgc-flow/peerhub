@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Guide and lesson `stream-reuse-cost`: reuse a `--stream` only within one task; a new task gets a new stream with a short summary, and votes are one-shot asks (measured: reused streams cost 10-25x more per vote).
+
 ### Added
 
 - Lesson `review-scores-to-100`: ask reviewers for the concrete change behind every score below 100, report unrun checks as NOT RUN instead of deducting, and give peers read/test allow rules so they verify. `docs/benchmarks/run_profile_bench.sh` runs one profile on a benchmark folder and appends the graded result (replaces ad-hoc copies).

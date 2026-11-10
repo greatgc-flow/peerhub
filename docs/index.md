@@ -45,6 +45,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 **Shipped designs:** the 0.24.0/0.24.1 plans, the October 2026 renewal, monitor and session designs, and the October audit are kept in `docs/design/` for provenance. They are listed in [Design Documents Index](design/README.md) and are not current status; [STATUS](STATUS.md) is.
 
 ## Archives & Evidence
+- [Work log 2026-11-10/11](history/work-log-2026-11-10.md): requirements, decisions, reviews, releases (0.24.5/0.24.6), environment fixes and the quota diet in one place.
 - [Archival Ledger](history/ledger-2026-10-17.md): Ledger of archived debate documents, the obsolete production call-map, and (section 1a) the Engram-era and v0 history folders, with `git show` retrieval commands.
 - [Benchmarks](benchmarks/): Release-to-release performance and comparative analysis benchmarks.
 - [Hard profile benchmark, 2026-11-10](benchmarks/profiles-hard-2026-11-10/README.md): task, grader, reference and first per-profile results; follow-up to the 2026-11-08 ceiling effect, which it only partly resolves (top profiles still tie at 100).

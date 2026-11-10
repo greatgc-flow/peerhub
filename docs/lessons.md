@@ -176,3 +176,10 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Symptom: The selected database does not exist.
 - Fix: Check the resolved path and source: a Git worktree may have no local store while the database lives in the main checkout. Run from the main checkout or select the intended store with --db PATH / PEERHUB_DB (--db takes precedence); to create a new store, explicitly select it with peerhub --db PATH peer register --peer local --name local.
 - Issue: 0.24.0
+
+## Stream reuse cost: reuse within one task only (`stream-reuse-cost`)
+
+- Keywords: stream, reuse, resume, session, context, tokens, quota, cost, vote
+- Symptom: Quota drains fast although prompts are short: a long-lived --stream is reused across many tasks, so every ask re-sends the whole earlier conversation (on every model turn).
+- Fix: Reuse a stream only within one task (follow-ups and review rounds on the same diff); start a new stream for a new task or after about four rounds with a 3-5 line summary inline; send votes and confirmations as fresh one-shot asks with the facts inline. Measured 2026-11-10: a cx stream reused for 19 asks cost 23.6M input tokens (1.2M per ask) while fresh one-shot votes cost about 0.1M (cx) and 8k (ag); a cc implementer stream reused for 14 tasks cost 115M.
+- Issue: 2026-11-10 quota diet
