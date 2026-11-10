@@ -708,7 +708,7 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
         from peerhub.cli import lessons
         from peerhub.cli.lessons import render_lesson
 
-        # Order: guidance code (above) > [exact profile id, arrives with 0.24.5] > exact lesson id > keywords.
+        # Order: guidance code > exact profile id (above) > exact lesson id > keywords.
         matches = lessons.lesson_by_id(code) or lessons.lookup_lessons(code)
         if matches:
             if json_output:
