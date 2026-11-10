@@ -5,7 +5,7 @@ This page documents the current production contract. Historical migration notes 
 
 ## Current contract
 
-- Executable: `agy.exe` (observed version `1.3.5` on 2026-10-15; local probe)
+- Executable: `agy.exe` (observed version `1.5.4` on 2026-11-10; local probe)
 - Transport: process pipe; the prompt is passed with `-p`
 - Output: flat JSON; `response` is canonical text.
 - Inline prompt limit: 30,000 UTF-8 bytes on Windows; 120,000 elsewhere
@@ -23,7 +23,7 @@ configuration, then packaged defaults). The adapter only translates a resolved
 binding into CLI flags; it does not contain model-selection policy.
 
 Profile models and efforts live in the packaged `model-defaults.toml`; list the effective ones with
-`peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them.
+`peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them. `python -m tools.model_ping` proves the answering model (agy log), not the effort. Each profile has an evidence card: `peerhub explain ag.<profile>`.
 
 `ag.argon` selects `gemini-4-argon-medium` on A-7D. Discover exact slugs and their
 declared pools with `peerhub profile list` (JSON: `known_models`), or vendor slugs

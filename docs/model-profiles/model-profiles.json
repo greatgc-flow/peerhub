@@ -21,7 +21,8 @@
     "deepthink = deliberate escalation (cc: newest opus high, cx: newest *-sol xhigh, ag: claude-sonnet-5-5 high while gemini pro absent).",
     "top = opt-in, never a default: cc.fable (fable high), cx.astra (astra high), ag.argon (gemini-4-argon-medium on A-7D). Keep a top profile at the effort a benchmark showed no gain above (docs/benchmarks/profiles-2026-11-08.md).",
     "max/ultra efforts are explicit per-call overrides, never a default tier.",
-    "Never pick models with visibility 'hide'. Keep an effort only if the model lists it as supported."
+    "Never pick models with visibility 'hide'. Keep an effort only if the model lists it as supported.",
+    "Each packaged profile keeps a card (use_for, avoid_for, traits, evidence, card_checked) built only from evidence (benchmarks, lessons, issues, measured quota); when a profile's model or effort changes, re-check its card and set card_checked (docs/config-hierarchy.md#profile-cards)."
   ],
   "update_targets": [
     "peerhub/config_data/model-defaults.toml",
@@ -35,7 +36,7 @@
     "2. Compare the CLI output with the effective profiles ('peerhub profile list') using tier_rules; present a diff of proposed changes to the user and wait for approval. Observations are evidence, not policy: never change packaged defaults without approval.",
     "3. After approval edit the packaged peerhub/config_data/model-defaults.toml, the only store of profiles, exact_model_pools, observed_at, observed_versions and defaults_revision (new revision YYYY-MM-DD.N). Adding, changing or deleting a profile is one [profiles.\"<peer>.<name>\"] table (plus an exact_model_pools entry for a new model). Rewrite each touched profile 'source' as 'cli:<sources command>@<observed version> <observed_at>' (cc: 'known-id:claude --help aliases@<version> <observed_at>'). Review the linked adapter docs for invocation or version changes. Keep files LF.",
     "4. Run: python -m pytest -q tests/communication/adapters (test_model_profiles_manifest.py checks the toml invariants and this recipe against the documentation links).",
-    "5. Optional, ask first (uses a little quota): python -m tools.model_ping [profile_id ...] pings each effective profile once (workspace/global opt-ins included) and checks WHICH model answered (cc: modelUsage, cx: session log, ag: CLI log). Report failures verbatim.",
+    "5. Optional, ask first (uses a little quota): python -m tools.model_ping [profile_id ...] pings each effective profile once (workspace/global opt-ins included) and checks WHICH model answered (cc: modelUsage, cx: session log, ag: CLI log). Evidence strength: cx proves model and effort; cc and ag prove the model only. Advance a profile's 'checked' only after its ping passed; list pending or failed pings in CHANGELOG. Report failures verbatim.",
     "6. Do not commit, push or release unless the user asks. Answer the user in their language; keep internal text English. Record dated observations in CHANGELOG.md, not here."
   ]
 }

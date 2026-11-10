@@ -745,6 +745,17 @@ def _print_page(items: list[dict[str, Any]], next_cursor: str | None, output_for
         print(f"next_cursor: {next_cursor}")
 
 
+def _use_for_cell(card: dict[str, Any] | None, width: int = 44) -> str:
+    text = str(card["use_for"]["value"]) if card and "use_for" in card else "-"
+    return text if len(text) <= width else text[:width - 1] + "~"
+
+
+def _card_value(value: object) -> str:
+    if isinstance(value, list):
+        return "; ".join(str(item) for item in cast("list[object]", value)) or "(unset)"
+    return str(value or "(unset)")
+
+
 def _run_profile_cli(args: argparse.Namespace) -> int:
     from peerhub.extensions.adapters.profiles import inspect_profile, known_model_pools, list_profiles
 
@@ -770,11 +781,13 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
         return 0
     if args.action == "list":
         rows = [[profile["profile"], str(profile["fields"]["model"]["value"] or "CLI default"),
-                 str(profile["fields"]["effort"]["value"] or "provider default")] for profile in payload["profiles"]]
-        columns = ["PROFILE", "MODEL", "EFFORT"]
+                 str(profile["fields"]["effort"]["value"] or "provider default"),
+                 _use_for_cell(profile.get("card"))] for profile in payload["profiles"]]
+        columns = ["PROFILE", "MODEL", "EFFORT", "USE FOR (profile show ID)"]
     else:
-        rows = [[key, str(field["value"] or "(unset)"), str(field["source"])]
-                for key, field in payload["fields"].items()]
+        card: dict[str, Any] = payload.get("card") or {}
+        items = list(payload["fields"].items()) + list(card.items())
+        rows = [[key, _card_value(field["value"]), str(field["source"])] for key, field in items]
         columns = ["FIELD", "VALUE", "SOURCE"]
     if not rows:
         print("(no profiles)")

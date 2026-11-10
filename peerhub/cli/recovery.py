@@ -15,7 +15,7 @@ import re
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass(frozen=True)
@@ -667,9 +667,43 @@ def render_explain(entry: GuidanceEntry) -> str:
     return "\n".join(lines)
 
 
+_PROFILE_ID = re.compile(r"(?:ag|cc|cx)\.\S+")  # one token; the resolver decides known vs unknown
+
+
+def _explain_profile(profile: str, *, json_output: bool) -> int:
+    """Print one effective profile card (config only, current directory as workspace; no store)."""
+    from peerhub.cli.support import error_line
+    from peerhub.extensions.adapters.profiles import inspect_profile
+
+    try:
+        info = inspect_profile(profile, Path.cwd())
+    except ValueError as exc:
+        reason = "unknown profile" if "unknown model profile" in str(exc) else str(exc)
+        if json_output:
+            print(json.dumps({"error": f"{reason}: {profile}"}, indent=2, ensure_ascii=True))
+        error_line("invalid_arguments", f"{reason}: {profile!r}", "peerhub profile list")
+        return 1
+    if json_output:
+        print(json.dumps({"profile": info}, indent=2, ensure_ascii=True))
+        return 0
+    fields: dict[str, Any] = info["fields"]
+    card: dict[str, dict[str, Any]] = info.get("card") or {}
+    lines = [f"Profile: {profile} ({fields['model']['value'] or 'CLI default'} / {fields['effort']['value'] or 'provider default'})"]
+    if not card:
+        lines.append("No card (none packaged, or an overlay changed the model binding).")
+    for key, item in card.items():
+        value: object = item["value"]
+        text = "; ".join(str(v) for v in cast("list[object]", value)) if isinstance(value, list) else str(value)
+        lines.append(f"{key + ':':<14} {text}  [{item['source']}]")
+    print("\n".join(lines))
+    return 0
+
+
 def run_explain_cli(code: str, *, json_output: bool = False) -> int:
     """Execute peerhub explain CODE [--json]. Offline; no store/provider/network."""
     entry = get_guidance(code)
+    if entry is None and _PROFILE_ID.fullmatch(code.strip()):
+        return _explain_profile(code.strip(), json_output=json_output)
     if entry is None:
         from peerhub.cli.lessons import lookup_lessons, render_lesson
 
