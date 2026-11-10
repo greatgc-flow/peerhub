@@ -23,6 +23,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- cc.fable switches to claude-fable-5-2 (identity ping PASS; 45/45 on the 2026-11-08 task; hard 100/100; top 115/115, slower in one run: 946 s vs 169 s) per the frozen rule; checked 2026-11-10.
 - The `ask_refusal` guidance (`peerhub explain ask_refusal`, `docs/guidance-reference.md`) links to the adapter guide instead of an unshipped Engram-era document (#327).
 - The README "Doc map" is now one link to `docs/index.md`, and its repository layout lists the actual `tools/` scripts (#327).
 - `source_records` reuses `CoreStore._row_to_record` instead of building `Record` by hand; behavior is unchanged (#327).

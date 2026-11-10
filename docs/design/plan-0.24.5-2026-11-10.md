@@ -65,6 +65,7 @@ Roles: cc implements (C-7D expires ~4h, 19% left), cx reviews diffs, ag reviews 
 | Scope | #323 batch shared ag workspace: deferred (issue comment has the design) | cx APPROVE with conditions, ag DISAGREE: no unanimity |
 | Release scope | Publish 0.24.5 with cc.fable cells DEFERRED (pool exhausted until 13:00Z; binding and checked date unchanged; CHANGELOG note); fable-5-2 check moves to 0.24.6. G1 evidence: CI ubuntu-full at 213eb479, full serial suite with all dev deps, 3873 passed, 0 failed | cx (after G1 evidence), ag: unanimous |
 | Follow-up | 0.24.6 (separate PR after 0.24.5): #327 items 1/5/9 + read-only `diag running` without progress fields | cx, ag: unanimous on the narrowed scope |
+| Fable check (2026-11-10 13:0xZ) | cc.fable -> claude-fable-5-2 under rule D4 (identity + 45/45); hard 100, top 115 | frozen rule, no new vote needed |
 
 Completeness matrix (score = PASS / applicable non-pending cells):
 

@@ -117,16 +117,16 @@ card_checked = "2026-11-10"
 # C-5H/C-7D pools is unverified (a /usage before/after one call showed no change at integer rounding, 2026-11-08).
 [profiles."cc.fable"]
 selection_mode = "pinned"
-model = "claude-fable-5-1"
+model = "claude-fable-5-2"
 reasoning_effort = "high"
 source = "known-id:claude --help aliases@2.1.322 2026-11-10"
-checked = "2026-11-08"
+checked = "2026-11-10"
 pools = ["F-7D"]  # owner 2026-11-08: Fable has its own weekly pool; whether it also draws C-5H/C-7D is unmeasured
 pools_source = "unverified"
 use_for = "opt-in top tier: hardest reasoning while its pool has room"
 avoid_for = "routine work; Bash-heavy headless tasks"
-traits = ["45/45 benchmark, 11-12s", "one headless Bash deny (#303)", "own weekly pool, drains fast"]
-evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#303", "cc-allow-rules", "docs/history/quota-efficiency-2026-11-10.md"]
+traits = ["45/45, hard 100, regex 115", "one headless Bash deny (#303, 5.1)", "regex run 946s vs 5.1 169s (1 run)"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#303", "cc-allow-rules", "docs/history/quota-efficiency-2026-11-10.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
 card_checked = "2026-11-10"
 
 [profiles."ag.standard"]

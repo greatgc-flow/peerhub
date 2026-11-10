@@ -37,12 +37,24 @@ One run per profile (r1), one prompt (`task.md`, no tools), sent through `peerhu
 | ag.standard | 32 s | 111/115 |
 | cx.standard | 52 s | 110/115 |
 | ag.effort | 442 s | 101/115 |
+| cc.fable (claude-fable-5-1) | 169 s | 115/115 |
+| claude-fable-5-2 (now `cc.fable`) | 946 s | 115/115 |
 
-**The cc tiers tie at the ceiling again.** cc.standard, cc.effort and cc.deepthink all scored 115/115, so this benchmark, like the hard one, does not separate them (one sample each, not a ranking).
+Fable rows measured 2026-11-10 after the F-7D reset (13:00Z); the 5.2 row came from a temporary `cc.fable52` overlay (identity ping answered claude-fable-5-2). One run each: 5.2 took 946 s against 169 s for 5.1 at the same score, a single sample, not a measured speed difference.
+
+Repeat runs of the cc profiles (same prompt, fresh stream, same day; r1 is the table above):
+
+| Profile | r1 | r2 | r3 |
+|---|---|---|---|
+| cc.standard | 115 (201 s) | 115 (156 s) | 114 (119 s) |
+| cc.effort | 115 (155 s) | 115 (85 s) | 115 (148 s) |
+| cc.deepthink | 115 (202 s) | 115 (225 s) | 115 (263 s) |
+
+**Variance:** cc.standard dipped to 114 once (r3); cc.effort and cc.deepthink were 115/115 in all three runs. The answers are in `runs/` (`*-r2.md`, `*-r3.md`).
+
+**The cc tiers tie at the ceiling again.** cc.standard, cc.effort and cc.deepthink all scored 115/115, so this benchmark, like the hard one, does not separate them (one sample each, not a ranking). Both Fable models also scored 115/115.
 
 **On this task ag.effort scored below ag.standard** (101 vs 111) and took about 14 times as long (442 s vs 32 s). That is one run each, so it shows that the higher effort did not help here, not that it is generally worse. cx.standard (110) landed between the two ag profiles.
-
-**Still to run (after 13:00Z on 2026-11-10):** cc.fable and the fable-5-2 model. *Placeholder: add their rows to the table and to `runs/results.txt`.*
 
 The failing cases of the three non-perfect profiles are not listed here; `python -I -B grade.py runs/<file>.md -v` prints them.
 
