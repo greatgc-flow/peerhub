@@ -4,8 +4,11 @@ This directory contains architectural specifications, active design proposals, a
 
 > **Status Authority:** [`docs/STATUS.md`](../STATUS.md) is the single authoritative source of truth for release readiness, shipped features, and the active development queue. Never treat dated design proposals as current status records.
 
-## 1. Current Active Designs & Implementation Contracts
+## 1. Shipped Designs & Implementation Contracts
 
+Most entries below are shipped; they are kept for provenance. The latest plan is listed first.
+
+- [Plan 0.24.4 (November 2026)](plan-0.24.4-2026-11-09.md): Pace in the compact monitor, pace-aware suggest, and the guide balance recipe (published as v0.24.4).
 - [Plan 0.24.0 (November 2026)](plan-0.24.0-2026-11-08.md): Release plan and evidence for monitor, CLI and profile changes shipped in v0.24.0.
 - [Plan 0.24.1 (November 2026)](plan-0.24.1-2026-11-08.md): Store discovery recovery and cc permission-denial handling for the v0.24.1 candidate.
 - [Plan 0.24.4 (November 2026)](plan-0.24.4-2026-11-09.md): Previous plan: PACE in the compact monitor and AI-readable quota balancing.
@@ -26,10 +29,10 @@ This directory contains architectural specifications, active design proposals, a
 - [Inbound A2A Server](a2a-inbound-server.md): PROPOSED, NOT IMPLEMENTED (deferred on 2026-10-10).
 - [Quota Forecast Plan](plan-quota-forecast-2026-10-12.md): Offline candidate forecasting backtests; runtime promotion deferred pending validation gates.
 - [Blocked Streams Plan](plan-stuck-streams-2026-10-12.md): PRs 1-3 shipped in v0.16.0; PRs 4-6 / automated timeout settlement deferred pending contract review.
-- [Deferred Monitor Extensions](monitor-peers-view-2026-10-16.md): `monitor-expand-details`, `monitor-e2e-lineage`, `live-evidence-archive`, and full `db-schema-v2` DDL extensions deferred per STATUS.md and HANDOFF.md.
+- [Deferred Monitor Extensions](monitor-peers-view-2026-10-16.md): `monitor-expand-details`, `monitor-e2e-lineage`, `live-evidence-archive`, and full `db-schema-v2` DDL extensions deferred; see the [STATUS deferred backlog](../STATUS.md#deferred-backlog-start-triggers).
 
 ## 3. History & Archival
 
 - [Documentation Archival Ledger (2026-10-17)](../history/ledger-2026-10-17.md): Full record of archived debate docs (`peerhub-session-usage-monitoring-review-*`, `plan-session-reuse-*`, `plan-session-monitoring-*`, `plan-monitoring-v2-*`) and `peerhub-production-call-map-R1.json` with original commits, SHA-256 hashes, retrieval commands, and preserved decisions.
-- [Historical Design Archive](../history/design/): Pre-v0.10 designs, Phase 0 specifications, and migrated 2026-07/2026-08 drafts.
-- [Historical Architecture Debate](../history/design/2026-07/peerhub-architecture-debate.md): Initial multi-peer architecture convergence.
+- [Historical Design Archive](../history/design/): Pre-v0.10 designs (September 2026).
+- Phase 0, 2026-07 and 2026-08 drafts, and the Engram-era history, including the initial architecture debate, are in Git history; see ledger section 1a for retrieval commands.

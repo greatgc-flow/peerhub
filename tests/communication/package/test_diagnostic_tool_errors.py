@@ -1,11 +1,20 @@
 """Offline argument and failure paths; no provider CLI is invoked."""
+from pathlib import Path
 from types import SimpleNamespace
+import importlib.util
 import json
 import sys
 
 import pytest
 
-from tools import context_bench, model_ping
+from tools import model_ping
+
+# The one-off context benchmark lives with its results, not in tools/.
+_BENCH = Path(__file__).resolve().parents[3] / "docs" / "benchmarks" / "context-bench-2026-10-09" / "bench.py"
+_spec = importlib.util.spec_from_file_location("context_bench", _BENCH)
+assert _spec is not None and _spec.loader is not None
+context_bench = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(context_bench)
 
 
 @pytest.mark.parametrize("peer", ["cc", "cx"])

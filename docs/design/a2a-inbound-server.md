@@ -19,7 +19,7 @@ A2A was the only protocol considered for delegation because it supplies a task l
 
 ## Prior decision
 
-The [2026-07-19 review](../history/from-engram-repo/protocol-docs/engram-peer-governance/external-server-ization-proposal-review-2026-07-19.md)
+The 2026-07-19 review (`external-server-ization-proposal-review-2026-07-19.md`, archived; [ledger](../history/ledger-2026-10-17.md) section 1a)
 rejected turning Engram into a network-facing multi-tenant backend. Its findings were generic/domain separation, peer equality/no tenant-isolated
 channels, minimal credential custody, scope mismatch and overstated operational readiness.
 
