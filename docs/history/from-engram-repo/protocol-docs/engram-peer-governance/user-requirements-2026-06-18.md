@@ -245,7 +245,6 @@
 | SSH/RDP Setup Guide | MemoryDump §remote access | Personal home network runbook — OUTSIDE docs-v2, gitignored |
 | Legal document citation rules (원문 유지 법칙) | MemoryDump §원문 유지 법칙 | Personal legal tool — NOT in Engram skills registry |
 | RAG transcription XML system prompt | MemoryDump §md파일로 변경 | Personal Gemini Gem — NOT in Engram repo |
-| Kim Yong-hun fraud case notes | MemoryDump §김용훈 관련 | Personal legal matter — not in any doc |
 | SSH credentials / WAN admin info | MemoryDump lines 1-15 | Personal infrastructure — gitignored, NEVER committed |
 | SK AX resort booking info | MemoryDump §휴양소 | Personal — not in any doc |
 | YouTube / motivational video links | Various sections | Personal — not in any doc |
