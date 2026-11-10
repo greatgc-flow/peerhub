@@ -6,6 +6,7 @@ No profile is selected implicitly, and no wildcard invents a named profile.
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from importlib import resources
 from importlib.resources.abc import Traversable
@@ -37,6 +38,34 @@ def _load_layers(workspace: str | Path | None) -> list[tuple[str, dict[str, Any]
     return layers
 
 
+BINDING_KEYS = ("selection_mode", "model", "reasoning_effort")
+CARD_KEYS = ("use_for", "avoid_for", "traits", "evidence", "card_checked")
+_EVIDENCE = re.compile(r"#\d+|[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+|[a-z0-9]+(?:-[a-z0-9]+)*")
+
+
+def _card(effective: dict[str, Any], sources: dict[str, str]) -> dict[str, Any] | None:
+    """Validate format only (repo paths are not in the wheel); existence is a packaging test."""
+    card = {key: effective[key] for key in CARD_KEYS if key in effective}
+    if not card:
+        return None
+    for key in ("use_for", "avoid_for"):
+        value = card.get(key)
+        if value is not None and (not isinstance(value, str) or not value or len(value) > 80):
+            raise ValueError(f"profile card {key} must be a nonempty string of at most 80 characters")
+    traits: object = card.get("traits")
+    if traits is not None and (not isinstance(traits, list) or not 1 <= len(cast("list[object]", traits)) <= 3
+                               or not all(isinstance(t, str) and t and len(t) <= 40 for t in cast("list[object]", traits))):
+        raise ValueError("profile card traits must be 1-3 nonempty strings of at most 40 characters")
+    evidence: object = card.get("evidence")
+    if (not isinstance(evidence, list) or not evidence
+            or not all(isinstance(e, str) and _EVIDENCE.fullmatch(e) for e in cast("list[object]", evidence))):
+        raise ValueError("profile card needs evidence: a list of lesson ids, repo paths or #issue numbers")
+    checked = card.get("card_checked")
+    if not isinstance(checked, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", checked):
+        raise ValueError("profile card needs card_checked as YYYY-MM-DD")
+    return {key: {"value": value, "source": sources[key]} for key, value in card.items()}
+
+
 def _select_profile(profile: str, layers: list[tuple[str, dict[str, Any]]]) -> tuple[dict[str, Any], dict[str, str]]:
     selected: dict[str, Any] = {}
     sources: dict[str, str] = {}
@@ -48,7 +77,12 @@ def _select_profile(profile: str, layers: list[tuple[str, dict[str, Any]]]) -> t
         entry = profiles[profile]
         if not isinstance(entry, dict):
             raise ValueError("model profile entry must be a table")
-        for key, value in cast("dict[str, Any]", entry).items():
+        entry = cast("dict[str, Any]", entry)
+        if found and any(key in entry and entry[key] != selected.get(key) for key in BINDING_KEYS):
+            for key in CARD_KEYS:  # card claims are bound to the binding they were checked against
+                selected.pop(key, None)
+                sources.pop(key, None)
+        for key, value in entry.items():
             selected[key] = value
             sources[key] = name
         found = True
@@ -106,6 +140,7 @@ def _inspect_profile(profile: str, layers: list[tuple[str, dict[str, Any]]], *, 
     }
     if include_pool_source:
         result["fields"]["pools_source"] = {"value": effective.get("pools_source"), "source": sources.get("pools_source")}
+    result["card"] = _card(effective, sources)
     return result
 
 

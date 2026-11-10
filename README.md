@@ -299,7 +299,7 @@ Milestones describe development progress, not runtime ownership. Frozen specific
 
 ## Where model facts come from and how to refresh them
 
-Profiles (model, effort, pools) and observed CLI versions live in `peerhub/config_data/model-defaults.toml` (the single source); `docs/model-profiles/model-profiles.json` is the refresh recipe (sources, tier rules, update targets).
+Profiles (model, effort, pools, and a short evidence-backed card: use for / avoid for / traits; `peerhub profile show ID`) and observed CLI versions live in `peerhub/config_data/model-defaults.toml` (the single source); `docs/model-profiles/model-profiles.json` is the refresh recipe (sources, tier rules, update targets).
 Run the `refresh-model-profiles` skill (or query installed CLIs per manifest instructions) to verify models, update `observed_at`/`observed_versions`, and bump the defaults revision.
 Observations are evidence, not policy: profile model and effort definitions require explicit review and approval.
 

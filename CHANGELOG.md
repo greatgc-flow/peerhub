@@ -8,6 +8,16 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- Profile cards: every packaged profile carries `use_for`, `avoid_for`, `traits`, `evidence` and `card_checked`, built only from benchmarks, lessons, issues and measured quota. `peerhub profile show ID` prints the effective card with the source layer of each key, `profile list` adds a truncated `USE FOR` column, and `--format json` carries the full `card`. A layer that changes `selection_mode`, `model` or `reasoning_effort` drops the inherited card (claims are bound to the binding they were checked against); the loader validates format and caps, and the test suite checks that packaged evidence references exist.
+- `python -m tools.quota_report --db <store> [--since ...] [--json]`: read-only per-pool utilization report. Closed 7D windows get exactly one verdict (EXHAUSTED_EARLY, POSSIBLY_UNUSED, USED, UNKNOWN), open windows get PACE (or EXHAUSTED_EARLY/UNKNOWN with a reason), 5H pools get observed exhausted window counts; thresholds are printed. First report: `docs/history/quota-efficiency-2026-11-10.md`.
+
+### Changed
+
+- Model facts re-observed 2026-11-10 (`defaults_revision` 2026-11-10.1): agy 1.5.4, claude 2.1.322, codex 0.167.0; no packaged model or effort changed. `tools.model_ping` PASS for cc.standard, cc.effort, cc.deepthink (model from the stream) and cx.standard, cx.effort, cx.deepthink, cx.astra (model and effort from the session log); their `checked` dates advanced.
+- The refresh recipe (`model-profiles.json`) states ping evidence strength (cx: model and effort; cc, ag: model only), advances `checked` only after a passing ping, and keeps cards evidence-only.
+
 ## [0.24.4] - 2026-11-09
 
 ### Changed

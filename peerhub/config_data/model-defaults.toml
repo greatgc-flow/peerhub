@@ -7,119 +7,179 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-11-08.2"
-observed_at = "2026-11-08"
+defaults_revision = "2026-11-10.1"
+observed_at = "2026-11-10"
 
 [observed_versions]
-ag = "1.5.3"
-cc = "2.1.319"
+ag = "1.5.4"
+cc = "2.1.322"
 cx = "0.167.0"
 
 [profiles."cx.standard"]
 selection_mode = "pinned"
 model = "gpt-6-luna"
 reasoning_effort = "low"
-source = "cli:codex debug models@0.167.0 2026-11-08"
-checked = "2026-10-29"
+source = "cli:codex debug models@0.167.0 2026-11-10"
+checked = "2026-11-10"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
+use_for = "cheap triage, text edits, simple checks"
+avoid_for = "arithmetic or exact computed output"
+traits = ["failed arithmetic tasks at low (4/8)", "fast (~5s)"]
+evidence = ["docs/benchmarks/cx-terra-2026-10-29.md"]
+card_checked = "2026-11-10"
 
 [profiles."cx.effort"]
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
 reasoning_effort = "high"
-source = "cli:codex debug models@0.167.0 2026-11-08"
-checked = "2026-11-08"
+source = "cli:codex debug models@0.167.0 2026-11-10"
+checked = "2026-11-10"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
+use_for = "implementation and diff review under an enforced sandbox"
+avoid_for = "machine-observing checks (sandbox hides processes)"
+traits = ["enforced read-only/writable sandbox", "no network unless --writable"]
+evidence = ["docs/benchmarks/cx-terra-2026-10-29.md", "cx-sandbox-and-prompt-hygiene"]
+card_checked = "2026-11-10"
 
 [profiles."cx.deepthink"]
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
 reasoning_effort = "xhigh"
-source = "cli:codex debug models@0.167.0 2026-11-08"
-checked = "2026-10-29"
+source = "cli:codex debug models@0.167.0 2026-11-10"
+checked = "2026-11-10"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 
 # Top tier (opt-in, never a default): measured by docs/benchmarks/profiles-2026-11-08.md (45/45 at high, ultra adds latency only).
+use_for = "rigorous spec and code review, edge-case hunting"
+avoid_for = "quick questions (slow: 40-48s on benchmark)"
+traits = ["45/45 benchmark", "thorough, strict reviewer"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md"]
+card_checked = "2026-11-10"
 [profiles."cx.astra"]
 selection_mode = "pinned"
 model = "gpt-6-astra"
 reasoning_effort = "high"
-source = "cli:codex debug models@0.167.0 2026-11-08"
-checked = "2026-11-08"
+source = "cli:codex debug models@0.167.0 2026-11-10"
+checked = "2026-11-10"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
+use_for = "opt-in top tier for the hardest cx tasks"
+avoid_for = "routine work; ultra effort adds latency only"
+traits = ["45/45 at high; ultra same score, slower"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md"]
+card_checked = "2026-11-10"
 
 [profiles."cc.standard"]
 selection_mode = "pinned"
 model = "claude-haiku-5-5"
-source = "known-id:claude --help aliases@2.1.319 2026-11-08"
-checked = "2026-10-29"
+source = "known-id:claude --help aliases@2.1.322 2026-11-10"
+checked = "2026-11-10"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
+use_for = "cheap triage, short summaries, simple lookups"
+avoid_for = "multi-step reasoning, code review, design decisions"
+traits = ["fastest cc tier", "no effort setting (CLI default)"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#325"]
+card_checked = "2026-11-10"
 
 [profiles."cc.effort"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.319 2026-11-08"
-checked = "2026-10-29"
+source = "known-id:claude --help aliases@2.1.322 2026-11-10"
+checked = "2026-11-10"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
+use_for = "daily implementation, multi-file edits with tools"
+avoid_for = "final design arbitration (use deepthink)"
+traits = ["strong tool use", "long asks may end uncertain (#325)"]
+evidence = ["#325", "cc-allow-rules"]
+card_checked = "2026-11-10"
 
 [profiles."cc.deepthink"]
 selection_mode = "pinned"
 model = "claude-opus-5-5"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.319 2026-11-08"
-checked = "2026-10-29"
+source = "known-id:claude --help aliases@2.1.322 2026-11-10"
+checked = "2026-11-10"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
 
 # Top tier (opt-in, never a default). F-7D is the Fable weekly window; whether Fable also draws on the shared
 # C-5H/C-7D pools is unverified (a /usage before/after one call showed no change at integer rounding, 2026-11-08).
+use_for = "design review, hard debugging, final verification"
+avoid_for = "bulk or repetitive work (scarce, slower)"
+traits = ["45/45 benchmark, 15s", "long asks may end uncertain (#325)"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#325"]
+card_checked = "2026-11-10"
 [profiles."cc.fable"]
 selection_mode = "pinned"
 model = "claude-fable-5-1"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.319 2026-11-08"
+source = "known-id:claude --help aliases@2.1.322 2026-11-10"
 checked = "2026-11-08"
 pools = ["F-7D"]  # owner 2026-11-08: Fable has its own weekly pool; whether it also draws C-5H/C-7D is unmeasured
 pools_source = "unverified"
+use_for = "opt-in top tier: hardest reasoning while its pool has room"
+avoid_for = "headless Bash-heavy tasks; routine work"
+traits = ["45/45 benchmark, fastest (11-12s)", "denies allowlisted Bash headless (#303)", "own weekly pool, drains fast"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#303", "cc-allow-rules"]
+card_checked = "2026-11-10"
 
 [profiles."ag.standard"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-low"
-source = "cli:agy.exe models@1.5.3 2026-11-08"
+source = "cli:agy.exe models@1.5.4 2026-11-10"
 checked = "2026-10-29"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
+use_for = "small cheap drafts with all content inlined"
+avoid_for = "bulk lists over ~25 items; file reads"
+traits = ["broke down at 25-150 items", "verify its claims"]
+evidence = ["ag-bulk-profile-heuristics", "ag-recipe"]
+card_checked = "2026-11-10"
 
 [profiles."ag.effort"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-high"
-source = "cli:agy.exe models@1.5.3 2026-11-08"
+source = "cli:agy.exe models@1.5.4 2026-11-10"
 checked = "2026-11-08"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
+use_for = "cheap drafts and cross-reviews, content inlined"
+avoid_for = "tool-dependent tasks; prompts over 30 KB on Windows"
+traits = ["no write sandbox (#140)", "empty replies possible", "parallel workers drain 5H pool"]
+evidence = ["ag-recipe", "ag-bulk-profile-heuristics", "#299"]
+card_checked = "2026-11-10"
 
 [profiles."ag.deepthink"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5-high"
-source = "cli:agy.exe models@1.5.3 2026-11-08"
+source = "cli:agy.exe models@1.5.4 2026-11-10"
 checked = "2026-10-29"
 pools = ["3P-5H", "3P-7D"]
 pools_source = "unverified"
+use_for = "second-opinion review via Claude Sonnet on ag quota"
+avoid_for = "work while its pool is low (it ran out early)"
+traits = ["Claude Sonnet 5.5 high via agy", "no write sandbox (#140)"]
+evidence = ["ag-recipe", "docs/history/quota-efficiency-2026-11-10.md"]
+card_checked = "2026-11-10"
 
 [profiles."ag.argon"]
 selection_mode = "pinned"
 model = "gemini-4-argon-medium"
-source = "cli:agy.exe models@1.5.3 2026-11-08"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
+source = "cli:agy.exe models@1.5.4 2026-11-10"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
 checked = "2026-11-08"
 pools = ["A-7D"]
 pools_source = "agy /usage group (agy 1.4.0)"
+use_for = "opt-in top tier for hard reasoning on ag"
+avoid_for = "tool use (empty replies after tools, #195)"
+traits = ["45/45 at medium; high slower", "empty reply after tool use (#195)"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#195", "ag-recipe"]
+card_checked = "2026-11-10"
 
 [exact_model_pools."gemini-4-argon-low"]
 pools = ["A-7D"]
