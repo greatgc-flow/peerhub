@@ -96,7 +96,7 @@ def render_guide(workspace: Path | None = None) -> str:
         '  peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002',
         "",
         "Efficiency:",
-        "  Reuse: asks auto-reuse sessions; keep one --stream per peer/role with compatible store/binding (1 peer/stream).",
+        "  Reuse: a --stream resumes (same store/binding, 1 peer); reuse per task; new task = new stream; votes one-shot.",
         "  Profiles: lowest tier for task: bulk=standard, code=effort, review/design=deepthink (docs/batch.md).",
         "  Transport: --query-file and --json select transport/format (no token saving).",
         "",
