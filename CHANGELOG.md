@@ -8,6 +8,18 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- Lesson `review-scores-to-100`: ask reviewers for the concrete change behind every score below 100, report unrun checks as NOT RUN instead of deducting, and give peers read/test allow rules so they verify. `docs/benchmarks/run_profile_bench.sh` runs one profile on a benchmark folder and appends the graded result (replaces ad-hoc copies).
+
+### Changed
+
+- `cc.fable` declares pools `F-7D` and `C-7D`: the `claude /usage` payload (`weekly_scoped_shares`) shows Fable use counts in the weekly all-models window (Fable allowance 50% of weekly). No monitor code changes: the monitor maps profiles to pools from this data, so the C-7D row now lists `fable` in PROFILES and suggest eligibility checks both pools (observed in `monitor --snapshot`; #334).
+
+### Fixed
+
+- `test_sleep_called_count_minus_1_times` uses a deterministic clock; it failed the v0.24.6 release matrix on a slow Windows runner (42 +-0.2 s against the real clock).
+
 ## [0.24.6] - 2026-11-10
 
 ### Added

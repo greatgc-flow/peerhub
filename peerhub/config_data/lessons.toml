@@ -64,6 +64,14 @@ fix = 'Prefer peerhub batch run with --dry-run (it validates profiles first). If
 issue = "#289"
 
 [[lessons]]
+id = "review-scores-to-100"
+title = "Review rounds that converge on 100"
+keywords = ["review", "score", "100", "round", "completeness", "matrix", "verify", "unverified", "deduction"]
+symptom = "Review rounds repeat: a reviewer scores items 95-97 without naming a defect, or deducts for checks it could not run, so the score never reaches 100."
+fix = "Ask in the first prompt: for every item below 100 name the concrete, checkable change (file:line + fix), else score 100; report checks that could not run separately as NOT RUN instead of deducting. Give peers the permissions to run the read/test commands they need (project .claude/settings.local.json allow rules for pytest, pyright, git read commands) so reviews verify instead of guessing, and run any command they could not run yourself."
+issue = "2026-11-10 (0.24.5/0.24.6 review rounds)"
+
+[[lessons]]
 id = "independent-peer-votes"
 title = "Independent review votes"
 keywords = ["peer", "vote", "author", "independent", "unanimity", "review", "self-vote"]

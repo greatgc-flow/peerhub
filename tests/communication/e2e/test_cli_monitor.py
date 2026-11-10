@@ -961,16 +961,22 @@ def test_nonfinite_monitor_timing_rejected_before_collection(tmp_path, monkeypat
 
 
 def test_sleep_called_count_minus_1_times(tmp_path, capsys):
+    # Deterministic clock: time advances only through sleep, so a slow runner cannot shrink the sleep (release-matrix flake, v0.24.6).
     calls = []
     sleeps = []
+    clock = [1000.0]
+
+    def fake_sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
     def fake_refresh(*a, **kw):
         calls.append("refresh")
         return {"status": "OK", "observations": [], "warnings": []}
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
-         patch("peerhub.cli.monitor.sleep", lambda s: sleeps.append(s)):
+         patch("peerhub.cli.monitor.sleep", fake_sleep), patch("peerhub.cli.monitor.monotonic", lambda: clock[0]):
         assert _run(_db(tmp_path), "--cycles", "3", "--interval-seconds", "42") in (0, 4)
-    assert sleeps == pytest.approx([42.0, 42.0], abs=0.2)
+    assert sleeps == pytest.approx([42.0, 42.0], abs=1e-9)
     assert calls == ["refresh", "snapshot", "refresh", "snapshot", "refresh", "snapshot"]
 
 

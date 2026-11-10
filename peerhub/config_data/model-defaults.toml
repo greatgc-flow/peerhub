@@ -113,16 +113,16 @@ traits = ["45/45 benchmark, 14-15s", "no gh/git or reads outside -w", "hard 100 
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "docs/peer-limits.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
 card_checked = "2026-11-10"
 
-# Top tier (opt-in, never a default). F-7D is the Fable weekly window; whether Fable also draws on the shared
-# C-5H/C-7D pools is unverified (a /usage before/after one call showed no change at integer rounding, 2026-11-08).
+# Top tier (opt-in, never a default). F-7D is the Fable weekly window. Fable use is also counted in the weekly
+# all-models window C-7D (claude /usage payload weekly_scoped_shares: Fable used 5% of weekly, allowance 50%; 2026-11-10, #334).
 [profiles."cc.fable"]
 selection_mode = "pinned"
 model = "claude-fable-5-2"
 reasoning_effort = "high"
 source = "known-id:claude --help aliases@2.1.322 2026-11-10"
 checked = "2026-11-10"
-pools = ["F-7D"]  # owner 2026-11-08: Fable has its own weekly pool; whether it also draws C-5H/C-7D is unmeasured
-pools_source = "unverified"
+pools = ["F-7D", "C-7D"]
+pools_source = "claude /usage weekly_scoped_shares (claude 2.1.322, 2026-11-10, #334)"
 use_for = "opt-in top tier: hardest reasoning while its pool has room"
 avoid_for = "routine work; Bash-heavy headless tasks"
 traits = ["45/45, hard 100, regex 115", "one headless Bash deny (#303, 5.1)", "regex run 946s vs 5.1 169s (1 run)"]
