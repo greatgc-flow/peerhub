@@ -55,7 +55,7 @@ def test_pool_ids_exist_in_probe_constants():
         pools = p.get("pools")
         assert isinstance(pools, list) and pools, f"{name} missing pools"
         assert set(pools) <= known, f"{name} pools {pools} not in known probe constants"
-        assert p["pools_source"] == "unverified" or p["pools_source"].startswith("agy /usage"), f"{name} unknown pool evidence"
+        assert p["pools_source"] == "unverified" or p["pools_source"].startswith(("agy /usage", "claude /usage")), f"{name} unknown pool evidence"
 
 
 def test_every_profile_model_is_registered_or_peer_scoped():

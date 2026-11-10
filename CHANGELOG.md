@@ -12,6 +12,10 @@ they do not claim new validation or publication evidence.
 
 - Lesson `review-scores-to-100`: ask reviewers for the concrete change behind every score below 100, report unrun checks as NOT RUN instead of deducting, and give peers read/test allow rules so they verify. `docs/benchmarks/run_profile_bench.sh` runs one profile on a benchmark folder and appends the graded result (replaces ad-hoc copies).
 
+### Changed
+
+- `cc.fable` declares pools `F-7D` and `C-7D`: the `claude /usage` payload (`weekly_scoped_shares`) shows Fable use counts in the weekly all-models window (Fable allowance 50% of weekly). Monitor PACE/suggest now account Fable use against C-7D too (#334).
+
 ### Fixed
 
 - `test_sleep_called_count_minus_1_times` uses a deterministic clock; it failed the v0.24.6 release matrix on a slow Windows runner (42 +-0.2 s against the real clock).
