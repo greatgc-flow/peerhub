@@ -14,7 +14,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
-- `cc.fable` declares pools `F-7D` and `C-7D`: the `claude /usage` payload (`weekly_scoped_shares`) shows Fable use counts in the weekly all-models window (Fable allowance 50% of weekly). Monitor PACE/suggest now account Fable use against C-7D too (#334).
+- `cc.fable` declares pools `F-7D` and `C-7D`: the `claude /usage` payload (`weekly_scoped_shares`) shows Fable use counts in the weekly all-models window (Fable allowance 50% of weekly). No monitor code changes: the monitor maps profiles to pools from this data, so the C-7D row now lists `fable` in PROFILES and suggest eligibility checks both pools (observed in `monitor --snapshot`; #334).
 
 ### Fixed
 
