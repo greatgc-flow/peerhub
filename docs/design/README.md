@@ -8,11 +8,10 @@ This directory contains architectural specifications, active design proposals, a
 
 Most entries below are shipped; they are kept for provenance. The latest plan is listed first.
 
-- [Plan 0.24.4 (November 2026)](plan-0.24.4-2026-11-09.md): Pace in the compact monitor, pace-aware suggest, and the guide balance recipe (published as v0.24.4).
+- [Plan 0.24.5 (November 2026)](plan-0.24.5-2026-11-10.md): Latest plan (published as v0.24.5 and v0.24.6): profile cards, quota utilization report and model re-observation; its decision log also covers the 0.24.6 follow-up.
+- [Plan 0.24.4 (November 2026)](plan-0.24.4-2026-11-09.md): Pace in the compact monitor, pace-aware suggest, and the guide balance recipe (previous plan; published as v0.24.4).
 - [Plan 0.24.0 (November 2026)](plan-0.24.0-2026-11-08.md): Release plan and evidence for monitor, CLI and profile changes shipped in v0.24.0.
 - [Plan 0.24.1 (November 2026)](plan-0.24.1-2026-11-08.md): Store discovery recovery and cc permission-denial handling for the v0.24.1 candidate.
-- [Plan 0.24.4 (November 2026)](plan-0.24.4-2026-11-09.md): Previous plan: PACE in the compact monitor and AI-readable quota balancing.
-- [Plan 0.24.5 (November 2026)](plan-0.24.5-2026-11-10.md): Latest plan: profile cards, quota utilization report and model re-observation; its decision log also covers the 0.24.6 follow-up.
 - [Pre-TDD Renewal (October 2026)](peerhub-pre-tdd-renewal-2026-10-14.md): Reconciled architecture, numbered RED contracts (PH-T001–PH-T094), and multi-peer consensus.
 - [CLI, Monitoring, and Inspection Addendum](peerhub-cli-monitoring-inspection-2026-10-14.md): MECE command boundaries, profile/session inspection, read-only guarantees, and PH-T095–105.
 - [Monitor Groups Usability Review](monitor-groups-usability-review-2026-10-16.md): Group discovery, default/legacy contracts, delivery certainty semantics, and TDD acceptance.
