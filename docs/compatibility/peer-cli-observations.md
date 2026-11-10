@@ -6,10 +6,12 @@ for current runtime contracts.
 
 Durable home for empirically-discovered facts about the external peer CLIs,
 so they stop being rediscovered by hand every session
-(`docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md`, "Where the expected facts live").
+(`FACT-REFRESH-PROCEDURE-R1.md`, "Where the expected facts live"; archived, see the
+[ledger](../history/ledger-2026-10-17.md) section 1a).
 
 One entry per discovery. Trace units follow
-`docs/history/design/2026-08/TRACEABILITY-CONVENTION-R1.md` (`PH-<WORKSTREAM>-<UNIT>`).
+`TRACEABILITY-CONVENTION-R1.md` (`PH-<WORKSTREAM>-<UNIT>`; archived, see the
+[ledger](../history/ledger-2026-10-17.md) section 1a).
 Entries are `ACTIVE` until something replaces them, then `SUPERSEDED` with a
 pointer — never deleted, because the reason a fact stopped being true is
 itself a fact worth keeping.

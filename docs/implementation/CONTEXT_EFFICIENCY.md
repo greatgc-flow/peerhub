@@ -30,13 +30,15 @@ measurements remain evidence only for the recorded workloads and versions.
 3. Add a 24,000-byte cap to the default catch-up budget (within ag's 30,000-byte Windows inline limit).
 4. Implement `control.cancel` through process tree termination (`supports_terminate`). After termination, an in-progress delivery does not finish as a normal response.
 
-## Paired Measurement (2026-10-09, `python -m tools.context_bench`)
+## Paired Measurement (2026-10-09, [`bench.py`](../benchmarks/context-bench-2026-10-09/bench.py))
 
-Reproduce the paired measurement with:
+Reproduce the paired measurement from the repository root with:
 
 ```bash
-python -m tools.context_bench --peer cc|cx|ag --turns 6 [--gap-seconds S] [--model M] [--effort E]
+PYTHONPATH=. python docs/benchmarks/context-bench-2026-10-09/bench.py --peer cc|cx|ag --turns 6 [--gap-seconds S] [--model M] [--effort E]
 ```
+
+(The script was `python -m tools.context_bench` until 2026-11-10; the offline tests stay in `tests/communication/package/test_diagnostic_tool_errors.py`.)
 
 Choose one of `cc`, `cx` or `ag`; square brackets denote optional arguments, not literal shell syntax. The benchmark calls the real provider CLI for both fresh and resumed strategies and spends quota. Use `--gap-seconds` to compare warm-cache turns with turns beyond the cache lifetime, and `--model` / `--effort` to select the binding.
 

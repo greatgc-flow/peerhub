@@ -207,7 +207,8 @@ Provider flags must not create competing owners for those policies.
 
 Legacy branch examined: `origin/legacy/v0-main-final` at
 `57a137cd6a0cc7e89124ea2b87b72995087627a5`. Relevant prior evidence includes
-`docs/history/from-engram-repo/protocol-docs/ops/overnight-hardening-2026-07-03.md`
+`overnight-hardening-2026-07-03.md` (archived; see
+[ledger](../history/ledger-2026-10-17.md) section 1a)
 (CC allowlist proposal, Codex `--ignore-rules` removal, and AG sandbox
 limitation) and
 `docs/design/HUB-REPLACEMENT-GAP7-DIAGNOSTICS-2026-08-24.md` (diagnostic
