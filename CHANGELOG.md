@@ -17,7 +17,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
-- Model facts re-observed 2026-11-10 (`defaults_revision` 2026-11-10.1): agy 1.5.4, claude 2.1.322, codex 0.167.0; no packaged model or effort changed. `tools.model_ping` PASS for cc.standard, cc.effort, cc.deepthink (model from the stream) cx.standard, cx.effort, cx.deepthink, cx.astra (model and effort from the session log) and ag.standard, ag.effort, ag.deepthink, ag.argon (model from the agy log); their `checked` dates advanced. cc.fable is checked after its F-7D pool resets (see below).
+- Model facts re-observed 2026-11-10 (`defaults_revision` 2026-11-10.1): agy 1.5.4, claude 2.1.322, codex 0.167.0; no packaged model or effort changed. `tools.model_ping` PASS for cc.standard, cc.effort, cc.deepthink (model from the stream) cx.standard, cx.effort, cx.deepthink, cx.astra (model and effort from the session log) and ag.standard, ag.effort, ag.deepthink, ag.argon (model from the agy log); their `checked` dates advanced. cc.fable was not re-checked: its F-7D pool was exhausted until 2026-11-10T13:00Z, so it keeps `claude-fable-5-1` and `checked` 2026-11-08; the `claude-fable-5-2` candidate is checked in 0.24.6.
 - The refresh recipe (`model-profiles.json`) states ping evidence strength (cx: model and effort; cc, ag: model only), advances `checked` only after a passing ping, and keeps cards evidence-only.
 
 ### Fixed

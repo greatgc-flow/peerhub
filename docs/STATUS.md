@@ -6,7 +6,7 @@ Dates are UTC.
 
 ## Current source: v0.24.5 (release candidate)
 
-v0.24.5 adds AI-readable profile cards (use for / avoid for / traits with evidence, bound to the binding they were checked against; `peerhub explain <profile id>`, `profile show`, `profile list`), a read-only quota utilization report (`tools/quota_report.py`; first report docs/history/quota-efficiency-2026-11-10.md), re-observed model facts (agy 1.5.4, claude 2.1.322, codex 0.167.0; all packaged profiles pinged except cc.fable, checked after its pool reset) and fixes #325 (a later intact cc `result` resolves an oversized-line gap). #323 was deferred by peer vote (no unanimity). Plan: docs/design/plan-0.24.5-2026-11-10.md (cc lead; cc.deepthink, cx.effort and ag.effort reviews, unanimous on spec v2 and on adding #325).
+v0.24.5 adds AI-readable profile cards (use for / avoid for / traits with evidence, bound to the binding they were checked against; `peerhub explain <profile id>`, `profile show`, `profile list`), a read-only quota utilization report (`tools/quota_report.py`; first report docs/history/quota-efficiency-2026-11-10.md), re-observed model facts (agy 1.5.4, claude 2.1.322, codex 0.167.0; all packaged profiles pinged except cc.fable, deferred to 0.24.6 because its pool was exhausted) and fixes #325 (a later intact cc `result` resolves an oversized-line gap). #323 was deferred by peer vote (no unanimity). Plan: docs/design/plan-0.24.5-2026-11-10.md (cc lead; cc.deepthink, cx.effort and ag.effort reviews, unanimous on spec v2 and on adding #325).
 
 ### v0.24.4 (published)
 

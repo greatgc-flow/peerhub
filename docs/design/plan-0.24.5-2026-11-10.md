@@ -63,6 +63,7 @@ Roles: cc implements (C-7D expires ~4h, 19% left), cx reviews diffs, ag reviews 
 | R2-R4 spec | Frozen spec v1 -> v2 (overlay "changes" = differs; format-only loader; release gates A/B) | cc.deepthink, cx.effort, ag.effort: unanimous |
 | Scope | Add #325 (cc oversized-line gap resolved by a later intact result) | cc.deepthink (design), cx.effort, ag.effort: unanimous |
 | Scope | #323 batch shared ag workspace: deferred (issue comment has the design) | cx APPROVE with conditions, ag DISAGREE: no unanimity |
+| Release scope | Publish 0.24.5 with cc.fable cells DEFERRED (pool exhausted until 13:00Z; binding and checked date unchanged; CHANGELOG note); fable-5-2 check moves to 0.24.6. G1 evidence: CI ubuntu-full at 213eb479, full serial suite with all dev deps, 3873 passed, 0 failed | cx (after G1 evidence), ag: unanimous |
 | Follow-up | 0.24.6 (separate PR after 0.24.5): #327 items 1/5/9 + read-only `diag running` without progress fields | cx, ag: unanimous on the narrowed scope |
 
 Completeness matrix (score = PASS / applicable non-pending cells):
@@ -75,3 +76,4 @@ Completeness matrix (score = PASS / applicable non-pending cells):
 | 4 | - | 27/27 (100%) | 29/29 (100%) |
 
 Pending at round 4 (not defects): cc.fable check after the F-7D reset, full serial pytest, CI, merged-HEAD live gate, publication (G3-G7).
+Resolved before publication: G1 (local 3685 passed / 0 failed; CI ubuntu-full 3873 passed / 0 failed), CI green; cc M1/M2 = DEFERRED by scope amendment (not passed).
