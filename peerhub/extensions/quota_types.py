@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 import math
 from typing import Any, Generic, NewType, Protocol, TypeVar
 
-from peerhub.extensions.observation_model import NOT_REPORTED_REASON as NOT_REPORTED_REASON, EvidenceState  # re-export: probes import quota_types, not observation_model
+from peerhub.extensions.observation_model import account_text as account_text, valid_epoch_seconds as valid_epoch_seconds, DISABLED_REASON as DISABLED_REASON, NOT_REPORTED_REASON as NOT_REPORTED_REASON, EvidenceState  # re-export: probes import quota_types, not observation_model
 
 T = TypeVar("T")
 EvidenceRef = NewType("EvidenceRef", str)

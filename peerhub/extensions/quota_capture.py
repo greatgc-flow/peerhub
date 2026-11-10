@@ -4,6 +4,7 @@ Provider parsing/transport is owned by quota_probes; no v0 runtime is loaded.
 """
 from __future__ import annotations
 
+import time
 import uuid
 import math
 from pathlib import Path
@@ -19,6 +20,74 @@ from peerhub.core.models import utc_now_iso
 class _Ids:
     def new_id(self, prefix: str) -> str:
         return f"{prefix}-{uuid.uuid4().hex}"
+
+
+def _account_error(kind: str, reason: str, error_type: str | None = None) -> Any:
+    from peerhub.extensions.quota_probes import ACCOUNT_REFS, account_failure
+    return account_failure(ACCOUNT_REFS[kind], f"account_probe:{kind}", int(time.time()), EvidenceState.ERROR, reason, error_type=error_type)
+
+
+ACCOUNT_RETRY_SECONDS = 300.0  # a failed account probe is retried after this, not on every monitor cycle
+
+
+def _account_is_fresh(store: ObservationStore, peer: str) -> bool:
+    """No probe is due: the latest reading is MEASURED within the account TTL, or a failure younger than the retry backoff."""
+    view = store.latest(peer, "account")
+    if view is None:
+        return False
+    if view.stored_state == EvidenceState.MEASURED:
+        return view.state == EvidenceState.MEASURED
+    return view.age_seconds is not None and view.age_seconds < ACCOUNT_RETRY_SECONDS
+
+
+class AccountCollection:
+    """Account readings per peer under ONE deadline. Construction starts the probes (in parallel, once per provider kind: aliases share
+    the reading; peers whose account observation is still fresh are skipped), so they overlap whatever the caller does next;
+    `finish()` joins them and returns {peer: AccountObserved} for the peers that should get a new observation. A probe that
+    raises or outlives `start + budget + 1 s` becomes an ERROR reading with a fixed reason."""
+
+    def __init__(self, store: ObservationStore, targets: Sequence[tuple[str, str]], pollers: dict[str, Callable[[], Any]], budget: float) -> None:
+        import threading
+
+        peers_by_kind: dict[str, list[str]] = {}
+        for peer, kind in targets:
+            if kind in pollers and peer not in peers_by_kind.setdefault(kind, []):
+                peers_by_kind[kind].append(peer)
+        due = {kind: [p for p in peers if not _account_is_fresh(store, p)] for kind, peers in peers_by_kind.items()}
+        self._due = {kind: peers for kind, peers in due.items() if peers}
+        self._readings: dict[str, Any] = {}
+
+        def run(kind: str) -> None:
+            try:
+                self._readings[kind] = pollers[kind]()
+            except Exception as exc:
+                self._readings[kind] = _account_error(kind, "probe_exception", type(exc).__name__)
+
+        self._threads = {kind: threading.Thread(target=run, args=(kind,), daemon=True) for kind in self._due}
+        self._end = time.monotonic() + budget + 1.0  # the pollers themselves honour `budget`
+        for thread in self._threads.values():
+            thread.start()
+
+    def finish(self) -> dict[str, Any]:
+        timed_out = set[str]()
+        for kind, thread in self._threads.items():
+            thread.join(max(0.0, self._end - time.monotonic()))
+            if thread.is_alive():
+                timed_out.add(kind)
+        out: dict[str, Any] = {}
+        for kind, peers in self._due.items():
+            reading = _account_error(kind, "timeout") if kind in timed_out else self._readings.get(kind)
+            if reading is not None:
+                out.update({peer: reading for peer in peers})
+        return out
+
+
+def default_account_pollers(sys_dir: Path | None, deadline_sec: float) -> dict[str, Callable[[], Any]]:
+    """The real account probes, bounded by the refresh deadline; only the builtin default accounts are collected."""
+    from peerhub.extensions.quota_probes import poll_agy_account, poll_claude_account, poll_codex_account
+    return {"cc": lambda: poll_claude_account(sys_dir=sys_dir, deadline_sec=deadline_sec),
+            "cx": lambda: poll_codex_account(sys_dir=sys_dir, deadline_sec=deadline_sec),
+            "ag": lambda: poll_agy_account(sys_dir=sys_dir, deadline_sec=deadline_sec)}
 
 
 def _probe_cli_version(kind: str, sys_dir: Path | None) -> str | None:
@@ -82,7 +151,8 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                   deadline_sec: float = 15, pollers: dict[str, Callable[..., Any]] | None = None,
                   version_checker: Callable[[str], str | None] | None = None,
                   cx_pools: Sequence[str] | None = None, cc_pools: Sequence[str] | None = None,
-                  ag_pools: Sequence[str] | None = None) -> dict[str, Any]:
+                  ag_pools: Sequence[str] | None = None,
+                  account_pollers: dict[str, Callable[[], Any]] | None = None) -> dict[str, Any]:
     if not peers or not math.isfinite(deadline_sec) or deadline_sec <= 0:
         raise ValueError("provide peers and a positive probe timeout")
     if not Path(db_path).is_file():
@@ -93,11 +163,19 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
         if kind is None:
             raise ValueError("quota providers: cx/codex, cc/claude, ag/agy")
         kinds.append(kind)
+    injected_pollers = pollers is not None
     if pollers is None:
         from peerhub.extensions.quota_probes import poll_agy_usage, poll_claude_usage, poll_codex_usage
         pollers = {"cx": poll_codex_usage, "cc": poll_claude_usage, "ag": poll_agy_usage}
 
     store = ObservationStore(db_path, require_existing=True)
+
+    # Account / login / plan evidence (#329): bounded no-model-turn probes, independent of the quota probes (a failure there never
+    # blocks them). They start now, run alongside the serial version and quota probes below, and are joined after the quota loop, so the
+    # whole refresh stays within roughly max(quota time, probe timeout). Injected quota pollers imply no real account probes.
+    if account_pollers is None:
+        account_pollers = {} if injected_pollers else default_account_pollers(sys_dir, deadline_sec)
+    accounts_running = AccountCollection(store, list(zip(peers, kinds)), account_pollers, deadline_sec)
 
     observed_versions = _packaged_observed_versions()
     prior_report = _read_latest_facts_report(store)
@@ -119,7 +197,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             probed_versions[kind] = v_fn(kind)
         except Exception:
             probed_versions[kind] = None
-    pending_obs: list[tuple[str, str | None, str, EvidenceState, dict[str, Any], str, str, bool]] = []
+    pending_obs: list[tuple[str, str | None, str, EvidenceState, dict[str, Any], str, str, str]] = []  # last item: observation kind
     warnings: list[str] = []
 
     for peer, kind in zip(peers, kinds):
@@ -149,7 +227,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             pending_obs.append((
                 peer, None, f"quota_probe:{kind}", EvidenceState.ERROR,
                 {"condition": "probe_failed", "error_type": type(exc).__name__},
-                utc_now_iso(), utc_now_iso(), False,
+                utc_now_iso(), utc_now_iso(), "quota",
             ))
             continue
         for reading in readings:
@@ -161,7 +239,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                     rc_payload["condition"] = "reset_credits_malformed"
                 pending_obs.append((
                     peer, pool_ref, reading.source_tag, reading.state, rc_payload,
-                    epoch_to_iso(reading.observed_at), epoch_to_iso(reading.captured_at), True,
+                    epoch_to_iso(reading.observed_at), epoch_to_iso(reading.captured_at), "reset_credit",
                 ))
                 continue
             evidence = reading.evidence
@@ -192,8 +270,15 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
             pending_obs.append((
                 peer, pool_ref, evidence.source_tag, state, payload,
                 epoch_to_iso(evidence.observed_at or evidence.captured_at),
-                epoch_to_iso(evidence.captured_at), False,
+                epoch_to_iso(evidence.captured_at), "quota",
             ))
+
+    # Join the account probes started above. Only normalized fields reach `pending_obs`.
+    for peer, account in accounts_running.finish().items():
+        if account.warning:
+            warnings.append(f"{peer}: account_probe: {account.warning}")
+        stamp = epoch_to_iso(account.observed_at)
+        pending_obs.append((peer, None, account.source_tag, account.state, dict(account.payload), stamp, stamp, "account"))
 
     import re
     today = utc_now_iso()[:10]
@@ -270,9 +355,8 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     }
 
     written: list[dict[str, Any]] = []
-    for peer_id, pool_ref, src, st, pld, obs_at, cap_at, is_reset_credit in pending_obs:
-        kind_name = "reset_credit" if is_reset_credit else "quota"
-        if not is_reset_credit:
+    for peer_id, pool_ref, src, st, pld, obs_at, cap_at, kind_name in pending_obs:
+        if kind_name == "quota":
             pld["facts_report"] = facts_report
         obs = Observation(
             observation_id=uuid.uuid4().hex,
@@ -288,5 +372,5 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
         store.persist(obs)
         written.append(obs.model_dump(mode="json"))
 
-    return {"schema_version": "1.0", "status": "PARTIAL" if any(o["state"] == "ERROR" for o in written) else "OK",
+    return {"schema_version": "1.0", "status": "PARTIAL" if any(o["state"] == "ERROR" and o["kind"] != "account" for o in written) else "OK",  # account evidence never degrades quota status
             "observations": written, "warnings": warnings}

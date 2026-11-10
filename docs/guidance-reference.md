@@ -166,7 +166,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
   1. `peerhub diag quota`: Inspect provider quota pools and reset times (Prerequisites: None.)
   2. `peerhub profile list`: Review available model profiles and configured bindings (Prerequisites: None.)
 - **Avoid**: Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue.
-- **Documentation**: [docs/history/from-engram-repo/protocol-docs/ops/automatic-profile-routing-2026-06-20.md](history/from-engram-repo/protocol-docs/ops/automatic-profile-routing-2026-06-20.md)
+- **Documentation**: [docs/adapters/README.md](adapters/README.md)
 
 #### `ask_schema_version_error`
 

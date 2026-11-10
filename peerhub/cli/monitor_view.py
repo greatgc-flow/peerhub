@@ -6,13 +6,15 @@ import os
 import re
 import unicodedata
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, cast
 
 from peerhub.cli.monitor_preferences import GROUPS
 
 # Mirrors peerhub.extensions.observation_model.NOT_REPORTED_REASON (the human renderer imports no extension code).
 _NOT_REPORTED = "not reported by provider"
+_DISABLED = "disabled by provider"  # mirrors observation_model.DISABLED_REASON: the window exists but the provider switched it off
+_NA_REASONS = (_NOT_REPORTED, _DISABLED)
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
@@ -527,12 +529,16 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 age_str = f"{max(0.0, age + elapsed_seconds):.0f}s" if age is not None else "-"
 
                 reason_text = _clean(item.get("reason") or "")
-                if reason_text.startswith(_NOT_REPORTED) and state in {"ABSENT", "STALE"}:
-                    # The provider answered completely but has no such window (plan-dependent): n/a, not 0% and not unlimited.
-                    plan = _clean(reason_text.split("plan=", 1)[1]) if "plan=" in reason_text else "unknown"
+                if reason_text.startswith(_NA_REASONS) and state in {"ABSENT", "STALE"}:
+                    # The provider answered completely but has no such window (plan-dependent) or switched it off: n/a, not 0% and not unlimited.
                     fresh = state == "ABSENT"
-                    na_notes.append(f"{peer} {pool_id} n/a not reported (plan {plan})" if fresh else
-                                    f"{peer} {pool_id} ? not reported (plan {plan}), aged; next: peerhub observation refresh --peers {peer}")
+                    if reason_text.startswith(_DISABLED):
+                        what = reason_text
+                    else:
+                        plan = _na_plan(item, reason_text)
+                        what = f"not reported (plan {plan})"
+                    na_notes.append(f"{peer} {pool_id} n/a {what}" if fresh else
+                                    f"{peer} {pool_id} ? {what}, aged; next: peerhub observation refresh --peers {peer}")
                     rows.append(_fit(quota_row({
                         "PEER": peer, "POOL": pool_id, "REM": "n/a" if fresh else "-",
                         "[BAR]": f"[{('░' if unicode else '.') * 8}]", "RESET-IN": "-", "EXHAUST-IN": "-", "PACE": "-",
@@ -621,6 +627,9 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             expiry = "-" if expires is None else f"in {_format_duration(left)}" if left and left > 0 else datetime.fromtimestamp(expires, timezone.utc).strftime("%Y-%m-%d %H:%MZ")
             state = _clean(credit.get("state") or "UNKNOWN")
             rows.append(f"{_peer(credit)} reset credits: {count} | soonest {expiry} [{state}]")
+        account_items = _items(data.get("accounts"))
+        if account_items:
+            rows.extend(_account_rows(account_items, elapsed_seconds))
         note = _coverage(data, unicode)
         if note:
             rows.append(f"Coverage: {note}")
@@ -860,7 +869,7 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
         reset_in -= elapsed
     reason = _clean(item.get("reason") or "")
     not_reported = (item.get("state") == "ABSENT" and not aged
-                    and reason.startswith(_NOT_REPORTED))
+                    and reason.startswith(_NA_REASONS))
     projection = _obj(item.get("projection"))
     samples = _number(item.get("projection_samples")) or 0
     if not_reported:
@@ -889,8 +898,88 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
         pace_text = f"{rounded:+d}" if rounded else "0"
     return {"peer": peer, "pool": pool, "meaning": meaning, "remaining": remaining, "left": left,
             "resets": resets, "pace": pace_text, "reset_seconds": reset_in, "family": family, "age": _compact_age(age), "state": state, "aged": aged,
-            "needs_refresh": aged or age is None or state in {"?", "reset"}, "reason": reason,
+            "needs_refresh": aged or age is None or state in {"?", "reset"}, "reason": reason, "display_plan": item.get("display_plan"),
             "profiles": ",".join(consumers.get(f"{peer}:{pool}", [])) or "unmapped"}
+
+
+_ACCOUNT_WARN_DAYS = 14
+
+
+def _na_plan(item: dict[str, Any], reason: str) -> str:
+    """The plan named in a not-applicable pool note: the account-supplied `display_plan` when present, else the stored reason's `plan=`."""
+    shown = item.get("display_plan")
+    if isinstance(shown, str) and shown:
+        return _clean(shown)
+    return _clean(reason.split("plan=", 1)[1]) if "plan=" in reason else "unknown"
+
+
+def _utc_text(timestamp: float, fmt: str) -> str | None:
+    """A UTC date text, or None for an instant that cannot be represented (the renderer must never raise on stored data)."""
+    try:  # epoch + timedelta (not fromtimestamp): the platform C time functions stop at year 3000 on Windows
+        return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=timestamp)).strftime(fmt)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _account_failed(item: dict[str, Any]) -> bool:
+    return item.get("stored_state") in {"ERROR", "UNAVAILABLE", "UNKNOWN"}
+
+
+def _account_plan(item: dict[str, Any]) -> str:
+    """The plan label (display only), or n/a (provider does not expose it) / ? (could not be determined)."""
+    status = item.get("plan_status")
+    return _clean(item.get("plan")) if status == "reported" and item.get("plan") else "n/a" if status == "n/a" else "?"
+
+
+def _account_login(item: dict[str, Any]) -> str:
+    login = item.get("logged_in")
+    return "ok" if login is True else "out" if login is False else "?"
+
+
+def _account_fragment(item: dict[str, Any], now: float, elapsed: float) -> str:
+    """One peer's compact ACCOUNTS entry; token expiry shows only when within 14 days (or already past) and is a LOGIN token, not billing."""
+    peer = _clean(item.get("peer_id") or "?")
+    if _account_failed(item):
+        return f"{peer} account ? (probe error)"
+    plan = _account_plan(item)
+    if item.get("endpoint_access") is not None:
+        text = f"{peer} plan {plan} credits {_clean(item.get('endpoint_access'))}"
+    else:
+        text = f"{peer} {plan if item.get('plan_status') == 'reported' else 'plan ' + plan} login {_account_login(item)}"
+        expires = _number(item.get("login_token_expires_at"))
+        if item.get("login_expiry_status") == "reported" and expires is not None:
+            left = expires - now - elapsed
+            if left < 0 or left <= _ACCOUNT_WARN_DAYS * 86400:
+                when = _utc_text(expires, "%m-%d")
+                if when is not None:
+                    text += f" (token {'expired' if left < 0 else 'exp'} {when})"
+    notes = [note for note, on in (("aged", item.get("state") == "STALE"), ("probe error", bool(item.get("probe_error")))) if on]
+    return text + (f" ({', '.join(notes)})" if notes else "")
+
+
+def _account_rows(accounts: list[dict[str, Any]], elapsed: float) -> list[str]:
+    """Expanded ACCOUNTS rows: the same stored fields as the compact line and the JSON, with the long labels spelled out."""
+    rows = ["ACCOUNTS (plan is display data; the expiry is the login token's, not billing)"]
+    for item in accounts:
+        peer = _clean(item.get("peer_id") or "?")
+        age = _number(item.get("age_seconds"))
+        tail = f"age {_compact_age(age + elapsed if age is not None else None)} [{_clean(item.get('state') or 'UNKNOWN')}]"
+        if _account_failed(item):
+            rows.append(f"{peer} account ? | probe error: {_clean(item.get('probe_error') or 'unknown')} | {tail}")
+            continue
+        parts = [f"{peer} login {_account_login(item)}", f"plan {_account_plan(item)}"]
+        expires = _number(item.get("login_token_expires_at"))
+        status = item.get("login_expiry_status")
+        shown = _utc_text(expires, "%Y-%m-%d") if status == "reported" and expires is not None else None
+        parts.append("login token expiry " + (shown or ("n/a" if status == "n/a" else "?")))
+        if item.get("endpoint_access") is not None:
+            parts.append(f"credits endpoint {_clean(item.get('endpoint_access'))}")
+        if item.get("auth_method"):
+            parts.append(f"auth {_clean(item.get('auth_method'))}")
+        if item.get("probe_error"):  # the last probe failed; the reading above is the last good one
+            parts.append(f"probe error: {_clean(item.get('probe_error'))}")
+        rows.append(" | ".join(parts + [tail]))
+    return rows
 
 
 def _compact_footer(groups: dict[str, Any]) -> list[str]:
@@ -1071,7 +1160,8 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
                     quota_label = f"{limit['left']} ({limit['pool']})"
                     peer_aged = peer_aged or bool(limit["aged"])
                 else:
-                    reason = "not reported" if mapped and all(row["state"] == "n/a" for row in mapped) else "never measured"
+                    reason = ("disabled" if all(str(row["reason"]).startswith(_DISABLED) for row in mapped)
+                              else "not reported") if mapped and all(row["state"] == "n/a" for row in mapped) else "never measured"
                     quota_label = f"? ({reason})"
                 summaries.append(f"{'/'.join(sorted(names))} {quota_label}")
             if not summaries:
@@ -1080,7 +1170,9 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
             for row in peer_rows:
                 if row["state"] == "n/a":
                     match = re.search(r"(?:^|;)\s*plan=([^;]+)", str(row["reason"]))
-                    notes.append(f"{row['pool']} n/a" + (f" (plan {match[1]})" if match else ""))
+                    plan_text = _clean(row["display_plan"]) if row.get("display_plan") else (match[1] if match else None)
+                    notes.append(f"{row['pool']} n/a" + (" (disabled)" if str(row["reason"]).startswith(_DISABLED)
+                                                          else f" (plan {plan_text})" if plan_text else ""))
             probes = [item for item in observations if item.get("peer_id") == peer and item.get("kind", "quota") == "quota"]
             if probes:
                 latest = max(probes, key=lambda item: _number(item.get("effective_at_us")) or
@@ -1092,6 +1184,9 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
             lines.extend(_compact_wrap(f"{peer} " + " | ".join(summaries + notes)
                                        + (" (aged)" if peer_aged else ""), width))
         lines.extend(_compact_wrap(_compact_suggestions(configured_profiles, rows), width))
+    accounts = _items(_obj(_obj(groups.get("capacity")).get("data")).get("accounts")) if "capacity" in selected_ids else []
+    if accounts:
+        lines.extend(_compact_wrap("ACCOUNTS " + " | ".join(_account_fragment(item, now, elapsed) for item in accounts), width))
     for footer in _compact_footer(groups):
         lines.extend(_compact_wrap(footer, width))
     if height is not None and len(lines) > max(0, height - 1):
@@ -1159,7 +1254,7 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
         reason = _clean(obs.get("reason") or "")
         if obs.get("state") == "ABSENT" and reason.startswith(_NOT_REPORTED):
             pool = _clean(obs.get("pool_ref") or "").split(":")[-1]
-            plan = _clean(reason.split("plan=", 1)[1]) if "plan=" in reason else "unknown"
+            plan = _na_plan(obs, reason)
             window = pool.split("-", 1)[-1].lower() if "-" in pool else pool.lower()
             plan_windows.setdefault(_clean(obs.get("peer_id") or "?"), (plan, []))[1].append(window)
     peers_group = _obj(groups.get("peers"))

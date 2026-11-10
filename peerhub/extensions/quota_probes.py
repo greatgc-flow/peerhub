@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -14,7 +15,7 @@ from typing import Sequence, Optional, TypedDict, Callable, cast, Any, TypeGuard
 
 from peerhub.extensions.binary_resolution import CLAUDE_CMD, CODEX_CMD
 from peerhub.extensions.process_tree import kill_process_tree
-from peerhub.extensions.quota_types import NOT_REPORTED_REASON, IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement, ResetCreditObserved
+from peerhub.extensions.quota_types import account_text as _account_text, valid_epoch_seconds, DISABLED_REASON, NOT_REPORTED_REASON, IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement, ResetCreditObserved
 
 AGY_QUOTA_FAMILIES = (
     ("gemini-5h", "G-5H"),
@@ -429,6 +430,17 @@ def _derive_agy_pool_label(
     return known_ids.get(bucket_id)
 
 
+def _disabled_description(value: object) -> str:
+    """The provider's own words for a disabled window: printable ASCII only, no ';'/'=' (they delimit reason fields), <=100 chars."""
+    text = re.sub(r"[^A-Za-z0-9 .,()'/%+-]", " ", value) if isinstance(value, str) else ""
+    return " ".join(text.split())[:100].strip()
+
+
+def _disabled_reason(q: dict[str, Any]) -> str:
+    description = _disabled_description(q.get("description"))
+    return f"{DISABLED_REASON}: {description}" if description else DISABLED_REASON
+
+
 def _check_agy_bucket_conflict(key: str, label: str, q: dict[str, Any]) -> Optional[str]:
     """Return conflict description if envelope group/window contradicts registered bucket label."""
     parts = label.split("-")
@@ -527,6 +539,16 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
             window_str = str(window) if isinstance(window, str) else None
             group_name_str = str(group_name) if isinstance(group_name, str) else None
 
+            if isinstance(bucket_id, str) and bucket_id in known_ids and bucket.get("disabled") is True:
+                # The provider switched this window off (e.g. 5h limit while the weekly limit is hit): it carries no usable
+                # fraction or reset, so keep only the flag and its description and let the poller record it as not applicable.
+                disabled_entry: dict[str, Any] = {"disabled": True, "description": bucket.get("description")}
+                if window_str is not None:
+                    disabled_entry["window"] = window_str
+                if group_name_str is not None:
+                    disabled_entry["group"] = group_name_str
+                buckets[bucket_id] = disabled_entry
+                continue
             if isinstance(bucket_id, str) and bucket_id in known_ids and not _valid_fraction(remaining):
                 return {}
             if (
@@ -582,12 +604,15 @@ def _agy_report_is_clean(text: str) -> bool:
             if not isinstance(bucket, dict):
                 return False
             b = cast(dict[str, Any], bucket)
+            bucket_id = b.get("id")
+            if b.get("disabled") is True and isinstance(bucket_id, str) and bucket_id in dict(AGY_QUOTA_FAMILIES):
+                continue  # a well-formed "switched off" bucket carries no fraction or reset
             if not isinstance(b.get("id"), str) or not _valid_fraction(b.get("remaining_fraction")) or not isinstance(b.get("reset_time"), str):
                 return False
     return True
 
 
-def _agy_usage_violation(text: str) -> Optional[tuple[str, dict[str, Any]]]:
+def _agy_usage_violation(text: str, command_name: str = "usage") -> Optional[tuple[str, dict[str, Any]]]:
     """Evaluate the RAW print-mode envelope of `agy -p /usage`: a proper slash-command run has command.name == "usage", zero tokens and
     zero turns. Anything else means the text may have gone to a real model turn (quota burn) or is not the command: (evidence_ref, extra)
     or None when the run is clean/unparseable (unparseable keeps the legacy non-JSON behaviour)."""
@@ -613,9 +638,9 @@ def _agy_usage_violation(text: str) -> Optional[tuple[str, dict[str, Any]]]:
             extra["reason"] = "agy_usage_unverifiable_tokens"
             extra["warning"] = f"agy /usage reported a non-numeric {name}; token consumption cannot be ruled out"
             return "agy_usage_unverifiable_tokens", extra
-    if not isinstance(command_raw, dict) or cast(dict[str, Any], command_raw).get("name") != "usage":
+    if not isinstance(command_raw, dict) or cast(dict[str, Any], command_raw).get("name") != command_name:
         extra["reason"] = "agy_usage_not_a_command"
-        extra["warning"] = "agy /usage was not recognised as a slash command (possible model turn); the response is NOT used as quota"
+        extra["warning"] = f"agy /{command_name} was not recognised as a slash command (possible model turn); the response is NOT used as quota"
         return "agy_usage_not_a_command", extra
     return None
 
@@ -642,6 +667,7 @@ def _fail_closed(
     peer: str = "cc",
     evidence_ref_override: Optional[str] = None,
     extra: Optional[dict[str, Any]] = None,
+    source_tag_override: Optional[str] = None,
 ) -> UsageObserved:
     if peer == "cx":
         source_tag = "codex_app_server"
@@ -658,7 +684,7 @@ def _fail_closed(
 
     evidence = EvidenceValue[UsageMeasurement](
         state=state,
-        source_tag=source_tag,
+        source_tag=source_tag_override or source_tag,
         provider_id=provider_id,
         provider_version="1.0",
         observed_at=observed_at,
@@ -1221,9 +1247,18 @@ def poll_agy_usage(
 
     results: list[UsageObserved] = []
     malformed = False
+    disabled_pools: set[str] = set()
 
     for key, label in _AG_QUOTA_LABELS.items():
         q_raw = quota_dict_typed.get(key)
+        if isinstance(q_raw, dict) and cast(dict[str, Any], q_raw).get("disabled") is True and _check_agy_bucket_conflict(key, label, cast(dict[str, Any], q_raw)) is None:
+            # Provider-disabled window: not applicable (ABSENT), with the provider's description as provenance; the other pools stay measured.
+            results.append(_fail_closed(
+                ids, instance_id, profile_id, EvidenceState.ABSENT, evidence_observed_at, freshness_ttl, peer="ag",
+                evidence_ref_override=str(evidence_ref), source_tag_override=source_tag,
+                extra={"pool_scope": label, "reason": _disabled_reason(cast(dict[str, Any], q_raw))}))
+            disabled_pools.add(label)
+            continue
         if not isinstance(q_raw, dict):
             if key in quota_dict_typed:
                 malformed = True  # present but unusable: completeness cannot be claimed
@@ -1323,10 +1358,286 @@ def poll_agy_usage(
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, evidence_observed_at, freshness_ttl, peer="ag", extra=extra_err),)
 
     # An unknown bucket id / drift means the vocabulary changed (a "missing" pool may only be renamed): infer nothing.
-    if source_tag == "agy_cli_usage" and report_clean and not malformed and not unknown_buckets and all(r.evidence.state == EvidenceState.MEASURED for r in results):
-        reported = {r.evidence.value.quota_pool_scope for r in results if r.evidence.value is not None}
+    if (source_tag == "agy_cli_usage" and report_clean and not malformed and not unknown_buckets
+            and all(r.evidence.state == EvidenceState.MEASURED or r.extra.get("pool_scope") in disabled_pools for r in results)):
+        reported = {r.evidence.value.quota_pool_scope for r in results if r.evidence.value is not None} | disabled_pools
         for pool_scope in (tuple(_AG_QUOTA_LABELS.values()) if configured_pools is None else configured_pools):
             if pool_scope not in reported:
                 results.append(_absent_pool(ids, instance_id, profile_id, "ag", observed_at_now, freshness_ttl, pool_scope))
 
     return tuple(results)
+
+
+# ---------------------------------------------------------------------------------------------------
+# Account / login / plan probes (#329). Each reads one provider surface that spends no model turn and
+# keeps ONLY normalized fields: nothing identifying (email, org, account id, token, raw text) is returned,
+# so nothing identifying can be persisted. UNKNOWN = could not be determined; "n/a" = the provider does not expose it.
+# ---------------------------------------------------------------------------------------------------
+@dataclass(frozen=True)
+class AccountObserved:
+    evidence_ref: str
+    state: EvidenceState
+    source_tag: str
+    observed_at: int
+    payload: dict[str, Any]
+    warning: Optional[str] = None
+
+
+_CC_ACCOUNT_REF, _CX_ACCOUNT_REF, _AG_ACCOUNT_REF = "probe:cc:auth-status", "probe:cx:account-read", "probe:ag:credits"
+
+
+ACCOUNT_REFS = {"cc": _CC_ACCOUNT_REF, "cx": _CX_ACCOUNT_REF, "ag": _AG_ACCOUNT_REF}
+
+
+def _login_expiry(value: object) -> Optional[int]:
+    """Epoch seconds of the login-token expiry, or None unless it is a representable UTC instant (1970..9999)."""
+    seconds = _login_expiry_seconds(value)
+    return seconds if seconds is not None and valid_epoch_seconds(seconds) else None
+
+
+def _login_expiry_seconds(value: object) -> Optional[int]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):  # bound the int before any float conversion: 10**309 does not fit a float
+        if not 0 < value <= 10**18:
+            return None
+    if isinstance(value, (int, float)):
+        if not math.isfinite(value) or value <= 0:
+            return None
+        scaled = value / 1000.0 if value > 1e12 else value  # epoch milliseconds
+        return int(scaled) if scaled <= 1e18 else None
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            return _login_expiry_seconds(float(text))
+        except ValueError:
+            pass
+        try:
+            stamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            return int((stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)).timestamp())
+        except (ValueError, OverflowError, OSError):
+            return None
+    return None
+
+
+def _account_payload(evidence_ref: str, *, logged_in: object, plan: Optional[str], plan_status: str, expires: Optional[int] = None,
+                     expiry_status: str = "n/a", auth_method: Optional[str] = None,
+                     endpoint_access: Optional[str] = None) -> dict[str, Any]:
+    """The whole stored account fact. Nothing identity-derived exists in it (no email, org, id, hash or reference)."""
+    return {"logged_in": logged_in, "plan": plan, "plan_status": plan_status, "login_token_expires_at": expires,
+            "login_expiry_status": expiry_status, "auth_method": auth_method,
+            "endpoint_access": endpoint_access, "evidence_ref": evidence_ref}
+
+
+def parse_claude_auth_status(text: str) -> Optional[dict[str, Any]]:
+    """`claude auth status` JSON -> normalized payload, or None when it is not a JSON object."""
+    env = _agy_envelope(text)
+    if env is None:
+        return None
+    flag = env.get("loggedIn")
+    logged_in: object = flag if isinstance(flag, bool) else "UNKNOWN"
+    if logged_in is False:
+        return _account_payload(_CC_ACCOUNT_REF, logged_in=False, plan=None, plan_status="n/a", expiry_status="n/a",
+                                auth_method=_account_text(env.get("authMethod")))
+    method, provider = _account_text(env.get("authMethod")), _account_text(env.get("apiProvider"))
+    # API-key / Bedrock / Vertex style logins have no subscription plan or login-token expiry to expose: n/a, not "could not determine".
+    subscription = (method is None or method.lower() == "claude.ai") and (provider is None or provider.lower() == "firstparty")
+    plan = (_account_text(env.get("subscriptionType")) or _account_text(env.get("planTier"))) if subscription else None  # residue is ignored
+    expires = _login_expiry(env.get("loginExpiresAt")) if subscription else None  # a missing expiry never means logged out
+    return _account_payload(_CC_ACCOUNT_REF, logged_in=logged_in, plan=plan,
+                            plan_status="reported" if plan else "UNKNOWN" if subscription else "n/a",
+                            expires=expires, expiry_status="reported" if expires else "UNKNOWN" if subscription else "n/a",
+                            auth_method=method)
+
+
+def parse_codex_account(result: object) -> Optional[dict[str, Any]]:
+    """app-server `account/read` result -> normalized payload, or None when it is not an object."""
+    if not isinstance(result, dict):
+        return None
+    body = cast(dict[str, Any], result)
+    if "account" not in body:
+        return _account_payload(_CX_ACCOUNT_REF, logged_in="UNKNOWN", plan=None, plan_status="UNKNOWN")
+    account_raw = body["account"]
+    if account_raw is None:
+        return _account_payload(_CX_ACCOUNT_REF, logged_in=False, plan=None, plan_status="n/a")
+    if not isinstance(account_raw, dict):
+        return _account_payload(_CX_ACCOUNT_REF, logged_in="UNKNOWN", plan=None, plan_status="UNKNOWN")
+    account = cast(dict[str, Any], account_raw)
+    kind = _account_text(account.get("type"))
+    if kind is None:
+        return _account_payload(_CX_ACCOUNT_REF, logged_in="UNKNOWN", plan=None, plan_status="UNKNOWN")
+    plan = _account_text(account.get("planType")) if kind == "chatgpt" else None
+    status = "reported" if plan else ("UNKNOWN" if kind == "chatgpt" else "n/a")
+    return _account_payload(_CX_ACCOUNT_REF, logged_in=True, plan=plan, plan_status=status, auth_method=kind)
+
+
+def _account_failure(ref: str, source: str, observed_at: int, state: EvidenceState, reason: str,
+                     warning: Optional[str] = None, evidence_ref: Optional[str] = None, error_type: Optional[str] = None) -> AccountObserved:
+    payload: dict[str, Any] = {"condition": "account_probe_failed", "reason": reason, "evidence_ref": evidence_ref or ref}
+    if error_type:
+        payload["error_type"] = error_type
+    return AccountObserved(ref, state, source, observed_at, payload, warning)
+
+
+account_failure = _account_failure  # public name for the collector (same pattern as real_command)
+
+
+def poll_claude_account(*, clock: Optional[Callable[[], float]] = None, deadline_sec: float = 10.0,
+                        sys_dir: Optional[Path] = None) -> AccountObserved:
+    """`claude auth status` for the default account, with the quota probe's CLAUDE_CONFIG_DIR handling. No model turn."""
+    ref, source = _CC_ACCOUNT_REF, "claude_auth_status"
+    observed_at = int((clock if clock else (lambda: datetime.now(timezone.utc).timestamp()))())
+    resolved_sys = resolve_sys_dir(sys_dir)
+    command = _real_command("cc", resolved_sys)
+    if not command:
+        return _account_failure(ref, source, observed_at, EvidenceState.UNAVAILABLE, "cli_not_found")
+    env = os.environ.copy()
+    root = os.environ.get("PEERHUB_CLAUDE_CONFIG_DIR") or env.get("CLAUDE_CONFIG_DIR")
+    if root:
+        env["CLAUDE_CONFIG_DIR"] = root
+    proc = None
+    try:
+        proc = subprocess.Popen([*command, "auth", "status"], cwd=str(_resolve_workspace_root(resolved_sys)), env=env,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                errors="replace", start_new_session=sys.platform != "win32")
+        try:
+            stdout, _stderr = proc.communicate(timeout=deadline_sec)  # a logged-out CLI exits 1 but still prints the JSON
+        except subprocess.TimeoutExpired:
+            return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "timeout")
+    except Exception:
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "spawn_failed")
+    finally:
+        if proc is not None:
+            _cleanup_probe(proc)
+    payload = parse_claude_auth_status(str(stdout or ""))
+    if payload is None:
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "unparseable")
+    return AccountObserved(ref, EvidenceState.MEASURED, source, observed_at, payload)
+
+
+def poll_codex_account(*, clock: Optional[Callable[[], float]] = None, deadline_sec: float = 10.0,
+                       sys_dir: Optional[Path] = None) -> AccountObserved:
+    """codex app-server `account/read` (refreshToken false, no model turn) for the default account (the inherited CODEX_HOME)."""
+    import queue
+    import threading
+    import time
+
+    ref, source = _CX_ACCOUNT_REF, "codex_app_server"
+    observed_at = int((clock if clock else (lambda: datetime.now(timezone.utc).timestamp()))())
+    resolved_sys = resolve_sys_dir(sys_dir)
+    command = _real_command("cx", resolved_sys)
+    if not command:
+        return _account_failure(ref, source, observed_at, EvidenceState.UNAVAILABLE, "cli_not_found")
+    env = os.environ.copy()
+    proc = None
+    try:
+        try:
+            proc = subprocess.Popen([*command, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                    text=True, cwd=str(_resolve_workspace_root(resolved_sys)), env=env,
+                                    start_new_session=sys.platform != "win32")
+        except Exception:
+            return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "spawn_failed")
+        lines: "queue.Queue[str | None]" = queue.Queue()
+        stream = proc.stdout
+
+        def read_lines() -> None:
+            try:
+                while stream is not None:
+                    line = stream.readline()
+                    if not line:
+                        break
+                    lines.put(line)
+            except Exception:
+                pass
+            lines.put(None)
+
+        threading.Thread(target=read_lines, daemon=True).start()
+        deadline = time.monotonic() + deadline_sec
+
+        def wait_for(expected: int) -> Optional[dict[str, Any]]:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                try:
+                    line = lines.get(timeout=min(0.5, remaining))
+                except queue.Empty:
+                    continue
+                if line is None:
+                    return None
+                try:
+                    raw: object = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(raw, dict):
+                    message = cast(dict[str, Any], raw)
+                    if message.get("id") == expected and isinstance(message.get("result"), dict):
+                        return cast(dict[str, Any], message["result"])
+
+        if proc.stdin is None:
+            return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "spawn_failed")
+        proc.stdin.write(json.dumps({"id": 0, "method": "initialize", "params": {"clientInfo": _CODEX_CLIENT_INFO}}) + "\n")
+        proc.stdin.flush()
+        if wait_for(0) is None:
+            return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "no_response")
+        proc.stdin.write(json.dumps({"method": "initialized"}) + "\n")
+        proc.stdin.write(json.dumps({"id": 1, "method": "account/read", "params": {"refreshToken": False}}) + "\n")
+        proc.stdin.flush()
+        result = wait_for(1)
+        if result is None:
+            return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "no_response")
+        payload = parse_codex_account(result)
+        if payload is None:
+            return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "unparseable")
+        return AccountObserved(ref, EvidenceState.MEASURED, source, observed_at, payload)
+    except Exception:
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "io_error")
+    finally:
+        if proc is not None:
+            _cleanup_probe(proc)
+
+
+def poll_agy_account(*, clock: Optional[Callable[[], float]] = None, deadline_sec: float = 10.0,
+                     sys_dir: Optional[Path] = None) -> Optional[AccountObserved]:
+    """`agy -p /credits --output-format json` (envelope verified like /usage: zero tokens, zero turns, a real slash command).
+    Success proves endpoint access only: login, plan and identity stay UNKNOWN / n/a (the Gemini accounts file is never read).
+    None when the statusline override is active (no spawning probe is wanted then)."""
+    ref, source = _AG_ACCOUNT_REF, "agy_cli_credits"
+    if "PEERHUB_AG_STATUSLINE_LOG" in os.environ:
+        return None
+    observed_at = int((clock if clock else (lambda: datetime.now(timezone.utc).timestamp()))())
+    resolved_sys = resolve_sys_dir(sys_dir)
+    command = _real_command("ag", resolved_sys)
+    if not command:
+        return _account_failure(ref, source, observed_at, EvidenceState.UNAVAILABLE, "cli_not_found")
+    cwd = _resolve_workspace_root(resolved_sys)
+    refusal = _agy_cwd_refusal(cwd)
+    if refusal is not None:  # nothing is spawned: outside the workspace the slash command would be a paid model turn
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "cwd_refused", refusal)
+    try:
+        completed = subprocess.run([*command, "-p", "/credits", "--output-format", "json", "--print-timeout", f"{max(1, int(deadline_sec))}s"],
+                                   cwd=str(cwd), stdin=subprocess.DEVNULL, capture_output=True, text=True, errors="replace",
+                                   timeout=deadline_sec, check=False)  # the caller's shared deadline: no extra slack
+    except subprocess.TimeoutExpired:
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "timeout")
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "spawn_failed")
+    violation = _agy_usage_violation(completed.stdout, "credits")  # whatever the exit code: tokens may be spent either way
+    if violation is not None:
+        violation_ref, extra = violation
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, str(extra.get("reason") or "envelope_violation"),
+                                str(extra.get("warning") or "") or None, evidence_ref=violation_ref)
+    if completed.returncode != 0:
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "nonzero_exit")
+    envelope = _agy_envelope(completed.stdout)
+    if envelope is None:
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "unparseable")
+    if str(envelope.get("status") or "").upper() != "SUCCESS":
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "command_failed")
+    usage = envelope.get("usage")
+    tokens: object = cast(dict[str, Any], usage).get("total_tokens") if isinstance(usage, dict) else None
+    turns: object = envelope.get("num_turns")
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v == 0 for v in (tokens, turns)):
+        return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "unverified_usage")  # endpoint access needs explicit zero usage
+    payload = _account_payload(ref, logged_in="UNKNOWN", plan=None, plan_status="n/a", endpoint_access="ok")
+    return AccountObserved(ref, EvidenceState.MEASURED, source, observed_at, payload)

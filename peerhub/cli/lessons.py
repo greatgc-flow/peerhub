@@ -25,6 +25,12 @@ def _tokens(text: str) -> set[str]:
     return set(re.findall(r"[^\W_]+", text.casefold()))
 
 
+def lesson_by_id(query: str) -> list[Lesson]:
+    """Exact (case-insensitive) lesson ID lookup: its own step in `explain`, after guidance codes and before keyword search."""
+    wanted = query.strip().casefold()
+    return [lesson for lesson in load_lessons() if lesson["id"] == wanted]
+
+
 def lookup_lessons(query: str) -> list[Lesson]:
     """Require every query token in the title/keywords; recipes first, then stable ID order."""
     short_code = query.split(":", 1)[0].upper()
@@ -59,7 +65,7 @@ def render_lessons_reference() -> str:
         "```",
         "",
         "Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.",
-        "Known guidance codes and aliases take priority. Matches list recipes first, then lesson ID order.",
+        "Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order.",
     ]
     for lesson in load_lessons():
         lines.extend([

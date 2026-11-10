@@ -7,6 +7,8 @@ Spec: OBSERVATION_AND_DIAG.md, PEER_CARDINALITY_RESOURCE_POOL.md, TD-13 (freshne
 from __future__ import annotations
 
 import json
+import math
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -34,6 +36,10 @@ CONDITION_STATES = frozenset({"UNAVAILABLE", "ERROR"})  # must identify the sour
 # An ABSENT pool row whose reason starts with this was recorded from a complete provider response that
 # omitted the window (e.g. a plan without a 5h window); it ages like a measurement (see `evaluate`).
 NOT_REPORTED_REASON = "not reported by provider"
+# An ABSENT pool row recorded because the provider flagged the window disabled (e.g. the 5h limit while the weekly limit is hit);
+# the provider description follows after ": ". It is not-applicable evidence and ages like NOT_REPORTED_REASON.
+DISABLED_REASON = "disabled by provider"
+ABSENT_FACT_REASONS = (NOT_REPORTED_REASON, DISABLED_REASON)
 
 
 class EvidenceState(str, Enum):
@@ -117,6 +123,28 @@ class SourceReading:
     semantic: str | None = None
 
 
+ACCOUNT_TTL_SECONDS = 6 * 3600.0
+
+
+MAX_EPOCH_SECONDS = 253402300799  # 9999-12-31T23:59:59Z: the last instant every datetime/strftime path can represent
+
+
+def valid_epoch_seconds(value: object) -> bool:
+    """A real UTC instant between 1970-01-01T00:00:01Z and 9999-12-31T23:59:59Z (so formatting it can never raise)."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):  # bounded as an int first: math.isfinite(10**309) would raise OverflowError
+        return 1 <= value <= MAX_EPOCH_SECONDS
+    return isinstance(value, float) and math.isfinite(value) and 1 <= value <= MAX_EPOCH_SECONDS
+
+
+def account_text(value: object, limit: int = 24) -> str | None:
+    """Display-only account label (plan, auth method, probe reason): printable ASCII without field delimiters, bounded.
+    Used when normalizing a provider answer and again when reading stored values back."""
+    text = re.sub(r"[^A-Za-z0-9 .+_-]", "", value) if isinstance(value, str) else ""
+    return " ".join(text.split())[:limit].strip() or None
+
+
 @dataclass(frozen=True)
 class FreshnessPolicy:
     """TTL policy per observation kind (TD-13: age >= TTL is STALE)."""
@@ -131,7 +159,8 @@ class FreshnessPolicy:
                 raise ValueError(f"TTL must be a positive number, got {v!r}")
 
     def ttl_for(self, kind: str) -> float:
-        return float(self.by_kind.get(kind, self.default_ttl_seconds))
+        # Login/plan facts change over days, not minutes: an explicit by_kind entry wins, else accounts get ACCOUNT_TTL_SECONDS.
+        return float(self.by_kind.get(kind, ACCOUNT_TTL_SECONDS if kind == "account" else self.default_ttl_seconds))
 
 
 @dataclass(frozen=True)
@@ -185,7 +214,7 @@ def evaluate(obs: Observation, capture_seq: int, read_us: int, policy: Freshness
     if obs.state != EvidenceState.MEASURED:
         state = obs.state  # evidence is reported as stored; freshness never upgrades it
         if (obs.state == EvidenceState.ABSENT and age_us >= round(ttl * 1_000_000)
-                and str(obs.payload.get("reason") or "").startswith(NOT_REPORTED_REASON)):
+                and str(obs.payload.get("reason") or "").startswith(ABSENT_FACT_REASONS)):
             state = EvidenceState.STALE  # a "not reported" fact must be re-probed, never read as "no limit" forever
     elif age_us < 0:
         state = EvidenceState.UNKNOWN  # source/reader clocks disagree: no synthetic freshness

@@ -38,8 +38,21 @@ def print_warnings(result: dict[str, Any]) -> None:
         print(f"warning: {w}", file=sys.stderr, flush=True)
 
 
+def agy_token_command(result: dict[str, Any]) -> str | None:
+    """The agy slash command that consumed model tokens in this refresh (`/credits` for an account probe, else `/usage`), or None."""
+    hits = [o for o in result.get("observations", []) if o.get("payload", {}).get("evidence_ref") == "agy_usage_consumed_tokens"]
+    if not hits:
+        return None
+    return "/credits" if any(o.get("kind") == "account" for o in hits) else "/usage"
+
+
 def agy_token_use(result: dict[str, Any]) -> bool:
-    return any(o.get("payload", {}).get("evidence_ref") == "agy_usage_consumed_tokens" for o in result.get("observations", []))
+    return agy_token_command(result) is not None
+
+
+def agy_token_stop_message(command: str) -> str:
+    return (f"error: agy {command} consumed model tokens; stopping watch mode so quota is not burned every interval "
+            "(pass --allow-agy-token-use to continue)")
 
 
 def error_line(code: str, message: str, hint: str | None = None) -> None:

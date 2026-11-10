@@ -391,6 +391,41 @@ class ReadonlyDiag:
             if conn is not None:
                 conn.close()
 
+    def running(self, *, read_at: float, limit: int, workspace_generation: str | None = None) -> dict[str, Any]:
+        """Lease-active, unacknowledged deliveries (NOT_STARTED/STARTED) from one read-only snapshot; at most `limit` raw rows.
+
+        A lease is not proof of a live process. The start evidence is the newest session_call/STARTED row per delivery.
+        """
+        out: dict[str, Any] = dict(status="OK", rows=[], truncated=False, error=None)
+        if not Path(self.db_path).is_file():
+            return dict(out, status="UNAVAILABLE", error=f"database not found: {self.db_path}")
+        conn = None
+        try:
+            conn = self._open()
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"bridge_claims", "bridge_deliveries", "bridge_evidence"} <= tables:
+                return out  # no Bridge activity ever recorded
+            # CROSS JOIN fixes the join order: the small claims table (one row per stream/peer) is filtered first and only a live
+            # claim's own deliveries are looked up through the (stream_id, peer_id) index, so finished scopes' history is never read.
+            # LIMIT: no existing index covers claim_generation, so a live scope's OWN delivery history is still read (cost grows with it).
+            rows = [dict(r) for r in conn.execute(
+                "SELECT d.delivery_id,d.peer_id,d.stream_id,d.certainty,c.expires_at,r.idempotency_key,r.metadata_json,"
+                "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='session_call' "
+                "AND e.certainty='STARTED' ORDER BY e.seq DESC LIMIT 1) AS start_detail "
+                "FROM bridge_claims c CROSS JOIN bridge_deliveries d ON d.stream_id=c.stream_id AND d.peer_id=c.peer_id "
+                "AND d.claim_generation=c.generation LEFT JOIN records r ON r.record_id=d.record_id "
+                "WHERE c.expires_at>? AND (? IS NULL OR c.workspace_generation=?) AND d.acked=0 "
+                "AND d.certainty IN ('NOT_STARTED','STARTED') ORDER BY d.seq,d.delivery_id LIMIT ?",
+                (read_at, workspace_generation, workspace_generation, limit + 1))]
+            return dict(out, rows=rows[:limit], truncated=len(rows) > limit)
+        except SchemaVersionError as exc:
+            return dict(out, status="SCHEMA_VERSION", error=f"{type(exc).__name__}: {exc}")
+        except (sqlite3.Error, OSError, DiagReadOnlyError, ValueError) as exc:
+            return dict(out, status="FAILED", error=f"{type(exc).__name__}: {exc}")
+        finally:
+            if conn is not None:
+                conn.close()
+
     def render(self, sections: list[str] | tuple[str, ...] | None = None, read_at: float | None = None) -> DiagnosticReport:
         names = list(SECTION_ORDER) if sections is None else list(sections)
         unknown = [n for n in names if n not in SECTION_ORDER and n not in OPTIONAL_SECTIONS]

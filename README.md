@@ -87,7 +87,7 @@ peerhub monitor --snapshot --group sessions --group execution
 
 # Watch the eight default groups: overview, peers, execution, sessions, usage,
 # context, capacity, and coverage. Collection may call provider CLIs
-# (including agy /usage) and consume provider quota.
+# (including agy /usage and /credits) and consume provider quota.
 peerhub monitor --interval-seconds 60
 peerhub monitor --view plain --cycles 1
 
@@ -127,6 +127,8 @@ classify semantic task success/error. Context occupancy intentionally stays 'unk
 `--group` or `--snapshot --group`.
 
 The default human monitor shows POOLS (meaning, last recorded capacity, reset, `PACE`, age, state and configured profiles), one PEERS line per peer, and a facts/session/delivery/telemetry footer. `low` means more than 0% and at most 10% remaining (0% is `out`); `fast` means ahead of pace with a threat projection supported by at least two samples and more than 10% remaining. `aged` numbers are last-known evidence, not current capacity; refresh before relying on them. Passed reset windows show no capacity number. The `suggest:` line picks an eligible profile per tier; `|<profile>` adds the best eligible alternative from a different peer in that tier (see [balancing guidance](docs/batch.md)). The header always shows the date and `DB:<source>`; the full DB path appears only when it differs from the nearest upward store or on error. `--expand` renders the detailed grouped sections, bars, `EXHAUST-IN` forecasts, `sessions` rows and coverage footer; `peerhub explain <code>` covers its short codes.
+
+The monitor also shows one `ACCOUNTS` line (details with `--expand`, fields in JSON `capacity.accounts`): per peer the plan (display data only), login state and, when it is within 14 days (or already past), the **login token** expiry, which is not billing. Example: `ACCOUNTS cc pro login ok (token exp 11-26) | cx prolite login ok | ag plan n/a credits ok`. `?` means it could not be determined and `n/a` that the provider does not expose it (a missing expiry never means logged out; API-key, Bedrock and Vertex logins show `n/a`; `ag` shows endpoint access only). A failed probe keeps the last good reading shown `aged` with a `probe error` note; account evidence ages after 6 hours. Only normalized fields are stored (never an email, organization, account id, token or any identity-derived hash). They are collected, in parallel under the refresh deadline and skipped while still fresh, by `observation refresh` and monitor collection cycles from `claude auth status`, codex app-server `account/read` and `agy /credits` (no model turn); `--snapshot` stays read-only.
 
 `low`/`fast` take precedence over `aged`; staleness still shows in AGE and the PEERS `(aged)` tag. See `peerhub explain monitor` for state meanings and precedence.
 
@@ -243,6 +245,9 @@ assume it failed or replay its request ID.
 peerhub diag
 peerhub diag health
 peerhub diag quota --json
+
+# Lease-active asks (a lease is not proof a process is alive)
+peerhub diag running
 ```
 
 ### Upgrade
@@ -289,10 +294,11 @@ tests/
   communication/ Core, delivery, observations, migration and package gates
   continuity/    extension host, artifacts, work, skills, backup and eval
   collaboration/ federation, memory, search, routing, orchestration and approval
-tools/
-  command_inventory.py
-  traceability.py
-  release_evidence.py
+tools/           maintainer scripts
+  a2a_sdk_echo_server.py  a2a_sdk_interop.py  ci_platform.py
+  command_inventory.py    context_bench.py    lint_changelog.py
+  live_gate.py            model_ping.py       quota_backtest.py
+  release_evidence.py     release_notes.py    traceability.py
 ```
 
 Milestones describe development progress, not runtime ownership. Frozen specifications, historical evidence and existing durable wire/storage identifiers retain their original names. See [the cleanup decisions and AG review](docs/implementation/STRUCTURE_CLEANUP.md).
@@ -305,13 +311,7 @@ Observations are evidence, not policy: profile model and effort definitions requ
 
 ## Doc map
 
-- [Documentation map](docs/index.md): Single documentation map and navigation index.
-- [CONTRIBUTING.md](CONTRIBUTING.md): maintainer setup, tests, feedback, and release gates.
-- [Adapter guide](docs/adapters/README.md) and [CLI reference](docs/adapters/peer-cli-reference.md): provider invocation and troubleshooting.
-- [Configuration](docs/config-hierarchy.md), [profile defaults](peerhub/config_data/model-defaults.toml) and the [refresh recipe](docs/model-profiles/model-profiles.json): store selection, profiles and how to refresh them.
-- [Usage/evolution guide](docs/m1_spec/USAGE_GUIDE.md): Core flow and milestone scope.
-- [Structure cleanup](docs/implementation/STRUCTURE_CLEANUP.md): current ownership and retired surfaces.
-- [M2 contracts](docs/m2/README.md): extension host and durable continuity contracts.
+See the [documentation map](docs/index.md) for all documentation.
 
 ## Limitations
 

@@ -152,3 +152,16 @@ def test_explain_distinguishes_unknown_profile_and_no_card(tmp_path, monkeypatch
     assert run_explain_cli("cx.My_Custom") == 1
     assert "unknown profile" in capsys.readouterr().err
     assert run_explain_cli("ag recipe") == 0  # lessons fallback unchanged
+
+
+def test_explain_precedence_profile_id_then_lesson_id_then_keywords(tmp_path, monkeypatch, capsys):
+    """guidance code > exact profile id > exact lesson id > keywords (0.24.5 profile step + 0.24.6 lesson-id step)."""
+    from peerhub.cli.recovery import run_explain_cli
+
+    monkeypatch.chdir(tmp_path)
+    assert run_explain_cli("cc.deepthink") == 0
+    assert capsys.readouterr().out.startswith("Profile: cc.deepthink")
+    assert run_explain_cli("cc-allow-rules") == 0  # a lesson id that starts with a peer name is not a profile id
+    assert capsys.readouterr().out.startswith("cc-allow-rules:")
+    assert run_explain_cli("monitor-probe-age") == 0
+    assert capsys.readouterr().out.startswith("monitor-probe-age:")

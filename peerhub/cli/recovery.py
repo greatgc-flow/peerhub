@@ -285,7 +285,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
             },
         ],
         avoid="Do not blindly retry the prompt with a new request ID without resolving the quota, auth, or model configuration issue.",
-        docs="docs/history/from-engram-repo/protocol-docs/ops/automatic-profile-routing-2026-06-20.md",
+        docs="docs/adapters/README.md",
         exits=[
             {"code": 1, "context": "Provider refused execution before starting (quota exhaustion, invalid model, auth failure; not_executed status)."}
         ],
@@ -705,9 +705,11 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
     if entry is None and _PROFILE_ID.fullmatch(code.strip()):
         return _explain_profile(code.strip(), json_output=json_output)
     if entry is None:
-        from peerhub.cli.lessons import lookup_lessons, render_lesson
+        from peerhub.cli import lessons
+        from peerhub.cli.lessons import render_lesson
 
-        matches = lookup_lessons(code)
+        # Order: guidance code > exact profile id (above) > exact lesson id > keywords.
+        matches = lessons.lesson_by_id(code) or lessons.lookup_lessons(code)
         if matches:
             if json_output:
                 print(json.dumps({"lessons": matches}, indent=2, ensure_ascii=True))

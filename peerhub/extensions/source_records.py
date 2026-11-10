@@ -1,7 +1,6 @@
 """Bounded-page iteration of immutable Records from one committed Core snapshot."""
 from __future__ import annotations
 
-import json
 from typing import Iterator
 
 from peerhub.core.models import Record
@@ -20,10 +19,5 @@ def source_records(store: CoreStore, page_size: int = 500) -> Iterator[Record]:
                 if not rows:
                     break
                 for row in rows:
-                    yield Record(record_id=row["record_id"], stream_id=row["stream_id"], position=row["position"],
-                                 author_peer_id=row["author_peer_id"], kind=row["kind"],
-                                 body=json.loads(row["body_json"]) if row["body_json"] is not None else None,
-                                 targets=json.loads(row["targets_json"]), reply_to=row["reply_to"], refs=json.loads(row["refs_json"]),
-                                 metadata=json.loads(row["metadata_json"]), idempotency_key=row["idempotency_key"],
-                                 payload_digest=row["payload_digest"], created_at=row["created_at"], appended_at=row["appended_at"])
+                    yield CoreStore._row_to_record(row)  # pyright: ignore[reportPrivateUsage]  # single row->Record mapping, read inside this snapshot
                 position = rows[-1]["position"]

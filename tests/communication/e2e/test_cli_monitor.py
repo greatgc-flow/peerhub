@@ -1005,6 +1005,34 @@ def test_guard_stop_after_first_violation(tmp_path, capsys):
     assert "agy /usage consumed model tokens" in err
 
 
+@pytest.mark.parametrize("kind, command", [("quota", "/usage"), ("account", "/credits")])
+def test_guard_stop_message_names_the_command_that_consumed_tokens(tmp_path, capsys, kind, command):
+    """A /credits violation (account observation) must stop watch mode and say /credits, not /usage."""
+    calls = []
+    def fake_refresh(*a, **kw):
+        calls.append("refresh")
+        return {"status": "PARTIAL", "observations": [{"kind": kind, "payload": {"evidence_ref": "agy_usage_consumed_tokens"}}], "warnings": []}
+
+    with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
+         patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
+         patch("peerhub.cli.monitor.sleep", lambda s: None):
+        assert _run(_db(tmp_path), "--cycles", "5") == 1
+    assert calls == ["refresh"]
+    err = capsys.readouterr().err
+    assert f"agy {command} consumed model tokens" in err
+    other = "/credits" if command == "/usage" else "/usage"
+    assert f"agy {other} consumed" not in err
+
+
+def test_guard_stop_message_for_schema_11_names_credits(tmp_path, capsys):
+    def fake_refresh(*a, **kw):
+        return {"status": "PARTIAL", "observations": [{"kind": "account", "payload": {"evidence_ref": "agy_usage_consumed_tokens"}}], "warnings": []}
+
+    with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), patch("peerhub.cli.monitor_schema11.sleep", lambda s: None, create=True):
+        assert _run(_db(tmp_path), "--json", "--schema-version", "1.1", "--cycles", "3") == 1
+    assert "agy /credits consumed model tokens" in capsys.readouterr().err
+
+
 def test_guard_continue_with_flag(tmp_path, capsys):
     calls = []
     def fake_refresh(*a, **kw):

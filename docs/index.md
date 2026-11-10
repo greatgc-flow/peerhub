@@ -8,6 +8,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Remote Ask](remote-ask.md): Running peerhub ask against peers on remote hosts over SSH.
 - [Knowledge Placement Policy](knowledge-placement.md): Policy governing guidance placement across docs, CLI guide, and lessons.
 - `peerhub diag readiness [--json]` reports cached criteria for every effective configured profile, sorted by ID. `READY` means fresh positive verified quota and a matching terminal delivery; it proves neither current provider availability, actual model identity, authorization, nor semantic task success. Shared pools appear once with remaining quota, reset and evidence age. Missing/stale mappings or corrupt evidence stay `UNKNOWN`; absent success, changed binding, failed/uncertain delivery or required native ag writable consent stays unverified. Native ag consent still requires explicit `--writable`. Global `--db` selection applies; a missing store exits 5 without creation. This command never calls providers or writes, and rejects `--probe`. Human overflow is disclosed; JSON schema 1.0 includes every profile without a size guarantee. Issue #145 is closed; deferred scope is recorded in [STATUS](STATUS.md#deferred-backlog-start-triggers).
+- `peerhub diag running [--json]` lists lease-active asks: unexpired claim lease matching the delivery's claim generation, unacknowledged, certainty `NOT_STARTED` or `STARTED`. A lease is not proof a process is alive. Rows carry peer, profile/binding, stream, request id, delivery id, certainty, `started_at`/`elapsed_s` (null without valid start evidence) and `lease_expires_in_s`; at most 20 rows with a `truncated` flag. It reads the store only (no provider calls, refresh or writes); a missing store exits 5 without creation.
 - [Profile Smoke Recipe](smoke-recipe.md): Installed-CLI nonce pings and one result matrix (#148).
 - [Peer Sandbox Limits](peer-limits.md): Per-peer restrictions, operating knobs, and deferred capability probe (#134).
 - [README.md](../README.md): Quick start, installation (`pipx`/`uv`/`pip`), core usage, and everyday operational commands.
@@ -39,6 +40,8 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Design Documents Index](design/README.md): Overview of active design specifications, deferred proposals, and history pointers.
 - [Plan 0.24.0 (November 2026)](design/plan-0.24.0-2026-11-08.md): Monitor and CLI unification, model observation refresh, and denied-empty handling.
 - [Plan 0.24.1 (November 2026)](design/plan-0.24.1-2026-11-08.md): Store discovery recovery and cc permission-denial handling.
+- [Plan 0.24.4 (November 2026)](design/plan-0.24.4-2026-11-09.md): Previous plan: PACE in the compact monitor and AI-readable quota balancing.
+- [Plan 0.24.5 (November 2026)](design/plan-0.24.5-2026-11-10.md): Latest plan: profile cards, quota utilization report and model re-observation; its decision log also covers the 0.24.6 follow-up (`diag running`, #327 items).
 - [Pre-TDD Renewal (October 2026)](design/peerhub-pre-tdd-renewal-2026-10-14.md): Reconciled architecture and numbered RED contracts; no implementation authorized by this design stage.
 - [CLI, Monitoring, and Inspection Addendum](design/peerhub-cli-monitoring-inspection-2026-10-14.md): MECE command boundaries, profile/session inspection, read-only guarantees, bounded snapshots, human/AI defaults, and PH-T095–105.
 - [Monitor Groups Usability Review](design/monitor-groups-usability-review-2026-10-16.md): Unanimous peer decision, group discovery, default/legacy contract, delivery certainty semantics, and TDD acceptance plan.
@@ -55,5 +58,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 ## Archives & Evidence
 - [Archival Ledger](history/ledger-2026-10-17.md): Ledger of archived debate documents and obsolete production call-map preserved in git history.
 - [Benchmarks](benchmarks/): Release-to-release performance and comparative analysis benchmarks.
+- [Hard profile benchmark, 2026-11-10](benchmarks/profiles-hard-2026-11-10/README.md): task, grader, reference and first per-profile results; follow-up to the 2026-11-08 ceiling effect, which it only partly resolves (top profiles still tie at 100).
+- [Top-tier profile benchmark, 2026-11-10](benchmarks/profiles-top-2026-11-10/README.md): regex-matcher task (115 hidden cases), grader, reference and first results; the cc tiers tie at 115/115 again and `ag.effort` scores below `ag.standard`.
 - [Implementation Evidence](implementation/live_evidence/): Live provider canary verification receipts.
 - [History Archive](history/): Pre-v0.10 architecture debates, historical design specs, and retired review records.

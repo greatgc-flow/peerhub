@@ -8,6 +8,29 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.6] - 2026-11-10
+
+### Added
+
+- Account state in `peerhub monitor` (#329): one `ACCOUNTS` line in the compact view, detail rows with `--expand` and `capacity.accounts` in JSON (present only when account evidence exists; capped at 50 rows with `accounts_truncated: true` when cut), all from one stored snapshot. Per peer: plan (display only), login state (`ok`/`out`/`?`), and the **login token** expiry (labelled as such, never billing; compact shows it within 14 days or when past; a missing expiry does not mean logged out). `?` = could not be determined, `n/a` = the provider does not expose it (API-key, Bedrock and Vertex logins have no plan or token expiry: `n/a`), `aged` = stale (account evidence ages after 6 hours). A failed probe keeps the last good reading, shown aged with a `probe error` note. Collected only by `observation refresh` / monitor collection from `claude auth status`, codex app-server `account/read` (`refreshToken` false) and `agy -p /credits` (envelope verified like `/usage`; endpoint access only, plan `n/a`, the Gemini accounts file is never read). The probes run in parallel under the one refresh deadline, once per provider, skip a peer whose reading is still fresh (a failed probe is retried after 5 minutes), spend no model turn, never substitute another local login, and a failure never degrades quota collection. Only normalized fields are persisted as the new `account` observation kind (logged-in state, plan label, token expiry); emails, organization names, ids, tokens, raw payloads and any identity-derived hash or reference are never stored. `n/a not reported (plan unknown)` notes take the plan a fresh account observation reports (a plan the quota probe reported is kept). JSON keeps the stored `reason` and adds `display_plan` with `plan_source: "account"` when a fresh account plan fills an unknown 5H plan. Residual subscription fields never become a plan for API-key, Bedrock or Vertex logins, and agy endpoint access needs a `SUCCESS` envelope with explicit zero token and turn counts. The agy token-use stop message names the command that consumed tokens (`/usage` or `/credits`). `--snapshot` stays read-only.
+- `peerhub diag running [--json]`: read-only list of lease-active asks (unexpired claim of the current workspace generation whose claim generation matches the delivery, unacknowledged, certainty `NOT_STARTED` or `STARTED`) with peer, profile (read from the binding; null when the ask used no profile) / binding, stream, request id, delivery id, certainty, `started_at`/`elapsed_s` from the newest `session_call` start evidence (null without valid evidence) and `lease_expires_in_s`. Up to 20 rows (oldest first) plus a `truncated` flag; the human table shows the recorded start (`?` without valid evidence). The query starts from live claims and never reads the delivery history of finished scopes (a live stream's own history is still scanned through the existing `(stream_id, peer_id)` index; no index covers the claim generation). A lease is not proof a process is alive; there are no progress or staleness fields. It reads existing tables only: no provider call, quota refresh or write. Query cost is bounded for finished scopes; inside a live stream it grows with that stream's own delivery history (observed: 984 VM steps at 150 rows, about 45k at 9,000 rows; a measurement, not a latency guarantee). A bounding index is deferred to the next planned schema change.
+
+### Fixed
+
+- A provider-disabled agy bucket (`"disabled": true`, e.g. `3p-5h` while the weekly limit is hit) no longer keeps its last value. It is recorded as the existing ABSENT / not-applicable state with the reason `disabled by provider: <description>` (printable ASCII, at most 100 characters), renders `n/a` with no capacity or reset in compact, expanded and JSON output, is skipped like other not-applicable pools, ages to STALE like them, and returns to MEASURED when the provider re-enables it. Earlier rows are kept (#328).
+- A peer-level (pool-less) quota probe failure no longer shows `PROBE:<age>` / `probe error` once a strictly newer MEASURED pool observation exists for the same peer and the same probe source (a poller counts as one source: ag `/usage` and its statusline fallback, and a poller that raised, stored as `quota_probe:<kind>`). Another probe source, another peer, or a failure from the same run still shows, and agy refusal / token-use / conflict rows are never retired by a later success; the stored history is unchanged (#328).
+- `peerhub explain <lesson id>` (for example `monitor-probe-age`) now matches the exact lesson id before keyword search; order: guidance code, exact profile id, exact lesson id, keywords (#328).
+
+### Changed
+
+- cc.fable switches to claude-fable-5-2 (identity ping PASS; 45/45 on the 2026-11-08 task; hard 100/100; top 115/115, slower in one run: 946 s vs 169 s) per the frozen rule; checked 2026-11-10.
+- The `ask_refusal` guidance (`peerhub explain ask_refusal`, `docs/guidance-reference.md`) links to the adapter guide instead of an unshipped Engram-era document (#327).
+- The README "Doc map" is now one link to `docs/index.md`, and its repository layout lists the actual `tools/` scripts (#327).
+- `source_records` reuses `CoreStore._row_to_record` instead of building `Record` by hand; behavior is unchanged (#327).
+- Profile cards carry the 2026-11-10 benchmark evidence: `cx.standard`, `cc.standard`, `cc.effort`, `cc.deepthink`, `ag.standard` and `ag.effort` gain benchmark traits and evidence paths. `cc.standard` gets a new `use_for` (adds self-contained code) and `avoid_for` (design decisions, code review, not benchmarked; "multi-step reasoning" dropped), `cx.standard` and `ag.effort` get updated `avoid_for` text, and the `ag.effort` pool-mentioning trait is replaced.
+- Two benchmarks with graded runs: [hard](docs/benchmarks/profiles-hard-2026-11-10/README.md) (integer interpreter, 100 cases; separates the low tiers, the top profiles still tie at 100) and [top-tier](docs/benchmarks/profiles-top-2026-11-10/README.md) (regex matcher, 115 cases; the cc tiers tie at 115/115 and `ag.effort` scores below `ag.standard`).
+- `--allow-agy-token-use` and `observation refresh` help and the README name `/credits` and account evidence besides `/usage` quota; the guide's upgrade hint points to `peerhub diag running`.
+
 ## [0.24.5] - 2026-11-10
 
 ### Added
@@ -330,8 +353,6 @@ they do not claim new validation or publication evidence.
 - ASCII and plain monitor separators: replaced Unicode middle dot (`·`) with ASCII pipe (`|`) in `--view plain` and non-Unicode outputs, avoiding `?` replacement artifacts in ASCII terminal environments (#114).
 - Redirected `--format auto` JSON: `--format auto` emits JSON when standard output is not a TTY (redirected or piped) (#114).
 - Missing-store JSON error parity: core read commands emit structured JSON (`{"status": "UNAVAILABLE", ...}`) when a database is not found and JSON output is requested (or under redirected `--format auto`), matching the machine error contract (#114).
-
-
 
 ## [0.18.2] - 2026-10-17
 

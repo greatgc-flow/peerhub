@@ -17,7 +17,7 @@ from time import monotonic, sleep
 from pathlib import Path
 from typing import Any, cast
 
-from peerhub.cli.support import agy_token_use, error_line, print_warnings, refresh_with_profile_pools
+from peerhub.cli.support import agy_token_command, agy_token_stop_message, error_line, print_warnings, refresh_with_profile_pools
 from peerhub.cli.monitor_preferences import GROUP_IDS
 
 def register_monitor_parser(subparsers: Any) -> None:
@@ -37,7 +37,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     if _legacy_alias_available():
         p.add_argument("--legacy", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--allow-agy-token-use", action="store_true",
-                   help="Keep collecting after agy /usage consumed model tokens")
+                   help="Keep collecting after agy /usage or /credits consumed model tokens")
     p.add_argument("--view", choices=["auto", "rich", "plain"], default="auto",
                    help="Dashboard style: rich (colour), plain (ASCII); both show PACE; auto = rich on a TTY. TTY with VT redraws in place at most 1 Hz; non-TTY appends one completed frame every N s; a TTY without VT appends without escapes")
     p.add_argument("--collect-every", type=int, default=1,
@@ -275,9 +275,9 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                 if not args.json and not output.live:
                     print(f"refresh: {result['status']}", file=sys.stderr, flush=True)
                     print_warnings(result)
-                if agy_token_use(result) and not args.allow_agy_token_use:
-                    message = ("error: agy /usage consumed model tokens; stopping watch mode so quota is not burned every interval "
-                               "(pass --allow-agy-token-use to continue)")
+                token_command = agy_token_command(result)
+                if token_command and not args.allow_agy_token_use:
+                    message = agy_token_stop_message(token_command)
                     if output.live and last_payload is not None:
                         display = dict(last_payload)
                         display["refresh_state"] = "STOPPED · AGY TOKEN USE"

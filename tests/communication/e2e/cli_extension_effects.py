@@ -103,6 +103,21 @@ def readiness_json(e):
     assert not missing.parent.exists()
 
 
+def running_json(e):
+    db = e.fresh()
+    before = db.read_bytes()
+    # The command reads stored lease facts; --json changes its representation.
+    with patch("subprocess.Popen", side_effect=AssertionError("diag running must not spawn providers")):
+        result = e.j(db, "diag", "running", "--json")
+        code, table, err = e.run(db, "diag", "running")
+    assert result["schema_version"] == "1.0" and result["status"] == "OK" and result["rows"] == [] and result["truncated"] is False
+    assert code == 0 and not err and table.rstrip().endswith("(none)")
+    assert not table.lstrip().startswith("{") and db.read_bytes() == before
+    missing = e.tmp / "missing-running" / "core.db"
+    assert e.run(missing, "diag", "running", "--json")[0] == 5
+    assert not missing.parent.exists()
+
+
 def session_selector_effect(e, option):
     from tests.communication.fakes.runtime import NativeRuntimeTarget
     rt = NativeRuntimeTarget()
@@ -551,6 +566,7 @@ EFFECT.update({f"account {action} {option}": (lambda e, action=action, option=op
                                        ("show", ("--peer", "--json", "--show-root"))) for option in options})
 EFFECT["diag --json"] = diag_json
 EFFECT["diag readiness --json"] = readiness_json
+EFFECT["diag running --json"] = running_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
                for option in ("--live", "--interval-seconds", "--cycles", "--view")})
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))

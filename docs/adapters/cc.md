@@ -25,7 +25,7 @@ binding into CLI flags.
 Profile models and efforts live in the packaged `model-defaults.toml`; list the effective ones with
 `peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them. `python -m tools.model_ping` proves the answering model (stream `modelUsage`), not the effort. Each profile has an evidence card: `peerhub explain cc.<profile>`.
 
-`cc.fable` (`claude-fable-5-1`, high) is an opt-in top profile with pool F-7D only;
+`cc.fable` (`claude-fable-5-2`, high) is an opt-in top profile with pool F-7D only;
 whether it also draws on shared C pools is unverified ([benchmark](../benchmarks/profiles-2026-11-08.md)).
 
 `ask --writable` adds `--permission-mode acceptEdits`. Compatible native resume
