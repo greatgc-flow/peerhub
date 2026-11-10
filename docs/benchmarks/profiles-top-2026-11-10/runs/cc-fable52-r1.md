@@ -589,4 +589,3 @@ def search(pattern, text):
     except Exception:
         return None
 ```[ask_uncertain] Execution ended as uncertain.; next: Inspect stream health and check for uncommitted or partial activity (peerhub --db 'D:\PkgDev\workspace\peerhub\.peerhub\core.db' diag health --stream top-cc-fable52-r1); Do not retry the prompt under a new request-id, do not pass --fresh, and do not delete claims. Continuing work on this stream is blocked to prevent split-brain execution; start a new stream for subsequent work. If the ask used the default timeout, do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more).; details: peerhub explain ask_uncertain
-
