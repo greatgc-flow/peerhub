@@ -71,7 +71,7 @@ def test_invalid_samples_are_ignored_and_markdown_has_thresholds():
     rep = build_report([s("quota:cc:C-7D", r - 2 * H, 0.1, r, state="STALE")], now=r + H)
     assert rep["closed_7d"] == [] and rep["invalid_samples"] == 1
     md = render_markdown(rep)
-    assert "12h" in md and "15%" in md and str(EXHAUSTED) in md
+    assert "12h" in md and "15%" in md and "measured 0% left" in md and EXHAUSTED == 1.0
 
 
 def test_open_window_already_exhausted_is_not_paced():
@@ -120,3 +120,11 @@ def test_stale_open_window_is_unknown_even_after_exhaustion():
     now = r - 50 * H
     rep = build_report([s("quota:ag:3P-7D", now - 24 * H, 0.0, r)], now=now)
     assert rep["open_7d"][0]["pace_state"] == "UNKNOWN"
+
+
+def test_positive_capacity_is_never_exhausted():
+    r = 10 * D7
+    out = verdicts([s("quota:ag:3P-7D", r - 60 * H, 0.003, r), s("quota:ag:3P-7D", r - 2 * H, 0.003, r)], now=r + H)
+    assert out[("quota:ag:3P-7D", r)]["verdict"] == "USED"
+    rep = build_report([s("quota:ag:3P-7D", r - 60 * H, 0.003, r)], now=r - 59 * H)
+    assert rep["open_7d"][0]["pace_state"] in ("fast", "on-pace", "slow")

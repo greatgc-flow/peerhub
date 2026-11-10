@@ -667,7 +667,7 @@ def render_explain(entry: GuidanceEntry) -> str:
     return "\n".join(lines)
 
 
-_PROFILE_ID = re.compile(r"(?:ag|cc|cx)\.[a-z0-9-]+")
+_PROFILE_ID = re.compile(r"(?:ag|cc|cx)\.\S+")  # one token; the resolver decides known vs unknown
 
 
 def _explain_profile(profile: str, *, json_output: bool) -> int:

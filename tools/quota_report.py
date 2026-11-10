@@ -20,7 +20,7 @@ from typing import Any
 from tools.quota_backtest import read_samples
 
 H = 3600.0
-EXHAUSTED = 0.995        # used fraction treated as exhausted (provider rounding: <0.5% left)
+EXHAUSTED = 1.0          # exhausted = a measured 0% left (frozen spec); near-zero positive capacity is not exhausted
 EARLY_HOURS = 12.0
 NEAR_RESET_HOURS = 12.0
 UNUSED_LEFT = 0.15
@@ -126,7 +126,7 @@ def _ts(value: float | None) -> str:
 
 def render_markdown(report: dict[str, Any]) -> str:
     lines = [f"Generated {_ts(report['generated_at'])}; since {_ts(report['since'])}; invalid samples ignored: {report['invalid_samples']}.",
-             f"Thresholds: exhausted = used >= {EXHAUSTED} (under 0.5% left, provider rounding); EXHAUSTED_EARLY = sampled exhaustion with > {EARLY_HOURS:g}h to reset; "
+             f"Thresholds: exhausted = a measured 0% left; EXHAUSTED_EARLY = sampled exhaustion with > {EARLY_HOURS:g}h to reset; "
              f"POSSIBLY_UNUSED / USED = last sample within {NEAR_RESET_HOURS:g}h of reset shows > / <= {UNUSED_LEFT:.0%} left; "
              f"otherwise UNKNOWN. Open-window PACE = used% - elapsed% (fast > +{PACE_PP:g}, slow < -{PACE_PP:g}; "
              f"needs a sample <= {FRESH_HOURS:g}h old). Sampled evidence only; pools are shared by all sessions on the account.",

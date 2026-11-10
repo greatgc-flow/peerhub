@@ -5,25 +5,26 @@ append-only quota observations of the owner's PeerHub store. Pools are per accou
 using that account, so verdicts describe the account, not any one peer or session. Utilization only: whether the
 spent quota produced value is out of scope.
 
-## Reading (2026-11-10 08:3xZ)
+## Reading (2026-11-10 08:57Z, same run as the tables)
 
-- Under-used: `cc C-7D` is 16 pp behind even burn with 19% left and resets 12:59Z, so that capacity expires unused
-  unless cc carries the work until then.
-- Too fast: `cx X-7D` (+25 pp, 18% left for 3 days: about 6%/day), `ag A-7D` (argon, +45 pp, 27% left for 5 days:
+- Under-used: `cc C-7D` is 16 pp behind even burn with 18% left and resets about 13:00Z, so that capacity expires
+  unused unless cc carries the work until then (this session shifted reviews and implementation to cc).
+- Too fast: `cx X-7D` (+25 pp, 18% left for 3 days: about 6%/day), `ag A-7D` (argon, +46 pp, 26% left for 5 days:
   about 5%/day).
-- Exhausted early: `cc F-7D` (Fable) was exhausted 22.7h before reset; `ag 3P-7D` (ag.deepthink, Claude via ag) was exhausted
-  83.6h before reset, so ag.deepthink is unusable until 2026-11-11 21:20Z.
+- Exhausted early: `cc F-7D` (Fable) was exhausted 22.7h before reset; `ag 3P-7D` (ag.deepthink, Claude via ag)
+  reached a measured 0% 36.6h before reset (it had been under 0.5% since 2026-11-08), so ag.deepthink is unusable
+  until 2026-11-11 21:20Z.
 - On pace: `ag G-7D` (flash) is the main spare 7D capacity, gated by `G-5H` (observed exhausted in 2 windows).
 - History: most closed windows are UNKNOWN because quota was not sampled near their resets (gaps 10-21..10-30 and
   10-30..11-08, when no monitor or refresh ran). The one proven past verdict: `ag G-7D` exhausted 5.6 days early
   in the window ending 2026-10-24.
-- Action: shift drafts and bulk to ag flash, use cc until its 12:59Z reset, keep cx and argon to short reviews,
-  and run `peerhub monitor` (or `observation refresh`) near resets so future windows get a verdict.
+- Action: shift drafts and bulk to ag flash, use cc until its reset, keep cx and argon to short reviews, and run
+  `peerhub monitor` (or `observation refresh`) near resets so future windows get a verdict.
 
 ## Generated tables
 
-Generated 2026-11-10 08:54Z; since -; invalid samples ignored: 538.
-Thresholds: exhausted = used >= 0.995 (under 0.5% left, provider rounding); EXHAUSTED_EARLY = sampled exhaustion with > 12h to reset; POSSIBLY_UNUSED / USED = last sample within 12h of reset shows > / <= 15% left; otherwise UNKNOWN. Open-window PACE = used% - elapsed% (fast > +10, slow < -10; needs a sample <= 6h old). Sampled evidence only; pools are shared by all sessions on the account.
+Generated 2026-11-10 08:57Z; since -; invalid samples ignored: 540.
+Thresholds: exhausted = a measured 0% left; EXHAUSTED_EARLY = sampled exhaustion with > 12h to reset; POSSIBLY_UNUSED / USED = last sample within 12h of reset shows > / <= 15% left; otherwise UNKNOWN. Open-window PACE = used% - elapsed% (fast > +10, slow < -10; needs a sample <= 6h old). Sampled evidence only; pools are shared by all sessions on the account.
 
 ### Closed 7D windows
 
@@ -35,7 +36,7 @@ Thresholds: exhausted = used >= 0.995 (under 0.5% left, provider rounding); EXHA
 | quota:ag:A-7D | 2026-10-24 16:47Z | 743 | UNKNOWN | no sample within 12h of reset |
 | quota:ag:A-7D | 2026-11-02 09:17Z | 3 | UNKNOWN | no sample within 12h of reset |
 | quota:ag:G-7D | 2026-10-23 00:09Z | 814 | UNKNOWN | no sample within 12h of reset |
-| quota:ag:G-7D | 2026-10-24 00:19Z | 1813 | EXHAUSTED_EARLY | first sampled exhaustion between 2026-10-18 08:55Z and 2026-10-18 08:56Z, 135.4h before reset; sampled exhausted span 71.8h |
+| quota:ag:G-7D | 2026-10-24 00:19Z | 1813 | EXHAUSTED_EARLY | first sampled exhaustion between 2026-10-19 07:42Z and 2026-10-21 02:08Z, 70.2h before reset; sampled exhausted span 6.6h |
 | quota:ag:G-7D | 2026-11-02 04:10Z | 3 | UNKNOWN | no sample within 12h of reset |
 | quota:cc:C-7D | 2026-10-20 13:00Z | 2232 | UNKNOWN | no sample within 12h of reset |
 | quota:cc:C-7D | 2026-10-27 13:00Z | 381 | UNKNOWN | no sample within 12h of reset |
@@ -50,12 +51,12 @@ Thresholds: exhausted = used >= 0.995 (under 0.5% left, provider rounding); EXHA
 
 | Pool | Resets | Left | PACE pp | State | Note |
 |---|---|---|---|---|---|
-| quota:ag:3P-7D | 2026-11-11 21:20Z | 0.0% | - | EXHAUSTED_EARLY | first sampled exhausted 2026-11-08 09:44Z, 83.6h before reset |
+| quota:ag:3P-7D | 2026-11-11 21:20Z | 0.0% | - | EXHAUSTED_EARLY | first sampled exhausted 2026-11-10 08:44Z, 36.6h before reset |
 | quota:ag:A-7D | 2026-11-15 09:25Z | 25.9% | 45.8 | fast | sample age 0.0h |
 | quota:ag:G-7D | 2026-11-14 03:08Z | 54.2% | -0.5 | on-pace | sample age 0.0h |
-| quota:cc:C-7D | 2026-11-10 13:00Z | 18.0% | -15.6 | slow | sample age 0.0h |
-| quota:cc:F-7D | 2026-11-10 13:00Z | 0.0% | - | EXHAUSTED_EARLY | first sampled exhausted 2026-11-09 14:17Z, 22.7h before reset |
-| quota:cx:X-7D | 2026-11-13 09:26Z | 18.0% | 25.2 | fast | sample age 0.0h |
+| quota:cc:C-7D | 2026-11-10 12:59Z | 18.0% | -15.6 | slow | sample age 0.0h |
+| quota:cc:F-7D | 2026-11-10 12:59Z | 0.0% | - | EXHAUSTED_EARLY | first sampled exhausted 2026-11-09 14:17Z, 22.7h before reset |
+| quota:cx:X-7D | 2026-11-13 09:26Z | 18.0% | 25.1 | fast | sample age 0.0h |
 
 ### 5H windows
 

@@ -149,4 +149,6 @@ def test_explain_distinguishes_unknown_profile_and_no_card(tmp_path, monkeypatch
     assert "No card" in capsys.readouterr().out
     assert run_explain_cli("cc.does-not-exist") == 1
     assert "unknown profile" in capsys.readouterr().err
+    assert run_explain_cli("cx.My_Custom") == 1
+    assert "unknown profile" in capsys.readouterr().err
     assert run_explain_cli("ag recipe") == 0  # lessons fallback unchanged

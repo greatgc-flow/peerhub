@@ -112,7 +112,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "    After an empty/denied_empty reply never resume that stream (overrides reuse): new stream, content inlined. Headless prompts auto-deny; shell needs matching command(...) or command(*) allow rules.",
         "  Writes: cx sandbox enforced; cc enforced; ag NOT enforced (issue #140); when edits are intended, pass --writable on every turn, including resumed turns.",
         "  pending_earlier_record: inspect processed_status; delivered => retry same request-id/prompt/binding/selector; uncertain => stop.",
-        "  Uncertain: stop that stream, 'peerhub diag health' to check effects (cc/cx: a skipped oversized line is fine if an intact final result follows, #325);",
+        "  Uncertain: stop that stream, 'peerhub diag health' to check effects (skipped oversized line: cc ok if an intact result follows (#325), cx needs answer+turn.completed);",
         "    never blind-retry original prompt under a new request-id, with --fresh, or delete claims;",
         "    Default-timeout ask: do not retry on the same stream; start a new stream with explicit --timeout-seconds (long reviews: 1800 or more); continue genuinely new work on a new stream with a summary; details: 'peerhub explain <code>'.",
         "  Store hazards: --db > PEERHUB_DB > nearest upward .peerhub/core.db; back up core.db before upgrading; new schema not openable by old versions;",
