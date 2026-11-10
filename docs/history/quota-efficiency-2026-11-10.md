@@ -16,7 +16,7 @@ spent quota produced value is out of scope.
   until 2026-11-11 21:20Z.
 - On pace: `ag G-7D` (flash) is the main spare 7D capacity, gated by `G-5H` (observed exhausted in 2 windows).
 - History: most closed windows are UNKNOWN because quota was not sampled near their resets (gaps 10-21..10-30 and
-  10-30..11-08, when no monitor or refresh ran). The one proven past verdict: `ag G-7D` exhausted 5.6 days early
+  10-30..11-08, when no monitor or refresh ran). The one proven past verdict: `ag G-7D` reached a measured 0% about 2.9 days (70h) early
   in the window ending 2026-10-24.
 - Action: shift drafts and bulk to ag flash, use cc until its reset, keep cx and argon to short reviews, and run
   `peerhub monitor` (or `observation refresh`) near resets so future windows get a verdict.
