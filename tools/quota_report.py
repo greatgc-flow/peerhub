@@ -143,8 +143,8 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"| {w['pool']} | {_ts(w['resets_at'])} | {w['samples']} | {w['verdict']} | {ev} |")
     lines += ["", "## Open 7D windows", "", "| Pool | Resets | Left | PACE pp | State | Note |", "|---|---|---|---|---|---|"]
     for w in report["open_7d"]:
-        lines.append(f"| {w['pool']} | {_ts(w['resets_at'])} | {w['left']:.1%} | {w.get('pace_pp', '-')} | {w['pace_state']} | "
-                     f"{w.get('reason', f'sample age {w['age_hours']}h')} |")
+        note = w.get("reason") or f"sample age {w['age_hours']}h"
+        lines.append(f"| {w['pool']} | {_ts(w['resets_at'])} | {w['left']:.1%} | {w.get('pace_pp', '-')} | {w['pace_state']} | {note} |")
     lines += ["", "## 5H windows", "", "| Pool | Observed windows | Observed exhausted windows |", "|---|---|---|"]
     for pool, c in report["five_hour"].items():
         lines.append(f"| {pool} | {c['observed_windows']} | {c['observed_exhausted_windows']} |")
