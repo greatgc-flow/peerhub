@@ -8,6 +8,14 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- Lesson `review-scores-to-100`: ask reviewers for the concrete change behind every score below 100, report unrun checks as NOT RUN instead of deducting, and give peers read/test allow rules so they verify. `docs/benchmarks/run_profile_bench.sh` runs one profile on a benchmark folder and appends the graded result (replaces ad-hoc copies).
+
+### Fixed
+
+- `test_sleep_called_count_minus_1_times` uses a deterministic clock; it failed the v0.24.6 release matrix on a slow Windows runner (42 +-0.2 s against the real clock).
+
 ## [0.24.6] - 2026-11-10
 
 ### Added

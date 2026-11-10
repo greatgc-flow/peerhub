@@ -163,6 +163,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Check capacity and reset times before work; rotate pools early, reserve scarce capacity for final review, and limit parallel workers to fit the reset window. After a quota failure, continue on a new stream when capacity is available; do not blindly retry an uncertain ask.
 - Issue: #297, #298, #299
 
+## Review rounds that converge on 100 (`review-scores-to-100`)
+
+- Keywords: review, score, 100, round, completeness, matrix, verify, unverified, deduction
+- Symptom: Review rounds repeat: a reviewer scores items 95-97 without naming a defect, or deducts for checks it could not run, so the score never reaches 100.
+- Fix: Ask in the first prompt: for every item below 100 name the concrete, checkable change (file:line + fix), else score 100; report checks that could not run separately as NOT RUN instead of deducting. Give peers the permissions to run the read/test commands they need (project .claude/settings.local.json allow rules for pytest, pyright, git read commands) so reviews verify instead of guessing, and run any command they could not run yourself.
+- Issue: 2026-11-10 (0.24.5/0.24.6 review rounds)
+
 ## store_missing database selection (`store-missing`)
 
 - Keywords: store_missing
