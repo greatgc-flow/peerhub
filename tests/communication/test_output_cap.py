@@ -1127,6 +1127,67 @@ def test_cx_oversized_gap_requires_later_answer_and_completion(chunk_size, suffi
         assert parser.parse() == expected
 
 
+_CC_INIT = '{"type":"system","subtype":"init","session_id":"s1"}'
+_CC_RESULT_OK = '{"type":"result","is_error":false,"subtype":"success","result":"answer","session_id":"s1"}'
+_CC_RESULT_ERR = '{"type":"result","is_error":true,"subtype":"success","result":"answer","session_id":"s1"}'
+
+
+def _cc_oversized_user_line() -> str:
+    return json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "x" * 262_145}]}})
+
+
+def _feed_cc(stream: str, chunk_size: int) -> IncrementalEventParser:
+    parser = IncrementalEventParser("cc")
+    data = stream.encode()
+    for start in range(0, len(data), chunk_size):
+        parser.feed(data[start:start + chunk_size])
+        assert len(parser.pending) <= 262_144
+    parser.close()
+    return parser
+
+
+@pytest.mark.parametrize("chunk_size", [4096, 262_144, 1_000_000])
+@pytest.mark.parametrize("eol", ["\n", "\r\n"])
+def test_cc_oversized_gap_resolved_by_later_result(chunk_size, eol):
+    """#325: an oversized tool event before an intact result must not void the answer."""
+    stream = eol.join([_CC_INIT, _cc_oversized_user_line(), _CC_RESULT_OK]) + eol
+    parser = _feed_cc(stream, chunk_size)
+    assert parser.oversized_count == 1
+    assert parser.parse() == "answer"
+
+
+@pytest.mark.parametrize("chunk_size", [4096, 262_144, 1_000_000])
+def test_cc_oversized_gap_after_result_still_raises(chunk_size):
+    stream = "\n".join([_CC_INIT, _CC_RESULT_OK, _cc_oversized_user_line()]) + "\n"
+    parser = _feed_cc(stream, chunk_size)
+    assert parser.oversized_count == 1
+    with pytest.raises(ValueError, match="oversized"):
+        parser.parse()
+    assert parser.parse_session_id() is None
+    assert parser.parse_usage() is None
+
+
+@pytest.mark.parametrize("chunk_size", [4096, 262_144, 1_000_000])
+def test_cc_oversized_gap_then_error_result_raises(chunk_size):
+    stream = "\n".join([_CC_INIT, _cc_oversized_user_line(), _CC_RESULT_ERR]) + "\n"
+    parser = _feed_cc(stream, chunk_size)
+    assert parser.oversized_count == 1
+    with pytest.raises(ValueError, match="not explicitly is_error=false"):
+        parser.parse()
+
+
+def test_cc_oversized_gap_without_result_raises():
+    parser = _feed_cc("\n".join([_CC_INIT, _cc_oversized_user_line()]) + "\n", 4096)
+    with pytest.raises(ValueError, match="oversized"):
+        parser.parse()
+
+
+def test_cc_oversized_gap_resolved_exposes_session_id():
+    stream = "\n".join([_CC_INIT, _cc_oversized_user_line(), _CC_RESULT_OK]) + "\n"
+    parser = _feed_cc(stream, 4096)
+    assert parser.parse_session_id() == "s1"
+
+
 @pytest.mark.parametrize("extra_bytes", [0, 1])
 @pytest.mark.parametrize("terminated", [False, True])
 def test_cx_event_size_limit_excludes_newline(extra_bytes, terminated):

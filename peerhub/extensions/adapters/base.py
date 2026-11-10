@@ -243,6 +243,7 @@ class IncrementalEventParser:
         self.cc_candidate_session_id: str | None = None
         self._cc_observed_session_id: str | None = None
         self._cc_session_id_conflict = False
+        self._cc_oversized_unresolved = False
 
         # cx state (bounded)
         self.cx_candidate_thread_id: str | None = None
@@ -354,6 +355,9 @@ class IncrementalEventParser:
             self._cx_oversized_unresolved = True
             self._cx_latest_activity_has_turn_completed = False
             self.cx_turn_completed = None
+        elif self.kind == "cc":
+            # A gap after an earlier result makes it stale; only a later intact result resolves it (#325).
+            self._cc_oversized_unresolved = True
         self.pending.clear()
 
     def _try_parse_ag(self) -> None:
@@ -534,6 +538,7 @@ class IncrementalEventParser:
                     elif partial.get("type") not in ("message_start", "message_delta", "message_stop", "content_block_stop"):
                         self.refusal_evidence_incomplete = True
             if event.get("type") == "result":
+                self._cc_oversized_unresolved = False
                 self.cc_results.append(event)
                 if event.get("is_error") is False and event.get("subtype", "success") == "success":
                     self.has_success = True
@@ -646,7 +651,11 @@ class IncrementalEventParser:
     def parse(self) -> str:
         if self.parser_failed:
             raise ValueError("parser failure encountered; outcome indeterminate")
-        if self.oversized_count > 0 and (self.kind != "cx" or self._cx_oversized_unresolved):
+        if self.oversized_count > 0 and (
+            self.kind not in ("cx", "cc")
+            or (self.kind == "cx" and self._cx_oversized_unresolved)
+            or (self.kind == "cc" and self._cc_oversized_unresolved)
+        ):
             raise ValueError(f"oversized event encountered ({self.oversized_count} record(s)); outcome indeterminate")
         if self.kind == "cc":
             if not self.cc_results:
@@ -684,8 +693,13 @@ class IncrementalEventParser:
             return cast(str, r["response"])
         raise ValueError(f"unknown provider kind {self.kind}")
 
+    def _oversized_blocks_metadata(self) -> bool:
+        if self.kind == "cc":
+            return self._cc_oversized_unresolved
+        return self.oversized_count > 0
+
     def parse_usage(self) -> dict[str, int] | None:
-        if self.parser_failed or self.oversized_count > 0:
+        if self.parser_failed or self._oversized_blocks_metadata():
             return None
         if self.kind == "cc":
             usage = self.cc_results[-1].get("usage") if self.cc_results else None
@@ -711,7 +725,7 @@ class IncrementalEventParser:
         return None
 
     def parse_session_id(self) -> str | None:
-        if self.parser_failed or self.oversized_count > 0:
+        if self.parser_failed or self._oversized_blocks_metadata():
             return None
         if self.kind == "cc":
             if self._cc_session_id_conflict or not self.cc_candidate_session_id:

@@ -25,7 +25,7 @@ pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "cheap triage, text edits, simple checks"
 avoid_for = "arithmetic or exact computed output"
-traits = ["failed arithmetic tasks at low (4/8)", "fast (~5s)"]
+traits = ["failed both arithmetic tasks (0/4)", "fast (~5s)"]
 evidence = ["docs/benchmarks/cx-terra-2026-10-29.md"]
 card_checked = "2026-11-10"
 
@@ -38,9 +38,9 @@ checked = "2026-11-10"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "implementation and diff review under an enforced sandbox"
-avoid_for = "machine-observing checks (sandbox hides processes)"
-traits = ["enforced read-only/writable sandbox", "no network unless --writable"]
-evidence = ["docs/benchmarks/cx-terra-2026-10-29.md", "cx-sandbox-and-prompt-hygiene"]
+avoid_for = "machine-observing checks, git commit/push, network"
+traits = ["sandbox hides other processes", "sandbox network fails; no commit"]
+evidence = ["cx-sandbox-and-prompt-hygiene", "docs/peer-limits.md"]
 card_checked = "2026-11-10"
 
 [profiles."cx.deepthink"]
@@ -51,13 +51,13 @@ source = "cli:codex debug models@0.167.0 2026-11-10"
 checked = "2026-11-10"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
+use_for = "deliberate escalation: hard review and debugging"
+avoid_for = "quick questions (slow: 40-48s on benchmark)"
+traits = ["45/45 benchmark, 40-48s"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md", "docs/model-profiles/model-profiles.json"]
+card_checked = "2026-11-10"
 
 # Top tier (opt-in, never a default): measured by docs/benchmarks/profiles-2026-11-08.md (45/45 at high, ultra adds latency only).
-use_for = "rigorous spec and code review, edge-case hunting"
-avoid_for = "quick questions (slow: 40-48s on benchmark)"
-traits = ["45/45 benchmark", "thorough, strict reviewer"]
-evidence = ["docs/benchmarks/profiles-2026-11-08.md"]
-card_checked = "2026-11-10"
 [profiles."cx.astra"]
 selection_mode = "pinned"
 model = "gpt-6-astra"
@@ -81,8 +81,8 @@ pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
 use_for = "cheap triage, short summaries, simple lookups"
 avoid_for = "multi-step reasoning, code review, design decisions"
-traits = ["fastest cc tier", "no effort setting (CLI default)"]
-evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#325"]
+traits = ["effort: CLI default (no flag)", "no gh/git or reads outside -w"]
+evidence = ["docs/model-profiles/model-profiles.json", "docs/peer-limits.md"]
 card_checked = "2026-11-10"
 
 [profiles."cc.effort"]
@@ -93,10 +93,10 @@ source = "known-id:claude --help aliases@2.1.322 2026-11-10"
 checked = "2026-11-10"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
-use_for = "daily implementation, multi-file edits with tools"
+use_for = "daily implementation, multi-file edits in the -w workspace"
 avoid_for = "final design arbitration (use deepthink)"
-traits = ["strong tool use", "long asks may end uncertain (#325)"]
-evidence = ["#325", "cc-allow-rules"]
+traits = ["no gh/git or reads outside -w", "Bash allow rules match exact strings"]
+evidence = ["docs/model-profiles/model-profiles.json", "docs/peer-limits.md", "cc-allow-rules"]
 card_checked = "2026-11-10"
 
 [profiles."cc.deepthink"]
@@ -107,14 +107,14 @@ source = "known-id:claude --help aliases@2.1.322 2026-11-10"
 checked = "2026-11-10"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
+use_for = "design review, hard debugging, final verification"
+avoid_for = "bulk or repetitive work (scarce, slower)"
+traits = ["45/45 benchmark, 14-15s", "no gh/git or reads outside -w"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md", "docs/peer-limits.md"]
+card_checked = "2026-11-10"
 
 # Top tier (opt-in, never a default). F-7D is the Fable weekly window; whether Fable also draws on the shared
 # C-5H/C-7D pools is unverified (a /usage before/after one call showed no change at integer rounding, 2026-11-08).
-use_for = "design review, hard debugging, final verification"
-avoid_for = "bulk or repetitive work (scarce, slower)"
-traits = ["45/45 benchmark, 15s", "long asks may end uncertain (#325)"]
-evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#325"]
-card_checked = "2026-11-10"
 [profiles."cc.fable"]
 selection_mode = "pinned"
 model = "claude-fable-5-1"
@@ -124,9 +124,9 @@ checked = "2026-11-08"
 pools = ["F-7D"]  # owner 2026-11-08: Fable has its own weekly pool; whether it also draws C-5H/C-7D is unmeasured
 pools_source = "unverified"
 use_for = "opt-in top tier: hardest reasoning while its pool has room"
-avoid_for = "headless Bash-heavy tasks; routine work"
-traits = ["45/45 benchmark, fastest (11-12s)", "denies allowlisted Bash headless (#303)", "own weekly pool, drains fast"]
-evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#303", "cc-allow-rules"]
+avoid_for = "routine work; Bash-heavy headless tasks"
+traits = ["45/45 benchmark, 11-12s", "one headless Bash deny (#303)", "own weekly pool, drains fast"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#303", "cc-allow-rules", "docs/history/quota-efficiency-2026-11-10.md"]
 card_checked = "2026-11-10"
 
 [profiles."ag.standard"]

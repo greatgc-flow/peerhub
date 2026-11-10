@@ -3,7 +3,7 @@
 Closed 7D windows get exactly one verdict, checked in order:
 EXHAUSTED_EARLY (a sampled 0% with more than EARLY_HOURS to reset), POSSIBLY_UNUSED (last sample within
 NEAR_RESET_HOURS of reset shows more than UNUSED_LEFT left), USED (that sample shows UNUSED_LEFT or less),
-UNKNOWN (no sample near the reset). Verdicts measure utilization from sampled evidence, not task value,
+UNKNOWN (no sample near the reset). Open windows get PACE, or EXHAUSTED_EARLY / USED once a 0% is sampled. Verdicts measure utilization from sampled evidence, not task value,
 and pools are shared by every session on the account, so they never attribute use to one peer.
 """
 from __future__ import annotations
@@ -67,8 +67,7 @@ def _closed(pool: str, series: list[dict[str, Any]], since: float | None) -> dic
     if first_zero and reset - first_zero["measured_at"] > EARLY_HOURS * H:
         before = [x for x in series if x["measured_at"] < first_zero["measured_at"]]
         row.update(verdict="EXHAUSTED_EARLY",
-                   first_zero_between=[before[-1]["measured_at"] if before else None, first_zero["measured_at"]],
-                   observed_exhausted_hours=round((zeros[-1]["measured_at"] - first_zero["measured_at"]) / H, 1))
+                   first_zero_between=[before[-1]["measured_at"] if before else None, first_zero["measured_at"]])
     elif reset - last["measured_at"] <= NEAR_RESET_HOURS * H:
         left = round(1 - last["used_fraction"], 4)
         row.update(verdict="POSSIBLY_UNUSED" if left > UNUSED_LEFT else "USED", left_at_last_sample=left,
@@ -87,7 +86,7 @@ def _open(pool: str, series: list[dict[str, Any]], now: float) -> dict[str, Any]
     zero = next((x for x in series if x["used_fraction"] >= EXHAUSTED), None)
     if zero is not None:
         hours = round((reset - zero["measured_at"]) / H, 1)
-        return {**row, "pace_state": "EXHAUSTED_EARLY" if hours > EARLY_HOURS else "exhausted",
+        return {**row, "pace_state": "EXHAUSTED_EARLY" if hours > EARLY_HOURS else "USED",
                 "reason": f"first sampled 0% {_ts(zero['measured_at'])}, {hours}h before reset"}
     if now - last["measured_at"] > FRESH_HOURS * H:
         return {**row, "pace_state": "UNKNOWN", "reason": f"stale: last sample older than {FRESH_HOURS:g}h"}
@@ -132,7 +131,8 @@ def render_markdown(report: dict[str, Any]) -> str:
              "", "## Closed 7D windows", "", "| Pool | Reset | Samples | Verdict | Evidence |", "|---|---|---|---|---|"]
     for w in report["closed_7d"]:
         if w["verdict"] == "EXHAUSTED_EARLY":
-            ev = f"first 0% between {_ts(w['first_zero_between'][0])} and {_ts(w['first_zero_between'][1])}; observed exhausted {w['observed_exhausted_hours']}h"
+            ev = (f"first 0% between {_ts(w['first_zero_between'][0])} and {_ts(w['first_zero_between'][1])}, "
+                  f"{(w['resets_at'] - w['first_zero_between'][1]) / H:.1f}h before reset")
         elif w["verdict"] == "UNKNOWN":
             ev = w["reason"]
         else:
@@ -152,10 +152,13 @@ def render_markdown(report: dict[str, Any]) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--db", required=True, type=Path)
-    parser.add_argument("--since", help="ISO date/time (UTC); earlier samples are ignored and cut windows are marked")
+    parser.add_argument("--since", help="ISO date/time (UTC unless an offset is given); earlier samples are ignored and cut windows are marked")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    since = datetime.fromisoformat(args.since).replace(tzinfo=UTC).timestamp() if args.since else None
+    since = None
+    if args.since:
+        parsed = datetime.fromisoformat(args.since)
+        since = (parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)).timestamp()
     try:
         report = build_report(read_samples(args.db), now=time.time(), since=since)
     except (sqlite3.Error, OSError) as exc:

@@ -10,13 +10,17 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
-- Profile cards: every packaged profile carries `use_for`, `avoid_for`, `traits`, `evidence` and `card_checked`, built only from benchmarks, lessons, issues and measured quota. `peerhub profile show ID` prints the effective card with the source layer of each key, `profile list` adds a truncated `USE FOR` column, and `--format json` carries the full `card`. A layer that changes `selection_mode`, `model` or `reasoning_effort` drops the inherited card (claims are bound to the binding they were checked against); the loader validates format and caps, and the test suite checks that packaged evidence references exist.
-- `python -m tools.quota_report --db <store> [--since ...] [--json]`: read-only per-pool utilization report. Closed 7D windows get exactly one verdict (EXHAUSTED_EARLY, POSSIBLY_UNUSED, USED, UNKNOWN), open windows get PACE (or EXHAUSTED_EARLY/UNKNOWN with a reason), 5H pools get observed exhausted window counts; thresholds are printed. First report: `docs/history/quota-efficiency-2026-11-10.md`.
+- Profile cards: every packaged profile carries `use_for`, `avoid_for`, `traits`, `evidence` and `card_checked`, built only from benchmarks, lessons, issues and measured quota. `peerhub profile show ID` prints the effective card with the source layer of each key, `profile list` adds a truncated `USE FOR` column, and `--format json` carries the full `card`. A layer that changes `selection_mode`, `model` or `reasoning_effort` drops the inherited card (claims are bound to the binding they were checked against); the loader validates format and caps; the test suite checks that packaged evidence paths and lesson ids exist (issue refs: format only) and that `card_checked` is not older than `checked`.
+- `python -m tools.quota_report --db <store> [--since ...] [--json]`: read-only per-pool utilization report. Closed 7D windows get exactly one verdict (EXHAUSTED_EARLY, POSSIBLY_UNUSED, USED, UNKNOWN), open windows get PACE (or EXHAUSTED_EARLY/USED once a 0% is sampled, UNKNOWN with a reason when stale or unanchored), 5H pools get observed exhausted window counts; thresholds are printed. First report: `docs/history/quota-efficiency-2026-11-10.md`.
 
 ### Changed
 
 - Model facts re-observed 2026-11-10 (`defaults_revision` 2026-11-10.1): agy 1.5.4, claude 2.1.322, codex 0.167.0; no packaged model or effort changed. `tools.model_ping` PASS for cc.standard, cc.effort, cc.deepthink (model from the stream) cx.standard, cx.effort, cx.deepthink, cx.astra (model and effort from the session log) and ag.standard, ag.effort, ag.deepthink, ag.argon (model from the agy log); their `checked` dates advanced. cc.fable is checked after its F-7D pool resets (see below).
 - The refresh recipe (`model-profiles.json`) states ping evidence strength (cx: model and effort; cc, ag: model only), advances `checked` only after a passing ping, and keeps cards evidence-only.
+
+### Fixed
+
+- A cc ask no longer becomes uncertain because an earlier stream line (typically a large tool result in a long ask) exceeded the 256 KB event cap: an intact later `result` event resolves the gap, like cx already did. An oversized `result` event, or a gap after the result, stays uncertain, and the skipped line is still reported as `oversized_event_count` (#325). Behavior and limits: docs/peer-limits.md.
 
 ## [0.24.4] - 2026-11-09
 

@@ -1,5 +1,5 @@
 """tools/quota_report.py: per-pool quota utilization verdicts from sampled evidence (read-only)."""
-from tools.quota_report import EXHAUSTED, build_report, render_markdown
+from tools.quota_report import EXHAUSTED, build_report, main, render_markdown
 
 H = 3600.0
 D7 = 7 * 24 * H
@@ -22,7 +22,6 @@ def test_exhausted_early_wins_and_reports_bounds():
     w = out[("quota:ag:A-7D", r)]
     assert w["verdict"] == "EXHAUSTED_EARLY"
     assert w["first_zero_between"] == [r - 60 * H, r - 50 * H]
-    assert w["observed_exhausted_hours"] == 49.0
 
 
 def test_possibly_unused_used_and_unknown():
@@ -80,3 +79,22 @@ def test_open_window_already_exhausted_is_not_paced():
     rep = build_report([s("quota:cc:F-7D", r - 40 * H, 0.0, r), s("quota:cc:F-7D", now - H, 0.0, r)], now=now)
     w = rep["open_7d"][0]
     assert w["pace_state"] == "EXHAUSTED_EARLY" and "40.0h before reset" in w["reason"] and "pace_pp" not in w
+
+
+def test_open_window_exhausted_near_reset_is_used():
+    r = 10 * D7
+    rep = build_report([s("quota:cc:F-7D", r - 6 * H, 0.0, r)], now=r - 5 * H)
+    assert rep["open_7d"][0]["pace_state"] == "USED"
+
+
+def test_since_honours_an_explicit_offset(tmp_path, monkeypatch):
+    import tools.quota_report as qr
+
+    seen = {}
+    monkeypatch.setattr(qr, "read_samples", lambda db: [])
+    monkeypatch.setattr(qr, "build_report", lambda samples, now, since: seen.setdefault("since", since) and {} or {})
+    monkeypatch.setattr(qr, "render_markdown", lambda report: "")
+    db = tmp_path / "x.db"
+    db.write_bytes(b"")
+    main(["--db", str(db), "--since", "2026-11-10T09:00+09:00"])
+    assert seen["since"] == main.__globals__["datetime"](2026, 11, 10, 0, 0, tzinfo=main.__globals__["UTC"]).timestamp()

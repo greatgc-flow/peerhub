@@ -97,6 +97,7 @@ def test_overlay_card_after_binding_change_needs_its_own_evidence(tmp_path, monk
     ('traits = ["a", "b", "c", "d"]', "traits"),
     ('traits = ["' + "x" * 41 + '"]', "traits"),
     ('evidence = ["no spaces allowed here"]', "evidence"),
+    ('evidence = []', "evidence"),
     ('card_checked = "10/11/2026"', "card_checked"),
 ])
 def test_card_format_is_validated(tmp_path, monkeypatch, body, match):
@@ -118,3 +119,9 @@ def test_profile_cli_shows_cards(tmp_path, capsys):
     assert main(["profile", "list", "--workspace", str(tmp_path), "--format", "json"]) == 0
     listed = json.loads(capsys.readouterr().out)["profiles"]
     assert all(p["card"]["evidence"]["value"] for p in listed if p["profile"] in PACKAGED)
+
+
+def test_card_is_never_older_than_the_binding_check():
+    """A packaged model or effort change must re-check the card (claims were measured on the old binding)."""
+    for pid, p in PACKAGED.items():
+        assert p["card_checked"] >= p["checked"], pid

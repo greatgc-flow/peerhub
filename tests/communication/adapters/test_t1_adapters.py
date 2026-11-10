@@ -487,17 +487,22 @@ def test_cx_tool_only_turn_and_narration_segregation():
     assert p_phase.parse() == "Final answeronly"
 
 
-def test_native_delivery_oversized_event_forces_conservative_parser_rejection(tmp_path):
-    # Produce an oversized single line in stdout, but total output is within max_output_bytes
+def test_native_delivery_cc_oversized_tool_event_before_result_delivers(tmp_path):
+    """#325: an oversized event before an intact cc result no longer voids the answer."""
     script = (
         "import sys, json; "
-        "sys.stdout.write(json.dumps({'type': 'init', 'data': 'x' * 300000}) + '\\n'); "
+        "sys.stdout.write(json.dumps({'type': 'init', 'data': 'OVERSIZED_PRIVATE' * 20000}) + '\\n'); "
         "sys.stdout.write(json.dumps({'type': 'result', 'is_error': False, 'result': 'ok'}) + '\\n'); "
         "sys.exit(0)"
     )
     target = CliRuntimeTarget("cc", tmp_path, command=[sys.executable, "-c", script], max_bytes=1_000_000)
-    with pytest.raises(RuntimeTargetError, match="oversized event encountered"):
-        list(target.deliver("sess-1", rec("hello"), []))
+    events = list(target.deliver("sess-1", rec("hello"), []))
+    assert events[-1][0] == "terminal"
+    assert events[-1][1]["response"] == "ok"
+    assert events[-1][1]["oversized_event_count"] == 1
+    counts = next(e for e in target.evidence if e["event"] == "event_counts")
+    assert counts["oversized_event_count"] == 1
+    assert "OVERSIZED_PRIVATE" not in json.dumps(list(target.evidence))
 
 
 def test_cx_requires_completion_after_latest_activity_in_both_parsers():
@@ -597,6 +602,40 @@ def test_cx_final_messages_bounded_and_discloses_truncation():
     assert "Final msg 9:" in res
 
 
+
+
+@pytest.mark.parametrize("max_bytes", [1000, 1_000_000])
+@pytest.mark.parametrize("oversized_kind", ["tool", "result", "after_result"])
+def test_cc_oversized_events_preserve_terminal_certainty(tmp_path, max_bytes, oversized_kind):
+    """#325: only an oversized result or a gap after the result keeps a cc ask uncertain."""
+    h = BridgeHarness(tmp_path / "db")
+    script = """
+import json, sys
+kind = sys.argv[1]
+def emit(event):
+    print(json.dumps(event))
+big = "OVERSIZED_PRIVATE" * 20000
+emit({"type": "system", "subtype": "init", "session_id": "s1"})
+if kind == "tool":
+    emit({"type": "user", "message": {"content": [{"type": "tool_result", "content": big}]}})
+emit({"type": "result", "is_error": False, "subtype": "success",
+      "result": big if kind == "result" else "FINAL ANSWER", "session_id": "s1"})
+if kind == "after_result":
+    emit({"type": "user", "message": {"content": [{"type": "tool_result", "content": big}]}})
+"""
+    target = CliRuntimeTarget("cc", tmp_path, command=[sys.executable, "-c", script, oversized_kind], max_bytes=max_bytes)
+    bseed(h)
+    result = h.delivery_cycle("b", "s", target)
+    if oversized_kind == "tool":
+        assert result.status == "delivered"
+        assert result.certainty == "TERMINAL"
+        assert json.loads(responses(h)[0][4]) == "FINAL ANSWER"
+    else:
+        assert result.status == "uncertain"
+        assert responses(h) == []
+    assert "OVERSIZED_PRIVATE" not in json.dumps(list(target.evidence))
+    counts = next(e for e in target.evidence if e["event"] == "event_counts")
+    assert counts["oversized_event_count"] == 1
 
 
 @pytest.mark.parametrize("max_bytes", [1000, 1_000_000])

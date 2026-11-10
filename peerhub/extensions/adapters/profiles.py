@@ -40,7 +40,6 @@ def _load_layers(workspace: str | Path | None) -> list[tuple[str, dict[str, Any]
 
 BINDING_KEYS = ("selection_mode", "model", "reasoning_effort")
 CARD_KEYS = ("use_for", "avoid_for", "traits", "evidence", "card_checked")
-_EVIDENCE = re.compile(r"#\d+|[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)+|[a-z0-9]+(?:-[a-z0-9]+)*")
 
 
 def _card(effective: dict[str, Any], sources: dict[str, str]) -> dict[str, Any] | None:
@@ -58,7 +57,7 @@ def _card(effective: dict[str, Any], sources: dict[str, str]) -> dict[str, Any] 
         raise ValueError("profile card traits must be 1-3 nonempty strings of at most 40 characters")
     evidence: object = card.get("evidence")
     if (not isinstance(evidence, list) or not evidence
-            or not all(isinstance(e, str) and _EVIDENCE.fullmatch(e) for e in cast("list[object]", evidence))):
+            or not all(isinstance(e, str) and e and not any(c.isspace() for c in e) for e in cast("list[object]", evidence))):
         raise ValueError("profile card needs evidence: a list of lesson ids, repo paths or #issue numbers")
     checked = card.get("card_checked")
     if not isinstance(checked, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", checked):

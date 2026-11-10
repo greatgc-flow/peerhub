@@ -15,7 +15,7 @@ Other unbounded subprocess sites (such as Git calls in `tools/release_evidence.p
 
 See the [adapter guide](adapters/README.md) and [installed-CLI smoke recipe](smoke-recipe.md).
 
-## cx event size
+## cx and cc event size
 
 The cx adapter accepts at most 262,144 bytes (256 KiB) per JSONL record,
 excluding the newline; this is separate from the total retained output budget
@@ -24,6 +24,11 @@ payloads in warnings or telemetry. `oversized_event_count` records the count.
 A later intact answer followed by `turn.completed` establishes delivery after a
 skipped record; an oversized final answer/completion or an unresolved gap keeps
 the outcome uncertain. A completion alone cannot substitute for a lost answer.
+
+The cc adapter uses the same 256 KiB per-line cap on its `stream-json` output. Since 0.24.5 (#325) a
+later intact `result` event establishes delivery after a skipped line (typically a large tool result in a
+long ask); an oversized `result` event, a gap after the result, or a gap with no result keeps the outcome
+uncertain, and session id and usage are not taken from a stream with an unresolved gap.
 
 ## Upgrading or restarting during an in-flight ask
 
