@@ -17,7 +17,7 @@ they do not claim new validation or publication evidence.
 
 - A provider-disabled agy bucket (`"disabled": true`, e.g. `3p-5h` while the weekly limit is hit) no longer keeps its last value. It is recorded as the existing ABSENT / not-applicable state with the reason `disabled by provider: <description>` (printable ASCII, at most 100 characters), renders `n/a` with no capacity or reset in compact, expanded and JSON output, is skipped like other not-applicable pools, ages to STALE like them, and returns to MEASURED when the provider re-enables it. Earlier rows are kept (#328).
 - A peer-level (pool-less) quota probe failure no longer shows `PROBE:<age>` / `probe error` once a strictly newer MEASURED pool observation exists for the same peer and the same probe source (a poller counts as one source: ag `/usage` and its statusline fallback, and a poller that raised, stored as `quota_probe:<kind>`). Another probe source, another peer, or a failure from the same run still shows, and agy refusal / token-use / conflict rows are never retired by a later success; the stored history is unchanged (#328).
-- `peerhub explain <lesson id>` (for example `monitor-probe-age`) now matches the exact lesson id before keyword search; guidance codes still take priority (#328).
+- `peerhub explain <lesson id>` (for example `monitor-probe-age`) now matches the exact lesson id before keyword search; order: guidance code, exact profile id, exact lesson id, keywords (#328).
 
 ### Changed
 

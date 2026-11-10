@@ -7,7 +7,7 @@ python -c "from pathlib import Path; from peerhub.cli.lessons import render_less
 ```
 
 Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.
-Known guidance codes and aliases take priority, then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order.
+Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order.
 
 ## ag profile choice for bulk work (observed 2026-11-01) (`ag-bulk-profile-heuristics`)
 
