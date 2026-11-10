@@ -76,4 +76,5 @@ def test_runtime_group_separates_saved_session_facts_from_current_profile(tmp_pa
             "effort": {"value": "xhigh", "source": "workspace"},
             "pools": {"value": ["C-5H", "C-7D"], "source": "packaged"},
         },
+        "card": None,  # the workspace layer changed the model, so the packaged card no longer applies
     }

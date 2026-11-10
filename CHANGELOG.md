@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.5] - 2026-11-10
+
 ### Added
 
 - Profile cards: every packaged profile carries `use_for`, `avoid_for`, `traits`, `evidence` and `card_checked`, built only from benchmarks, lessons, issues and measured quota. `peerhub explain ID` (exact profile ids are matched before the lessons lookup; unknown profile and "no card" are distinguished) and `peerhub profile show ID` print the effective card with the source layer of each key, `profile list` adds a truncated `USE FOR` column, and `--format json` carries the full `card`. A layer that changes `selection_mode`, `model` or `reasoning_effort` drops the inherited card (claims are bound to the binding they were checked against); the loader validates format and caps; the test suite checks that packaged evidence paths and lesson ids exist (issue refs: format only) and that `card_checked` is not older than `checked`.
