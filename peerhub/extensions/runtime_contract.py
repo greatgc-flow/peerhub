@@ -25,7 +25,6 @@ class ContextLostError(PrespawnError):
     """Adapter reports context/session loss (compaction, context limit) before the run began: safe NOT_STARTED retry on a fresh generation."""
 
 
-
 RuntimeEvent = tuple[str, Any] | tuple[str, Any, Any]  # ("started", exec_id) | ("timeout", seconds) | ("terminal", {"response": ...}) | ...
 
 
@@ -44,4 +43,3 @@ class RuntimeTarget(Protocol):
 
 class SteerableTarget(Protocol):
     def steer(self, external_session_id: str, record: Any) -> None: ...
-

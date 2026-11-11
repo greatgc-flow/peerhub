@@ -415,6 +415,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                                  "peer_id": str(row["peer_id"]), "generation": int(row["session_generation"]),
                                  "provider": str(row["runtime_kind"]), "state": str(row["state"]),
                                  "resumable": bool(row["resumable"]), "execution_mode": exec_mode,
+                                 "uses": None if rc is None or fc is None else int(rc) + int(fc),
                                  "last_seen": float(row["last_seen"]),
                                  "created_at": float(row["created_at"]), "tombstoned_at": row["tombstoned_at"],
                                  "configured_binding": {key: _public_binding_value(binding.get(key)) for key in ("profile", "model", "effort")},

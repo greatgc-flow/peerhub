@@ -6,7 +6,7 @@ Dates are UTC.
 
 ## Current source: v0.24.8 (release candidate)
 
-v0.24.8 merges PR #349 (#335): Bridge/claim-store init skips trigger rewrites when the installed SQL matches exactly (full rebuild on any mismatch), a provider-neutral runtime port module, and a Core snapshot iterator for `source_records`; plus the `ask-timeouts` lesson and `--timeout-seconds` help (#350). Scope voted unanimously (cc lead, cx, ag). #335 closes with this release; #323, #324 step 2, #330, #313 stay open with reasons on the issues.
+v0.24.8 merges PR #349 (#335): Bridge/claim-store init skips trigger rewrites when the installed SQL matches exactly (full rebuild on any mismatch), a provider-neutral runtime port module, and a Core snapshot iterator for `source_records`; plus the `ask-timeouts` lesson and `--timeout-seconds` help (#350); `monitor --expand` shows `uses N` per session; monitor tables share one column and pool order with a remaining-quota bar, PACE direction glyphs and STATE colours, and narrow consoles drop whole columns from the right. Scope voted unanimously (cc lead, cx, ag). #335 closes with this release; #323, #324 step 2, #330, #313 stay open with reasons on the issues.
 
 ### v0.24.7 (published)
 

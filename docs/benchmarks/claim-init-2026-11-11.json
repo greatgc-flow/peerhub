@@ -1,1 +1,187 @@
-{"baseline_commit":"05c343624914125b93f3d9cfc5f3c4950da2f358","measurement_date":"2026-11-11","execution":"local Linux sandbox; reconstructed published sdist plus verified branch runtime blobs; not full checkout, not live CLI","before":{"cases":[{"cold_ms":{"bridge_ms":18.58352199997171,"claims_ms":9.521921999976257,"core_ms":13.285478000057083,"total_ms":41.39092200000505},"p50_ms":19.094702500012772,"p95_ms":28.06901700000708,"phase_p50_ms":{"bridge_ms":9.814652499983367,"claims_ms":5.504202499992061,"core_ms":3.1945530000143663,"total_ms":19.094702500012772},"samples":10,"schema_cookie_delta":800,"workers":1},{"cold_ms":{"bridge_ms":12.992662999977256,"claims_ms":8.001081000088561,"core_ms":9.81409199994232,"total_ms":30.807836000008137},"p50_ms":31.640537000043878,"p95_ms":50.3920600000356,"phase_p50_ms":{"bridge_ms":8.5764975000302,"claims_ms":7.9811534999976175,"core_ms":7.15472150000096,"total_ms":31.640537000043878},"samples":20,"schema_cookie_delta":1600,"workers":2},{"cold_ms":{"bridge_ms":12.229230999992069,"claims_ms":5.304212000055486,"core_ms":8.885504999966543,"total_ms":26.418948000014097},"p50_ms":43.545859000005294,"p95_ms":85.78380199992353,"phase_p50_ms":{"bridge_ms":6.263914499982093,"claims_ms":21.267683499957002,"core_ms":16.462433000015153,"total_ms":43.545859000005294},"samples":40,"schema_cookie_delta":3200,"workers":4},{"cold_ms":{"bridge_ms":14.670152999997299,"claims_ms":3.7905409999439144,"core_ms":8.36279200007084,"total_ms":26.823486000012053},"p50_ms":93.2687879999321,"p95_ms":163.42286500002956,"phase_p50_ms":{"bridge_ms":7.39158999999745,"claims_ms":36.68681000004881,"core_ms":35.03283150001835,"total_ms":93.2687879999321},"samples":80,"schema_cookie_delta":6400,"workers":8}],"os":"Linux","provider_calls":0,"python":"3.13.5","rounds":10,"schema_version":1,"scope":"synthetic warm initialization; no provider, no user database; not a throughput SLA","source_sha256":{"core/store.py":"42d1fb671a2cb6793ebe7c6237d82f38fc5046102c23cfdadf3be113eac3a25e","extensions/bridge.py":"9435576de11d19c8adb6167a09f2db5926f63a60b99377a2618d4cdf9ef3d2ff","extensions/bridge_claims.py":"360b772e7a9d246be21420525f5937d5bee29181c21daab98228c0afa7aff54e"},"sqlite":"3.46.1"},"after":{"cases":[{"cold_ms":{"bridge_ms":14.146426000024803,"claims_ms":6.464929000003394,"core_ms":10.88648099994316,"total_ms":31.497835999971358},"p50_ms":16.63968599996224,"p95_ms":18.416490999925372,"phase_p50_ms":{"bridge_ms":9.988352499988196,"claims_ms":1.777556499973798,"core_ms":3.833633999988706,"total_ms":16.63968599996224},"samples":10,"schema_cookie_delta":720,"workers":1},{"cold_ms":{"bridge_ms":15.602673999978833,"claims_ms":4.961904999959188,"core_ms":7.691872000009425,"total_ms":28.256450999947447},"p50_ms":22.804148000034274,"p95_ms":39.68924200000856,"phase_p50_ms":{"bridge_ms":8.901864999984355,"claims_ms":3.2968539999842505,"core_ms":7.67590850000488,"total_ms":22.804148000034274},"samples":20,"schema_cookie_delta":1440,"workers":2},{"cold_ms":{"bridge_ms":16.077389999963998,"claims_ms":5.422866000003523,"core_ms":8.974082999998245,"total_ms":30.474338999965767},"p50_ms":44.27204099994242,"p95_ms":81.3702350000085,"phase_p50_ms":{"bridge_ms":9.210908000000018,"claims_ms":10.11890050006059,"core_ms":18.619284999999763,"total_ms":44.27204099994242},"samples":40,"schema_cookie_delta":2880,"workers":4},{"cold_ms":{"bridge_ms":19.653661999996075,"claims_ms":5.173945000024105,"core_ms":11.398949999943397,"total_ms":36.22655699996358},"p50_ms":91.16882750004152,"p95_ms":160.85701399993013,"phase_p50_ms":{"bridge_ms":10.660989500024698,"claims_ms":29.277915499960727,"core_ms":35.94011899991756,"total_ms":91.16882750004152},"samples":80,"schema_cookie_delta":5760,"workers":8}],"os":"Linux","provider_calls":0,"python":"3.13.5","rounds":10,"schema_version":1,"scope":"synthetic warm initialization; no provider, no user database; not a throughput SLA","source_sha256":{"core/store.py":"42d1fb671a2cb6793ebe7c6237d82f38fc5046102c23cfdadf3be113eac3a25e","extensions/bridge.py":"9435576de11d19c8adb6167a09f2db5926f63a60b99377a2618d4cdf9ef3d2ff","extensions/bridge_claims.py":"1b8fb6f748bdd629c4d156d60a658ffd741f14772a9e10b77f994d5e151ff7e4"},"sqlite":"3.46.1"},"validation":{"baseline_claim_tests":{"failed":3,"passed":11},"candidate_new_tests":{"passed":22,"failed":0},"provider_calls":0},"limitations":["one paired run, not randomized, warm/cold cache and host load may differ","latency includes SQLite lock waits; wait time was not measured separately","Bridge trigger rebuilding remains unchanged (72 schema-cookie increments per complete warm initialization)","actual provider authentication/sandbox/live G3 not tested"]}
+{
+ "after": {
+  "cases": [
+   {
+    "cold_ms": {
+     "bridge_ms": 19.374499999685213,
+     "claims_ms": 34.13509999518283,
+     "core_ms": 28.724699979647994,
+     "total_ms": 82.23429997451603
+    },
+    "p50_ms": 7.37920000392478,
+    "p95_ms": 8.230900013586506,
+    "phase_p50_ms": {
+     "bridge_ms": 2.4843000137479976,
+     "claims_ms": 1.73864999669604,
+     "core_ms": 3.088750017923303,
+     "total_ms": 7.37920000392478
+    },
+    "samples": 10,
+    "schema_cookie_delta": 0,
+    "workers": 1
+   },
+   {
+    "cold_ms": {
+     "bridge_ms": 18.513500021072105,
+     "claims_ms": 15.084699989529327,
+     "core_ms": 31.04689999599941,
+     "total_ms": 64.64510000660084
+    },
+    "p50_ms": 19.510350000928156,
+    "p95_ms": 36.464400007389486,
+    "phase_p50_ms": {
+     "bridge_ms": 2.753000007942319,
+     "claims_ms": 2.0067500008735806,
+     "core_ms": 11.259799997787923,
+     "total_ms": 19.510350000928156
+    },
+    "samples": 20,
+    "schema_cookie_delta": 0,
+    "workers": 2
+   },
+   {
+    "cold_ms": {
+     "bridge_ms": 19.779900001594797,
+     "claims_ms": 13.575499993748963,
+     "core_ms": 31.352499994682148,
+     "total_ms": 64.70789999002591
+    },
+    "p50_ms": 30.449149999185465,
+    "p95_ms": 62.53080000169575,
+    "phase_p50_ms": {
+     "bridge_ms": 2.7836999943247065,
+     "claims_ms": 8.952000003773719,
+     "core_ms": 16.83650001359638,
+     "total_ms": 30.449149999185465
+    },
+    "samples": 40,
+    "schema_cookie_delta": 0,
+    "workers": 4
+   },
+   {
+    "cold_ms": {
+     "bridge_ms": 18.394399987300858,
+     "claims_ms": 13.145800010534003,
+     "core_ms": 27.597500011324883,
+     "total_ms": 59.137700009159744
+    },
+    "p50_ms": 84.81914998264983,
+    "p95_ms": 168.71920000994578,
+    "phase_p50_ms": {
+     "bridge_ms": 2.4441499990643933,
+     "claims_ms": 47.55740000109654,
+     "core_ms": 30.596950004110113,
+     "total_ms": 84.81914998264983
+    },
+    "samples": 80,
+    "schema_cookie_delta": 0,
+    "workers": 8
+   }
+  ],
+  "os": "Windows",
+  "provider_calls": 0,
+  "python": "3.15.2",
+  "rounds": 10,
+  "schema_version": 1,
+  "scope": "synthetic warm initialization; no provider, no user database; not a throughput SLA",
+  "source_sha256": {
+   "core/store.py": "42d1fb671a2cb6793ebe7c6237d82f38fc5046102c23cfdadf3be113eac3a25e",
+   "extensions/bridge.py": "78a2d5a6ae9aa37efe2413ba2170c63195aa93fd9378b4e485b0f9c434306f05",
+   "extensions/bridge_claims.py": "1b8fb6f748bdd629c4d156d60a658ffd741f14772a9e10b77f994d5e151ff7e4"
+  },
+  "sqlite": "3.53.4"
+ },
+ "before": {
+  "cases": [
+   {
+    "cold_ms": {
+     "bridge_ms": 19.775300024775788,
+     "claims_ms": 33.90479998779483,
+     "core_ms": 28.788700001314282,
+     "total_ms": 82.4688000138849
+    },
+    "p50_ms": 33.41260000888724,
+    "p95_ms": 36.96470000431873,
+    "phase_p50_ms": {
+     "bridge_ms": 16.21455002168659,
+     "claims_ms": 13.20399998803623,
+     "core_ms": 4.333200020482764,
+     "total_ms": 33.41260000888724
+    },
+    "samples": 10,
+    "schema_cookie_delta": 800,
+    "workers": 1
+   },
+   {
+    "cold_ms": {
+     "bridge_ms": 20.257600001059473,
+     "claims_ms": 12.950100004673004,
+     "core_ms": 29.395599995041266,
+     "total_ms": 62.60330000077374
+    },
+    "p50_ms": 56.80365000443999,
+    "p95_ms": 77.69159998861142,
+    "phase_p50_ms": {
+     "bridge_ms": 16.48955000564456,
+     "claims_ms": 14.703699984238483,
+     "core_ms": 9.999750007409602,
+     "total_ms": 56.80365000443999
+    },
+    "samples": 20,
+    "schema_cookie_delta": 1600,
+    "workers": 2
+   },
+   {
+    "cold_ms": {
+     "bridge_ms": 20.541699981549755,
+     "claims_ms": 13.263600005302578,
+     "core_ms": 29.197600000770763,
+     "total_ms": 63.002899987623096
+    },
+    "p50_ms": 71.10844999260735,
+    "p95_ms": 116.18070001713932,
+    "phase_p50_ms": {
+     "bridge_ms": 15.89169999351725,
+     "claims_ms": 22.838849981781095,
+     "core_ms": 14.766749998671003,
+     "total_ms": 71.10844999260735
+    },
+    "samples": 40,
+    "schema_cookie_delta": 3200,
+    "workers": 4
+   },
+   {
+    "cold_ms": {
+     "bridge_ms": 19.033299991860986,
+     "claims_ms": 12.83660001354292,
+     "core_ms": 29.952899989439175,
+     "total_ms": 61.82279999484308
+    },
+    "p50_ms": 122.77784998877905,
+    "p95_ms": 239.36750000575557,
+    "phase_p50_ms": {
+     "bridge_ms": 12.801949982531369,
+     "claims_ms": 71.8539000081364,
+     "core_ms": 28.26535000349395,
+     "total_ms": 122.77784998877905
+    },
+    "samples": 80,
+    "schema_cookie_delta": 6400,
+    "workers": 8
+   }
+  ],
+  "os": "Windows",
+  "provider_calls": 0,
+  "python": "3.15.2",
+  "rounds": 10,
+  "schema_version": 1,
+  "scope": "synthetic warm initialization; no provider, no user database; not a throughput SLA",
+  "source_sha256": {
+   "core/store.py": "42d1fb671a2cb6793ebe7c6237d82f38fc5046102c23cfdadf3be113eac3a25e",
+   "extensions/bridge.py": "e71d2c83961198df256728660a7273b443ec762e9355a3118ed6b0116baf8a20",
+   "extensions/bridge_claims.py": "360b772e7a9d246be21420525f5937d5bee29181c21daab98228c0afa7aff54e"
+  },
+  "sqlite": "3.53.4"
+ },
+ "note": "python -m tools.bridge_init_bench --rounds 10 on one Windows PC, 2026-11-11; before = 0.24.7 bridge.py/bridge_claims.py (origin/main 7b25b89a), after = 0.24.8 candidate; local sample incl. lock waits, not an SLA"
+}

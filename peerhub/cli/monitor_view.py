@@ -50,6 +50,10 @@ def _width(text: str) -> int:
 def _fit(text: str, width: int, unicode: bool) -> str:
     if width <= 0:
         return ""
+    if _ANSI.search(text):  # our own SGR colour: keep it when the line fits whole, else fit the plain text
+        if _width(text) <= width:
+            return text
+        text = _ANSI.sub("", text)
     text = _clean(text)
     if _width(text) <= width:
         return text
@@ -64,6 +68,34 @@ def _fit(text: str, width: int, unicode: bool) -> str:
     return result + mark
 
 
+def _pool_order(peer: str, pool: str) -> tuple[str, str, int, str]:
+    """The one pool ordering every monitor view uses: peer, family, window length, name."""
+    return (peer, _pool_family(pool), _parse_window(pool)[0], pool)
+
+
+def _visible_fields(rows: Sequence[Sequence[str]], sep: str, width: int, keep: int) -> int:
+    """How many leading fields every row shows whole: drop trailing fields until all rows fit (never below `keep`)."""
+    count = max((len(row) for row in rows), default=0)
+    while count > keep and any(_width(sep.join(field for field in row[:count] if field)) > width for row in rows):
+        count -= 1
+    return count
+
+
+def _omitted_rows(names: Sequence[str], width: int) -> list[str]:
+    """The `Columns omitted:` disclosure, wrapped so narrow displays still name every dropped column."""
+    rows: list[str] = []
+    note = "Columns omitted:"
+    if not names:
+        return rows
+    for name in names:
+        if _width(f"{note} {name}") > width:
+            rows.append(note)
+            note = name
+        else:
+            note += f" {name}"
+    return [*rows, note]
+
+
 def _bar(used: float, cells: int, unicode: bool) -> str:
     used = min(1.0, max(0.0, used))
     filled = int(used * cells + 0.5)
@@ -71,16 +103,54 @@ def _bar(used: float, cells: int, unicode: bool) -> str:
     return full * filled + empty * (cells - filled)
 
 
-def _bar_quota(remaining: float | None, cells: int = 8, unicode: bool = True) -> str:
+def _bar_quota(remaining: float | None, cells: int = 8, unicode: bool = True, even_burn: float | None = None) -> str:
+    """Remaining-quota bar; `even_burn` is the remaining fraction an even burn would leave, drawn as `|` unless it sits on the filled edge."""
     if remaining is None or not (0.0 <= remaining <= 1.0):
-        empty = "░" if unicode else "."
-        return f"[{empty * cells}]"
+        return f"[{'-' * cells}]"
     filled = int(remaining * cells + 0.5)
     full = "█" if unicode else "#"
     empty = "░" if unicode else "."
+    body = [full] * filled + [empty] * (cells - filled)
+    edge = filled - 1
     if remaining > 0 and filled == 0 and cells > 0:
-        return f"[{'▏' if unicode else ':'}{empty * (cells - 1)}]"
-    return f"[{full * filled}{empty * (cells - filled)}]"
+        body[0] = "▏" if unicode else ":"
+        edge = 0
+    if even_burn is not None and cells > 0:
+        tick = min(cells - 1, max(0, int(even_burn * cells)))
+        if tick != edge:
+            body[tick] = "|"
+    return f"[{''.join(body)}]"
+
+
+def _even_burn(pool: str, reset_in: float | None) -> float | None:
+    """Fraction of the pool's window left at reset_in: the remaining quota an even burn would show."""
+    window = _parse_window(pool)[0]
+    if reset_in is None or window >= 999999999:
+        return None
+    return min(1.0, max(0.0, reset_in / window))
+
+
+def _pace_glyph(text: str, unicode: bool) -> str:
+    """Direction glyph before a signed non-zero pace number (the number itself is unchanged)."""
+    match = re.match(r"[+-]\d+(?:\.\d+)?", text)
+    if not match or float(match[0]) == 0:
+        return text
+    up, down = ("▲", "▼") if unicode else ("^", "v")
+    return (up if match[0][0] == "+" else down) + text
+
+
+_STATE_COLORS = {"OK": "32", "ON_PACE": "32", "SAFE": "32", "MEASURED": "32",
+                 "LOW": "33", "INSUFF": "33", "WATCH": "33", "FAST": "35", "THREAT": "35",
+                 "OUT": "1;31", "EXHAUSTED": "1;31", "ERROR": "1;31", "AGED": "2;33", "STALE": "2;33",
+                 "RESET": "36", "N/A": "2", "?": "2", "UNKNOWN": "2"}
+
+
+def _state_code(state: str) -> str | None:
+    return _STATE_COLORS.get(state.split(":")[0].upper())
+
+
+def _paint(text: str, code: str | None) -> str:
+    return f"\x1b[{code}m{text}\x1b[0m" if code else text
 
 
 def _pct(rem: float) -> str:
@@ -198,7 +268,7 @@ def _peer(item: dict[str, Any]) -> str:
 
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
                  elapsed_seconds: float = 0.0, read_at: float | None = None,
-                 expand: bool = False) -> list[str]:
+                 expand: bool = False, color: bool = False) -> list[str]:
     data = _obj(group.get("data"))
     if data == {} and group.get("data") is None:
         return ["data unavailable"]
@@ -219,6 +289,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
     elif group_id == "peers":
         peer_items = _items(data.get("peers"))
+        narrow_peers: list[list[str]] = []
         if not peer_items:
             rows.append("No peer evidence")
         for item in peer_items:
@@ -332,10 +403,17 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     c_narr = "unk"
 
             if width < 48:
-                rows.append(_fit(f"{pid}: quota {q_narr} | {p_narr} | {s_narr}{' | ctx: ' + c_narr if c_narr != 'unk' else ''}", max(0, width - 1), unicode))
+                narrow_peers.append([f"{pid}: quota {q_narr}", p_narr, s_narr, f"ctx: {c_narr}" if c_narr != "unk" else ""])
             else:
                 rows.append(f"{pid:<4}quota: {q_wide} -> {p_wide}")
                 rows.append(f"    -> latest session: {s_wide}{' -> context: ' + c_wide if c_wide != 'unknown' else ''}")
+
+        if narrow_peers:  # one field set for all peers: drop trailing fields whole, never cut one with `~`
+            shown = _visible_fields(narrow_peers, " | ", width - 2, keep=1)
+            rows.extend(" | ".join(field for field in fields[:shown] if field) for fields in narrow_peers)
+            if shown < 4:
+                rows.extend(_omitted_rows([name for name, i in (("profile", 1), ("session", 2), ("ctx", 3))
+                                           if i >= shown and any(fields[i] for fields in narrow_peers)], width - 2))
 
         defaults_rev: object = data.get("defaults_revision")
         observed_at: object = data.get("observed_at")
@@ -415,15 +493,24 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
         sessions = _items(data.get("items"))
         if sessions:
             limit = len(sessions) if expand else min(2, len(sessions))
+            field_rows: list[list[str]] = []
             for session in sessions[:limit]:
                 binding = _obj(session.get("configured_binding"))
                 profile = _clean(binding.get("profile") or "profile unknown")
                 model = _clean(binding.get("model") or "model unknown")
                 effort = _clean(binding.get("effort") or "effort unknown")
                 resume = "resumable" if session.get("resumable") else "not resumable"
-                handle = _clean(session.get("handle") or "")
-                handle_part = f"{sep}{handle}" if expand and handle else ""
-                rows.append(f"{_peer(session)} {_clean(session.get('state') or 'UNKNOWN')}{handle_part}{sep}gen {_count(session.get('generation'))}{sep}{profile} / {model} ({effort}){sep}{resume}")
+                handle = _clean(session.get("handle") or "") if expand else ""
+                uses = f"uses {_count(session.get('uses'))}" if expand else ""
+                field_rows.append([f"{_peer(session)} {_clean(session.get('state') or 'UNKNOWN')}", handle,
+                                   f"gen {_count(session.get('generation'))}", uses, f"{profile} / {model} ({effort})", resume])
+            # One field set for the whole table: drop trailing fields whole (peer+state and handle always stay).
+            shown = _visible_fields(field_rows, sep, width - 2, keep=2)
+            rows.extend(sep.join(field for field in fields[:shown] if field) for fields in field_rows)
+            names = ["peer", "handle", "gen", "uses", "profile", "resumable"]
+            if shown < len(names):
+                rows.extend(_omitted_rows([name for i, name in enumerate(names) if i >= shown
+                                           and any(fields[i] for fields in field_rows)], width - 2))
             if not expand and len(sessions) > 2:
                 rows.append(f"+{len(sessions) - 2} sessions not shown")
         else:
@@ -480,43 +567,17 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     elif group_id == "capacity":
         observations = _items(data.get("observations"))
         if observations:
-            def _quota_sort_key(item: dict[str, Any]) -> tuple[str, int, str]:
-                p = str(item.get("peer_id") or "?").lower()
-                pref = str(item.get("pool_ref") or item.get("pool_kind") or "")
-                pid = pref.split(":")[-1] if ":" in pref else pref
-                w_sec, _ = _parse_window(pref)
-                return (p, w_sec, pid.lower())
+            def _quota_sort_key(item: dict[str, Any]) -> tuple[str, str, int, str]:
+                pool_ref = _clean(item.get("pool_ref") or item.get("pool_kind") or "quota")
+                return _pool_order(_clean(item.get("peer_id") or "?"), pool_ref.split(":")[-1])
 
             sorted_obs = sorted(observations, key=_quota_sort_key)
             probe_notes: dict[str, set[str]] = {}
             na_notes: list[str] = []
-            # Remove optional columns before fitting any quota identity/state.
-            column_widths = {"PEER": 4, "POOL": 8, "REM": 5, "[BAR]": 10,
-                             "RESET-IN": 9, "EXHAUST-IN": 13, "PACE": 8,
-                             "STATE": 12, "AGE": 5, "PROFILES (configured)": 24}
-            columns = list(column_widths)
-            omitted_cols: list[str] = []
-            if width < 99:
-                columns.remove("EXHAUST-IN")
-                omitted_cols.append("exhaust-in")
-            optional_columns = (["PROFILES (configured)"] if width < 80 else []) + ["[BAR]", "EXHAUST-IN", "AGE", "PACE", "RESET-IN", "PROFILES (configured)"]
-            for optional in optional_columns:
-                needed = sum(column_widths[c] for c in columns) + 2 * (len(columns) - 1)
-                if needed <= width:
-                    break
-                if optional in columns:
-                    columns.remove(optional)
-                    omitted_cols.append("bar" if optional == "[BAR]" else optional.lower())
-
-            def quota_row(values: dict[str, str]) -> str:
-                cells: list[str] = []
-                for column in columns:
-                    value = _fit(values[column], column_widths[column], unicode)
-                    padding = " " * max(0, column_widths[column] - _width(value))
-                    cells.append(padding + value if column in {"REM", "AGE"} else value + padding)
-                return "  ".join(cells)
-
-            rows.append(_fit(quota_row({c: c for c in columns}), width, unicode))
+            # Columns are listed by priority (left first); a too-wide table drops whole columns from the right.
+            column_widths = {"PEER": 4, "POOL": 8, "STATE": 12, "REM": 5, "RESET-IN": 9, "PACE": 9,
+                             "[BAR]": 10, "EXHAUST-IN": 13, "AGE": 5, "PROFILES (configured)": 24}
+            table: list[dict[str, str]] = []
 
             for item in sorted_obs:
                 peer = _clean(item.get("peer_id") or "?")
@@ -539,12 +600,11 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                         what = f"not reported (plan {plan})"
                     na_notes.append(f"{peer} {pool_id} n/a {what}" if fresh else
                                     f"{peer} {pool_id} ? {what}, aged; next: peerhub observation refresh --peers {peer}")
-                    rows.append(_fit(quota_row({
+                    table.append({
                         "PEER": peer, "POOL": pool_id, "REM": "n/a" if fresh else "-",
-                        "[BAR]": f"[{('░' if unicode else '.') * 8}]", "RESET-IN": "-", "EXHAUST-IN": "-", "PACE": "-",
+                        "[BAR]": _bar_quota(None), "RESET-IN": "-", "EXHAUST-IN": "-", "PACE": "-",
                         "STATE": "n/a" if fresh else "?", "AGE": age_str,
-                        "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")}),
-                        width, unicode))
+                        "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
                     continue
 
                 if pool_id == "quota" and state != "MEASURED":
@@ -560,21 +620,19 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 is_usable = (state == "MEASURED")
                 if is_usable:
                     rem = _number(measurements.get("remaining_fraction"))
-                    if rem is not None and 0.0 <= rem <= 1.0:
-                        rem_str = _pct(rem)
-                        bar_str = _bar_quota(rem, 8, unicode)
-                    else:
-                        rem_str = "-"
-                        bar_str = f"[{('░' if unicode else '.') * 8}]"
+                    rem_str = _pct(rem) if rem is not None and 0.0 <= rem <= 1.0 else "-"
 
                     reset_in = _number(item.get("reset_in_seconds"))
                     if reset_in is None:
                         reset_in = _number(measurements.get("reset_in_seconds"))
+                    burn = None
                     if reset_in is not None and reset_in >= 0:
                         rem_reset = max(0.0, reset_in - elapsed_seconds)
                         reset_str = _format_duration(rem_reset)
+                        burn = _even_burn(pool_id, rem_reset)
                     else:
                         reset_str = "-"
+                    bar_str = _bar_quota(rem, 8, unicode, burn)
 
                     exhaustion = _alert_exhaustion_at(item)
                     if exhaustion is not None:
@@ -585,38 +643,42 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                         exhaust_str = "-"
 
                     pace = _number(projection.get("pace_pt"))
-                    pace_str = f"{pace:+.1f}pp" if pace is not None else "-"
+                    pace_str = _pace_glyph(f"{pace:+.1f}pp", unicode) if pace is not None else "-"
 
                     proj_state = _clean(projection.get("state") or "").upper()
                     state_str = "INSUFF" if proj_state == "INSUFFICIENT" else proj_state or "MEASURED"
                 else:
                     # STALE/UNKNOWN rows keep identity+reason, no usable capacity shown
                     rem_str = "-"
-                    bar_str = f"[{('░' if unicode else '.') * 8}]"
+                    bar_str = _bar_quota(None)
                     reset_str = "-"
                     exhaust_str = "-"
                     pace_str = "-"
                     state_str = "STALE:window" if state == "STALE" else state
 
-                row_str = quota_row({"PEER": peer, "POOL": pool_id, "REM": rem_str,
-                                     "[BAR]": bar_str, "RESET-IN": reset_str,
-                                     "EXHAUST-IN": exhaust_str, "PACE": pace_str,
-                                     "STATE": state_str, "AGE": age_str,
-                                     "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
-                rows.append(_fit(row_str, width, unicode))
+                table.append({"PEER": peer, "POOL": pool_id, "REM": rem_str,
+                              "[BAR]": bar_str, "RESET-IN": reset_str,
+                              "EXHAUST-IN": exhaust_str, "PACE": pace_str,
+                              "STATE": state_str, "AGE": age_str,
+                              "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
 
+            # One column set for the whole table; PEER and POOL always stay, and no cell is cut.
+            sizes = {c: max(w, *(_width(cells[c]) for cells in table)) if table else w for c, w in column_widths.items()}
+            columns = list(column_widths)
+            while len(columns) > 2 and sum(sizes[c] for c in columns) + 2 * (len(columns) - 1) > width:
+                columns.pop()
+
+            def table_line(cells: dict[str, str], code: str | None = None) -> str:
+                shown = {c: _paint(cells[c], code) if c in {"STATE", "[BAR]"} else cells[c] for c in columns}
+                return "  ".join(" " * (sizes[c] - _width(cells[c])) + shown[c] if c in {"REM", "AGE"}
+                                 else shown[c] + " " * (sizes[c] - _width(cells[c])) for c in columns).rstrip()
+
+            rows.append(table_line({c: c for c in column_widths}))
+            rows.extend(table_line(cells, _state_code(cells["STATE"]) if color else None) for cells in table)
             rows.extend(_fit(note, width, unicode) for note in na_notes)
             rows.extend(_fit(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}", width, unicode) for peer, codes in probe_notes.items())
-            if len(omitted_cols) > 1:
-                # Wrap disclosure so narrow displays do not hide column names.
-                note = "Columns omitted:"
-                for column in omitted_cols:
-                    if _width(f"{note} {column}") > width:
-                        rows.append(_fit(note, width, unicode))
-                        note = column
-                    else:
-                        note += f" {column}"
-                rows.append(_fit(note, width, unicode))
+            if len(columns) < len(column_widths):
+                rows.extend(_omitted_rows(["bar" if c == "[BAR]" else c.lower() for c in list(column_widths)[len(columns):]], width))
 
         else:
             rows.append("Quota capacity: no observations")
@@ -792,7 +854,7 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
         lines.append(rule)
 
         group_data = _group_lines(group_id, group, width=target_width, unicode=unicode,
-                                  elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand)
+                                  elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, color=color)
         for content in group_data:
             if group_id == "capacity":
                 lines.append(_fit(content, target_width, unicode))
@@ -1082,7 +1144,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
     observations = _items(payload.get("_human_observations")) if "_human_observations" in payload else _items(_obj(_obj(groups.get("capacity")).get("data")).get("observations"))
     quota = [item for item in observations if item.get("kind", "quota") == "quota" and item.get("pool_ref")]
     rows = [_compact_pool(item, now, elapsed, consumers) for item in quota]
-    rows.sort(key=lambda row: (str(row["peer"]), str(row["family"]), _parse_window(str(row["pool"]))[0], str(row["pool"])))
+    rows.sort(key=lambda row: _pool_order(str(row["peer"]), str(row["pool"])))
     store = _obj(payload.get("store_selection"))
     source = _clean(store.get("source") or "unknown")
     try:
@@ -1123,31 +1185,34 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
                      if view == "rich" and unicode else "POOLS")
         if not rows:
             lines.extend(_compact_wrap("no quota evidence; next: peerhub observation refresh", width))
-        headers = ["PEER", "POOL", "MEANING", "LEFT", "RESETS", "PACE", "AGE", "STATE"]
-        fields = ["peer", "pool", "meaning", "left", "resets", "pace", "age", "state"]
+        for row in rows:  # the bar and the pace glyph are presentation of values already in the row
+            has_value = row["state"] not in {"n/a", "?", "reset"}
+            burn = _even_burn(str(row["pool"]), _number(row["reset_seconds"])) if has_value else None
+            row["bar"] = _bar_quota(_number(row["remaining"]) if has_value else None, 8, unicode, burn)
+            row["pace"] = _pace_glyph(str(row["pace"]), unicode)
+        headers = ["PEER", "POOL", "STATE", "LEFT", "RESETS", "PACE", "BAR", "MEANING", "AGE", "PROFILES"]
+        fields = ["peer", "pool", "state", "left", "resets", "pace", "bar", "meaning", "age", "profiles"]
         sizes = [max(len(label), max((_width(str(row[key])) for row in rows), default=0))
                  for label, key in zip(headers, fields)]
-        base = sum(sizes) + len(sizes)
-        if width >= 48 and base + len("PROFILES") <= width:
-            def table_line(cells: list[str], profiles: str) -> str:
-                return " ".join(value + " " * (size - _width(value)) for value, size in zip(cells, sizes)) + " " + _fit(profiles, width - base, unicode)
-            lines.append(table_line(headers, "PROFILES"))
-            for row in rows:
-                text = table_line([str(row[key]) for key in fields], str(row["profiles"]))
-                if color and view == "rich" and "NO_COLOR" not in os.environ:
-                    palette = {"low": "31", "fast": "33", "out": "31", "reset": "33", "aged": "33", "?": "2", "n/a": "2"}
-                    code = palette.get(str(row["state"]))
-                    if code:
-                        text = f"\x1b[{code}m{text}\x1b[0m"
-                lines.append(text)
-        else:
-            for row in rows:
-                lines.extend(_compact_wrap(f"{row['peer']} {row['pool']} {row['meaning']} {row['left']} {row['state']}", width))
-                lines.extend(_compact_wrap(f"resets {row['resets']} PACE {row['pace']} age {row['age']}", width))
-                lines.append("profiles " + _fit(str(row["profiles"]), max(0, width - 9), unicode))
+        shown = len(headers)  # one column set for the whole table: drop whole columns from the right, keep PEER and POOL
+        while shown > 2 and sum(sizes[:shown]) + shown - 1 > width:
+            shown -= 1
+
+        paint = color and view == "rich" and "NO_COLOR" not in os.environ
+
+        def table_line(cells: list[str], code: str | None = None) -> str:  # the colour goes on the STATE word and the BAR only
+            return " ".join((_paint(value, code) if name in {"STATE", "BAR"} else value) + " " * (size - _width(value))
+                            for name, value, size in zip(headers, cells[:shown], sizes)).rstrip()
+        lines.append(table_line(headers))
+        lines.extend(table_line([str(row[key]) for key in fields], _state_code(str(row["state"])) if paint else None) for row in rows)
+        if shown < len(headers):
+            lines.extend(_omitted_rows([name.lower() for name in headers[shown:]], width))
         legend = "ok enough | low >0-10% | fast >10% but ahead of pace | out 0% | aged stale | reset passed | n/a plan omits | ? unknown"
         lines.extend(_compact_wrap(legend, width))
         lines.extend(_compact_wrap("PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable", width))
+        if shown > headers.index("BAR"):
+            glyphs = "▲ ahead, ▼ behind" if unicode else "^ ahead, v behind"
+            lines.extend(_compact_wrap(f"BAR=remaining, | marks the even-burn level ({glyphs})", width))
     if "peers" in selected_ids:
         lines.append(_section_rule("PEERS", width, True, color and "NO_COLOR" not in os.environ)
                      if view == "rich" and unicode else "PEERS")
@@ -1289,22 +1354,6 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     if (_width(legend) <= width - 1 and (height is None or len(lines) < height - 1 - overhead)
             and any("PEER" in line and "POOL" in line for line in lines[start:end])):
         lines.insert(end, legend)
-    if color:
-        for i in range(start, end):
-            line = _ANSI.sub("", lines[i])
-            if re.search(r"\b(THREAT|STALE)\b", line):
-                code = "31"
-            elif re.search(r"\b(UNKNOWN|INSUFF|PROBE)\b", line):
-                code = "2"
-            elif re.search(r"\b(THREAT|STALE|EXHAUSTED|ERROR|FAILED)\b", line):
-                code = "31"
-            elif re.search(r"\b(WATCH|PARTIAL)\b", line):
-                code = "33"
-            elif re.search(r"\b(ON_PACE|SAFE|OK)\b", line):
-                code = "32"
-            else:
-                continue
-            lines[i] = f"\x1b[{code}m{line}\x1b[0m"
     report = _obj(_obj(_obj(groups.get("peers")).get("data")).get("facts_report"))
     # Every facts_report reason is a drift reason ("ag: unknown_pool", "cc: version_drift").
     drift_peers = sorted({str(reason).split(":")[0] for reason in cast(list[object], report.get("reasons") or [])})
@@ -1389,7 +1438,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
             lbl += " [unrecognized group]"
         rule = _section_rule(lbl, target_width, unicode, color)
         data_rows = _group_lines(gid, grp, width=target_width, unicode=unicode,
-                                 elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand)
+                                 elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, color=color)
         error_map = _obj(payload.get("errors"))
         error_val = error_map.get(gid)
         if error_val is None:

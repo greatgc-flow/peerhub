@@ -98,8 +98,6 @@ class _PersistedReconcile:
     author: str
 
 
-
-
 class SessionError(RuntimeError):
     """Session create/resume failure."""
 
@@ -165,8 +163,6 @@ def normalize_session_selector(*, fresh: bool = False, session: str | None = Non
             raise InvalidSessionHandleSyntaxError("session must be a full handle: sess_ followed by 16 lowercase hexadecimal digits")
         return "sess:" + session
     return "fresh" if fresh else "latest"
-
-
 
 
 @dataclass
@@ -396,8 +392,9 @@ class Bridge:
                 f"SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name IN ({marks})", owned))
             session_columns = {row[1] for row in conn.execute("PRAGMA table_info(bridge_sessions)")}
             legacy_registry = bool(session_columns) and "session_handle" not in session_columns
-            # Legacy context upgrades may rewrite delivery metadata. Preserve
-            # their original unguarded migration window INSIDE this transaction.
+            # Conservative choice: legacy registries keep the pre-0.24.8 full
+            # rebuild INSIDE this transaction. The upgrade itself writes only
+            # bridge_sessions/bridge_session_events, not delivery metadata.
             if installed != expected or legacy_registry:
                 for name in installed:
                     quoted = '"' + name.replace('"', '""') + '"'

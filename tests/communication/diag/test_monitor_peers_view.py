@@ -331,8 +331,19 @@ def test_6_narrow_width_degrades_to_one_line_per_peer_and_stays_within_cols_minu
     ]
     assert len(peer_lines) == 3
     for line in peer_lines:
-        assert "|" in line
+        assert "~" not in line
         assert _width(line) <= 39
+
+
+def test_narrow_peer_lines_drop_trailing_fields_whole(peers_frame):
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+
+    rendered = render_grouped_frame(peers_frame, view="plain", width=40)
+    peer_lines = [line.strip() for line in rendered.splitlines() if line.strip()[:3] in ("cc:", "cx:", "ag:")]
+    assert len(peer_lines) == 3 and not any("~" in line for line in peer_lines)
+    fields = [line.count(" | ") for line in peer_lines]
+    assert len(set(fields)) == 1 and fields[0] < 3  # same fields on every peer line; the tail went whole
+    assert "Columns omitted: " in rendered
 
 
 def test_7_height_limited_tty_keeps_severity_based_omission(peers_frame):
@@ -549,10 +560,10 @@ def test_rework_5_narrow_view_uses_available_width_without_fixed_37_cap(peers_fr
     lines = rendered.splitlines()
     peer_lines = [line for line in lines if any(line.lstrip().startswith(f"{p}:") for p in ("cc", "cx", "ag"))]
     assert len(peer_lines) == 3
-    # With ordinary clipping on width 46, fitted lines should exceed the old 37 cap (indented lines > 39 chars)
-    assert any(_width(line) > 39 for line in peer_lines)
-    # And must stay within columns - 1 (<= 45)
+    # Fields that do not fit whole are dropped (never cut with `~`); lines stay within columns - 1 (<= 45)
+    assert not any("~" in line for line in peer_lines)
     assert all(_width(line) <= 45 for line in peer_lines)
+    assert "Columns omitted: " in rendered
 
 
 def test_pr2_peers_footer_shows_model_facts_with_revision_and_sources(peers_frame):

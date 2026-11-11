@@ -72,16 +72,16 @@ machine without an independent interface and a failure-proofing test.
 
 ## Bridge trigger reconciliation
 
-Core, ClaimStore and Bridge install protection triggers that keep history immutable
-(UPDATE/DELETE/REPLACE rejected even with `recursive_triggers` OFF). Reinstalling them on
-every open churned the schema (72 SQLite schema-cookie increments per warm open), so
-initialization now reconciles instead:
+ClaimStore and Bridge install protection triggers that keep history immutable
+(UPDATE/DELETE/REPLACE rejected even with `recursive_triggers` OFF); Core never reinstalled
+its triggers on open. Reinstalling them on every open churned the schema (80 SQLite
+schema changes per warm open), so initialization now reconciles instead:
 
 1. **Exact comparison.** Inside the existing serialized write transaction, compare trigger
    **names and complete stored SQL** from `sqlite_master` against the expected set. Only the
    `IF NOT EXISTS` after `CREATE TRIGGER` is stripped to match SQLite's stored form; never
    normalize body whitespace or quoted literals.
-2. **Match means no DDL.** An unchanged reopen issues no DROP/CREATE (schema churn 72 → 0).
+2. **Match means no DDL.** An unchanged reopen issues no DROP/CREATE (schema churn 80 → 0).
 3. **Full rebuild on any mismatch.** A missing, modified, extra or legacy definition
    replaces the complete owned set; no per-trigger patching.
 4. **Atomic.** Repair runs inside the init transaction, so a failed install or registry
@@ -90,7 +90,9 @@ initialization now reconciles instead:
    dropping (a legacy name with `"` previously broke reopen).
 6. **Legacy registry** (single-slot layouts) keeps the original drop/reinstall migration.
 7. **No cached shortcut.** Registry init, projection repair and migration hooks still run
-   on every open. Unrelated tables' triggers are untouched.
+   on every open. Unrelated tables' triggers are untouched. `bridge_session_history`
+   triggers (created by `bridge_registry` DDL, name-only `IF NOT EXISTS`) are outside
+   the compared set.
 
 Coverage: `tests/communication/bridge/test_bridge_init_reconciliation.py` (every trigger
 missing/changed, quoted legacy names, rollback, parallel opens, future-schema refusal).
@@ -109,4 +111,5 @@ schema churn, not a universal speed claim. The Bridge DDL/lock cost is tracked u
 - No change to certainty, claims, vendor invocation or session handling.
 - Revert groups independently: `runtime_contract.py` + `bridge.py` + `adapters/base.py`;
   Core snapshot delegation (`core/store.py`, `extensions/source_records.py`); trigger
-  reconciliation (`bridge.py` + its test and inventory entry). Never rewrite user data.
+  reconciliation (`bridge.py`, `bridge_claims.py`, `test_bridge_init_reconciliation.py`,
+  `test_claim_reopen_atomicity.py` and the inventory entry). Never rewrite user data.

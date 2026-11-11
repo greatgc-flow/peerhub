@@ -4,6 +4,7 @@ No provider is invoked. Latency belongs to the separate benchmark, not these gat
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +17,7 @@ from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionE
 from peerhub.core.store import CoreStore
 from peerhub.core.workspace import Workspace
 from peerhub.extensions.ask import ask
-from peerhub.extensions.bridge import Bridge
+from peerhub.extensions.bridge import Bridge, _DDL
 from peerhub.extensions.bridge_claims import ClaimStore
 
 pytestmark = [pytest.mark.integration, pytest.mark.bridge, pytest.mark.sqlite, pytest.mark.platform_sensitive]
@@ -87,6 +88,16 @@ TRIGGERS = (
     "bridge_invocation_resolutions_no_rowid_replace", "bridge_deliveries_no_delete",
     "bridge_delivery_session_immutable", "bridge_result_write_once",
 )
+
+
+def test_damage_matrix_lists_every_trigger_on_bridge_owned_tables(seeded):
+    db, _, _ = seeded
+    owned = [m.group(1) for stmt in _DDL if (m := re.match(r"\s*CREATE TABLE IF NOT EXISTS (\w+)", stmt))]
+    marks = ",".join("?" * len(owned))
+    with closing(sqlite3.connect(db)) as conn:
+        installed = {r[0] for r in conn.execute(
+            f"SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ({marks})", owned)}
+    assert installed == set(TRIGGERS) and len(TRIGGERS) == len(set(TRIGGERS))
 
 
 @pytest.mark.parametrize("name", TRIGGERS)

@@ -16,7 +16,7 @@ def test_init_benchmark_reports_measured_counts_and_provenance():
     assert [row["samples"] for row in report["cases"]] == [1, 2]
     for row in report["cases"]:
         assert row["p95_ms"] >= row["p50_ms"] >= 0
-        assert row["schema_cookie_delta"] >= 0
+        assert row["schema_cookie_delta"] == 0
 
 
 @pytest.mark.parametrize("rounds,workers", [(0, (1,)), (True, (1,)), (21, (1,)),

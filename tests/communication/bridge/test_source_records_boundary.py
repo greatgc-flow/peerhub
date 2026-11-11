@@ -85,6 +85,25 @@ def test_snapshot_excludes_streams_created_after_iterator_starts(tmp_path) -> No
     ]
 
 
+def test_abandoned_scan_releases_snapshot_and_store_stays_usable(tmp_path) -> None:
+    store = CoreStore(tmp_path / "core.db")
+    _seed(store)
+    _append(store, "a", "a1")
+    _append(store, "a", "a2")
+
+    scan = store.iter_records_snapshot(page_size=1)
+    assert next(scan).body == {"key": "a1"}
+    scan.close()  # abandon mid-scan; must release the pinned read transaction
+
+    _append(store, "z", "z-after-abandon")
+    reopened = CoreStore(tmp_path / "core.db")
+    assert [(r.stream_id, r.position) for r in reopened.iter_records_snapshot(1)] == [
+        ("a", 1), ("a", 2), ("z", 1)
+    ]
+    _append(reopened, "a", "a3")
+    assert reopened.stream_head("a") == 3
+
+
 @pytest.mark.parametrize("page_size", [0, -1, True, 1.5, "5"])
 def test_invalid_page_size_does_not_start_scan(tmp_path, page_size) -> None:
     store = CoreStore(tmp_path / "core.db")
