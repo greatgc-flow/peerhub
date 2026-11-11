@@ -8,7 +8,7 @@ from peerhub.core.store import CoreStore
 from peerhub.extensions.source_records import source_records
 
 
-pytestmark = [pytest.mark.architecture, pytest.mark.sqlite, pytest.mark.unit]
+pytestmark = [pytest.mark.architecture, pytest.mark.sqlite, pytest.mark.unit, pytest.mark.platform_sensitive]
 
 
 def _seed(store: CoreStore) -> None:
