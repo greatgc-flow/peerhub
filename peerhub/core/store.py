@@ -511,8 +511,8 @@ class CoreStore:
         if not _is_int(page_size) or page_size < 1:
             raise ValueError("source page size must be a positive integer")
         with self.read_uow() as conn:
-            streams = conn.execute("SELECT stream_id FROM streams ORDER BY stream_id").fetchall()
-            for stream in streams:
+            # Keep stream enumeration bounded, too; avoid materializing every ID.
+            for stream in conn.execute("SELECT stream_id FROM streams ORDER BY stream_id"):
                 position = 0
                 while True:
                     rows = conn.execute(
