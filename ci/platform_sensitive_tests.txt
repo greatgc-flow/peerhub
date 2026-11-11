@@ -17,3 +17,5 @@ tests.communication.diag.test_monitor_runtime_provenance
 tests.communication.diag.test_monitor_scope_scale
 tests.communication.fault.test_flt_bridge
 tests.communication.fault.test_flt_storage
+tests.communication.bridge.test_runtime_contract_boundary
+tests.communication.bridge.test_source_records_boundary
