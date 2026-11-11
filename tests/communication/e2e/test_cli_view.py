@@ -346,7 +346,8 @@ def test_header_korean_filename_does_not_split():
     # Width 45 with a Korean filename: visible_len exceeds character count
     frame = format_frame(rep, "plain", width=45, store_path="D:/workspace/한국어.db", store_source="explicit")
     lines = frame.splitlines()
-    header = lines[0]
-    assert header.startswith("PeerHub OK")
-    assert header.endswith("(explicit)")
-    assert visible_len(header) <= 45
+    header = lines[:next(i for i, line in enumerate(lines) if line.startswith("Threats"))]  # #338: wraps, never truncates
+    assert header[0].startswith("PeerHub OK")
+    assert header[-1].endswith("(explicit)")
+    assert any("D:/workspace/한국어.db" in line for line in header)
+    assert all(visible_len(line) <= 45 for line in header)

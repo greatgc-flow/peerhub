@@ -58,6 +58,19 @@ def report_missing_store(
 
 
 
+def env_override_note(path: str, source: str | None, *, env: Mapping[str, str] | None = None,
+                      cwd: Path | None = None) -> str:
+    """One line naming both stores when an explicit --db overrides a PEERHUB_DB that points elsewhere (#338)."""
+    env = os.environ if env is None else env
+    raw = env.get("PEERHUB_DB")
+    if source != "explicit" or not raw:
+        return ""
+    other = ((cwd or Path.cwd()).resolve() / raw).resolve()
+    if os.path.normcase(str(other)) == os.path.normcase(str(Path(path).resolve())):
+        return ""
+    return f"note: reading --db {path}; PEERHUB_DB points to {other} (ignored)"
+
+
 @dataclass(frozen=True)
 class StoreSelection:
     path: str

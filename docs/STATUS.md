@@ -4,7 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.6 (published)
+## Current source: v0.24.7 (release candidate)
+
+v0.24.7 adds the read-only `peerhub diag --plan [--json]` (per-pool spend/hold/rest/blocked from stored observations; #339), full store path and source in `diag`/`monitor` headers (#338), `tools.model_ping --model` (#341), a Python 3.11 f-string quote guard test (#342), versioned live-gate evidence names (#343) and lessons `review-loop`, `instruction-diet` plus cc allow-rule and Windows upgrade docs (#337, #344, #345). Backlog triage 2026-11-11 (unanimous: cc lead, cx, ag): #328/#329 closed as shipped in 0.24.6; #324 step 2 is next (0.24.8); #330, #323, #313, #335 stay deferred.
+
+### v0.24.6 (published)
 
 v0.24.6 adds the read-only `peerhub diag running [--json]` (lease-active asks from existing tables; no progress or staleness fields; a lease is not proof a process is alive) and an `ACCOUNTS` line in `peerhub monitor` (#329: plan, login state and login-token expiry per peer, with compact, `--expand` and JSON parity from one stored snapshot; only normalized fields are stored, no email, organization, id, token or identity hash; collected by `observation refresh` / monitor cycles with bounded no-model-turn probes: `claude auth status`, codex app-server `account/read`, `agy /credits`). It fixes #328 (a provider-disabled agy bucket renders `n/a`; superseded peer-level probe failures no longer show `PROBE`; `peerhub explain <lesson id>` matches the exact id) and lands the #327 items 1, 5 and 9 (guidance link to the adapter guide, `source_records` reuse of the Core row mapper, README doc map and layout). It adds the hard (integer interpreter) and top-tier (regex matcher) profile benchmarks (docs/benchmarks/profiles-hard-2026-11-10, profiles-top-2026-11-10) and their evidence on the profile cards. cc.fable switches to `claude-fable-5-2` under the frozen rule (identity ping PASS, 45/45 on the 2026-11-08 task, hard 100/100, top 115/115; slower in one run: 946 s vs 169 s), checked 2026-11-10. Plan and decision log: docs/design/plan-0.24.5-2026-11-10.md (rows "Follow-up"). Notes: see CHANGELOG [0.24.6].
 

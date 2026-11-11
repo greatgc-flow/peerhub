@@ -12,5 +12,5 @@ Short form:
 2. Show the diff and wait for approval before changing anything.
 3. After approval edit the toml (new `defaults_revision` = `YYYY-MM-DD.N`, `observed_at`, `observed_versions`, each touched profile `source` = `'cli:<command>@<observed cli version> <observed_at>'` or `'known-id:<probe>@<version> <observed_at>'`); review the adapter docs. Add/change/delete a profile = one `[profiles."<peer>.<name>"]` table. Keep LF.
 4. `python -m pytest -q tests/communication/adapters`.
-5. With approval (uses quota): `python -m tools.model_ping [profile ...]` shows which model actually answered.
+5. With approval (uses quota): `python -m tools.model_ping [profile ...]` shows which model actually answered. `python -m tools.model_ping --peer cc --model M [--effort E]` pings one exact model without touching any overlay.
 6. Do not commit, push or release unless asked. Record dated observations in CHANGELOG.md.

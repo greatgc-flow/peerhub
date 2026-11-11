@@ -239,6 +239,7 @@ class _Row:
         self.pool = self.ref.rsplit(":", 1)[-1]
         self.state = _safe_text(item.get("state") or "UNKNOWN")
         self.age = _num(item.get("age_seconds"))
+        self.ttl = _num(item.get("ttl_seconds"))
         self.reason = _safe_text(payload.get("reason") or "")
         rf = _num(payload.get("remaining_fraction"))
         self.used = 1 - rf if rf is not None and 0 <= rf <= 1 and self.state in ("MEASURED", "STALE") else None
@@ -299,7 +300,12 @@ def _quota_rows(items: list[Obj], pools: list[Obj], read_at: float, tz: tzinfo |
         if ref and pool.get("kind") in ("QUOTA", "RATE_LIMIT"):
             selected.setdefault(str(ref), {"subject_ref": pool.get("provider"), "resource_pool_ref": ref, "state": "UNKNOWN", "payload": {}})
     return sorted((_Row(i, read_at, tz) for i in selected.values()),
-                  key=lambda r: (r.peer, re.sub(r"-?\d+[HD]$", "", r.pool.upper()), r.span, r.ref))
+                  key=lambda r: (r.peer, _family(r.pool), r.span, r.ref))
+
+
+def _family(pool: str) -> str:
+    """A pool's family without its window suffix: G-5H and G-7D are both G."""
+    return re.sub(r"-?\d+[HD]$", "", pool.upper())
 
 
 def _quota_table(rows: list[_Row], width: int, color: bool, unicode: bool) -> list[str]:
@@ -468,6 +474,107 @@ def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
     return data
 
 
+PLAN_PACE_PT = 10.0
+PLAN_LEGEND = "spend PACE<=-10 | hold | rest PACE>+10/exhausts early | blocked 0%/unknown | - n/a | TARGET=left%/h"
+_PLAN_RANK = {"spend": 0, "hold": 1, "rest": 2, "blocked": 3}
+
+
+def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) -> tuple[str, str]:
+    """#339: one window's action from stored evidence and the existing PACE/forecast; never re-derived."""
+    stale = " (stale)" if forecast == "stale" else ""
+    if left_pct is None:
+        return "blocked", "left unknown; refresh"
+    if left_pct <= 0 or forecast == "exhausted":
+        return "blocked", "out"
+    if forecast == "expired":
+        return "blocked", "window reset; refresh"
+    if forecast == "threat":
+        return "rest", "forecast exhausts before reset" + stale
+    if pace_pt is None:
+        return "hold", "PACE unknown" + stale
+    if pace_pt > PLAN_PACE_PT:
+        return "rest", f"PACE {pace_pt:+.1f} > {PLAN_PACE_PT:+.0f}" + stale
+    if pace_pt <= -PLAN_PACE_PT:
+        return "spend", f"{-pace_pt:.0f}pp above even share" + stale
+    return "hold", "on pace" + stale
+
+
+def _plan_pools(report: DiagnosticReport) -> list[dict[str, object]]:
+    items = [i for i in _items(_section(report, "observations").get("items")) if i.get("kind") == "quota"]
+    pools = [p for p in _items(_section(report, "resource_pools").get("pools")) if p.get("kind") == "QUOTA"]
+    rows = _quota_rows(items, pools, report.read_at)
+    from peerhub.cli.monitor_view import not_applicable
+    from peerhub.extensions.observation_model import DISABLED_REASON
+    own: list[tuple[_Row, float | None, str, str]] = []
+    for r in rows:
+        left = None if r.used is None else 100.0 * (1.0 - r.used)
+        if not_applicable(r.state, r.reason, aged=r.age is not None and r.ttl is not None and r.age >= r.ttl):
+            # The monitor's n/a: the plan omits the window or the provider disabled it; not a budget, never a gate.
+            own.append((r, None, "n/a", "n/a (disabled by provider)" if r.reason.startswith(DISABLED_REASON) else "n/a (plan omits)"))
+        else:
+            own.append((r, left, *plan_action(left, r.diff, r.projection["state"])))
+    families: dict[tuple[str, str], list[tuple[_Row, float | None, str, str]]] = {}
+    for entry in own:  # a peer's windows of one family (G-5H, G-7D): known windows share the most restrictive action
+        if entry[2] != "n/a":
+            families.setdefault((entry[0].peer, _family(entry[0].pool)), []).append(entry)
+    out: list[dict[str, object]] = []
+    for r, left, action, why in own:
+        if action == "n/a":
+            out.append({"peer": r.peer, "pool": r.pool, "resource_pool_ref": r.ref, "left_pct": None, "resets_in_seconds": None,
+                        "target_pct_per_hour": None, "pace_pt": None, "forecast": r.projection["state"], "binding": None,
+                        "action": action, "reason": why})
+            continue
+        # A sibling counts only with current evidence: an unknown, reset (expired) or n/a window blocks only its own row.
+        known = [e for e in families[(r.peer, _family(r.pool))]
+                 if e[1] is not None and e[0].projection["state"] != "expired"]
+        voters = [e for e in known if e[0] is not r] + [(r, left, action, why)]
+        decided = max(voters, key=lambda e: (_PLAN_RANK[e[2]], e[0].span))
+        binding = min(known, key=lambda e: (e[1], -e[0].span))[0].pool if known else decided[0].pool
+        reason = decided[3] if decided[0] is r else f"{decided[0].pool}: {decided[3]}"
+        if binding not in (r.pool, decided[0].pool):  # the decided window is already named in the reason
+            reason += f"; binding {binding}"
+        hours = r.left / 3600 if r.left is not None and r.left > 0 else None
+        out.append({"peer": r.peer, "pool": r.pool, "resource_pool_ref": r.ref, "left_pct": left,
+                    "resets_in_seconds": r.left, "target_pct_per_hour": left / hours if left is not None and hours else None,
+                    "pace_pt": r.diff, "forecast": r.projection["state"], "binding": binding,
+                    "action": decided[2], "reason": reason})
+    return out
+
+
+def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object]) -> dict[str, object]:
+    """`diag --plan --json`: read-only, from the stored observations of one snapshot."""
+    return {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
+            "store_selection": dict(store_selection), "legend": PLAN_LEGEND, "pools": _plan_pools(report)}
+
+
+def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None = None, store_path: str = "",
+                store_source: str = "", store_note: str = "") -> str:
+    width = max(1, width)
+    when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M%z")
+    lines = _wrap(f"PeerHub plan {_safe_text(report.status)} {when} {_safe_text(store_path)} ({_safe_text(store_source)})", width)
+    lines += _wrap(_safe_text(store_note), width) if store_note else []
+    pools = _plan_pools(report)
+    cells = [[str(p["peer"]), str(p["pool"]),
+              "?" if p["left_pct"] is None else f"{cast(float, p['left_pct']):.0f}%",
+              human_duration(cast("float | None", p["resets_in_seconds"])),
+              "?" if p["pace_pt"] is None else f"{cast(float, p['pace_pt']):+.1f}",
+              "?" if p["target_pct_per_hour"] is None else f"{cast(float, p['target_pct_per_hour']):.2f}",
+              str(p["action"])] if p["action"] != "n/a" else [str(p["peer"]), str(p["pool"]), "-", "-", "-", "-", "-"]
+             for p in pools]
+    head = ["PEER", "POOL", "LEFT", "RESETS", "PACE", "TARGET%/h", "ACTION"]
+    widths = [max(visible_len(row[i]) for row in [head, *cells]) for i in range(len(head))]
+    def lead(row: list[str]) -> str:
+        return " ".join(_pad(c, w) if i < 2 or i == 6 else " " * (w - visible_len(c)) + c
+                        for i, (c, w) in enumerate(zip(row, widths))) + " "
+    lines.append(_ellipsis(lead(head) + "REASON", width, False))
+    for row, p in zip(cells, pools):
+        lines.append(_ellipsis(lead(row) + _safe_text(p["reason"]), width, False))
+    if not pools:
+        lines.append("no quota evidence; next: peerhub observation refresh")
+    lines.extend(_wrap(PLAN_LEGEND, width))
+    return "\n".join(lines)
+
+
 def _wrap(line: str, width: int) -> list[str]:
     """Wrap evidence instead of dropping pools, asks or alerts; count display cells."""
     if visible_len(line) <= width:
@@ -596,7 +703,7 @@ def advance_report(report: DiagnosticReport, now: float) -> DiagnosticReport:
 def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = False, unicode: bool = True,
                 db_name: str = "", cycle: int | None = None, refresh: Obj | None = None, next_refresh_in: float | None = None,
                 interval: float | None = None, refresh_every: int | None = None, top_streams: int = 3, recent_asks: int = 3,
-                tz: tzinfo | None = None, store_path: str = "", store_source: str = "") -> str:
+                tz: tzinfo | None = None, store_path: str = "", store_source: str = "", store_note: str = "") -> str:
     """A-G frame; caller supplies terminal capabilities. No collection or cursor controls.
 
     Plain and rich share decisions. Width/clock changes only affect layout,
@@ -612,15 +719,8 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
         tail += f" c{cycle}"
         if next_refresh_in is not None and next_refresh_in >= 0:
             tail += f" next: {human_duration(next_refresh_in)}"
-    path = _safe_text(store_path or db_name or "workspace").replace("\\", "/")
-    if "/" in path:
-        parts = path.split("/")
-        path = ".../" + "/".join(parts[-2:] if parts[-2] == ".peerhub" else parts[-1:])
-    lead = f"PeerHub {_safe_text(report.status)} {when} "
-    budget = max(0, width - visible_len(lead + tail))
-    if visible_len(path) > budget:
-        path = "..." + next(path[i:] for i in range(len(path) + 1) if visible_len(path[i:]) <= budget - 3) if budget >= 4 else ""
-    header = lead + path + tail
+    # #338: the full resolved store path; a narrow terminal wraps it instead of truncating it.
+    header = f"PeerHub {_safe_text(report.status)} {when} " + _safe_text(store_path or db_name or "workspace") + tail
     threats = [r for r in rows if r.projection["state"] == "threat"]
     first = min(threats, key=lambda r: r.projection["exhaustion_at"] or float("inf")) if threats else None
     earliest_at = cast(float, first.projection["exhaustion_at"]) if first is not None else None
@@ -651,6 +751,7 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
     if credit_alerts:
         alert += "; credit expiry<72h " + ", ".join(credit_alerts)
     lines = [_paint(line, CYAN, color) for line in _wrap(header, width)]
+    lines += [_paint(line, YELLOW, color) for line in _wrap(_safe_text(store_note), width)] if store_note else []
     lines += [_paint(line, RED if threats or exhausted else YELLOW if credit_alerts else '', color) for line in _wrap(alert, width)]
     # Wrap before adding colour so no escape sequence can be split.
     table = _quota_table(rows, width, False, unicode)
@@ -674,12 +775,12 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
 def format_frame(report: DiagnosticReport, view: str, *, color: bool = False, unicode: bool = True, width: int = 100,
                  db_name: str = "", cycle: int | None = None, refresh: Obj | None = None, next_refresh_in: float | None = None,
                  interval: float | None = None, refresh_every: int | None = None,
-                 store_path: str = "", store_source: str = "") -> str:
+                 store_path: str = "", store_source: str = "", store_note: str = "") -> str:
     """Both styles use A-G; plain always emits ASCII with zero escapes."""
     return render_view(report, width=width, color=color if view == "rich" else False,
                        unicode=unicode if view == "rich" else False, db_name=db_name, cycle=cycle, refresh=refresh,
                        next_refresh_in=next_refresh_in, interval=interval, refresh_every=refresh_every,
-                       store_path=store_path, store_source=store_source)
+                       store_path=store_path, store_source=store_source, store_note=store_note)
 
 
 def use_color(stream_is_tty: bool, env: Mapping[str, str]) -> bool:

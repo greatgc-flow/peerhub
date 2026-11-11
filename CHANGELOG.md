@@ -8,16 +8,21 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
-### Changed
-
-- Guide and lesson `stream-reuse-cost`: reuse a `--stream` only within one task; a new task gets a new stream with a short summary, and votes are one-shot asks (measured: reused streams cost 10-25x more per vote).
+## [0.24.7] - 2026-11-11
 
 ### Added
 
-- Lesson `review-scores-to-100`: ask reviewers for the concrete change behind every score below 100, report unrun checks as NOT RUN instead of deducting, and give peers read/test allow rules so they verify. `docs/benchmarks/run_profile_bench.sh` runs one profile on a benchmark folder and appends the graded result (replaces ad-hoc copies).
+- `peerhub diag --plan [--json]`: a read-only per-pool plan from stored observations only (no refresh, no provider call). Per pool: left %, time to reset, PACE, target %/h (left % / hours to reset), the binding window and an action: `spend` (PACE <= -10), `hold`, `rest` (PACE > +10 or the forecast exhausts before reset), `blocked` (0%/out, unknown evidence, or a window that already reset) or `-` for a window that does not apply (`n/a (plan omits)`, `n/a (disabled by provider)`); stale evidence keeps its action, marked `(stale)`. A peer's 5H and 7D windows share the most restrictive action; an unknown, reset or n/a window never changes its sibling (#339).
+- `python -m tools.model_ping --peer P --model M [--effort E]` pings one exact model without reading or writing any overlay (#341).
+- A default-suite test tokenizes every tracked `*.py` and fails when an f-string replacement field reuses its enclosing quote (a Python 3.11 SyntaxError that newer interpreters accept; #342).
+- Lessons `review-loop` (materiality rule in reviewer briefs, narrow a component's contract after two rounds of new defects, the coordinator runs the full suite and reviewers targeted tests, cross-family final check, no `git add -A` with agent worktrees; #345) and `instruction-diet` (pytest launcher plus one allow rule for headless cc, `observation refresh` every 30-60 min with `monitor --snapshot` per turn, workspace-scoped peer instructions and memory, profile ladder; #337). Lesson `review-scores-to-100`: ask reviewers for the concrete change behind every score below 100, report unrun checks as NOT RUN, and give peers read/test allow rules. `docs/benchmarks/run_profile_bench.sh` runs one profile on a benchmark folder and appends the graded result.
+- `docs/adapters/cc.md`: recommended read/test allow rules for headless cc peers, and upgrading on Windows only when `peerhub diag running` shows no lease-active asks and no `peerhub.exe` of the same venv runs (#344).
 
 ### Changed
 
+- The `diag` header shows the full resolved path and its source (`--db`, `PEERHUB_DB` or default); `monitor` shows the source, and the full path when the store is not the nearest one (wrapped in `--expand`); a note names both stores when `--db` overrides a different `PEERHUB_DB`; `diag --json` adds `store_selection` {path, source} like the other JSON outputs (#338).
+- Live-gate evidence is written as `docs/implementation/live_evidence/<date>-v<version>.json`, so the next release no longer collides with an untracked file; a second run of the same version still needs the manual `-attemptN` rename (CONTRIBUTING); CONTRIBUTING says it is committed in the post-release docs PR (#343).
+- Guide and lesson `stream-reuse-cost`: reuse a `--stream` only within one task; a new task gets a new stream with a short summary, and votes are one-shot asks (measured: reused streams cost 10-25x more per vote).
 - `cc.fable` declares pools `F-7D` and `C-7D`: the `claude /usage` payload (`weekly_scoped_shares`) shows Fable use counts in the weekly all-models window (Fable allowance 50% of weekly). No monitor code changes: the monitor maps profiles to pools from this data, so the C-7D row now lists `fable` in PROFILES and suggest eligibility checks both pools (observed in `monitor --snapshot`; #334).
 - `tools/quota_backtest.py` is merged into `tools/quota_report.py`: one read-only quota replay tool. Run the forecast backtest with `python -m tools.quota_report --backtest --db <store> [--json]` (same output fields and exit codes; #327 item 6).
 

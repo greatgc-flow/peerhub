@@ -327,14 +327,15 @@ def test_store_provenance_and_safe_read_error_are_visible(frame):
     assert "secret-token" not in rendered and "SELECT *" not in rendered
 
 
-def test_narrow_store_header_retains_source_while_eliding_path(frame):
+def test_narrow_store_header_retains_source_and_wraps_path(frame):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     frame["store_selection"] = {"path": "D:/a/very/long/location/core.db", "source": "workspace"}
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=40, height=24)
 
     assert "workspace" in rendered
-    assert "D:/a/very/long/location/core.db" not in rendered
+    assert "D:/a/very/long/location/core.db" in rendered  # #338: wrapped, never elided
+    assert all(len(line) <= 40 for line in rendered.splitlines())
 
 
 def test_dependent_error_groups_show_safe_root_reason(frame):

@@ -212,7 +212,7 @@ def test_owner_screen_snapshot(width):
     out = live_frame(width)
     assert out == SNAPSHOTS[width]
     assert max(map(visible_len, out.splitlines())) <= width
-    assert len(out.splitlines()) == 16
+    assert len(out.splitlines()) == (17 if width == 80 else 16)  # #338: full store path wraps at 80
     assert out.splitlines()[-1].endswith("Ctrl-C quit")
     assert "\x1b" not in out and " [H [2J" not in out
     assert "ETA:" not in out and "(probe)" not in out
@@ -224,7 +224,7 @@ def test_live_rich_snapshot(width):
                       store_path=STORE, store_source="explicit")
     assert out == RICH_SNAPSHOTS[width]
     assert max(map(visible_len, out.splitlines())) <= width
-    assert len(out.splitlines()) == 16
+    assert len(out.splitlines()) == (17 if width == 80 else 16)  # #338: full store path wraps at 80
     assert out.splitlines()[-1].endswith("Ctrl-C quit") and "\x1b" not in out
     assert "▲ exh" in out and "○ not enough data" in out
 
@@ -531,7 +531,8 @@ def test_forecast_countdowns_never_use_seconds(seconds, expected):
 
 
 SNAPSHOTS: dict[int, str] = {
-    80: """PeerHub OK 2026-10-12 10:42+0900 .../.peerhub/core.db (explicit)
+    80: """PeerHub OK 2026-10-12 10:42+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db
+(explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar  USED PACE(pt) RESET FORECAST                        FRESH
 ag   3P-5H [........]   0%        ? 4h59m : not enough data               *59s
@@ -547,7 +548,7 @@ Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
 PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit""",
-    100: """PeerHub OK 2026-10-12 10:42:24+0900 .../.peerhub/core.db (explicit)
+    100: """PeerHub OK 2026-10-12 10:42:24+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                          FRESH
 ag   3P-5H [..........]   0%        ? 4h59m : not enough data                                 *59s
@@ -563,7 +564,7 @@ Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
 PACE + = faster than even | forecasts are conditional window-average | Ctrl-C quit""",
-    120: """PeerHub OK 2026-10-12 10:42:24+0900 .../.peerhub/core.db (explicit)
+    120: """PeerHub OK 2026-10-12 10:42:24+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                                              FRESH
 ag   3P-5H [..........]   0%        ? 4h59m : not enough data                                                     *59s
@@ -582,7 +583,8 @@ PACE + = faster than even | forecasts are conditional window-average | Ctrl-C qu
 }
 
 RICH_SNAPSHOTS: dict[int, str] = {
-    80: """PeerHub OK 2026-10-12 10:42+0900 .../.peerhub/core.db (explicit)
+    80: """PeerHub OK 2026-10-12 10:42+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db
+(explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar  USED PACE(pt) RESET FORECAST                        FRESH
 ag   3P-5H [░░░░░░░░]   0%        ? 4h59m ○ not enough data               ●59s
@@ -598,7 +600,7 @@ Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
 PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit""",
-    100: """PeerHub OK 2026-10-12 10:42:24+0900 .../.peerhub/core.db (explicit)
+    100: """PeerHub OK 2026-10-12 10:42:24+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                          FRESH
 ag   3P-5H [░░░░░░░░░░]   0%        ? 4h59m ○ not enough data                                 ●59s
@@ -614,7 +616,7 @@ Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
 PACE + = faster than even | forecasts are conditional window-average | Ctrl-C quit""",
-    120: """PeerHub OK 2026-10-12 10:42:24+0900 .../.peerhub/core.db (explicit)
+    120: """PeerHub OK 2026-10-12 10:42:24+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                                              FRESH
 ag   3P-5H [░░░░░░░░░░]   0%        ? 4h59m ○ not enough data                                                     ●59s

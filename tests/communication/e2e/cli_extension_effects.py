@@ -84,6 +84,21 @@ def diag_json(e):
     assert not e.run(db, "diag")[1].lstrip().startswith("{")
 
 
+def diag_plan(e):
+    db = e.fresh()
+    seed_view_pool(db)
+    before = db.read_bytes()
+    # --plan replaces the dashboard with the per-pool action table, read from stored observations only.
+    with patch("subprocess.Popen", side_effect=AssertionError("diag --plan must not spawn providers")):
+        result = e.j(db, "diag", "--plan", "--json")
+        code, table, err = e.run(db, "diag", "--plan")
+        dash = e.j(db, "diag", "--json")
+    assert result["schema_version"] == "1.0" and [p["pool"] for p in result["pools"]] == ["view-5H"]
+    assert result["pools"][0]["action"] in {"spend", "hold", "rest", "blocked"} and "pools" not in dash
+    assert code == 0 and not err and "TARGET%/h" in table and "TARGET%/h" not in e.run(db, "diag")[1]
+    assert db.read_bytes() == before
+
+
 def readiness_json(e):
     from peerhub.extensions.observation import ObservationStore
 
@@ -565,6 +580,7 @@ EFFECT.update({f"account {action} {option}": (lambda e, action=action, option=op
                                        ("list", ("--json", "--show-root")),
                                        ("show", ("--peer", "--json", "--show-root"))) for option in options})
 EFFECT["diag --json"] = diag_json
+EFFECT["diag --plan"] = diag_plan
 EFFECT["diag readiness --json"] = readiness_json
 EFFECT["diag running --json"] = running_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
