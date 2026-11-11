@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -93,8 +94,9 @@ def test_compact_pace_cells_keep_signed_measurement_for_aged_rows(
                state="STALE" if aged else "MEASURED", age_seconds=540 if aged else 60)
     screen = render_grouped_frame(compact_frame, width=width, view=view, unicode=unicode_mode)
     header = next(line for line in screen.splitlines() if line.startswith("PEER "))
-    assert header.index("RESETS") < header.index("PACE") < header.index("AGE")
-    assert _row(screen, "G-5H")[header.index("PACE"):header.index("AGE")].strip() == expected
+    assert header.index("RESETS") < header.index("PACE") < header.index("BAR") < header.index("AGE")
+    glyph = ("▲" if unicode_mode else "^") if expected.startswith("+") else ("▼" if unicode_mode else "v") if expected.startswith("-") else ""
+    assert _row(screen, "G-5H")[header.index("PACE"):header.index("BAR")].strip() == glyph + expected
     assert "80%" in _row(screen, "G-5H")
 
 
@@ -114,7 +116,7 @@ def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unus
     screen = render_grouped_frame(compact_frame, width=width, view="plain")
     header = next(line for line in screen.splitlines() if line.startswith("PEER "))
     pool = row["pool_ref"].split(":")[-1]
-    assert _row(screen, pool)[header.index("PACE"):header.index("AGE")].strip() == "-"
+    assert _row(screen, pool)[header.index("PACE"):header.index("BAR")].strip() == "-"
 
 
 @pytest.mark.parametrize("width", [80, 100])
@@ -133,7 +135,7 @@ def test_exact_reset_expires_state_pace_and_suggestion(compact_frame, width, ela
     header = next(line for line in screen.splitlines() if line.startswith("PEER "))
     pool = _row(screen, "G-5H")
     assert "reset" in pool.split() and "80%" not in pool
-    assert pool[header.index("PACE"):header.index("AGE")].strip() == "-"
+    assert pool[header.index("PACE"):header.index("BAR")].strip() == "-"
     assert "suggest: no eligible profiles; next: peerhub observation refresh" in screen
 
 
@@ -146,15 +148,14 @@ def test_suggestions_reject_zero_reset_seconds():
     assert _compact_suggestions(profiles, rows) == "suggest: no eligible profiles; next: peerhub observation refresh"
 
 
-@pytest.mark.parametrize("width", [20, 32, 47])
-def test_narrow_wrapped_pool_keeps_pace_and_quota_facts(compact_frame, width):
+@pytest.mark.parametrize("width", [60, 70])
+def test_narrow_pool_table_keeps_pace_and_quota_facts(compact_frame, width):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row["projection"] = {"pace_pt": 46}
     screen = render_grouped_frame(compact_frame, width=width, view="plain", unicode=False)
-    pool = screen.split("ag G-5H", 1)[1].split("ag G-7D", 1)[0]
-    assert "80%" in pool and "ok" in pool
-    assert "resets 1h" in pool and "age 1m" in pool
-    assert "PACE +46" in " ".join(pool.split())
+    pool = _row(screen, "G-5H")
+    assert "80%" in pool and "ok" in pool.split()
+    assert "1h00m" in pool.split() and "^+46" in pool.split()
     assert all(_width(line) <= width for line in screen.splitlines())
 
 
@@ -225,13 +226,14 @@ def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unic
     assert all(_width(line) <= min(99, width - 1) for line in screen.splitlines())
 
 
-def test_fast_is_yellow_in_rich_output(compact_frame, monkeypatch):
+def test_fast_is_magenta_on_state_and_bar_only_in_rich_output(compact_frame, monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "threat"}, projection_samples=2)
     screen = render_grouped_frame(compact_frame, view="rich", color=True, width=100)
     line = next(line for line in screen.splitlines() if "G-5H" in line and "fast" in line)
-    assert line.startswith("\x1b[33m") and line.endswith("\x1b[0m")
+    assert not line.startswith("\x1b") and "\x1b[35mfast\x1b[0m" in line
+    assert line.count("\x1b[35m") == 2 and re.search(r"\x1b\[35m\[[^\]]*\]\x1b\[0m", line)
 
 
 def test_ttl_boundary_and_next_absent_when_fresh(compact_frame):
@@ -606,3 +608,122 @@ def test_footer_never_claims_active_or_bare_unknown_counts(compact_frame):
     compact_frame["groups"].pop("usage")
     screen = render_grouped_frame(compact_frame)
     assert "sessions ?" not in screen and "delivery ?" not in screen and "telemetry ?" not in screen
+
+
+def _pool_order(screen):
+    order = []
+    for line in screen.splitlines():
+        parts = line.split()
+        if len(parts) > 1 and parts[0] in {"ag", "cc", "cx"} and parts[1][0] in "3AGFX" and parts[1][1:2] in "P-" \
+                and f"{parts[0]} {parts[1]}" not in order:
+            order.append(f"{parts[0]} {parts[1]}")
+    return order
+
+
+def test_expand_quota_lists_pools_in_the_compact_order(compact_frame):
+    compact = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
+    expanded = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=120, expand=True))
+    assert compact[:5] == ["ag 3P-5H", "ag 3P-7D", "ag A-7D", "ag G-5H", "ag G-7D"]
+    assert expanded == compact
+
+
+COMPACT_COLUMNS = ["PEER", "POOL", "STATE", "LEFT", "RESETS", "PACE", "BAR", "MEANING", "AGE", "PROFILES"]
+
+
+@pytest.mark.parametrize("width", [20, 40, 52, 60])
+def test_narrow_pools_table_drops_whole_columns_from_the_right(compact_frame, width):
+    screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=width)
+    assert "~" not in screen
+    header = next(line for line in screen.splitlines() if line.startswith("PEER "))
+    names = COMPACT_COLUMNS
+    shown = header.split()
+    assert "PROFILES" not in shown and shown == names[:len(shown)] and len(shown) >= 2
+    omitted = screen.split("Columns omitted:")[1].split("ok enough")[0].split()
+    assert omitted == [name.lower() for name in names[len(shown):]]
+    for pool in ("3P-5H", "G-5H", "X-7D"):  # every row shows the same columns
+        assert len(_row(screen, pool).split()) == len(shown)
+
+
+@pytest.mark.parametrize("width,dropped", [
+    (40, ["bar", "meaning", "age", "profiles"]), (60, ["age", "profiles"]), (80, [])])
+def test_pools_columns_drop_by_priority_and_state_survives(compact_frame, width, dropped):
+    screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=width)
+    header = next(line for line in screen.splitlines() if line.startswith("PEER ")).split()
+    assert header == [name for name in COMPACT_COLUMNS if name.lower() not in dropped]
+    assert "STATE" in header and "LEFT" in header
+    if dropped:
+        assert screen.split("Columns omitted:")[1].split("ok enough")[0].split() == dropped
+    else:
+        assert "Columns omitted" not in screen
+
+
+@pytest.mark.parametrize("unicode_mode,full,empty", [(True, "█", "░"), (False, "#", ".")])
+def test_pool_bar_shows_remaining_and_even_burn_tick(compact_frame, unicode_mode, full, empty):
+    screen = render_grouped_frame(compact_frame, view="plain", unicode=unicode_mode, width=100)
+    # G-5H: 80% left, 1h of a 5h window left -> even burn leaves 20%, so the tick sits in cell 1
+    assert f"[{full}|{full * 4}{empty * 2}]" in _row(screen, "G-5H")
+    assert "[--------]" in _row(screen, "X-5H")  # n/a
+    assert "[--------]" in _row(screen, "F-7D")  # unknown
+    assert "[--------]" in _row(screen, "G-7D")  # reset window passed
+
+
+def test_bar_even_burn_tick_positions_and_unknown():
+    from peerhub.cli.monitor_view import _bar_quota
+
+    assert _bar_quota(.5, 8, True, .25) == "[██|█░░░░]"
+    assert _bar_quota(.5, 8, False, .25) == "[##|#....]"
+    assert _bar_quota(.25, 8, True, .75) == "[██░░░░|░]"
+    assert _bar_quota(.5, 8, True, .5) == "[████|░░░]"
+    assert _bar_quota(.5, 8, True, .45) == "[████░░░░]"  # the tick would sit on the filled edge
+    assert _bar_quota(1.0, 8, False, 1.0) == "[########]"
+    assert _bar_quota(0.0, 8, False, 0.9) == "[.......|]"
+    assert _bar_quota(.5, 8, False, None) == "[####....]"
+    assert _bar_quota(None, 8, True, .5) == _bar_quota(None, 8, False) == "[--------]"
+
+
+def test_pace_glyph_marks_direction_and_keeps_the_number():
+    from peerhub.cli.monitor_view import _pace_glyph
+
+    assert [_pace_glyph(text, True) for text in ("+26", "-89", "0", "-", "+1.2pp", "-28.7pp", "+0.0pp", "-0.0pp")] == [
+        "▲+26", "▼-89", "0", "-", "▲+1.2pp", "▼-28.7pp", "+0.0pp", "-0.0pp"]
+    assert [_pace_glyph(text, False) for text in ("+26", "-89", "0", "-")] == ["^+26", "v-89", "0", "-"]
+
+
+STATE_COLORS = {"ok": "32", "low": "33", "fast": "35", "out": "1;31", "aged": "2;33", "reset": "36", "n/a": "2"}
+
+
+def test_compact_state_and_bar_carry_the_state_colour_only_when_colour_is_on(compact_frame, monkeypatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    fast = compact_frame["groups"]["capacity"]["data"]["observations"][3]
+    fast.update(projection={"state": "threat"}, projection_samples=2)
+    colored = render_grouped_frame(compact_frame, view="rich", color=True, width=100)
+    plain = render_grouped_frame(compact_frame, view="rich", color=False, width=100)
+    assert "\x1b" not in plain
+    assert re.sub(r"\x1b\[[0-9;]*m", "", colored) == plain  # colour never changes the text or the widths
+    for pool, state in (("3P-5H", "low"), ("3P-7D", "out"), ("A-7D", "aged"), ("G-5H", "fast"),
+                        ("G-7D", "reset"), ("X-5H", "n/a"), ("X-7D", "ok")):
+        line = _row(colored, pool)
+        code = STATE_COLORS[state]
+        assert f"\x1b[{code}m{state}\x1b[0m" in line
+        assert re.search(rf"\x1b\[{re.escape(code)}m\[[^\]]*\]\x1b\[0m", line)
+        assert line.count("\x1b[0m") == 2 and not line.startswith("\x1b")  # only the state word and the bar
+        assert _width(line) <= 99
+    assert "\x1b" not in render_grouped_frame(compact_frame, view="plain", color=True, width=100)
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert "\x1b" not in render_grouped_frame(compact_frame, view="rich", color=True, width=100)
+
+
+def test_expand_and_compact_share_the_column_priority_order(compact_frame):
+    expanded = render_grouped_frame(compact_frame, view="plain", unicode=False, width=140, expand=True)
+    header = next(line for line in expanded.splitlines() if line.startswith("PEER "))
+    # expand column -> the compact column in the same priority slot
+    slots = {"PEER": "PEER", "POOL": "POOL", "STATE": "STATE", "REM": "LEFT", "RESET-IN": "RESETS",
+             "PACE": "PACE", "[BAR]": "BAR", "EXHAUST-IN": "MEANING", "AGE": "AGE", "PROFILES (configured)": "PROFILES"}
+    positions = [header.index(name) for name in slots]
+    assert positions == sorted(positions) and len(set(positions)) == len(slots)
+    assert list(slots.values()) == COMPACT_COLUMNS
+
+
+def test_wide_pools_table_keeps_every_column_and_prints_no_omission(compact_frame):
+    screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=100)
+    assert "Columns omitted" not in screen and "PROFILES" in screen

@@ -32,6 +32,14 @@ fix = "Use --timeout-seconds 7200 --silence-timeout-seconds 7200 for long asks. 
 issue = "#118"
 
 [[lessons]]
+id = "ask-timeouts"
+title = "Explicit timeouts for implementer and review asks"
+keywords = ["timeout", "timeout-seconds", "60", "implementer", "review", "writer", "ask_uncertain", "runtime_timeout", "cc", "cx"]
+symptom = "An implementer or review ask ends after about a minute as ask_uncertain (evidence runtime_timeout [60]) with partial edits in the workspace."
+fix = "--timeout-seconds defaults to 60. Pass it on every implementer or review ask (cc/cx 1800-3600; ag 7200 with --silence-timeout-seconds). After a timeout: check the working tree for partial edits, revert or keep them deliberately, and start a new stream with the explicit timeout; never retry on the same stream."
+issue = "#350"
+
+[[lessons]]
 id = "ag-bulk-profile-heuristics"
 title = "ag profile choice for bulk work (observed 2026-11-01)"
 keywords = ["ag", "agy", "profile", "effort", "flash", "argon", "bulk", "image", "WinError", "206", "prompt", "size"]

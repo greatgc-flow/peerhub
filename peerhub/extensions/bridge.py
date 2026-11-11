@@ -23,11 +23,15 @@ import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, cast
+from typing import Any, Callable, Iterator, Mapping, cast
 
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, StaleClaimError
 from peerhub.extensions import bridge_registry, session_receipts
 from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, ProjectedRecords, build_catch_up, project_catch_up
+from peerhub.extensions.runtime_contract import (
+    ContextLostError, PrespawnError, RuntimeTarget, RuntimeTargetError, SteerableTarget,
+)
+from peerhub.extensions.runtime_contract import RuntimeEvent as RuntimeEvent  # legacy public re-export
 from peerhub.core.models import Record
 from peerhub.core.store import CasMismatchError, CoreStore, IdempotencyConflictError
 
@@ -92,22 +96,6 @@ class _PersistedReconcile:
     record_id: str
     stream_id: str
     author: str
-
-
-class RuntimeTargetError(RuntimeError):
-    """Ambiguous runtime failure (process/session may have started)."""
-
-    def __init__(self, message: str = "", *, termination_confirmed: bool | None = None) -> None:
-        super().__init__(message)
-        self.termination_confirmed = termination_confirmed
-
-
-class PrespawnError(RuntimeTargetError):
-    """Failure proven to be before any process/session start (resolves the invocation marker; certainty stays NOT_STARTED)."""
-
-
-class ContextLostError(PrespawnError):
-    """Adapter reports context/session loss (compaction, context limit) before the run began: safe NOT_STARTED retry on a fresh generation."""
 
 
 class SessionError(RuntimeError):
@@ -175,26 +163,6 @@ def normalize_session_selector(*, fresh: bool = False, session: str | None = Non
             raise InvalidSessionHandleSyntaxError("session must be a full handle: sess_ followed by 16 lowercase hexadecimal digits")
         return "sess:" + session
     return "fresh" if fresh else "latest"
-
-
-RuntimeEvent = tuple[str, Any] | tuple[str, Any, Any]  # ("started", exec_id) | ("timeout", seconds) | ("terminal", {"response": ...}) | ...
-
-
-class RuntimeTarget(Protocol):
-    runtime_kind: str
-
-    @property
-    def resumable(self) -> bool: ...  # read capability; custom attributes also satisfy this boundary
-
-    def fingerprint(self) -> str: ...
-    def binding(self) -> str: ...  # model/profile binding; a mapping is only resumable under the same binding
-    def create_session(self) -> str: ...
-    def resume_session(self, external_session_id: str, *, vendor_session_id: str | None = None) -> str: ...  # "ok" | "missing" | "unsupported" | "rejected"
-    def deliver(self, external_session_id: str, record: Any, catch_up: list[Any]) -> Iterable[RuntimeEvent]: ...
-
-
-class SteerableTarget(Protocol):
-    def steer(self, external_session_id: str, record: Any) -> None: ...
 
 
 @dataclass
@@ -377,6 +345,19 @@ _DDL = [
 ]
 
 
+_POST_REGISTRY_DDL = (
+    """CREATE TRIGGER IF NOT EXISTS bridge_delivery_session_immutable
+                BEFORE UPDATE OF external_session_id,session_generation,session_handle,session_snapshot_json ON bridge_deliveries
+                WHEN OLD.certainty!='NOT_STARTED' OR OLD.result_digest IS NOT NULL OR
+                    EXISTS(SELECT 1 FROM bridge_invocations i WHERE i.delivery_id=OLD.delivery_id AND NOT EXISTS
+                        (SELECT 1 FROM bridge_invocation_resolutions r WHERE r.delivery_id=i.delivery_id AND r.invocation_no=i.invocation_no))
+                BEGIN SELECT RAISE(ABORT,'accepted session is immutable after execution or settlement'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_result_write_once
+                BEFORE UPDATE OF result_json,result_digest ON bridge_deliveries WHEN OLD.result_digest IS NOT NULL
+                BEGIN SELECT RAISE(ABORT,'settled result is immutable'); END""",
+)
+
+
 def _digest(obj: Any) -> str:
     return hashlib.sha256(json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()).hexdigest()
 
@@ -399,22 +380,30 @@ class Bridge:
         with claims.transaction() as conn:
             owned = [m.group(1) for stmt in _DDL if (m := re.match(r"\s*CREATE TABLE IF NOT EXISTS (\w+)", stmt))]
             marks = ",".join("?" * len(owned))
-            # reopen installs EXACTLY the current trigger set: every trigger on a bridge-owned table is dropped first (including legacy
-            # ones that no longer exist in the source), in the init transaction (no gap)
-            for (name,) in conn.execute(f"SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ({marks})", owned).fetchall():
-                conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
+            # Compare complete SQL, not only names or a cached schema version.
+            # Only remove SQLite's CREATE-prefix IF NOT EXISTS; never normalize
+            # body whitespace, which may be significant inside string literals.
+            expected = {
+                match.group(1): stmt.replace("CREATE TRIGGER IF NOT EXISTS ", "CREATE TRIGGER ", 1)
+                for stmt in (*_DDL, *_POST_REGISTRY_DDL)
+                if (match := re.match(r"CREATE TRIGGER IF NOT EXISTS (\w+)", stmt))
+            }
+            installed = dict(conn.execute(
+                f"SELECT name,sql FROM sqlite_master WHERE type='trigger' AND tbl_name IN ({marks})", owned))
+            session_columns = {row[1] for row in conn.execute("PRAGMA table_info(bridge_sessions)")}
+            legacy_registry = bool(session_columns) and "session_handle" not in session_columns
+            # Conservative choice: legacy registries keep the pre-0.24.8 full
+            # rebuild INSIDE this transaction. The upgrade itself writes only
+            # bridge_sessions/bridge_session_events, not delivery metadata.
+            if installed != expected or legacy_registry:
+                for name in installed:
+                    quoted = '"' + name.replace('"', '""') + '"'
+                    conn.execute(f"DROP TRIGGER {quoted}")
             for stmt in _DDL:
                 conn.execute(stmt)
             bridge_registry.initialize(conn, self._upgrade_session_context, self._fire)
-            conn.execute("""CREATE TRIGGER IF NOT EXISTS bridge_delivery_session_immutable
-                BEFORE UPDATE OF external_session_id,session_generation,session_handle,session_snapshot_json ON bridge_deliveries
-                WHEN OLD.certainty!='NOT_STARTED' OR OLD.result_digest IS NOT NULL OR
-                    EXISTS(SELECT 1 FROM bridge_invocations i WHERE i.delivery_id=OLD.delivery_id AND NOT EXISTS
-                        (SELECT 1 FROM bridge_invocation_resolutions r WHERE r.delivery_id=i.delivery_id AND r.invocation_no=i.invocation_no))
-                BEGIN SELECT RAISE(ABORT,'accepted session is immutable after execution or settlement'); END""")
-            conn.execute("""CREATE TRIGGER IF NOT EXISTS bridge_result_write_once
-                BEFORE UPDATE OF result_json,result_digest ON bridge_deliveries WHEN OLD.result_digest IS NOT NULL
-                BEGIN SELECT RAISE(ABORT,'settled result is immutable'); END""")
+            for stmt in _POST_REGISTRY_DDL:
+                conn.execute(stmt)
 
     @staticmethod
     def _reconstruct_consumed_prompt(conn: sqlite3.Connection, m: sqlite3.Row) -> int | None:

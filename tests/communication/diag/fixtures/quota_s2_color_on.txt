@@ -1,16 +1,15 @@
-PeerHub Monitor | OK | 1970-01-01 00:16:40Z
-[32m── QUOTA [OK] | measured remaining | soonest exhaust: ag P-3H 1% in 30m ───────[0m
-PEER  POOL        REM  [BAR]       RESET-IN   PACE      STATE           AGE
-[32mag    P-1H       100%  [████████]  2h00m      -         ON_PACE         30s[0m
-[33mag    P-2H        50%  [████░░░░]  2h00m      -         WATCH           30s[0m
-[31mag    P-3H         1%  [▏░░░░░░░]  2h00m      -         THREAT          30s[0m
-[31mag    P-4H         0%  [░░░░░░░░]  2h00m      -         EXHAUSTED       30s[0m
-[31mag    P-5H          -  [░░░░░░░░]  -          -         ERROR           30s[0m
-[2mag    P-6H          -  [░░░░░░░░]  -          -         UNKNOWN         30s[0m
-[31mag    P-7H          -  [░░░░░░░░]  -          -         STALE:window    30s[0m
-[2mag    P-8H        90%  [███████░]  2h00m      -         INSUFF          30s[0m
-[31mag PROBE:34m STALE:window; next: peerhub observation refresh --peers ag[0m
-[2mcc PROBE:2h PROBE:unknown; next: peerhub observation refresh --peers cc[0m
-Columns omitted: exhaust-in profiles (configured)
+PeerHub Monitor | OK | 00:16:40Z
+[1;36m── QUOTA [OK] | measured remaining | soonest exhaust: ag P-3H 1% in 30m ───────────────────────────────────────────────[0m
+PEER  POOL      STATE           REM  RESET-IN   PACE       [BAR]       EXHAUST-IN       AGE  PROFILES (configured)
+ag    P-1H      [32mON_PACE[0m        100%  2h00m      -          [32m[████████][0m  -                30s  unmapped
+ag    P-2H      [33mWATCH[0m           50%  2h00m      -          [33m[████░░░|][0m  -                30s  unmapped
+ag    P-3H      [35mTHREAT[0m           1%  2h00m      -          [35m[▏░░░░|░░][0m  30m              30s  unmapped
+ag    P-4H      [1;31mEXHAUSTED[0m        0%  2h00m      -          [1;31m[░░░░|░░░][0m  -                30s  unmapped
+ag    P-5H      [1;31mERROR[0m             -  -          -          [1;31m[--------][0m  -                30s  unmapped
+ag    P-6H      [2mUNKNOWN[0m           -  -          -          [2m[--------][0m  -                30s  unmapped
+ag    P-7H      [2;33mSTALE:window[0m      -  -          -          [2;33m[--------][0m  -                30s  unmapped
+ag    P-8H      [33mINSUFF[0m          90%  2h00m      -          [33m[██|████░][0m  -                30s  unmapped
+ag PROBE:34m STALE:window; next: peerhub observation refresh --peers ag
+cc PROBE:2h PROBE:unknown; next: peerhub observation refresh --peers cc
 STATE: INSUFF=insufficient projection data; THREAT=exhausts before reset
 Coverage: partial; peerhub explain <code>

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from peerhub.extensions.accounts import AccountRef, AccountSnapshot
 
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets, path_secrets
-from peerhub.extensions.bridge import PrespawnError, RuntimeEvent, RuntimeTargetError
+from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, RuntimeTargetError
 
 MAX_PROMPT_BYTES = 1_000_000
 EXCERPT_CHARS = 300

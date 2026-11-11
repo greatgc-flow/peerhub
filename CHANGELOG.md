@@ -8,6 +8,18 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.8] - 2026-11-11
+
+### Changed
+
+- Bridge and claim-store initialization no longer drop and recreate their protection triggers on every open: the installed `sqlite_master` SQL is compared exactly with the expected definitions inside the init transaction, and any mismatch, missing or extra trigger, or a legacy session registry still triggers the full rebuild as before. Measured against 0.24.7 on disposable databases (`python -m tools.bridge_init_bench --rounds 10`, one Windows PC, lock waits included, not a guarantee; `docs/benchmarks/claim-init-2026-11-11.json`): schema changes per warm open 80 -> 0, init p50 33.4 -> 7.4 ms with one worker and 122.8 -> 84.8 ms with eight. Fewer schema rewrites mean shorter write locks and fewer statement re-preparations when several sessions use one store (#335, PR #349).
+- The runtime port (`RuntimeTarget`, `RuntimeEvent`, `RuntimeTargetError`, `PrespawnError`, `ContextLostError`, `SteerableTarget`) moved to `peerhub/extensions/runtime_contract.py`; adapters no longer import the Bridge, and `peerhub.extensions.bridge` re-exports the same objects for compatibility (#335).
+- `CoreStore.iter_records_snapshot(page_size)` yields every record from one read snapshot; `source_records` delegates to it instead of using Core's private row mapping (#335).
+- `docs/implementation/EXECUTION_KERNEL_BOUNDARIES.md` is the single boundary document (ownership, trigger-reconciliation safety rules, benchmark pointer); the applied candidate patch and the interim gate/integration records were removed (git keeps them).
+- `monitor --expand`: each SESSIONS row shows `uses N` after `gen` (asks that started on that session: fresh + reused; normally reuses = N - 1; `uses ?` when the stored counters are incomplete); `monitor --json` session items gain an additive `uses` field. The compact view is unchanged; `peerhub session list` already exposes the same counters as `call_counts`.
+- Monitor tables are easier to read: compact POOLS and expanded QUOTA share one column order (PEER, POOL, STATE, LEFT/REM, RESETS/RESET-IN, PACE, BAR, then MEANING or EXHAUST-IN, AGE, PROFILES) and the same pool order (per peer by family, then window length, then name). A remaining-quota bar `[███|░░░░]` marks the even-burn level with `|` (ASCII `[###|....]`), PACE gets a direction glyph (`▲+26` ahead of even burn, `▼-89` behind; ASCII `^`/`v`) with the number unchanged, and STATE words and bars are coloured with 16 ANSI colours only on a terminal without `NO_COLOR` (the STATE word always stays). Narrow consoles drop whole columns from the right, named in `Columns omitted:`, instead of cutting cells with `~`; SESSIONS and narrow PEERS rows drop trailing fields the same way, keeping the identity fields.
+- `peerhub ask --timeout-seconds` help states the default (60 s) and the values for implementer and review asks; new lesson `ask-timeouts` (#350).
+
 ## [0.24.7] - 2026-11-11
 
 ### Added

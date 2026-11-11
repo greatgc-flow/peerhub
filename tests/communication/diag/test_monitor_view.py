@@ -34,24 +34,27 @@ def quota_visual_frame():
 
 
 @pytest.mark.parametrize("color", [False, True])
-def test_quota_visual_snapshot_at_80_columns(quota_visual_frame, color, monkeypatch):
+def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeypatch):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame, _width
 
     monkeypatch.delenv("NO_COLOR", raising=False)
-    rendered = render_grouped_frame(quota_visual_frame, color=color, width=80, height=24)
+    rendered = render_grouped_frame(quota_visual_frame, color=color, width=120, height=24)
     snapshot = Path(__file__).with_name("fixtures") / f"quota_s2_color_{'on' if color else 'off'}.txt"
     assert rendered == snapshot.read_text(encoding="utf-8")
-    assert all(_width(line) <= 79 for line in rendered.splitlines())
+    assert all(_width(line) <= 119 for line in rendered.splitlines())
     assert rendered.count("cc PROBE:") == 1
     assert len([line for line in rendered.splitlines() if "next: peerhub observation refresh --peers ag" in line]) == 1
     assert "soonest exhaust: ag P-3H 1% in 30m" in rendered
     assert "duplicate" not in rendered
     assert "STATE: INSUFF=insufficient projection data" in rendered
     if color:
-        for code, state in [(32, "ON_PACE"), (33, "WATCH"), (31, "THREAT"),
-                            (31, "EXHAUSTED"), (31, "ERROR"), (2, "UNKNOWN"), (31, "STALE")]:
-            assert any(line.startswith(f"\x1b[{code}m") and state in line for line in rendered.splitlines())
-        assert any(line.startswith("\x1b[2mcc PROBE:") for line in rendered.splitlines())
+        for code, state in [("32", "ON_PACE"), ("33", "WATCH"), ("35", "THREAT"), ("1;31", "EXHAUSTED"),
+                            ("1;31", "ERROR"), ("2", "UNKNOWN"), ("2;33", "STALE:window"), ("33", "INSUFF")]:
+            line = next(line for line in rendered.splitlines() if f"{state}\x1b[0m" in line)
+            assert f"\x1b[{code}m{state}\x1b[0m" in line
+            assert re.search(rf"\x1b\[{re.escape(code)}m\[[^\]]*\]\x1b\[0m", line)  # the bar carries the state colour
+            assert line.count("\x1b[0m") == 2 and not line.startswith("\x1b")
+        assert not any(line.startswith("\x1b") for line in rendered.splitlines() if "PROBE" in line)
     else:
         assert "\x1b" not in rendered
 
@@ -483,6 +486,40 @@ def test_expand_renders_all_loaded_detail_rows_and_session_handle(frame):
         assert _width(line) <= 79, f"Line exceeds width - 1: {line}"
 
 
+def test_expanded_sessions_show_uses_after_gen_and_compact_view_does_not(frame):
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+
+    frame["groups"]["sessions"]["data"]["items"] = [
+        {"peer_id": "cx", "state": "ACTIVE", "generation": 1, "resumable": True, "handle": "sess_a", "uses": 3,
+         "configured_binding": {"profile": "cx.standard", "model": "gpt-test", "effort": "medium"}},
+        {"peer_id": "cx", "state": "ACTIVE", "generation": 2, "resumable": True, "handle": "sess_b", "uses": None,
+         "configured_binding": {"profile": "cx.standard", "model": "gpt-test", "effort": "medium"}},
+    ]
+    expanded = render_grouped_frame(frame, view="plain", unicode=False, width=120, expand=True)
+    assert "sess_a | gen 1 | uses 3 | cx.standard" in expanded
+    assert "sess_b | gen 2 | uses ? | cx.standard" in expanded
+    compact = render_grouped_frame(frame, view="plain", unicode=False, width=120)
+    assert "uses" not in compact
+
+
+def test_narrow_sessions_drop_trailing_fields_whole_for_every_row(frame):
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+
+    frame["groups"]["sessions"]["data"]["items"] = [
+        {"peer_id": "cx", "state": "ACTIVE", "generation": n, "resumable": True, "handle": f"sess_{n}", "uses": n,
+         "configured_binding": {"profile": "cx.standard", "model": "gpt-test", "effort": "medium"}}
+        for n in (1, 2)]
+    full = render_grouped_frame(frame, view="plain", unicode=False, width=120, expand=True)
+    assert "sess_1 | gen 1 | uses 1 | cx.standard / gpt-test (medium) | resumable" in full
+    assert "Columns omitted" not in full
+    narrow = render_grouped_frame(frame, view="plain", unicode=False, width=80, expand=True)
+    rows = [line for line in narrow.splitlines() if "sess_" in line]
+    assert len(rows) == 2 and "~" not in narrow
+    assert all(line.endswith("cx.standard / gpt-test (medium)") for line in rows)
+    assert "resumable" not in narrow.split("SESSIONS [")[1].split("Columns omitted:")[0]
+    assert "Columns omitted: resumable" in narrow
+
+
 def test_limited_height_drops_other_groups_before_clipping_quota(frame):
     """When terminal height is limited, other groups are dropped before clipping quota rows."""
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
@@ -573,7 +610,7 @@ def test_capacity_rows_stay_contiguous_under_capacity_heading_and_usage_fallback
             "provider_input_tokens": 1000, "cached_input_tokens": 800, "output_tokens": 250, "provider_total_tokens": None}}},
     ]
 
-    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=28)
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=120, height=28)
     cap_idx = rendered.index("QUOTA [OK]")
     first_pool_idx = rendered.index("g-5h")
     second_pool_idx = rendered.index("5h")
@@ -682,9 +719,10 @@ def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
 
             # Check columns
             if width >= 120:
-                assert "EXHAUST-IN" in rendered
-            if width < 100:
-                assert "EXHAUST-IN" not in rendered
+                assert "EXHAUST-IN" in rendered and "PROFILES (configured)" in rendered
+                assert "Columns omitted" not in rendered
+            elif (width, height) != (80, 12):  # whole columns go from the right and are named
+                assert "PROFILES (configured)" not in rendered and "Columns omitted: " in rendered
 
             if (width, height) == (80, 12):
                 assert "rows hidden" in rendered or "groups omitted" in rendered
@@ -713,7 +751,7 @@ def test_append_frame_leaves_terminal_last_column_free(frame, width, expand, uni
 
 @pytest.mark.parametrize("width", [50, 60])
 @pytest.mark.parametrize("height", [None, 24])
-def test_narrow_quota_keeps_identity_remaining_reset_and_state(frame, width, height):
+def test_narrow_quota_keeps_leftmost_columns_and_names_the_dropped_ones(frame, width, height):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     frame["selected_groups"] = ["capacity"]
@@ -722,14 +760,54 @@ def test_narrow_quota_keeps_identity_remaining_reset_and_state(frame, width, hei
     item["measurements"]["reset_in_seconds"] = 90000
     rendered = render_grouped_frame(frame, width=width, height=height, unicode=False)
     header = next(line for line in rendered.splitlines() if "PEER" in line)
-    for label in ("PEER", "POOL", "REM", "RESET-IN", "STATE"):
+    for label in ("PEER", "POOL", "STATE", "REM", "RESET-IN"):
         assert label in header
     row = next(line for line in rendered.splitlines() if "X-7D" in line)
-    for value in ("cx", "X-7D", "75%", "1d01h", "EXHAUSTED"):
+    for value in ("cx", "X-7D", "EXHAUSTED", "75%", "1d01h"):
         assert value in row
-    assert "Columns omitted:" in rendered
-    for label in ("bar", "exhaust-in", "age"):
-        assert label in rendered
+    names = {"bar", "exhaust-in", "pace", "state", "age", "profiles", "(configured)"}
+    omitted: list[str] = []
+    for line in ("Columns omitted:" + rendered.split("Columns omitted:")[1]).splitlines():
+        tokens = line.removeprefix("Columns omitted:").split()
+        if not tokens and omitted:
+            break
+        if not set(tokens) <= names:
+            break
+        omitted += tokens
+    assert "~" not in "\n".join(line for line in rendered.splitlines() if "X-7D" in line or "PEER" in line)
+    assert omitted[-3:] == ["age", "profiles", "(configured)"]
+    assert "state" not in omitted and "bar" in omitted and "exhaust-in" in omitted
+    assert ("pace" in omitted) == (width == 50)
+
+
+def test_expand_quota_row_shows_bar_tick_pace_glyph_and_colour_on_state_and_bar_only(monkeypatch):
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame, _width
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+
+    def obs(pool, rem, pace, state="on_pace"):
+        return {"peer_id": "ag", "pool_ref": f"quota:ag:{pool}", "state": "MEASURED",
+                "measurements": {"remaining_fraction": rem, "reset_in_seconds": 9000.0},
+                "projection": {"state": state, "pace_pt": pace}, "age_seconds": 5.0}
+
+    frame = {"status": "OK", "read_at": 1000.0, "selected_groups": ["capacity"],
+             "groups": {"capacity": {"status": "OK", "data": {"observations": [
+                 obs("G-5H", .5, 12.5), obs("A-7D", .25, -3.0, "watch"), obs("3P-5H", .5, 0.0)]}}}}
+    # 9000s of a 5h window left: even burn leaves 50%, so the tick is the first empty cell after the 50% fill
+    plain = render_grouped_frame(frame, view="plain", unicode=False, width=140)
+    row = next(line for line in plain.splitlines() if " G-5H " in line)
+    assert "[####|...]" in row and "^+12.5pp" in row and "ON_PACE" in row
+    assert "v-3.0pp" in next(line for line in plain.splitlines() if " A-7D " in line)
+    assert " +0.0pp" in next(line for line in plain.splitlines() if " 3P-5H " in line)
+    unicode_row = next(line for line in render_grouped_frame(frame, view="plain", unicode=True, width=140).splitlines() if " G-5H " in line)
+    assert "[████|░░░]" in unicode_row and "▲+12.5pp" in unicode_row
+    colored = render_grouped_frame(frame, view="rich", color=True, unicode=False, width=140)
+    line = next(line for line in colored.splitlines() if " G-5H " in line)
+    assert "\x1b[32mON_PACE\x1b[0m" in line and "\x1b[32m[####|...]\x1b[0m" in line and line.count("\x1b") == 4
+    assert _width(line) == _width(row) and re.sub(r"\x1b\[[0-9;]*m", "", colored) == render_grouped_frame(
+        frame, view="rich", color=False, unicode=False, width=140)
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert "\x1b" not in render_grouped_frame(frame, view="rich", color=True, width=140)
 
 
 @pytest.mark.parametrize("expand, height, hidden", [(False, 5, 2), (True, 6, 3)])
@@ -808,7 +886,7 @@ def test_elapsed_forecast_is_not_measured_exhaustion(frame, rem, elapsed, expect
     assert expected in next(line for line in rendered.splitlines() if "soonest exhaust:" in line)
     header = next(line for line in rendered.splitlines() if "EXHAUST-IN" in line)
     row = next(line for line in rendered.splitlines()[2:] if "5h" in line)
-    assert row[header.index("EXHAUST-IN"):header.index("PACE")].strip() == expected
+    assert row[header.index("EXHAUST-IN"):header.index("AGE")].strip() == expected
 
 
 def _frame(remaining, credits=None):
@@ -828,7 +906,7 @@ def _frame(remaining, credits=None):
 def test_less_than_one_percent_is_never_shown_as_zero(remaining, shown):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
     rows = [ln for ln in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines() if ln.startswith("ag ")]
-    assert rows[0].split()[2] == shown
+    assert rows[0].split()[3] == shown
     assert f"ag G-7D {shown} " in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines()[1]
 
 
@@ -879,7 +957,7 @@ def test_exhaustion_alert_requires_within_window_risk(used, expected_state, aler
     assert ("soonest exhaust:" in rendered) == alert
     header = next(line for line in rendered.splitlines() if "EXHAUST-IN" in line)
     row = next(line for line in rendered.splitlines() if line.startswith("ag "))
-    cell = row[header.index("EXHAUST-IN"):header.index("PACE")].strip()
+    cell = row[header.index("EXHAUST-IN"):header.index("AGE")].strip()
     if not alert:
         assert cell == "-"
         assert projection["exhaustion_at"] == 5000
@@ -932,6 +1010,22 @@ def test_drift_footer_includes_unknown_pool_reason(quota_visual_frame):
     assert "DRIFT:ag" in render_grouped_frame(quota_visual_frame, width=180)
 
 
+@pytest.mark.parametrize("height", [None, 40])
+def test_stored_escape_sequences_never_reach_the_terminal_even_when_colour_is_on(quota_visual_frame, height, monkeypatch):
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    quota_visual_frame["groups"]["peers"] = {"status": "OK", "data": {"peers": [],
+        "facts_report": {"status": "needs_recheck", "reasons": ["cc: \x1b[31m\x1b]0;x\x07"]}}}
+    quota_visual_frame["selected_groups"].append("peers")
+    plain = render_grouped_frame(quota_visual_frame, view="plain", color=True, width=140, height=height)
+    assert "\x1b" not in plain and "\x07" not in plain
+    colored = render_grouped_frame(quota_visual_frame, view="rich", color=True, width=140, height=height)
+    assert "\x1b[32mON_PACE\x1b[0m" in colored  # the palette still paints the quota cells
+    assert not re.sub(r"\x1b\[(?:1;36|1;31|2;33|32|33|35|36|2|0)m", "", colored).count("\x1b")
+    assert "\x1b[31m" not in colored and "\x07" not in colored and "\x1b]" not in colored
+
+
 NOT_REPORTED = "not reported by provider; plan=prolite"
 
 
@@ -975,3 +1069,9 @@ def test_aged_not_reported_pool_is_question_mark_with_refresh_hint():
     rendered = render_grouped_frame(_cx_plan_frame(absent_state="STALE"), view="plain", unicode=False, width=120)
     assert "cx X-5H ? not reported (plan prolite), aged; next: peerhub observation refresh --peers cx" in rendered
     assert "STALE:window" not in rendered
+
+
+def test_even_burn_ignores_a_zero_length_window():
+    from peerhub.cli.monitor_view import _even_burn
+    assert _even_burn("X-0H", 3600) is None  # no ZeroDivisionError on a malformed window
+    assert _even_burn("X-5H", 9000) == 0.5

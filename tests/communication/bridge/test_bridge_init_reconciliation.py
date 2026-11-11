@@ -1,0 +1,279 @@
+"""Bridge reopen regression oracles: persisted SQL, rollback and legacy data.
+
+No provider is invoked. Latency belongs to the separate benchmark, not these gates.
+"""
+from __future__ import annotations
+
+import re
+import sqlite3
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from threading import Barrier
+
+import pytest
+
+from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError
+from peerhub.core.store import CoreStore
+from peerhub.core.workspace import Workspace
+from peerhub.extensions.ask import ask
+from peerhub.extensions.bridge import Bridge, _DDL
+from peerhub.extensions.bridge_claims import ClaimStore
+
+pytestmark = [pytest.mark.integration, pytest.mark.bridge, pytest.mark.sqlite, pytest.mark.platform_sensitive]
+
+
+class OfflineRuntime:
+    runtime_kind = "offline"
+    resumable = True
+
+    def fingerprint(self): return "offline-v1"
+    def binding(self): return "offline"
+    def create_session(self): return uuid.uuid4().hex
+    def resume_session(self, external_session_id, *, vendor_session_id=None): return "ok"
+    def deliver(self, external_session_id, record, catch_up):
+        yield ("started", uuid.uuid4().hex)
+        yield ("terminal", {"response": "durable"})
+
+
+@pytest.fixture
+def seeded(tmp_path):
+    db = tmp_path / "core.db"
+    result = ask(db, "p", "first", stream_id="s", request_id="first", workspace=tmp_path, runtime=OfflineRuntime())
+    assert result["status"] == "delivered"
+    ws = Workspace(tmp_path)
+    return db, CoreStore(db), ClaimStore(db, ws.generation)
+
+
+def schema(db):
+    with closing(sqlite3.connect(db)) as conn:
+        return dict(conn.execute("SELECT name,sql FROM sqlite_master WHERE type='trigger'"))
+
+
+def cookie(db):
+    with closing(sqlite3.connect(db)) as conn:
+        return conn.execute("PRAGMA schema_version").fetchone()[0]
+
+
+def rows(db):
+    with closing(sqlite3.connect(db)) as conn:
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
+        return {t: conn.execute('SELECT * FROM "' + t.replace('"', '""') + '" ORDER BY rowid').fetchall() for t in tables}
+
+
+def test_warm_bridge_reopen_changes_neither_schema_nor_data(seeded):
+    db, store, claims = seeded
+    before, sql, version = rows(db), schema(db), cookie(db)
+    for _ in range(5):
+        Bridge(store, claims)
+    assert schema(db) == sql
+    assert rows(db) == before
+    assert cookie(db) == version
+
+
+# Enumerated protection families, independent of the production declaration list.
+TRIGGERS = (
+    "bridge_controls_target_write_once", "bridge_controls_no_delete", "bridge_controls_identity_immutable",
+    "bridge_controls_outcome_write_once", "bridge_evidence_no_update", "bridge_evidence_no_delete",
+    "bridge_terminal_immutable", "bridge_session_events_no_update", "bridge_session_events_no_delete",
+    "bridge_reconciliations_no_delete", "bridge_reconciliations_immutable", "bridge_reconciliations_valid_insert",
+    "bridge_reconciliations_consumed_write_once", "bridge_reconciliations_consumed_immutable",
+    "bridge_evidence_no_replace", "bridge_session_events_no_replace", "bridge_deliveries_no_replace",
+    "bridge_reconciliations_no_replace", "bridge_controls_no_replace", "bridge_invocations_no_update",
+    "bridge_invocations_no_delete", "bridge_invocations_no_replace", "bridge_invocation_resolutions_no_update",
+    "bridge_invocation_resolutions_no_delete", "bridge_invocation_resolutions_no_replace",
+    "bridge_invocation_resolutions_verifiable", "bridge_deliveries_certainty_forward_only",
+    "bridge_deliveries_insert_not_started", "bridge_deliveries_no_rowid_replace",
+    "bridge_reconciliations_no_rowid_replace", "bridge_controls_no_rowid_replace", "bridge_invocations_no_rowid_replace",
+    "bridge_invocation_resolutions_no_rowid_replace", "bridge_deliveries_no_delete",
+    "bridge_delivery_session_immutable", "bridge_result_write_once",
+)
+
+
+def test_damage_matrix_lists_every_trigger_on_bridge_owned_tables(seeded):
+    db, _, _ = seeded
+    owned = [m.group(1) for stmt in _DDL if (m := re.match(r"\s*CREATE TABLE IF NOT EXISTS (\w+)", stmt))]
+    marks = ",".join("?" * len(owned))
+    with closing(sqlite3.connect(db)) as conn:
+        installed = {r[0] for r in conn.execute(
+            f"SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ({marks})", owned)}
+    assert installed == set(TRIGGERS) and len(TRIGGERS) == len(set(TRIGGERS))
+
+
+@pytest.mark.parametrize("name", TRIGGERS)
+@pytest.mark.parametrize("damage", ("missing", "changed"))
+def test_every_owned_trigger_is_repaired(seeded, name, damage):
+    db, store, claims = seeded
+    expected, before = schema(db), rows(db)
+    with closing(sqlite3.connect(db)) as conn:
+        table = conn.execute("SELECT tbl_name FROM sqlite_master WHERE name=?", (name,)).fetchone()[0]
+        conn.execute(f'DROP TRIGGER "{name}"')
+        if damage == "changed":
+            conn.execute(f'CREATE TRIGGER "{name}" BEFORE UPDATE ON "{table}" BEGIN SELECT 1; END')
+        conn.commit()
+    Bridge(store, claims)
+    assert schema(db) == expected
+    assert rows(db) == before
+
+
+@pytest.mark.parametrize("name", ("legacy_guard", 'legacy"guard'))
+def test_legacy_triggers_removed_but_unrelated_trigger_preserved(seeded, name):
+    db, store, claims = seeded
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("CREATE TABLE unrelated(x)")
+        conn.execute("CREATE TRIGGER unrelated_guard BEFORE DELETE ON unrelated BEGIN SELECT 1; END")
+        conn.commit()
+    expected = schema(db)
+    with closing(sqlite3.connect(db)) as conn:
+        quoted = '"' + name.replace('"', '""') + '"'
+        conn.execute(f"CREATE TRIGGER {quoted} BEFORE UPDATE ON bridge_evidence BEGIN SELECT 1; END")
+        conn.commit()
+    Bridge(store, claims)
+    assert schema(db) == expected
+
+
+def test_sql_literal_whitespace_is_not_normalized_away(seeded):
+    db, store, claims = seeded
+    expected = schema(db)
+    name = "bridge_evidence_no_update"
+    changed = expected[name].replace("bridge_evidence is append-only", "bridge_evidence  is append-only")
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute(f"DROP TRIGGER {name}")
+        conn.execute(changed)
+        conn.commit()
+    Bridge(store, claims)
+    assert schema(db) == expected
+
+
+@pytest.mark.parametrize("failure", ("install", "registry"))
+def test_failed_repair_rolls_back_exact_schema_cookie_and_data(seeded, monkeypatch, failure):
+    db, store, claims = seeded
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("DROP TRIGGER bridge_evidence_no_update")
+        conn.commit()
+    before, sql, version = rows(db), schema(db), cookie(db)
+    original = sqlite3.connect
+
+    class FailInstall(sqlite3.Connection):
+        def execute(self, sql, parameters=(), /):
+            if failure == "install" and sql.startswith("CREATE TRIGGER IF NOT EXISTS bridge_result_write_once"):
+                raise sqlite3.OperationalError("injected install failure")
+            return super().execute(sql, parameters)
+
+    def connect(*args, **kwargs):
+        kwargs["factory"] = FailInstall
+        return original(*args, **kwargs)
+
+    def hook(point):
+        if failure == "registry" and point == "bridge.registry.before_commit":
+            raise sqlite3.OperationalError("injected registry failure")
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    with pytest.raises(sqlite3.OperationalError, match="injected"):
+        Bridge(store, claims, fault_hook=hook)
+    assert schema(db) == sql
+    assert cookie(db) == version
+    assert rows(db) == before
+
+
+@pytest.mark.parametrize("sql", (
+    "UPDATE bridge_evidence SET detail='{}'",
+    "DELETE FROM bridge_evidence",
+    "UPDATE bridge_deliveries SET result_json='{}'",
+    "UPDATE bridge_deliveries SET certainty='NOT_STARTED'",
+    "UPDATE bridge_deliveries SET session_handle='sess_0000000000000000'",
+    "INSERT OR REPLACE INTO bridge_evidence SELECT * FROM bridge_evidence LIMIT 1",
+    "INSERT OR REPLACE INTO bridge_deliveries SELECT * FROM bridge_deliveries LIMIT 1",
+    "INSERT OR REPLACE INTO bridge_deliveries(rowid,delivery_id,seq,stream_id,peer_id,record_id,record_position,attempt,certainty,claim_generation) SELECT rowid,'other',seq,stream_id,peer_id,record_id,record_position,attempt+100,'NOT_STARTED',claim_generation FROM bridge_deliveries LIMIT 1",
+))
+def test_noop_reopen_preserves_immutability_without_recursive_triggers(seeded, sql):
+    db, store, claims = seeded
+    Bridge(store, claims)
+    before = rows(db)
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("PRAGMA recursive_triggers=OFF")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(sql)
+        conn.rollback()
+    assert rows(db) == before
+
+
+def test_parallel_reopen_has_zero_schema_churn(seeded):
+    db, store, claims = seeded
+    version, before = cookie(db), rows(db)
+    barrier = Barrier(4)
+
+    def work(_):
+        barrier.wait(timeout=30)
+        Bridge(store, claims)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(work, range(4)))
+    assert cookie(db) == version
+    assert rows(db) == before
+
+
+def test_future_schema_refused_without_mutation(seeded):
+    db, store, claims = seeded
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute(f"PRAGMA user_version={SUPPORTED_SCHEMA_VERSION+1}")
+    before, sql, version = rows(db), schema(db), cookie(db)
+    with pytest.raises(SchemaVersionError):
+        Bridge(store, claims)
+    assert rows(db) == before
+    assert schema(db) == sql
+    assert cookie(db) == version
+
+
+def downgrade_registry(conn):
+    """Recreate the prior single-slot schema, retaining mapping facts."""
+    read = conn.execute("SELECT h.* FROM bridge_sessions p JOIN bridge_session_history h ON h.session_handle=p.session_handle")
+    columns = [c[0] for c in read.description]
+    old = [dict(zip(columns, row)) for row in read.fetchall()]
+    for table in ("bridge_session_monitor_stats", "bridge_session_monitor_scope", "bridge_sessions", "bridge_session_counters", "bridge_session_history"):
+        conn.execute(f"DROP TABLE {table}")
+    conn.execute("CREATE TABLE bridge_sessions (stream_id TEXT NOT NULL,peer_id TEXT NOT NULL,runtime_kind TEXT NOT NULL,external_session_id TEXT NOT NULL,"
+                 "session_generation INTEGER NOT NULL,adapter_fingerprint TEXT NOT NULL,binding TEXT NOT NULL,resumable INTEGER NOT NULL,state TEXT NOT NULL,last_seen REAL NOT NULL,"
+                 "workspace_generation TEXT NOT NULL DEFAULT '',vendor_session_id TEXT,context_watermark INTEGER,bootstrap_truncated INTEGER,usage_json TEXT,context_watermark_version INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(stream_id,peer_id))")
+    names = [r[1] for r in conn.execute("PRAGMA table_info(bridge_sessions)")]
+    for row in old:
+        conn.execute(f"INSERT INTO bridge_sessions VALUES ({','.join('?' for _ in names)})", [row[n] for n in names])
+
+
+@pytest.mark.parametrize("remove_native_columns", (False, True))
+def test_legacy_migration_and_default_reuse_remain_idempotent(seeded, remove_native_columns):
+    db, store, claims = seeded
+    with claims.transaction() as conn:
+        external = conn.execute("SELECT external_session_id FROM bridge_session_history").fetchone()[0]
+        downgrade_registry(conn)
+        if remove_native_columns:
+            for column in ("vendor_session_id", "context_watermark", "bootstrap_truncated", "usage_json"):
+                conn.execute(f"ALTER TABLE bridge_sessions DROP COLUMN {column}")
+    Bridge(store, claims)
+    version, before = cookie(db), rows(db)
+    Bridge(store, claims)
+    assert cookie(db) == version
+    assert rows(db) == before
+    with closing(sqlite3.connect(db)) as conn:
+        assert conn.execute("SELECT external_session_id FROM bridge_session_history").fetchone()[0] == external
+    second = ask(db, "p", "second", stream_id="s", request_id="second", workspace=db.parent, runtime=OfflineRuntime())
+    assert second["status"] == "delivered"
+    with closing(sqlite3.connect(db)) as conn:
+        assert conn.execute("SELECT COUNT(*),MIN(external_session_id) FROM bridge_session_history").fetchone() == (1, external)
+
+
+def test_legacy_migration_failure_restores_old_database(seeded):
+    db, store, claims = seeded
+    with claims.transaction() as conn:
+        downgrade_registry(conn)
+    before, sql, version = rows(db), schema(db), cookie(db)
+
+    def hook(point):
+        if point == "bridge.registry.before_commit":
+            raise RuntimeError("injected migration failure")
+
+    with pytest.raises(RuntimeError, match="injected"):
+        Bridge(store, claims, fault_hook=hook)
+    assert rows(db) == before
+    assert schema(db) == sql
+    assert cookie(db) == version

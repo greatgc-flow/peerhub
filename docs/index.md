@@ -27,6 +27,8 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Database Migrations](migrations.md): CoreStore schema versioning, upgrade policies, and historical v0 migration workflow.
 - [Structure Cleanup](implementation/STRUCTURE_CLEANUP.md): Current component ownership and legacy surface retirement.
 
+- [Execution Kernel Boundaries](implementation/EXECUTION_KERNEL_BOUNDARIES.md): Core / logical Kernel / Adapter ownership, concrete refactors and test gates (#335).
+
 ## Configuration & Adapters
 - [Config Hierarchy](config-hierarchy.md): Workspace, global, and packaged configuration tiers.
 - [Model Profiles](../peerhub/config_data/model-defaults.toml): Profiles SSOT since v0.23.0. [model-profiles.json](model-profiles/model-profiles.json) is the refresh recipe.

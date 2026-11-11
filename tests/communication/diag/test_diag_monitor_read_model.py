@@ -281,6 +281,29 @@ def test_monitor_frame_queries_only_requested_group_families(tmp_path):
     assert set(frame["groups"]) == {"store"}
 
 
+def test_monitor_session_items_expose_uses_from_existing_call_counters(tmp_path):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
+    from tests.communication.bridge_helpers import bseed
+    from tests.communication.harness.bridge import BridgeHarness
+
+    harness = BridgeHarness(tmp_path / "workspace")
+    bseed(harness)
+    harness.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+
+    def uses() -> object:
+        frame = render_monitor_frame(harness.db_path, ["sessions"], read_at=2000.0)
+        return frame["groups"]["sessions"]["data"]["items"][0]["uses"]
+
+    assert uses() == 1  # one confirmed fresh call, no reuse
+    with harness.cs.transaction() as conn:
+        conn.execute("UPDATE bridge_session_monitor_stats SET reuse_count=2, fresh_count=1")
+    assert uses() == 3
+    with harness.cs.transaction() as conn:
+        conn.execute("UPDATE bridge_session_monitor_stats SET reuse_count=NULL, fresh_count=NULL, counts_complete=0")
+    assert uses() is None  # unknown stays unknown, never a fabricated 0
+
+
 def test_monitor_read_boundary_revalidates_persisted_session_binding(tmp_path):
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
