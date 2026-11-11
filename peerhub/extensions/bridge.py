@@ -28,6 +28,9 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, cast
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, StaleClaimError
 from peerhub.extensions import bridge_registry, session_receipts
 from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, ProjectedRecords, build_catch_up, project_catch_up
+from peerhub.extensions.runtime_contract import (
+    ContextLostError, PrespawnError, RuntimeEvent, RuntimeTarget, RuntimeTargetError, SteerableTarget,
+)
 from peerhub.core.models import Record
 from peerhub.core.store import CasMismatchError, CoreStore, IdempotencyConflictError
 
@@ -94,20 +97,6 @@ class _PersistedReconcile:
     author: str
 
 
-class RuntimeTargetError(RuntimeError):
-    """Ambiguous runtime failure (process/session may have started)."""
-
-    def __init__(self, message: str = "", *, termination_confirmed: bool | None = None) -> None:
-        super().__init__(message)
-        self.termination_confirmed = termination_confirmed
-
-
-class PrespawnError(RuntimeTargetError):
-    """Failure proven to be before any process/session start (resolves the invocation marker; certainty stays NOT_STARTED)."""
-
-
-class ContextLostError(PrespawnError):
-    """Adapter reports context/session loss (compaction, context limit) before the run began: safe NOT_STARTED retry on a fresh generation."""
 
 
 class SessionError(RuntimeError):
@@ -177,24 +166,6 @@ def normalize_session_selector(*, fresh: bool = False, session: str | None = Non
     return "fresh" if fresh else "latest"
 
 
-RuntimeEvent = tuple[str, Any] | tuple[str, Any, Any]  # ("started", exec_id) | ("timeout", seconds) | ("terminal", {"response": ...}) | ...
-
-
-class RuntimeTarget(Protocol):
-    runtime_kind: str
-
-    @property
-    def resumable(self) -> bool: ...  # read capability; custom attributes also satisfy this boundary
-
-    def fingerprint(self) -> str: ...
-    def binding(self) -> str: ...  # model/profile binding; a mapping is only resumable under the same binding
-    def create_session(self) -> str: ...
-    def resume_session(self, external_session_id: str, *, vendor_session_id: str | None = None) -> str: ...  # "ok" | "missing" | "unsupported" | "rejected"
-    def deliver(self, external_session_id: str, record: Any, catch_up: list[Any]) -> Iterable[RuntimeEvent]: ...
-
-
-class SteerableTarget(Protocol):
-    def steer(self, external_session_id: str, record: Any) -> None: ...
 
 
 @dataclass
