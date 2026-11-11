@@ -1010,6 +1010,22 @@ def test_drift_footer_includes_unknown_pool_reason(quota_visual_frame):
     assert "DRIFT:ag" in render_grouped_frame(quota_visual_frame, width=180)
 
 
+@pytest.mark.parametrize("height", [None, 40])
+def test_stored_escape_sequences_never_reach_the_terminal_even_when_colour_is_on(quota_visual_frame, height, monkeypatch):
+    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    quota_visual_frame["groups"]["peers"] = {"status": "OK", "data": {"peers": [],
+        "facts_report": {"status": "needs_recheck", "reasons": ["cc: \x1b[31m\x1b]0;x\x07"]}}}
+    quota_visual_frame["selected_groups"].append("peers")
+    plain = render_grouped_frame(quota_visual_frame, view="plain", color=True, width=140, height=height)
+    assert "\x1b" not in plain and "\x07" not in plain
+    colored = render_grouped_frame(quota_visual_frame, view="rich", color=True, width=140, height=height)
+    assert "\x1b[32mON_PACE\x1b[0m" in colored  # the palette still paints the quota cells
+    assert not re.sub(r"\x1b\[(?:1;36|1;31|2;33|32|33|35|36|2|0)m", "", colored).count("\x1b")
+    assert "\x1b[31m" not in colored and "\x07" not in colored and "\x1b]" not in colored
+
+
 NOT_REPORTED = "not reported by provider; plan=prolite"
 
 

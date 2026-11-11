@@ -47,10 +47,10 @@ def _width(text: str) -> int:
                for char in _ANSI.sub("", text))
 
 
-def _fit(text: str, width: int, unicode: bool) -> str:
+def _fit(text: str, width: int, unicode: bool, painted: bool = False) -> str:
     if width <= 0:
         return ""
-    if _ANSI.search(text):  # our own SGR colour: keep it when the line fits whole, else fit the plain text
+    if painted and _ANSI.search(text):  # only for rows whose cells were all _clean()ed before our own SGR colour was added
         if _width(text) <= width:
             return text
         text = _ANSI.sub("", text)
@@ -857,7 +857,7 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
                                   elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, color=color)
         for content in group_data:
             if group_id == "capacity":
-                lines.append(_fit(content, target_width, unicode))
+                lines.append(_fit(content, target_width, unicode, painted=color))
             else:
                 lines.append(_fit("  " + content, target_width, unicode))
 
@@ -1456,7 +1456,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         content_lines: list[str] = []
         for r in data_rows:
             if gid == "capacity":
-                content_lines.append(_fit(r, target_width, unicode))
+                content_lines.append(_fit(r, target_width, unicode, painted=color))
             else:
                 content_lines.append(_fit("  " + r, target_width, unicode))
         blocks.append((gid, _priority(grp), rule, content_lines))
