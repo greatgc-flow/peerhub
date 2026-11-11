@@ -23,14 +23,15 @@ import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterable, Iterator, Mapping, Protocol, cast
+from typing import Any, Callable, Iterator, Mapping, cast
 
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, StaleClaimError
 from peerhub.extensions import bridge_registry, session_receipts
 from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, ProjectedRecords, build_catch_up, project_catch_up
 from peerhub.extensions.runtime_contract import (
-    ContextLostError, PrespawnError, RuntimeEvent, RuntimeTarget, RuntimeTargetError, SteerableTarget,
+    ContextLostError, PrespawnError, RuntimeTarget, RuntimeTargetError, SteerableTarget,
 )
+from peerhub.extensions.runtime_contract import RuntimeEvent as RuntimeEvent  # legacy public re-export
 from peerhub.core.models import Record
 from peerhub.core.store import CasMismatchError, CoreStore, IdempotencyConflictError
 
