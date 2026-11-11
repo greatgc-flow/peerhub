@@ -67,6 +67,14 @@ CREATE TABLE IF NOT EXISTS bridge_finalizations (
 )"""
 
 
+_FINALIZATION_TRIGGERS: dict[str, str] = {
+    'bridge_finalizations_no_update': "CREATE TRIGGER bridge_finalizations_no_update BEFORE UPDATE ON bridge_finalizations BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END",
+    'bridge_finalizations_no_replace': "CREATE TRIGGER bridge_finalizations_no_replace BEFORE INSERT ON bridge_finalizations WHEN EXISTS (SELECT 1 FROM bridge_finalizations WHERE stream_id = NEW.stream_id AND peer_id = NEW.peer_id AND claim_generation = NEW.claim_generation) BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END",
+    'bridge_finalizations_no_rowid_replace': "CREATE TRIGGER bridge_finalizations_no_rowid_replace BEFORE INSERT ON bridge_finalizations WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM bridge_finalizations WHERE rowid = NEW.rowid) BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END",
+    'bridge_finalizations_no_delete': "CREATE TRIGGER bridge_finalizations_no_delete BEFORE DELETE ON bridge_finalizations BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END",
+}
+
+
 class ClaimStore:
     def __init__(self, db_path: str | os.PathLike[str], generation: Callable[[], str], clock: Callable[[], float] = time.time) -> None:
         self.db_path = str(db_path)
@@ -76,19 +84,17 @@ class ClaimStore:
         with self._tx() as conn:
             conn.execute(_DDL)
             conn.execute(_DDL_FINAL)
-            for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('bridge_claims','bridge_finalizations')").fetchall():
-                conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')  # exactly the current trigger set on reopen (legacy ones included)
-            conn.execute("CREATE TRIGGER bridge_finalizations_no_update BEFORE UPDATE ON bridge_finalizations "
-                         "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
-            conn.execute("CREATE TRIGGER bridge_finalizations_no_replace BEFORE INSERT ON bridge_finalizations "
-                         "WHEN EXISTS (SELECT 1 FROM bridge_finalizations WHERE stream_id = NEW.stream_id AND peer_id = NEW.peer_id "
-                         "AND claim_generation = NEW.claim_generation) "
-                         "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
-            conn.execute("CREATE TRIGGER bridge_finalizations_no_rowid_replace BEFORE INSERT ON bridge_finalizations "
-                         "WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM bridge_finalizations WHERE rowid = NEW.rowid) "
-                         "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
-            conn.execute("CREATE TRIGGER bridge_finalizations_no_delete BEFORE DELETE ON bridge_finalizations "
-                         "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
+            # Inspect under BEGIN IMMEDIATE on EVERY open; never trust a cached
+            # schema version or just a trigger name. Preserve SQL body literals.
+            installed = dict(conn.execute(
+                "SELECT name,sql FROM sqlite_master WHERE type='trigger' "
+                "AND tbl_name IN ('bridge_claims','bridge_finalizations')"))
+            if installed != _FINALIZATION_TRIGGERS:
+                for name in installed:
+                    quoted = '"' + name.replace('"', '""') + '"'
+                    conn.execute(f"DROP TRIGGER {quoted}")
+                for statement in _FINALIZATION_TRIGGERS.values():
+                    conn.execute(statement)
 
     @contextmanager
     def _tx(self):
