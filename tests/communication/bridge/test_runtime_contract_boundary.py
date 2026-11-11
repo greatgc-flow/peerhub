@@ -17,7 +17,7 @@ from peerhub.extensions import runtime_contract as port
 from peerhub.extensions.adapters import base as adapter
 
 
-pytestmark = [pytest.mark.architecture, pytest.mark.unit]
+pytestmark = [pytest.mark.architecture, pytest.mark.unit, pytest.mark.platform_sensitive]
 ROOT = Path(__file__).resolve().parents[3]
 
 
