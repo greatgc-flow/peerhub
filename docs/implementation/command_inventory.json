@@ -1352,6 +1352,16 @@
           "takes_value": false
         },
         {
+          "default": false,
+          "dest": "plan",
+          "flags": [
+            "--plan"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": "plain",
           "dest": "view",
           "flags": [

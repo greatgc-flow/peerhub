@@ -55,7 +55,7 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 
 - Keywords: cc, claude, allow, rules, rule, allowlist, bash, permission, permissions, denied, denied_actions, model, fable, haiku, headless, prefix, exact, settings
 - Symptom: A headless cc ask with one model denies a Bash command that .claude/settings.local.json allows and another model runs (observed on #303: fable denied, haiku ran; not reproduced), or cc returns no usable answer with denied_actions set.
-- Fix: Bash allow rules such as Bash(peerhub --version) match the exact command string, so a model that adds cd, 2>&1, a pipe or a different invocation is denied: headless cc cannot prompt. Read denied_actions (Tool: command, redacted to 120 chars) to see the rejected string, then prefer prefix rules such as Bash(peerhub:*) and add matching PowerShell(...) rules on Windows. Unverified hypothesis: command shape, not a model-specific permission mode. Never resume after denied_empty; start a new stream.
+- Fix: Bash allow rules such as Bash(peerhub --version) match the exact command string, so a model that adds cd, 2>&1, a pipe or a different invocation is denied: headless cc cannot prompt. Read denied_actions (Tool: command, redacted to 120 chars) to see the rejected string, then prefer prefix rules such as Bash(peerhub:*) and add matching PowerShell(...) rules on Windows. Unverified hypothesis: command shape, not a model-specific permission mode. Never resume after denied_empty; start a new stream. Recommended read/test list: docs/adapters/cc.md.
 - Issue: #303
 
 ## cx sandbox facts and prompt hygiene (`cx-sandbox-and-prompt-hygiene`)
@@ -92,6 +92,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Symptom: The pip-installed peerhub command behaves differently from the current checkout.
 - Fix: Run python -m peerhub from the checkout (or set PYTHONPATH to it), or install that checkout with python -m pip install -e . using the same Python environment.
 - Issue: #117
+
+## Keep peer instructions, memory and quota spend small (`instruction-diet`)
+
+- Keywords: instruction, diet, memory, quota, observation, refresh, snapshot, profile, ladder, pytest, launcher, allow, headless, cc, tokens, global, workspace, votes, deepthink
+- Symptom: Every peer ask re-reads a large memory index or instruction file, a per-turn observation refresh burns quota, headless cc cannot run pytest, or 60-word votes run on the heaviest profile.
+- Fix: Headless cc: run pytest through one repo-local launcher (for example pt.py, which sets the environment and forwards its arguments to pytest) and allow that single command, because prefix rules miss env-prefixed commands. Refresh observation every 30-60 minutes and use peerhub monitor --snapshot each turn. Keep peer-loaded memory and instructions tiny and workspace-scoped; global files hold only generic rules. Profile ladder: bulk/votes -> standard, code -> effort, review/design -> deepthink.
+- Issue: #337
 
 ## invalid_arguments CLI input (`invalid-arguments`)
 
@@ -162,6 +169,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Symptom: A peer returns HTTP 429 and an uncertain ask blocks its stream, or parallel work exhausts a shared quota pool.
 - Fix: Check capacity and reset times before work; rotate pools early, reserve scarce capacity for final review, and limit parallel workers to fit the reset window. After a quota failure, continue on a new stream when capacity is available; do not blindly retry an uncertain ask.
 - Issue: #297, #298, #299
+
+## Review loops: materiality, contract narrowing and checks (`review-loop`)
+
+- Keywords: review, loop, materiality, contract, narrow, defects, suite, targeted, ports, WinError, worktree, cross-family, final, gitlink
+- Symptom: Score-to-100 review rounds oscillate (99.86, 99.79, 99.67), keep finding edge cases in the same new component, or parallel full suites exhaust Windows ports (WinError 10048).
+- Fix: Put a materiality rule in every reviewer brief: deduct only for a defect that violates a documented contract or is reachable from supported inputs; label anything else a recommendation. After two rounds that find new defects in the same new component, narrow its contract (fail closed) instead of patching it again. The coordinator runs the full suite once and passes the result on; reviewers run only targeted tests. Confirm the final candidate with a reviewer from another model family. Never `git add -A` in a checkout that contains agent worktrees: they are committed as gitlinks.
+- Issue: #345
 
 ## Review rounds that converge on 100 (`review-scores-to-100`)
 

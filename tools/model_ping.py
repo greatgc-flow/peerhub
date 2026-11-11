@@ -5,6 +5,7 @@ Direct one-shot CLI calls (uses a little quota), each in an empty temp directory
   cx  codex exec --json ...                -> evidence: model/effort of the turn in the session log (CODEX_HOME/sessions)
   ag  agy -p ... --output-format json      -> evidence: the model named in the CLI log file (weaker: the CLI logs what it selected)
 Usage: python -m tools.model_ping [profile_id ...] [--peer cc|cx|ag]     (exit 1 when any profile fails or a different model answered)
+       python -m tools.model_ping --peer cc --model MODEL [--effort E]   (one exact model; reads and writes no profile or overlay)
 """
 from __future__ import annotations
 
@@ -80,11 +81,32 @@ def ping_ag(model: str, effort: str | None, cwd: Path) -> tuple[bool, str, str]:
 PINGS = {"cc": ping_cc, "cx": ping_cx, "ag": ping_ag}
 
 
+def _ping_one(peer: str, label: str, model: str, effort: str | None) -> int:
+    """Ping one model, print the result line, return 1 on failure (0 on pass)."""
+    with tempfile.TemporaryDirectory(prefix="model_ping_") as tmp:
+        try:
+            replied, seen, verdict = PINGS[peer](model, effort, Path(tmp))
+        except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
+            replied, seen, verdict = False, "", f"ERROR {type(exc).__name__}: {exc}"
+    good = replied and verdict.startswith("ok")
+    print(f"{'PASS' if good else 'FAIL'}  {label:<14} want={model}/{effort or '-'}  answered={seen or '?'}  {verdict}"
+          f"{'' if replied else '  (no PONG)'}")
+    return 0 if good else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("profiles", nargs="*", help="profile ids such as cx.effort (default: all)")
     ap.add_argument("--peer", choices=sorted(PINGS), help="only this peer")
+    ap.add_argument("--model", help="ping exactly this model once (requires --peer; no profile or overlay is read or written)")
+    ap.add_argument("--effort", help="reasoning effort for --model")
     args = ap.parse_args(argv)
+    if args.effort and not args.model:
+        ap.error("--effort requires --model")
+    if args.model:
+        if not args.peer or args.profiles:
+            ap.error("--model requires --peer and no profile ids")
+        return _ping_one(args.peer, f"{args.peer}.{args.model}", args.model, args.effort)
     from peerhub.extensions.adapters.profiles import list_profiles
 
     profiles = {item["profile"]: {"model": item["fields"]["model"]["value"], "reasoning_effort": item["fields"]["effort"]["value"]}
@@ -95,19 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     chosen = [p for p in profiles if (not args.profiles or p in args.profiles) and (not args.peer or p.startswith(args.peer + "."))]
     if not chosen:
         ap.error("no profiles selected")
-    failed = 0
-    for pid in chosen:
-        peer = pid.split(".")[0]
-        spec = profiles[pid]
-        with tempfile.TemporaryDirectory(prefix="model_ping_") as tmp:
-            try:
-                replied, seen, verdict = PINGS[peer](spec["model"], spec.get("reasoning_effort"), Path(tmp))
-            except (OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
-                replied, seen, verdict = False, "", f"ERROR {type(exc).__name__}: {exc}"
-        good = replied and verdict.startswith("ok")
-        failed += not good
-        print(f"{'PASS' if good else 'FAIL'}  {pid:<14} want={spec['model']}/{spec.get('reasoning_effort', '-')}  answered={seen or '?'}  {verdict}"
-              f"{'' if replied else '  (no PONG)'}")
+    failed = sum(_ping_one(pid.split(".")[0], pid, profiles[pid]["model"], profiles[pid].get("reasoning_effort")) for pid in chosen)
     return 1 if failed else 0
 
 

@@ -248,6 +248,9 @@ peerhub diag quota --json
 
 # Lease-active asks (a lease is not proof a process is alive)
 peerhub diag running
+
+# Per-pool spend/hold/rest/blocked with target %/h until reset (stored observations only)
+peerhub diag --plan
 ```
 
 ### Upgrade

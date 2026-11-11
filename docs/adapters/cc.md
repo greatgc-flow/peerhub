@@ -50,3 +50,58 @@ peerhub monitor
 The vendor CLI owns authentication, account quotas, network access, and model
 availability. A live facts failure must be reviewed before changing packaged
 defaults or adapter behavior.
+
+## Headless cc peers: read/test allow rules
+
+Headless cc cannot answer approval prompts, so a read or test command without an
+allow rule is denied and the review reports NOT RUN. For a project, add
+`.claude/settings.local.json` with prefix rules for read/test commands only:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(python -m pyright:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh run view:*)",
+      "PowerShell(python -m pytest:*)",
+      "PowerShell(python -m pyright:*)",
+      "PowerShell(git status:*)",
+      "PowerShell(git diff:*)",
+      "PowerShell(git log:*)",
+      "PowerShell(git show:*)",
+      "PowerShell(gh issue view:*)",
+      "PowerShell(gh pr view:*)",
+      "PowerShell(gh run view:*)"
+    ]
+  }
+}
+```
+
+Prefix rules do not match a command that starts with an environment assignment
+(`PYTHONPATH=src python -m pytest ...`), and a PowerShell `$env:` edit is refused.
+Use a tiny repo-local launcher instead, for example `pt.py`, which sets the
+environment itself and forwards its arguments to pytest
+(`python pt.py --src DIR -- <pytest args>`), and add one allow rule for it:
+`"Bash(python pt.py:*)"`. Keep the list to read/test commands; never allow writes
+or network-changing commands for headless peers.
+
+## Upgrading peerhub on Windows
+
+`pip install -U peerhub` fails with WinError 32 while a running `peerhub.exe` locks
+the target venv. Upgrade only when:
+
+1. `peerhub diag running` lists no lease-active asks.
+2. No `peerhub.exe` from the SAME venv is running. Filter by executable path, not by
+   name; a long `monitor` from another venv does not lock this venv's exe. In
+   PowerShell, for example:
+   `Get-CimInstance Win32_Process -Filter "Name='peerhub.exe'" | Where-Object { $_.ExecutablePath -like '<venv>\Scripts\*' }`
+
+Never rename, delete or replace a running exe; wait for it to exit, then upgrade
+(`--no-cache-dir` avoids a stale wheel cache).

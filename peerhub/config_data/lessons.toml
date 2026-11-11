@@ -188,7 +188,7 @@ id = "cc-allow-rules"
 title = "cc allow rules are exact-match and model-dependent"
 keywords = ["cc", "claude", "allow", "rules", "rule", "allowlist", "bash", "permission", "permissions", "denied", "denied_actions", "model", "fable", "haiku", "headless", "prefix", "exact", "settings"]
 symptom = "A headless cc ask with one model denies a Bash command that .claude/settings.local.json allows and another model runs (observed on #303: fable denied, haiku ran; not reproduced), or cc returns no usable answer with denied_actions set."
-fix = "Bash allow rules such as Bash(peerhub --version) match the exact command string, so a model that adds cd, 2>&1, a pipe or a different invocation is denied: headless cc cannot prompt. Read denied_actions (Tool: command, redacted to 120 chars) to see the rejected string, then prefer prefix rules such as Bash(peerhub:*) and add matching PowerShell(...) rules on Windows. Unverified hypothesis: command shape, not a model-specific permission mode. Never resume after denied_empty; start a new stream."
+fix = "Bash allow rules such as Bash(peerhub --version) match the exact command string, so a model that adds cd, 2>&1, a pipe or a different invocation is denied: headless cc cannot prompt. Read denied_actions (Tool: command, redacted to 120 chars) to see the rejected string, then prefer prefix rules such as Bash(peerhub:*) and add matching PowerShell(...) rules on Windows. Unverified hypothesis: command shape, not a model-specific permission mode. Never resume after denied_empty; start a new stream. Recommended read/test list: docs/adapters/cc.md."
 issue = "#303"
 
 [[lessons]]
@@ -198,3 +198,19 @@ keywords = ["claim", "claim_held", "ask_claim_held", "preamble", "cut off", "par
 symptom = "An ask shows only a preamble (\"I'll audit ...\"), then the next ask on the same stream fails with ask_claim_held."
 fix = "Confirmed in #312 from the store: the ask finished with a full reply and released its claim when the turn ended; only the caller had stopped waiting. If this happens, do not open a new stream or retry with a new request-id. Wait for the claim to end, then rerun the identical command with the same --request-id: a completed turn replays the stored reply without a new provider call; otherwise follow the returned uncertainty guidance (ask_uncertain or ask_blocked_uncertain). Run long asks in the background and wait for completion."
 issue = "#312"
+
+[[lessons]]
+id = "review-loop"
+title = "Review loops: materiality, contract narrowing and checks"
+keywords = ["review", "loop", "materiality", "contract", "narrow", "defects", "suite", "targeted", "ports", "WinError", "worktree", "cross-family", "final", "gitlink"]
+symptom = "Score-to-100 review rounds oscillate (99.86, 99.79, 99.67), keep finding edge cases in the same new component, or parallel full suites exhaust Windows ports (WinError 10048)."
+fix = "Put a materiality rule in every reviewer brief: deduct only for a defect that violates a documented contract or is reachable from supported inputs; label anything else a recommendation. After two rounds that find new defects in the same new component, narrow its contract (fail closed) instead of patching it again. The coordinator runs the full suite once and passes the result on; reviewers run only targeted tests. Confirm the final candidate with a reviewer from another model family. Never `git add -A` in a checkout that contains agent worktrees: they are committed as gitlinks."
+issue = "#345"
+
+[[lessons]]
+id = "instruction-diet"
+title = "Keep peer instructions, memory and quota spend small"
+keywords = ["instruction", "diet", "memory", "quota", "observation", "refresh", "snapshot", "profile", "ladder", "pytest", "launcher", "allow", "headless", "cc", "tokens", "global", "workspace", "votes", "deepthink"]
+symptom = "Every peer ask re-reads a large memory index or instruction file, a per-turn observation refresh burns quota, headless cc cannot run pytest, or 60-word votes run on the heaviest profile."
+fix = "Headless cc: run pytest through one repo-local launcher (for example pt.py, which sets the environment and forwards its arguments to pytest) and allow that single command, because prefix rules miss env-prefixed commands. Refresh observation every 30-60 minutes and use peerhub monitor --snapshot each turn. Keep peer-loaded memory and instructions tiny and workspace-scoped; global files hold only generic rules. Profile ladder: bulk/votes -> standard, code -> effort, review/design -> deepthink."
+issue = "#337"

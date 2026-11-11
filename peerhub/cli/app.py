@@ -278,6 +278,8 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     diag_parser.add_argument("--interval-seconds", type=float, default=2, help="Live snapshot interval (positive seconds)")
     diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain", help="Dashboard style: plain (ASCII), rich (bars, pace and alerts). With --live, snapshots every N s: TTY with VT overwrites in place; non-TTY or no VT appends without escapes. Monitor countdown redraw is at most 1 Hz")
     diag_parser.add_argument("--cycles", dest="count", type=int, default=0, help="Live snapshot count; 0 watches until interrupted")
+    diag_parser.add_argument("--plan", action="store_true",
+                             help="Per-pool spend/hold/rest/blocked with target %%/h until reset, from stored observations only (no refresh)")
     diag_parser.epilog = "examples: peerhub diag | peerhub diag --json | peerhub diag --live | peerhub observation refresh | peerhub monitor (collects quota evidence every cycle and draws the dashboard)"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
     
@@ -515,7 +517,9 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         parser.error("--live/--cycles/--interval-seconds apply to the dashboard, not diag subcommands")
     if not args.live and (args.count or args.interval_seconds != 2):
         parser.error("--cycles/--interval-seconds require --live")
-    from peerhub.cli.store_select import report_missing_store
+    if args.plan and (args.live or args.action is not None):
+        parser.error("--plan is a one-shot snapshot; it cannot be combined with --live or diag subcommands")
+    from peerhub.cli.store_select import env_override_note, report_missing_store
     db_source = getattr(args, "db_source", None)
     is_explicit = db_source in ("explicit", "env")
     if args.action is None and report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
@@ -526,6 +530,15 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     except ImportError as e:
         _error_line("diag_unavailable", f"The diagnostics extension is unavailable ({e})", "peerhub guide")
         return 5
+    store = {"path": str(Path(args.db).resolve()), "source": getattr(args, "db_source", "unknown")}  # #338: resolved
+    store_note = env_override_note(store["path"], store["source"])
+    if args.plan:  # #339: read-only, stored observations only (no refresh, no provider call)
+        from peerhub.cli.view import FrameOutput, plan_data, render_plan
+        rep = ReadonlyDiag(args.db).render(["resource_pools", "observations"])
+        print(json.dumps(plan_data(rep, store), indent=2, ensure_ascii=True) if args.json else
+              render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
+                          store_note=store_note), flush=True)
+        return 6 if rep.error and rep.error.startswith("SchemaVersionError") else 0 if rep.status == "OK" else 4
     if args.action is None:
         from peerhub.extensions.diag_watch import dashboard_snapshots
         from peerhub.cli.view import FrameOutput, dashboard_data, format_frame, use_color
@@ -535,11 +548,13 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
             for rep in dashboard_snapshots(args.db, interval_s=args.interval_seconds,
                                             count=args.count if args.live else 1):
                 if args.json:
-                    print(json.dumps(dashboard_data(rep), indent=None if args.live else 2, ensure_ascii=True), flush=True)
+                    data = dashboard_data(rep)
+                    data["store_selection"] = store  # #338, additive
+                    print(json.dumps(data, indent=None if args.live else 2, ensure_ascii=True), flush=True)
                 else:
                     output.write(format_frame(rep, args.view, color=use_color(output.vt, os.environ),
-                                              width=output.width(), store_path=str(args.db),
-                                              store_source=getattr(args, "db_source", "unknown")))
+                                              width=output.width(), store_path=store["path"],
+                                              store_source=store["source"], store_note=store_note))
                 code = (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
                         else 0 if rep.status == "OK" else 4)
                 if code:

@@ -132,8 +132,9 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
     from peerhub.cli.monitor_view import render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
-    from peerhub.cli.store_select import DEFAULT_DB_PATH, select_store
-    store_path = Path(str(payload.get("store_selection", {}).get("path") or ".peerhub/core.db")).resolve()
+    from peerhub.cli.store_select import DEFAULT_DB_PATH, env_override_note, select_store
+    selection = payload.get("store_selection", {})
+    store_path = Path(str(selection.get("path") or ".peerhub/core.db")).resolve()
     workspace = store_path.parent.parent if store_path.parent.name == ".peerhub" else store_path.parent
     try:
         profiles = _cached_profiles(str(workspace), _profile_fingerprints(workspace))
@@ -141,7 +142,8 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
         profiles = []
     nearest = select_store(DEFAULT_DB_PATH, use_env=False)
     payload = {**payload, "configured_profiles": profiles,
-               "_nearest_store_path": nearest.path if nearest.source == "discovered" else None}
+               "_nearest_store_path": nearest.path if nearest.source == "discovered" else None,
+               "_store_note": env_override_note(str(store_path), selection.get("source"))}
     return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
                                 color=color, unicode=unicode_ok, width=width, height=height,
                                 expand=expand)

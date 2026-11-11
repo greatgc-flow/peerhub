@@ -75,7 +75,9 @@ def diff_snapshots(a: dict, b: dict) -> list[str]:
 
 def evidence_path() -> Path:
     d = Path(os.environ.get("PEERHUB_LIVE_EVIDENCE_DIR", EVIDENCE_DIR))
-    return d / f"{datetime.now(timezone.utc).date().isoformat()}.json"
+    from peerhub import __version__  # versioned name: a second run or the next release never collides with this file
+
+    return d / f"{datetime.now(timezone.utc).date().isoformat()}-v{__version__}.json"
 
 
 def load_evidence(path: Path | None = None) -> dict:

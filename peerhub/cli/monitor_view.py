@@ -847,6 +847,11 @@ def _pool_family(pool: str) -> str:
     return family if family in FAMILIES and re.fullmatch(r"[0-9]+[HD]", window) else "?"
 
 
+def not_applicable(state: object, reason: object, *, aged: bool) -> bool:
+    """Fresh ABSENT evidence for a window the plan omits or the provider disabled: n/a, never 0% or unknown."""
+    return state == "ABSENT" and not aged and _clean(reason or "").startswith(_NA_REASONS)
+
+
 def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
                   consumers: dict[str, list[str]]) -> dict[str, Any]:
     peer = _clean(item.get("peer_id") or "?")
@@ -868,8 +873,7 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
     elif reset_in is not None:
         reset_in -= elapsed
     reason = _clean(item.get("reason") or "")
-    not_reported = (item.get("state") == "ABSENT" and not aged
-                    and reason.startswith(_NA_REASONS))
+    not_reported = not_applicable(item.get("state"), reason, aged=aged)
     projection = _obj(item.get("projection"))
     samples = _number(item.get("projection_samples")) or 0
     if not_reported:
@@ -1103,6 +1107,8 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
     if not same_store or payload.get("status") in {"FAILED", "ERROR"} or read_errors:
         if store.get("path"):
             lines.extend(_compact_wrap(f"DB: {_clean(store['path'])}", width))
+    if payload.get("_store_note"):  # #338: --db overrides a PEERHUB_DB that points elsewhere
+        lines.extend(_compact_wrap(str(payload["_store_note"]), width))
     if "STOPPED" in str(payload.get("refresh_state") or ""):
         lines.extend(_compact_wrap("STOPPED: AGY TOKEN USE; next: --allow-agy-token-use to continue", width))
     for warning in _safe_refresh_warning_labels(payload.get("refresh_warnings")):
@@ -1265,7 +1271,10 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     if height is not None and height <= 3:
         text = "+" + str(len(selected)) + " groups; --expand"
         return (_fit(text, max(0, width - 1), unicode) + "\n") if height > 1 else ""
-    overhead = 1 + bool(db_line)
+    # #338: the store path and the --db/PEERHUB_DB note wrap; a truncated path cannot name the store.
+    store_lines = [*(_compact_wrap(db_line, max(1, width - 1)) if db_line else []),
+                   *(_compact_wrap(str(payload["_store_note"]), max(1, width - 1)) if payload.get("_store_note") else [])]
+    overhead = 1 + len(store_lines)
     rendered = _render_grouped_frame(display, view=view, color=color, unicode=unicode,
                                      width=width, height=max(1, height - overhead) if height else None, expand=expand)
     lines = rendered.splitlines()
@@ -1301,8 +1310,7 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     drift_peers = sorted({str(reason).split(":")[0] for reason in cast(list[object], report.get("reasons") or [])})
     if drift_peers:
         footer += "; DRIFT:" + ",".join(drift_peers)
-    if db_line:
-        lines.insert(1 if lines else 0, _fit(db_line, max(0, width - 1), unicode))
+    lines[1 if lines else 0:1 if lines else 0] = store_lines
     lines.append(_fit(footer, max(0, width - 1), unicode))
     if height is not None:
         lines = lines[:max(0, height - 1)]

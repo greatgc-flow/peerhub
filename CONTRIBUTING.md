@@ -199,7 +199,7 @@ gh auth refresh -h github.com -s workflow
 - Release only after the completeness audit scores 100 on every axis; re-run G3 on the final target.
 - `tests/communication/package/test_release_notes.py` pins the version and must change in the bump PR. A CHANGELOG heading for a never-published version needs `(superseded ...)`.
 - Python 3.15 has no pyyaml wheel: run the full suite in CI, not locally.
-- Commit the generated `docs/implementation/live_evidence/<date>.json` through a docs PR, renamed `<date>-v<version>[-attemptN].json` (dates UTC).
+- The live gate writes `docs/implementation/live_evidence/<date>-v<version>.json` (dates UTC). The gate ignores that directory; commit the file in the post-release docs PR. Before a repeated run for the same date and version, rename the earlier file to `-attemptN`.
 - Never type a SHA by hand; derive it from Git.
 - Delete a blocked or aborted release and its tag before retrying.
 - The `publish.yml` Windows release-matrix `rel_005` sandbox has no Git or provider CLIs, and its oracle forbids skips. Mark tests that need a real Git binary as E2E (the v0.24.1 first attempt failed on this; PR #306 moved real-Git discovery tests to E2E).
