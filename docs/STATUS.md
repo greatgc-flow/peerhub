@@ -4,9 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.7 (release candidate)
+## Current source: v0.24.7 (published)
 
 v0.24.7 adds the read-only `peerhub diag --plan [--json]` (per-pool spend/hold/rest/blocked from stored observations; #339), full store path and source in `diag`/`monitor` headers (#338), `tools.model_ping --model` (#341), a Python 3.11 f-string quote guard test (#342), versioned live-gate evidence names (#343) and lessons `review-loop`, `instruction-diet` plus cc allow-rule and Windows upgrade docs (#337, #344, #345). Backlog triage 2026-11-11 (unanimous: cc lead, cx, ag): #328/#329 closed as shipped in 0.24.6; #324 step 2 is next (0.24.8); #330, #323, #313, #335 stay deferred.
+
+Published 2026-11-11 (UTC; PR #347, tag `v0.24.7`, target `b1f34968`, publish run 42935285963); G3 passed bound to `b1f34968857f` (live gate 2026-11-11, three stages; evidence `docs/implementation/live_evidence/2026-11-11-v0.24.7.json`). PyPI 0.24.7 verified 2026-11-11 in a clean virtualenv (`--version`, `diag --plan` table and JSON `store_selection`, `explain review-loop`). Reviews: cc.fable 100 (2 rounds), ag.effort 100 (3 rounds).
 
 ### v0.24.6 (published)
 
