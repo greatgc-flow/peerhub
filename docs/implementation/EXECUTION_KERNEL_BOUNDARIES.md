@@ -1,15 +1,14 @@
-# Execution Kernel boundary — architecture decision for #335
+# Execution Kernel boundaries
 
-**Status:** Implemented incrementally on `refactor/core-kernel-boundaries-20261111`; release/merge pending validation.  
-**Date:** 2026-11-11. **Parent:** [#335](https://github.com/greatgc-flow/peerhub/issues/335).  
-**Baseline:** earlier v0.24.4 code review 83.6/100 (rounded 84). This is **not** a validated score for this branch.
+Architecture decision for [#335](https://github.com/greatgc-flow/peerhub/issues/335).
+Open follow-ups live in issues (e.g. [#323](https://github.com/greatgc-flow/peerhub/issues/323) AGY isolation).
 
 ## Decision
 
 Keep the public **communication Core** narrow and durable: Peer, Stream, Record, Offset.
-Define the existing Bridge/Claims/Registry as a **logical Execution Kernel**, not a new
-package, OS-level scheduler or service. Its ports may be made independent of the
-concrete implementation when this removes real import coupling.
+Treat the existing Bridge/Claims/Registry as a **logical Execution Kernel**, not a new
+package, OS-level scheduler or service. Its ports are independent of concrete
+implementations where that removes real import coupling.
 
 ```text
 CLI (input, errors, presentation)              Other Extensions (memory/diag/search)
@@ -24,106 +23,90 @@ ask facade ---> Bridge + ClaimStore + SessionRegistry ---> CoreStore (facts, CAS
       Provider adapters (cc / cx / ag; launch, parse, resume)
 ```
 
-The arrow from adapters points to the **neutral runtime port**, not the Bridge.
-Kernel owns durable execution truth; adapters report events but do not rewrite
-certainty, delivery state or session registry. Other extensions read authoritative
-Core records through public Core operations instead of depending on private SQLite
-row mappers.
+Adapters depend on the **neutral runtime port**, not the Bridge. The Kernel owns durable
+execution truth; adapters report events but never rewrite certainty, delivery state or
+the session registry. Other extensions read Core records through public Core operations,
+not private SQLite row mappers.
 
-### Ownership / explicit non-ownership
+## Ownership
 
 | Responsibility | Single owner | Must not own |
 |---|---|---|
 | Peer/Stream/Record/Offset, canonical serialization, CAS, snapshot reads, schema guard | `peerhub/core/` | provider subprocesses, profile/permission selection |
-| Claim lease, fenced completion, invocation marker, delivery certainty, replay/reconcile | `bridge_claims.py` + `bridge.py` | CLI presentation or vendor-specific stdout grammar |
+| Claim lease, fenced completion, invocation marker, delivery certainty, replay/reconcile | `bridge_claims.py` + `bridge.py` | CLI presentation, vendor stdout grammar |
 | Retained session identity/generation, eligibility, tombstones | `bridge_registry.py` | per-vendor credential discovery |
-| Runtime protocol, runtime event and error types | `runtime_contract.py` | stored state, network I/O or provider launch |
+| Runtime protocol, runtime event and error types | `runtime_contract.py` | stored state, network I/O, provider launch |
 | Provider launch, output parsing, account-specific OS behavior | `extensions/adapters/` | authoritative delivery/session truth |
-| Immutable history-driven memory/search and read-only diagnostics | capability extensions | implicit model invocation from snapshot reads |
-| User-facing commands, `--json` and hints | `cli/` | persistence contract/uncertain execution decision |
+| History-driven memory/search, read-only diagnostics | capability extensions | implicit model invocation from snapshot reads |
+| Commands, `--json`, hints | `cli/` | persistence contract, uncertain-execution decisions |
 
-Do not move SQL tables across owners or rename their durable identifiers. No new
-`kernel/` tree until a demonstrable duplicated responsibility or dependency cycle
-requires one.
+Do not move SQL tables across owners or rename durable identifiers. No `kernel/` tree
+until a demonstrated duplicated responsibility or dependency cycle requires one. File
+length of `bridge.py` is not a refactoring goal; do not split the certainty state
+machine without an independent interface and a failure-proofing test.
 
-## Concrete code changes in this branch
+## Concrete boundaries in code
 
-1. **Provider-neutral port:** Move `RuntimeTargetError`, `PrespawnError`,
-   `ContextLostError`, `RuntimeEvent`, `RuntimeTarget` and `SteerableTarget`
-   into `extensions/runtime_contract.py`. The existing `extensions.bridge`
-   import paths **re-export the identical objects** for existing consumers.
-   Adapters import the port directly, removing their concrete-Bridge import
-   dependency (no vendor behavior or stream state machine changes).
-2. **Core-owned consistent history scan:** Add
-   `CoreStore.iter_records_snapshot(page_size=500)`, an ordered (stream ID,
-   position) generator backed by a **single pinned read transaction**. Delegate
-   `extensions.source_records.source_records()` to that API. This removes
-   extension-private mapping (`CoreStore._row_to_record`) and duplicates of
-   SQL paging without altering the extension entry point.
-3. **Regression gates:** Add offline tests for historical type identity,
-   adapter cold import, forbidden Core→Extension/CLI imports, immutable snapshot
-   under a concurrent WAL writer, paging/order parity and invalid page sizes.
+- **Runtime port:** `RuntimeTargetError`, `PrespawnError`, `ContextLostError`,
+  `RuntimeEvent`, `RuntimeTarget`, `SteerableTarget` live in
+  `extensions/runtime_contract.py`; `extensions.bridge` re-exports the identical objects.
+- **Pinned history scan:** `CoreStore.iter_records_snapshot(page_size=500)` yields
+  (stream ID, position)-ordered records from a single pinned read transaction;
+  `extensions.source_records.source_records()` delegates to it.
+- **Gates:** offline tests cover type identity, adapter cold import, forbidden
+  Core→Extension/CLI imports, snapshot immutability under a concurrent WAL writer.
 
-The current `bridge.py` is large but **file length is not a refactoring goal**.
-Avoid moving certainty transitions or splitting the state machine until an
-independent interface and a failure-proofing test require it.
+## Behavior guardrails
 
-## Behavior / certainty guardrails
-
-- **Exact replay:** same scoped immutable request identity returns original
+- **Exact replay:** the same scoped immutable request identity returns the original
   durable result; a changed prompt/binding/session selector conflicts.
-- **No unsafe retry:** `MAY_HAVE_STARTED` and unresolved invocation evidence
-  are not permission to execute again. Reconciliation must be explicit.
-- **Session semantics:** default latest-compatible retained session; `fresh`
-  generates a new session (with bounded Stream catch-up); exact selection
-  rejects mismatch instead of silently substituting another session.
-- **Fenced writes:** claims and workspace restore lineage gate delivery effects,
-  response append, offset acknowledgement, and terminal finalization.
-- **Read-only:** diagnostic snapshots cannot probe providers or mutate data;
-  unmeasured quotas/context remain UNKNOWN or STALE.
-- **Batch:** writable overlap safety continues to prevail over convenience.
-  AGY parallel restriction is tracked separately by
-  [#323](https://github.com/greatgc-flow/peerhub/issues/323).
+- **No unsafe retry:** `MAY_HAVE_STARTED` and unresolved invocation evidence never
+  permit re-execution; reconciliation is explicit.
+- **Sessions:** default is latest-compatible retained session; `fresh` creates a new one
+  (bounded Stream catch-up); exact selection rejects mismatch instead of substituting.
+- **Fenced writes:** claims and workspace-restore lineage gate delivery effects,
+  response append, offset acknowledgement and terminal finalization.
+- **Read-only diagnostics:** snapshots never probe providers or mutate data; unmeasured
+  quotas/context stay UNKNOWN or STALE.
+- **Batch:** writable-overlap safety wins; scoped claims are not workspace isolation (#323).
 
-## Verification and objective scoring
+## Bridge trigger reconciliation
 
-Offline tests:
-```sh
-python -m pytest -q tests/communication/bridge/test_runtime_contract_boundary.py tests/communication/bridge/test_source_records_boundary.py
-python -m pytest -q tests/continuity/test_m2_m3_exit_gates.py
-python -m pytest -q
-pyright
-python tools/command_inventory.py --check
-python tools/traceability.py --upto 9
-```
+Core, ClaimStore and Bridge install protection triggers that keep history immutable
+(UPDATE/DELETE/REPLACE rejected even with `recursive_triggers` OFF). Reinstalling them on
+every open churned the schema (72 SQLite schema-cookie increments per warm open), so
+initialization now reconciles instead:
 
-Run full candidate-matched CI and provider live gate only under established
-repository policy; canaries cost provider quota. Evidence must identify commit
-SHA, OS, Python and exact passed/failed/skipped counts. This document records
-requirements, **not a claim that any listed command has passed**.
+1. **Exact comparison.** Inside the existing serialized write transaction, compare trigger
+   **names and complete stored SQL** from `sqlite_master` against the expected set. Only the
+   `IF NOT EXISTS` after `CREATE TRIGGER` is stripped to match SQLite's stored form; never
+   normalize body whitespace or quoted literals.
+2. **Match means no DDL.** An unchanged reopen issues no DROP/CREATE (schema churn 72 → 0).
+3. **Full rebuild on any mismatch.** A missing, modified, extra or legacy definition
+   replaces the complete owned set; no per-trigger patching.
+4. **Atomic.** Repair runs inside the init transaction, so a failed install or registry
+   step rolls back with no half-installed protection.
+5. **Quoted identifiers.** Embedded quotes in legacy trigger names are escaped when
+   dropping (a legacy name with `"` previously broke reopen).
+6. **Legacy registry** (single-slot layouts) keeps the original drop/reinstall migration.
+7. **No cached shortcut.** Registry init, projection repair and migration hooks still run
+   on every open. Unrelated tables' triggers are untouched.
 
-For a 90/100 grade, independently re-score ten unchanged criteria (equal weight):
-Core purity, execution ownership, transactional safety, session reuse,
-adapter independence, concurrency policy, observability, failure recovery,
-VerySimple maintainability and test/release evidence. Changes to this branch
-directly target execution ownership (78), adapter independence (84), Core
-encapsulation (95) and maintainability (62). More improvement may be required:
-a score target is **not proof** of reaching it. Rescore only after CI gates and
-non-regression evidence, recording at least one concrete reference per increase.
+Coverage: `tests/communication/bridge/test_bridge_init_reconciliation.py` (every trigger
+missing/changed, quoted legacy names, rollback, parallel opens, future-schema refusal).
 
-## Non-goals, rollback and follow-ups
+## Measurement
 
-- No DB schema change or migration; no CLI surface or JSON changes.
-- No change to certainty, claims, vendor invocation, quotas or native session handling.
-- No speculative removal of historical evidence and no automatic main merge.
-- If a regression appears, revert the three production-file changes
-  (`runtime_contract.py`, `bridge.py`, `adapters/base.py`) as a group;
-  separately revert Core snapshot delegation (`core/store.py`,
-  `extensions/source_records.py`) as a group. Each is designed to be
-  independently reviewable and uses existing compatibility entry points.
-- Investigate Bridge DDL initialization/lock cost as a **measurement** under
-  [#335](https://github.com/greatgc-flow/peerhub/issues/335) and existing
-  [#282](https://github.com/greatgc-flow/peerhub/issues/282);
-  no claim of an established bottleneck.
-- Consult [#327](https://github.com/greatgc-flow/peerhub/issues/327)
-  for historical docs, SSOT and separate VerySimple cleanup decisions.
+Methodology and limits (disposable databases, paired runs, lock-wait included, no SLA)
+are in [claim-init benchmark](../benchmarks/claim-init-2026-11-11.md); reproduce with
+`python -m tools.bridge_init_bench --rounds 10`. The deterministic effect is avoided
+schema churn, not a universal speed claim. The Bridge DDL/lock cost is tracked under
+#335 and [#282](https://github.com/greatgc-flow/peerhub/issues/282).
+
+## Non-goals and rollback
+
+- No DB schema change or migration; no CLI or JSON surface change.
+- No change to certainty, claims, vendor invocation or session handling.
+- Revert groups independently: `runtime_contract.py` + `bridge.py` + `adapters/base.py`;
+  Core snapshot delegation (`core/store.py`, `extensions/source_records.py`); trigger
+  reconciliation (`bridge.py` + its test and inventory entry). Never rewrite user data.

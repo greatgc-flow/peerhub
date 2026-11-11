@@ -30,6 +30,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Use --timeout-seconds 7200 --silence-timeout-seconds 7200 for long asks. Silence timeout means uncertain execution: inspect peerhub diag health and effects, then continue genuinely new work on a new stream with a summary; never blindly retry uncertain work.
 - Issue: #118
 
+## Explicit timeouts for implementer and review asks (`ask-timeouts`)
+
+- Keywords: timeout, timeout-seconds, 60, implementer, review, writer, ask_uncertain, runtime_timeout, cc, cx
+- Symptom: An implementer or review ask ends after about a minute as ask_uncertain (evidence runtime_timeout [60]) with partial edits in the workspace.
+- Fix: --timeout-seconds defaults to 60. Pass it on every implementer or review ask (cc/cx 1800-3600; ag 7200 with --silence-timeout-seconds). After a timeout: check the working tree for partial edits, revert or keep them deliberately, and start a new stream with the explicit timeout; never retry on the same stream.
+- Issue: #350
+
 ## Batch review findings and verify drafts (`batch-review-and-verify`)
 
 - Keywords: review, findings, batch, mechanical, sweep, draft, verify, script

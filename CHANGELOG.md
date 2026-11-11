@@ -8,6 +8,16 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.8] - 2026-11-11
+
+### Changed
+
+- Bridge and claim-store initialization no longer drop and recreate their protection triggers on every open: the installed `sqlite_master` SQL is compared exactly with the expected definitions inside the init transaction, and any mismatch, missing or extra trigger, or a legacy session registry still triggers the full rebuild as before. Measured on disposable databases: schema changes per warm open 72 -> 0, init p50 8.7 -> 4.8 ms with one worker and 54.6 -> 36.5 ms with eight (`python -m tools.bridge_init_bench`; local sample, not a guarantee). Fewer schema rewrites mean shorter write locks and fewer statement re-preparations when several sessions use one store (#335, PR #349).
+- The runtime port (`RuntimeTarget`, `RuntimeEvent`, `RuntimeTargetError`, `PrespawnError`, `ContextLostError`, `SteerableTarget`) moved to `peerhub/extensions/runtime_contract.py`; adapters no longer import the Bridge, and `peerhub.extensions.bridge` re-exports the same objects for compatibility (#335).
+- `CoreStore.iter_records_snapshot(page_size)` yields every record from one read snapshot; `source_records` delegates to it instead of using Core's private row mapping (#335).
+- `docs/implementation/EXECUTION_KERNEL_BOUNDARIES.md` is the single boundary document (ownership, trigger-reconciliation safety rules, benchmark pointer); the applied candidate patch and the interim gate/integration records were removed (git keeps them).
+- `peerhub ask --timeout-seconds` help states the default (60 s) and the values for implementer and review asks; new lesson `ask-timeouts` (#350).
+
 ## [0.24.7] - 2026-11-11
 
 ### Added

@@ -20,8 +20,9 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.24.7"
-    assert "diag --plan" in body and "(#339)" in body and "(#338)" in body
+    assert __version__ == "0.24.8"
+    assert "iter_records_snapshot" in body and "(#350)" in body and "runtime_contract.py" in body
+    assert "(#339)" not in body  # no adjacent history (0.24.7)
     assert "(#329)" not in body  # no adjacent history (0.24.6)
     assert "Profile cards: every packaged profile" not in body  # no adjacent history (0.24.5)
     assert "`PACE` column" not in body  # no adjacent history (0.24.4)
