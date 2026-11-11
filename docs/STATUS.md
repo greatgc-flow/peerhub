@@ -4,9 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.8 (release candidate)
+## Current source: v0.24.8 (published)
 
 v0.24.8 merges PR #349 (#335): Bridge/claim-store init skips trigger rewrites when the installed SQL matches exactly (full rebuild on any mismatch), a provider-neutral runtime port module, and a Core snapshot iterator for `source_records`; plus the `ask-timeouts` lesson and `--timeout-seconds` help (#350); `monitor --expand` shows `uses N` per session; monitor tables share one column and pool order with a remaining-quota bar, PACE direction glyphs and STATE colours, and narrow consoles drop whole columns from the right. Scope voted unanimously (cc lead, cx, ag). #335 closes with this release; #323, #324 step 2, #330, #313 stay open with reasons on the issues.
+
+Published 2026-11-11 (UTC; PR #349, tag `v0.24.8`, target `d4a65060`, publish run 43003271250); G3 passed bound to `d4a65060c752` (live gate 2026-11-11, three stages; evidence `docs/implementation/live_evidence/2026-11-11-v0.24.8.json`). Full OS x Python matrix run 42997202639 success. PyPI 0.24.8 verified 2026-11-11 in a clean virtualenv (`--version`, `explain ask-timeouts`, narrow compact monitor drops whole columns with bar/PACE glyphs, `--expand` shows `uses N`). Reviews: cc.fable 100 (4 rounds), ag.effort 100 (2 rounds).
 
 ### v0.24.7 (published)
 
