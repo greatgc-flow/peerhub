@@ -1,29 +1,30 @@
-# Architecture: 91 now, evidence required for 100
+# Architecture: evidence required for 100
 
 Date: 2026-11-11. Tracking: #335, #323; Draft PR #349.
 
 ## Accepted versus candidate evidence
 
-The last recorded qualitative assessment remains **90.7/100 (rounded 91)**,
+The last recorded qualitative assessment is **90.7/100 (rounded 91)**,
 using the existing ten equally weighted dimensions. It is a judgment-based
 architecture assessment, not a defect-free guarantee or certification.
 Source: issue #335 comment 6785372343, assessed at `05c343624914`.
-The subsequent `df2e52f26dfa30eba3c8bf108278537cf0e5041e` ClaimStore change has
-CI evidence but was explicitly not assigned a higher architecture score.
+Subsequent scores require an explicit evidence-backed re-evaluation in #335;
+adding tests or documents does not automatically increase the score.
 
-This commit adds review material, not a production-code optimization. The
-[Bridge initialization candidate](candidates/bridge-init-20261111/README.md)
-was implemented and tested in a local reconstructed runtime. Its patch has
-**NOT been applied to the repository runtime**, and its full CI, Windows,
-Pyright and real-provider validation are **NOT_RUN**. Do not attribute the
-previous green CI run to that candidate. A green documentation-only commit
-would not certify the unapplied patch either.
+The [Bridge initialization proposal](candidates/bridge-init-20261111/README.md)
+is now applied to runtime code on this review branch, with the 91-case
+regression module and Windows inventory entry. See the
+[integration record](BRIDGE_INIT_INTEGRATION_20261111.md) for exact source hashes
+and verification scope. The original candidate folder is historical evidence;
+its prior NOT_APPLIED/NOT_RUN statements describe that earlier proposal.
+Current hosted CI outcomes belong to the integration commit in PR #349/#335.
+No previous-head PASS is relabeled as new-candidate evidence.
 
 ## Same scoring dimensions; explicit completion evidence
 
 Each dimension contributes one tenth of its /100 score. Gap contributions
-below sum to **9.3 overall points**. These are the existing score deficits,
-not a promise that one extra test earns a preset number of points.
+below sum to **9.3 overall points** at the last assessment. These are the
+existing deficits, not a promise that one extra test earns preset points.
 
 | Dimension | Last score /100 | Overall gap | Evidence still required before considering 100 |
 |---|---:|---:|---|
@@ -41,28 +42,25 @@ not a promise that one extra test earns a preset number of points.
 
 ## Prioritized closure work
 
-1. **Bridge initialization candidate:** apply in a complete checkout, verify
-   the recorded before/after hashes, run its 91 regression cases and existing
-   migration/fault/registry suites, Pyright, command inventory and hosted CI.
-   The patch already includes the new test module and Windows marker entry.
-   Inspect raw SQL and statement boundaries rather than accepting a timing-only
-   result. Rollback is a source revert, not a user-data rewrite.
+1. **Bridge initialization integration:** the recorded patch is now applied.
+   Check the integration commit's hosted CI, including the 91 new regression
+   cases, existing migration/fault/registry suites, Pyright and Windows
+   inventory. Inspect persisted SQL and transaction boundaries, not only
+   timing. Reverting source is sufficient; never rewrite user data.
 2. **#323 isolation:** preserve AGY writable-overlap rejection. Determine the
    supported isolation mechanism and verify it in actual execution. Neither a
-   worktree alone nor an offline runtime proves that an external process is
-   confined. Do not introduce a waiver merely to improve the score; unsupported
-   cases must remain explicitly rejected. A product scope change requires an
-   explicit recorded decision, not relabeling an untested item as N/A.
+   worktree alone nor an offline runtime proves external process confinement.
+   Do not introduce a waiver merely to improve the score. Product scope changes
+   require a recorded decision, not relabeling an untested item as N/A.
 3. **Real-provider and platform evidence:** declare binaries, versions, OS,
    configuration and source revision. Live tests spend provider quota and need
-   explicit opt-in under CONTRIBUTING. None was invoked in this session; the
-   local PATH had no claude/codex/agy. Formal release G3 follows the repository's
-   clean merged-main procedure and is separate from pre-merge candidate checks.
-   No main merge or release is authorized by this plan.
+   explicit opt-in under CONTRIBUTING. No live calls were made in this task;
+   the local PATH has no claude/codex/agy. Formal release G3 follows the clean
+   merged-main procedure, separately from pre-merge checks. No main merge or
+   release is authorized by this plan.
 4. **Independent final review:** re-evaluate all ten dimensions with reproducible
-   evidence, record reviewer/provenance, and retain unresolved or contradictory
-   findings. Self-review is not an independent reviewer. Do not increase scores
-   solely because a test count grew, a check was skipped, or a document was added.
+   evidence, record reviewer/provenance and contradictory findings. Self-review
+   is not an independent reviewer. Skips and unrelated revisions are not PASS.
 
 ## 100-point decision rule
 
@@ -70,8 +68,8 @@ Within the declared scope, every completion item must have passing evidence
 bound to the reviewed source revision, with critical findings resolved and
 unsupported capabilities honestly bounded. FAIL, UNKNOWN, NOT_RUN, stale
 results and unrelated revisions do not become PASS. A complete checklist is
-not proof of universal correctness. The qualitative ten-axis assessment is
-revisited explicitly; this plan does not assign the future score in advance.
+not proof of universal correctness. Revisit the qualitative ten-axis score
+explicitly rather than assigning the future score in advance.
 
 No workflow, protection policy, runtime permissions, package version, main
-branch or release is changed by these review artifacts.
+branch or release is changed by this integration.

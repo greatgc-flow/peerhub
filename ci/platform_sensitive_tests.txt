@@ -21,3 +21,4 @@ tests.communication.bridge.test_runtime_contract_boundary
 tests.communication.bridge.test_source_records_boundary
 tests.communication.bridge.test_claim_reopen_atomicity
 tests.communication.bridge.test_init_benchmark
+tests.communication.bridge.test_bridge_init_reconciliation
