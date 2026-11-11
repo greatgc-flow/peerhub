@@ -125,7 +125,7 @@ def _bar_quota(remaining: float | None, cells: int = 8, unicode: bool = True, ev
 def _even_burn(pool: str, reset_in: float | None) -> float | None:
     """Fraction of the pool's window left at reset_in: the remaining quota an even burn would show."""
     window = _parse_window(pool)[0]
-    if reset_in is None or window >= 999999999:
+    if reset_in is None or window <= 0 or window >= 999999999:
         return None
     return min(1.0, max(0.0, reset_in / window))
 

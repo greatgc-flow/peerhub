@@ -1069,3 +1069,9 @@ def test_aged_not_reported_pool_is_question_mark_with_refresh_hint():
     rendered = render_grouped_frame(_cx_plan_frame(absent_state="STALE"), view="plain", unicode=False, width=120)
     assert "cx X-5H ? not reported (plan prolite), aged; next: peerhub observation refresh --peers cx" in rendered
     assert "STALE:window" not in rendered
+
+
+def test_even_burn_ignores_a_zero_length_window():
+    from peerhub.cli.monitor_view import _even_burn
+    assert _even_burn("X-0H", 3600) is None  # no ZeroDivisionError on a malformed window
+    assert _even_burn("X-5H", 9000) == 0.5
