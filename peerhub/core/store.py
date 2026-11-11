@@ -15,7 +15,7 @@ import sqlite3
 import uuid
 from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable, Iterator, cast
 
 from . import connection
 from .migrations import rollback_quietly, run_migrations
@@ -501,6 +501,29 @@ class CoreStore:
                 (stream_id, after_position, limit),
             ).fetchall()
             return [self._row_to_record(r) for r in rows]
+
+    def iter_records_snapshot(self, page_size: int = 500) -> Iterator[Record]:
+        """Yield all committed Records in (stream_id, position) order, from ONE read snapshot.
+
+        Extension projections can rebuild without coupling to SQLite row layouts
+        or private Core mappers. The snapshot stays pinned across page yields.
+        """
+        if not _is_int(page_size) or page_size < 1:
+            raise ValueError("source page size must be a positive integer")
+        with self.read_uow() as conn:
+            streams = conn.execute("SELECT stream_id FROM streams ORDER BY stream_id").fetchall()
+            for stream in streams:
+                position = 0
+                while True:
+                    rows = conn.execute(
+                        "SELECT * FROM records WHERE stream_id=? AND position>? ORDER BY position LIMIT ?",
+                        (stream["stream_id"], position, page_size),
+                    ).fetchall()
+                    if not rows:
+                        break
+                    for row in rows:
+                        yield self._row_to_record(row)
+                    position = rows[-1]["position"]
 
     def stream_head(self, stream_id: str) -> int:
         with self._read() as conn:
