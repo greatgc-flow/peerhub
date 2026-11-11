@@ -64,6 +64,27 @@ def test_reader_holds_one_committed_snapshot_across_pages(tmp_path) -> None:
     ]
 
 
+def test_snapshot_excludes_streams_created_after_iterator_starts(tmp_path) -> None:
+    store = CoreStore(tmp_path / "core.db")
+    _seed(store)
+    _append(store, "a", "a-before")
+    _append(store, "z", "z-before")
+
+    reader = source_records(store, page_size=1)
+    assert next(reader).body == {"key": "a-before"}
+
+    # Both a new Stream and a new Record were committed after the snapshot.
+    store.create_stream(Stream(stream_id="zz", members=["writer"]))
+    _append(store, "zz", "zz-after")
+    _append(store, "z", "z-after")
+
+    remaining = list(reader)
+    assert [(rec.stream_id, rec.body["key"]) for rec in remaining] == [("z", "z-before")]
+    assert [(rec.stream_id, rec.body["key"]) for rec in source_records(store, 1)] == [
+        ("a", "a-before"), ("z", "z-before"), ("z", "z-after"), ("zz", "zz-after")
+    ]
+
+
 @pytest.mark.parametrize("page_size", [0, -1, True, 1.5, "5"])
 def test_invalid_page_size_does_not_start_scan(tmp_path, page_size) -> None:
     store = CoreStore(tmp_path / "core.db")
