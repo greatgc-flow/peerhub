@@ -96,7 +96,8 @@ def test_soonest_exhaustion_ignores_stale_and_counts_down(quota_visual_frame):
     observations[6]["projection"]["exhaustion_at"] = 1100
     quota_visual_frame["display_elapsed_seconds"] = 60
     rendered = render_grouped_frame(quota_visual_frame, width=80, height=12)
-    assert "soonest exhaust: ag P-3H 1% in 29m" in rendered.splitlines()[0]
+    assert rendered.splitlines()[0].startswith("PeerHub Monitor")
+    assert "soonest exhaust: ag P-3H 1% in 29m" in render_grouped_frame(quota_visual_frame, width=120)
     assert "STATE:" not in rendered
     assert "P-1H" in rendered and "P-6H" in rendered
     assert "rows hidden" in rendered or "--expand" in rendered
@@ -297,7 +298,7 @@ def test_height_budget_prioritizes_errors_and_preserves_catalog_order(frame):
     visible = rendered.upper()
 
     assert "STORE [ERROR]" in visible
-    assert "groups omitted" in rendered
+    assert "rows hidden" in rendered and "(1 group)" in rendered
     assert "OVERVIEW [" not in visible and "COVERAGE [" not in visible
 
 
@@ -533,7 +534,7 @@ def test_limited_height_drops_other_groups_before_clipping_quota(frame):
     # Height 14 is too tight to fit all group summaries (9 * 2 = 18 lines) plus 3 detail lines
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=14)
     # Other groups dropped
-    assert "groups omitted" in rendered
+    assert "rows hidden" in rendered and "(5 groups)" in rendered
     # All 4 quota observations are retained unclipped
     for i in range(1, 5):
         assert f"{i}h" in rendered
@@ -624,7 +625,7 @@ def test_capacity_rows_stay_contiguous_under_capacity_heading_and_usage_fallback
     assert "PROFILES (configured)" in rendered
     assert "2h05m" in rendered
     assert "30m" in rendered
-    assert "cx provider-reported tokens: 1,250 | cache 80%" in rendered
+    assert "cx provider-reported tokens: 1,250 | sessions 1 with/0 without usage | cache 80%" in rendered
 
 
 def test_monitor_capacity_renders_argon_a_7d_pool_row_like_other_pools(frame):
@@ -776,8 +777,9 @@ def test_narrow_quota_keeps_leftmost_columns_and_names_the_dropped_ones(frame, w
         omitted += tokens
     assert "~" not in "\n".join(line for line in rendered.splitlines() if "X-7D" in line or "PEER" in line)
     assert omitted[-3:] == ["age", "profiles", "(configured)"]
-    assert "state" not in omitted and "bar" in omitted and "exhaust-in" in omitted
-    assert ("pace" in omitted) == (width == 50)
+    assert "state" not in omitted and "exhaust-in" in omitted
+    assert ("bar" in omitted) == (height is None or width == 50)
+    assert ("pace" in omitted) == (height is None and width == 50)
 
 
 def test_expand_quota_row_shows_bar_tick_pace_glyph_and_colour_on_state_and_bar_only(monkeypatch):
@@ -810,7 +812,7 @@ def test_expand_quota_row_shows_bar_tick_pace_glyph_and_colour_on_state_and_bar_
     assert "\x1b" not in render_grouped_frame(frame, view="rich", color=True, width=140)
 
 
-@pytest.mark.parametrize("expand, height, hidden", [(False, 5, 2), (True, 6, 3)])
+@pytest.mark.parametrize("expand, height, hidden", [(False, 5, 4), (True, 6, 3)])
 def test_bounded_other_details_report_exact_hidden_rows(frame, expand, height, hidden):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
@@ -837,8 +839,8 @@ def test_omitted_groups_disclose_loaded_expanded_rows(frame, width):
         {"peer_id": f"worker{i}"} for i in range(5)
     ]}
     rendered = render_grouped_frame(frame, width=width, height=6, unicode=False, expand=True)
-    assert "1 groups omitted" in rendered
-    assert "rows hidden" in rendered or "r" in rendered.splitlines()[-2]
+    assert "1 group" in rendered
+    assert "rows hidden" in rendered
     assert "--expand" in rendered
 
 

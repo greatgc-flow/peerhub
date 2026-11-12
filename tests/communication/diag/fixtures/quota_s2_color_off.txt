@@ -1,14 +1,14 @@
 PeerHub Monitor | OK | 00:16:40Z
 ── QUOTA [OK] | measured remaining | soonest exhaust: ag P-3H 1% in 30m ───────────────────────────────────────────────
-PEER  POOL      STATE           REM  RESET-IN   PACE       [BAR]       EXHAUST-IN       AGE  PROFILES (configured)
-ag    P-1H      ON_PACE        100%  2h00m      -          [████████]  -                30s  unmapped
-ag    P-2H      WATCH           50%  2h00m      -          [████░░░|]  -                30s  unmapped
-ag    P-3H      THREAT           1%  2h00m      -          [▏░░░░|░░]  30m              30s  unmapped
-ag    P-4H      EXHAUSTED        0%  2h00m      -          [░░░░|░░░]  -                30s  unmapped
-ag    P-5H      ERROR             -  -          -          [--------]  -                30s  unmapped
-ag    P-6H      UNKNOWN           -  -          -          [--------]  -                30s  unmapped
-ag    P-7H      STALE:window      -  -          -          [--------]  -                30s  unmapped
-ag    P-8H      INSUFF          90%  2h00m      -          [██|████░]  -                30s  unmapped
+PEER  POOL  STATE          REM  RESET-IN  PACE  [BAR]       EXHAUST-IN  AGE  PROFILES (configured)
+ag    P-1H  ON_PACE       100%  2h00m     -     [████████]  -           30s  unmapped
+ag    P-2H  WATCH          50%  2h00m     -     [████░░░|]  -           30s  unmapped
+ag    P-3H  THREAT          1%  2h00m     -     [▏░░░░|░░]  30m         30s  unmapped
+ag    P-4H  EXHAUSTED       0%  2h00m     -     [░░░░|░░░]  -           30s  unmapped
+ag    P-5H  ERROR            -  -         -     [--------]  -           30s  unmapped
+ag    P-6H  UNKNOWN          -  -         -     [--------]  -           30s  unmapped
+ag    P-7H  STALE:window     -  -         -     [--------]  -           30s  unmapped
+ag    P-8H  INSUFF         90%  2h00m     -     [██|████░]  -           30s  unmapped
 ag PROBE:34m STALE:window; next: peerhub observation refresh --peers ag
 cc PROBE:2h PROBE:unknown; next: peerhub observation refresh --peers cc
 STATE: INSUFF=insufficient projection data; THREAT=exhausts before reset

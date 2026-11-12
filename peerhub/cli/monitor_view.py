@@ -19,6 +19,11 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
          *[chr(code) for code in range(0x2066, 0x206A)]}
+MONITOR_LEGEND = (
+    "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan omits | ? unknown",
+    "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable",
+    "BAR=remaining, | marks the even-burn level (^ ahead, v behind)",
+)
 
 
 def _obj(value: object) -> dict[str, Any]:
@@ -71,6 +76,23 @@ def _fit(text: str, width: int, unicode: bool, painted: bool = False) -> str:
 def _pool_order(peer: str, pool: str) -> tuple[str, str, int, str]:
     """The one pool ordering every monitor view uses: peer, family, window length, name."""
     return (peer, _pool_family(pool), _parse_window(pool)[0], pool)
+
+
+def _fit_fields(text: str, width: int, unicode: bool, painted: bool = False) -> str:
+    """Drop trailing fields whole; only an overlong first field can be cut."""
+    if _width(text) <= width:
+        return _fit(text, width, unicode, painted=painted)
+    fields = re.split(r" (?:\||·) ", _ANSI.sub("", text))
+    if len(fields) == 1:
+        return _fit(text, width, unicode, painted=painted)
+    sep = " · " if " · " in text else " | "
+    while len(fields) > 1 and _width(sep.join(fields)) > width:
+        fields.pop()
+    fitted = sep.join(fields)
+    if _width(fitted) > width:
+        return _fit(fields[0], width, unicode)
+    note = sep + "fields hidden"
+    return _clean(fitted + note if _width(fitted + note) <= width else fitted)
 
 
 def _visible_fields(rows: Sequence[Sequence[str]], sep: str, width: int, keep: int) -> int:
@@ -209,6 +231,7 @@ def _format_duration(seconds: float) -> str:
 
 
 def _section_rule(label: str, width: int, unicode: bool, color: bool = False) -> str:
+    label = _fit_fields(label, max(0, width - 4), unicode)
     prefix = f"── {label} " if unicode else f"-- {label} "
     fill = max(0, width - _width(prefix))
     rule = prefix + ("─" if unicode else "-") * fill
@@ -266,9 +289,23 @@ def _peer(item: dict[str, Any]) -> str:
     return _fit(_clean(item.get("peer_id") or "?"), 20, False)
 
 
+def _usage_values(telemetry: dict[str, Any]) -> tuple[float | None, float | None, float | None]:
+    normalized, reported = _obj(telemetry.get("normalized")), _obj(telemetry.get("reported"))
+    tokens = _number(normalized.get("provider_total_tokens", reported.get("total_tokens")))
+    inputs = _number(normalized.get("provider_input_tokens", reported.get("input_tokens")))
+    outputs = _number(normalized.get("output_tokens", reported.get("output_tokens")))
+    cached = _number(normalized.get("cached_input_tokens", reported.get("cached_input_tokens")))
+    if tokens is None and inputs is not None and outputs is not None and inputs >= 0 and outputs >= 0:
+        tokens = inputs + outputs
+    if inputs is None or inputs <= 0 or cached is None or not 0 <= cached <= inputs:
+        inputs = cached = None
+    return tokens if tokens is not None and tokens >= 0 else None, inputs, cached
+
+
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
                  elapsed_seconds: float = 0.0, read_at: float | None = None,
-                 expand: bool = False, color: bool = False) -> list[str]:
+                 expand: bool = False, color: bool = False, bounded: bool = False,
+                 table_only: bool = False) -> list[str]:
     data = _obj(group.get("data"))
     if data == {} and group.get("data") is None:
         return ["data unavailable"]
@@ -415,6 +452,9 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 rows.extend(_omitted_rows([name for name, i in (("profile", 1), ("session", 2), ("ctx", 3))
                                            if i >= shown and any(fields[i] for fields in narrow_peers)], width - 2))
 
+        if bounded:
+            rows = [row for row in rows if "-> latest session:" not in row] + [
+                row for row in rows if "-> latest session:" in row]
         defaults_rev: object = data.get("defaults_revision")
         observed_at: object = data.get("observed_at")
 
@@ -502,12 +542,21 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 resume = "resumable" if session.get("resumable") else "not resumable"
                 handle = _clean(session.get("handle") or "") if expand else ""
                 uses = f"uses {_count(session.get('uses'))}" if expand else ""
-                field_rows.append([f"{_peer(session)} {_clean(session.get('state') or 'UNKNOWN')}", handle,
-                                   f"gen {_count(session.get('generation'))}", uses, f"{profile} / {model} ({effort})", resume])
+                fields = [f"{_peer(session)} {_clean(session.get('state') or 'UNKNOWN')}", handle,
+                          f"gen {_count(session.get('generation'))}", uses, f"{profile} / {model} ({effort})", resume]
+                if bounded and expand:
+                    tokens, inputs, cached = _usage_values(_obj(_obj(session.get("telemetry")).get("usage")))
+                    usage_text = f"tok {_count(tokens)}"
+                    if inputs is not None and cached is not None:
+                        usage_text += f"{sep}cache {cached / inputs * 100:.0f}%"
+                    fields.insert(2, usage_text)
+                field_rows.append(fields)
             # One field set for the whole table: drop trailing fields whole (peer+state and handle always stay).
             shown = _visible_fields(field_rows, sep, width - 2, keep=2)
             rows.extend(sep.join(field for field in fields[:shown] if field) for fields in field_rows)
             names = ["peer", "handle", "gen", "uses", "profile", "resumable"]
+            if bounded and expand:
+                names.insert(2, "usage")
             if shown < len(names):
                 rows.extend(_omitted_rows([name for i, name in enumerate(names) if i >= shown
                                            and any(fields[i] for fields in field_rows)], width - 2))
@@ -521,7 +570,16 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
     elif group_id == "usage":
         sessions = _items(data.get("sessions"))
-        if sessions:
+        if sessions and bounded:
+            for peer in sorted({_peer(item) for item in sessions}):
+                values = [_usage_values(_obj(item.get("telemetry"))) for item in sessions if _peer(item) == peer]
+                measured = [tokens for tokens, _, _ in values if tokens is not None]
+                inputs = sum(inputs or 0 for _, inputs, _ in values)
+                cached = sum(cached or 0 for _, _, cached in values)
+                cache_part = f"{sep}cache {cached / inputs * 100:.0f}%" if inputs > 0 else ""
+                rows.append(f"{peer} provider-reported tokens: {_count(sum(measured) if measured else None)}"
+                            f"{sep}sessions {len(measured)} with/{len(values) - len(measured)} without usage{cache_part}")
+        elif sessions:
             limit = len(sessions) if expand else min(2, len(sessions))
             for session in sessions[:limit]:
                 telemetry = _obj(session.get("telemetry"))
@@ -597,13 +655,13 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                         what = reason_text
                     else:
                         plan = _na_plan(item, reason_text)
-                        what = f"not reported (plan {plan})"
+                        what = f"(not reported by plan {plan})" if item.get("display_retired") else f"not reported (plan {plan})"
                     na_notes.append(f"{peer} {pool_id} n/a {what}" if fresh else
                                     f"{peer} {pool_id} ? {what}, aged; next: peerhub observation refresh --peers {peer}")
                     table.append({
                         "PEER": peer, "POOL": pool_id, "REM": "n/a" if fresh else "-",
                         "[BAR]": _bar_quota(None), "RESET-IN": "-", "EXHAUST-IN": "-", "PACE": "-",
-                        "STATE": "n/a" if fresh else "?", "AGE": age_str,
+                        "STATE": "n/a" if fresh else "?", "AGE": "-" if item.get("display_retired") else age_str,
                         "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
                     continue
 
@@ -663,7 +721,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                               "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
 
             # One column set for the whole table; PEER and POOL always stay, and no cell is cut.
-            sizes = {c: max(w, *(_width(cells[c]) for cells in table)) if table else w for c, w in column_widths.items()}
+            sizes = {c: max(_width(c) if bounded else w, *(_width(cells[c]) for cells in table))
+                     if table else (_width(c) if bounded else w) for c, w in column_widths.items()}
             columns = list(column_widths)
             while len(columns) > 2 and sum(sizes[c] for c in columns) + 2 * (len(columns) - 1) > width:
                 columns.pop()
@@ -675,6 +734,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
             rows.append(table_line({c: c for c in column_widths}))
             rows.extend(table_line(cells, _state_code(cells["STATE"]) if color else None) for cells in table)
+            if table_only:
+                return rows
             rows.extend(_fit(note, width, unicode) for note in na_notes)
             rows.extend(_fit(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}", width, unicode) for peer, codes in probe_notes.items())
             if len(columns) < len(column_widths):
@@ -682,6 +743,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
         else:
             rows.append("Quota capacity: no observations")
+        if table_only:
+            return rows
         for credit in _items(data.get("reset_credits")):
             count = _count(credit.get("available_count"))
             expires = _number(credit.get("nearest_expires_at"))
@@ -965,6 +1028,7 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
     return {"peer": peer, "pool": pool, "meaning": meaning, "remaining": remaining, "left": left,
             "resets": resets, "pace": pace_text, "reset_seconds": reset_in, "family": family, "age": _compact_age(age), "state": state, "aged": aged,
             "needs_refresh": aged or age is None or state in {"?", "reset"}, "reason": reason, "display_plan": item.get("display_plan"),
+            "retired": bool(item.get("display_retired")),
             "profiles": ",".join(consumers.get(f"{peer}:{pool}", [])) or "unmapped"}
 
 
@@ -1154,7 +1218,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
         stamp = datetime.fromtimestamp(now + elapsed, timezone.utc).strftime("%Y-%m-%d %H:%MZ") if read_at is not None else "time unknown"
     except (ValueError, OverflowError, OSError):
         stamp = "time unknown"
-    ages = [_number(item.get("age_seconds")) for item in quota]
+    ages = [_number(item.get("age_seconds")) for item in quota if not item.get("display_retired")]
     known_ages = [age + elapsed for age in ages if age is not None]
     age_label = _compact_age(max(known_ages) if known_ages else None)
     title = f"PeerHub Monitor {stamp} | DB:{source} | quota age {age_label}"
@@ -1164,7 +1228,10 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
     next_refresh = _number(payload.get("next_refresh_in"))
     if next_refresh is not None:
         title += f" | refresh in {max(0, math.ceil(next_refresh))}s"
-    lines = _compact_wrap(title, width)
+    field_cuts = height is not None and _width(title) > width
+    lines = [_fit_fields(title, width, unicode)] if height is not None else _compact_wrap(title, width)
+    optional: set[int] = set()
+    legend_start = legend_end = 0
     errors = _obj(payload.get("errors"))
     nearest = payload.get("_nearest_store_path")
     same_store = bool(nearest and store.get("path") and os.path.normcase(os.path.abspath(str(nearest))) == os.path.normcase(os.path.abspath(str(store["path"]))))
@@ -1208,14 +1275,21 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
                             for name, value, size in zip(headers, cells[:shown], sizes)).rstrip()
         lines.append(table_line(headers))
         lines.extend(table_line([str(row[key]) for key in fields], _state_code(str(row["state"])) if paint else None) for row in rows)
+        note_start = len(lines)
+        for row in rows:
+            if row.get("retired"):
+                lines.extend(_compact_wrap(f"{row['peer']} {row['pool']} n/a (not reported by plan {row['display_plan']})", width))
         if shown < len(headers):
             lines.extend(_omitted_rows([name.lower() for name in headers[shown:]], width))
-        legend = "ok enough | low >0-10% | fast >10% but ahead of pace | out 0% | aged stale | reset passed | n/a plan omits | ? unknown"
+        legend_start = len(lines)
+        legend = MONITOR_LEGEND[0]
         lines.extend(_compact_wrap(legend, width))
-        lines.extend(_compact_wrap("PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable", width))
+        lines.extend(_compact_wrap(MONITOR_LEGEND[1], width))
         if shown > headers.index("BAR"):
             glyphs = "▲ ahead, ▼ behind" if unicode else "^ ahead, v behind"
             lines.extend(_compact_wrap(f"BAR=remaining, | marks the even-burn level ({glyphs})", width))
+        legend_end = len(lines)
+        optional.update(range(note_start, len(lines)))
     if "peers" in selected_ids:
         lines.append(_section_rule("PEERS", width, True, color and "NO_COLOR" not in os.environ)
                      if view == "rich" and unicode else "PEERS")
@@ -1255,28 +1329,117 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
                         or latest.get("stored_state") in {"ERROR", "UNAVAILABLE", "UNKNOWN"}):
                     age = _number(latest.get("age_seconds"))
                     notes.append(f"probe error ({_compact_age(age + elapsed if age is not None else None)})")
-            lines.extend(_compact_wrap(f"{peer} " + " | ".join(summaries + notes)
-                                       + (" (aged)" if peer_aged else ""), width))
+            summary = f"{peer} " + " | ".join(summaries + notes) + (" (aged)" if peer_aged else "")
+            field_cuts = field_cuts or (height is not None and _width(summary) > width)
+            lines.extend([_fit_fields(summary, width, unicode)] if height is not None else _compact_wrap(summary, width))
+        note_start = len(lines)
         lines.extend(_compact_wrap(_compact_suggestions(configured_profiles, rows), width))
+        optional.update(range(note_start, len(lines)))
+    note_start = len(lines)
     accounts = _items(_obj(_obj(groups.get("capacity")).get("data")).get("accounts")) if "capacity" in selected_ids else []
     if accounts:
-        lines.extend(_compact_wrap("ACCOUNTS " + " | ".join(_account_fragment(item, now, elapsed) for item in accounts), width))
+        account_text = "ACCOUNTS " + " | ".join(_account_fragment(item, now, elapsed) for item in accounts)
+        field_cuts = field_cuts or (height is not None and _width(account_text) > width)
+        lines.extend([_fit_fields(account_text, width, unicode)] if height is not None else _compact_wrap(account_text, width))
     for footer in _compact_footer(groups):
         lines.extend(_compact_wrap(footer, width))
+    optional.update(range(note_start, len(lines)))
+    if field_cuts:
+        lines.append(_fit_fields("Fields hidden | --expand", width, unicode))
     if height is not None and len(lines) > max(0, height - 1):
         budget = max(0, height - 1)
         if budget == 0:
             return ""
-        lines = lines[:budget - 1] + [_fit("details: --expand", width, unicode)]
+        collapsed = 0
+        if legend_end > legend_start:
+            collapsed = legend_end - legend_start - 1
+            lines[legend_start:legend_end] = [_fit("Legend: peerhub monitor --help", width, unicode)]
+            optional = {i if i < legend_start else i - collapsed for i in optional
+                        if not legend_start <= i < legend_end} | {legend_start}
+        keep = set(range(len(lines))) - optional
+        # Legends/notes yield before any peer summary. Keep the first rows if the
+        # viewport cannot even hold the essential data, and disclose every cut.
+        if len(keep) > budget - 1:
+            peer_start = next((i for i, line in enumerate(lines) if line == "PEERS" or "── PEERS" in line), len(lines))
+            peer_indices = sorted(i for i in keep if i >= peer_start)
+            keep = set(peer_indices[:budget - 1])
+            keep.update(i for i in sorted(set(range(peer_start)) - optional)[:max(0, budget - 1 - len(keep))])
+        for i in sorted(optional):
+            if len(keep) >= budget - 1:
+                break
+            keep.add(i)
+        hidden = collapsed + len(lines) - len(keep)
+        lines = [line for i, line in enumerate(lines) if i in keep]
+        hint = "peerhub monitor --snapshot --group all --expand"
+        notice = f"+{hidden} rows hidden | {hint}"
+        if _width(notice) > width:
+            notice = f"+{hidden} rows hidden | --expand; --help"
+        lines.append(_fit(notice, width, unicode))
     if not unicode:
         lines = [line.encode("ascii", errors="replace").decode("ascii") for line in lines]
     return "\n".join(lines) + "\n"
+
+
+def _display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
+    """Retire old windows only behind fresh successful quota evidence from the same source.
+
+    This is a presentation copy. Failures, partial reports, other sources, and
+    missing plan evidence preserve the old row and its refresh guidance.
+    """
+    groups = _obj(payload.get("groups"))
+    cap = _obj(groups.get("capacity"))
+    data = _obj(cap.get("data"))
+    observations = _items(payload.get("_human_observations")) if "_human_observations" in payload else _items(data.get("observations"))
+    plans = {str(item.get("peer_id")): _clean(item["plan"]) for item in _items(data.get("accounts"))
+             if item.get("state") == "MEASURED" and item.get("plan") and not item.get("probe_error")}
+    elapsed = _number(payload.get("display_elapsed_seconds")) or 0
+    latest: dict[str, list[dict[str, Any]]] = {}
+    for item in observations:
+        if item.get("kind", "quota") != "quota" or _number(item.get("effective_at_us")) is None:
+            continue
+        peer = str(item.get("peer_id"))
+        previous = latest.get(peer, [])
+        if not previous or item["effective_at_us"] > previous[0]["effective_at_us"]:
+            latest[peer] = [item]
+        elif item["effective_at_us"] == previous[0]["effective_at_us"]:
+            previous.append(item)
+    replacements: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in observations:
+        peer = str(item.get("peer_id"))
+        report = latest.get(peer, [])
+        if (peer not in plans or not report or item.get("state") != "STALE" or not item.get("pool_ref")
+                or _clean(item.get("reason") or "").startswith(_DISABLED)):
+            continue
+        source = item.get("source")
+        if not source or any(row.get("source") != source for row in report):
+            continue
+        successful = all(row.get("pool_ref") and (row.get("state") == "MEASURED" or
+                         (row.get("state") == "ABSENT" and _clean(row.get("reason") or "").startswith(_NA_REASONS)))
+                         and (_number(row.get("age_seconds")) or 0) + elapsed < (_number(row.get("ttl_seconds")) or 0)
+                         for row in report)
+        at = _number(item.get("effective_at_us"))
+        if not successful or at is None or at >= report[0]["effective_at_us"]:
+            continue
+        replacements[(peer, str(item["pool_ref"]))] = {**item, "state": "ABSENT", "stored_state": "ABSENT",
+            "reason": f"{_NOT_REPORTED}; plan={plans[peer]}", "display_plan": plans[peer], "display_retired": True,
+            "age_seconds": report[0].get("age_seconds"), "ttl_seconds": report[0].get("ttl_seconds"),
+            "measurements": None, "last_measurements": None, "projection": {}, "resets_at": None, "reset_in_seconds": None}
+    if not replacements:
+        return payload
+
+    def replace(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [replacements.get((str(item.get("peer_id")), str(item.get("pool_ref"))), item) for item in rows]
+
+    return {**payload, "groups": {**groups, "capacity": {**cap, "data": {
+        **data, "observations": replace(_items(data.get("observations")))}}},
+        **({"_human_observations": replace(observations)} if "_human_observations" in payload else {})}
 
 
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
                          expand: bool = False) -> str:
     """Compact human default; the established renderer supplies expanded detail."""
+    payload = _display_plan_omissions(payload)
     if expand:
         return _render_expanded_frame(payload, view=view, color=color, unicode=unicode,
                                       width=width, height=height, expand=True)
@@ -1423,7 +1586,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         except (OverflowError, OSError, ValueError):
             pass
 
-    lines: list[str] = [_fit(title, target_width, unicode)]
+    lines: list[str] = [_fit_fields(title, target_width, unicode)]
 
     descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
     refresh_clean = str(payload.get("refresh_state") or "")
@@ -1441,7 +1604,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
             lbl += " [unrecognized group]"
         rule = _section_rule(lbl, target_width, unicode, color)
         data_rows = _group_lines(gid, grp, width=target_width, unicode=unicode,
-                                 elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, color=color)
+                                 elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, color=color, bounded=True)
         error_map = _obj(payload.get("errors"))
         error_val = error_map.get(gid)
         if error_val is None:
@@ -1459,10 +1622,20 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         content_lines: list[str] = []
         for r in data_rows:
             if gid == "capacity":
-                content_lines.append(_fit(r, target_width, unicode, painted=color))
+                content_lines.append(_fit_fields(r, target_width, unicode, painted=color))
             else:
-                content_lines.append(_fit("  " + r, target_width, unicode))
+                content_lines.append(_fit_fields("  " + r, target_width, unicode))
         blocks.append((gid, _priority(grp), rule, content_lines))
+        if gid == "capacity" and "peers" in group_ids and st not in {"ERROR", "FAILED"}:
+            table = _group_lines(gid, grp, width=target_width, unicode=unicode,
+                                 elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand,
+                                 color=color, bounded=True, table_only=True)
+            table_size = len(table)
+            if table_size < len(content_lines):
+                blocks[-1] = (gid, _priority(grp), rule, content_lines[:table_size])
+                blocks.append(("capacity_details", _priority(grp),
+                               _section_rule(f"QUOTA [{st}] notes / ACCOUNTS", target_width, unicode, color),
+                               content_lines[table_size:]))
 
     # Quota-first height allocation
     max_lines = height - 1
@@ -1471,6 +1644,18 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
 
     cap_block = next((b for b in blocks if b[0] == "capacity"), None)
     other_blocks = [b for b in blocks if b[0] != "capacity"]
+    peer_count = len(_items(_obj(_obj(groups.get("peers")).get("data")).get("peers")))
+    peer_priority = cap_block is not None and "peers" in group_ids
+    if peer_priority:
+        order = {"peers": 0, "capacity_details": 1, "execution": 2, "usage": 3, "sessions": 4}
+        other_blocks.sort(key=lambda block: (order.get(block[0], 5), block[1]))
+
+    def summary_size(block: tuple[str, int, str, list[str]]) -> int:
+        count = max(1, peer_count) if peer_priority and block[0] == "peers" else 3 if block[0] == "usage" else 1
+        return min(count, len(block[3]))
+
+    def minimum(block: tuple[str, int, str, list[str]]) -> int:
+        return 1 + summary_size(block) + int(len(block[3]) > summary_size(block))
 
     visible_other: list[tuple[str, int, str, list[str]]] = []
 
@@ -1486,6 +1671,13 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
             return "\n".join(lines) + "\n"
 
     def allocate_other(budget: int) -> list[tuple[str, int, str, list[str]]]:
+        if peer_priority:
+            visible: list[tuple[str, int, str, list[str]]] = []
+            for block in other_blocks:
+                if minimum(block) <= budget - 1:
+                    visible.append(block)
+                    budget -= minimum(block)
+            return visible
         # Even when every summary fits, hidden details need a disclosure row.
         full_size = sum(1 + max(1, len(block[3])) for block in other_blocks)
         summary_budget = budget - int(full_size > budget)
@@ -1502,10 +1694,8 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         quota_budget = budget - (1 if other_blocks else 0)
         show_cap_rule = quota_budget >= 1 + len(cap_rows)
         if not show_cap_rule:
-            # Reclaim the section rule before hiding any quota row.
             cap_status = _clean(_obj(groups.get("capacity")).get("status") or "UNKNOWN").upper()
-            label = _quota_label(cap_status, _obj(groups.get("capacity")), read_at, elapsed_seconds)
-            lines[0] = _fit(f"{label} | {title}", target_width, unicode)
+            lines[0] = _fit_fields(f"{title} | QUOTA [{cap_status}]", target_width, unicode)
         quota_lines_needed = len(cap_rows) + int(show_cap_rule)
 
         if quota_budget >= quota_lines_needed:
@@ -1534,47 +1724,59 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         visible_other = allocate_other(budget)
         omitted_blocks = len(other_blocks) - len(visible_other)
 
-    for ob in visible_other:
-        lines.append(ob[2])
-        lines.append(ob[3][0] if ob[3] else "")
+    # Allocate first, then emit each complete block together with its own cut notice.
+    # Reserving a summary and local notice prevents details leaking beneath a later header.
+    available = max(0, max_lines - len(lines) - extra_overhead)
+    while visible_other and sum(minimum(ob) for ob in visible_other) + 1 > available:
+        if len(visible_other) == 1 and available >= 3:
+            break  # the final group's cut notice can share the global disclosure
+        visible_other.pop()
+    omitted_blocks = len(other_blocks) - len(visible_other)
+    counts = [summary_size(ob) for ob in visible_other]
+    if len(counts) == 1:
+        counts[0] = min(counts[0], max(1, available - 2))
+    allocated = sum(1 + shown + int(len(ob[3]) > shown) for ob, shown in zip(visible_other, counts))
+    share_tail_notice = len(visible_other) == 1 and allocated + 1 > available
+    spare = max(0, available - allocated - 1 + int(share_tail_notice))
+    allocation_order = sorted(range(len(visible_other)), key=lambda i:
+                              (visible_other[i][0] == "peers", i)) if peer_priority else range(len(visible_other))
+    for i in allocation_order:
+        ob = visible_other[i]
+        extra = len(ob[3]) - counts[i]
+        # Finishing a block reclaims its local omission notice.
+        reclaim = int(extra > 0 and not share_tail_notice)
+        take = extra if extra <= spare + reclaim else min(extra, spare)
+        counts[i] += take
+        spare -= max(0, take - (reclaim if take == extra else 0))
 
-    # Count every loaded row omitted by the viewport, including --expand rows
-    # in groups that could not receive even a summary.
-    other_details = [row for ob in visible_other for row in ob[3][1:]]
+    omitted_details = 0
+    for ob, shown in zip(visible_other, counts):
+        lines.append(ob[2])
+        lines.extend(ob[3][:shown])
+        hidden = len(ob[3]) - shown
+        omitted_details += hidden
+        if hidden:
+            if len(lines) < max_lines - extra_overhead - 1:
+                lines.append(_fit(f"  +{hidden} more", target_width, unicode))
+
     omitted_group_rows = sum(len(ob[3]) for ob in other_blocks if ob not in visible_other)
-    space_left = max(0, max_lines - len(lines) - extra_overhead)
-    needs_omission = bool(omitted_quota or omitted_blocks or len(other_details) > space_left)
-    can_take = min(len(other_details), max(0, space_left - int(needs_omission)))
-    lines.extend(other_details[:can_take])
-    omitted_details = len(other_details) - can_take + omitted_group_rows
+    omitted_details += omitted_group_rows
+    omitted_blocks = sum(ob[0] != "capacity_details" for ob in other_blocks if ob not in visible_other)
 
     if omitted_quota or omitted_blocks or omitted_details:
         sep = " · " if unicode else " | "
-        counts: list[str] = []
-        if omitted_blocks:
-            counts.append(f"{omitted_blocks} groups omitted")
         hidden_rows = omitted_quota + omitted_details
-        if hidden_rows:
-            counts.append(f"+{hidden_rows} rows hidden")
+        detail = f"+{hidden_rows} rows hidden"
+        group_note = f" ({omitted_blocks} {'group' if omitted_blocks == 1 else 'groups'})" if omitted_blocks else ""
         hint = ("peerhub monitor --snapshot --group capacity --expand"
                 if omitted_quota else "peerhub monitor --snapshot --group all --expand")
-        if target_width >= 64:
-            # Keep the actionable hint intact on 80-column displays.
-            room = target_width - _width(sep + hint)
-            detail = ", ".join(counts)
-            if _width(detail) > room:
-                detail = (f"{omitted_blocks} groups omitted,+{hidden_rows}r"
-                          if omitted_blocks else f"+{hidden_rows} rows hidden")
-            if _width(detail) > room:
-                hint = "--expand"
-                detail = ", ".join(counts)
-            overflow = f"{detail}{sep}{hint}"
-        elif target_width >= 32:
-            overflow = f"{', '.join(counts)}{sep}--expand"
-            if _width(overflow) > target_width:
-                overflow = f"+{omitted_quota + omitted_details}r,{omitted_blocks}g hidden{sep}--expand"
-        else:
-            overflow = f"+{omitted_quota + omitted_details + omitted_blocks} --expand"
+        if _width(detail + group_note + sep + hint) <= target_width:
+            detail += group_note
+        elif _width(detail + sep + hint) > target_width:
+            detail += group_note
+            hint = "--expand"
+        overflow = (f"+{hidden_rows} --expand" if target_width < 32 else
+                    _fit_fields(detail + sep + hint, target_width, unicode))
         if len(lines) < max_lines:
             lines.append(_fit(overflow, target_width, unicode))
 
