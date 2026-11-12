@@ -16,6 +16,7 @@ from peerhub.extensions.observation_model import (
     NOT_REPORTED_REASON,
     FreshnessPolicy,
     account_text as _account_text,  # stored account strings are display data: re-sanitized when read back
+    changed_account_plan,
     valid_epoch_seconds,
     ObservationCorruptError,
     evaluate as evaluate_observation,
@@ -145,7 +146,7 @@ def _read_accounts(conn: sqlite3.Connection, latest_rows: list[sqlite3.Row], now
         try:
             observation, capture_seq = row_to_observation(row)
         except ObservationCorruptError as exc:
-            raise sqlite3.DataError(f"invalid account observation at capture_seq={row['capture_seq']}") from exc
+            raise sqlite3.DataError(f"invalid {row['kind']} observation at capture_seq={row['capture_seq']}") from exc
         return observation, evaluate_observation(observation, capture_seq, round(now * 1_000_000), FreshnessPolicy())
 
     latest = [parsed(row) for row in latest_rows]
@@ -159,7 +160,17 @@ def _read_accounts(conn: sqlite3.Connection, latest_rows: list[sqlite3.Row], now
                 f"WHERE o.kind='account' AND o.state='MEASURED' AND o.subject_ref IN ({marks})) WHERE rn=1", failed):
             observation, view = parsed(row)
             good[observation.subject_ref] = (observation, view)
-    items = [_account_item(obs, view, good.get(obs.subject_ref)) for obs, view in latest]
+    items: list[dict[str, Any]] = []
+    for obs, view in latest:
+        item = _account_item(obs, view, good.get(obs.subject_ref))
+        # Query the actual latest quota row, independently of the display's quota row cap.
+        row = conn.execute("SELECT " + _ROW_COLUMNS + "FROM observations o LEFT JOIN resource_pools p "
+                           "ON p.resource_pool_id=o.resource_pool_ref WHERE o.subject_ref=? AND o.kind='quota' "
+                           "ORDER BY o.effective_at_us DESC,o.capture_seq DESC LIMIT 1", (obs.subject_ref,)).fetchone()
+        plan = changed_account_plan(obs, parsed(row)[0] if row is not None else None)
+        if plan:
+            item.update(plan=plan, plan_source="quota", plan_changed=True, state="STALE")
+        items.append(item)
     return sorted(items, key=lambda a: (_ACCOUNT_ORDER.get(str(a["peer_id"]), len(_ACCOUNT_ORDER)), str(a["peer_id"])))
 
 

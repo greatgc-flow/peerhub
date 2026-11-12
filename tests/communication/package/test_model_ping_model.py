@@ -1,7 +1,40 @@
 """#341: `model_ping --peer P --model M` pings one exact model without reading or writing any profile overlay."""
 import pytest
+import json
+import subprocess
 
 from tools import model_ping
+
+
+@pytest.mark.parametrize("events, verdict", [
+    ([{"type": "turn.failed", "error": {"message": "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."}}], "REJECTED:"),
+    ([{"type": "error", "message": "bad\n\x1b\u2603" + "x" * 200}], "REJECTED:"),
+    ([], "NO EVIDENCE"),
+    ([{"type": "item.completed", "item": {"type": "agent_message", "text": "PONG"}}], "NO EVIDENCE"),
+    ([{"type": "turn.completed"}], "NO EVIDENCE"),
+    ([{"type": "item.completed", "item": {"type": "agent_message", "text": ""}}, {"type": "turn.completed"}], "NO EVIDENCE"),
+    ([{"type": "item.completed", "item": {"type": "agent_message", "text": "PONG"}}, {"type": "turn.completed"}], "ok"),
+    ([{"type": "item.completed", "item": {"type": "agent_message", "text": "PONG"}}, {"type": "turn.completed"},
+      {"type": "turn.failed", "error": {"message": "rejected"}}], "REJECTED:"),
+])
+def test_cx_requires_answer_and_terminal_success(tmp_path, monkeypatch, capsys, events, verdict):
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    (sessions / "thread-test.jsonl").write_text(json.dumps({"type": "turn_context", "payload": {"model": "gpt-6.1-sol", "effort": "high"}}), encoding="utf-8")
+    stdout = "\n".join(json.dumps(event) for event in [{"type": "thread.started", "thread_id": "thread-test"}, *events])
+    monkeypatch.setattr(model_ping, "_run", lambda argv, cwd: subprocess.CompletedProcess(argv, 0, stdout, ""))
+    monkeypatch.setattr(model_ping, "_codex_home", lambda: tmp_path)
+    assert model_ping.main(["--peer", "cx", "--model", "gpt-6.1-sol", "--effort", "high"]) == (0 if verdict == "ok" else 1)
+    out = capsys.readouterr().out
+    assert verdict in out
+    assert ("answered=gpt-6.1-sol/high" if verdict == "ok" else "answered=-") in out
+    assert all(32 <= ord(char) <= 126 for char in out.rstrip("\n"))
+    if verdict == "REJECTED:":
+        message = out.split("REJECTED:", 1)[1].split("  (no PONG)", 1)[0].strip()
+        assert len(message) <= 160
+        expected = next(event for event in events if event["type"] in {"error", "turn.failed"})
+        if expected.get("error"):
+            assert expected["error"]["message"] in message
 
 
 @pytest.fixture

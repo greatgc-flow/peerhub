@@ -1019,7 +1019,8 @@ def _account_fragment(item: dict[str, Any], now: float, elapsed: float) -> str:
                 when = _utc_text(expires, "%m-%d")
                 if when is not None:
                     text += f" (token {'expired' if left < 0 else 'exp'} {when})"
-    notes = [note for note, on in (("aged", item.get("state") == "STALE"), ("probe error", bool(item.get("probe_error")))) if on]
+    notes = [note for note, on in (("aged", item.get("state") == "STALE"), ("probe error", bool(item.get("probe_error"))),
+                                 ("plan changed", bool(item.get("plan_changed")))) if on]
     return text + (f" ({', '.join(notes)})" if notes else "")
 
 
@@ -1034,6 +1035,8 @@ def _account_rows(accounts: list[dict[str, Any]], elapsed: float) -> list[str]:
             rows.append(f"{peer} account ? | probe error: {_clean(item.get('probe_error') or 'unknown')} | {tail}")
             continue
         parts = [f"{peer} login {_account_login(item)}", f"plan {_account_plan(item)}"]
+        if item.get("plan_changed"):
+            parts.append("plan changed")
         expires = _number(item.get("login_token_expires_at"))
         status = item.get("login_expiry_status")
         shown = _utc_text(expires, "%Y-%m-%d") if status == "reported" and expires is not None else None

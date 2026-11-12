@@ -193,6 +193,24 @@ def effective_us(obs: Observation) -> int:
     return instant_us(obs.captured_at if obs.captured_at is not None else obs.observed_at)
 
 
+def changed_account_plan(account: Observation, quota: Observation | None) -> str | None:
+    """A strictly newer quota reason's plan invalidates an account plan for the same peer/login.
+
+    Account-bound logins have separate immutable peer identities; never compare across peers.
+    Unknown/failed quota evidence cannot establish a plan change. This is display and scheduling data only.
+    """
+    if (quota is None or quota.kind != "quota" or quota.subject_ref != account.subject_ref
+            or account.state != EvidenceState.MEASURED or account.payload.get("plan_status") != "reported"
+            or quota.state not in {EvidenceState.MEASURED, EvidenceState.ABSENT}
+            or effective_us(quota) <= effective_us(account)):
+        return None
+    previous = account_text(account.payload.get("plan"))
+    reason = quota.payload.get("reason")
+    match = re.search(r"\bplan=([^;\r\n]+)", reason) if isinstance(reason, str) else None
+    plan = account_text(match.group(1)) if match else None
+    return plan if previous and plan and plan.casefold() not in {"unknown", "na"} and plan != previous else None
+
+
 # ----------------------------------------------------------------------------- honesty + freshness
 def check_honesty(obs: Observation) -> None:
     if obs.state != EvidenceState.MEASURED:

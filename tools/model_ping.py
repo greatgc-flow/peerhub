@@ -2,7 +2,7 @@
 
 Direct one-shot CLI calls (uses a little quota), each in an empty temp directory:
   cc  claude -p ... --output-format json   -> evidence: the `modelUsage` keys of the result
-  cx  codex exec --json ...                -> evidence: model/effort of the turn in the session log (CODEX_HOME/sessions)
+  cx  codex exec --json ...                -> evidence: agent_message + turn.completed (no turn.failed/error), plus model/effort in the session log (CODEX_HOME/sessions)
   ag  agy -p ... --output-format json      -> evidence: the model named in the CLI log file (weaker: the CLI logs what it selected)
 Usage: python -m tools.model_ping [profile_id ...] [--peer cc|cx|ag]     (exit 1 when any profile fails or a different model answered)
        python -m tools.model_ping --peer cc --model MODEL [--effort E]   (one exact model; reads and writes no profile or overlay)
@@ -49,6 +49,7 @@ def ping_cx(model: str, effort: str | None, cwd: Path) -> tuple[bool, str, str]:
         argv += ["-c", f"model_reasoning_effort={effort}"]
     proc = _run(argv + [PROMPT], cwd)
     thread, reply = "", ""
+    completed, failed, message = False, False, ""
     for line in proc.stdout.splitlines():
         try:
             event = json.loads(line)
@@ -56,9 +57,23 @@ def ping_cx(model: str, effort: str | None, cwd: Path) -> tuple[bool, str, str]:
             continue
         if event.get("type") == "thread.started":
             thread = event.get("thread_id", "")
+        if event.get("type") == "turn.completed":
+            completed = True
+        if event.get("type") in {"turn.failed", "error"}:
+            failed = True
+            error = event.get("error")
+            detail = error.get("message") if isinstance(error, dict) else error
+            detail = detail or event.get("message")
+            if isinstance(detail, str) and detail.strip():
+                message = detail
         item = event.get("item") or {}
         if item.get("type") == "agent_message":
             reply = item.get("text", "")
+    if failed:
+        message = " ".join("".join(char if 32 <= ord(char) <= 126 else " " for char in message).split())[:160]
+        return False, "-", f"REJECTED: {message or 'provider turn failed'}"
+    if not completed or not reply.strip():
+        return False, "-", "NO EVIDENCE (requires agent_message and turn.completed)"
     logs = list((_codex_home() / "sessions").rglob(f"*{thread}*.jsonl")) if thread else []
     for line in (logs[0].read_text(encoding="utf-8").splitlines() if logs else []):
         if '"turn_context"' in line:

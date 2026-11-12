@@ -67,6 +67,74 @@ def accounts_line(out):
     return next(line for line in out.splitlines() if line.startswith("ACCOUNTS"))
 
 
+@pytest.mark.parametrize("quota_age,plan,peer,changed", [(20, "free", "cx", True), (40, "free", "cx", False),
+                                                        (30, "free", "cx", False), (20, "prolite", "cx", False),
+                                                        (20, "free", "cc", False), (20, "free", "cx-other", False),
+                                                        (20, "unknown", "cx", False), (20, "n/a", "cx", False)])
+@pytest.mark.parametrize("quota_first", [False, True])
+def test_quota_plan_change_requires_newer_same_login_evidence(store, capsys, quota_age, plan, peer, changed, quota_first):
+    def quota():
+        store.add(peer, "X-5H", "ABSENT", age=quota_age, source="codex_app_server", reason=NOT_REPORTED + plan)
+    if quota_first:
+        quota()
+    account(store, "cx", age=30, plan="prolite", plan_status="reported")
+    if not quota_first:
+        quota()
+    item = accounts_json(store, capsys)[0]
+    assert item["plan"] == ("free" if changed else "prolite")
+    assert bool(item.get("plan_changed")) == changed
+    if changed:
+        assert item["plan_source"] == "quota" and item["state"] == "STALE"
+    assert ("plan changed" in snapshot(store, capsys)) == changed
+    assert ("plan changed" in snapshot(store, capsys, "--expand")) == changed
+
+
+@pytest.mark.parametrize("converges", [False, True])
+def test_plan_mismatch_reprobes_with_backoff(store, monkeypatch, capsys, converges):
+    from dataclasses import replace
+    from peerhub.extensions import quota_capture
+    from peerhub.extensions.quota_capture import refresh_quota
+    from peerhub.extensions.quota_probes import _absent_pool
+    from tests.communication.observation.test_account_probes import live_reading
+    account(store, "cx", age=400, plan="prolite", plan_status="reported")
+    store.add("cx", "X-5H", "ABSENT", age=20, reason=NOT_REPORTED + "free")
+    clock = [int(store.now)]
+    monkeypatch.setattr(quota_capture.time, "time", lambda: clock[0])
+    calls = []
+    def poll():
+        calls.append(clock[0])
+        # account/read finishes before the quota probe of this same collection run.
+        return replace(live_reading("cx", plan="free" if converges else "prolite"), observed_at=clock[0] - 1)
+    def quota(**kw):
+        return (_absent_pool(kw["ids"], "cx", "default", "cx", clock[0], 300, "X-5H", plan="free"),)
+    for elapsed, count in ((0, 1), (60, 1), (299, 1 if converges else 2)):
+        clock[0] = int(store.now) + elapsed
+        refresh_quota(store.db, ["cx"], pollers={"cx": quota}, account_pollers={"cx": poll}, version_checker=lambda k: None)
+        assert len(calls) == count
+        latest = store.obs.latest("cx", "quota", read_at=clock[0])
+        assert latest.stored_state == EvidenceState.ABSENT and latest.observation.payload["reason"] == NOT_REPORTED + "free"
+        item = accounts_json(store, capsys)[0]
+        assert item["plan"] == "free" and bool(item.get("plan_changed")) == (not converges)
+
+
+def test_corrupt_quota_row_is_identified_as_quota(store, monkeypatch):
+    from peerhub.extensions import monitor_read_model
+    from peerhub.extensions.observation_model import ObservationCorruptError
+    account(store, "cx", plan="prolite", plan_status="reported")
+    store.add("cx", "X-5H", "ABSENT", age=20, reason=NOT_REPORTED + "free")
+    parse = monitor_read_model.row_to_observation
+    def corrupt_quota(row):
+        if row["kind"] == "quota":
+            raise ObservationCorruptError("invalid stored quota")
+        return parse(row)
+    monkeypatch.setattr(monitor_read_model, "row_to_observation", corrupt_quota)
+    with sqlite3.connect(store.db) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM observations WHERE kind='account'").fetchall()
+        with pytest.raises(sqlite3.DataError, match="invalid quota observation at capture_seq="):
+            monitor_read_model._read_accounts(conn, rows, store.now)
+
+
 def test_compact_shows_one_accounts_line_with_plan_login_and_near_token_expiry(store, capsys):
     expires = populated(store)
     out = snapshot(store, capsys)
