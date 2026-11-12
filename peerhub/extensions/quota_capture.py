@@ -27,17 +27,22 @@ def _account_error(kind: str, reason: str, error_type: str | None = None) -> Any
     return account_failure(ACCOUNT_REFS[kind], f"account_probe:{kind}", int(time.time()), EvidenceState.ERROR, reason, error_type=error_type)
 
 
-ACCOUNT_RETRY_SECONDS = 300.0  # a failed account probe is retried after this, not on every monitor cycle
+ACCOUNT_RETRY_SECONDS = 300.0  # failed probes and plan mismatches wait this long, not every monitor cycle
 
 
 def _account_is_fresh(store: ObservationStore, peer: str) -> bool:
-    """No probe is due: the latest reading is MEASURED within the account TTL, or a failure younger than the retry backoff."""
+    """No probe is due for a measured reading within TTL unless a plan mismatch outlives the retry backoff.
+
+    Failures and persistent plan mismatches are retried at most once per ACCOUNT_RETRY_SECONDS.
+    """
     view = store.latest(peer, "account")
     if view is None:
         return False
     if view.stored_state == EvidenceState.MEASURED:
         quota = store.latest(peer, "quota")
-        return view.state == EvidenceState.MEASURED and changed_account_plan(view.observation, quota.observation if quota else None) is None
+        return view.state == EvidenceState.MEASURED and (
+            changed_account_plan(view.observation, quota.observation if quota else None) is None
+            or (view.age_seconds or 0) < ACCOUNT_RETRY_SECONDS)
     return view.age_seconds is not None and view.age_seconds < ACCOUNT_RETRY_SECONDS
 
 

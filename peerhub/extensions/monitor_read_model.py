@@ -146,7 +146,7 @@ def _read_accounts(conn: sqlite3.Connection, latest_rows: list[sqlite3.Row], now
         try:
             observation, capture_seq = row_to_observation(row)
         except ObservationCorruptError as exc:
-            raise sqlite3.DataError(f"invalid account observation at capture_seq={row['capture_seq']}") from exc
+            raise sqlite3.DataError(f"invalid {row['kind']} observation at capture_seq={row['capture_seq']}") from exc
         return observation, evaluate_observation(observation, capture_seq, round(now * 1_000_000), FreshnessPolicy())
 
     latest = [parsed(row) for row in latest_rows]

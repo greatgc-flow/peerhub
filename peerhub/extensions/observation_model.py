@@ -194,7 +194,7 @@ def effective_us(obs: Observation) -> int:
 
 
 def changed_account_plan(account: Observation, quota: Observation | None) -> str | None:
-    """A strictly newer quota plan invalidates an account plan for the same peer/login.
+    """A strictly newer quota reason's plan invalidates an account plan for the same peer/login.
 
     Account-bound logins have separate immutable peer identities; never compare across peers.
     Unknown/failed quota evidence cannot establish a plan change. This is display and scheduling data only.
@@ -205,11 +205,9 @@ def changed_account_plan(account: Observation, quota: Observation | None) -> str
             or effective_us(quota) <= effective_us(account)):
         return None
     previous = account_text(account.payload.get("plan"))
-    plan = account_text(quota.payload.get("plan"))
-    if not plan:
-        reason = quota.payload.get("reason")
-        match = re.search(r"\bplan=([^;\r\n]+)", reason) if isinstance(reason, str) else None
-        plan = account_text(match.group(1)) if match else None
+    reason = quota.payload.get("reason")
+    match = re.search(r"\bplan=([^;\r\n]+)", reason) if isinstance(reason, str) else None
+    plan = account_text(match.group(1)) if match else None
     return plan if previous and plan and plan.casefold() not in {"unknown", "na"} and plan != previous else None
 
 

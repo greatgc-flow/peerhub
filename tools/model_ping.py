@@ -2,7 +2,7 @@
 
 Direct one-shot CLI calls (uses a little quota), each in an empty temp directory:
   cc  claude -p ... --output-format json   -> evidence: the `modelUsage` keys of the result
-  cx  codex exec --json ...                -> evidence: model/effort of the turn in the session log (CODEX_HOME/sessions)
+  cx  codex exec --json ...                -> evidence: agent_message + turn.completed (no turn.failed/error), plus model/effort in the session log (CODEX_HOME/sessions)
   ag  agy -p ... --output-format json      -> evidence: the model named in the CLI log file (weaker: the CLI logs what it selected)
 Usage: python -m tools.model_ping [profile_id ...] [--peer cc|cx|ag]     (exit 1 when any profile fails or a different model answered)
        python -m tools.model_ping --peer cc --model MODEL [--effort E]   (one exact model; reads and writes no profile or overlay)
