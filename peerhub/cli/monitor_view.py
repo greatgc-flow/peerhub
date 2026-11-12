@@ -1414,10 +1414,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
         # Legends/notes yield before any peer summary. Keep the first rows if the
         # viewport cannot even hold the essential data, and disclose every cut.
         if len(keep) > budget - 1:
-            peer_start = next((i for i, line in enumerate(lines) if line == "PEERS" or "── PEERS" in line), len(lines))
-            peer_indices = sorted(i for i in keep if i >= peer_start)
-            keep = set(peer_indices[:budget - 1])
-            keep.update(i for i in sorted(set(range(peer_start)) - optional)[:max(0, budget - 1 - len(keep))])
+            keep = set(sorted(keep)[:budget - 1])
         for i in sorted(optional):
             if len(keep) >= budget - 1:
                 break

@@ -482,3 +482,73 @@ def test_live_title_never_shows_partial_countdown_digits(round2_frame: dict[str,
     title = render_grouped_frame(round2_frame, width=width, height=40).splitlines()[0]
     assert not re.search(r"\d", title)
     assert _width(title) < width
+
+
+@pytest.mark.parametrize("height", [3, 4, 6, 12, 18, 19, 20])
+def test_compact_small_heights_keep_title_then_quota_then_peers(frame: dict[str, Any], height: int) -> None:
+    full = render_grouped_frame(frame, width=80, height=1000, view="plain", unicode=False).splitlines()
+    pools = full.index("POOLS")
+    peers = full.index("PEERS")
+    quota_rows = [line for line in full[pools + 2:peers] if re.match(r"^(?:ag|cc|cx) +\S+-\d+[HD] ", line)]
+    essential = [full[0], "POOLS", full[pools + 1], *quota_rows, "PEERS", *full[peers + 1:peers + 4]]
+    lines = render_grouped_frame(frame, width=80, height=height, view="plain", unicode=False).splitlines()
+    assert lines[:-1] == essential[:height - 2]
+    assert "rows hidden" in lines[-1]
+
+
+def test_compact_appended_disclosure_keeps_indices_after_legend_collapse(round2_frame: dict[str, Any]) -> None:
+    screen = render_grouped_frame(round2_frame, width=80, height=24, view="plain", unicode=False)
+    lines = screen.splitlines()
+    assert lines[0].startswith("PeerHub Monitor")
+    assert len([line for line in lines if re.match(r"^(?:ag|cc|cx) +\S+-\d+[HD] ", line)]) == 11
+    assert "Legend: peerhub monitor --help" in lines
+    assert "PEERS" in lines and "Fields hidden | --expand" in lines
+    peers = lines.index("PEERS")
+    assert [line.split()[0] for line in lines[peers + 1:peers + 4]] == ["ag", "cc", "cx"]
+    assert "rows hidden" in lines[-1] and len(lines) == 23
+
+
+@pytest.mark.parametrize("sep", [" | ", " · "])
+@pytest.mark.parametrize("unicode_mode", [False, True])
+def test_painted_field_fitting_preserves_cell_bounds(sep: str, unicode_mode: bool) -> None:
+    from peerhub.cli.monitor_view import _fit_fields
+
+    plain = sep.join(["ag provider-reported tokens: 51,225", "sessions 50 with/0 without usage", "cache 50%"])
+    painted = plain.replace("51,225", "\x1b[32m51,225\x1b[0m")
+    for width in range(1, _width(plain) + 2):
+        fitted = _fit_fields(painted, width, unicode_mode, painted=True)
+        assert _width(fitted) <= width
+        assert re.sub(r"\x1b\[[0-9;]*m", "", fitted) == _fit_fields(plain, width, unicode_mode)
+        if width >= _width(plain):
+            assert fitted == painted
+        else:
+            assert "\x1b" not in fitted
+
+
+@pytest.mark.parametrize("invalid", ["1794522316000000", "bad", None, True, float("nan"), float("inf")])
+@pytest.mark.parametrize("invalid_first", [False, True])
+def test_plan_omission_ignores_invalid_timestamps(frame: dict[str, Any], invalid: object, invalid_first: bool) -> None:
+    from peerhub.cli.monitor_view import _display_plan_omissions
+
+    cap = frame["groups"]["capacity"]["data"]
+    old, current = [deepcopy(item) for item in cap["observations"] if item["peer_id"] == "cx"][:2]
+    old.update(state="STALE", effective_at_us=int((NOW - 1000) * 1_000_000))
+    current["effective_at_us"] = float(current["effective_at_us"])
+    malformed = {**current, "effective_at_us": invalid, "state": "ERROR", "pool_ref": None}
+    cap["observations"] = [malformed, old, current] if invalid_first else [old, current, malformed]
+    cap["accounts"] = [{"peer_id": "cx", "plan": "pro", "state": "MEASURED"}]
+    result = _display_plan_omissions(frame)
+    rows = result["groups"]["capacity"]["data"]["observations"]
+    assert next(row for row in rows if row["pool_ref"] == old["pool_ref"])["display_retired"] is True
+    assert old["state"] == "STALE"
+
+
+def test_expanded_spare_rows_favor_accounts_after_all_peer_summaries(round2_frame: dict[str, Any]) -> None:
+    round2_frame["selected_groups"] = ["capacity", "peers"]
+    cap = round2_frame["groups"]["capacity"]["data"]
+    cap["observations"] = cap["observations"][:1]
+    round2_frame["configured_profiles"] = []
+    screen = render_grouped_frame(round2_frame, width=120, height=18, expand=True, unicode=False)
+    assert all(f"{peer}  quota:" in screen for peer in ("ag", "cc", "cx"))
+    assert "cc login ok | plan pro" in screen
+    assert "-> latest session:" not in screen
