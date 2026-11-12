@@ -12,7 +12,7 @@ from typing import Any, Callable, Sequence, cast
 
 from peerhub.extensions.peer_kinds import ALIASES
 from peerhub.extensions.observation import ObservationStore
-from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool, epoch_to_iso
+from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool, changed_account_plan, epoch_to_iso
 from peerhub.extensions.quota_types import ResetCreditObserved
 from peerhub.core.models import utc_now_iso
 
@@ -36,7 +36,8 @@ def _account_is_fresh(store: ObservationStore, peer: str) -> bool:
     if view is None:
         return False
     if view.stored_state == EvidenceState.MEASURED:
-        return view.state == EvidenceState.MEASURED
+        quota = store.latest(peer, "quota")
+        return view.state == EvidenceState.MEASURED and changed_account_plan(view.observation, quota.observation if quota else None) is None
     return view.age_seconds is not None and view.age_seconds < ACCOUNT_RETRY_SECONDS
 
 

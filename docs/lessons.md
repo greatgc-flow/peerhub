@@ -65,6 +65,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Bash allow rules such as Bash(peerhub --version) match the exact command string, so a model that adds cd, 2>&1, a pipe or a different invocation is denied: headless cc cannot prompt. Read denied_actions (Tool: command, redacted to 120 chars) to see the rejected string, then prefer prefix rules such as Bash(peerhub:*) and add matching PowerShell(...) rules on Windows. Unverified hypothesis: command shape, not a model-specific permission mode. Never resume after denied_empty; start a new stream. Recommended read/test list: docs/adapters/cc.md.
 - Issue: #303
 
+## Concurrent cc lanes and parent shell lifetime (`concurrent-cc-lanes`)
+
+- Keywords: cc, concurrent, lanes, memory, reaper, supervisor, parent, shell
+- Symptom: On a 32 GB Windows host, memory pressure reaped parent shells and killed long cc asks when about six lanes ran and one loaded a large index (PeerHub 0.24.8; checked 2026-11-12, #352).
+- Fix: Keep 2-3 concurrent cc lanes on a 32 GB host when a lane may load large indexes. Long asks die with their parent shell: run them from one supervisor, wait for completion, and do not restart reaped work blindly. Check peerhub diag running, then inspect results and effects before deciding how to continue. This is an operational lesson, not an enforced concurrency or free-memory guard.
+- Issue: #352
+
 ## cx sandbox facts and prompt hygiene (`cx-sandbox-and-prompt-hygiene`)
 
 - Keywords: cx, codex, windows, sandbox, unelevated, process, enumeration, AGENTS.md, rule, file, query, forward, implementer

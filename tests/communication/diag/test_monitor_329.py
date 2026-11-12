@@ -67,6 +67,44 @@ def accounts_line(out):
     return next(line for line in out.splitlines() if line.startswith("ACCOUNTS"))
 
 
+@pytest.mark.parametrize("quota_age,plan,peer,changed", [(20, "free", "cx", True), (40, "free", "cx", False),
+                                                        (30, "free", "cx", False), (20, "prolite", "cx", False),
+                                                        (20, "free", "cc", False), (20, "free", "cx-other", False),
+                                                        (20, "unknown", "cx", False), (20, "n/a", "cx", False)])
+@pytest.mark.parametrize("plan_field", ["plan", "reason"])
+@pytest.mark.parametrize("quota_first", [False, True])
+def test_quota_plan_change_requires_newer_same_login_evidence(store, capsys, quota_age, plan, peer, changed, plan_field, quota_first):
+    def quota():
+        payload = {plan_field: plan if plan_field == "plan" else NOT_REPORTED + plan}
+        store.add(peer, "X-5H", "ABSENT", age=quota_age, source="codex_app_server", **payload)
+    if quota_first:
+        quota()
+    account(store, "cx", age=30, plan="prolite", plan_status="reported")
+    if not quota_first:
+        quota()
+    item = accounts_json(store, capsys)[0]
+    assert item["plan"] == ("free" if changed else "prolite")
+    assert bool(item.get("plan_changed")) == changed
+    if changed:
+        assert item["plan_source"] == "quota" and item["state"] == "STALE"
+    assert ("plan changed" in snapshot(store, capsys)) == changed
+    assert ("plan changed" in snapshot(store, capsys, "--expand")) == changed
+
+
+def test_plan_mismatch_reprobes_on_next_refresh(store):
+    from peerhub.extensions.quota_capture import refresh_quota
+    from tests.communication.observation.test_account_probes import live_reading
+    account(store, "cx", age=30, plan="prolite", plan_status="reported")
+    store.add("cx", "X-5H", "ABSENT", age=20, reason=NOT_REPORTED + "free")
+    calls = []
+    def poll():
+        calls.append("cx")
+        return live_reading("cx")
+    for _ in range(2):
+        refresh_quota(store.db, ["cx"], pollers={}, account_pollers={"cx": poll}, version_checker=lambda k: None)
+    assert calls == ["cx"]
+
+
 def test_compact_shows_one_accounts_line_with_plan_login_and_near_token_expiry(store, capsys):
     expires = populated(store)
     out = snapshot(store, capsys)

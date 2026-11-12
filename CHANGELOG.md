@@ -8,6 +8,18 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.9] - 2026-11-13
+
+### Fixed
+
+- `tools.model_ping` reports `answered=<model> ok` for cx only with terminal success evidence (an agent message and a completed turn). A failed or rejected turn prints `answered=-` and the provider message as bounded printable ASCII (for example a model that the ChatGPT plan no longer serves); before, the session log written before the call was taken as proof (#353).
+- Monitor ACCOUNTS no longer hides a plan change for up to six hours: when a newer quota reading for the same provider login reports a different plan than the account reading, the quota plan is shown with a `plan changed` note (expanded rows and additive JSON fields too) and the account reading is re-probed on the next refresh; an older quota reading never overrides a newer account reading (#354).
+
+### Added
+
+- Lesson `concurrent-cc-lanes`: keep two or three concurrent cc lanes on a 32 GB host when a lane may load large indexes; long asks die with their parent shell, so run them from one supervisor, check `peerhub diag running`, and do not restart reaped work blindly (#352).
+
+
 ## [0.24.8] - 2026-11-11
 
 ### Changed

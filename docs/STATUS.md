@@ -4,7 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.8 (published)
+## Current source: v0.24.9 (release candidate)
+
+v0.24.9 fixes `tools.model_ping` false positives for rejected cx models (#353) and stale plans in the monitor ACCOUNTS line (#354), and adds the `concurrent-cc-lanes` lesson (#352). Backlog triage 2026-11-13 (unanimous, cx.effort and ag.standard 100 on every item): #324 step 2, #323 and #313 closed as not planned with reopen triggers; #330 stays open until the next schema change.
+
+### v0.24.8 (published)
 
 v0.24.8 merges PR #349 (#335): Bridge/claim-store init skips trigger rewrites when the installed SQL matches exactly (full rebuild on any mismatch), a provider-neutral runtime port module, and a Core snapshot iterator for `source_records`; plus the `ask-timeouts` lesson and `--timeout-seconds` help (#350); `monitor --expand` shows `uses N` per session; monitor tables share one column and pool order with a remaining-quota bar, PACE direction glyphs and STATE colours, and narrow consoles drop whole columns from the right. Scope voted unanimously (cc lead, cx, ag). #335 closes with this release; #323, #324 step 2, #330, #313 stay open with reasons on the issues.
 
