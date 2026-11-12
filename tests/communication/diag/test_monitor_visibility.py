@@ -555,7 +555,7 @@ def test_expanded_spare_rows_favor_accounts_after_all_peer_summaries(round2_fram
 
 
 @pytest.mark.parametrize("unicode_mode", [False, True])
-@pytest.mark.parametrize("width,height", [(40, 8), (34, 40), (40, 40), (54, 40), (32, 40), (20, 40)])
+@pytest.mark.parametrize("width,height", [(40, 8), (34, 40), (40, 40), (54, 40), (32, 40), (20, 40), (12, 40)])
 def test_no_quota_guidance_never_loses_command_silently(
         frame: dict[str, Any], width: int, height: int, unicode_mode: bool) -> None:
     frame["groups"]["capacity"]["data"]["observations"] = []
@@ -565,7 +565,7 @@ def test_no_quota_guidance_never_loses_command_silently(
     screen = render_grouped_frame(frame, width=width, height=height, unicode=unicode_mode)
     lines = screen.splitlines()
     assert len(lines) < height and all(_width(line) < width for line in lines)
-    row_index = lines.index("no quota evidence")
+    row_index = next(i for i, line in enumerate(lines) if "no quota evidence".startswith(line.rstrip("…~")) and line)
     command = "next: peerhub observation refresh"
     guidance = lines[row_index + 1]
     if height == 8:
@@ -577,4 +577,4 @@ def test_no_quota_guidance_never_loses_command_silently(
     elif width >= 34:
         assert guidance == command, screen
     else:
-        assert guidance.startswith("next: peerhub") and guidance.endswith("…" if unicode_mode else "~"), screen
+        assert "next: peerhub observation refresh".startswith(guidance[:-1]) and guidance.endswith("…" if unicode_mode else "~"), screen

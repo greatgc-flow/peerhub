@@ -155,7 +155,7 @@ def _visible_fields(rows: Sequence[Sequence[str]], sep: str, width: int, keep: i
 def _omitted_rows(names: Sequence[str], width: int) -> list[str]:
     """The `Columns omitted:` disclosure, wrapped so narrow displays still name every dropped column."""
     rows: list[str] = []
-    note = "Columns omitted:"
+    note = "Columns omitted:" if width > len("Columns omitted:") else "Omitted:"
     if not names:
         return rows
     for name in names:
@@ -164,7 +164,8 @@ def _omitted_rows(names: Sequence[str], width: int) -> list[str]:
             note = name
         else:
             note += f" {name}"
-    return [*rows, note]
+    # A single name wider than a very narrow display is cut with a visible mark, never overflowing.
+    return [row if _width(row) <= width else row[:max(1, width - 1)] + "~" for row in (*rows, note)]
 
 
 def _bar(used: float, cells: int, unicode: bool) -> str:
@@ -1308,7 +1309,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
         lines.append(_section_rule("POOLS", width, True, color and "NO_COLOR" not in os.environ)
                      if view == "rich" and unicode else "POOLS")
         if not rows:
-            lines.extend(["no quota evidence", _fit("next: peerhub observation refresh", width, unicode)]
+            lines.extend([_fit("no quota evidence", width, unicode), _fit("next: peerhub observation refresh", width, unicode)]
                          if height is not None else _compact_wrap("no quota evidence; next: peerhub observation refresh", width))
         for row in rows:  # the bar and the pace glyph are presentation of values already in the row
             has_value = row["state"] not in {"n/a", "?", "reset"}
