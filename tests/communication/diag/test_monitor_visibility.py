@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from collections import Counter
 import re
 from typing import Any
 
@@ -112,7 +113,8 @@ def test_d4_snapshot_tty_is_bounded_pipe_is_unbounded(
     assert screen.startswith("PeerHub Monitor")
     if tty:
         assert len(screen.splitlines()) < 40
-        assert "rows hidden" in screen and "peerhub monitor --snapshot --group all --expand" in screen
+        assert "rows hidden" in screen and "all rows" in screen
+        assert "peerhub monitor --snapshot --group all --expand | more" in screen
     else:
         assert len(screen.splitlines()) > 150 and "sess_cx_49" in screen
         assert "rows hidden" not in screen
@@ -209,7 +211,7 @@ def test_all_measured_viewports_preserve_bounds_and_disclose_cuts(
     assert len(screen.splitlines()) < height
     assert all(_width(line) < width for line in screen.splitlines())
     if expand:
-        assert "hidden" in screen or "groups omitted" in screen
+        assert "hidden" in screen
         assert "--expand" in screen
 
 
@@ -289,6 +291,8 @@ def test_e2_accounts_drop_complete_fields(round2_frame: dict[str, Any], width: i
         assert "…" not in row and "~" not in row
         assert all(field in {"plan pro", "login token expiry n/a", "auth chatgpt", "age 4h26m [MEASURED]", "fields hidden"}
                    for field in row.split(" | ")[1:])
+        if width < 120:
+            assert "fields hidden" in row
 
 
 @pytest.mark.parametrize("width", [20, 32, 34, 35, 36, 60, 80])
@@ -313,8 +317,8 @@ def test_e2_field_omissions_are_announced_even_when_height_is_available(round2_f
 
 def test_e4_80_columns_keep_plain_counts_and_the_complete_command(round2_frame: dict[str, Any]) -> None:
     screen = render_grouped_frame(round2_frame, width=80, height=24, expand=True)
-    assert re.search(r"^\+\d+ rows hidden \(\d+ groups\) · peerhub monitor --snapshot --group all --expand$",
-                     screen, re.MULTILINE), screen
+    assert re.search(r"^\+\d+ rows hidden", screen, re.MULTILINE), screen
+    assert "all rows" in screen and "peerhub monitor --snapshot --group all --expand | more" in screen
 
 
 def test_e1_peer_summaries_precede_accounts_without_quota_evidence(round2_frame: dict[str, Any]) -> None:
@@ -322,3 +326,122 @@ def test_e1_peer_summaries_precede_accounts_without_quota_evidence(round2_frame:
     screen = render_grouped_frame(round2_frame, width=80, height=24, expand=True)
     peers = [screen.index(f"{peer}  quota:") for peer in ("ag", "cc", "cx")]
     assert max(peers) < screen.index("ACCOUNTS"), screen
+
+
+@pytest.mark.parametrize("height", [21, 22])
+def test_r3_partial_peers_never_yield_to_account_details(round2_frame: dict[str, Any], height: int) -> None:
+    screen = render_grouped_frame(round2_frame, width=80, height=height, expand=True)
+    assert "PEERS [" in screen and "ag  quota:" in screen, screen
+    assert "notes / ACCOUNTS" not in screen
+
+
+def test_r3_bounded_latest_session_rows_name_their_peer(round2_frame: dict[str, Any]) -> None:
+    round2_frame["selected_groups"] = ["peers"]
+    peers = round2_frame["groups"]["peers"]["data"]["peers"]
+    peers.append({**deepcopy(peers[0]), "peer_id": "worker-long-id"})
+    screen = render_grouped_frame(round2_frame, width=120, height=40, expand=True)
+    rows = [row for row in screen.splitlines() if "-> latest session:" in row]
+    assert len(rows) == 4
+    assert [row.split()[0] for row in rows] == ["ag", "cc", "cx", "worker-long-id"]
+
+
+@pytest.mark.parametrize("text,width", [
+    ("cc login ok | plan pro | login token expiry n/a | auth chatgpt | age 4h26m [MEASURED]", 59),
+    ("PeerHub Monitor | OK | REFRESH OK | refresh in 589s | 2026-11-12 22:25:24Z", 59),
+])
+def test_r3_every_dropped_field_has_a_note(text: str, width: int) -> None:
+    from peerhub.cli.monitor_view import _fit_fields
+
+    rendered = _fit_fields(text, width, True)
+    assert "fields hidden" in rendered and "…" not in rendered
+    assert _width(rendered) <= width
+
+
+def test_r3_compact_snapshot_without_vt_keeps_append_behaviour(
+        frame: dict[str, Any], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from peerhub.cli.monitor import _print_grouped_snapshot
+    from peerhub.cli.view import FrameOutput
+    import sys
+
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(FrameOutput, "__init__", lambda self, **kw: (
+        setattr(self, "vt", False), setattr(self, "started", False),
+        setattr(self, "original_console_mode", None))[-1])
+
+    def geometry() -> tuple[int, int]:
+        raise AssertionError("A compact snapshot without VT must keep append geometry")
+
+    monkeypatch.setattr(FrameOutput, "geometry", staticmethod(geometry))
+    monkeypatch.setattr(FrameOutput, "width", staticmethod(lambda: 120))
+    _print_grouped_snapshot(frame, "plain")
+    screen = capsys.readouterr().out
+    assert len(screen.splitlines()) > 8 and "rows hidden" not in screen
+    assert "ok enough" in screen and "PEERS" in screen
+
+
+def _data_rows(screen: str) -> Counter[str]:
+    """Count visible data, excluding headings, decoration and cut notices."""
+    rows = []
+    for raw in screen.splitlines():
+        line = re.sub(r"\x1b\[[0-9;]*m", "", raw).strip()
+        if (line.startswith(("PeerHub Monitor", "DB:", "Coverage:", "STATE:", "── ", "-- ", "peerhub monitor"))
+                or re.match(r"^\+\d+ (?:more|rows hidden|--expand)", line)):
+            continue
+        rows.append(line)
+    return Counter(rows)
+
+
+@pytest.mark.parametrize("width", [60, 80, 120, 220])
+def test_r3_height_3_through_60_sweep_has_exact_cuts_and_peer_priority(
+        round2_frame: dict[str, Any], width: int) -> None:
+    for peer_count in (3, 7):
+        payload = deepcopy(round2_frame)
+        peers = payload["groups"]["peers"]["data"]["peers"]
+        peers.extend({**deepcopy(peers[0]), "peer_id": f"worker{i}"} for i in range(peer_count - 3))
+        all_rows = _data_rows(render_grouped_frame(payload, width=width, height=1000, expand=True))
+        for height in range(3, 61):
+            screen = render_grouped_frame(payload, width=width, height=height, expand=True)
+            lines = screen.splitlines()
+            assert len(lines) < height and all(_width(line) < width for line in lines), (width, height, screen)
+            shown = _data_rows(screen)
+            assert not shown - all_rows, (width, height, shown - all_rows, screen)
+            hidden = sum((all_rows - shown).values())
+            notice = re.search(r"\+(\d+) rows hidden", screen)
+            assert notice is not None and int(notice[1]) == hidden, (width, height, hidden, screen)
+            assert "all rows" in screen and "peerhub monitor --snapshot --group all --expand | more" in screen
+            if "notes / ACCOUNTS" in screen:
+                assert all(f"{peer['peer_id']:<4}quota:" in screen for peer in peers), (width, height, screen)
+            for line in lines:
+                if "-> latest session:" in line:
+                    assert line.split()[0] in {peer["peer_id"] for peer in peers}
+
+
+@pytest.mark.parametrize("width", [80, 120])
+def test_r3_colour_keeps_bounds_content_and_disclosures(
+        round2_frame: dict[str, Any], width: int, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    coloured = render_grouped_frame(round2_frame, width=width, height=40, expand=True, color=True)
+    plain = render_grouped_frame(round2_frame, width=width, height=40, expand=True, color=False)
+    assert "\x1b[" in coloured
+    assert re.sub(r"\x1b\[[0-9;]*m", "", coloured) == plain
+    assert all(_width(line) < width for line in coloured.splitlines())
+    assert "all rows" in coloured and "--expand | more" in coloured
+
+
+@pytest.mark.parametrize("width", [45, 60, 80])
+@pytest.mark.parametrize("expand", [False, True])
+@pytest.mark.parametrize("seconds", [1, 589])
+def test_live_title_keeps_refresh_and_countdown_before_lower_priority_fields(
+        round2_frame: dict[str, Any], width: int, expand: bool, seconds: int) -> None:
+    round2_frame["next_refresh_in"] = seconds
+    round2_frame["store_selection"]["source"] = "long-source-label"
+    screen = render_grouped_frame(round2_frame, width=width, height=24, expand=expand)
+    title = screen.splitlines()[0]
+    assert title.startswith("PeerHub Monitor")
+    assert "REFRESH OK" in title and f"refresh in {seconds}s" in title, screen
+    if not expand or width < 80:
+        assert "fields hidden" in screen.lower()
+    assert "…" not in title and all(_width(line) < width for line in screen.splitlines())
+    if width == 80:
+        assert "2026-11-12 22:25Z" in title
+        assert "long-source-label" not in title and "quota age" not in title

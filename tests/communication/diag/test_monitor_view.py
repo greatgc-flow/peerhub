@@ -726,7 +726,7 @@ def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
                 assert "PROFILES (configured)" not in rendered and "Columns omitted: " in rendered
 
             if (width, height) == (80, 12):
-                assert "rows hidden" in rendered or "groups omitted" in rendered
+                assert "rows hidden" in rendered
                 assert "--expand" in rendered
                 assert rendered.count("Coverage:") == 1
                 assert "STORE [" not in rendered
@@ -927,7 +927,7 @@ def test_peer_and_capacity_remainders_agree_without_changing_raw_frame(remaining
     frame["groups"]["peers"] = peer_group
     before = copy.deepcopy(frame)
     for group_id in ("peers", "capacity"):
-        lines = _group_lines(group_id, frame["groups"][group_id], width=width, unicode=unicode_mode)
+        lines, _ = _group_lines(group_id, frame["groups"][group_id], width=width, unicode=unicode_mode)
         assert shown in "\n".join(lines)
     assert frame == before
 

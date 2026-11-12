@@ -397,8 +397,9 @@ def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = F
     try:
         effective_view = ("rich" if output.vt else "plain") if view == "auto" else view
         color = effective_view == "rich" and use_color(output.vt, os.environ)
-        width, height = output.geometry() if tty else (output.width(), 24)
-        effective_height = height if tty else None
+        bounded = tty and (expand or output.vt)
+        width, height = output.geometry() if bounded else (output.width(), 24)
+        effective_height = height if bounded else None
         frame = _render_human_frame(payload, view=effective_view, width=width,
                                     height=effective_height, color=color, expand=expand)
         sys.stdout.write(frame)
