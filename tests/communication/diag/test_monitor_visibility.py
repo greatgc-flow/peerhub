@@ -296,12 +296,14 @@ def test_e2_accounts_drop_complete_fields(round2_frame: dict[str, Any], width: i
 
 
 @pytest.mark.parametrize("width", [20, 32, 34, 35, 36, 60, 80])
-def test_e2_group_rules_never_cut_a_trailing_field(width: int) -> None:
+def test_e2_group_rules_disclose_trailing_field_cuts(width: int) -> None:
     from peerhub.cli.monitor_view import _section_rule
 
     line = _section_rule("QUOTA [OK] | measured remaining | soonest exhaust: ag G-7D 5% in 6h42m", width, True)
     assert _width(line) <= width
-    if " | " in line:
+    if width == 20:
+        assert line.startswith("── QUOTA [OK]") and line.endswith("…")
+    elif " | " in line:
         assert "…" not in line
 
 
@@ -428,20 +430,55 @@ def test_r3_colour_keeps_bounds_content_and_disclosures(
     assert "all rows" in coloured and "--expand | more" in coloured
 
 
-@pytest.mark.parametrize("width", [45, 60, 80])
+@pytest.mark.parametrize("width", [40, 45, 60, 80])
 @pytest.mark.parametrize("expand", [False, True])
 @pytest.mark.parametrize("seconds", [1, 589])
+@pytest.mark.parametrize("refresh_state", ["REFRESH OK", "REFRESH WARN"])
 def test_live_title_keeps_refresh_and_countdown_before_lower_priority_fields(
-        round2_frame: dict[str, Any], width: int, expand: bool, seconds: int) -> None:
+        round2_frame: dict[str, Any], width: int, expand: bool, seconds: int, refresh_state: str) -> None:
     round2_frame["next_refresh_in"] = seconds
+    round2_frame["refresh_state"] = refresh_state
     round2_frame["store_selection"]["source"] = "long-source-label"
     screen = render_grouped_frame(round2_frame, width=width, height=24, expand=expand)
     title = screen.splitlines()[0]
-    assert title.startswith("PeerHub Monitor")
-    assert "REFRESH OK" in title and f"refresh in {seconds}s" in title, screen
+    assert title.startswith(("PeerHub Monitor", "Monitor"))
+    assert refresh_state in title and f"refresh in {seconds}s" in title, screen
     if not expand or width < 80:
         assert "fields hidden" in screen.lower()
     assert "…" not in title and all(_width(line) < width for line in screen.splitlines())
-    if width == 80:
+    if width == 80 and (not expand or refresh_state == "REFRESH OK" or seconds == 1):
         assert "2026-11-12 22:25Z" in title
         assert "long-source-label" not in title and "quota age" not in title
+
+
+@pytest.mark.parametrize("unicode_mode", [False, True])
+@pytest.mark.parametrize("width", [35, 40, 53])
+def test_usage_field_drop_has_a_cut_marker(frame: dict[str, Any], width: int, unicode_mode: bool) -> None:
+    frame["selected_groups"] = ["usage"]
+    screen = render_grouped_frame(frame, width=width, height=40, expand=True, unicode=unicode_mode)
+    row = next(line for line in screen.splitlines() if line.lstrip().startswith("ag provider-reported tokens:"))
+    assert row.endswith("…" if unicode_mode else "~"), screen
+    assert _width(row) < width
+
+
+def test_compact_title_uses_frame_disclosure_to_keep_timestamp(round2_frame: dict[str, Any]) -> None:
+    round2_frame["next_refresh_in"] = None
+    screen = render_grouped_frame(round2_frame, width=60, height=40)
+    title = screen.splitlines()[0]
+    assert "REFRESH OK | 2026-11-12 22:25Z" in title, screen
+    assert "fields hidden" not in title
+    assert "Fields hidden | --expand" in screen
+
+
+@pytest.mark.parametrize("width", [20, 28, 35])
+def test_live_title_falls_back_to_complete_countdown(round2_frame: dict[str, Any], width: int) -> None:
+    round2_frame["refresh_state"] = "REFRESH WARN"
+    title = render_grouped_frame(round2_frame, width=width, height=40).splitlines()[0]
+    assert title == "refresh in 589s"
+
+
+@pytest.mark.parametrize("width", [8, 12, 14])
+def test_live_title_never_shows_partial_countdown_digits(round2_frame: dict[str, Any], width: int) -> None:
+    title = render_grouped_frame(round2_frame, width=width, height=40).splitlines()[0]
+    assert not re.search(r"\d", title)
+    assert _width(title) < width

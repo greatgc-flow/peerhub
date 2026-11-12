@@ -78,36 +78,45 @@ def _pool_order(peer: str, pool: str) -> tuple[str, str, int, str]:
     return (peer, _pool_family(pool), _parse_window(pool)[0], pool)
 
 
-def _fit_fields(text: str, width: int, unicode: bool, painted: bool = False) -> str:
-    """Drop trailing fields whole; only an overlong first field can be cut."""
+def _fit_fields(text: str, width: int, unicode: bool, painted: bool = False, *, inline_note: bool = True) -> str:
+    """Drop trailing fields whole; mark a cut if the omission note cannot fit."""
     if _width(text) <= width:
         return _fit(text, width, unicode, painted=painted)
     fields = re.split(r" (?:\||·) ", _ANSI.sub("", text))
     if len(fields) == 1:
         return _fit(text, width, unicode, painted=painted)
     sep = " · " if " · " in text else " | "
-    note = sep + "fields hidden"
+    note = sep + "fields hidden" if inline_note else ""
+    next_field = fields[-1]
     while len(fields) > 1 and _width(sep.join(fields) + note) > width:
-        fields.pop()
+        next_field = fields.pop()
     fitted = sep.join(fields)
     if _width(fitted) > width:
         return _fit(fields[0], width, unicode)
-    return _clean(fitted + note if _width(fitted + note) <= width else fitted)
+    if _width(fitted + note) <= width:
+        return _clean(fitted + note)
+    return _fit(fitted + sep + next_field, width, unicode)
 
 
 def _fit_live_title(refresh_state: str, next_refresh: float | None, stamp: str,
-                    details: Sequence[str], width: int, unicode: bool) -> tuple[str, bool]:
+                    details: Sequence[str], width: int, unicode: bool, *, inline_note: bool = True) -> tuple[str, bool]:
     """Keep live progress together, then timestamp, before provenance and age."""
     progress = [refresh_state] if refresh_state else []
     if next_refresh is not None:
         progress.append(f"refresh in {max(0, math.ceil(next_refresh))}s")
     essential = "PeerHub Monitor " + "; ".join(progress)
+    if _width(essential) > width:
+        essential = "Monitor " + "; ".join(progress)
+        if _width(essential) > width and next_refresh is not None:
+            essential = progress[-1]
+            if _width(essential) > width:
+                return _fit("refresh pending", width, unicode), True
     title = " | ".join(field for field in [essential, stamp, *details] if field)
     dropped = _width(title) > width
-    if dropped and _width(essential + " | fields hidden") > width:
+    if dropped and inline_note and _width(essential + " | fields hidden") > width:
         # The caller discloses the cut separately when the live fields fill the line.
         return _fit(essential, width, unicode), True
-    return _fit_fields(title, width, unicode), dropped
+    return _fit_fields(title, width, unicode, inline_note=inline_note), dropped
 
 
 def _hidden_lines(rows: int, groups: int, width: int, unicode: bool, *, expand: bool,
@@ -1271,10 +1280,10 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
     field_cuts = height is not None and _width(title) > width
     if height is not None and (refresh_state or next_refresh is not None):
         fitted_title, field_cuts = _fit_live_title(refresh_state, next_refresh, stamp,
-            [f"DB:{source}", f"quota age {age_label}"], width, unicode)
+            [f"DB:{source}", f"quota age {age_label}"], width, unicode, inline_note=False)
         lines = [fitted_title]
     else:
-        lines = [_fit_fields(title, width, unicode)] if height is not None else _compact_wrap(title, width)
+        lines = [_fit_fields(title, width, unicode, inline_note=False)] if height is not None else _compact_wrap(title, width)
     optional: set[int] = set()
     legend_start = legend_end = 0
     errors = _obj(payload.get("errors"))
@@ -1548,24 +1557,10 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     store_lines = [*(_compact_wrap(db_line, max(1, width - 1)) if db_line else []),
                    *(_compact_wrap(str(payload["_store_note"]), max(1, width - 1)) if payload.get("_store_note") else [])]
     overhead = 1 + len(store_lines)
-    if height is not None and height - overhead <= 3:
-        if height <= 1:
-            return ""
-        hidden = sum(len(_group_lines(gid, _obj(display_groups.get(gid)), width=max(1, width - 1),
-                                     unicode=unicode, elapsed_seconds=_number(payload.get("display_elapsed_seconds")) or 0,
-                                     read_at=_number(payload.get("read_at")), expand=expand,
-                                     bounded=True)[0])
-                     + int(_obj(display_groups.get(gid)).get("status") in {"ERROR", "FAILED"}) for gid in selected)
-        if height >= 3 and width >= 60:
-            title = _fit(f"PeerHub Monitor | +{hidden} rows hidden; all rows:", width - 1, unicode)
-            hint = "peerhub monitor --snapshot --group all --expand" + (" | more" if expand else "")
-            return title + "\n" + hint + "\n"
-        notice = f"+{hidden} rows hidden | --expand"
-        if _width(notice) > width - 1:
-            notice = f"+{hidden} --expand"
-        return _fit(notice, max(0, width - 1), unicode) + "\n"
     rendered = _render_grouped_frame(display, view=view, color=color, unicode=unicode,
-                                     width=width, height=max(1, height - overhead) if height else None, expand=expand)
+                                     width=width, height=height, expand=expand, reserved_lines=overhead)
+    if height is not None and height - overhead <= 3:
+        return rendered
     lines = rendered.splitlines()
     start = next((i for i, line in enumerate(lines) if "QUOTA [" in line), None)
     if start is None:
@@ -1592,7 +1587,7 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
 
 def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
-                         expand: bool = False) -> str:
+                         expand: bool = False, reserved_lines: int = 0) -> str:
     """Render a cached schema-2 frame; height enables bounded interactive layout."""
     if height is None:
         return _render_unbounded_frame(payload, view=view, color=color, unicode=unicode, width=width, expand=expand)
@@ -1601,6 +1596,8 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
     target_width = width - 1
     if target_width <= 0 or height <= 1:
         return ""
+    tiny_height = height if reserved_lines and height - reserved_lines <= 3 else None
+    height = max(3 if tiny_height is not None else 1, height - reserved_lines)
 
     selected = payload.get("selected_groups")
     raw_group_ids = [str(g) for g in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
@@ -1622,35 +1619,25 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
     next_refresh = _number(payload.get("next_refresh_in"))
     elapsed_seconds = _number(payload.get("display_elapsed_seconds")) or 0.0
 
-    title = f"PeerHub Monitor | {status_label}"
-    if errors or partial:
-        title += f" | {errors} err {'·' if unicode else '|'} {partial} partial"
-    if refresh_state:
-        title += f" | {refresh_state}"
-    if width < 48:
-        title = f"Monitor {status_label}"
-        if errors or partial:
-            title += f" E{errors}/P{partial}"
-        if refresh_state:
-            title += f" {refresh_state}"
-    if next_refresh is not None:
-        title += f" | refresh in {max(0, math.ceil(next_refresh))}s"
-    if width >= 48 and read_at is not None:
-        try:
-            if width >= 120:
-                title += " | " + datetime.fromtimestamp(read_at, timezone.utc).strftime("%H:%M:%SZ")
-            else:
-                title += " | " + datetime.fromtimestamp(read_at, timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
-        except (OverflowError, OSError, ValueError):
-            pass
-
-    fitted_title = _fit_fields(title, target_width, unicode)
     title_fields_hidden = False
     if refresh_state or next_refresh is not None:
         stamp = _utc_text(read_at + elapsed_seconds, "%Y-%m-%d %H:%MZ") if read_at is not None else None
         details = [status_label, f"{errors} err / {partial} partial" if errors or partial else ""]
         fitted_title, dropped = _fit_live_title(refresh_state, next_refresh, stamp or "", details, target_width, unicode)
         title_fields_hidden = dropped and "fields hidden" not in fitted_title
+    else:
+        title = f"PeerHub Monitor | {status_label}"
+        if errors or partial:
+            title += f" | {errors} err {'·' if unicode else '|'} {partial} partial"
+        if width < 48:
+            title = f"Monitor {status_label}"
+            if errors or partial:
+                title += f" E{errors}/P{partial}"
+        elif read_at is not None:
+            stamp = _utc_text(read_at, "%H:%M:%SZ" if width >= 120 else "%Y-%m-%d %H:%M:%SZ")
+            if stamp:
+                title += " | " + stamp
+        fitted_title = _fit_fields(title, target_width, unicode)
     lines: list[str] = [fitted_title]
     if title_fields_hidden:
         lines.append(_fit("Title fields hidden", target_width, unicode))
@@ -1699,6 +1686,17 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
                 blocks.append(("capacity_details", _priority(grp),
                                _section_rule(f"QUOTA [{st}] notes / ACCOUNTS", target_width, unicode, color),
                                content_lines[table_size:]))
+
+    if tiny_height is not None:
+        hidden = sum(len(block[3]) for block in blocks)
+        if tiny_height >= 3 and width >= 60:
+            title = _fit(f"PeerHub Monitor | +{hidden} rows hidden; all rows:", target_width, unicode)
+            hint = "peerhub monitor --snapshot --group all --expand" + (" | more" if expand else "")
+            return title + "\n" + hint + "\n"
+        notice = f"+{hidden} rows hidden | --expand"
+        if _width(notice) > target_width:
+            notice = f"+{hidden} --expand"
+        return _fit(notice, target_width, unicode) + "\n"
 
     # Quota-first height allocation
     max_lines = height - 1
