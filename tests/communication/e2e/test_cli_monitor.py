@@ -690,11 +690,14 @@ def test_redirected_snapshot_keeps_full_human_group_frame(tmp_path, capsys):
 def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
     import fcntl
     import pty
+    import re
     import struct
     import subprocess
     import sys
     import termios
     from pathlib import Path
+
+    from peerhub.cli.monitor_view import _width
 
     db = _db(tmp_path)
     master, slave = pty.openpty()
@@ -727,8 +730,9 @@ def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
     rendered = output.decode("utf-8", errors="replace")
     lines = rendered.rstrip("\r\n").splitlines()
     assert len(lines) <= 7
-    assert "details: --expand" in rendered
+    assert re.search(r"\+\d+ rows hidden", rendered)
     assert "--expand" in rendered
+    assert all(_width(line) < 40 for line in lines)
     assert "COLUMNS" not in rendered
     assert "\x1b" not in rendered
 

@@ -552,3 +552,21 @@ def test_expanded_spare_rows_favor_accounts_after_all_peer_summaries(round2_fram
     assert all(f"{peer}  quota:" in screen for peer in ("ag", "cc", "cx"))
     assert "cc login ok | plan pro" in screen
     assert "-> latest session:" not in screen
+
+
+@pytest.mark.parametrize("unicode_mode", [False, True])
+@pytest.mark.parametrize("width,height", [(40, 8), (32, 40), (20, 40)])
+def test_no_quota_guidance_never_loses_command_silently(
+        frame: dict[str, Any], width: int, height: int, unicode_mode: bool) -> None:
+    frame["groups"]["capacity"]["data"]["observations"] = []
+    frame["configured_profiles"] = []
+    frame["store_selection"] = {
+        "source": "explicit", "path": "/tmp/pytest-of-runner/pytest-0/test_posix_pty_snapshot_obeys_0/m.db"}
+    screen = render_grouped_frame(frame, width=width, height=height, unicode=unicode_mode)
+    lines = screen.splitlines()
+    assert len(lines) < height and all(_width(line) < width for line in lines)
+    row = next(line for line in lines if line.startswith("no quota evidence"))
+    if "next: peerhub observation refresh" not in row:
+        assert "fields hidden" in row or row.endswith("…" if unicode_mode else "~"), screen
+    if height == 8:
+        assert re.search(r"\+\d+ rows hidden", screen) and "--expand" in screen
