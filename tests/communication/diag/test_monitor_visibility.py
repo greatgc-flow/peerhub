@@ -555,7 +555,7 @@ def test_expanded_spare_rows_favor_accounts_after_all_peer_summaries(round2_fram
 
 
 @pytest.mark.parametrize("unicode_mode", [False, True])
-@pytest.mark.parametrize("width,height", [(40, 8), (32, 40), (20, 40)])
+@pytest.mark.parametrize("width,height", [(40, 8), (34, 40), (40, 40), (54, 40), (32, 40), (20, 40)])
 def test_no_quota_guidance_never_loses_command_silently(
         frame: dict[str, Any], width: int, height: int, unicode_mode: bool) -> None:
     frame["groups"]["capacity"]["data"]["observations"] = []
@@ -565,8 +565,16 @@ def test_no_quota_guidance_never_loses_command_silently(
     screen = render_grouped_frame(frame, width=width, height=height, unicode=unicode_mode)
     lines = screen.splitlines()
     assert len(lines) < height and all(_width(line) < width for line in lines)
-    row = next(line for line in lines if line.startswith("no quota evidence"))
-    if "next: peerhub observation refresh" not in row:
-        assert "fields hidden" in row or row.endswith("…" if unicode_mode else "~"), screen
+    row_index = lines.index("no quota evidence")
+    command = "next: peerhub observation refresh"
+    guidance = lines[row_index + 1]
     if height == 8:
-        assert re.search(r"\+\d+ rows hidden", screen) and "--expand" in screen
+        notice = re.search(r"\+(\d+) rows hidden", screen)
+        assert guidance == command or re.match(r"\+\d+ rows hidden", guidance), screen
+        assert notice and "--expand" in screen
+        full = render_grouped_frame(frame, width=width, height=1000, unicode=unicode_mode)
+        assert int(notice[1]) == len(full.splitlines()) - len(lines) + 1
+    elif width >= 34:
+        assert guidance == command, screen
+    else:
+        assert guidance.startswith("next: peerhub") and guidance.endswith("…" if unicode_mode else "~"), screen

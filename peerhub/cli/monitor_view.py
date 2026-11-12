@@ -1308,7 +1308,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
         lines.append(_section_rule("POOLS", width, True, color and "NO_COLOR" not in os.environ)
                      if view == "rich" and unicode else "POOLS")
         if not rows:
-            lines.extend([_fit_fields("no quota evidence | next: peerhub observation refresh", width, unicode)]
+            lines.extend(["no quota evidence", _fit("next: peerhub observation refresh", width, unicode)]
                          if height is not None else _compact_wrap("no quota evidence; next: peerhub observation refresh", width))
         for row in rows:  # the bar and the pace glyph are presentation of values already in the row
             has_value = row["state"] not in {"n/a", "?", "reset"}
