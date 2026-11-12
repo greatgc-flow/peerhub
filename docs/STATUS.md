@@ -4,9 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.9 (release candidate)
+## Current source: v0.24.9 (published)
 
 v0.24.9 fixes `tools.model_ping` false positives for rejected cx models (#353) and stale plans in the monitor ACCOUNTS line (#354), and adds the `concurrent-cc-lanes` lesson (#352). Backlog triage 2026-11-13 (unanimous, cx.effort and ag.standard 100 on every item): #324 step 2, #323 and #313 closed as not planned with reopen triggers; #330 stays open until the next schema change.
+
+Published 2026-11-12 (UTC; 11-13 KST; PR #355, tag `v0.24.9`, target `3d2af774`, publish run 43258157929); G3 passed bound to `3d2af774246a` (live gate, three stages; evidence `docs/implementation/live_evidence/2026-11-12-v0.24.9.json`). PyPI 0.24.9 verified in a clean virtualenv (`--version`, `explain concurrent-cc-lanes`, ACCOUNTS `cx pro login ok`). Reviews: cc.fable 100 (2 rounds), ag.standard 100; implemented by cx.effort.
 
 ### v0.24.8 (published)
 
