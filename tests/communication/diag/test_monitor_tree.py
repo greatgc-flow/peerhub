@@ -98,10 +98,11 @@ def test_flat_fallback_preserves_02410_cells(expand: bool) -> None:
     frame = frame_for({"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-7D", "F-7D"], "cc.c": ["F-7D"]})
     rows = pool_lines(mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=expand))
     # Frozen 0.24.10 row cells, allowing the mandated first-row-only peer and
-    # POOL padding changes. No capacities, pace values or flat ordering change.
-    expected = (["C-5H low 10% - v-2 [#.......] claude 10s a",
-                 "C-7D ok 20% - v-2 [##......] claude 10s a,b",
-                 "F-7D ok 30% - v-2 [##......] fable 10s b,c"] if not expand else
+    # POOL padding and measurement-reset fallback changes. Capacities, pace
+    # values and flat ordering stay unchanged.
+    expected = (["C-5H low 10% 2h30m v-2 [#...|...] claude 10s a",
+                 "C-7D ok 20% 2h30m v-2 [|#......] claude 10s a,b",
+                 "F-7D ok 30% 2h30m v-2 [|#......] fable 10s b,c"] if not expand else
                 ["C-5H ON_PACE 10% 2h30m v-2.5pp [#...|...] - 10s cc.a",
                  "C-7D ON_PACE 20% 2h30m v-2.5pp [|#......] - 10s cc.a,cc.b",
                  "F-7D ON_PACE 30% 2h30m v-2.5pp [|#......] - 10s cc.b,cc.c"])
@@ -146,19 +147,24 @@ def test_folded_na_combines_suffix_after_last_column_without_losing_numbers(expa
             item.update(state="ABSENT", reason="not reported by provider", measurements=None)
     before = json.dumps(frame, sort_keys=True)
     screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=width, expand=expand)
-    assert "(7D,5H n/a)" in screen
-    assert "C-5H" not in screen and "F-7D" not in screen
+    assert "(F-7D,C-5H n/a)" in screen
+    assert "`- C-5H" not in screen and "`- F-7D" not in screen
     assert "30%" in screen if width >= 60 else True  # narrower expanded tables may drop REM whole
     assert all(mv._width(line) < width for line in screen.splitlines())
     assert json.dumps(frame, sort_keys=True) == before
 
 
 @pytest.mark.parametrize("expand", [False, True])
-def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool) -> None:
+@pytest.mark.parametrize("with_peers", [False, True])
+def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool, with_peers: bool) -> None:
     frame = frame_for({"cc.a": ["C-5H", "C-7D"]})
     rows = frame["groups"]["capacity"]["data"]["observations"]
     rows.extend([{**item, "peer_id": "cx", "pool_ref": item["pool_ref"].replace("cc:C", "cx:X")} for item in rows[:]])
     frame["configured_profiles"].append({"profile": "cx.a", "fields": {"pools": {"value": ["X-5H", "X-7D"]}}})
+    if with_peers:
+        frame["selected_groups"].append("peers")
+        frame["groups"]["peers"] = {"status": "OK", "data": {"peers": [
+            {"peer_id": peer} for peer in ("cc", "cx")]}}
     full = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, expand=expand)
     lines = full.splitlines()
     cx_index = next(i for i, row in enumerate(lines) if row.startswith("cx "))
@@ -166,7 +172,29 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool)
     tight = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=len(lines) - 1, expand=expand)
     assert "\n\n" not in tight
     assert all(pool in tight for pool in ("C-7D", "C-5H", "X-7D", "X-5H"))
-    assert sum(line.startswith("cc ") for line in pool_lines(tight)) == 1
+    assert sum(bool(re.match(r"^cc\s+[CFX]-\d+[HD]\b", line)) for line in pool_lines(tight)) == 1
+    for height in range(2, len(lines) + 3):
+        screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=height, expand=expand)
+        assert len(screen.splitlines()) < height
+        if "\n\n" in screen:
+            assert "rows hidden" not in screen
+            assert all(pool in screen for pool in ("C-7D", "C-5H", "X-7D", "X-5H"))
+            if with_peers and expand:
+                assert screen.count("-> latest session:") == 2 and "Model facts:" in screen
+
+
+@pytest.mark.parametrize("reason,detail", [
+    ("disabled by provider", "disabled by provider"),
+    ("not reported by provider; plan=pro", "not reported (plan pro)"),
+])
+def test_expanded_folded_pool_keeps_identity_and_reason(reason: str, detail: str) -> None:
+    frame = frame_for({"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-7D", "C-5H", "F-7D"]})
+    item = next(item for item in frame["groups"]["capacity"]["data"]["observations"]
+                if item["pool_ref"].endswith("F-7D"))
+    item.update(state="ABSENT", reason=reason, measurements=None)
+    screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=True)
+    assert "(F-7D n/a)" in screen
+    assert f"cc F-7D n/a {detail}" in screen
 
 
 @pytest.mark.parametrize("state,remaining,aged,expected", [
@@ -238,13 +266,17 @@ def test_stale_out_is_dim_even_before_ttl(expand: bool, monkeypatch: pytest.Monk
     assert "\x1b[2mSTALE:window" in screen if expand else "\x1b[2mout" in screen
 
 
-def test_expanded_passed_measurement_reset_is_dim(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("reset,elapsed", [(0, 0), (10, 10), (-1, 0)])
+def test_passed_measurement_reset_colour_matches_between_views(
+        reset: int, elapsed: int, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-5H"]})
     item = frame["groups"]["capacity"]["data"]["observations"][0]
-    item["measurements"]["reset_in_seconds"] = 0
-    screen = mv.render_grouped_frame(frame, color=True, width=180, expand=True)
-    assert "\x1b[2mON_PACE\x1b[0m" in screen
+    item["measurements"]["reset_in_seconds"] = reset
+    frame["display_elapsed_seconds"] = elapsed
+    for expand, word in ((False, "reset"), (True, "ON_PACE")):
+        screen = mv.render_grouped_frame(frame, color=True, width=180, expand=expand)
+        assert f"\x1b[2m{word}\x1b[0m" in screen
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -299,6 +331,17 @@ def test_bad_view_env_is_usage_error_naming_variable(monkeypatch: pytest.MonkeyP
     parser, args = parse_monitor(["--view", "plain"])
     validate_monitor_args(parser, args)
     assert args.view == "plain"
+
+
+def test_bad_explicit_view_is_choice_error_naming_option(
+        monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.setenv("PEERHUB_MONITOR_VIEW", "broken")
+    with pytest.raises(SystemExit) as exc:
+        parse_monitor(["--view", "bogus"])
+    error = capsys.readouterr().err
+    assert exc.value.code == 2
+    assert "argument --view: invalid choice: 'bogus'" in error
+    assert "PEERHUB_MONITOR_VIEW" not in error
 
 
 @pytest.mark.parametrize("expand", [False, True])

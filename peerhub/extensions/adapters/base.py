@@ -32,6 +32,10 @@ from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, Run
 
 MAX_PROMPT_BYTES = 1_000_000
 EXCERPT_CHARS = 300
+AG_REQUIRES_WRITABLE = (
+    "ag execution requires --writable: agy CLI does not enforce a read-only sandbox when "
+    "--mode accept-edits is omitted"
+)
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _SESSION_ID_RE = re.compile(r"[A-Za-z0-9._:-]{1,200}")
 _VERSION_RE = re.compile(r"\d+\.\d+\.\d+[0-9A-Za-z.+-]*")
@@ -1043,10 +1047,7 @@ class CliRuntimeTarget:
     def validate_execution_policy(self) -> None:
         """Fail closed before execution when the provider CLI cannot enforce the requested write policy (#140)."""
         if self.runtime_kind == "ag" and not self._writable:
-            raise PrespawnError(
-                "ag execution requires --writable: agy CLI does not enforce a read-only sandbox when "
-                "--mode accept-edits is omitted"
-            )
+            raise PrespawnError(AG_REQUIRES_WRITABLE)
 
     # ---- discovery (LIVE-004/005): never spends model tokens
     def discover(self, timeout_s: float = 20.0) -> dict[str, Any]:

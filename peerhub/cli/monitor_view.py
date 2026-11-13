@@ -104,10 +104,6 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool) -> tuple[list[dict[
                         and window <= _parse_window(name)[0] < 999999999
                         and (members[child] < members[name] or window < _parse_window(name)[0])]
             minimal = [name for name in eligible if not any(members[other] < members[name] for other in eligible)]
-            minimal_sets = {frozenset(members[name]) for name in minimal}
-            if len(minimal_sets) > 1:
-                flat = True
-                break
             if minimal:
                 shortest = min(_parse_window(name)[0] for name in minimal)
                 candidates = [name for name in minimal if _parse_window(name)[0] == shortest]
@@ -132,7 +128,7 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool) -> tuple[list[dict[
             # nodes as full rows so descendants still have their actual parent.
             folded = [child for child in children[name] if by_name[child]["state"].lower() == "n/a" and not children[child]]
             if folded:
-                row["suffix"] = "(" + ",".join(_parse_window(child)[1] for child in folded) + " n/a)"
+                row["suffix"] = "(" + ",".join(folded) + " n/a)"
             visible = [child for child in children[name] if child not in folded]
             for i, child in enumerate(visible):
                 last = i == len(visible) - 1
@@ -900,19 +896,17 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 previous_peer = row["peer"]
                 item = row["source"]
                 summary = _compact_pool(item, read_at or 0, elapsed_seconds, {})
-                measurement_reset = _number(_obj(item.get("measurements")).get("reset_in_seconds"))
                 invalid = (item.get("state") == "STALE" or bool(summary["aged"])
-                           or summary["state"] in {"reset", "?", "n/a"}
-                           or measurement_reset is not None and measurement_reset <= elapsed_seconds)
+                           or summary["state"] in {"reset", "?", "n/a"})
                 code = _quota_color(row["cells"]["STATE"], _number(summary["remaining"]), aged=invalid) if color else None
                 line = (_paint(table_line(row["cells"]), "2") if color and row["state"] == "n/a"
                         else table_line(row["cells"], code))
                 rows.extend(_quota_suffix(line, str(row["suffix"]), width, unicode, color))
             table_size = len(rows)
-            # Folded n/a windows are disclosed on their shown parent, once.
-            full_na = {(str(row["peer"]), str(row["pool"])) for row in layout if str(row["state"]).lower() in {"n/a", "?"}}
+            # Keep reasons for folded pools; retired pools already have a combined note.
+            retired = {key for key, item in sources.items() if item.get("display_retired")}
             rows.extend(_paint(_fit(note, width, unicode), "2") if color else _fit(note, width, unicode)
-                        for note in [*retired_notes, *[note for note in na_notes if tuple(note.split()[:2]) in full_na]])
+                        for note in [*retired_notes, *[note for note in na_notes if tuple(note.split()[:2]) not in retired]])
             rows.extend(_fit(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}", width, unicode) for peer, codes in probe_notes.items())
             if len(columns) < len(column_widths):
                 rows.extend(_omitted_rows(["bar" if c == "[BAR]" else c.lower() for c in list(column_widths)[len(columns):]], width))
@@ -1168,6 +1162,8 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
     aged = (age is not None and ttl is not None and age >= ttl) or (ttl is None and item.get("state") == "STALE")
     resets_at = _number(item.get("resets_at"))
     reset_in = _number(item.get("reset_in_seconds"))
+    if reset_in is None:
+        reset_in = _number(measurements.get("reset_in_seconds"))
     if resets_at is not None:
         reset_in = resets_at - now - elapsed
     elif reset_in is not None:
@@ -1838,10 +1834,8 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
     def minimum(block: tuple[str, int, str, list[str]]) -> int:
         return 1 + summary_size(block) + int(len(block[3]) > summary_size(block))
 
-    # Loaded sessions may be unbounded. Keep peer spacing when the quota table
-    # and section summaries fit; spacing yields before those displayed data rows.
-    required = len(lines) + extra_overhead + sum(
-        1 + len(block[3]) if block[0] == "capacity" else minimum(block) for block in blocks)
+    # Peer spacing yields before any data rows, including section details.
+    required = len(lines) + extra_overhead + sum(1 + len(block[3]) for block in blocks)
     if required + len(_hidden_lines(0, 0, target_width, unicode, expand=expand)) > height - 1:
         blocks = [(gid, priority, rule, [row for row in content if row]) for gid, priority, rule, content in blocks]
 

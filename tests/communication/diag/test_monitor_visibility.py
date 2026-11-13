@@ -250,12 +250,13 @@ def test_peer_separators_at_100x40_and_data_priority_at_80x24(
     lines = spacious.splitlines()
     for peer in ("cc", "cx"):
         first_pool = next(i for i, line in enumerate(lines) if re.match(rf"^{peer} +\S+-\d+[HD] ", line))
-        assert lines[first_pool - 1] == "", spacious
+        # Expanded sessions exceed this viewport; spacing must yield to details.
+        assert (lines[first_pool - 1] == "") is (not expand), spacious
     tight = render_grouped_frame(round2_frame, width=80, height=24, expand=expand, unicode=unicode_mode)
     assert "\n\n" not in tight
     for pool in ("3P-5H", "3P-7D", "A-7D", "G-5H", "G-7D", "C-5H", "C-7D", "F-7D", "X-30D", "X-7D"):
         assert pool in tight
-    assert "(5H n/a)" in tight
+    assert "(X-5H n/a)" in tight
     assert len(lines) < 40 and all(_width(line) < 100 for line in lines)
     assert len(tight.splitlines()) < 24 and all(_width(line) < 80 for line in tight.splitlines())
     assert round2_frame == before
@@ -521,7 +522,7 @@ def test_compact_appended_disclosure_keeps_indices_after_legend_collapse(round2_
     lines = screen.splitlines()
     assert lines[0].startswith("PeerHub Monitor")
     assert len([line for line in lines if re.match(r"^(?:(?:ag|cc|cx) +| +)(?:[|`]- )?\S+-\d+[HD] ", line)]) == 10
-    assert "(5H n/a)" in screen  # the eleventh pool is folded into X-7D
+    assert "(X-5H n/a)" in screen  # the eleventh pool is folded into X-7D
     assert "Legend: peerhub monitor --help" in lines
     assert "PEERS" in lines and "Fields hidden | --expand" in lines
     peers = lines.index("PEERS")

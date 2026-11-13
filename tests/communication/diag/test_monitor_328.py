@@ -222,9 +222,9 @@ def test_disabled_bucket_is_na_with_no_capacity_or_reset_in_compact_expanded_and
     line = row_with(compact, "3P-5H")
     assert "n/a" in line and "100%" not in line and "aged" not in line
     expanded = snapshot(store, capsys, "--expand")
-    line = next(line for line in expanded.splitlines() if "3P-7D" in line and "(5H n/a)" in line)
-    assert "(5H n/a)" in line and "100%" not in line and "STALE" not in line
-    assert "3P-5H" not in expanded  # n/a child folds into its displayed parent
+    line = next(line for line in expanded.splitlines() if "3P-7D" in line and "(3P-5H n/a)" in line)
+    assert "(3P-5H n/a)" in line and "100%" not in line and "STALE" not in line
+    assert "ag 3P-5H n/a disabled by provider:" in expanded
     main(["--db", str(store.db), "monitor", "--snapshot", "--json"])
     items = json.loads(capsys.readouterr().out)["groups"]["capacity"]["data"]["observations"]
     item = next(o for o in items if o["pool_ref"] == "quota:ag:3P-5H")

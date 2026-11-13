@@ -71,7 +71,7 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
         assert "%" not in row if value is None else value in row
     positions = [screen.index(_row(screen, name)) for name in ("3P-7D", "3P-5H", "A-7D", "G-7D", "G-5H")]
     assert positions == sorted(positions)  # roots by family; containing windows precede children
-    assert "(5H n/a)" in _row(screen, "X-7D")
+    assert "(X-5H n/a)" in _row(screen, "X-7D")
     assert "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale" in screen
     assert "G flash A argon" not in screen
     assert "X-5H n/a (plan prolite)" in screen
@@ -410,7 +410,7 @@ def test_absent_and_reset_windows_on_one_peer_do_not_hide_each_other(compact_fra
     reset.update(resets_at=NOW - 1, age_seconds=540, state="STALE")
     compact_frame["groups"]["capacity"]["data"]["observations"] = [absent, reset]
     screen = render_grouped_frame(compact_frame, view="plain", width=100)
-    assert "(5H n/a)" in _row(screen, "X-7D")
+    assert "(X-5H n/a)" in _row(screen, "X-7D")
     assert "reset" in _row(screen, "X-7D").split()
     assert "%" not in _row(screen, "X-7D")
     assert "89%" not in screen
@@ -619,6 +619,8 @@ def _pool_order(screen):
     order = []
     peer = ""
     for line in screen.splitlines():
+        if re.match(r"^(ag|cc|cx) \S+ (n/a|\?) ", line):
+            continue  # reason notes have single-spaced peer/pool/state prefixes
         match = re.match(r"^(?:(ag|cc|cx)\s+|\s+)(?:[|`]-\s+)?((?:3P|[ACGFX])-\d+[HD])\s", line)
         if match:
             peer = match[1] or peer
@@ -675,7 +677,7 @@ def test_pool_bar_shows_remaining_and_even_burn_tick(compact_frame, unicode_mode
     screen = render_grouped_frame(compact_frame, view="plain", unicode=unicode_mode, width=100)
     # G-5H: 80% left, 1h of a 5h window left -> even burn leaves 20%, so the tick sits in cell 1
     assert f"[{full}|{full * 4}{empty * 2}]" in _row(screen, "G-5H")
-    assert "(5H n/a)" in _row(screen, "X-7D")  # n/a child is folded
+    assert "(X-5H n/a)" in _row(screen, "X-7D")  # n/a child is folded
     assert "[--------]" in _row(screen, "F-7D")  # unknown
     assert "[--------]" in _row(screen, "G-7D")  # reset window passed
 

@@ -641,12 +641,10 @@ def render_guidance_hint(entry: GuidanceEntry) -> str:
 
 def render_exception_guidance_hint(code: str, exception: BaseException | None) -> str:
     """Keep exception recovery specific to the pre-spawn policy that rejected execution."""
+    from peerhub.extensions.adapters.base import AG_REQUIRES_WRITABLE
     from peerhub.extensions.runtime_contract import PrespawnError
 
-    if code == "ask_delivery_failed" and isinstance(exception, PrespawnError) and str(exception) == (
-        "ag execution requires --writable: agy CLI does not enforce a read-only sandbox when "
-        "--mode accept-edits is omitted"
-    ):
+    if code == "ask_delivery_failed" and isinstance(exception, PrespawnError) and str(exception) == AG_REQUIRES_WRITABLE:
         return (
             "add --writable to your command (ag has no read-only sandbox; it allows edits, "
             "so trusted workspaces only); details: peerhub explain ag-requires-writable"

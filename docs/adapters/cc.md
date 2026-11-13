@@ -5,7 +5,7 @@ This page documents the current production contract. Historical migration notes 
 
 ## Current contract
 
-- Executable: `claude.cmd` (observed version `2.1.322` on 2026-11-10; local probe)
+- Executable: `claude.cmd` (observed version `2.1.323` on 2026-11-13; local probe)
 - Transport: process pipe; the prompt is written to standard input
 - Output: stream JSON; `result` is canonical text, `is_error` marks vendor
   failure.
@@ -27,7 +27,7 @@ Profile models and efforts live in the packaged `model-defaults.toml`; list the 
 
 `cc.fable` (`claude-fable-5-2`, high) is an opt-in top profile with pools F-7D and C-7D: Fable use also counts
 in the weekly all-models window (measured from the `claude /usage` payload, `weekly_scoped_shares`: Fable may use up
-to 50% of the weekly window; #334). Owner reset coupons are not visible via the CLI.
+to 50% of the weekly window; #334). Owner reset coupons (Fable and weekly, shown in the Claude app) are not listed by `/usage` or `/help`; the CLI only caches a boolean in its config (`unusedLimitResetStatusCache.holdsUnusedReset`, re-checked about every three days), with no count, type or redeem command (claude 2.1.323, 2026-11-13).
 
 `ask --writable` adds `--permission-mode acceptEdits`. Compatible native resume
 uses `--resume SESSION_ID` for compatible continuing asks by default.
