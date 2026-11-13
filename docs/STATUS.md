@@ -4,9 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.12 (release candidate)
+## Current source: v0.24.12 (published)
 
 v0.24.12 is a patch from the item-level review of 0.24.11: the #359 JSON guidance names `--writable` and `peerhub explain ag-requires-writable`, the unknown-profile hint wording, and invariant-only model-facts tests.
+
+Published 2026-11-13 (UTC; PR #363, tag `v0.24.12`, target `121f1069`); G3 passed bound to `121f10691c32` (live gate, three stages; evidence `docs/implementation/live_evidence/2026-11-13-v0.24.12.json`). PyPI 0.24.12 verified in a clean virtualenv (`--version`, ag gate JSON guidance `explain_cmd` and `--writable` recover argv, unknown-profile hint). Item-level reviews: cc.fable A=100 B=100, ag.deepthink A=100 B=100.
 
 ### v0.24.11 (published)
 
