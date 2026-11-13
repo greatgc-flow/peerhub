@@ -23,6 +23,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Recipe: put the content the task needs inline via --query-file and say "no tools"; -w is the trusted project root (a prerequisite, not a guarantee); pass --writable on every turn, including resumed turns (#140, no read-only ag sandbox: use a provider with enforced read-only execution when writes are not allowed); one task per ask; verify claims from flash tiers; after an empty or denied_empty reply never resume that stream (this overrides stream reuse): start a new stream with the content inlined. If a fresh ask is still empty, check in order: many or unreadable files named in one prompt (name fewer, or use a stronger profile for bulk work); -w outside the agy trustedWorkspaces list; binary/NUL/huge files (give an excerpt inline); a shell command not allow-listed (agy rules match exact strings on Windows: use a command(regex:...) rule or avoid commands); pool quota exhausted (RESOURCE_EXHAUSTED; the error text gives the reset: rotate profile/pool). Past observation (E2, #302, closed 2026-11-09 as not reproducible after 3 re-tests): read_file was once denied even with a trusted -w, so still do not rely on file reads; inline the content.
 - Issue: #140, #284, #287, #300, #302
 
+## ag asks require explicit --writable, including pings and reviews (`ag-requires-writable`)
+
+- Keywords: ag, agy, writable, pings, reviews, ask_delivery_failed
+- Symptom: [ask_delivery_failed] ag execution requires --writable: agy CLI does not enforce a read-only sandbox when --mode accept-edits is omitted.
+- Fix: The #140 gate is intentional: agy has no read-only sandbox, so PeerHub rejects native ag asks before spawning unless write access is explicit. Add --writable to your command; pings and reviews need it too. It allows edits: trusted workspaces only. If write access is not acceptable, use a provider with an enforced read-only sandbox.
+- Issue: #140, #359
+
 ## ag silence and long asks (`ag-silence-long-asks`)
 
 - Keywords: ag, agy, silence, silent, long, asks, timeout, uncertain, blocked, stream

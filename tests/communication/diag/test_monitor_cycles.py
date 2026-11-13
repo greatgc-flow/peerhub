@@ -117,8 +117,11 @@ def test_cycles_parser_preserves_omission_and_explains_defaults(capsys):
     help_text = " ".join(capsys.readouterr().out.split())
     assert "default: 1 when stdout is not a TTY" in help_text
     assert "until interrupted on a TTY; 0 = until interrupted everywhere" in help_text
-    assert "rich (colour), plain (ASCII); both show PACE" in help_text
-    assert "non-TTY appends one completed frame every N s; a TTY without VT appends without escapes" in help_text
+    assert "rich (colour), plain (ASCII override" in help_text
+    assert "Both show PACE" in help_text
+    assert "PEERHUB_MONITOR_VIEW=plain for a lasting ASCII fix" in help_text
+    assert "explicit --view wins" in help_text
+    assert "non-TTY appends completed frames; TTY without VT appends without escapes" in help_text
     assert "Render detailed grouped sections with bars, pace and forecasts" in help_text
     assert "Render all loaded detail rows" not in help_text
 

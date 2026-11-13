@@ -48,13 +48,14 @@ def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeyp
     assert "duplicate" not in rendered
     assert "STATE: INSUFF=insufficient projection data" in rendered
     if color:
-        for code, state in [("32", "ON_PACE"), ("33", "WATCH"), ("35", "THREAT"), ("1;31", "EXHAUSTED"),
-                            ("1;31", "ERROR"), ("2", "UNKNOWN"), ("2;33", "STALE:window"), ("33", "INSUFF")]:
+        for code, state in [("32", "ON_PACE"), ("33", "WATCH"), ("31", "THREAT"), ("1;31", "EXHAUSTED"),
+                            ("2", "ERROR"), ("2", "UNKNOWN"), ("2", "STALE:window")]:
             line = next(line for line in rendered.splitlines() if f"{state}\x1b[0m" in line)
             assert f"\x1b[{code}m{state}\x1b[0m" in line
             assert re.search(rf"\x1b\[{re.escape(code)}m\[[^\]]*\]\x1b\[0m", line)  # the bar carries the state colour
             assert line.count("\x1b[0m") == 2 and not line.startswith("\x1b")
         assert not any(line.startswith("\x1b") for line in rendered.splitlines() if "PROBE" in line)
+        assert "\x1b[" not in next(line for line in rendered.splitlines() if "INSUFF" in line and "90%" in line)
     else:
         assert "\x1b" not in rendered
 
@@ -805,7 +806,8 @@ def test_expand_quota_row_shows_bar_tick_pace_glyph_and_colour_on_state_and_bar_
     assert "[████|░░░]" in unicode_row and "▲+12.5pp" in unicode_row
     colored = render_grouped_frame(frame, view="rich", color=True, unicode=False, width=140)
     line = next(line for line in colored.splitlines() if " G-5H " in line)
-    assert "\x1b[32mON_PACE\x1b[0m" in line and "\x1b[32m[####|...]\x1b[0m" in line and line.count("\x1b") == 4
+    assert "\x1b[32mON_PACE\x1b[0m" in line and "\x1b[32m[####|...]\x1b[0m" in line and line.count("\x1b") == 6
+    assert "\x1b[32m^\x1b[0m+12.5pp" in line
     assert _width(line) == _width(row) and re.sub(r"\x1b\[[0-9;]*m", "", colored) == render_grouped_frame(
         frame, view="rich", color=False, unicode=False, width=140)
     monkeypatch.setenv("NO_COLOR", "1")
@@ -1024,8 +1026,9 @@ def test_stored_escape_sequences_never_reach_the_terminal_even_when_colour_is_on
     assert "\x1b" not in plain and "\x07" not in plain
     colored = render_grouped_frame(quota_visual_frame, view="rich", color=True, width=140, height=height)
     assert "\x1b[32mON_PACE\x1b[0m" in colored  # the palette still paints the quota cells
-    assert not re.sub(r"\x1b\[(?:1;36|1;31|2;33|32|33|35|36|2|0)m", "", colored).count("\x1b")
-    assert "\x1b[31m" not in colored and "\x07" not in colored and "\x1b]" not in colored
+    assert not re.sub(r"\x1b\[(?:1;36|1;31|31|32|33|2|0)m", "", colored).count("\x1b")
+    assert "�[31m�]0;x�" in colored if height is None else True
+    assert "\x07" not in colored and "\x1b]" not in colored
 
 
 NOT_REPORTED = "not reported by provider; plan=prolite"

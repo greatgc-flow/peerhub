@@ -52,14 +52,15 @@ def _width(text: str) -> int:
                for char in _ANSI.sub("", text))
 
 
-def _fit(text: str, width: int, unicode: bool, painted: bool = False) -> str:
+def _fit(text: str, width: int, unicode: bool, painted: bool = False, *, indent: bool = False) -> str:
     if width <= 0:
         return ""
     if painted and _ANSI.search(text):  # only for rows whose cells were all _clean()ed before our own SGR colour was added
         if _width(text) <= width:
             return text
         text = _ANSI.sub("", text)
-    text = _clean(text)
+    leading = len(text) - len(text.lstrip(" ")) if indent else 0
+    text = " " * leading + _clean(text)
     if _width(text) <= width:
         return text
     mark = "…" if unicode else "~"
@@ -78,13 +79,90 @@ def _pool_order(peer: str, pool: str) -> tuple[str, str, int, str]:
     return (peer, _pool_family(pool), _parse_window(pool)[0], pool)
 
 
-def _fit_fields(text: str, width: int, unicode: bool, painted: bool = False, *, inline_note: bool = True) -> str:
+def _quota_layout(rows: list[dict[str, Any]], unicode: bool) -> tuple[list[dict[str, Any]], list[str]]:
+    """Derive a forest from configured consumers, leaving every pool's values intact."""
+    result: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for peer in sorted({str(row["peer"]) for row in rows}):
+        peer_rows = [dict(row) for row in rows if row["peer"] == peer]
+        retired = [row for row in peer_rows if row.get("retired")]
+        if retired:
+            names = ",".join(str(row["pool"]) for row in retired)
+            plans = ",".join(sorted({str(row.get("display_plan") or "unknown") for row in retired}))
+            notes.append(f"{peer} {names} n/a (not reported by plan {plans})")
+        active = [row for row in peer_rows if not row.get("retired")]
+        by_name = {str(row["pool"]): row for row in active}
+        members = {name: set(str(row["profiles"]).split(",")) - {"unmapped", ""} for name, row in by_name.items()}
+        parents: dict[str, str | None] = dict.fromkeys(by_name)
+        flat = len(by_name) != len(active) or any(a & b and not (a <= b or b <= a)
+                                                for a in members.values() for b in members.values())
+        for child in by_name:
+            if flat or not members[child]:
+                continue
+            window = _parse_window(child)[0]
+            eligible = [name for name in by_name if name != child and members[child] <= members[name]
+                        and window <= _parse_window(name)[0] < 999999999
+                        and (members[child] < members[name] or window < _parse_window(name)[0])]
+            minimal = [name for name in eligible if not any(members[other] < members[name] for other in eligible)]
+            minimal_sets = {frozenset(members[name]) for name in minimal}
+            if len(minimal_sets) > 1:
+                flat = True
+                break
+            if minimal:
+                shortest = min(_parse_window(name)[0] for name in minimal)
+                candidates = [name for name in minimal if _parse_window(name)[0] == shortest]
+                if len(candidates) != 1:
+                    flat = True
+                    break
+                parents[child] = candidates[0]
+        if flat:
+            parents = dict.fromkeys(by_name)
+        children: dict[str, list[str]] = {name: [] for name in by_name}
+        for child, parent in parents.items():
+            if parent is not None:
+                children[parent].append(child)
+        for names in children.values():
+            names.sort(key=lambda name: (-_parse_window(name)[0], name))
+
+        def visit(name: str, prefix: str, continuation: str) -> None:
+            row = by_name[name]
+            row.update(display_pool=prefix + name, display_peer=peer if not any(r["peer"] == peer for r in result) else "", suffix="")
+            result.append(row)
+            # A folded parent cannot carry a displayed dependency. Keep such n/a
+            # nodes as full rows so descendants still have their actual parent.
+            folded = [child for child in children[name] if by_name[child]["state"].lower() == "n/a" and not children[child]]
+            if folded:
+                row["suffix"] = "(" + ",".join(_parse_window(child)[1] for child in folded) + " n/a)"
+            visible = [child for child in children[name] if child not in folded]
+            for i, child in enumerate(visible):
+                last = i == len(visible) - 1
+                branch = ("└─ " if last else "├─ ") if unicode else ("`- " if last else "|- ")
+                stem = "   " if last else "│  " if unicode else "|  "
+                visit(child, continuation + branch, continuation + stem)
+
+        for name in sorted((name for name in by_name if parents[name] is None), key=lambda name: _pool_order(peer, name)):
+            visit(name, "", "")
+    return result, notes
+
+
+def _quota_suffix(line: str, suffix: str, width: int, unicode: bool, color: bool) -> list[str]:
+    """Keep folded names even when the trailing columns were dropped."""
+    if not suffix:
+        return [line]
+    note = _paint(suffix, "2") if color else suffix
+    if _width(line + " " + suffix) <= width:
+        return [line + " " + note]
+    return [line, *[_paint(part, "2") if color else part for part in _compact_wrap(suffix, width)]]
+
+
+def _fit_fields(text: str, width: int, unicode: bool, painted: bool = False, *, inline_note: bool = True,
+                indent: bool = False) -> str:
     """Drop trailing fields whole; mark a cut if the omission note cannot fit."""
     if _width(text) <= width:
-        return _fit(text, width, unicode, painted=painted)
+        return _fit(text, width, unicode, painted=painted, indent=indent)
     fields = re.split(r" (?:\||·) ", _ANSI.sub("", text))
     if len(fields) == 1:
-        return _fit(text, width, unicode, painted=painted)
+        return _fit(text, width, unicode, painted=painted, indent=indent)
     sep = " · " if " · " in text else " | "
     note = sep + "fields hidden" if inline_note else ""
     next_field = fields[-1]
@@ -211,14 +289,29 @@ def _pace_glyph(text: str, unicode: bool) -> str:
     return (up if match[0][0] == "+" else down) + text
 
 
-_STATE_COLORS = {"OK": "32", "ON_PACE": "32", "SAFE": "32", "MEASURED": "32",
-                 "LOW": "33", "INSUFF": "33", "WATCH": "33", "FAST": "35", "THREAT": "35",
-                 "OUT": "1;31", "EXHAUSTED": "1;31", "ERROR": "1;31", "AGED": "2;33", "STALE": "2;33",
-                 "RESET": "36", "N/A": "2", "?": "2", "UNKNOWN": "2"}
+def _quota_color(state: str, remaining: float | None = None, *, aged: bool = False) -> str | None:
+    """Evidence validity wins over the traffic-light precedence; retain the state word."""
+    state = state.split(":")[0].upper()
+    if aged or state not in {"OUT", "EXHAUSTED", "THREAT", "LOW", "FAST", "WATCH", "INSUFF", "INSUFFICIENT",
+                             "OK", "ON_PACE", "SAFE", "MEASURED"}:
+        return "2"
+    if state in {"OUT", "EXHAUSTED"} or remaining == 0:
+        return "1;31"
+    if state == "THREAT":
+        return "31"
+    if state in {"LOW", "FAST", "WATCH"} or remaining is not None and 0 < remaining <= .10:
+        return "33"
+    if state in {"INSUFF", "INSUFFICIENT"}:
+        return None
+    return "32" if state in {"OK", "ON_PACE", "SAFE", "MEASURED"} else "2"
 
 
-def _state_code(state: str) -> str | None:
-    return _STATE_COLORS.get(state.split(":")[0].upper())
+def _quota_cell(text: str, column: str, code: str | None) -> str:
+    if column in {"STATE", "BAR", "[BAR]"}:
+        return _paint(text, code)
+    if column == "PACE" and text[:1] in {"▲", "▼", "^", "v"}:
+        return _paint(text[0], code) + text[1:]
+    return text
 
 
 def _paint(text: str, code: str | None) -> str:
@@ -772,22 +865,54 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                               "STATE": state_str, "AGE": age_str,
                               "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
 
+            sources = {(_clean(item.get("peer_id") or "?"), _clean(item.get("pool_ref") or item.get("pool_kind") or "quota").split(":")[-1]): item
+                       for item in sorted_obs}
+            layout, retired_notes = _quota_layout([
+                {"peer": cells["PEER"], "pool": cells["POOL"], "state": cells["STATE"],
+                 "profiles": cells["PROFILES (configured)"], "cells": cells,
+                 "retired": sources[(cells["PEER"], cells["POOL"])].get("display_retired"),
+                 "display_plan": sources[(cells["PEER"], cells["POOL"])].get("display_plan")}
+                for cells in table], unicode)
+            for row in layout:
+                cells = row["cells"]
+                row["source"] = sources[(row["peer"], row["pool"])]
+                cells["PEER"], cells["POOL"] = row["display_peer"], row["display_pool"]
+            table = [row["cells"] for row in layout]
             # One column set for the whole table; PEER and POOL always stay, and no cell is cut.
             sizes = {c: max(_width(c) if bounded else w, *(_width(cells[c]) for cells in table))
                      if table else (_width(c) if bounded else w) for c, w in column_widths.items()}
+            sizes["POOL"] = max(_width("POOL"), *(_width(cells["POOL"]) for cells in table)) if table else 4
+            suffix_width = max((_width(str(row["suffix"])) + 1 for row in layout if row["suffix"]), default=0)
             columns = list(column_widths)
-            while len(columns) > 2 and sum(sizes[c] for c in columns) + 2 * (len(columns) - 1) > width:
+            while len(columns) > 2 and sum(sizes[c] for c in columns) + 2 * (len(columns) - 1) + suffix_width > width:
                 columns.pop()
 
             def table_line(cells: dict[str, str], code: str | None = None) -> str:
-                shown = {c: _paint(cells[c], code) if c in {"STATE", "[BAR]"} else cells[c] for c in columns}
+                shown = {c: _quota_cell(cells[c], c, code) for c in columns}
                 return "  ".join(" " * (sizes[c] - _width(cells[c])) + shown[c] if c in {"REM", "AGE"}
                                  else shown[c] + " " * (sizes[c] - _width(cells[c])) for c in columns).rstrip()
 
             rows.append(table_line({c: c for c in column_widths}))
-            rows.extend(table_line(cells, _state_code(cells["STATE"]) if color else None) for cells in table)
+            previous_peer = ""
+            for row in layout:
+                if previous_peer and previous_peer != row["peer"]:
+                    rows.append("")
+                previous_peer = row["peer"]
+                item = row["source"]
+                summary = _compact_pool(item, read_at or 0, elapsed_seconds, {})
+                measurement_reset = _number(_obj(item.get("measurements")).get("reset_in_seconds"))
+                invalid = (item.get("state") == "STALE" or bool(summary["aged"])
+                           or summary["state"] in {"reset", "?", "n/a"}
+                           or measurement_reset is not None and measurement_reset <= elapsed_seconds)
+                code = _quota_color(row["cells"]["STATE"], _number(summary["remaining"]), aged=invalid) if color else None
+                line = (_paint(table_line(row["cells"]), "2") if color and row["state"] == "n/a"
+                        else table_line(row["cells"], code))
+                rows.extend(_quota_suffix(line, str(row["suffix"]), width, unicode, color))
             table_size = len(rows)
-            rows.extend(_fit(note, width, unicode) for note in na_notes)
+            # Folded n/a windows are disclosed on their shown parent, once.
+            full_na = {(str(row["peer"]), str(row["pool"])) for row in layout if str(row["state"]).lower() in {"n/a", "?"}}
+            rows.extend(_paint(_fit(note, width, unicode), "2") if color else _fit(note, width, unicode)
+                        for note in [*retired_notes, *[note for note in na_notes if tuple(note.split()[:2]) in full_na]])
             rows.extend(_fit(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}", width, unicode) for peer, codes in probe_notes.items())
             if len(columns) < len(column_widths):
                 rows.extend(_omitted_rows(["bar" if c == "[BAR]" else c.lower() for c in list(column_widths)[len(columns):]], width))
@@ -970,7 +1095,7 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
                                   elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, color=color)
         for content in group_data:
             if group_id == "capacity":
-                lines.append(_fit(content, target_width, unicode, painted=color))
+                lines.append(_fit(content, target_width, unicode, painted=color, indent=True))
             else:
                 lines.append(_fit("  " + content, target_width, unicode))
 
@@ -1077,8 +1202,9 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
         pace_text = f"{rounded:+d}" if rounded else "0"
     return {"peer": peer, "pool": pool, "meaning": meaning, "remaining": remaining, "left": left,
             "resets": resets, "pace": pace_text, "reset_seconds": reset_in, "family": family, "age": _compact_age(age), "state": state, "aged": aged,
+            "color_state": state if state in {"n/a", "?", "reset", "aged"} else _clean(projection.get("state") or state),
             "needs_refresh": aged or age is None or state in {"?", "reset"}, "reason": reason, "display_plan": item.get("display_plan"),
-            "retired": bool(item.get("display_retired")),
+            "retired": bool(item.get("display_retired")), "stale": item.get("state") == "STALE",
             "profiles": ",".join(consumers.get(f"{peer}:{pool}", [])) or "unmapped"}
 
 
@@ -1317,24 +1443,33 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
             row["bar"] = _bar_quota(_number(row["remaining"]) if has_value else None, 8, unicode, burn)
             row["pace"] = _pace_glyph(str(row["pace"]), unicode)
         headers = ["PEER", "POOL", "STATE", "LEFT", "RESETS", "PACE", "BAR", "MEANING", "AGE", "PROFILES"]
-        fields = ["peer", "pool", "state", "left", "resets", "pace", "bar", "meaning", "age", "profiles"]
-        sizes = [max(len(label), max((_width(str(row[key])) for row in rows), default=0))
+        display_rows, retired_notes = _quota_layout(rows, unicode)
+        fields = ["display_peer", "display_pool", "state", "left", "resets", "pace", "bar", "meaning", "age", "profiles"]
+        sizes = [max(len(label), max((_width(str(row[key])) for row in display_rows), default=0))
                  for label, key in zip(headers, fields)]
+        suffix_width = max((_width(str(row["suffix"])) + 1 for row in display_rows if row["suffix"]), default=0)
         shown = len(headers)  # one column set for the whole table: drop whole columns from the right, keep PEER and POOL
-        while shown > 2 and sum(sizes[:shown]) + shown - 1 > width:
+        while shown > 2 and sum(sizes[:shown]) + shown - 1 + suffix_width > width:
             shown -= 1
 
         paint = color and view == "rich" and "NO_COLOR" not in os.environ
 
-        def table_line(cells: list[str], code: str | None = None) -> str:  # the colour goes on the STATE word and the BAR only
-            return " ".join((_paint(value, code) if name in {"STATE", "BAR"} else value) + " " * (size - _width(value))
+        def table_line(cells: list[str], code: str | None = None) -> str:
+            return " ".join(_quota_cell(value, name, code) + " " * (size - _width(value))
                             for name, value, size in zip(headers, cells[:shown], sizes)).rstrip()
         lines.append(table_line(headers))
-        lines.extend(table_line([str(row[key]) for key in fields], _state_code(str(row["state"])) if paint else None) for row in rows)
+        previous_peer = ""
+        for row in display_rows:
+            if previous_peer and previous_peer != row["peer"]:
+                lines.append("")
+            previous_peer = row["peer"]
+            code = _quota_color(str(row["color_state"]), _number(row["remaining"]), aged=bool(row["aged"] or row["stale"])) if paint else None
+            cells = [str(row[key]) for key in fields]
+            line = _paint(table_line(cells), "2") if paint and row["state"] == "n/a" else table_line(cells, code)
+            lines.extend(_quota_suffix(line, str(row["suffix"]), width, unicode, paint))
         note_start = len(lines)
-        for row in rows:
-            if row.get("retired"):
-                lines.extend(_compact_wrap(f"{row['peer']} {row['pool']} n/a (not reported by plan {row['display_plan']})", width))
+        for note in retired_notes:
+            lines.extend(_paint(part, "2") if paint else part for part in _compact_wrap(note, width))
         if shown < len(headers):
             lines.extend(_omitted_rows([name.lower() for name in headers[shown:]], width))
         legend_start = len(lines)
@@ -1402,6 +1537,13 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
     optional.update(range(note_start, len(lines)))
     if field_cuts:
         lines.append(_fit_fields("Fields hidden | --expand", width, unicode))
+    if height is not None and len(lines) > max(0, height - 1):
+        retained = [i for i, line in enumerate(lines) if line]
+        remap = {old: new for new, old in enumerate(retained)}
+        optional = {remap[i] for i in optional if i in remap}
+        legend_start = sum(bool(line) for line in lines[:legend_start])
+        legend_end = sum(bool(line) for line in lines[:legend_end])
+        lines = [lines[i] for i in retained]
     if height is not None and len(lines) > max(0, height - 1):
         budget = max(0, height - 1)
         if budget == 0:
@@ -1675,7 +1817,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         content_lines: list[str] = []
         for r in data_rows:
             if gid == "capacity":
-                content_lines.append(_fit_fields(r, target_width, unicode, painted=color))
+                content_lines.append(_fit_fields(r, target_width, unicode, painted=color, indent=True))
             else:
                 content_lines.append(_fit_fields("  " + r, target_width, unicode))
         blocks.append((gid, _priority(grp), rule, content_lines))
@@ -1685,6 +1827,23 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
                 blocks.append(("capacity_details", _priority(grp),
                                _section_rule(f"QUOTA [{st}] notes / ACCOUNTS", target_width, unicode, color),
                                content_lines[table_size:]))
+
+    peer_count = len(_items(_obj(_obj(groups.get("peers")).get("data")).get("peers")))
+    peer_priority = any(block[0] == "capacity" for block in blocks) and "peers" in group_ids
+
+    def summary_size(block: tuple[str, int, str, list[str]]) -> int:
+        count = max(1, peer_count) if peer_priority and block[0] == "peers" else 3 if block[0] == "usage" else 1
+        return min(count, len(block[3]))
+
+    def minimum(block: tuple[str, int, str, list[str]]) -> int:
+        return 1 + summary_size(block) + int(len(block[3]) > summary_size(block))
+
+    # Loaded sessions may be unbounded. Keep peer spacing when the quota table
+    # and section summaries fit; spacing yields before those displayed data rows.
+    required = len(lines) + extra_overhead + sum(
+        1 + len(block[3]) if block[0] == "capacity" else minimum(block) for block in blocks)
+    if required + len(_hidden_lines(0, 0, target_width, unicode, expand=expand)) > height - 1:
+        blocks = [(gid, priority, rule, [row for row in content if row]) for gid, priority, rule, content in blocks]
 
     if tiny_height is not None:
         hidden = sum(len(block[3]) for block in blocks)
@@ -1705,18 +1864,9 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
 
     cap_block = next((b for b in blocks if b[0] == "capacity"), None)
     other_blocks = [b for b in blocks if b[0] != "capacity"]
-    peer_count = len(_items(_obj(_obj(groups.get("peers")).get("data")).get("peers")))
-    peer_priority = cap_block is not None and "peers" in group_ids
     if peer_priority:
         order = {"peers": 0, "capacity_details": 1, "execution": 2, "usage": 3, "sessions": 4}
         other_blocks.sort(key=lambda block: (order.get(block[0], 5), block[1]))
-
-    def summary_size(block: tuple[str, int, str, list[str]]) -> int:
-        count = max(1, peer_count) if peer_priority and block[0] == "peers" else 3 if block[0] == "usage" else 1
-        return min(count, len(block[3]))
-
-    def minimum(block: tuple[str, int, str, list[str]]) -> int:
-        return 1 + summary_size(block) + int(len(block[3]) > summary_size(block))
 
     visible_other: list[tuple[str, int, str, list[str]]] = []
 

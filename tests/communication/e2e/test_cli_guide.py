@@ -57,6 +57,18 @@ def test_guide_line_and_token_cap(capsys, monkeypatch, tmp_path):
     assert size_bytes <= 5600, f"Guide has {size_bytes} LF-normalized UTF-8 bytes, exceeding cap of 5600"
 
 
+def test_ag_ping_line_does_not_fit_guide_budget(capsys, monkeypatch, tmp_path):
+    """#359: skip the extra line when it cannot fit without dropping existing guidance."""
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
+    assert main(["guide"]) == 0
+    out = capsys.readouterr().out.replace("\r\n", "\n")
+    extra = "  ag asks, including pings, need --writable\n"
+    assert extra.strip() not in out
+    assert len(out.splitlines()) == 60  # unchanged baseline; no lines dropped
+    assert len(out.encode("utf-8")) <= 5600
+    assert len(out.splitlines()) + 1 > 60 or len((out + extra).encode("utf-8")) > 5600
+
+
 def test_guide_example_commands_parse_via_real_argparse(capsys):
     """Policy 13: Every example command 'peerhub ...' in the guide parses via real argparse."""
     code = main(["guide"])

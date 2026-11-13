@@ -7,19 +7,19 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-11-10.1"
-observed_at = "2026-11-10"
+defaults_revision = "2026-11-13.1"
+observed_at = "2026-11-13"
 
 [observed_versions]
-ag = "1.5.4"
-cc = "2.1.322"
-cx = "0.167.0"
+ag = "1.5.7"
+cc = "2.1.323"
+cx = "0.167.2"
 
 [profiles."cx.standard"]
 selection_mode = "pinned"
 model = "gpt-6-luna"
 reasoning_effort = "low"
-source = "cli:codex debug models@0.167.0 2026-11-10"
+source = "cli:codex debug models@0.167.2 2026-11-13"
 checked = "2026-11-10"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -33,7 +33,7 @@ card_checked = "2026-11-10"
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
 reasoning_effort = "high"
-source = "cli:codex debug models@0.167.0 2026-11-10"
+source = "cli:codex debug models@0.167.2 2026-11-13"
 checked = "2026-11-10"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -47,7 +47,7 @@ card_checked = "2026-11-10"
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
 reasoning_effort = "xhigh"
-source = "cli:codex debug models@0.167.0 2026-11-10"
+source = "cli:codex debug models@0.167.2 2026-11-13"
 checked = "2026-11-10"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -62,7 +62,7 @@ card_checked = "2026-11-10"
 selection_mode = "pinned"
 model = "gpt-6-astra"
 reasoning_effort = "high"
-source = "cli:codex debug models@0.167.0 2026-11-10"
+source = "cli:codex debug models@0.167.2 2026-11-13"
 checked = "2026-11-10"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -75,7 +75,7 @@ card_checked = "2026-11-10"
 [profiles."cc.standard"]
 selection_mode = "pinned"
 model = "claude-haiku-5-5"
-source = "known-id:claude --help aliases@2.1.322 2026-11-10"
+source = "known-id:claude --help aliases@2.1.323 2026-11-13"
 checked = "2026-11-10"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -89,7 +89,7 @@ card_checked = "2026-11-10"
 selection_mode = "pinned"
 model = "claude-sonnet-5-5"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.322 2026-11-10"
+source = "known-id:claude --help aliases@2.1.323 2026-11-13"
 checked = "2026-11-10"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -103,7 +103,7 @@ card_checked = "2026-11-10"
 selection_mode = "pinned"
 model = "claude-opus-5-5"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.322 2026-11-10"
+source = "known-id:claude --help aliases@2.1.323 2026-11-13"
 checked = "2026-11-10"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -119,7 +119,7 @@ card_checked = "2026-11-10"
 selection_mode = "pinned"
 model = "claude-fable-5-2"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.322 2026-11-10"
+source = "known-id:claude --help aliases@2.1.323 2026-11-13"
 checked = "2026-11-10"
 pools = ["F-7D", "C-7D"]
 pools_source = "claude /usage weekly_scoped_shares (claude 2.1.322, 2026-11-10, #334)"
@@ -132,7 +132,7 @@ card_checked = "2026-11-10"
 [profiles."ag.standard"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-low"
-source = "cli:agy.exe models@1.5.4 2026-11-10"
+source = "cli:agy.exe models@1.5.7 2026-11-13"
 checked = "2026-11-10"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
@@ -145,7 +145,7 @@ card_checked = "2026-11-10"
 [profiles."ag.effort"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-high"
-source = "cli:agy.exe models@1.5.4 2026-11-10"
+source = "cli:agy.exe models@1.5.7 2026-11-13"
 checked = "2026-11-10"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
@@ -158,7 +158,7 @@ card_checked = "2026-11-10"
 [profiles."ag.deepthink"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5-high"
-source = "cli:agy.exe models@1.5.4 2026-11-10"
+source = "cli:agy.exe models@1.5.7 2026-11-13"
 checked = "2026-11-10"
 pools = ["3P-5H", "3P-7D"]
 pools_source = "unverified"
@@ -171,7 +171,7 @@ card_checked = "2026-11-10"
 [profiles."ag.argon"]
 selection_mode = "pinned"
 model = "gemini-4-argon-medium"
-source = "cli:agy.exe models@1.5.4 2026-11-10"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
+source = "cli:agy.exe models@1.5.7 2026-11-13"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
 checked = "2026-11-10"
 pools = ["A-7D"]
 pools_source = "agy /usage group (agy 1.4.0)"
@@ -245,3 +245,27 @@ checked = "2026-10-20"
 pools = ["3P-5H", "3P-7D"]
 pools_source = "unverified"
 checked = "2026-10-20"
+
+[exact_model_pools."gemini-4-hydrogen-low"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-13"
+note = "gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
+
+[exact_model_pools."gemini-4-hydrogen-medium"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-13"
+note = "gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
+
+[exact_model_pools."gemini-4-hydrogen-high"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-13"
+note = "gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
+
+[exact_model_pools."gemini-4-hydrogen-xhigh"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-13"
+note = "gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
