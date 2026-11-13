@@ -173,7 +173,7 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool,
     assert "\n\n" not in tight
     assert all(pool in tight for pool in ("C-7D", "C-5H", "X-7D", "X-5H"))
     assert sum(bool(re.match(r"^cc\s+[CFX]-\d+[HD]\b", line)) for line in pool_lines(tight)) == 1
-    for width, height in [(w, h) for w in (82, 83, 100) for h in range(2, len(lines) + 3)]:
+    for width, height in [(w, h) for w in (81, 82, 83, 84, 100) for h in range(2, len(lines) + 3)]:
         screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=width, height=height, expand=expand)
         assert len(screen.splitlines()) < height
         if "\n\n" in screen:

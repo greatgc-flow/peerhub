@@ -1758,6 +1758,9 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
     stopped_agy = (refresh_clean == "STOPPED · AGY TOKEN USE")
 
     def finish(lines: list[str], *, tail: bool) -> str:
+        # One exit for every return path. tail=True appends the agy-stop hint and warnings (frames that end
+        # the normal way); tail=False is for frames that already end with their own omission notice.
+        # Every path then gets the same height cap and ASCII fold, so the steps cannot drift apart.
         if tail:
             if stopped_agy and len(lines) < max_lines:
                 lines.append(_fit("Next: --allow-agy-token-use to continue", target_width, unicode))
