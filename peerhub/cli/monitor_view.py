@@ -1752,6 +1752,22 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         return ""
     tiny_height = height if reserved_lines and height - reserved_lines <= 3 else None
     height = max(3 if tiny_height is not None else 1, height - reserved_lines)
+    max_lines = height - 1
+    refresh_clean = str(payload.get("refresh_state") or "")
+    warning_labels = _safe_refresh_warning_labels(payload.get("refresh_warnings"))
+    stopped_agy = (refresh_clean == "STOPPED · AGY TOKEN USE")
+
+    def finish(lines: list[str], *, tail: bool) -> str:
+        if tail:
+            if stopped_agy and len(lines) < max_lines:
+                lines.append(_fit("Next: --allow-agy-token-use to continue", target_width, unicode))
+            for warning in warning_labels:
+                if len(lines) < max_lines:
+                    lines.append(_fit(f"Warning: {warning}", target_width, unicode))
+        lines = lines[:max_lines]
+        if not unicode:
+            lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
+        return "\n".join(lines) + "\n"
 
     selected = payload.get("selected_groups")
     raw_group_ids = [str(g) for g in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
@@ -1762,7 +1778,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
 
     if height == 2:
         hint = "peerhub monitor --snapshot --group capacity --expand" if width >= 64 else "--expand"
-        return _fit(f"+{len(group_ids)} {hint}", target_width, unicode) + "\n"
+        return finish([_fit(f"+{len(group_ids)} {hint}", target_width, unicode)], tail=False)
 
     status_label = _clean(payload.get("status") or "UNKNOWN")
     statuses = [str(_obj(groups.get(gid)).get("status") or "UNKNOWN").upper() for gid in group_ids]
@@ -1797,9 +1813,6 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         lines.append(_fit("Title fields hidden", target_width, unicode))
 
     descriptions = {str(item["id"]): str(item["description"]) for item in GROUPS}
-    refresh_clean = str(payload.get("refresh_state") or "")
-    warning_labels = _safe_refresh_warning_labels(payload.get("refresh_warnings"))
-    stopped_agy = (refresh_clean == "STOPPED · AGY TOKEN USE")
     extra_overhead = (1 if stopped_agy else 0) + len(warning_labels)
 
     # Prepare blocks: list of (gid, priority, heading_rule, [content_lines])
@@ -1861,14 +1874,13 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         if tiny_height >= 3 and width >= 60:
             title = _fit(f"PeerHub Monitor | +{hidden} rows hidden; all rows:", target_width, unicode)
             hint = "peerhub monitor --snapshot --group all --expand" + (" | more" if expand else "")
-            return title + "\n" + hint + "\n"
+            return finish([title, hint], tail=False)
         notice = f"+{hidden} rows hidden | --expand"
         if _width(notice) > target_width:
             notice = f"+{hidden} --expand"
-        return _fit(notice, target_width, unicode) + "\n"
+        return finish([_fit(notice, target_width, unicode)], tail=False)
 
     # Quota-first height allocation
-    max_lines = height - 1
     omitted_quota = 0
     cap_block = next((b for b in blocks if b[0] == "capacity"), None)
     other_blocks = [b for b in blocks if b[0] != "capacity"]
@@ -1882,12 +1894,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         for block in ([cap_block] if cap_block is not None else []) + other_blocks:
             lines.append(block[2])
             lines.extend(block[3])
-        if stopped_agy:
-            lines.append(_fit("Next: --allow-agy-token-use to continue", target_width, unicode))
-        lines.extend(_fit(f"Warning: {warning}", target_width, unicode) for warning in warning_labels)
-        if not unicode:
-            lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
-        return "\n".join(lines) + "\n"
+        return finish(lines, tail=True)
 
     extra_overhead += len(_hidden_lines(sum(len(block[3]) for block in blocks), len(blocks),
                                         target_width, unicode, expand=expand)) - 1
@@ -1901,9 +1908,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
             shown = budget - 1  # reclaim the heading; reserve one exact omission line
             lines.extend(content[:shown])
             lines.extend(_hidden_lines(len(content) - shown, 0, target_width, unicode, expand=expand))
-            if not unicode:
-                lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
-            return "\n".join(lines) + "\n"
+            return finish(lines, tail=False)
 
     def allocate_other(budget: int) -> list[tuple[str, int, str, list[str]]]:
         if peer_priority:
@@ -2001,14 +2006,5 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         lines.extend(_hidden_lines(hidden_rows, omitted_blocks, target_width, unicode,
                                    expand=expand, quota=bool(omitted_quota)))
 
-    if stopped_agy and len(lines) < max_lines:
-        lines.append(_fit("Next: --allow-agy-token-use to continue", target_width, unicode))
-    for warning in warning_labels:
-        if len(lines) < max_lines:
-            lines.append(_fit(f"Warning: {warning}", target_width, unicode))
-
-    lines = lines[:max_lines]
-    if not unicode:
-        lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
-    return "\n".join(lines) + "\n"
+    return finish(lines, tail=True)
 
