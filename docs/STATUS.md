@@ -4,9 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.10 (release candidate)
+## Current source: v0.24.10 (published)
 
 v0.24.10 improves live monitor visibility measured in a real ConPTY (no mixed sections, peers before details, whole-field fitting, announced cuts, bounded TTY snapshots, per-peer usage, retired plan windows, content-sized columns). Implemented by cx.effort.
+
+Published 2026-11-13 (UTC; PR #357, tag `v0.24.10`, target `12800ec0`, publish run 43336127142); G3 passed bound to `12800ec0d313` (live gate, three stages; evidence `docs/implementation/live_evidence/2026-11-13-v0.24.10.json`). Full OS x Python matrix run 43331148434 success. PyPI 0.24.10 verified in a clean virtualenv. Reviews: cc.fable 100 (9 rounds), ag.standard 100 (3 rounds; it found the compact small-height priority inversion); implemented by cx.effort; measured in a real ConPTY at 60x30, 80x24, 120x40, 220x60.
 
 ### v0.24.9 (published)
 
