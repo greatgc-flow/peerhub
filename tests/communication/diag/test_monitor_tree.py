@@ -439,3 +439,13 @@ def test_expanded_separators_show_at_exact_full_fit_and_yield_below_it(width: in
             assert "rows hidden" not in screen and screen.count("-> latest session:") == 2
             assert "Model facts:" in screen
     assert frame == before
+
+
+@pytest.mark.parametrize("height", [1, 2, 3])
+def test_tiny_heights_never_overflow_and_announce_cuts_when_a_line_fits(height: int) -> None:
+    frame = frame_for({"cc.deepthink": ["C-5H", "C-7D"], "cc.fable": ["F-7D", "C-7D"]})
+    screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=height, expand=True)
+    lines = screen.splitlines()
+    assert len(lines) < max(height, 2)  # the cursor line stays free; height 1 renders nothing rather than overflow
+    if height >= 2:
+        assert "rows hidden" in screen
