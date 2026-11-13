@@ -1836,7 +1836,9 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
 
     # Peer spacing yields before any data rows, including section details.
     required = len(lines) + extra_overhead + sum(1 + len(block[3]) for block in blocks)
-    if required + len(_hidden_lines(0, 0, target_width, unicode, expand=expand)) > height - 1:
+    # Size the notice from the real counts: "+NN rows hidden" can wrap where "+0" fits.
+    notice = _hidden_lines(sum(len(block[3]) for block in blocks), len(blocks), target_width, unicode, expand=expand)
+    if required + len(notice) > height - 1:
         blocks = [(gid, priority, rule, [row for row in content if row]) for gid, priority, rule, content in blocks]
 
     if tiny_height is not None:
