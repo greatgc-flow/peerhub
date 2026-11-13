@@ -91,22 +91,36 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool) -> tuple[list[dict[
             plans = ",".join(sorted({str(row.get("display_plan") or "unknown") for row in retired}))
             notes.append(f"{peer} {names} n/a (not reported by plan {plans})")
         active = [row for row in peer_rows if not row.get("retired")]
+        first_peer_row = True
+
+        def append_row(row: dict[str, Any], display_pool: str) -> None:
+            nonlocal first_peer_row
+            row.update(display_pool=display_pool, display_peer=peer if first_peer_row else "", suffix="")
+            first_peer_row = False
+            result.append(row)
+
+        # Names are tree identities only when unique. Preserve every source row
+        # in the flat fallback, including duplicate names with different values.
+        if len({row["pool"] for row in active}) != len(active):
+            for row in active:
+                append_row(row, str(row["pool"]))
+            continue
         by_name = {str(row["pool"]): row for row in active}
+        windows = {name: _parse_window(name)[0] for name in by_name}
         members = {name: set(str(row["profiles"]).split(",")) - {"unmapped", ""} for name, row in by_name.items()}
         parents: dict[str, str | None] = dict.fromkeys(by_name)
-        flat = len(by_name) != len(active) or any(a & b and not (a <= b or b <= a)
-                                                for a in members.values() for b in members.values())
+        flat = any(a & b and not (a <= b or b <= a) for a in members.values() for b in members.values())
         for child in by_name:
             if flat or not members[child]:
                 continue
-            window = _parse_window(child)[0]
+            window = windows[child]
             eligible = [name for name in by_name if name != child and members[child] <= members[name]
-                        and window <= _parse_window(name)[0] < 999999999
-                        and (members[child] < members[name] or window < _parse_window(name)[0])]
+                        and window <= windows[name] < 999999999
+                        and (members[child] < members[name] or window < windows[name])]
             minimal = [name for name in eligible if not any(members[other] < members[name] for other in eligible)]
             if minimal:
-                shortest = min(_parse_window(name)[0] for name in minimal)
-                candidates = [name for name in minimal if _parse_window(name)[0] == shortest]
+                shortest = min(windows[name] for name in minimal)
+                candidates = [name for name in minimal if windows[name] == shortest]
                 if len(candidates) != 1:
                     flat = True
                     break
@@ -118,12 +132,11 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool) -> tuple[list[dict[
             if parent is not None:
                 children[parent].append(child)
         for names in children.values():
-            names.sort(key=lambda name: (-_parse_window(name)[0], name))
+            names.sort(key=lambda name: (-windows[name], name))
 
         def visit(name: str, prefix: str, continuation: str) -> None:
             row = by_name[name]
-            row.update(display_pool=prefix + name, display_peer=peer if not any(r["peer"] == peer for r in result) else "", suffix="")
-            result.append(row)
+            append_row(row, prefix + name)
             # A folded parent cannot carry a displayed dependency. Keep such n/a
             # nodes as full rows so descendants still have their actual parent.
             folded = [child for child in children[name] if by_name[child]["state"].lower() == "n/a" and not children[child]]
@@ -136,7 +149,8 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool) -> tuple[list[dict[
                 stem = "   " if last else "│  " if unicode else "|  "
                 visit(child, continuation + branch, continuation + stem)
 
-        for name in sorted((name for name in by_name if parents[name] is None), key=lambda name: _pool_order(peer, name)):
+        for name in sorted((name for name in by_name if parents[name] is None),
+                           key=lambda name: (_pool_family(name), windows[name], name)):
             visit(name, "", "")
     return result, notes
 
@@ -288,6 +302,8 @@ def _pace_glyph(text: str, unicode: bool) -> str:
 def _quota_color(state: str, remaining: float | None = None, *, aged: bool = False) -> str | None:
     """Evidence validity wins over the traffic-light precedence; retain the state word."""
     state = state.split(":")[0].upper()
+    if state == "ERROR":
+        return "1;31"
     if aged or state not in {"OUT", "EXHAUSTED", "THREAT", "LOW", "FAST", "WATCH", "INSUFF", "INSUFFICIENT",
                              "OK", "ON_PACE", "SAFE", "MEASURED"}:
         return "2"
@@ -777,6 +793,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             column_widths = {"PEER": 4, "POOL": 8, "STATE": 12, "REM": 5, "RESET-IN": 9, "PACE": 9,
                              "[BAR]": 10, "EXHAUST-IN": 13, "AGE": 5, "PROFILES (configured)": 24}
             table: list[dict[str, str]] = []
+            sources: list[dict[str, Any]] = []
 
             for item in sorted_obs:
                 peer = _clean(item.get("peer_id") or "?")
@@ -797,8 +814,10 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     else:
                         plan = _na_plan(item, reason_text)
                         what = f"(not reported by plan {plan})" if item.get("display_retired") else f"not reported (plan {plan})"
-                    na_notes.append(f"{peer} {pool_id} n/a {what}" if fresh else
-                                    f"{peer} {pool_id} ? {what}, aged; next: peerhub observation refresh --peers {peer}")
+                    if not item.get("display_retired"):
+                        na_notes.append(f"{peer} {pool_id} n/a {what}" if fresh else
+                                        f"{peer} {pool_id} ? {what}, aged; next: peerhub observation refresh --peers {peer}")
+                    sources.append(item)
                     table.append({
                         "PEER": peer, "POOL": pool_id, "REM": "n/a" if fresh else "-",
                         "[BAR]": _bar_quota(None), "RESET-IN": "-", "EXHAUST-IN": "-", "PACE": "-",
@@ -855,23 +874,20 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     pace_str = "-"
                     state_str = "STALE:window" if state == "STALE" else state
 
+                sources.append(item)
                 table.append({"PEER": peer, "POOL": pool_id, "REM": rem_str,
                               "[BAR]": bar_str, "RESET-IN": reset_str,
                               "EXHAUST-IN": exhaust_str, "PACE": pace_str,
                               "STATE": state_str, "AGE": age_str,
                               "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
 
-            sources = {(_clean(item.get("peer_id") or "?"), _clean(item.get("pool_ref") or item.get("pool_kind") or "quota").split(":")[-1]): item
-                       for item in sorted_obs}
             layout, retired_notes = _quota_layout([
                 {"peer": cells["PEER"], "pool": cells["POOL"], "state": cells["STATE"],
-                 "profiles": cells["PROFILES (configured)"], "cells": cells,
-                 "retired": sources[(cells["PEER"], cells["POOL"])].get("display_retired"),
-                 "display_plan": sources[(cells["PEER"], cells["POOL"])].get("display_plan")}
-                for cells in table], unicode)
+                 "profiles": cells["PROFILES (configured)"], "cells": cells, "source": item,
+                 "retired": item.get("display_retired"), "display_plan": item.get("display_plan")}
+                for cells, item in zip(table, sources)], unicode)
             for row in layout:
                 cells = row["cells"]
-                row["source"] = sources[(row["peer"], row["pool"])]
                 cells["PEER"], cells["POOL"] = row["display_peer"], row["display_pool"]
             table = [row["cells"] for row in layout]
             # One column set for the whole table; PEER and POOL always stay, and no cell is cut.
@@ -904,9 +920,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 rows.extend(_quota_suffix(line, str(row["suffix"]), width, unicode, color))
             table_size = len(rows)
             # Keep reasons for folded pools; retired pools already have a combined note.
-            retired = {key for key, item in sources.items() if item.get("display_retired")}
             rows.extend(_paint(_fit(note, width, unicode), "2") if color else _fit(note, width, unicode)
-                        for note in [*retired_notes, *[note for note in na_notes if tuple(note.split()[:2]) not in retired]])
+                        for note in [*retired_notes, *na_notes])
             rows.extend(_fit(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}", width, unicode) for peer, codes in probe_notes.items())
             if len(columns) < len(column_widths):
                 rows.extend(_omitted_rows(["bar" if c == "[BAR]" else c.lower() for c in list(column_widths)[len(columns):]], width))
@@ -1198,7 +1213,8 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
         pace_text = f"{rounded:+d}" if rounded else "0"
     return {"peer": peer, "pool": pool, "meaning": meaning, "remaining": remaining, "left": left,
             "resets": resets, "pace": pace_text, "reset_seconds": reset_in, "family": family, "age": _compact_age(age), "state": state, "aged": aged,
-            "color_state": state if state in {"n/a", "?", "reset", "aged"} else _clean(projection.get("state") or state),
+            "color_state": "ERROR" if item.get("state") == "ERROR" else
+                           state if state in {"n/a", "?", "reset", "aged"} else _clean(projection.get("state") or state),
             "needs_refresh": aged or age is None or state in {"?", "reset"}, "reason": reason, "display_plan": item.get("display_plan"),
             "retired": bool(item.get("display_retired")), "stale": item.get("state") == "STALE",
             "profiles": ",".join(consumers.get(f"{peer}:{pool}", [])) or "unmapped"}
@@ -1451,8 +1467,9 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
         paint = color and view == "rich" and "NO_COLOR" not in os.environ
 
         def table_line(cells: list[str], code: str | None = None) -> str:
-            return " ".join(_quota_cell(value, name, code) + " " * (size - _width(value))
+            line = " ".join(_quota_cell(value, name, code) + " " * (size - _width(value))
                             for name, value, size in zip(headers, cells[:shown], sizes)).rstrip()
+            return _fit(line, width, unicode, painted=paint, indent=True)
         lines.append(table_line(headers))
         previous_peer = ""
         for row in display_rows:
@@ -1836,9 +1853,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
 
     # Peer spacing yields before any data rows, including section details.
     required = len(lines) + extra_overhead + sum(1 + len(block[3]) for block in blocks)
-    # Size the notice from the real counts: "+NN rows hidden" can wrap where "+0" fits.
-    notice = _hidden_lines(sum(len(block[3]) for block in blocks), len(blocks), target_width, unicode, expand=expand)
-    if required + len(notice) > height - 1:
+    if required > height - 1:
         blocks = [(gid, priority, rule, [row for row in content if row]) for gid, priority, rule, content in blocks]
 
     if tiny_height is not None:
@@ -1855,14 +1870,27 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
     # Quota-first height allocation
     max_lines = height - 1
     omitted_quota = 0
-    extra_overhead += len(_hidden_lines(sum(len(block[3]) for block in blocks), len(blocks),
-                                        target_width, unicode, expand=expand)) - 1
-
     cap_block = next((b for b in blocks if b[0] == "capacity"), None)
     other_blocks = [b for b in blocks if b[0] != "capacity"]
     if peer_priority:
         order = {"peers": 0, "capacity_details": 1, "execution": 2, "usage": 3, "sessions": 4}
         other_blocks.sort(key=lambda block: (order.get(block[0], 5), block[1]))
+
+    # A complete frame needs no omission notice or allocation reserve. This also
+    # lets the separators fit exactly without ever displacing a detail row.
+    if len(lines) + extra_overhead + sum(1 + len(block[3]) for block in blocks) <= max_lines:
+        for block in ([cap_block] if cap_block is not None else []) + other_blocks:
+            lines.append(block[2])
+            lines.extend(block[3])
+        if stopped_agy:
+            lines.append(_fit("Next: --allow-agy-token-use to continue", target_width, unicode))
+        lines.extend(_fit(f"Warning: {warning}", target_width, unicode) for warning in warning_labels)
+        if not unicode:
+            lines = [line.replace(" · ", " | ").replace("·", "|").encode("ascii", errors="replace").decode("ascii") for line in lines]
+        return "\n".join(lines) + "\n"
+
+    extra_overhead += len(_hidden_lines(sum(len(block[3]) for block in blocks), len(blocks),
+                                        target_width, unicode, expand=expand)) - 1
 
     visible_other: list[tuple[str, int, str, list[str]]] = []
 

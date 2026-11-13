@@ -20,42 +20,42 @@ selection_mode = "pinned"
 model = "gpt-6-luna"
 reasoning_effort = "low"
 source = "cli:codex debug models@0.167.2 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "cheap triage, text edits, simple checks"
 avoid_for = "arithmetic or exact computed output"
 traits = ["failed both arithmetic tasks (0/4)", "fast (~5s)", "hard 34/100, regex 110/115"]
 evidence = ["docs/benchmarks/cx-terra-2026-10-29.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 [profiles."cx.effort"]
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
 reasoning_effort = "high"
 source = "cli:codex debug models@0.167.2 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "implementation and diff review under an enforced sandbox"
 avoid_for = "machine-observing checks, git commit/push, network"
 traits = ["sandbox hides other processes", "sandbox network fails; no commit"]
 evidence = ["cx-sandbox-and-prompt-hygiene", "docs/peer-limits.md"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 [profiles."cx.deepthink"]
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
 reasoning_effort = "xhigh"
 source = "cli:codex debug models@0.167.2 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "deliberate escalation: hard review and debugging"
 avoid_for = "quick questions (slow: 40-48s on benchmark)"
 traits = ["45/45 benchmark, 40-48s"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "docs/model-profiles/model-profiles.json"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 # Top tier (opt-in, never a default): measured by docs/benchmarks/profiles-2026-11-08.md (45/45 at high, ultra adds latency only).
 [profiles."cx.astra"]
@@ -63,55 +63,55 @@ selection_mode = "pinned"
 model = "gpt-6-astra"
 reasoning_effort = "high"
 source = "cli:codex debug models@0.167.2 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "opt-in top tier for the hardest cx tasks"
 avoid_for = "routine work; ultra effort adds latency only"
 traits = ["45/45 at high; ultra same score, slower"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 [profiles."cc.standard"]
 selection_mode = "pinned"
 model = "claude-haiku-5-5"
 source = "known-id:claude --help aliases@2.1.323 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
 use_for = "cheap triage, short summaries, simple lookups, self-contained code"
 avoid_for = "design decisions, code review (not benchmarked)"
 traits = ["effort: CLI default (no flag)", "no gh/git or reads outside -w", "hard 100/100/98, regex 115/115"]
 evidence = ["docs/model-profiles/model-profiles.json", "docs/peer-limits.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 [profiles."cc.effort"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5"
 reasoning_effort = "high"
 source = "known-id:claude --help aliases@2.1.323 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
 use_for = "daily implementation, multi-file edits in the -w workspace"
 avoid_for = "final design arbitration (use deepthink)"
 traits = ["no gh/git or reads outside -w", "Bash allow rules match exact strings", "hard 100 x3, regex 115/115"]
 evidence = ["docs/model-profiles/model-profiles.json", "docs/peer-limits.md", "cc-allow-rules", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 [profiles."cc.deepthink"]
 selection_mode = "pinned"
 model = "claude-opus-5-5"
 reasoning_effort = "high"
 source = "known-id:claude --help aliases@2.1.323 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
 use_for = "design review, hard debugging, final verification"
 avoid_for = "bulk or repetitive work (scarce, slower)"
 traits = ["45/45 benchmark, 14-15s", "no gh/git or reads outside -w", "hard 100 x3, regex 115/115"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "docs/peer-limits.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 # Top tier (opt-in, never a default). F-7D is the Fable weekly window. Fable use is also counted in the weekly
 # all-models window C-7D (claude /usage payload weekly_scoped_shares: Fable used 5% of weekly, allowance 50%; 2026-11-10, #334).
@@ -120,66 +120,66 @@ selection_mode = "pinned"
 model = "claude-fable-5-2"
 reasoning_effort = "high"
 source = "known-id:claude --help aliases@2.1.323 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["F-7D", "C-7D"]
 pools_source = "claude /usage weekly_scoped_shares (claude 2.1.322, 2026-11-10, #334)"
 use_for = "opt-in top tier: hardest reasoning while its pool has room"
 avoid_for = "routine work; Bash-heavy headless tasks"
 traits = ["45/45, hard 100, regex 115", "one headless Bash deny (#303, 5.1)", "regex run 946s vs 5.1 169s (1 run)"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#303", "cc-allow-rules", "docs/history/quota-efficiency-2026-11-10.md", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 [profiles."ag.standard"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-low"
 source = "cli:agy.exe models@1.5.7 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 use_for = "small cheap drafts with all content inlined"
 avoid_for = "un-inlined file context; lists over ~25 items"
 traits = ["broke down at 25-150 items", "verify its claims", "hard 95/100, regex 111/115"]
 evidence = ["ag-bulk-profile-heuristics", "ag-recipe", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 [profiles."ag.effort"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-high"
 source = "cli:agy.exe models@1.5.7 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 use_for = "cheap drafts and cross-reviews, content inlined"
 avoid_for = "tool tasks; prompts over 30 KB on Windows; latency-bound work"
 traits = ["no write sandbox (#140)", "empty replies possible", "hard 100, regex 101; ~14-19x std time"]
 evidence = ["ag-recipe", "ag-bulk-profile-heuristics", "#299", "docs/benchmarks/profiles-hard-2026-11-10/README.md", "docs/benchmarks/profiles-top-2026-11-10/README.md"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 [profiles."ag.deepthink"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5-high"
 source = "cli:agy.exe models@1.5.7 2026-11-13"
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["3P-5H", "3P-7D"]
 pools_source = "unverified"
 use_for = "second-opinion review via Claude Sonnet on ag quota"
 avoid_for = "work while its pool is low (it ran out early)"
 traits = ["Claude Sonnet 5.5 high via agy", "no write sandbox (#140)"]
 evidence = ["ag-recipe", "docs/history/quota-efficiency-2026-11-10.md"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 [profiles."ag.argon"]
 selection_mode = "pinned"
 model = "gemini-4-argon-medium"
 source = "cli:agy.exe models@1.5.7 2026-11-13"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
-checked = "2026-11-10"
+checked = "2026-11-13"
 pools = ["A-7D"]
 pools_source = "agy /usage group (agy 1.4.0)"
 use_for = "opt-in top tier for hard reasoning on ag"
 avoid_for = "tool use (empty replies after tools, #195)"
 traits = ["45/45 at medium; high slower", "empty reply after tool use (#195)"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#195", "ag-recipe"]
-card_checked = "2026-11-10"
+card_checked = "2026-11-13"
 
 [exact_model_pools."gemini-4-argon-low"]
 pools = ["A-7D"]
@@ -250,13 +250,13 @@ checked = "2026-10-20"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 checked = "2026-11-13"
-note = "gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
+note = "inferred from the -high run; gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
 
 [exact_model_pools."gemini-4-hydrogen-medium"]
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 checked = "2026-11-13"
-note = "gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
+note = "inferred from the -high run; gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
 
 [exact_model_pools."gemini-4-hydrogen-high"]
 pools = ["G-5H", "G-7D"]
@@ -268,4 +268,4 @@ note = "gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpret
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 checked = "2026-11-13"
-note = "gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
+note = "inferred from the -high run; gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"

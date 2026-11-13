@@ -42,7 +42,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--allow-agy-token-use", action="store_true",
                    help="Keep collecting after agy /usage or /credits consumed model tokens")
     p.add_argument("--view", choices=["auto", "rich", "plain"],
-                   default=os.environ.get("PEERHUB_MONITOR_VIEW", "auto"),
+                   default=os.environ.get("PEERHUB_MONITOR_VIEW") or "auto",
                    help="Dashboard style: auto (rich on a TTY), rich (colour), plain (ASCII override for ambiguous-width box glyphs, ▲▼ and █ in Korean/East-Asian locales). Set PEERHUB_MONITOR_VIEW=plain for a lasting ASCII fix (auto|rich|plain; explicit --view wins). Both show PACE; VT TTY redraws at most 1 Hz; non-TTY appends completed frames; TTY without VT appends without escapes")
     p.add_argument("--collect-every", type=int, default=1,
                    help="Collect only every Kth cycle (K>=1)")

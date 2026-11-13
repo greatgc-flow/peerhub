@@ -165,7 +165,7 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool,
         frame["selected_groups"].append("peers")
         frame["groups"]["peers"] = {"status": "OK", "data": {"peers": [
             {"peer_id": peer} for peer in ("cc", "cx")]}}
-    full = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, expand=expand)
+    full = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=200, expand=expand)
     lines = full.splitlines()
     cx_index = next(i for i, row in enumerate(lines) if row.startswith("cx "))
     assert lines[cx_index - 1] == ""
@@ -250,7 +250,7 @@ def test_compact_colour_precedence_matches_expanded_without_changing_words(
     assert frame == before
 
 
-@pytest.mark.parametrize("state", ["mystery", "ERROR", "UNAVAILABLE"])
+@pytest.mark.parametrize("state", ["mystery", "UNAVAILABLE"])
 def test_unknown_evidence_is_dim_even_with_zero_remaining(state: str) -> None:
     assert mv._quota_color(state, 0) == "2"
 
@@ -355,4 +355,87 @@ def test_tree_height_sweep_keeps_bounds_and_never_shows_child_without_parent(exp
             assert all(mv._width(line) < width for line in screen.splitlines())
             assert "C-7D" not in screen or "C-30D" in screen
             assert "C-5H" not in screen or "C-7D" in screen
+    assert frame == before
+
+
+@pytest.mark.parametrize("expand", [False, True])
+def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool) -> None:
+    frame = frame_for({"cc.a": ["C-7D", "C-5H"]})
+    observations = frame["groups"]["capacity"]["data"]["observations"]
+    original = next(item for item in observations if item["pool_ref"].endswith("C-7D"))
+    observations.append({**deepcopy(original), "pool_ref": "other:cc:C-7D",
+                         "measurements": {"remaining_fraction": .87, "reset_in_seconds": 3000}})
+    # Skipped probe rows must not shift the source association of table rows.
+    observations.insert(0, {"peer_id": "cc", "pool_ref": "quota", "state": "ERROR"})
+    before = deepcopy(frame)
+    screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=expand)
+    rows = pool_lines(screen)
+    assert len(rows) == 3
+    assert all("`-" not in row and "|-" not in row for row in rows)
+    assert "20%" in rows[1] and "87%" in rows[2]
+    assert frame == before
+
+
+@pytest.mark.parametrize("expand", [False, True])
+def test_error_evidence_keeps_alarm_colour(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    frame = frame_for({"cc.a": ["C-5H"]})
+    frame["groups"]["capacity"]["data"]["observations"][0].update(state="ERROR", measurements=None)
+    screen = mv.render_grouped_frame(frame, color=True, width=180, expand=expand)
+    word = "ERROR" if expand else "?"
+    assert f"\x1b[1;31m{word}\x1b[0m" in screen
+
+
+def test_fast_and_low_intentionally_share_warning_colour() -> None:
+    assert mv._quota_color("FAST", .5) == mv._quota_color("LOW", .05) == "33"
+
+
+@pytest.mark.parametrize("remaining,left,code", [(.05, "5%", "33"), (.10, "10%", "33"), (.11, "11%", "32")])
+def test_remaining_is_a_fraction_before_colour_threshold(remaining: float, left: str, code: str) -> None:
+    frame = frame_for({"cc.a": ["C-5H"]})
+    item = frame["groups"]["capacity"]["data"]["observations"][0]
+    item["measurements"]["remaining_fraction"] = remaining
+    summary = mv._compact_pool(item, 1000, 0, {})
+    assert summary["remaining"] == remaining and summary["left"] == left
+    assert mv._quota_color(summary["color_state"], summary["remaining"]) == code
+
+
+def test_empty_view_env_defaults_to_auto(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PEERHUB_MONITOR_VIEW", "")
+    parser, args = parse_monitor([])
+    validate_monitor_args(parser, args)
+    assert args.view == "auto"
+
+
+@pytest.mark.parametrize("expand", [False, True])
+@pytest.mark.parametrize("unicode", [False, True])
+def test_deep_tree_two_column_fallback_stays_in_public_viewport(expand: bool, unicode: bool) -> None:
+    frame = frame_for({"cc.a": [f"C-{days}D" for days in range(1, 9)]})
+    for height in (None, 40):
+        screen = mv.render_grouped_frame(frame, unicode=unicode, width=20, height=height, expand=expand)
+        assert all(mv._width(line) < 20 for line in screen.splitlines())
+
+
+@pytest.mark.parametrize("width", [82, 83])
+@pytest.mark.parametrize("unicode", [False, True])
+def test_expanded_separators_show_at_exact_full_fit_and_yield_below_it(width: int, unicode: bool) -> None:
+    frame = frame_for({"cc.a": ["C-5H", "C-7D"]})
+    observations = frame["groups"]["capacity"]["data"]["observations"]
+    observations.extend({**item, "peer_id": "cx", "pool_ref": item["pool_ref"].replace("cc:C", "cx:X")}
+                        for item in observations[:])
+    frame["configured_profiles"].append({"profile": "cx.a", "fields": {"pools": {"value": ["X-5H", "X-7D"]}}})
+    frame["selected_groups"].append("peers")
+    frame["groups"]["peers"] = {"status": "OK", "data": {"peers": [{"peer_id": p} for p in ("cc", "cx")]}}
+    before = deepcopy(frame)
+    roomy = mv.render_grouped_frame(frame, unicode=unicode, width=width, height=200, expand=True)
+    assert "\n\n" in roomy and "rows hidden" not in roomy
+    exact_height = len(roomy.splitlines()) + 1
+    exact = mv.render_grouped_frame(frame, unicode=unicode, width=width, height=exact_height, expand=True)
+    assert exact == roomy
+    for height in range(exact_height - 2, exact_height + 1):
+        screen = mv.render_grouped_frame(frame, unicode=unicode, width=width, height=height, expand=True)
+        assert len(screen.splitlines()) < height
+        if "\n\n" in screen:
+            assert "rows hidden" not in screen and screen.count("-> latest session:") == 2
+            assert "Model facts:" in screen
     assert frame == before

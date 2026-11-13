@@ -641,10 +641,9 @@ def render_guidance_hint(entry: GuidanceEntry) -> str:
 
 def render_exception_guidance_hint(code: str, exception: BaseException | None) -> str:
     """Keep exception recovery specific to the pre-spawn policy that rejected execution."""
-    from peerhub.extensions.adapters.base import AG_REQUIRES_WRITABLE
-    from peerhub.extensions.runtime_contract import PrespawnError
+    from peerhub.extensions.adapters.base import AgRequiresWritableError
 
-    if code == "ask_delivery_failed" and isinstance(exception, PrespawnError) and str(exception) == AG_REQUIRES_WRITABLE:
+    if code == "ask_delivery_failed" and isinstance(exception, AgRequiresWritableError):
         return (
             "add --writable to your command (ag has no read-only sandbox; it allows edits, "
             "so trusted workspaces only); details: peerhub explain ag-requires-writable"
@@ -652,7 +651,6 @@ def render_exception_guidance_hint(code: str, exception: BaseException | None) -
     if code == "ask_prompt_too_large":
         return render_guidance_hint(REGISTRY[code])
     return f"peerhub explain {code}"
-
 
 
 def render_explain(entry: GuidanceEntry) -> str:

@@ -49,7 +49,7 @@ def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeyp
     assert "STATE: INSUFF=insufficient projection data" in rendered
     if color:
         for code, state in [("32", "ON_PACE"), ("33", "WATCH"), ("31", "THREAT"), ("1;31", "EXHAUSTED"),
-                            ("2", "ERROR"), ("2", "UNKNOWN"), ("2", "STALE:window")]:
+                            ("1;31", "ERROR"), ("2", "UNKNOWN"), ("2", "STALE:window")]:
             line = next(line for line in rendered.splitlines() if f"{state}\x1b[0m" in line)
             assert f"\x1b[{code}m{state}\x1b[0m" in line
             assert re.search(rf"\x1b\[{re.escape(code)}m\[[^\]]*\]\x1b\[0m", line)  # the bar carries the state colour

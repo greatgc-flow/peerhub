@@ -42,6 +42,13 @@ _VERSION_RE = re.compile(r"\d+\.\d+\.\d+[0-9A-Za-z.+-]*")
 _WIN_EXT = {"claude": ["claude.cmd", "claude.exe"], "codex": ["codex.cmd", "codex.exe"], "agy": ["agy.exe", "agy.cmd"]}
 
 
+class AgRequiresWritableError(PrespawnError):
+    """The ag CLI cannot enforce a read-only execution policy."""
+
+    def __init__(self, message: str = AG_REQUIRES_WRITABLE) -> None:
+        super().__init__(message)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -1047,7 +1054,7 @@ class CliRuntimeTarget:
     def validate_execution_policy(self) -> None:
         """Fail closed before execution when the provider CLI cannot enforce the requested write policy (#140)."""
         if self.runtime_kind == "ag" and not self._writable:
-            raise PrespawnError(AG_REQUIRES_WRITABLE)
+            raise AgRequiresWritableError()
 
     # ---- discovery (LIVE-004/005): never spends model tokens
     def discover(self, timeout_s: float = 20.0) -> dict[str, Any]:

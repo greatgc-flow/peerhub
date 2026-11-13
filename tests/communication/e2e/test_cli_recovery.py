@@ -21,6 +21,7 @@ from peerhub.cli.recovery import (
 from typing import Any
 
 from peerhub.extensions.bridge_claims import ClaimHeldError
+from peerhub.extensions.adapters.base import AgRequiresWritableError
 from peerhub.extensions.bridge import (
     ConflictingSessionFlagsError,
     InvalidSessionHandleSyntaxError,
@@ -54,6 +55,14 @@ AG_WRITABLE_NEXT = (
     "next: add --writable to your command (ag has no read-only sandbox; it allows edits, "
     "so trusted workspaces only); details: peerhub explain ag-requires-writable"
 )
+
+
+def test_writable_recovery_uses_exception_type_even_when_message_changes():
+    from peerhub.cli.recovery import render_exception_guidance_hint
+
+    error = AgRequiresWritableError("rephrased execution policy")
+    assert render_exception_guidance_hint("ask_delivery_failed", error) == AG_WRITABLE_NEXT.removeprefix("next: ")
+    assert "--writable" not in render_exception_guidance_hint("ask_delivery_failed", PrespawnError(str(error)))
 
 
 @pytest.mark.parametrize("json_output", [False, True])
@@ -358,6 +367,7 @@ EXCEPTION_SCENARIOS: dict[str, list[tuple[Exception, str]]] = {
         (PrespawnError("executable not found on PATH"), "ask_launch_failed"),
         (PrespawnError("ag execution requires --writable"), "ask_delivery_failed"),
     ],
+    "AgRequiresWritableError": [(AgRequiresWritableError(), "ask_delivery_failed")],
     "StorageReadOnlyError": [
         (StorageReadOnlyError("read only"), "ask_delivery_failed"),
     ],

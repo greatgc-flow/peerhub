@@ -28,3 +28,15 @@ def test_hydrogen_is_a_known_model_without_a_profile_or_verified_pool(tmp_path):
     profiles = _packaged()["profiles"]
     assert not any("hydrogen" in str(entry.get("model")) for entry in profiles.values())
     assert len(profiles) == 12 and "cx.terra" not in profiles
+
+
+def test_every_packaged_profile_was_rechecked_on_the_observation_date():
+    data = _packaged()
+    assert {pid: p["checked"] for pid, p in data["profiles"].items()} == {pid: data["observed_at"] for pid in data["profiles"]}
+
+
+def test_hydrogen_notes_do_not_overstate_runs_for_unbenchmarked_efforts(tmp_path):
+    known = known_model_pools(tmp_path)
+    for model in HYDROGEN:
+        note = known[model]["note"]
+        assert ("inferred from the -high run" in note) == (model != "gemini-4-hydrogen-high"), model
