@@ -4,7 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.11 (published)
+## Current source: v0.24.12 (release candidate)
+
+v0.24.12 is a patch from the item-level review of 0.24.11: the #359 JSON guidance names `--writable` and `peerhub explain ag-requires-writable`, the unknown-profile hint wording, and invariant-only model-facts tests.
+
+### v0.24.11 (published)
 
 v0.24.11 adds monitor traffic-light colours, a derived quota tree with peer separation and `PEERHUB_MONITOR_VIEW`, re-observed model facts (agy 1.5.7 gemini-4-hydrogen recorded without a profile; personal cx.terra removed) and the ag `--writable` hint (#359). All designs scored 100 unanimously before implementation; record: [work log 2026-11-12/13](history/work-log-2026-11-13.md).
 

@@ -1156,13 +1156,26 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     def error_output(code: str, message: str, session: dict[str, Any] | None = None, exception: BaseException | None = None) -> None:
         if args.subcommand == "ask":
             from peerhub.cli.recovery import make_guidance_payload, render_exception_guidance_hint, select_guidance_code
+            from peerhub.extensions.adapters.base import AgRequiresWritableError
             guidance_code = select_guidance_code(exception=exception)
             db_arg = getattr(args, "db", None)
             sid = getattr(args, "stream_id", None) or (f"peer:{args.peer}:chat" if getattr(args, "peer", None) else None)
             if args.json:
                 payload: dict[str, Any] = dict(status="error", response=None, session=session, error=dict(code=code, message=message))
                 if guidance_code:
-                    payload["guidance"] = make_guidance_payload(guidance_code, db_path=db_arg, stream_id=sid)
+                    guidance = make_guidance_payload(guidance_code, db_path=db_arg, stream_id=sid)
+                    if isinstance(exception, AgRequiresWritableError):
+                        guidance.update(
+                            explain_cmd="peerhub explain ag-requires-writable",
+                            summary=("Next: Re-run your command with --writable (ag has no read-only sandbox; "
+                                     "it allows edits, so trusted workspaces only)."),
+                            recover=[{
+                                "argv": ["peerhub", *actual, "--writable"],
+                                "purpose": "Re-run your command with --writable.",
+                                "prereqs": "ag allows edits; use trusted workspaces only.",
+                            }],
+                        )
+                    payload["guidance"] = guidance
                 print(json.dumps(payload, ensure_ascii=True))
             hint = render_exception_guidance_hint(guidance_code or code, exception)
             _error_line(guidance_code or code, message, hint)
