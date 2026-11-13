@@ -4,9 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.11 (release candidate)
+## Current source: v0.24.11 (published)
 
 v0.24.11 adds monitor traffic-light colours, a derived quota tree with peer separation and `PEERHUB_MONITOR_VIEW`, re-observed model facts (agy 1.5.7 gemini-4-hydrogen recorded without a profile; personal cx.terra removed) and the ag `--writable` hint (#359). All designs scored 100 unanimously before implementation; record: [work log 2026-11-12/13](history/work-log-2026-11-13.md).
+
+Published 2026-11-13 (UTC; PR #360, tag `v0.24.11`, target `e30473ee`); G3 passed bound to `e30473ee6ad3` (live gate, three stages; evidence `docs/implementation/live_evidence/2026-11-13-v0.24.11.json`). Full OS x Python matrix run 43353116927 success. PyPI 0.24.11 verified in a clean virtualenv (`--version`, `explain ag-requires-writable`, 12 packaged profiles, quota tree rows). Reviews: cc.fable 100 (5 rounds), ag.deepthink 100 (cross-family, found five real defects).
 
 ### v0.24.10 (published)
 
