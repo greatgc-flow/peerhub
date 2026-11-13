@@ -22,7 +22,7 @@ pytestmark = [pytest.mark.unit]
     ("ag not reported", ["plan-windows"]),
     ("ag empty reply", ["ag-recipe"]),
     ("denied_empty", ["ag-recipe"]),
-    ("ag", ["ag-recipe", "ag-bulk-profile-heuristics", "ag-silence-long-asks", "multi-peer-quota-shaping", "plan-windows"]),
+    ("ag", ["ag-recipe", "ag-bulk-profile-heuristics", "ag-requires-writable", "ag-silence-long-asks", "multi-peer-quota-shaping", "plan-windows"]),
     ("cc allow rules", ["cc-allow-rules"]),
     ("fable haiku", ["cc-allow-rules"]),
     ("monitor", ["monitor-states", "plan-windows"]),
@@ -132,7 +132,7 @@ def test_guidance_code_beats_lesson_id_and_keywords_still_work(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 29
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 30
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & {lesson["id"] for lesson in lessons}
     for lesson in lessons:
         assert all(lesson.values())

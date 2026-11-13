@@ -312,7 +312,7 @@ def test_5h_na_notes_use_the_fresh_account_plan_when_the_quota_probe_reports_non
                  if o["pool_ref"] == "quota:cc:C-7D")
     assert "display_plan" not in other and "plan_source" not in other  # only the notes that needed it carry the fields
     assert "C-5H n/a (plan pro)" in compact and "plan unknown" not in compact
-    assert "C-5H n/a not reported (plan pro)" in expanded and "plan unknown" not in expanded
+    assert "(C-5H n/a)" in expanded and "plan unknown" not in expanded
     assert "plan pro: no 5h window" in expanded and "plan unknown: no 5h window" not in expanded
 
 

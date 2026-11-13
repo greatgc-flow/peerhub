@@ -24,6 +24,14 @@ fix = "Recipe: put the content the task needs inline via --query-file and say \"
 issue = "#140, #284, #287, #300, #302"
 
 [[lessons]]
+id = "ag-requires-writable"
+title = "ag asks require explicit --writable, including pings and reviews"
+keywords = ["ag", "agy", "writable", "pings", "reviews", "ask_delivery_failed"]
+symptom = "[ask_delivery_failed] ag execution requires --writable: agy CLI does not enforce a read-only sandbox when --mode accept-edits is omitted."
+fix = "The #140 gate is intentional: agy has no read-only sandbox, so PeerHub rejects native ag asks before spawning unless write access is explicit. Add --writable to your command; pings and reviews need it too. It allows edits: trusted workspaces only. If write access is not acceptable, use a provider with an enforced read-only sandbox."
+issue = "#140, #359"
+
+[[lessons]]
 id = "ag-silence-long-asks"
 title = "ag silence and long asks"
 keywords = ["ag", "agy", "silence", "silent", "long", "asks", "timeout", "uncertain", "blocked", "stream"]

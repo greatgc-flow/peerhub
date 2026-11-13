@@ -2,13 +2,13 @@ PeerHub Monitor | OK | 00:16:40Z
 [1;36m── QUOTA [OK] | measured remaining | soonest exhaust: ag P-3H 1% in 30m ───────────────────────────────────────────────[0m
 PEER  POOL  STATE          REM  RESET-IN  PACE  [BAR]       EXHAUST-IN  AGE  PROFILES (configured)
 ag    P-1H  [32mON_PACE[0m       100%  2h00m     -     [32m[████████][0m  -           30s  unmapped
-ag    P-2H  [33mWATCH[0m          50%  2h00m     -     [33m[████░░░|][0m  -           30s  unmapped
-ag    P-3H  [35mTHREAT[0m          1%  2h00m     -     [35m[▏░░░░|░░][0m  30m         30s  unmapped
-ag    P-4H  [1;31mEXHAUSTED[0m       0%  2h00m     -     [1;31m[░░░░|░░░][0m  -           30s  unmapped
-ag    P-5H  [1;31mERROR[0m            -  -         -     [1;31m[--------][0m  -           30s  unmapped
-ag    P-6H  [2mUNKNOWN[0m          -  -         -     [2m[--------][0m  -           30s  unmapped
-ag    P-7H  [2;33mSTALE:window[0m     -  -         -     [2;33m[--------][0m  -           30s  unmapped
-ag    P-8H  [33mINSUFF[0m         90%  2h00m     -     [33m[██|████░][0m  -           30s  unmapped
+      P-2H  [33mWATCH[0m          50%  2h00m     -     [33m[████░░░|][0m  -           30s  unmapped
+      P-3H  [31mTHREAT[0m          1%  2h00m     -     [31m[▏░░░░|░░][0m  30m         30s  unmapped
+      P-4H  [1;31mEXHAUSTED[0m       0%  2h00m     -     [1;31m[░░░░|░░░][0m  -           30s  unmapped
+      P-5H  [1;31mERROR[0m            -  -         -     [1;31m[--------][0m  -           30s  unmapped
+      P-6H  [2mUNKNOWN[0m          -  -         -     [2m[--------][0m  -           30s  unmapped
+      P-7H  [2mSTALE:window[0m     -  -         -     [2m[--------][0m  -           30s  unmapped
+      P-8H  INSUFF         90%  2h00m     -     [██|████░]  -           30s  unmapped
 ag PROBE:34m STALE:window; next: peerhub observation refresh --peers ag
 cc PROBE:2h PROBE:unknown; next: peerhub observation refresh --peers cc
 STATE: INSUFF=insufficient projection data; THREAT=exhausts before reset

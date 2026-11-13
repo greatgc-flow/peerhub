@@ -241,6 +241,27 @@ def round2_frame(frame: dict[str, Any]) -> dict[str, Any]:
     return frame
 
 
+@pytest.mark.parametrize("expand", [False, True])
+@pytest.mark.parametrize("unicode_mode", [False, True])
+def test_peer_separators_at_100x40_and_data_priority_at_80x24(
+        round2_frame: dict[str, Any], expand: bool, unicode_mode: bool) -> None:
+    before = deepcopy(round2_frame)
+    spacious = render_grouped_frame(round2_frame, width=100, height=40, expand=expand, unicode=unicode_mode)
+    lines = spacious.splitlines()
+    for peer in ("cc", "cx"):
+        first_pool = next(i for i, line in enumerate(lines) if re.match(rf"^{peer} +\S+-\d+[HD] ", line))
+        # Expanded sessions exceed this viewport; spacing must yield to details.
+        assert (lines[first_pool - 1] == "") is (not expand), spacious
+    tight = render_grouped_frame(round2_frame, width=80, height=24, expand=expand, unicode=unicode_mode)
+    assert "\n\n" not in tight
+    for pool in ("3P-5H", "3P-7D", "A-7D", "G-5H", "G-7D", "C-5H", "C-7D", "F-7D", "X-30D", "X-7D"):
+        assert pool in tight
+    assert "(X-5H n/a)" in tight
+    assert len(lines) < 40 and all(_width(line) < 100 for line in lines)
+    assert len(tight.splitlines()) < 24 and all(_width(line) < 80 for line in tight.splitlines())
+    assert round2_frame == before
+
+
 @pytest.mark.parametrize("width,height", [(60, 30), (80, 24), (120, 40), (220, 60)])
 @pytest.mark.parametrize("expand", [False, True])
 @pytest.mark.parametrize("unicode_mode", [False, True])
@@ -386,7 +407,7 @@ def _data_rows(screen: str) -> Counter[str]:
     rows = []
     for raw in screen.splitlines():
         line = re.sub(r"\x1b\[[0-9;]*m", "", raw).strip()
-        if (line.startswith(("PeerHub Monitor", "DB:", "Coverage:", "STATE:", "── ", "-- ", "peerhub monitor"))
+        if (not line or line.startswith(("PeerHub Monitor", "DB:", "Coverage:", "STATE:", "── ", "-- ", "peerhub monitor"))
                 or re.match(r"^\+\d+ (?:more|rows hidden|--expand)", line)):
             continue
         rows.append(line)
@@ -489,7 +510,7 @@ def test_compact_small_heights_keep_title_then_quota_then_peers(frame: dict[str,
     full = render_grouped_frame(frame, width=80, height=1000, view="plain", unicode=False).splitlines()
     pools = full.index("POOLS")
     peers = full.index("PEERS")
-    quota_rows = [line for line in full[pools + 2:peers] if re.match(r"^(?:ag|cc|cx) +\S+-\d+[HD] ", line)]
+    quota_rows = [line for line in full[pools + 2:peers] if re.match(r"^(?:(?:ag|cc|cx) +| +)(?:[|`]- )?\S+-\d+[HD] ", line)]
     essential = [full[0], "POOLS", full[pools + 1], *quota_rows, "PEERS", *full[peers + 1:peers + 4]]
     lines = render_grouped_frame(frame, width=80, height=height, view="plain", unicode=False).splitlines()
     assert lines[:-1] == essential[:height - 2]
@@ -500,7 +521,8 @@ def test_compact_appended_disclosure_keeps_indices_after_legend_collapse(round2_
     screen = render_grouped_frame(round2_frame, width=80, height=24, view="plain", unicode=False)
     lines = screen.splitlines()
     assert lines[0].startswith("PeerHub Monitor")
-    assert len([line for line in lines if re.match(r"^(?:ag|cc|cx) +\S+-\d+[HD] ", line)]) == 11
+    assert len([line for line in lines if re.match(r"^(?:(?:ag|cc|cx) +| +)(?:[|`]- )?\S+-\d+[HD] ", line)]) == 10
+    assert "(X-5H n/a)" in screen  # the eleventh pool is folded into X-7D
     assert "Legend: peerhub monitor --help" in lines
     assert "PEERS" in lines and "Fields hidden | --expand" in lines
     peers = lines.index("PEERS")

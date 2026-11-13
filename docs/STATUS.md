@@ -4,7 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.10 (published)
+## Current source: v0.24.11 (release candidate)
+
+v0.24.11 adds monitor traffic-light colours, a derived quota tree with peer separation and `PEERHUB_MONITOR_VIEW`, re-observed model facts (agy 1.5.7 gemini-4-hydrogen recorded without a profile; personal cx.terra removed) and the ag `--writable` hint (#359). All designs scored 100 unanimously before implementation; record: [work log 2026-11-12/13](history/work-log-2026-11-13.md).
+
+### v0.24.10 (published)
 
 v0.24.10 improves live monitor visibility measured in a real ConPTY (no mixed sections, peers before details, whole-field fitting, announced cuts, bounded TTY snapshots, per-peer usage, retired plan windows, content-sized columns). Implemented by cx.effort.
 

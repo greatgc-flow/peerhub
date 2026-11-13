@@ -51,7 +51,8 @@ def compact_frame():
 
 
 def _row(screen, pool):
-    return next(line for line in screen.splitlines() if pool in line and line.lstrip().startswith(("ag ", "cc ", "cx ")))
+    return next(line for line in screen.splitlines() if pool in line and re.search(r"(?:^|\s)(?:[|`]-\s|[├└]─\s)?" + re.escape(pool) + r"(?:\s|$)", line)
+                and "plan " not in line and "PEERS" not in line)
 
 
 def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_frame):
@@ -64,12 +65,13 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
     for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "out", "0%"),
                                 ("A-7D", "aged", "55%"), ("G-5H", "ok", "80%"),
                                 ("G-7D", "reset", None), ("F-7D", "?", None),
-                                ("X-5H", "n/a", None), ("X-7D", "ok", "89%")):
+                                ("X-7D", "ok", "89%")):
         row = _row(screen, name)
         assert state in row.split()
         assert "%" not in row if value is None else value in row
-    positions = [screen.index(_row(screen, name)) for name in ("3P-5H", "3P-7D", "A-7D", "G-5H", "G-7D")]
-    assert positions == sorted(positions)  # peer, family, then window (F10')
+    positions = [screen.index(_row(screen, name)) for name in ("3P-7D", "3P-5H", "A-7D", "G-7D", "G-5H")]
+    assert positions == sorted(positions)  # roots by family; containing windows precede children
+    assert "(X-5H n/a)" in _row(screen, "X-7D")
     assert "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale" in screen
     assert "G flash A argon" not in screen
     assert "X-5H n/a (plan prolite)" in screen
@@ -105,6 +107,9 @@ def test_compact_pace_cells_keep_signed_measurement_for_aged_rows(
 def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unusable):
     rows = compact_frame["groups"]["capacity"]["data"]["observations"]
     row = rows[6] if unusable == "n/a" else rows[3]
+    if unusable == "n/a":
+        # Keep this n/a pool a root so its unavailable PACE cell is displayed.
+        compact_frame["groups"]["capacity"]["data"]["observations"] = [row]
     row["projection"] = {"pace_pt": 46}
     if unusable == "?": row.update(state="UNKNOWN")
     if unusable == "reset": row.update(resets_at=NOW - 1)
@@ -226,14 +231,14 @@ def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unic
     assert all(_width(line) <= min(99, width - 1) for line in screen.splitlines())
 
 
-def test_fast_is_magenta_on_state_and_bar_only_in_rich_output(compact_frame, monkeypatch):
+def test_fast_with_threat_forecast_is_red_on_state_and_bar_in_rich_output(compact_frame, monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "threat"}, projection_samples=2)
     screen = render_grouped_frame(compact_frame, view="rich", color=True, width=100)
     line = next(line for line in screen.splitlines() if "G-5H" in line and "fast" in line)
-    assert not line.startswith("\x1b") and "\x1b[35mfast\x1b[0m" in line
-    assert line.count("\x1b[35m") == 2 and re.search(r"\x1b\[35m\[[^\]]*\]\x1b\[0m", line)
+    assert not line.startswith("\x1b") and "\x1b[31mfast\x1b[0m" in line
+    assert line.count("\x1b[31m") == 2 and re.search(r"\x1b\[31m\[[^\]]*\]\x1b\[0m", line)
 
 
 def test_ttl_boundary_and_next_absent_when_fresh(compact_frame):
@@ -405,9 +410,9 @@ def test_absent_and_reset_windows_on_one_peer_do_not_hide_each_other(compact_fra
     reset.update(resets_at=NOW - 1, age_seconds=540, state="STALE")
     compact_frame["groups"]["capacity"]["data"]["observations"] = [absent, reset]
     screen = render_grouped_frame(compact_frame, view="plain", width=100)
-    assert "n/a" in _row(screen, "X-5H").split()
+    assert "(X-5H n/a)" in _row(screen, "X-7D")
     assert "reset" in _row(screen, "X-7D").split()
-    assert "%" not in _row(screen, "X-5H") and "%" not in _row(screen, "X-7D")
+    assert "%" not in _row(screen, "X-7D")
     assert "89%" not in screen
 
 
@@ -612,18 +617,21 @@ def test_footer_never_claims_active_or_bare_unknown_counts(compact_frame):
 
 def _pool_order(screen):
     order = []
+    peer = ""
     for line in screen.splitlines():
-        parts = line.split()
-        if len(parts) > 1 and parts[0] in {"ag", "cc", "cx"} and parts[1][0] in "3AGFX" and parts[1][1:2] in "P-" \
-                and f"{parts[0]} {parts[1]}" not in order:
-            order.append(f"{parts[0]} {parts[1]}")
+        if re.match(r"^(ag|cc|cx) \S+ (n/a|\?) ", line):
+            continue  # reason notes have single-spaced peer/pool/state prefixes
+        match = re.match(r"^(?:(ag|cc|cx)\s+|\s+)(?:[|`]-\s+)?((?:3P|[ACGFX])-\d+[HD])\s", line)
+        if match:
+            peer = match[1] or peer
+            order.append(f"{peer} {match[2]}")
     return order
 
 
 def test_expand_quota_lists_pools_in_the_compact_order(compact_frame):
     compact = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
     expanded = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=120, expand=True))
-    assert compact[:5] == ["ag 3P-5H", "ag 3P-7D", "ag A-7D", "ag G-5H", "ag G-7D"]
+    assert compact[:5] == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "ag G-5H"]
     assert expanded == compact
 
 
@@ -641,11 +649,18 @@ def test_narrow_pools_table_drops_whole_columns_from_the_right(compact_frame, wi
     omitted = screen.split("Columns omitted:")[1].split("ok enough")[0].split()
     assert omitted == [name.lower() for name in names[len(shown):]]
     for pool in ("3P-5H", "G-5H", "X-7D"):  # every row shows the same columns
-        assert len(_row(screen, pool).split()) == len(shown)
+        row = _row(screen, pool).split(" (")[0]
+        pool_start = header.index("POOL")
+        pool_end = header.index("STATE") if "STATE" in shown else len(row)
+        # Tree prefixes and the first-row-only peer label occupy their own cells.
+        assert pool in row[pool_start:pool_end]
+        if "STATE" in shown:
+            assert len(row[pool_end:].split()) == len(shown) - 2
 
 
 @pytest.mark.parametrize("width,dropped", [
-    (40, ["bar", "meaning", "age", "profiles"]), (60, ["age", "profiles"]), (80, [])])
+    (40, ["resets", "pace", "bar", "meaning", "age", "profiles"]),
+    (60, ["meaning", "age", "profiles"]), (80, ["profiles"])])
 def test_pools_columns_drop_by_priority_and_state_survives(compact_frame, width, dropped):
     screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=width)
     header = next(line for line in screen.splitlines() if line.startswith("PEER ")).split()
@@ -662,7 +677,7 @@ def test_pool_bar_shows_remaining_and_even_burn_tick(compact_frame, unicode_mode
     screen = render_grouped_frame(compact_frame, view="plain", unicode=unicode_mode, width=100)
     # G-5H: 80% left, 1h of a 5h window left -> even burn leaves 20%, so the tick sits in cell 1
     assert f"[{full}|{full * 4}{empty * 2}]" in _row(screen, "G-5H")
-    assert "[--------]" in _row(screen, "X-5H")  # n/a
+    assert "(X-5H n/a)" in _row(screen, "X-7D")  # n/a child is folded
     assert "[--------]" in _row(screen, "F-7D")  # unknown
     assert "[--------]" in _row(screen, "G-7D")  # reset window passed
 
@@ -689,10 +704,7 @@ def test_pace_glyph_marks_direction_and_keeps_the_number():
     assert [_pace_glyph(text, False) for text in ("+26", "-89", "0", "-")] == ["^+26", "v-89", "0", "-"]
 
 
-STATE_COLORS = {"ok": "32", "low": "33", "fast": "35", "out": "1;31", "aged": "2;33", "reset": "36", "n/a": "2"}
-
-
-def test_compact_state_and_bar_carry_the_state_colour_only_when_colour_is_on(compact_frame, monkeypatch):
+def test_compact_state_bar_and_fold_note_use_evidence_colours_only_when_colour_is_on(compact_frame, monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     fast = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     fast.update(projection={"state": "threat"}, projection_samples=2)
@@ -700,13 +712,17 @@ def test_compact_state_and_bar_carry_the_state_colour_only_when_colour_is_on(com
     plain = render_grouped_frame(compact_frame, view="rich", color=False, width=100)
     assert "\x1b" not in plain
     assert re.sub(r"\x1b\[[0-9;]*m", "", colored) == plain  # colour never changes the text or the widths
-    for pool, state in (("3P-5H", "low"), ("3P-7D", "out"), ("A-7D", "aged"), ("G-5H", "fast"),
-                        ("G-7D", "reset"), ("X-5H", "n/a"), ("X-7D", "ok")):
+    for pool, state, code in (("3P-5H", "low", "2"), ("3P-7D", "out", "2"), ("A-7D", "aged", "2"),
+                              ("G-5H", "fast", "31"), ("G-7D", "reset", "2"), ("X-7D", "ok", None)):
         line = _row(colored, pool)
-        code = STATE_COLORS[state]
-        assert f"\x1b[{code}m{state}\x1b[0m" in line
-        assert re.search(rf"\x1b\[{re.escape(code)}m\[[^\]]*\]\x1b\[0m", line)
-        assert line.count("\x1b[0m") == 2 and not line.startswith("\x1b")  # only the state word and the bar
+        if code is None:  # INSUFF >10% is uncoloured; the folded n/a suffix stays dim.
+            assert "\x1b" not in line.split("\x1b[2m(")[0]
+            assert line.count("\x1b[0m") == 1
+        else:
+            assert f"\x1b[{code}m{state}\x1b[0m" in line
+            assert re.search(rf"\x1b\[{re.escape(code)}m\[[^\]]*\]\x1b\[0m", line)
+            assert line.count("\x1b[0m") == 2
+        assert not line.startswith("\x1b")
         assert _width(line) <= 99
     assert "\x1b" not in render_grouped_frame(compact_frame, view="plain", color=True, width=100)
     monkeypatch.setenv("NO_COLOR", "1")

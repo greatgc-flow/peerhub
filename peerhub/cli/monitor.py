@@ -41,8 +41,9 @@ def register_monitor_parser(subparsers: Any) -> None:
         p.add_argument("--legacy", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--allow-agy-token-use", action="store_true",
                    help="Keep collecting after agy /usage or /credits consumed model tokens")
-    p.add_argument("--view", choices=["auto", "rich", "plain"], default="auto",
-                   help="Dashboard style: rich (colour), plain (ASCII); both show PACE; auto = rich on a TTY. TTY with VT redraws in place at most 1 Hz; non-TTY appends one completed frame every N s; a TTY without VT appends without escapes")
+    p.add_argument("--view", choices=["auto", "rich", "plain"],
+                   default=os.environ.get("PEERHUB_MONITOR_VIEW") or "auto",
+                   help="Dashboard style: auto (rich on a TTY), rich (colour), plain (ASCII override for ambiguous-width box glyphs, ▲▼ and █ in Korean/East-Asian locales). Set PEERHUB_MONITOR_VIEW=plain for a lasting ASCII fix (auto|rich|plain; explicit --view wins). Both show PACE; VT TTY redraws at most 1 Hz; non-TTY appends completed frames; TTY without VT appends without escapes")
     p.add_argument("--collect-every", type=int, default=1,
                    help="Collect only every Kth cycle (K>=1)")
     p.add_argument("--system-dir", dest="sys_dir", type=Path,
@@ -72,6 +73,8 @@ def register_monitor_parser(subparsers: Any) -> None:
 
 
 def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    if args.view not in {"auto", "rich", "plain"}:
+        parser.error("PEERHUB_MONITOR_VIEW must be auto, rich or plain")
     if not math.isfinite(args.interval) or not args.interval > 0:
         parser.error("--interval-seconds must be a finite positive number")
     if args.cycles is not None and args.cycles < 0:

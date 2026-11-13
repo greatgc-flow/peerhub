@@ -21,6 +21,7 @@ from peerhub.cli.recovery import (
 from typing import Any
 
 from peerhub.extensions.bridge_claims import ClaimHeldError
+from peerhub.extensions.adapters.base import AgRequiresWritableError
 from peerhub.extensions.bridge import (
     ConflictingSessionFlagsError,
     InvalidSessionHandleSyntaxError,
@@ -49,6 +50,101 @@ from peerhub.core.store import (
 pytestmark = [pytest.mark.unit]
 
 PROMPT_LIMIT_ERROR = "prompt is 31000 bytes, exceeding the ag inline limit of 30000 bytes (catch-up history is never truncated silently; lower the catch-up budget)"
+
+AG_WRITABLE_NEXT = (
+    "next: add --writable to your command (ag has no read-only sandbox; it allows edits, "
+    "so trusted workspaces only); details: peerhub explain ag-requires-writable"
+)
+
+
+def test_writable_recovery_uses_exception_type_even_when_message_changes():
+    from peerhub.cli.recovery import render_exception_guidance_hint
+
+    error = AgRequiresWritableError("rephrased execution policy")
+    assert render_exception_guidance_hint("ask_delivery_failed", error) == AG_WRITABLE_NEXT.removeprefix("next: ")
+    assert "--writable" not in render_exception_guidance_hint("ask_delivery_failed", PrespawnError(str(error)))
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_ag_writable_gate_pins_recovery_and_preserves_contract(tmp_path, monkeypatch, capsys, json_output):
+    from peerhub.cli.app import main
+    from tests.communication.adapters.conftest import FAKE
+
+    log = tmp_path / "agy-calls.jsonl"
+    monkeypatch.setenv("FAKE_KIND", "ag")
+    monkeypatch.setenv("FAKE_LOG", str(log))
+    monkeypatch.setattr("peerhub.extensions.adapters.base.resolve_binary", lambda spec: [sys.executable, FAKE])
+    db = tmp_path / "core.db"
+    argv = ["--db", str(db), "ask", "ag", "Reply with exactly: pong"]
+    assert main(argv + (["--json"] if json_output else [])) == 1
+    captured = capsys.readouterr()
+    assert "[ask_delivery_failed]" in captured.err
+    assert not log.exists(), "the rejected ask must never invoke agy"
+    assert not db.exists(), "the policy gate must still run before store creation"
+    if json_output:
+        payload = json.loads(captured.out)
+        assert payload["error"]["code"] == "delivery_failed"
+        assert payload["guidance"]["code"] == "ask_delivery_failed"
+    assert captured.err.split("; next: ", 1)[1].rstrip() == AG_WRITABLE_NEXT.removeprefix("next: ")
+    assert "diag health" not in captured.err
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_ag_writable_hint_resolves_real_lesson(capsys, json_output):
+    from peerhub.cli.app import main
+    from peerhub.cli.lessons import lesson_by_id
+
+    lesson_id = AG_WRITABLE_NEXT.rsplit("peerhub explain ", 1)[1]
+    assert main(["explain", lesson_id] + (["--json"] if json_output else [])) == 0
+    captured = capsys.readouterr()
+    assert not captured.err
+    assert "--writable" in captured.out
+    (lesson,) = lesson_by_id(lesson_id)
+    assert lesson["id"] == lesson_id == "ag-requires-writable"
+    assert "ag execution requires --writable" in lesson["symptom"]
+    for fact in ("#140", "intentional", "read-only sandbox", "pings", "reviews", "trusted workspaces only"):
+        assert fact in lesson["fix"]
+    if json_output:
+        assert json.loads(captured.out)["lessons"] == [lesson]
+    else:
+        assert captured.out.startswith(f"{lesson_id}:")
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_non_ag_delivery_failure_keeps_diag_health_hint(tmp_path, monkeypatch, capsys, json_output):
+    from peerhub.cli.app import main
+    from peerhub.extensions import ask as ask_mod
+
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+        "status": "failed_not_started", "certainty": "NOT_STARTED",
+        "detail": {"error": "execution policy rejected"},
+        "error": {"code": "delivery_failed", "message": "Execution ended as failed_not_started."},
+    })
+    argv = ["--db", str(tmp_path / "core.db"), "ask", "cx", "hello"]
+    assert main(argv + (["--json"] if json_output else [])) == 1
+    captured = capsys.readouterr()
+    assert "[ask_delivery_failed]" in captured.err
+    assert "diag health" in captured.err
+    assert "ag-requires-writable" not in captured.err
+    if json_output:
+        assert json.loads(captured.out)["guidance"]["code"] == "ask_delivery_failed"
+
+
+def test_ag_writable_still_executes(tmp_path, monkeypatch, capsys):
+    from peerhub.cli.app import main
+    from tests.communication.adapters.conftest import FAKE, calls
+
+    log = tmp_path / "agy-calls.jsonl"
+    monkeypatch.setenv("FAKE_KIND", "ag")
+    monkeypatch.setenv("FAKE_LOG", str(log))
+    monkeypatch.setattr("peerhub.extensions.adapters.base.resolve_binary", lambda spec: [sys.executable, FAKE])
+    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello", "--writable", "--json"]) == 0
+    captured = capsys.readouterr()
+    assert not captured.err
+    payload = json.loads(captured.out)
+    assert payload["status"] == "delivered" and payload["response"] == "OK"
+    (call,) = calls(log)
+    assert call["argv"][call["argv"].index("--mode") + 1] == "accept-edits"
 
 def test_registry_well_formedness():
     """Every registered guidance entry satisfies structural well-formedness contracts."""
@@ -271,6 +367,7 @@ EXCEPTION_SCENARIOS: dict[str, list[tuple[Exception, str]]] = {
         (PrespawnError("executable not found on PATH"), "ask_launch_failed"),
         (PrespawnError("ag execution requires --writable"), "ask_delivery_failed"),
     ],
+    "AgRequiresWritableError": [(AgRequiresWritableError(), "ask_delivery_failed")],
     "StorageReadOnlyError": [
         (StorageReadOnlyError("read only"), "ask_delivery_failed"),
     ],
