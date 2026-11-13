@@ -10,4 +10,4 @@ def test_unknown_profile_error_points_to_profile_list(peer, tmp_path):
         resolve_profile(peer, f"{peer}.terra-retired", tmp_path)
     message = str(excinfo.value)
     assert f"unknown model profile '{peer}.terra-retired'" in message
-    assert "peerhub profile list" in message
+    assert "run 'peerhub profile list' to see valid profiles" in message

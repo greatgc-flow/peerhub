@@ -86,7 +86,7 @@ def _select_profile(profile: str, layers: list[tuple[str, dict[str, Any]]]) -> t
             sources[key] = name
         found = True
     if not found:
-        raise ValueError(f"unknown model profile {profile!r}; valid profiles: peerhub profile list")
+        raise ValueError(f"unknown model profile {profile!r}; run 'peerhub profile list' to see valid profiles")
     return selected, sources
 
 

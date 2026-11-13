@@ -85,6 +85,20 @@ def test_ag_writable_gate_pins_recovery_and_preserves_contract(tmp_path, monkeyp
         payload = json.loads(captured.out)
         assert payload["error"]["code"] == "delivery_failed"
         assert payload["guidance"]["code"] == "ask_delivery_failed"
+        guidance = payload["guidance"]
+        assert guidance["explain_cmd"] == "peerhub explain ag-requires-writable"
+        assert guidance["summary"] == (
+            "Next: Re-run your command with --writable (ag has no read-only sandbox; "
+            "it allows edits, so trusted workspaces only)."
+        )
+        assert guidance["recover"] == [{
+            "argv": ["peerhub", *argv, "--json", "--writable"],
+            "purpose": "Re-run your command with --writable.",
+            "prereqs": "ag allows edits; use trusted workspaces only.",
+        }]
+        assert payload["status"] == "error"
+        assert payload["response"] is None
+        assert payload["session"] is None
     assert captured.err.split("; next: ", 1)[1].rstrip() == AG_WRITABLE_NEXT.removeprefix("next: ")
     assert "diag health" not in captured.err
 
@@ -1588,3 +1602,12 @@ def test_denied_action_names_parses_agy_json_defensively():
     assert denied_action_names(out) == ["command", "edit"]
     assert denied_action_names('{"response":"ok"}') == []
     assert denied_action_names('{"denied_actions":"nope"}') == []
+
+
+
+def test_with_writable_keeps_the_flag_before_a_double_dash():
+    """A dash-leading prompt after `--` must stay a prompt; --writable goes before the separator (0.24.12 review)."""
+    from peerhub.cli.app import with_writable
+
+    assert with_writable(["ask", "ag", "--json", "--", "-5 is negative?"]) == ["ask", "ag", "--json", "--writable", "--", "-5 is negative?"]
+    assert with_writable(["ask", "ag", "ping"]) == ["ask", "ag", "ping", "--writable"]
