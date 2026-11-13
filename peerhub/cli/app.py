@@ -1170,7 +1170,9 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                             summary=("Next: Re-run your command with --writable (ag has no read-only sandbox; "
                                      "it allows edits, so trusted workspaces only)."),
                             recover=[{
-                                "argv": ["peerhub", *actual, "--writable"],
+                                # --writable must precede a "--" separator, or argparse reads it as prompt text.
+                                "argv": ["peerhub", *(actual[:actual.index("--")] + ["--writable"] + actual[actual.index("--"):]
+                                                      if "--" in actual else [*actual, "--writable"])],
                                 "purpose": "Re-run your command with --writable.",
                                 "prereqs": "ag allows edits; use trusted workspaces only.",
                             }],

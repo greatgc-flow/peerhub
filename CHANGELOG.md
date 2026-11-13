@@ -12,7 +12,7 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
-- #359 follow-up: `peerhub ask ag ... --json` without `--writable` no longer points to the generic `peerhub diag health` dead end. The JSON guidance keeps the code `ask_delivery_failed` and the exit status, but its summary and recovery say to re-run with `--writable` and `explain_cmd` is `peerhub explain ag-requires-writable`, matching the text output.
+- #359 follow-up: `peerhub ask ag ... --json` without `--writable` no longer points to the generic `peerhub diag health` dead end. The JSON guidance keeps the code `ask_delivery_failed` and the exit status, but its summary and recovery say to re-run with `--writable` (the suggested argv puts the flag before a `--` separator, so a dash-leading prompt stays a prompt) and `explain_cmd` is `peerhub explain ag-requires-writable`, matching the text output.
 - The unknown-profile hint reads `unknown model profile 'x'; run 'peerhub profile list' to see valid profiles` (the 0.24.11 wording looked like a list).
 - The 2026-11-13 model-facts test asserts invariants instead of refresh values, as the refresh recipe requires (a toml-only refresh no longer breaks it).
 

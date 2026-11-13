@@ -1602,3 +1602,17 @@ def test_denied_action_names_parses_agy_json_defensively():
     assert denied_action_names(out) == ["command", "edit"]
     assert denied_action_names('{"response":"ok"}') == []
     assert denied_action_names('{"denied_actions":"nope"}') == []
+
+
+def test_ag_writable_recover_argv_keeps_the_flag_before_a_double_dash(tmp_path, capsys):
+    """A dash-leading prompt after `--` must stay a prompt; --writable goes before the separator (0.24.12 review)."""
+    import json as _json
+
+    from peerhub.cli.app import main
+
+    db = tmp_path / "store.db"
+    argv = ["--db", str(db), "ask", "ag", "--json", "--", "-5 is negative?"]
+    assert main(argv) == 1
+    payload = _json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    recover = payload["guidance"]["recover"][0]["argv"]
+    assert recover == ["peerhub", "--db", str(db), "ask", "ag", "--json", "--writable", "--", "-5 is negative?"]
