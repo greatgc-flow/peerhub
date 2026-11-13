@@ -8,6 +8,17 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.10] - 2026-11-13
+
+### Fixed
+
+- Live monitor visibility, measured in a real ConPTY at 60x30, 80x24, 120x40 and 220x60 (owner request): the bounded expanded frame no longer mixes sections (PEERS lines appeared under USAGE); the title line, the quota table and one summary line per peer always come before notes, ACCOUNTS, EXECUTION and SESSIONS; legends shrink first to a `Legend: peerhub monitor --help` pointer and the help epilog now carries the legend; field-list lines drop trailing fields whole; field cuts show `fields hidden`, or a `…` mark when the note cannot fit; row cuts use plain words (`+N rows hidden (G groups)`); the live title now reads `PeerHub Monitor REFRESH OK; refresh in Ns | <date> | <status>` in the expanded view and `PeerHub Monitor REFRESH OK; refresh in Ns | <date> | DB:<source> | quota age <age>` in the compact view, with a `Monitor ` or countdown-only fallback on narrow terminals (the countdown is never cut through its digits; trailing fields drop first: status and error counts when expanded, quota age then DB source when compact); peer summaries retain priority even when only some fit, and bounded latest-session lines name their peer.
+- In a terminal, `monitor --snapshot --expand` renders the same bounded frame as the live view instead of scrolling the top away; piped and non-TTY output stays unbounded. Expanded omission hints say how to see all rows with `peerhub monitor --snapshot --group all --expand | more`, avoiding a circular bounded snapshot; compact snapshots on terminals without VT retain append behaviour.
+- USAGE no longer lists hundreds of identity-less token rows: the bounded frame shows one line per peer (reported tokens, sessions with/without usage, weighted cache share) and `--expand` SESSIONS rows carry `tok N · cache P%`.
+- A pool the current plan no longer reports (for example cx X-30D after a plan change) renders as `n/a (not reported by plan <x>)` once a probe for that peer succeeds, and no longer drives the header quota age or `next:` hints.
+- Expanded QUOTA columns are sized to their content (STATE and EXHAUST-IN were padded to 16-17 cells), leaving room for more columns at 120 columns; the compact legend now states that `fast` needs more than 10% left and a threat supported by at least two samples, matching the code.
+
+
 ## [0.24.9] - 2026-11-13
 
 ### Fixed

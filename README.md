@@ -137,7 +137,10 @@ The bare `monitor` command shows the compact human dashboard (with `PACE`), redr
 watch one or more groups, or `--group all` to include all ten. `monitor groups`
 lists group IDs and meanings; `monitor defaults show|set|reset` inspects and
 changes the default selection. `monitor --snapshot` renders one read-only
-dashboard without refreshing providers. For automation, `--json` emits schema
+dashboard without refreshing providers. In a terminal, `--snapshot --expand`
+fits the screen; piping shows all rows, for example
+`peerhub monitor --snapshot --group all --expand | more`.
+For automation, `--json` emits schema
 2.0 NDJSON frames for watch and one JSON object for snapshot. The frozen 0.16.1
 machine contract remains available as `--json --schema-version 1.1`; the hidden
 deprecated `--legacy` alias was removed in 0.20.0 after its 0.19.x sunset.

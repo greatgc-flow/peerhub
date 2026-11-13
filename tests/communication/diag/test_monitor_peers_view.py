@@ -359,7 +359,7 @@ def test_7_height_limited_tty_keeps_severity_based_omission(peers_frame):
     rendered_err = render_grouped_frame(peers_frame, view="plain", width=80, height=6)
     assert "PEERS [ERROR]" in rendered_err
     assert "[unrecognized group]" not in rendered_err
-    assert "2 groups omitted" in rendered_err.lower() or "omitted" in rendered_err.lower()
+    assert "rows hidden (1 group)" in rendered_err
 
     # When peers group is OK and another group is ERROR, the ERROR group is prioritized and peers omitted
     peers_frame["groups"]["peers"]["status"] = "OK"

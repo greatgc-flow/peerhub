@@ -4,7 +4,11 @@
 
 Dates are UTC.
 
-## Current source: v0.24.9 (published)
+## Current source: v0.24.10 (release candidate)
+
+v0.24.10 improves live monitor visibility measured in a real ConPTY (no mixed sections, peers before details, whole-field fitting, announced cuts, bounded TTY snapshots, per-peer usage, retired plan windows, content-sized columns). Implemented by cx.effort.
+
+### v0.24.9 (published)
 
 v0.24.9 fixes `tools.model_ping` false positives for rejected cx models (#353) and stale plans in the monitor ACCOUNTS line (#354), and adds the `concurrent-cc-lanes` lesson (#352). Backlog triage 2026-11-13 (unanimous, cx.effort and ag.standard 100 on every item): #324 step 2, #323 and #313 closed as not planned with reopen triggers; #330 stays open until the next schema change.
 

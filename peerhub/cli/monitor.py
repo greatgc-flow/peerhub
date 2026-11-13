@@ -21,7 +21,10 @@ from peerhub.cli.support import agy_token_command, agy_token_stop_message, error
 from peerhub.cli.monitor_preferences import GROUP_IDS
 
 def register_monitor_parser(subparsers: Any) -> None:
-    p = subparsers.add_parser("monitor", help="Watch quota evidence and diagnostic dashboard")
+    from peerhub.cli.monitor_view import MONITOR_LEGEND
+
+    p = subparsers.add_parser("monitor", help="Watch quota evidence and diagnostic dashboard",
+                             epilog="\n".join(MONITOR_LEGEND), formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--interval-seconds", dest="interval", type=float, default=60.0,
                    help="Collection cycles every N s (positive float); supported TTY countdown redraw at most 1 Hz")
     p.add_argument("--cycles", type=int, default=None,
@@ -394,8 +397,9 @@ def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = F
     try:
         effective_view = ("rich" if output.vt else "plain") if view == "auto" else view
         color = effective_view == "rich" and use_color(output.vt, os.environ)
-        width, height = output.geometry() if output.vt else (output.width(), 24)
-        effective_height = None if expand else (height if output.vt else None)
+        bounded = tty and (expand or output.vt)
+        width, height = output.geometry() if bounded else (output.width(), 24)
+        effective_height = height if bounded else None
         frame = _render_human_frame(payload, view=effective_view, width=width,
                                     height=effective_height, color=color, expand=expand)
         sys.stdout.write(frame)
