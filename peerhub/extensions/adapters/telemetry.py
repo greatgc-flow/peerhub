@@ -68,7 +68,8 @@ def parse_provider_usage(kind: str, stdout: str) -> dict[str, Any]:
 
     allowed_events: set[str]
     if kind == "cc":
-        allowed_events = {"system", "assistant", "user", "result", "error", "stream_event"}
+        # rate_limit_event: Claude Code 2.x emits it in every -p run; only its type is read (#366 A3).
+        allowed_events = {"system", "assistant", "user", "result", "error", "stream_event", "rate_limit_event"}
     elif kind == "cx":
         allowed_events = {"thread.started", "turn.started", "turn.completed", "turn.failed", "error",
                           "item.started", "item.updated", "item.completed"}
@@ -107,5 +108,3 @@ def parse_provider_usage(kind: str, stdout: str) -> dict[str, Any]:
     normalized = normalize_provider_usage(kind, reported)
     return {"schema_version": 1, "scope": scope, "source": source, "reported": reported, "normalized": normalized,
             "coverage": {"state": "MEASURED", "reason": None}}
-
-

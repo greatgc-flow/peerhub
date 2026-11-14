@@ -102,8 +102,18 @@ def test_failed_taskkill_injected_termination_unconfirmed(tmp_path, bridge_h, mo
     """When taskkill / kill_process_tree fails, termination_confirmed is False in ProcessResult and bridge evidence."""
     import peerhub.extensions.adapters.process as proc_module
 
-    # Inject failure into kill_process_tree
-    monkeypatch.setattr(proc_module, "kill_process_tree", lambda p: False)
+    # Inject a tree kill that reports failure. It still kills and reaps the child first: a live child would block
+    # BoundedProcess.wait in stdout.close() (the pump thread holds the pipe in read1) until sleep(30) ends.
+    # A failed kill result is never confirmed, so the asserted False does not depend on timing.
+    kills = []
+
+    def failed_kill(p):
+        kills.append(p.pid)
+        p.kill()
+        p.wait(timeout=10)
+        return False
+
+    monkeypatch.setattr(proc_module, "kill_process_tree", failed_kill)
 
     proc = None
     target = None
@@ -119,6 +129,7 @@ def test_failed_taskkill_injected_termination_unconfirmed(tmp_path, bridge_h, mo
         res = proc.wait()
         assert res.timed_out is True
         assert res.termination_confirmed is False
+        assert kills == [res.pid]
 
         # 2. Bridge cycle assertion
         ws = tmp_path / "ws_fail"
@@ -143,6 +154,7 @@ def test_failed_taskkill_injected_termination_unconfirmed(tmp_path, bridge_h, mo
         no_term_evs = [e for e in events if e["kind"] == "no_terminal"]
         assert len(no_term_evs) == 1
         assert no_term_evs[0]["detail"].get("termination_confirmed") is False
+        assert len(kills) == 2
     finally:
         for p_to_kill in (getattr(proc, "_proc", None),):
             if p_to_kill is not None and p_to_kill.poll() is None:
