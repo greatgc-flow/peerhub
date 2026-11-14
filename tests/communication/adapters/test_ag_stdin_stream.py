@@ -212,7 +212,10 @@ def test_05_fixture_mutations_fail_closed(kit, bridge_h, name):
     ({"FAKE_VERSION": "no version here"}, "undetermined", None),
 ], ids=["help-flag", "help-no-flag", "help-exit-3", "help-hang", "version-hang", "no-version"])
 def test_06_detection_matrix(kit, monkeypatch, env, expected, version):
-    monkeypatch.setattr(base, "_AG_PROBE_TIMEOUT_S", 1.0)
+    # Only the probe that hangs gets a 1 s deadline; the others keep the real one, so a slow start-up never decides.
+    real_probe, hang = base._probe_cli, env.get("FAKE_PROBE_HANG")
+    monkeypatch.setattr(base, "_probe_cli", lambda b, args, **kw: real_probe(b, args, **{
+        **kw, "timeout_s": 1.0 if args[0] == hang else kw["timeout_s"]}))
     meta = kit.target(env=env).execution_metadata()
     assert meta == {"ag_transport": expected, "ag_transport_source": "help", "ag_cli_version": version}
 
@@ -266,7 +269,8 @@ def test_06_cache_same_key_skips_help_new_version_or_identity_probes_again(monke
 
 
 @pytest.mark.parametrize("probe", ["--version", "--help"])
-@pytest.mark.parametrize("flag", ["stdout_truncated", "timed_out", "drain_timed_out", "silence_timed_out", "aborted"])
+@pytest.mark.parametrize("flag", ["stdout_truncated", "output_truncated", "timed_out", "drain_timed_out", "silence_timed_out",
+                                  "aborted"])  # output_truncated alone = a truncated stderr, which the help is also read from
 def test_06b_unusable_probe_is_undetermined_and_never_cached(kit, bridge_h, monkeypatch, probe, flag):
     probes = Probes(fail=(probe, flag))
     monkeypatch.setattr(base, "_probe_cli", probes)
@@ -349,6 +353,16 @@ def test_09_happy_path_73kb_unicode_over_stdin(kit, tmp_path, monkeypatch, capsy
     assert main(argv) == 0
     replay = json.loads(capsys.readouterr().out)
     assert (replay["status"], replay["ag_transport"]) == ("recovered_terminal", "stream")
+    assert kit.launches == 1
+
+
+def test_09b_stream_cap_is_exactly_1_000_000_bytes(kit):
+    with pytest.raises(PrespawnError, match="exceeding the ag inline limit of 1000000 bytes"):
+        _drain(kit.target(), "x" * 1_000_001)
+    assert kit.launches == 0
+    assert _drain(kit.target(), "x" * 1_000_000)[-1][0] == "terminal"
+    (message,) = kit.messages
+    assert message["message"]["message"]["content"] == "x" * 1_000_000
     assert kit.launches == 1
 
 
@@ -450,7 +464,7 @@ def test_13_interrupted_is_uncertain_without_provider_limit(kit, bridge_h):
 
 def test_14_terminate_while_the_writer_is_blocked_is_broken_and_confirmed(kit, monkeypatch):
     real_write = process._write_some
-    entered = threading.Event()
+    entered, ready = threading.Event(), threading.Event()
 
     def write_some(stream, view):
         entered.set()
@@ -459,8 +473,10 @@ def test_14_terminate_while_the_writer_is_blocked_is_broken_and_confirmed(kit, m
     monkeypatch.setattr(process, "_write_some", write_some)
     payload = encode_user_line("x" * 900_000)
     proc = BoundedProcess([PY, FAKE, "--input-format", "stream-json", "--output-format", "stream-json", "-p="], stdin=payload,
-                          cwd=str(kit.ws), env={**os.environ, **kit.env("noread")}, timeout_s=60).start()
+                          cwd=str(kit.ws), env={**os.environ, **kit.env("noread")}, timeout_s=60,
+                          on_stdout=lambda chunk: ready.set()).start()
     assert entered.wait(30)
+    assert ready.wait(30)  # the fake has logged its launch and will never read stdin
     proc.terminate()
     res = proc.wait()
     assert res.aborted is True and res.termination_confirmed is True
@@ -468,7 +484,8 @@ def test_14_terminate_while_the_writer_is_blocked_is_broken_and_confirmed(kit, m
     assert kit.launches == 1 and kit.messages == []
 
 
-@pytest.mark.parametrize("kw", [{"timeout_s": 1.5}, {"timeout_s": 30, "silence_timeout_s": 1.0}], ids=["deadline", "silence"])
+# The deadlines also bound the fake's start-up (launch log, then stdin read), so they keep a margin for a loaded host.
+@pytest.mark.parametrize("kw", [{"timeout_s": 3.0}, {"timeout_s": 30, "silence_timeout_s": 2.0}], ids=["deadline", "silence"])
 def test_15_deadline_and_silence_timeout_are_uncertain_and_bounded(kit, bridge_h, kw):
     t0 = time.monotonic()
     result = _cycle(bridge_h, kit.target("hang", **kw))
@@ -530,12 +547,20 @@ def _fixed(obj: dict, width: int) -> str:
     return line
 
 
-def test_18c_a_spliced_capture_that_validates_is_still_truncated(kit, bridge_h):
-    width, keep = 400, 100
-    lines = [_fixed(_events()[0], width)]
+SPLICE_WIDTH, SPLICE_KEEP = 400, 100  # max_bytes = 2 * keep * width = 80_000 splices the capture on line boundaries
+
+
+def _spliced_lines() -> list[str]:
+    lines = [_fixed(_events()[0], SPLICE_WIDTH)]
     lines += [_fixed({"event": "step_update", "step_update": {"conversation_id": CID, "step_index": i, "state": "DONE",
-                                                              "step_type": "tool"}}, width) for i in range(600)]
-    lines.append(_fixed(_terminal("ERROR", error=QUOTA_LINE), width))
+                                                              "step_type": "tool"}}, SPLICE_WIDTH) for i in range(600)]
+    lines.append(_fixed(_terminal("ERROR", error=QUOTA_LINE), SPLICE_WIDTH))
+    return lines
+
+
+def test_18c_a_spliced_capture_that_validates_is_still_truncated(kit, bridge_h):
+    width, keep = SPLICE_WIDTH, SPLICE_KEEP
+    lines = _spliced_lines()
     spliced = "".join(lines[:keep] + lines[-keep:])
     assert parse_ag_stream_json(spliced)["complete"] is True
     assert terminal_quota(lines[-1]) is not None  # without row 4 this splice would claim quota
@@ -619,11 +644,14 @@ SCENARIOS = {
     "11_short_write": _short_write_scenario,
     "12_missing_result": _replayed(_nd(_events()[:1])),
     "13_interrupted": _replayed(_with_status("INTERRUPTED")),
-    "15_deadline": lambda kit, monkeypatch: kit.target("hang", timeout_s=1.5),
+    "15_deadline": lambda kit, monkeypatch: kit.target("hang", timeout_s=3.0),
     "17a_absent_quota": _replayed("", 3, Q_STDERR),
     "17b_terminal_quota": _replayed(SYNTHETIC_QUOTA_ERROR, 3, Q_STDERR),
     "17c_success_exit_1": _replayed(RECORDED, 1, Q_STDERR),
+    "18a_recorded": _replayed(RECORDED, max_bytes=512),
+    "18a_over_1mib": _replayed(_over_one_mib(), max_bytes=1_048_576),
     "18b_truncated": _replayed(SYNTHETIC_QUOTA_ERROR, 3, Q_STDERR, max_bytes=128),
+    "18c_spliced": _replayed("".join(_spliced_lines()), 3, Q_STDERR, max_bytes=80_000),
     **{f"19{name[0]}": _replayed(stdout, exit_code, stderr) for name, (stdout, exit_code, stderr, _m) in NEGATIVES.items()},
     "19f": _replayed(STEP_UNFINISHED_QUOTA_ERROR, 3, Q_STDERR),
     "22_missing_response": _replayed(_missing_response()),
@@ -722,19 +750,16 @@ def test_23g_usage_limit_long_line():
 
 def test_23h_a_cut_that_creates_a_higher_priority_reset_drops_line_2():
     iso = "2026-11-15T08:00:00Z"
-    line1 = f"Individual quota reached (resets at {iso})"
+    line1 = f"Individual quota reached (resets at {iso} )"
     limit = EXCERPT_CHARS - len(line1) - 1 - 14
     head = "Individual quota reached. "
     line = head + "x" * (limit - len(head) - len(" resets 5:30")) + " resets 5:300 later; " + "y" * 100 + f" resets at {iso}."
     assert line.index(iso) > EXCERPT_CHARS
     assert Sanitizer().clean(line, limit).endswith(" resets 5:30...[truncated]")
     assert base.extract_reset_time(line) == iso
-    # Deviation (design v4 §3.5 (i), test 23h): the ISO pattern's `[^\s,.]+` absorbs the summary's closing parenthesis,
-    # so the summary alone re-parses to `<iso>)`. The self-check drops line 2, then the phrase: fail closed, reset unknown.
-    assert base.extract_reset_time(line1) == iso + ")"
     error = _quota_error(line)
-    assert error.split("\n") == ["Individual quota reached", "ag stream result ERROR (exit 0)"]
-    assert _provider_limit(error) == {"reason": "quota_exhausted", "reset_time": None}
+    assert error.split("\n") == [line1, "ag stream result ERROR (exit 0)"]
+    assert _provider_limit(error) == {"reason": "quota_exhausted", "reset_time": iso}
 
 
 def test_23i_a_reset_phrase_over_100_characters_is_dropped():
@@ -849,12 +874,13 @@ def test_d_b_unknown_step_type_with_success_is_delivered_and_named_in_the_eviden
 
 
 def test_d_c_unknown_type_names_are_bounded_deduplicated_and_sanitized():
-    names = ["alpha", "alpha", "Beta-Type", "x" * 60, "émoji😀", "five", "six", "seven"]
+    # a-b / a.b and x*60 / x*41 are distinct types that display alike: shown once, counted twice.
+    names = ["alpha", "alpha", "a-b", "a.b", "Beta-Type", "x" * 60, "x" * 41, "émoji😀", "five", "six", "seven"]
     observed = terminal_result(_with_steps(*[_step(name, 5 + i) for i, name in enumerate(names)]).encode())
     assert (observed["observation"], observed["status"]) == ("complete", "SUCCESS")
     assert observed["validation"] == {"reason": "unknown_step_type",
-                                      "unknown_step_types": ["alpha", "_eta__ype", "x" * 40, "_moji_", "five"],
-                                      "unknown_step_type_count": 7}
+                                      "unknown_step_types": ["alpha", "a_b", "_eta__ype", "x" * 40, "_moji_"],
+                                      "unknown_step_type_count": 10}
 
 
 def test_d_d_unknown_step_type_with_a_non_success_result_is_uncertain(kit, bridge_h):
@@ -871,6 +897,8 @@ def _cid_mismatch_in_result() -> str:
 
 
 FRAMING = {
+    "second_init_cid_mismatch": (_nd([_events()[0], {**_events()[0], "conversation_id": "another-conversation"},
+                                      *_events()[1:]]), "session_mismatch"),
     "event_after_result": (_nd([*_events(), _step("tool", 9)]), "event_after_result"),
     "second_result": (_nd([*_events(), _events()[-1]]), "event_after_result"),
     "step_cid_mismatch": (_with_steps(_step("future_step", 5, cid="another-conversation")), "session_mismatch"),

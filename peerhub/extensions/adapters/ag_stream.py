@@ -234,8 +234,9 @@ def _framing(events: list[dict[str, Any]]) -> str | None:
     if conversation_id is None:
         return "invalid_session_identity"
     for event in events[1:]:
-        update = _mapping(event.get("step_update")) if event.get("event") == "step_update" else None
-        if update is not None and "conversation_id" in update and update["conversation_id"] != conversation_id:
+        kind = event.get("event")
+        holder = event if kind == "init" else _mapping(event.get("step_update")) if kind == "step_update" else None
+        if holder is not None and "conversation_id" in holder and holder["conversation_id"] != conversation_id:
             return "session_mismatch"
     results = [index for index, event in enumerate(events) if event.get("event") == "result"]
     if not results:
@@ -253,15 +254,18 @@ def _framing(events: list[dict[str, Any]]) -> str | None:
 
 
 def _unknown_step_types(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """Distinct unknown step type names in first-seen order: at most 5, each cut to 40 characters of [a-z0-9_]."""
+    """The count of distinct unknown step types, and their display names in first-seen order: each cut to 40
+    characters of [a-z0-9_], de-duplicated after that, at most 5."""
     names: dict[str, None] = {}
+    shown: dict[str, None] = {}
     for event in events:
         update = _mapping(event.get("step_update")) if event.get("event") == "step_update" else None
         step_type = update.get("step_type") if update is not None else None
-        if isinstance(step_type, str) and step_type not in STEP_TYPES:
+        if isinstance(step_type, str) and step_type not in STEP_TYPES and step_type not in names:
             names[step_type] = None
-    shown = [re.sub(r"[^a-z0-9_]", "_", name[:MAX_UNKNOWN_NAME_CHARS]) for name in list(names)[:MAX_UNKNOWN_NAMES]]
-    return {"unknown_step_types": shown, "unknown_step_type_count": len(names)}
+            if len(shown) < MAX_UNKNOWN_NAMES:
+                shown[re.sub(r"[^a-z0-9_]", "_", step_type[:MAX_UNKNOWN_NAME_CHARS])] = None
+    return {"unknown_step_types": list(shown), "unknown_step_type_count": len(names)}
 
 
 def terminal_result(stdout: bytes) -> dict[str, Any]:

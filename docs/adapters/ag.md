@@ -6,15 +6,17 @@ This page documents the current production contract. Historical migration notes 
 ## Current contract
 
 - Executable: `agy.exe` (observed version `1.5.9` on 2026-11-14; local probe)
-- Transport: process pipe; the prompt is passed with `-p`
-- Output: flat JSON; `response` is canonical text.
-- Inline prompt limit: 30,000 UTF-8 bytes on Windows; 120,000 elsewhere
+- Transport: process pipe; the prompt goes over stdin as one stream-json line when `agy --help` lists `--input-format`; otherwise, or with `PEERHUB_AG_TRANSPORT=argv`, it is passed with `-p`
+- Output: stream-json events on the stdin transport (the terminal `result.response` is the canonical text); flat JSON (`response`) on the argv transport
+- Inline prompt limit: 1,000,000 UTF-8 bytes on the stdin transport; on the argv transport 30,000 on Windows and 120,000 elsewhere
 - Oversized evidence: rejected before spawn, including bounded catch-up
 - Artifact references: not supported
 
 Create invocations are equivalent to:
 
 ```text
+agy.exe --input-format stream-json --output-format stream-json [--model MODEL] [--effort EFFORT] --mode accept-edits -p=
+# argv transport:
 agy.exe -p <prompt> --output-format json [--model MODEL] [--effort EFFORT] --mode accept-edits
 ```
 

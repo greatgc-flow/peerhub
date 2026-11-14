@@ -322,14 +322,23 @@ class _StuckPopen:
         return self.returncode
 
 
-@pytest.mark.parametrize("returncode", [None, 0], ids=["never-exits", "exits-0"])
-def test_failed_kill_with_blocked_pipes_is_bounded_and_never_closes_a_blocked_pipe(tmp_path, bridge_h, monkeypatch, returncode):
-    """#366 B1 test 16 / #367: wait() is bounded by timeout + reap (10 s) + 5 s and never closes a pipe in use."""
+@pytest.mark.parametrize("returncode,after_kill", [(None, None), (None, 0), (0, None)],
+                         ids=["never-exits", "exits-0-after-failed-kill", "exits-0-on-its-own"])
+def test_failed_kill_with_blocked_pipes_is_bounded_and_never_closes_a_blocked_pipe(tmp_path, bridge_h, monkeypatch,
+                                                                                    returncode, after_kill):
+    """#366 B1 test 16 / #367: wait() is bounded by timeout + reap (10 s) + 5 s and never closes a pipe in use.
+
+    The kill always reports failure; `after_kill` is the exit code the main process then has (None: still running).
+    """
     import peerhub.extensions.adapters.process as proc_module
+
+    def failed_kill(p):
+        p.returncode = after_kill
+        return False
 
     release, violations = threading.Event(), []
     monkeypatch.setattr(proc_module.subprocess, "Popen", lambda *a, **k: _StuckPopen(returncode, release, violations))
-    monkeypatch.setattr(proc_module, "kill_process_tree", lambda p: False)
+    monkeypatch.setattr(proc_module, "kill_process_tree", failed_kill)
     timeout_s = 0.5
     bound = timeout_s + 10 + 5 + 2
     ws = tmp_path / "ws_stuck"
@@ -340,6 +349,7 @@ def test_failed_kill_with_blocked_pipes_is_bounded_and_never_closes_a_blocked_pi
         assert time.monotonic() - t0 <= bound
         assert res.drain_timed_out is True
         assert res.timed_out is (returncode is None)
+        # A kill was attempted and failed: never confirmed, whether or not the main process then exited.
         assert res.termination_confirmed is (False if returncode is None else None)
         assert (res.stdin_state, res.stdin_bytes_written) == ("pending", 0)
 

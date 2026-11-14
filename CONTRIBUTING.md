@@ -169,7 +169,7 @@ A release is one PR plus the steps after its merge; there is no post-release doc
 
 4. After publishing, wait until the `publish.yml` run has succeeded, then
    verify PyPI (a clean virtualenv with
-   `pip install --no-cache-dir peerhub==X.Y.Z`).
+   `pip install --no-cache-dir peerhub==X.Y.Z`, then `peerhub --version`).
 5. Confirm the evidence asset on the GitHub release:
    `gh release view vX.Y.Z --json assets` must list the evidence JSON. If the
    upload failed, keep the local evidence file and re-upload it with

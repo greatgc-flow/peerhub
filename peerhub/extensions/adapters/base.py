@@ -35,6 +35,7 @@ from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, Run
 
 MAX_PROMPT_BYTES = 1_000_000
 EXCERPT_CHARS = 300
+AG_LIMIT_SUMMARY_CHARS = 100  # the first line of an ag stream quota error: "<prefix> (<reset phrase>)"
 AG_REQUIRES_WRITABLE = (
     "ag execution requires --writable: agy CLI does not enforce a read-only sandbox when "
     "--mode accept-edits is omitted"
@@ -985,7 +986,8 @@ def _probe_cli(base: list[str], args: list[str], *, env: Mapping[str, str], cwd:
 
 
 def _probe_failure(probe: str, r: ProcessResult) -> str | None:
-    for flag in ("timed_out", "silence_timed_out", "aborted", "stdout_truncated", "drain_timed_out"):
+    # output_truncated covers stderr too: the help text is read from both streams.
+    for flag in ("timed_out", "silence_timed_out", "aborted", "stdout_truncated", "output_truncated", "drain_timed_out"):
         if getattr(r, flag):
             return f"{probe} {flag}"
     return None if r.returncode == 0 else f"{probe} exit {r.returncode}"
@@ -1051,9 +1053,10 @@ def _limit_evidence(text: str) -> tuple[str, str | None] | None:
 def _ag_quota_error(match: QuotaMatch, status: str, returncode: int | None, san: Sanitizer) -> str:
     """Summary (with the verbatim reset phrase), bounded excerpt of the matched line, status; re-parsed to prove it."""
     prefix = _AG_LIMIT_SUMMARY[match.reason]
-    summary = san.clean(f"{prefix} ({match.reset_phrase})") if match.reset_phrase else san.clean(prefix)
-    if len(summary) > 100:
-        summary = san.clean(prefix)
+    # " )" keeps a closing parenthesis out of a reset that ends in a run of non-space characters (the ISO pattern).
+    candidates = [san.clean(f"{prefix} ({match.reset_phrase}{end}") for end in (")", " )")] if match.reset_phrase else []
+    summary = next((c for c in candidates if len(c) <= AG_LIMIT_SUMMARY_CHARS
+                    and _limit_evidence(c) == (match.reason, match.reset_time)), san.clean(prefix))
     excerpt = san.clean(match.line, EXCERPT_CHARS - len(summary) - 1 - len("...[truncated]"))
     status_line = f"ag stream result {status} (exit {returncode})"
     for lines in ((summary, excerpt, status_line), (summary, status_line)):

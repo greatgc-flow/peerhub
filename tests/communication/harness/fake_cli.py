@@ -35,6 +35,7 @@ if args[:1] == ["--help"]:
 append("FAKE_LAUNCH_LOG", {"argv": args})
 stream = "--input-format" in args
 if mode == "noread":
+    print("ready", flush=True)  # after the launch log, so a test can wait for it before killing
     time.sleep(600)
 if mode == "replay":
     sys.stdin.buffer.read()
