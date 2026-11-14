@@ -29,7 +29,7 @@ Self-improvement release from a survey of 29 days of real use (2,832 deliveries;
 ### Fixed
 
 - Monitor USAGE shows cc provider-reported tokens again, and cc refusal classification works again for real cc runs. Claude Code 2.x prints a `rate_limit_event` in every run, and both cc parsers treated it as an unknown event: every cc session showed `?` tokens, and refusal evidence was marked incomplete. The parsers now share one `CC_EVENT_TYPES` list and are tested against a real stream. Sessions recorded before the fix keep `?`.
-- `peerhub diag readiness` reports "wait for reset" for an ag pool that is exhausted until a future reset, instead of the consent-policy state.
+- `peerhub diag readiness` gives the next step `wait_reset` (text: `wait`, with the reset time of the pool) for an ag pool that is exhausted until a future reset, instead of the consent step.
 - The test suite is about 60 s faster: the failed-tree-kill test no longer waits for two 30 s sleeper processes. The production hang it exposed is #367.
 
 ### Removed
