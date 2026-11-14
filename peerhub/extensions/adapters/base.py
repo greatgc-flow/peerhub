@@ -123,10 +123,15 @@ def _json_lines(text: str) -> list[dict[str, Any]]:
 
 
 def denied_action_names(stdout: str) -> list[str]:
-    """Names of tool actions agy auto-denied in headless mode (`denied_actions`), order-preserving and de-duplicated (#195)."""
+    """Names of tool actions agy auto-denied in headless mode (`denied_actions`), order-preserving and de-duplicated (#195).
+
+    Read only from the top level of an object without `event`: the argv transport's one flat object, or the flat
+    stdout the stream transport builds from its validated terminal's `result.denied_actions` (agy 1.5.9, #371).
+    No other key is searched, so events and mentions in text never count.
+    """
     names: list[str] = []
     for obj in _json_lines(stdout):
-        denied: Any = obj.get("denied_actions")
+        denied: Any = obj.get("denied_actions") if "event" not in obj else None
         items: list[Any] = cast("list[Any]", denied) if isinstance(denied, list) else []
         for item in items:
             name: Any = cast("dict[str, Any]", item).get("action") if isinstance(item, dict) else None
@@ -1231,7 +1236,9 @@ class CliRuntimeTarget:
             raise fail(f"ag stream SUCCESS but exited {rc}; stderr: {flat}")
         if res.stdin_state != "complete":
             raise fail(f"ag stdin write incomplete ({res.stdin_state}, {res.stdin_bytes_written}/{payload_len})" + tail)
-        flat_stdout = json.dumps({"response": term["response"], "conversation_id": term["conversation_id"], "usage": term["usage"]})
+        denied = json.loads(term["terminal_line"])["result"].get("denied_actions")  # the validated terminal event (#371)
+        flat_stdout = json.dumps({"response": term["response"], "conversation_id": term["conversation_id"], "usage": term["usage"],
+                                  "denied_actions": denied})
         return flat_stdout, term["validation"]
 
     def validate_execution_policy(self) -> None:
@@ -1598,7 +1605,7 @@ class CliRuntimeTarget:
         if not cleaned_response.strip():
             payload["empty_response"] = True
             payload["task_effects"] = "unverified"
-            denied = denied_action_names(raw_text) if self.runtime_kind == "ag" else []
+            denied = denied_action_names(stdout_text) if self.runtime_kind == "ag" else []
             if denied:
                 payload["denied_actions"] = denied
         if self.runtime_kind == "cc":
