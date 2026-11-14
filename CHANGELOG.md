@@ -8,6 +8,14 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.15] - 2026-11-14
+
+### Fixed
+
+- On the stdin stream transport (the default for ag since 0.24.14), a turn in which agy auto-denies a tool and returns an empty reply ends `denied_empty` again, with the action names and exit status 1, as on the argv transport. 0.24.14 read `denied_actions` only at the top level of a stdout line; in stream mode agy nests it in the terminal `result` event, so such a turn was reported as `delivered` with an empty response (#371). Measured on agy 1.5.9 with one real denied-tool turn, which is now a recorded fixture; found by the shipped-tag check of v0.24.14.
+- The stream validator accepts the measured step state `ERROR` (a failed tool step), so a turn with such a step keeps its measured usage instead of recording it as unknown.
+
+
 ## [0.24.14] - 2026-11-14
 
 The ag prompt transport (#366 B1; design in #369: four versions, approved unanimously by cc, cx and ag).
