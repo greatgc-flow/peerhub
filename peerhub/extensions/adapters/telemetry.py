@@ -8,6 +8,9 @@ from peerhub.extensions.usage_normalization import REPORTED_FIELDS, normalize_pr
 
 _TELEMETRY_MAX_BYTES = 1_048_576
 _TELEMETRY_MAX_EVENT_BYTES = 262_144
+# The cc stream-json event types both cc parsers accept; any other type fails closed (#366 A3/F1).
+# rate_limit_event: Claude Code 2.x emits it in every -p run; only its type is read.
+CC_EVENT_TYPES = ("system", "assistant", "user", "result", "error", "stream_event", "rate_limit_event")
 
 
 class _DuplicateJsonKey(ValueError):
@@ -66,10 +69,9 @@ def parse_provider_usage(kind: str, stdout: str) -> dict[str, Any]:
                 return unknown_usage("invalid_event")
             events.append(cast("dict[str, Any]", raw))
 
-    allowed_events: set[str]
+    allowed_events: tuple[str, ...] | set[str]
     if kind == "cc":
-        # rate_limit_event: Claude Code 2.x emits it in every -p run; only its type is read (#366 A3).
-        allowed_events = {"system", "assistant", "user", "result", "error", "stream_event", "rate_limit_event"}
+        allowed_events = CC_EVENT_TYPES
     elif kind == "cx":
         allowed_events = {"thread.started", "turn.started", "turn.completed", "turn.failed", "error",
                           "item.started", "item.updated", "item.completed"}
