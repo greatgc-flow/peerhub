@@ -7,7 +7,7 @@ python -c "from pathlib import Path; from peerhub.cli.lessons import render_less
 ```
 
 Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.
-Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order.
+Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then `lessons` (an index: one `id: title` line per lesson), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order.
 
 ## ag profile choice for bulk work (observed 2026-11-01) (`ag-bulk-profile-heuristics`)
 
@@ -20,7 +20,7 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 
 - Keywords: ag, agy, recipe, permission, permissions, writable, read-only, sandbox, limit, failed_not_started, empty, reply, denied_empty, delivered, trustedWorkspaces, allow, regex, command, files, binary, prompt, query-file, resume
 - Symptom: ag fails or returns an empty reply: delivered/TERMINAL with no text, denied_empty after a denied shell or read_file, a resumed stream that fabricates paths, or failed_not_started without write permission.
-- Fix: Recipe: put the content the task needs inline via --query-file and say "no tools"; -w is the trusted project root (a prerequisite, not a guarantee); pass --writable on every turn, including resumed turns (#140, no read-only ag sandbox: use a provider with enforced read-only execution when writes are not allowed); one task per ask; verify claims from flash tiers; after an empty or denied_empty reply never resume that stream (this overrides stream reuse): start a new stream with the content inlined. If a fresh ask is still empty, check in order: many or unreadable files named in one prompt (name fewer, or use a stronger profile for bulk work); -w outside the agy trustedWorkspaces list; binary/NUL/huge files (give an excerpt inline); a shell command not allow-listed (agy rules match exact strings on Windows: use a command(regex:...) rule or avoid commands); pool quota exhausted (RESOURCE_EXHAUSTED; the error text gives the reset: rotate profile/pool). Past observation (E2, #302, closed 2026-11-09 as not reproducible after 3 re-tests): read_file was once denied even with a trusted -w, so still do not rely on file reads; inline the content.
+- Fix: Recipe: put the content the task needs inline via --query-file and say "no tools"; -w is the trusted project root, not a temp or scratch folder (a prerequisite, not a guarantee); pass --writable on every turn, including resumed turns: PeerHub requires it even for read tasks (accept-edits, workspace-wide; #140, no read-only ag sandbox: use a provider with enforced read-only execution when writes are not allowed); one task per ask; verify claims from flash tiers; the argv prompt limit is 30,000 bytes on Windows and 120,000 bytes on POSIX: when over, split it or use cc/cx on a separate stream, and a changed prompt needs a new request-id; after an empty or denied_empty reply never resume that stream (this overrides stream reuse): start a new stream with the content inlined. Headless prompts auto-deny: a shell command needs matching command(...) or command(*) allow rules. If a fresh ask is still empty, check in order: many or unreadable files named in one prompt (name fewer, or use a stronger profile for bulk work); -w outside the agy trustedWorkspaces list; binary/NUL/huge files (give an excerpt inline); a shell command not allow-listed (agy rules match exact strings on Windows: use a command(regex:...) rule or avoid commands); pool quota exhausted (RESOURCE_EXHAUSTED; the error text gives the reset: rotate profile/pool). Past observation (E2, #302, closed 2026-11-09 as not reproducible after 3 re-tests): read_file was once denied even with a trusted -w, so still do not rely on file reads; inline the content.
 - Issue: #140, #284, #287, #300, #302
 
 ## ag asks require explicit --writable, including pings and reviews (`ag-requires-writable`)
@@ -39,9 +39,9 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 
 ## Explicit timeouts for implementer and review asks (`ask-timeouts`)
 
-- Keywords: timeout, timeout-seconds, 60, implementer, review, writer, ask_uncertain, runtime_timeout, cc, cx
-- Symptom: An implementer or review ask ends after about a minute as ask_uncertain (evidence runtime_timeout [60]) with partial edits in the workspace.
-- Fix: --timeout-seconds defaults to 60. Pass it on every implementer or review ask (cc/cx 1800-3600; ag 7200 with --silence-timeout-seconds). After a timeout: check the working tree for partial edits, revert or keep them deliberately, and start a new stream with the explicit timeout; never retry on the same stream.
+- Keywords: timeout, timeout-seconds, 600, implementer, review, writer, ask_uncertain, runtime_timeout, cc, cx
+- Symptom: A long implementer or review ask ends as ask_uncertain (evidence runtime_timeout) with partial edits in the workspace.
+- Fix: --timeout-seconds defaults to 600 (as batch). Long implementer or review asks still need a larger value (cc/cx 1800-3600; ag up to 7200 with --silence-timeout-seconds unset or >= it). After a timeout or uncertain result never retry on the same stream: check the working tree for partial edits, then continue on a new stream.
 - Issue: #350
 
 ## Batch review findings and verify drafts (`batch-review-and-verify`)
@@ -81,31 +81,17 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 
 ## cx sandbox facts and prompt hygiene (`cx-sandbox-and-prompt-hygiene`)
 
-- Keywords: cx, codex, windows, sandbox, unelevated, process, enumeration, AGENTS.md, rule, file, query, forward, implementer
-- Symptom: cx reports UNKNOWN late for process/task enumeration, or treats a query file as a task to forward and runs peerhub itself.
-- Fix: In the observed setup cx ran in the Windows unelevated sandbox: it cannot enumerate processes or scheduled tasks and writes only inside its roots, so run machine-observing checks in the owner's shell. A global rule file (CODEX_HOME/AGENTS.md, ~/.gemini/GEMINI.md for ag) is honored; verify with a unique marker line. Do not put human-directed 'how to send' text in a query file; start implementer prompts with 'you are the implementer; do not run peerhub, do not forward, do not check quota'.
+- Keywords: cx, codex, windows, sandbox, unelevated, process, enumeration, AGENTS.md, rule, file, query, forward, implementer, pytest, basetemp, acl, temp
+- Symptom: cx reports UNKNOWN late for process/task enumeration, treats a query file as a task to forward and runs peerhub itself, or pytest fails with a temp-directory ACL error.
+- Fix: In the observed setup cx ran in the Windows unelevated sandbox: it cannot enumerate processes or scheduled tasks and writes only inside its roots, so run machine-observing checks in the owner's shell. In the restricted Windows cx sandbox default pytest temp directories hit ACL errors: pass --basetemp=.peerhub/work/pytest-cx-<task>, one basetemp per concurrent run. A global rule file (CODEX_HOME/AGENTS.md, ~/.gemini/GEMINI.md for ag) is honored; verify with a unique marker line. Do not put human-directed 'how to send' text in a query file; start implementer prompts with 'you are the implementer; do not run peerhub, do not forward, do not check quota'.
 - Issue: #285, #286, #288
-
-## Run path-aware checks against their intended roots (`dry-run-path-aware-checkers`)
-
-- Keywords: dry-run, isolated, copy, absolute, paths, checkers, custody
-- Symptom: An isolated-copy dry-run reports violations because preserved audit paths point to the real stores.
-- Fix: Run path-aware checks read-only against the real tree or rewrite roots in a throwaway copy; report the real-tree result alongside isolated results.
-- Issue: #299
-
-## Check every condition in shell wait loops (`explicit-shell-wait-conditions`)
-
-- Keywords: shell, wait, loop, until, condition, python, gate
-- Symptom: A shell until-loop exits early because its compound condition does not check every completion signal.
-- Fix: Use a small script that explicitly checks each condition and reports the result.
-- Issue: #299
 
 ## Independent review votes (`independent-peer-votes`)
 
-- Keywords: peer, vote, author, independent, unanimity, review, self-vote
-- Symptom: A document author votes AGREE on their own work and the result is treated as unanimous approval.
-- Fix: Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity.
-- Issue: #297
+- Keywords: peer, vote, votes, author, independent, unanimity, review, self-vote, batch, responses
+- Symptom: A document author votes AGREE on their own work and the result is treated as unanimous approval, or votes are collected one ask at a time.
+- Fix: Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity. Votes and reviews in one command: peerhub batch run votes.json --batch-id ID --max-parallel 3 --responses (the report then includes each reply). cc and cx tasks use workspace = the repository, not writable; the ag task uses a private empty directory as workspace (ag tasks are always writable; the empty directory satisfies the overlapping-writers check); prompts carry all facts inline. Measured 2026-11-14: three peers answered in 11 s.
+- Issue: #297, #366
 
 ## Installed vs checkout mismatch (`installed-vs-checkout`)
 
@@ -127,6 +113,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Symptom: The command arguments were rejected.
 - Fix: Run peerhub COMMAND --help, correct the arguments and retry only if no execution began.
 - Issue: 0.24.0
+
+## Monitor ACCOUNTS: plan, login and token expiry (`monitor-accounts`)
+
+- Keywords: monitor, accounts, account, login, token, expiry, credits, display_plan, plan_changed
+- Symptom: The monitor ACCOUNTS line, --expand rows or JSON capacity.accounts need explanation (plan, login state, token expiry, ?, n/a, aged, plan changed).
+- Fix: ACCOUNTS (compact line, --expand rows, JSON capacity.accounts) shows each peer's plan, login state and, when within 14 days, the LOGIN token expiry (not billing), collected only by observation refresh / monitor collection from claude auth status, codex app-server account/read and agy /credits (endpoint access only, plan n/a): ? = could not be determined, n/a = the provider does not expose it, aged = stale (6 hours; a failed probe keeps the last good reading aged with a probe error note); a missing expiry does not mean logged out; API-key/Bedrock/Vertex logins are n/a; emails, org names, ids, tokens and identity hashes are never stored. When a fresh account plan fills an unknown 5H plan note, JSON keeps the stored reason and adds display_plan with plan_source account. When a newer ABSENT quota reason reports a different plan for the same peer/login, ACCOUNTS shows the quota plan with a plan changed note; JSON adds plan_changed: true and plan_source: "quota". Account re-probes wait until the account reading is at least five minutes old, including persistent mismatches.
+- Issue: #329
 
 ## DRIFT peers (`monitor-drift`)
 
@@ -160,8 +153,8 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 
 - Keywords: monitor, pace, low, fast, aged, suggest, alternative, cycles, tty, legend
 - Symptom: Monitor states, PACE, stale evidence, alternative profiles or redirected watch behavior need explanation.
-- Fix: States: ok = enough capacity; low = positive remaining <=10%; fast = >10% remaining but ahead of pace (threat projection, at least two samples); out = 0%; aged = stale; reset = reset passed; n/a = plan omits; ? = unknown. Precedence: n/a ? reset out low fast aged ok; a plan-omitted (ABSENT) pool whose evidence went stale shows aged; other rows without a number show ?. low/fast win over aged; staleness still shows in AGE and the PEERS (aged) tag. PACE (percentage points, pp) = used% - elapsed% of the window (cumulative vs even burn, not recent activity): + = ahead of even burn (over-use), - = behind (under-use), - cell when no valid anchor (n/a, ?, reset, unusable); shown on aged rows like LEFT, so verify fresh AGE before relying on PACE. suggest: tier=a|b is advisory (rule H): a is the best eligible pick and b is the best eligible alternative in the same tier from a different peer; eligible candidates without an applicable fast pool rank first, then worst-pool score LEFT% / max(days_to_reset, 0.2), then profile name (compare 7D PACE manually across eligible peers; 5H only gates; all-fast = slow down or defer). Omitted monitor --cycles: non-TTY one cycle (one completed human frame), TTY until interrupted; --cycles 0 watches everywhere. diag --live keeps its 0 default (until interrupted). ACCOUNTS (compact line, --expand rows, JSON capacity.accounts) shows each peer's plan, login state and, when within 14 days, the LOGIN token expiry (not billing), collected only by observation refresh / monitor collection from claude auth status, codex app-server account/read and agy /credits (endpoint access only, plan n/a): ? = could not be determined, n/a = the provider does not expose it, aged = stale (6 hours; a failed probe keeps the last good reading aged with a probe error note); a missing expiry does not mean logged out; API-key/Bedrock/Vertex logins are n/a; emails, org names, ids, tokens and identity hashes are never stored. When a fresh account plan fills an unknown 5H plan note, JSON keeps the stored reason and adds display_plan with plan_source account. When a newer ABSENT quota reason reports a different plan for the same peer/login, ACCOUNTS shows the quota plan with a plan changed note; JSON adds plan_changed: true and plan_source: "quota". Account re-probes wait until the account reading is at least five minutes old, including persistent mismatches.
-- Issue: #310, #311, 0.24.4, #329
+- Fix: States: ok = enough capacity; low = positive remaining <=10%; fast = >10% remaining but ahead of pace (threat projection, at least two samples); out = 0%; aged = stale; reset = reset passed; n/a = plan omits; ? = unknown. Precedence: n/a ? reset out low fast aged ok; a plan-omitted (ABSENT) pool whose evidence went stale shows aged; other rows without a number show ?. low/fast win over aged; staleness still shows in AGE and the PEERS (aged) tag. PACE (percentage points, pp) = used% - elapsed% of the window (cumulative vs even burn, not recent activity): + = ahead of even burn (over-use), - = behind (under-use), - cell when no valid anchor (n/a, ?, reset, unusable); shown on aged rows like LEFT, so verify fresh AGE before relying on PACE. suggest: tier=a|b is advisory (rule H): a is the best eligible pick and b is the best eligible alternative in the same tier from a different peer; eligible candidates without an applicable fast pool rank first, then worst-pool score LEFT% / max(days_to_reset, 0.2), then profile name (compare 7D PACE manually across eligible peers; 5H only gates; all-fast = slow down or defer). Omitted monitor --cycles: non-TTY one cycle (one completed human frame), TTY until interrupted; --cycles 0 watches everywhere. diag --live keeps its 0 default (until interrupted). Account rows: peerhub explain monitor-accounts.
+- Issue: #310, #311, 0.24.4
 
 ## Quota shaping across peers (`multi-peer-quota-shaping`)
 
@@ -170,12 +163,12 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Splitting one task into several cx asks did not save quota. Have cheap pools (ag) produce drafts and cross-reviews first, then give the scarce peer one consolidated verify-and-integrate pass; check capacity before a big ask and prefer waiting for a reset over stopping mid-task. In-session timers die with the session: for delayed starts use a background job that outlives the wait, or re-check at the next session start.
 - Issue: #288
 
-## Check governed pins before implementation (`pin-census-before-implementation`)
+## Peer sub-agents inside one ask (`peer-subagents`)
 
-- Keywords: pin, hash, census, TDD, implementation, governed, files
-- Symptom: An implementation pass stops at files already pinned by a governed move.
-- Fix: Run a read-only pin census before the implementation pass and include its results in the prompt.
-- Issue: #298
+- Keywords: subagent, subagents, sub-agent, sub-agents, Agent, spawn_agent, invoke_subagent, multi_agent, fan-out, loop
+- Symptom: A large task could run as parallel helpers inside one peer ask, or a prompt expects /loop-style persistence inside an ask.
+- Fix: Every peer can fan out sub-agents inside one ask: cc through its Agent tool; cx through spawn_agent only when the prompt names that tool explicitly (codex 0.167.2, features.multi_agent on); ag through invoke_subagent. There is no /loop-style persistence inside an ask: the ask ends with the peer's reply. Sub-agents spend the same peer quota: give each a disjoint task and ask for one merged final report.
+- Issue: #361 (checked 2026-11-13)
 
 ## Quota windows depend on the peer plan (`plan-windows`)
 
@@ -191,25 +184,18 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Check capacity and reset times before work; rotate pools early, reserve scarce capacity for final review, and limit parallel workers to fit the reset window. After a quota failure, continue on a new stream when capacity is available; do not blindly retry an uncertain ask.
 - Issue: #297, #298, #299
 
-## Review loops: materiality, contract narrowing and checks (`review-loop`)
+## Review recipe: scores that converge on 100 (`review-recipe`)
 
-- Keywords: review, loop, materiality, contract, narrow, defects, suite, targeted, ports, WinError, worktree, cross-family, final, gitlink
-- Symptom: Score-to-100 review rounds oscillate (99.86, 99.79, 99.67), keep finding edge cases in the same new component, or parallel full suites exhaust Windows ports (WinError 10048).
-- Fix: Put a materiality rule in every reviewer brief: deduct only for a defect that violates a documented contract or is reachable from supported inputs; label anything else a recommendation. After two rounds that find new defects in the same new component, narrow its contract (fail closed) instead of patching it again. The coordinator runs the full suite once and passes the result on; reviewers run only targeted tests. Confirm the final candidate with a reviewer from another model family. Never `git add -A` in a checkout that contains agent worktrees: they are committed as gitlinks.
-- Issue: #345
-
-## Review rounds that converge on 100 (`review-scores-to-100`)
-
-- Keywords: review, score, 100, round, completeness, matrix, verify, unverified, deduction
-- Symptom: Review rounds repeat: a reviewer scores items 95-97 without naming a defect, or deducts for checks it could not run, so the score never reaches 100.
-- Fix: Ask in the first prompt: for every item below 100 name the concrete, checkable change (file:line + fix), else score 100; report checks that could not run separately as NOT RUN instead of deducting. Give peers the permissions to run the read/test commands they need (project .claude/settings.local.json allow rules for pytest, pyright, git read commands) so reviews verify instead of guessing, and run any command they could not run yourself.
-- Issue: 2026-11-10 (0.24.5/0.24.6 review rounds)
+- Keywords: review, review-loop, review-scores-to-100, loop, score, 100, round, brief, materiality, contract, narrow, defects, deduction, unverified, suite, targeted, ports, WinError, worktree, cross-family, final, tag, gitlink
+- Symptom: Review rounds repeat or oscillate (99.86, 99.79, 99.67): a reviewer scores 95-97 without naming a defect, deducts for checks it could not run, keeps finding edge cases in the same new component, or parallel full suites exhaust Windows ports (WinError 10048).
+- Fix: Paste this reviewer brief: "Score each item 0-100. Deduct only for a defect that violates a documented contract or is reachable from supported inputs; label anything else a recommendation. For every score below 100 give the exact fix (file:line + change). Report checks you could not run as NOT RUN instead of deducting. Re-score until 100." Score each deliverable item separately and re-review the exact shipped tag; confirm the final candidate with a reviewer from another model family. The coordinator runs the full suite once and passes the result on; reviewers run only targeted tests (give them allow rules for the read/test commands they need; run any they could not run yourself). After two rounds that find new defects in the same new component, narrow its contract (fail closed) instead of patching it again. Never `git add -A` in a checkout that contains agent worktrees: they are committed as gitlinks.
+- Issue: #345; 2026-11-10 (0.24.5/0.24.6 review rounds)
 
 ## store_missing database selection (`store-missing`)
 
 - Keywords: store_missing
 - Symptom: The selected database does not exist.
-- Fix: Check the resolved path and source: a Git worktree may have no local store while the database lives in the main checkout. Run from the main checkout or select the intended store with --db PATH / PEERHUB_DB (--db takes precedence); to create a new store, explicitly select it with peerhub --db PATH peer register --peer local --name local.
+- Fix: Check the resolved path and source: a Git worktree may have no local store while the database lives in the main checkout. On a discovery miss PeerHub searches the main checkout, then its parents (Git >=2.36; ask -w: main checkout only); a miss exits 5. Run from the main checkout or select the intended store with --db PATH / PEERHUB_DB (--db takes precedence); to create a new store, explicitly select it with peerhub --db PATH peer register --peer local --name local.
 - Issue: 0.24.0
 
 ## Stream reuse cost: reuse within one task only (`stream-reuse-cost`)

@@ -43,9 +43,11 @@ def test_guide_line_and_token_cap(capsys, monkeypatch, tmp_path):
     code = main(["guide"])
     assert code == 0
     out = capsys.readouterr().out
-    assert "peerhub explain ag silence" in out
+    assert "peerhub explain lessons" in out
+    assert "peerhub diag --plan" in out
+    assert "peerhub explain peer-subagents" in out
     assert "compact pools/peers dashboard" in out
-    assert "suggest a|b = best + alternative peer; peerhub explain monitor" in out
+    assert "suggest a|b = best + alternative peer; peerhub explain monitor-states" in out
     assert "Balance: suggest: is advisory (rule H)" in out
     assert "compare 7D PACE (5H only gates)" in out
     shown = [pid for pid in PACKAGED["profiles"] if pid in out]
@@ -57,16 +59,17 @@ def test_guide_line_and_token_cap(capsys, monkeypatch, tmp_path):
     assert size_bytes <= 5600, f"Guide has {size_bytes} LF-normalized UTF-8 bytes, exceeding cap of 5600"
 
 
-def test_ag_ping_line_does_not_fit_guide_budget(capsys, monkeypatch, tmp_path):
-    """#359: skip the extra line when it cannot fit without dropping existing guidance."""
+def test_guide_lines_point_to_lessons_with_exact_ids(capsys, monkeypatch, tmp_path):
+    """#366 A6: the ag recipe is one pointer line (with the #359 --writable fact); every `explain <id>` pointer resolves."""
+    from peerhub.cli.lessons import load_lessons
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
     assert main(["guide"]) == 0
     out = capsys.readouterr().out.replace("\r\n", "\n")
-    extra = "  ag asks, including pings, need --writable\n"
-    assert extra.strip() not in out
-    assert len(out.splitlines()) == 60  # unchanged baseline; no lines dropped
-    assert len(out.encode("utf-8")) <= 5600
-    assert len(out.splitlines()) + 1 > 60 or len((out + extra).encode("utf-8")) > 5600
+    assert len(out.splitlines()) == 55  # restructured baseline; headroom under the 60-line cap
+    assert "--writable even to read" in out
+    ids = {lesson["id"] for lesson in load_lessons()}
+    pointers = set(re.findall(r"peerhub explain ([a-z][a-z0-9-]*-[a-z0-9-]+)", out))
+    assert {"ag-recipe", "monitor-states", "peer-subagents", "store-missing"} <= pointers <= ids
 
 
 def test_guide_example_commands_parse_via_real_argparse(capsys):
@@ -133,8 +136,8 @@ def test_guide_safety_scenarios_and_behaviour(capsys):
 
     # Parse Safety section into semantic rules dict: {"Writes": "...", "Uncertain / pending_earlier_record": "...", ...}
     assert "Safety:\n" in out
-    assert "Default-timeout ask: do not retry on the same stream" in out
-    assert "start a new stream with explicit --timeout-seconds (long reviews: 1800 or more)" in out
+    assert "stop that stream (timeouts too), check the working tree for partial edits" in out
+    assert "implementer/review asks: --timeout-seconds 1800-3600" in out
     safety_block = out.split("Safety:\n", 1)[1].split("\n\n", 1)[0]
     rules: dict[str, str] = {}
     current_rule: str | None = None
@@ -218,26 +221,22 @@ def test_guide_ag_gate_distinct_from_agy_permissions(capsys):
 
     assert main(["guide"]) == 0
     safety = capsys.readouterr().out.split("Safety:\n", 1)[1].split("Discovery", 1)[0]
-    assert "PeerHub requires --writable for ag even for read tasks" in safety
-    assert "accept-edits, workspace-wide" in safety
+    assert "--writable even to read" in safety  # details (accept-edits, -w, auto-deny): lesson ag-recipe
     assert "pass --writable on every turn, including resumed turns" in safety
-    assert "-w = trusted project folder, not temp/scratch (prerequisite, not a guarantee)" in safety
-    assert "Headless prompts auto-deny" in safety
-    assert "shell needs matching command(...) or command(*) allow rules" in safety
+    assert "trusted -w" in safety
 
 
 def test_guide_ag_recipe_comes_first_and_forbids_resume_after_empty(capsys):
-    """ag usability A1: one short recipe leads the ag guidance; empty/denied_empty replies are never resumed."""
+    """ag usability A1 / #366 A6: one recipe line leads the ag guidance and points to the ag-recipe lesson."""
     assert main(["guide"]) == 0
     safety = capsys.readouterr().out.split("Safety:\n", 1)[1].split("Discovery", 1)[0]
     lines = safety.splitlines()
     assert lines[0].startswith("  ag recipe")
-    assert lines[3].startswith("  Writes:")
-    recipe = "\n".join(lines[:3])  # recipe stays within 6 lines
+    assert lines[1].startswith("  Writes:")
+    recipe = lines[0]
+    assert "'peerhub explain ag-recipe'" in recipe
     assert "--query-file" in recipe and '"no tools"' in recipe
-    assert "one task per ask" in recipe and "verify flash claims" in recipe
-    assert "never resume that stream" in recipe and "new stream, content inlined" in recipe
-    assert "peerhub explain ag'" in recipe
+    assert "one task per ask" in recipe and "never resume after an empty reply" in recipe
 
 
 def test_guide_documents_db_precedence(capsys):

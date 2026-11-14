@@ -721,7 +721,12 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
         from peerhub.cli import lessons
         from peerhub.cli.lessons import render_lesson
 
-        # Order: guidance code > exact profile id (above) > exact lesson id > keywords.
+        # Order: guidance code > exact profile id (above) > lessons index > exact lesson id > keywords.
+        if code.strip().casefold() == "lessons":
+            index = lessons.lesson_index()
+            print(json.dumps(index, indent=2, ensure_ascii=True) if json_output
+                  else "\n".join(f"{item['id']}: {item['title']}" for item in index))
+            return 0
         matches = lessons.lesson_by_id(code) or lessons.lookup_lessons(code)
         if matches:
             if json_output:
@@ -730,7 +735,7 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
                 print("\n".join(render_lesson(lesson) for lesson in matches))
             return 0
         known = sorted(REGISTRY.keys())
-        msg = f"No matching lessons for {code!r}. Try fewer keywords or 'peerhub guide'."
+        msg = f"No matching lessons for {code!r}. Try fewer keywords, 'peerhub explain lessons' (index) or 'peerhub guide'."
         if json_output:
             print(json.dumps({"error": f"Unknown guidance code: {code!r}", "known_codes": known}, indent=2, ensure_ascii=True))
         from peerhub.cli.support import error_line
