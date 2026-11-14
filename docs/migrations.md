@@ -4,7 +4,7 @@
 
 PeerHub v0 ran a bespoke SQLite migration engine from `peerhub/persistence/sqlite.py`. A consolidated Alembic baseline described that historical v0 schema, and switching the v0 runtime to Alembic was placed on hold.
 
-The Alembic config/environment lives at `tools/migrations/` (moved out of the repo root per `docs/history/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md` section 5.2): it is a **development-only historical experiment on hold**, not a runtime dependency, and every invocation requires an explicit `-x db=<path>` target -- it never infers `.peerhub/peerhub.sqlite3` from the current directory.
+The Alembic config/environment lives at `tools/migrations/` (moved out of the repo root per section 5.2 of `git show 465bfe98de7d6931864da4991e45cc1993e342e6:docs/history/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md`, see the [archival ledger](history/ledger-2026-10-17.md)): it is a **development-only historical experiment on hold**, not a runtime dependency, and every invocation requires an explicit `-x db=<path>` target -- it never infers `.peerhub/peerhub.sqlite3` from the current directory.
 
 ## Current State & Supported Workflow
 

@@ -49,10 +49,12 @@ vendor-owned.
 
 In restricted unelevated Windows environments, `ask cx --writable` can block
 writes to `.git` (including branch creation and commits), venv creation, and
-pip installs. Default pytest temporary directories can also hit ACL errors;
-use `--basetemp=.peerhub/work/pytest-cx` inside this ignored scratch folder.
-If pytest's owner-only directory ACLs still prevent access there, have the
-moderator run those tests outside the restricted session.
+pip installs. Tests that use `tmp_path` cannot run in this sandbox: pytest
+creates every temporary directory, also the one named by `--basetemp`, with an
+owner-only ACL that the restricted token cannot enter (measured 2026-11-14 on
+Python 3.15). cx runs the other targeted tests and reports `tmp_path` tests as
+NOT RUN; the moderator runs those tests outside the restricted session. Never
+add shims or temporary folders to the repository.
 
 Tell cx these constraints in the task prompt: cx edits files and runs focused
 tests using an existing development venv; the moderator creates branches,

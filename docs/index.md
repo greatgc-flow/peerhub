@@ -14,7 +14,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Peer Sandbox Limits](peer-limits.md): Per-peer restrictions, operating knobs, and deferred capability probe (#134).
 - [README.md](../README.md): Quick start, installation (`pipx`/`uv`/`pip`), core usage, and everyday operational commands.
 - [Common Tasks](../README.md#common-tasks): Worked recipes for default retained-session continuation, blocked stream recovery, offline diagnostics, and package lifecycle.
-- [STATUS.md](STATUS.md): Single source of truth for current release status, published version history, and remaining development work.
+- [STATUS.md](STATUS.md): Single source of truth for the remaining development work and deferred backlog; the release record is CHANGELOG plus the GitHub releases.
 - [HANDOFF.md](HANDOFF.md): Maintainer operating guidance, coordination rules, and working checkpoints.
 - [CONTRIBUTING.md](../CONTRIBUTING.md): Developer environment setup, deterministic testing, release gates, and incident lessons.
 
@@ -54,5 +54,5 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 - [Benchmarks](benchmarks/): Release-to-release performance and comparative analysis benchmarks.
 - [Hard profile benchmark, 2026-11-10](benchmarks/profiles-hard-2026-11-10/README.md): task, grader, reference and first per-profile results; follow-up to the 2026-11-08 ceiling effect, which it only partly resolves (top profiles still tie at 100).
 - [Top-tier profile benchmark, 2026-11-10](benchmarks/profiles-top-2026-11-10/README.md): regex-matcher task (115 hidden cases), grader, reference and first results; the cc tiers tie at 115/115 again and `ag.effort` scores below `ag.standard`.
-- [Implementation Evidence](implementation/live_evidence/): Live provider canary verification receipts.
-- [History Archive](history/): September 2026 design records, session logs, and retired review records. Older history is in Git (see the ledger).
+- [Implementation Evidence](implementation/live_evidence/): Live provider canary receipts up to 0.24.12, kept as history. From 0.24.13 the evidence JSON is attached to each GitHub release instead of being committed.
+- [History Archive](history/): Work logs, session logs and audit records. The removed v0 design and review folders, and older history, are in Git (see the ledger).

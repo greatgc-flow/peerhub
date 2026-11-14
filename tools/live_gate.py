@@ -20,7 +20,7 @@ STAGES = (("live", "runtime canaries", "g3.xml"), ("slow", "real adapter and quo
           ("e2e", "public ask scenarios", "g3-e2e.xml"))
 STAGE_SELECTIONS = {"live": "live and not slow and not e2e", "slow": "slow and not e2e", "e2e": "e2e"}
 CANARY_STAGE = ("canary", "optional public ask measurements (outside release catalog)", "canary.xml")
-EVIDENCE_PATHS = ("docs/implementation/live_evidence",)  # written by the canaries themselves
+EVIDENCE_DIR = ROOT / ".peerhub" / "work" / "live-gate"  # the canaries write <date>-v<version>.json here (git-ignored)
 PROVIDER_CLIS = ("agy", "claude", "codex")
 
 
@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--yes", action="store_true", help="acknowledge that this spends real provider quota")
     ap.add_argument("--only", choices=[s[0] for s in (*STAGES, CANARY_STAGE)], help="run a single stage")
     ap.add_argument("--peer", choices=("cc", "cx", "ag"), help="with --only live/canary: select one peer to reduce quota use")
-    ap.add_argument("--out", type=Path, default=ROOT / ".peerhub" / "work" / "live-gate", help="JUnit output directory")
+    ap.add_argument("--out", type=Path, default=EVIDENCE_DIR, help="JUnit output directory")
     args = ap.parse_args(argv)
     if args.peer and args.only not in ("live", "canary"):
         ap.error("--peer requires --only live or --only canary (partial evidence is not a complete release gate)")
@@ -44,8 +44,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"missing provider CLIs on PATH: {', '.join(missing)}", file=sys.stderr)
         return 2
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    dirty = subprocess.check_output(["git", "status", "--porcelain", "--", ".", *(f":(exclude){p}" for p in EVIDENCE_PATHS)],
-                                    cwd=ROOT, text=True).strip()
+    dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()
     if dirty:
         print("refusing: uncommitted changes would make live evidence untruthful (commit them before running)\n" + dirty,
               file=sys.stderr)
@@ -81,6 +80,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Canary JUnit written to {args.out} (outside release evidence)")
     else:
         print(f"JUnit written to {args.out} (bound to {commit[:12]}, gate G3)")
+    from peerhub import __version__
+
+    for evidence in sorted(EVIDENCE_DIR.glob(f"*-v{__version__}.json")):
+        print(f"Live evidence to attach to the release: {evidence}")
     return 1 if worst else 0
 
 

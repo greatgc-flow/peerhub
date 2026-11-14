@@ -323,7 +323,9 @@ See the [documentation map](docs/index.md) for all documentation.
 
 - On Windows, cx `--writable` cannot write into directories with owner-only ACLs (e.g. pytest tmp dirs, `tempfile.mkdtemp`); use a normally created directory.
 - Paths containing spaces or special characters can expose quoting problems in
-  external Windows launchers. See the [recorded path hazards](docs/history/reviews/mece-audit-2026-09-20-cross-repo.md).
+  external Windows launchers. The recorded path hazards are in the removed review
+  `git show 465bfe98de7d6931864da4991e45cc1993e342e6:docs/history/reviews/mece-audit-2026-09-20-cross-repo.md`
+  (see the [archival ledger](docs/history/ledger-2026-10-17.md)).
 - Node.js based CLIs depend on their runtime and launcher installation; portable
   layouts may resolve differently. See the [CLI observations](docs/compatibility/peer-cli-observations.md)
   and [adapter reference](docs/adapters/peer-cli-reference.md).

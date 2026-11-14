@@ -65,6 +65,28 @@ def test_t1_live_tree_snapshot_detects_mutation_and_ignores_evidence_dir(tmp_pat
     assert ls.diff_snapshots(snap, ls.tree_snapshot(tmp_path, ignore=(tmp_path / "ev",))) == ["a.txt", "b.txt"]
 
 
+def test_live_evidence_lives_in_the_git_ignored_live_gate_folder(monkeypatch):
+    monkeypatch.delenv("PEERHUB_LIVE_EVIDENCE_DIR", raising=False)
+    assert ls.EVIDENCE_DIR == ls.ROOT / ".peerhub" / "work" / "live-gate"
+    assert ls.evidence_path().parent == ls.EVIDENCE_DIR
+
+
+def test_live_gate_prints_the_evidence_file_to_attach(tmp_path, monkeypatch, capsys):
+    from peerhub import __version__
+    from tools import live_gate
+
+    (tmp_path / f"2026-11-14-v{__version__}.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "2026-11-13-v0.0.1.json").write_text("{}", encoding="utf-8")
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(live_gate, "EVIDENCE_DIR", tmp_path)
+    monkeypatch.setattr(live_gate.shutil, "which", lambda name: name)
+    monkeypatch.setattr(live_gate.subprocess, "check_output", lambda cmd, **k: "abc123" if "rev-parse" in cmd else "")
+    monkeypatch.setattr(live_gate.subprocess, "call", lambda *a, **k: 0)
+    assert live_gate.main(["--yes", "--only", "canary", "--out", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert f"2026-11-14-v{__version__}.json" in out and "v0.0.1" not in out
+
+
 def test_t1_live_evidence_merge_is_atomic_and_keeps_other_providers(tmp_path):
     p = tmp_path / "ev" / "d.json"
     ls.merge_evidence("cc", "discovery", {"version": "1.2.3"}, p)

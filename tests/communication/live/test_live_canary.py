@@ -1,7 +1,7 @@
 """Wave 8: LIVE-* real provider canary. Opt-in only (PEERHUB_LIVE=1 AND `-m live`); one minimal call per provider, no retries.
 
 Oracles are structural (response Record + TERMINAL evidence, versions/capabilities reported, project tree unchanged); the model's
-text is never compared beyond non-empty. Evidence retained under docs/m1_impl/live_evidence/<date>.json is sanitized (no prompts,
+text is never compared beyond non-empty. Evidence written to .peerhub/work/live-gate/<date>-v<version>.json is sanitized (no prompts,
 no response text, no secrets)."""
 import json
 from datetime import datetime, timezone
