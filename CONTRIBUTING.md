@@ -131,7 +131,7 @@ When filing or triaging an issue that alters a safety or caution fact (peer writ
 
 Before wiring any library-only component (A2A, MCP, ExtensionHost, Work/Skills, Search, Approval, durable plans) into the CLI, review the closed `deferred` issues and docs/STATUS.md "Known deferred defects"; #225, #234 and #238 must be fixed first (#241).
 
-If an ag pool is exhausted, `PEERHUB_LIVE_AG_MODEL=<model>` swaps the ag model for the gate run; it is recorded per case in the JUnit and must be disclosed in the changelog (#191).
+If an ag pool is exhausted, `PEERHUB_LIVE_AG_MODEL=<model>` swaps the ag model for the gate run; it is recorded per case in the JUnit and in the evidence JSON (`model_override` field). The JUnit files and the evidence JSON on the GitHub release are the record of the swap (#191).
 
 A release is one PR plus the steps after its merge; there is no post-release docs PR.
 

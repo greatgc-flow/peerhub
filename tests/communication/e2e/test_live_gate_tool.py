@@ -45,6 +45,9 @@ def test_runs_each_stage_with_live_env_and_junit(tmp_path, monkeypatch):
         return 0
 
     monkeypatch.setattr(live_gate.subprocess, "call", fake_call)
+    from peerhub import __version__
+    monkeypatch.setattr(live_gate, "EVIDENCE_DIR", tmp_path)  # a full passing run needs its evidence file
+    (tmp_path / f"2026-11-14-v{__version__}.json").write_text("{}", encoding="utf-8")
     assert live_gate.main(["--yes", "--out", str(tmp_path)]) == 0
     assert [c[0][len(c[0]) - c[0][::-1].index("-m")] for c in calls] == [live_gate.STAGE_SELECTIONS[stage] for stage in ("live", "slow", "e2e")]
     assert all(env == "1" for _, env in calls) and any("g3-slow.xml" in a for a in calls[1][0])

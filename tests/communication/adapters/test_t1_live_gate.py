@@ -69,22 +69,48 @@ def test_live_evidence_lives_in_the_git_ignored_live_gate_folder(monkeypatch):
     monkeypatch.delenv("PEERHUB_LIVE_EVIDENCE_DIR", raising=False)
     assert ls.EVIDENCE_DIR == ls.ROOT / ".peerhub" / "work" / "live-gate"
     assert ls.evidence_path().parent == ls.EVIDENCE_DIR
+    from tools import live_gate
+
+    assert live_gate.EVIDENCE_DIR == ls.EVIDENCE_DIR
 
 
-def test_live_gate_prints_the_evidence_file_to_attach(tmp_path, monkeypatch, capsys):
+def _gate(tmp_path, monkeypatch, argv, *, code=0, evidence=True):
+    """Run live_gate.main with every provider and git call faked; evidence files live in tmp_path."""
     from peerhub import __version__
     from tools import live_gate
 
-    (tmp_path / f"2026-11-14-v{__version__}.json").write_text("{}", encoding="utf-8")
-    (tmp_path / "2026-11-13-v0.0.1.json").write_text("{}", encoding="utf-8")
+    if evidence:
+        (tmp_path / f"2026-11-14-v{__version__}.json").write_text("{}", encoding="utf-8")
+        (tmp_path / "2026-11-13-v0.0.1.json").write_text("{}", encoding="utf-8")
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.setattr(live_gate, "EVIDENCE_DIR", tmp_path)
     monkeypatch.setattr(live_gate.shutil, "which", lambda name: name)
     monkeypatch.setattr(live_gate.subprocess, "check_output", lambda cmd, **k: "abc123" if "rev-parse" in cmd else "")
-    monkeypatch.setattr(live_gate.subprocess, "call", lambda *a, **k: 0)
-    assert live_gate.main(["--yes", "--only", "canary", "--out", str(tmp_path)]) == 0
+    monkeypatch.setattr(live_gate.subprocess, "call", lambda *a, **k: code)
+    return live_gate.main([*argv, "--yes", "--out", str(tmp_path / "out")])
+
+
+def test_live_gate_prints_the_evidence_file_to_attach(tmp_path, monkeypatch, capsys):
+    from peerhub import __version__
+
+    assert _gate(tmp_path, monkeypatch, []) == 0
     out = capsys.readouterr().out
     assert f"2026-11-14-v{__version__}.json" in out and "v0.0.1" not in out
+
+
+def test_live_gate_prints_no_attach_line_after_a_failed_stage_or_for_canary(tmp_path, monkeypatch, capsys):
+    assert _gate(tmp_path, monkeypatch, [], code=1) == 1
+    assert "attach" not in capsys.readouterr().out
+    assert _gate(tmp_path, monkeypatch, ["--only", "canary"]) == 0
+    assert "attach" not in capsys.readouterr().out
+
+
+def test_live_gate_full_pass_without_evidence_file_fails(tmp_path, monkeypatch, capsys):
+    assert _gate(tmp_path, monkeypatch, [], evidence=False) == 1
+    err = capsys.readouterr().err
+    from peerhub import __version__
+
+    assert str(tmp_path) in err and f"-v{__version__}.json" in err
 
 
 def test_t1_live_evidence_merge_is_atomic_and_keeps_other_providers(tmp_path):

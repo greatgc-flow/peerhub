@@ -80,11 +80,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Canary JUnit written to {args.out} (outside release evidence)")
     else:
         print(f"JUnit written to {args.out} (bound to {commit[:12]}, gate G3)")
+    if worst or args.only == "canary":
+        return 1 if worst else 0
     from peerhub import __version__
 
-    for evidence in sorted(EVIDENCE_DIR.glob(f"*-v{__version__}.json")):
+    evidence_files = sorted(EVIDENCE_DIR.glob(f"*-v{__version__}.json"))
+    if not evidence_files and not args.only:
+        print(f"missing live evidence: expected {EVIDENCE_DIR}{os.sep}<date>-v{__version__}.json "
+              "(the release needs it as its fourth asset)", file=sys.stderr)
+        return 1
+    for evidence in evidence_files:
         print(f"Live evidence to attach to the release: {evidence}")
-    return 1 if worst else 0
+    return 0
 
 
 if __name__ == "__main__":

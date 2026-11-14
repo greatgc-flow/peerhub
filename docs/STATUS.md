@@ -6,7 +6,7 @@ Dates are UTC.
 
 ## Current source: v0.24.13
 
-The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub release `v0.24.13`; the G3 JUnit files (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml`) and the live-evidence JSON are attached to that release. The release PR sets this heading; no per-release paragraph or follow-up docs PR is kept here.
+The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases; each published release carries the G3 JUnit files (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml`) and the live-evidence JSON as assets. The release PR sets the heading above; no per-release paragraph or follow-up docs PR is kept here.
 
 ## Remaining work
 
