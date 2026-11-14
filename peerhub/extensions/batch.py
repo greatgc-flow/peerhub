@@ -334,7 +334,7 @@ def _launch_flags() -> dict[str, Any]:
 
 
 def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: str, argv_builder: ArgvBuilder = default_argv_builder,
-              cancel: threading.Event | None = None, grace_s: float = 30.0) -> dict[str, Any]:
+              cancel: threading.Event | None = None, grace_s: float = 30.0, responses: bool = False) -> dict[str, Any]:
     check_max_parallel(max_parallel)
     cancel = cancel or threading.Event()
     rows: dict[str, dict[str, Any]] = {}
@@ -392,6 +392,8 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             out_row["reason"] = reason
         if isinstance(session, dict) and isinstance(cast(dict[str, Any], session).get("handle"), str):
             out_row["session"] = session["handle"]
+        if responses and status == "COMPLETED" and result is not None:
+            out_row["response"] = result["response"]  # the stored reply, as printed by `ask --json`
         return out_row
 
     def supervisor(tmp: Path) -> None:
@@ -442,4 +444,7 @@ def render_text(report: Mapping[str, Any]) -> str:
     lines = [f"batch {report['batch_id']} max-parallel {report['max_parallel']}"]
     for r in report["tasks"]:
         lines.append(f"{r['task_id']:<24} {r['peer']:<8} {r['status']:<10} {r.get('reason') or ''}".rstrip())
+    for r in report["tasks"]:
+        if "response" in r:
+            lines += [f"--- {r['task_id']} reply ---", r["response"]]
     return "\n".join(lines)

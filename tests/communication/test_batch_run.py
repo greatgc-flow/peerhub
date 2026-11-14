@@ -247,7 +247,7 @@ def test_all_completed_exit_zero_and_report_shape(tmp_path):
     for row in report["tasks"]:
         assert set(row) >= {"task_id", "peer", "stream", "status", "request_id", "elapsed_s"}
         assert (row["stream"], row["request_id"]) == batch.derive_ids("b1", row["task_id"])
-        assert "response" not in row  # responses are never included
+        assert "response" not in row  # replies are included only with responses=True
     assert [r["task_id"] for r in report["tasks"]] == ["a", "b"]  # manifest order, not completion order
 
 
@@ -445,3 +445,23 @@ def test_report_text_table_is_compact(tmp_path):
     report = run(tmp_path, [task("a")], n=1)
     text = batch.render_text(report)
     assert "a" in text and "COMPLETED" in text and len(text.splitlines()) <= 4
+
+
+def test_responses_opt_in_only_for_completed_tasks(tmp_path):
+    tasks = [task("a"), task("b", mode="uncertain"), task("c", mode="notstarted")]
+    plain = run(tmp_path, tasks)
+    shown = run(tmp_path, tasks, responses=True)
+    assert all("response" not in r for r in plain["tasks"])
+    assert [r["response"] for r in shown["tasks"] if "response" in r] == ["pong"]
+    assert "response" in shown["tasks"][0]
+    strip = lambda rep: [{k: v for k, v in r.items() if k not in ("response", "elapsed_s")} for r in rep["tasks"]]
+    assert strip(plain) == strip(shown)
+    assert status_of(shown) == {"a": "COMPLETED", "b": "UNCERTAIN", "c": "FAILED"}
+
+
+def test_render_text_adds_reply_only_when_present(tmp_path):
+    plain = batch.render_text(run(tmp_path, [task("a")], n=1))
+    text = batch.render_text(run(tmp_path, [task("a")], n=1, responses=True))
+    assert "pong" not in plain
+    assert text.splitlines()[:2] == plain.splitlines()[:2]
+    assert text.splitlines()[-2:] == ["--- a reply ---", "pong"]

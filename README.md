@@ -130,7 +130,7 @@ The default human monitor shows POOLS (meaning, last recorded capacity, reset, `
 
 The monitor also shows one `ACCOUNTS` line (details with `--expand`, fields in JSON `capacity.accounts`): per peer the plan (display data only), login state and, when it is within 14 days (or already past), the **login token** expiry, which is not billing. Example: `ACCOUNTS cc pro login ok (token exp 11-26) | cx prolite login ok | ag plan n/a credits ok`. `?` means it could not be determined and `n/a` that the provider does not expose it (a missing expiry never means logged out; API-key, Bedrock and Vertex logins show `n/a`; `ag` shows endpoint access only). A failed probe keeps the last good reading shown `aged` with a `probe error` note; account evidence ages after 6 hours. Only normalized fields are stored (never an email, organization, account id, token or any identity-derived hash). They are collected, in parallel under the refresh deadline and skipped while still fresh, by `observation refresh` and monitor collection cycles from `claude auth status`, codex app-server `account/read` and `agy /credits` (no model turn); `--snapshot` stays read-only.
 
-`low`/`fast` take precedence over `aged`; staleness still shows in AGE and the PEERS `(aged)` tag. See `peerhub explain monitor` for state meanings and precedence.
+`low`/`fast` take precedence over `aged`; staleness still shows in AGE and the PEERS `(aged)` tag. See `peerhub explain monitor-states` for state meanings and precedence.
 
 The bare `monitor` command shows the compact human dashboard (with `PACE`), redrawing in place on a VT TTY and printing one completed frame per cycle when redirected; use `--expand` for bars, `EXHAUST-IN` and detailed `sessions`/group sections. `--view rich` adds colour; `--expand` adds bars in both views;
 `--view plain` selects ASCII-safe output. Add repeatable `--group` options to
@@ -323,7 +323,9 @@ See the [documentation map](docs/index.md) for all documentation.
 
 - On Windows, cx `--writable` cannot write into directories with owner-only ACLs (e.g. pytest tmp dirs, `tempfile.mkdtemp`); use a normally created directory.
 - Paths containing spaces or special characters can expose quoting problems in
-  external Windows launchers. See the [recorded path hazards](docs/history/reviews/mece-audit-2026-09-20-cross-repo.md).
+  external Windows launchers. The recorded path hazards are in the removed review
+  `git show 465bfe98de7d6931864da4991e45cc1993e342e6:docs/history/reviews/mece-audit-2026-09-20-cross-repo.md`
+  (see the [archival ledger](docs/history/ledger-2026-10-17.md)).
 - Node.js based CLIs depend on their runtime and launcher installation; portable
   layouts may resolve differently. See the [CLI observations](docs/compatibility/peer-cli-observations.md)
   and [adapter reference](docs/adapters/peer-cli-reference.md).

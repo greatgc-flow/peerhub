@@ -25,8 +25,13 @@ pytestmark = [pytest.mark.unit]
     ("ag", ["ag-recipe", "ag-bulk-profile-heuristics", "ag-requires-writable", "ag-silence-long-asks", "multi-peer-quota-shaping", "plan-windows"]),
     ("cc allow rules", ["cc-allow-rules"]),
     ("fable haiku", ["cc-allow-rules"]),
-    ("monitor", ["monitor-states", "plan-windows"]),
+    ("monitor", ["monitor-accounts", "monitor-states", "plan-windows"]),
     ("low fast aged suggest alternative cycles tty legend", ["monitor-states"]),
+    ("accounts", ["monitor-accounts"]),
+    ("review-loop", ["review-recipe"]),
+    ("review-scores-to-100", ["review-recipe"]),
+    ("pytest basetemp", ["cx-sandbox-and-prompt-hygiene"]),
+    ("subagents", ["peer-subagents"]),
     ("ag checkout", []),
     ("", []),
     ("!!!", []),
@@ -77,7 +82,87 @@ def test_no_match_hint(capsys):
     assert not captured.out
     assert "No matching lessons" in captured.err
     assert "Try fewer keywords" in captured.err
+    assert "peerhub explain lessons" in captured.err
     assert len(captured.err.splitlines()) == 1
+
+
+def test_explain_lessons_prints_index_before_any_lesson_lookup(capsys, monkeypatch):
+    """#366 A5: `explain lessons` is an index (id: title; --json {"lessons": [{id, title}]}), never a keyword search."""
+    from peerhub.cli import lessons as lessons_mod
+    calls = []
+    monkeypatch.setattr(lessons_mod, "lesson_by_id", lambda q: calls.append("id") or [])
+    monkeypatch.setattr(lessons_mod, "lookup_lessons", lambda q: calls.append("keywords") or [])
+    catalog = load_lessons()
+    assert main(["explain", "lessons"]) == 0
+    assert capsys.readouterr().out.splitlines() == [f"{lesson['id']}: {lesson['title']}" for lesson in catalog]
+    assert main(["explain", "lessons", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"lessons": [{"id": lesson["id"], "title": lesson["title"]} for lesson in catalog]}
+    assert calls == []
+
+
+def test_explain_json_envelope_is_the_same_for_index_and_keyword_lookup(capsys):
+    """#366 F3: `explain lessons --json` and a keyword lookup share one {"lessons": [...]} envelope."""
+    for query in (["lessons"], ["ag", "silence"]):
+        assert main(["explain", *query, "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert list(payload) == ["lessons"] and isinstance(payload["lessons"], list) and payload["lessons"]
+        assert all({"id", "title"} <= set(item) for item in payload["lessons"])
+
+
+def test_review_recipe_merges_review_loop_and_scores_to_100(capsys):
+    """#366 A5: one review recipe with a pasteable brief; the old ids still find it."""
+    ids = {lesson["id"] for lesson in load_lessons()}
+    assert "review-recipe" in ids and not {"review-loop", "review-scores-to-100"} & ids
+    for old_id in ("review-loop", "review-scores-to-100"):
+        assert main(["explain", old_id]) == 0
+        assert capsys.readouterr().out.splitlines()[0].startswith("review-recipe:")
+    fix = next(lesson for lesson in load_lessons() if lesson["id"] == "review-recipe")["fix"]
+    for needle in ("Score each item 0-100", "violates a documented contract", "reachable from supported inputs",
+                   "recommendation", "exact fix", "Re-score until 100", "re-review the exact shipped tag",
+                   "another model family", "full suite once", "only targeted tests", "two rounds",
+                   "narrow its contract (fail closed)", "Never `git add -A`", "agent worktrees"):
+        assert needle in fix, needle
+
+
+def test_lessons_without_peerhub_mechanism_are_deleted():
+    ids = {lesson["id"] for lesson in load_lessons()}
+    assert not {"pin-census-before-implementation", "dry-run-path-aware-checkers", "explicit-shell-wait-conditions"} & ids
+
+
+def test_new_and_moved_lesson_content():
+    """#366 A1/A4/A5: subagents (#361), cx tmp_path tests NOT RUN, ACCOUNTS split, vote recipe, 600 s default."""
+    by_id = {lesson["id"]: lesson for lesson in load_lessons()}
+    sub = by_id["peer-subagents"]["fix"]
+    for needle in ("Agent tool", "spawn_agent", "names that tool explicitly", "invoke_subagent",
+                   "no /loop-style persistence", "same peer quota", "disjoint task", "one merged final report"):
+        assert needle in sub, needle
+    assert "#361" in by_id["peer-subagents"]["issue"]
+    cx_fix = by_id["cx-sandbox-and-prompt-hygiene"]["fix"]
+    for needle in ("tests that use tmp_path cannot run", "also with --basetemp", "measured 2026-11-14 on Python 3.15",
+                   "NOT RUN for the lead to run", "never add shims or temp folders to the repo"):
+        assert needle in cx_fix, needle
+    assert "--basetemp=" not in cx_fix  # the measured workaround does not work
+    assert {"pytest", "tmp_path", "acl", "basetemp"} <= set(by_id["cx-sandbox-and-prompt-hygiene"]["keywords"])
+    assert "ACCOUNTS" not in by_id["monitor-states"]["fix"]
+    for needle in ("ACCOUNTS (compact line", "LOGIN token expiry", "display_plan", "plan_changed: true",
+                   "at least five minutes old"):
+        assert needle in by_id["monitor-accounts"]["fix"], needle
+    votes = by_id["independent-peer-votes"]["fix"]
+    for needle in ("--max-parallel 3 --responses", "not writable", "private empty directory", "inline", "11 s"):
+        assert needle in votes, needle
+    timeouts = by_id["ask-timeouts"]["fix"]
+    assert "defaults to 600" in timeouts and "1800-3600" in timeouts and "7200" in timeouts
+    assert "never retry on the same stream" in timeouts and "partial edits" in timeouts
+
+
+def test_ag_recipe_holds_the_former_guide_lines():
+    """#366 A6: the guide keeps one ag pointer line, so the lesson carries every fact the three lines had."""
+    fix = next(lesson for lesson in load_lessons() if lesson["id"] == "ag-recipe")["fix"]
+    for needle in ('--query-file and say "no tools"', "one task per ask", "verify claims from flash tiers",
+                   "30,000 bytes on Windows", "120,000 bytes on POSIX", "use cc/cx on a separate stream",
+                   "new request-id", "not a temp or scratch folder", "even for read tasks", "accept-edits, workspace-wide",
+                   "never resume that stream", "Headless prompts auto-deny", "command(...) or command(*) allow rules"):
+        assert needle in fix, needle
 
 
 def test_known_guidance_and_alias_take_priority(capsys):
@@ -132,7 +217,7 @@ def test_guidance_code_beats_lesson_id_and_keywords_still_work(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 30
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 28
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & {lesson["id"] for lesson in lessons}
     for lesson in lessons:
         assert all(lesson.values())

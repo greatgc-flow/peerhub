@@ -30,7 +30,8 @@ Every ag task is writable, even if the manifest says otherwise (#140).
 If either task writes, equal or nested workspaces reject the entire batch.
 Streams and request IDs derive from the batch/task IDs; no stream override exists.
 
-Reports contain identities, sessions, elapsed seconds and statuses, without responses:
+Reports contain identities, sessions, elapsed seconds and statuses. Replies are
+included only with `--responses` (see below):
 
 | Status | Meaning |
 | --- | --- |
@@ -42,7 +43,23 @@ Reports contain identities, sessions, elapsed seconds and statuses, without resp
 
 Exit 0 requires every task COMPLETED; exit 1 covers other statuses and invalid
 manifests/options. Argparse syntax errors exit 2. Omit `--json` for a compact table.
-Read responses with `peerhub record read` using the reported stream.
+
+`--responses` (opt-in, since 0.24.13) adds each COMPLETED task's reply: a `response`
+field with `--json`, or a `--- TASK reply ---` block after the table. Failed, uncertain
+and other non-COMPLETED tasks get no reply text; `--dry-run --responses` shows none.
+A reply may itself contain a `--- ... reply ---` line, so use `--json` for machine parsing.
+Without the flag the output is unchanged; read a reply with
+`peerhub record read --stream <stream> --json`.
+
+**Votes and reviews in one command**
+
+- cc and cx tasks: `workspace` = the repository, no `writable` (read-only).
+- ag task: `workspace` = a private EMPTY directory. ag tasks are always writable; an empty
+  directory passes the overlapping-writers check and keeps ag away from the repo.
+- Put every fact in each prompt; the empty-directory ag peer cannot read the repo.
+- `peerhub batch run votes.json --batch-id vote-001 --max-parallel 3 --responses`
+- Replies are in the report (before 0.24.13: `peerhub record read --stream <stream> --json`).
+- Measured 2026-11-14: three peers answered in 11 s.
 
 Ctrl+C, SIGTERM, or Windows Ctrl+Break stops launches and terminates worker trees.
 Windows tree termination is guaranteed when confirmed; unconfirmed termination

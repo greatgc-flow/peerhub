@@ -96,7 +96,7 @@ workspace; this recipe specifies no automatic file transfer.
 | 2 | idempotency conflict; argument parsing also uses argparse |
 | 3 / 4 / 6 | CAS lost / storage error / schema version error |
 
-`--timeout-seconds` bounds provider execution (default 60); it is not an SSH
+`--timeout-seconds` bounds provider execution (default 600); it is not an SSH
 connection timeout. Optional `--silence-timeout-seconds` aborts silent execution
 and leaves uncertainty; `--max-output-bytes` defaults to 1,000,000
 (`peerhub/cli/app.py:121–124`). For Antigravity, ag prints nothing until done:

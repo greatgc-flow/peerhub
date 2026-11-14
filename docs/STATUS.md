@@ -1,100 +1,16 @@
 # PeerHub Development Status
 
-> **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for current release status, published version history, and the remaining development queue. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
+> **Status Authority:** This document (`docs/STATUS.md`) is the single authoritative source of truth for the remaining development queue and the deferred backlog. The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases. Navigation hubs (`docs/index.md`, `docs/design/README.md`) and maintainer guidance (`docs/HANDOFF.md`) point here.
 
 Dates are UTC.
 
-## Current source: v0.24.12 (published)
+## Current source: v0.24.13
 
-v0.24.12 is a patch from the item-level review of 0.24.11: the #359 JSON guidance names `--writable` and `peerhub explain ag-requires-writable`, the unknown-profile hint wording, and invariant-only model-facts tests.
-
-Published 2026-11-13 (UTC; PR #363, tag `v0.24.12`, target `121f1069`); G3 passed bound to `121f10691c32` (live gate, three stages; evidence `docs/implementation/live_evidence/2026-11-13-v0.24.12.json`). PyPI 0.24.12 verified in a clean virtualenv (`--version`, ag gate JSON guidance `explain_cmd` and `--writable` recover argv, unknown-profile hint). Item-level reviews: cc.fable A=100 B=100, ag.deepthink A=100 B=100.
-
-### v0.24.11 (published)
-
-v0.24.11 adds monitor traffic-light colours, a derived quota tree with peer separation and `PEERHUB_MONITOR_VIEW`, re-observed model facts (agy 1.5.7 gemini-4-hydrogen recorded without a profile; personal cx.terra removed) and the ag `--writable` hint (#359). All designs scored 100 unanimously before implementation; record: [work log 2026-11-12/13](history/work-log-2026-11-13.md).
-
-Published 2026-11-13 (UTC; PR #360, tag `v0.24.11`, target `e30473ee`); G3 passed bound to `e30473ee6ad3` (live gate, three stages; evidence `docs/implementation/live_evidence/2026-11-13-v0.24.11.json`). Full OS x Python matrix run 43353116927 success. PyPI 0.24.11 verified in a clean virtualenv (`--version`, `explain ag-requires-writable`, 12 packaged profiles, quota tree rows). Reviews: cc.fable 100 (5 rounds), ag.deepthink 100 (cross-family, found five real defects).
-
-### v0.24.10 (published)
-
-v0.24.10 improves live monitor visibility measured in a real ConPTY (no mixed sections, peers before details, whole-field fitting, announced cuts, bounded TTY snapshots, per-peer usage, retired plan windows, content-sized columns). Implemented by cx.effort.
-
-Published 2026-11-13 (UTC; PR #357, tag `v0.24.10`, target `12800ec0`, publish run 43336127142); G3 passed bound to `12800ec0d313` (live gate, three stages; evidence `docs/implementation/live_evidence/2026-11-13-v0.24.10.json`). Full OS x Python matrix run 43331148434 success. PyPI 0.24.10 verified in a clean virtualenv. Reviews: cc.fable 100 (9 rounds), ag.standard 100 (3 rounds; it found the compact small-height priority inversion); implemented by cx.effort; measured in a real ConPTY at 60x30, 80x24, 120x40, 220x60.
-
-### v0.24.9 (published)
-
-v0.24.9 fixes `tools.model_ping` false positives for rejected cx models (#353) and stale plans in the monitor ACCOUNTS line (#354), and adds the `concurrent-cc-lanes` lesson (#352). Backlog triage 2026-11-13 (unanimous, cx.effort and ag.standard 100 on every item): #324 step 2, #323 and #313 closed as not planned with reopen triggers; #330 stays open until the next schema change.
-
-Published 2026-11-12 (UTC; 11-13 KST; PR #355, tag `v0.24.9`, target `3d2af774`, publish run 43258157929); G3 passed bound to `3d2af774246a` (live gate, three stages; evidence `docs/implementation/live_evidence/2026-11-12-v0.24.9.json`). PyPI 0.24.9 verified in a clean virtualenv (`--version`, `explain concurrent-cc-lanes`, ACCOUNTS `cx pro login ok`). Reviews: cc.fable 100 (2 rounds), ag.standard 100; implemented by cx.effort.
-
-### v0.24.8 (published)
-
-v0.24.8 merges PR #349 (#335): Bridge/claim-store init skips trigger rewrites when the installed SQL matches exactly (full rebuild on any mismatch), a provider-neutral runtime port module, and a Core snapshot iterator for `source_records`; plus the `ask-timeouts` lesson and `--timeout-seconds` help (#350); `monitor --expand` shows `uses N` per session; monitor tables share one column and pool order with a remaining-quota bar, PACE direction glyphs and STATE colours, and narrow consoles drop whole columns from the right. Scope voted unanimously (cc lead, cx, ag). #335 closes with this release; #323, #324 step 2, #330, #313 stay open with reasons on the issues.
-
-Published 2026-11-11 (UTC; PR #349, tag `v0.24.8`, target `d4a65060`, publish run 43003271250); G3 passed bound to `d4a65060c752` (live gate 2026-11-11, three stages; evidence `docs/implementation/live_evidence/2026-11-11-v0.24.8.json`). Full OS x Python matrix run 42997202639 success. PyPI 0.24.8 verified 2026-11-11 in a clean virtualenv (`--version`, `explain ask-timeouts`, narrow compact monitor drops whole columns with bar/PACE glyphs, `--expand` shows `uses N`). Reviews: cc.fable 100 (4 rounds), ag.effort 100 (2 rounds).
-
-### v0.24.7 (published)
-
-v0.24.7 adds the read-only `peerhub diag --plan [--json]` (per-pool spend/hold/rest/blocked from stored observations; #339), full store path and source in `diag`/`monitor` headers (#338), `tools.model_ping --model` (#341), a Python 3.11 f-string quote guard test (#342), versioned live-gate evidence names (#343) and lessons `review-loop`, `instruction-diet` plus cc allow-rule and Windows upgrade docs (#337, #344, #345). Backlog triage 2026-11-11 (unanimous: cc lead, cx, ag): #328/#329 closed as shipped in 0.24.6; #324 step 2 is next (0.24.8); #330, #323, #313, #335 stay deferred.
-
-Published 2026-11-11 (UTC; PR #347, tag `v0.24.7`, target `b1f34968`, publish run 42935285963); G3 passed bound to `b1f34968857f` (live gate 2026-11-11, three stages; evidence `docs/implementation/live_evidence/2026-11-11-v0.24.7.json`). PyPI 0.24.7 verified 2026-11-11 in a clean virtualenv (`--version`, `diag --plan` table and JSON `store_selection`, `explain review-loop`). Reviews: cc.fable 100 (2 rounds), ag.effort 100 (3 rounds).
-
-### v0.24.6 (published)
-
-v0.24.6 adds the read-only `peerhub diag running [--json]` (lease-active asks from existing tables; no progress or staleness fields; a lease is not proof a process is alive) and an `ACCOUNTS` line in `peerhub monitor` (#329: plan, login state and login-token expiry per peer, with compact, `--expand` and JSON parity from one stored snapshot; only normalized fields are stored, no email, organization, id, token or identity hash; collected by `observation refresh` / monitor cycles with bounded no-model-turn probes: `claude auth status`, codex app-server `account/read`, `agy /credits`). It fixes #328 (a provider-disabled agy bucket renders `n/a`; superseded peer-level probe failures no longer show `PROBE`; `peerhub explain <lesson id>` matches the exact id) and lands the #327 items 1, 5 and 9 (guidance link to the adapter guide, `source_records` reuse of the Core row mapper, README doc map and layout). It adds the hard (integer interpreter) and top-tier (regex matcher) profile benchmarks (docs/benchmarks/profiles-hard-2026-11-10, profiles-top-2026-11-10) and their evidence on the profile cards. cc.fable switches to `claude-fable-5-2` under the frozen rule (identity ping PASS, 45/45 on the 2026-11-08 task, hard 100/100, top 115/115; slower in one run: 946 s vs 169 s), checked 2026-11-10. Plan and decision log: docs/design/plan-0.24.5-2026-11-10.md (rows "Follow-up"). Notes: see CHANGELOG [0.24.6].
-
-Published 2026-11-10 (UTC; PR #331, tag `v0.24.6`, target `15fcd356`, publish run 42828266303: the first attempt failed only on the wall-clock test `test_sleep_called_count_minus_1_times` in release-matrix windows-latest 3.11; the failed jobs were rerun and passed, and the test is now deterministic, PR #333); G3 passed bound to `15fcd35611ef` (live gate 2026-11-10, three stages). PyPI 0.24.6 verified 2026-11-10 UTC (clean venv `pip install --no-cache-dir peerhub==0.24.6`: `peerhub --version` 0.24.6, `diag running`, `explain cc.fable` = claude-fable-5-2, ACCOUNTS line, 3P-5H `n/a (disabled)` after one refresh).
-
-### v0.24.5 (published)
-
-Published 2026-11-10 (UTC; PR #326, tag `v0.24.5`, target `8fd00491`, publish run 42816004629); G3 passed bound to `8fd00491632d` (live gate 2026-11-10, three stages). PyPI 0.24.5 verified 2026-11-10 UTC (clean upgrade with --no-cache-dir, `peerhub --version` 0.24.5, `peerhub explain cc.effort` prints the card)
-
-v0.24.5 adds AI-readable profile cards (use for / avoid for / traits with evidence, bound to the binding they were checked against; `peerhub explain <profile id>`, `profile show`, `profile list`), a read-only quota utilization report (`tools/quota_report.py`; first report docs/history/quota-efficiency-2026-11-10.md), re-observed model facts (agy 1.5.4, claude 2.1.322, codex 0.167.0; all packaged profiles pinged except cc.fable, deferred to 0.24.6 because its pool was exhausted) and fixes #325 (a later intact cc `result` resolves an oversized-line gap). #323 was deferred by peer vote (no unanimity). Plan: docs/design/plan-0.24.5-2026-11-10.md (cc lead; cc.deepthink, cx.effort and ag.effort reviews, unanimous on spec v2 and on adding #325).
-
-### v0.24.4 (published)
-
-v0.24.4 puts pace back on the compact monitor: a `PACE` column (used% - elapsed% of the window, signed whole pp), a legend that defines it, `suggest:` ordering that prefers pools without `fast`, one human frame on non-TTY runs (was two), exact-reset-instant handling, and a guide balance recipe bounded by bytes for the packaged defaults (<=60 lines, <=5,600 B). JSON values and schemas are unchanged. Plan: docs/design/plan-0.24.4-2026-11-09.md (cx.astra, cc.fable, ag.argon: two independent audit rounds, cross-critique vote, review round). Published 2026-11-09 (UTC; PR #320, tag `v0.24.4`, target `bedf6d52`, publish run 42605365707); G3 passed bound to `bedf6d52f008`.
-
-v0.24.3 (published) adds actionable oversized-prompt guidance with byte counts (#309) and explains the #312 claim-held symptom (caller tool timeout while the ask kept running; replay with the same `--request-id`) in guidance and a lesson (#312 root cause from the store; no parser change).
-
-v0.24.2 separates compact monitor `low` capacity from `fast` pace, explains states in the legend, adds eligible alternative peers to tier suggestions, and defaults non-TTY monitor watch to one cycle. JSON values and schemas are unchanged (PR #310, unanimous cx+ag+cc review).
-
-v0.24.1 is a patch on 0.24.0: cc `permission_denials` surface as `denied_actions` and an empty cc reply with denials gets `denied_empty` (provider-neutral note), plus the `cc-allow-rules` lesson (#303); #304 store-discovery fallback and fail-closed behavior are included, along with every-peer plan-aware ABSENT windows (P4). Plan: docs/design/plan-0.24.1-2026-11-08.md.
-
-v0.24.0 unifies CLI human output (text by default, `--json` everywhere), store precedence (`--db` over `PEERHUB_DB`) and a redesigned at-a-glance monitor (pools with meaning, per-group limits, fresh-only `suggest:` line, plan-aware ABSENT windows for cx only), reworks profiles quality-first (`ag.effort` flash-high, `cx.effort` sol/high, packaged tops `cc.fable` and `cx.astra`), documents capability-matched quota balancing and concurrency caps (docs/batch.md), adds the ag recipe and denied-empty handling (#300). Plan: docs/design/plan-0.24.0-2026-11-08.md.
-
-The latest published package is **v0.24.6** (tag `v0.24.6`, target `15fcd356`; PyPI verified 2026-11-10 UTC). The previous one is **v0.24.5** (tag `v0.24.5`, target `8fd00491`); PyPI 0.24.5 verified 2026-11-10 UTC (clean upgrade with --no-cache-dir, `peerhub --version` 0.24.5, `peerhub explain cc.effort` prints the card); G3 passed bound to `8fd00491632d`. The previous verified package is v0.24.4 (tag `v0.24.4`, target `bedf6d52`; PyPI 0.24.4 verified 2026-11-09 UTC: clean upgrade, `peerhub --version`, compact monitor PACE column, `explain pace`; G3 passed bound to `bedf6d52f008`). The installed `peerhub guide` does not automatically update when main changes.
-
-v0.24.3 published 2026-11-09 (UTC; PR #316, tag `v0.24.3`, target `ad5d1b25`, publish run 42569582779; closes #309 and #312); completeness audit Fable/Astra 100 on every axis before release; G3 passed bound to `ad5d1b25ec37`. See [live evidence](implementation/live_evidence/2026-11-09-v0.24.3.json) and the release JUnit assets.
-
-v0.24.2 published 2026-11-09 (UTC; PRs #310/#311/#314, tag `v0.24.2`, target `a5b61f9a`, publish run 42557525466); completeness audit Fable/Astra 100 on every axis before release; G3 passed bound to `a5b61f9a354a`. See [live evidence](implementation/live_evidence/2026-11-09-v0.24.2.json) and the release JUnit assets.
-
-v0.24.1 published 2026-11-08 (UTC; tag `v0.24.1`, target `b0b2b240`, PyPI 0.24.1 verified 2026-11-08 UTC); G3 passed bound to `b0b2b24050bd`. See [live evidence](implementation/live_evidence/2026-11-08-v0.24.1.json) and the release JUnit assets.
-
-v0.24.0 published 2026-11-08 (PR #301, tag `v0.24.0`, target `f07d6c49`); PyPI 0.24.0 verified and G3 passed; release body = `python -m tools.release_notes --version 0.24.0` output (byte-identical after CR stripping except the trailing newline GitHub appends; verified 2026-11-09). See [live evidence](implementation/live_evidence/2026-11-08.json). Previous published release: v0.23.3.
-
-Earlier releases (v0.23.x and older, including never-published attempts such as v0.22.1, v0.17.0 and v0.18.1) are recorded in [CHANGELOG](../CHANGELOG.md); tags and release assets are on GitHub. The removed per-release G3 bindings and the note that the packaged `ag.standard` model was not exercised in some gates (#191) are in `git show 77422a6e82cb3879de207baf9d97dd79acf76aa8:docs/STATUS.md`.
-
-### Release attempts
-
-| Attempt | Target commit / ref | PR | Status | Notes |
-|---|---|---|---|---|
-| **v0.24.6** | `15fcd356` | PR #331 | Published | Published 2026-11-10; tag `v0.24.6`; publish run 42828266303 (failed-job rerun after a flaky wall-clock test, fixed in #333); PyPI 0.24.6 verified 2026-11-10 UTC; G3 bound to `15fcd35611ef`. |
-| **v0.24.5** | `8fd00491` | PR #326 | Published | Published 2026-11-10; tag `v0.24.5`; publish run 42816004629; PyPI 0.24.5 verified 2026-11-10 UTC (clean upgrade with --no-cache-dir, `peerhub --version` 0.24.5, `peerhub explain cc.effort` prints the card); G3 passed bound to `8fd00491632d` (live gate 2026-11-10, three stages) |
-| **v0.24.4** | `bedf6d52` | PR #320 | Published | Published 2026-11-09; tag `v0.24.4`; publish run 42605365707; PyPI verified; G3 passed bound to `bedf6d52f008`; JUnit assets attached |
-| **v0.24.3** | `ad5d1b25` | PR #316 | Published | Published 2026-11-09; tag `v0.24.3`; publish run 42569582779; PyPI verified; G3 passed bound to `ad5d1b25ec37`; JUnit assets attached; [live evidence](implementation/live_evidence/2026-11-09-v0.24.3.json) |
-| **v0.24.2** | `a5b61f9a` | PR #310/#311/#314 | Published | Published 2026-11-09; tag `v0.24.2`; publish run 42557525466; PyPI verified; G3 passed bound to `a5b61f9a354a`; JUnit assets attached; [live evidence](implementation/live_evidence/2026-11-09-v0.24.2.json) |
-| **v0.24.2 first attempt** | `5e575697` | PR #310/#311 | 2026-11-09: publish run 42553283723 cancelled before PyPI; release and tag deleted | owner: release only after every audit axis is 100; PyPI stays 0.24.1; [attempt evidence](implementation/live_evidence/2026-11-09-v0.24.2-attempt1.json) |
-| **v0.24.1 first attempt** | `0705619e` | PR #305 | Aborted; release and tag deleted | Failed publish run 42496572307; Windows release-matrix failed in `rel_005`: sandbox lacked Git; real-Git discovery tests moved to E2E in PR #306; release and tag recreated per CONTRIBUTING |
-| **v0.24.1** | `b0b2b240` | PR #305 | Published | Published 2026-11-08; tag `v0.24.1`; PyPI verified; G3 passed bound to `b0b2b24050bd`; JUnit assets attached to release; [live evidence](implementation/live_evidence/2026-11-08-v0.24.1.json) |
-| **v0.24.0** | `f07d6c49` | PR #301 | Published | Published 2026-11-08; tag `v0.24.0`; PyPI 0.24.0 verified; G3 passed, bound to f07d6c493af0 (live-gate JUnit header); [live evidence](implementation/live_evidence/2026-11-08.json) |
-
-Release attempts before v0.24.0 are in [CHANGELOG](../CHANGELOG.md).
+The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases; each published release carries the G3 JUnit files (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml`) and the live-evidence JSON as assets. The release PR sets the heading above; no per-release paragraph or follow-up docs PR is kept here.
 
 ## Remaining work
 
-Slices S1-S4 of the [issue resolution note](design/issue-resolution-2026-10-18.md) (#117-#149) are done and released; the slice rows were removed on 2026-11-10 (see `git show 77422a6e82cb3879de207baf9d97dd79acf76aa8:docs/STATUS.md`).
+Slices S1-S4 of the [issue resolution note](design/issue-resolution-2026-10-18.md) (#117-#149) are done and released; the slice rows were removed on 2026-11-10 (see `git show 77422a6e82cb3879de207baf9d97dd79acf76aa8:docs/STATUS.md`). The per-release paragraphs and the release table that followed the heading above were removed on 2026-11-14 (#366); their last copy is `git show v0.24.12:docs/STATUS.md`.
 
 | Track | Status | Design SSOT |
 |---|---|---|

@@ -3,7 +3,9 @@
 Never run from CI. Usage: python -m tools.live_gate --yes [--only live|slow|e2e|canary] [--peer cc|cx|ag] [--out DIR]
 Writes one JUnit file per stage (g3.xml, g3-slow.xml, g3-e2e.xml) and binds each to the candidate commit (tools.release_evidence
 stamp, gate G3), so the files can be attached to a release as the G3 evidence. A dirty working tree is refused: the stamped
-revision must describe the code that was tested. --only canary runs optional measurements separately,
+revision must describe the code that was tested. A full passing run exits 1 when no evidence file <date>-v<version>.json
+exists in .peerhub/work/live-gate; the "Live evidence to attach" line is printed only after a passing run that is not
+--only canary. --only canary runs optional measurements separately,
 writing canary.xml without a G3 stamp; it is excluded from the default release gate.
 """
 from __future__ import annotations
@@ -20,7 +22,7 @@ STAGES = (("live", "runtime canaries", "g3.xml"), ("slow", "real adapter and quo
           ("e2e", "public ask scenarios", "g3-e2e.xml"))
 STAGE_SELECTIONS = {"live": "live and not slow and not e2e", "slow": "slow and not e2e", "e2e": "e2e"}
 CANARY_STAGE = ("canary", "optional public ask measurements (outside release catalog)", "canary.xml")
-EVIDENCE_PATHS = ("docs/implementation/live_evidence",)  # written by the canaries themselves
+EVIDENCE_DIR = ROOT / ".peerhub" / "work" / "live-gate"  # the canaries write <date>-v<version>.json here (git-ignored)
 PROVIDER_CLIS = ("agy", "claude", "codex")
 
 
@@ -29,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--yes", action="store_true", help="acknowledge that this spends real provider quota")
     ap.add_argument("--only", choices=[s[0] for s in (*STAGES, CANARY_STAGE)], help="run a single stage")
     ap.add_argument("--peer", choices=("cc", "cx", "ag"), help="with --only live/canary: select one peer to reduce quota use")
-    ap.add_argument("--out", type=Path, default=ROOT / ".peerhub" / "work" / "live-gate", help="JUnit output directory")
+    ap.add_argument("--out", type=Path, default=EVIDENCE_DIR, help="JUnit output directory")
     args = ap.parse_args(argv)
     if args.peer and args.only not in ("live", "canary"):
         ap.error("--peer requires --only live or --only canary (partial evidence is not a complete release gate)")
@@ -44,8 +46,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"missing provider CLIs on PATH: {', '.join(missing)}", file=sys.stderr)
         return 2
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    dirty = subprocess.check_output(["git", "status", "--porcelain", "--", ".", *(f":(exclude){p}" for p in EVIDENCE_PATHS)],
-                                    cwd=ROOT, text=True).strip()
+    dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()
     if dirty:
         print("refusing: uncommitted changes would make live evidence untruthful (commit them before running)\n" + dirty,
               file=sys.stderr)
@@ -81,7 +82,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Canary JUnit written to {args.out} (outside release evidence)")
     else:
         print(f"JUnit written to {args.out} (bound to {commit[:12]}, gate G3)")
-    return 1 if worst else 0
+    if worst or args.only == "canary":
+        return 1 if worst else 0
+    from peerhub import __version__
+
+    evidence_files = sorted(EVIDENCE_DIR.glob(f"*-v{__version__}.json"))
+    if not evidence_files and not args.only:
+        print(f"missing live evidence: expected {EVIDENCE_DIR}{os.sep}<date>-v{__version__}.json "
+              "(the release needs it as its fourth asset)", file=sys.stderr)
+        return 1
+    for evidence in evidence_files:
+        print(f"Live evidence to attach to the release: {evidence}")
+    return 0
 
 
 if __name__ == "__main__":

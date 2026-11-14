@@ -247,6 +247,48 @@ def test_ag_success_cannot_waive_writable_consent(store):
     assert p["state"] == "UNVERIFIED" and p["policy"] == "requires_writable_consent"
 
 
+def _ag_store(store):
+    config = store[1] / ".peerhub/config/models.toml"
+    with config.open("a", encoding="utf-8", newline="\n") as f:
+        f.write('\n[profiles."ag.standard"]\npools=["quota:cx:P"]\npools_source="measured"\nmodel="test-model"\n')
+    delivery(store, profile="ag.standard")
+
+
+def _set_pool(store, remaining, reset):
+    with closing(sqlite3.connect(store[0].db_path)) as c:
+        c.execute("UPDATE observations SET payload_json=?",
+                  (json.dumps({"remaining_fraction": remaining, "resets_at": reset}),))
+        c.commit()
+
+
+@pytest.mark.parametrize("remaining,action", [(0, "wait_reset"), (.5, "ask_delivery_failed")])
+def test_ag_wait_reset_precedes_consent_policy(store, remaining, action):
+    _ag_store(store)
+    _set_pool(store, remaining, T0 + 3600)
+    rep = report(store)
+    assert profile(rep, "ag.standard")["action"] == action
+    assert profile(rep, "ag.standard")["state"] == ("EXHAUSTED" if remaining == 0 else "UNVERIFIED")
+    assert rep["pools"]["quota:cx:P"]["reset_in"] == 3588
+
+
+def test_ag_exhausted_without_reset_keeps_consent_policy_and_cx_cc_unchanged(store):
+    _ag_store(store)
+    config = store[1] / ".peerhub/config/models.toml"
+    with config.open("a", encoding="utf-8", newline="\n") as f:
+        f.write('\n[profiles."cc.standard"]\npools=["quota:cx:P"]\npools_source="measured"\nmodel="test-model"\n')
+    delivery(store, profile="cx.effort")
+    delivery(store, profile="cc.standard")
+    names = ("cx.effort", "cc.standard")
+    _set_pool(store, 0, None)
+    rep = report(store)
+    assert profile(rep, "ag.standard")["action"] == "ask_delivery_failed"
+    assert [profile(rep, n)["action"] for n in names] == ["inspect_facts"] * 2
+    _set_pool(store, 0, T0 + 3600)
+    assert [profile(report(store), n)["action"] for n in names] == ["wait_reset"] * 2
+    _set_pool(store, .5, T0 + 3600)
+    assert [profile(report(store), n)["action"] for n in names] == [None] * 2
+
+
 def test_readonly_determinism_and_batch_query_bound(store, monkeypatch):
     delivery(store)
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: pytest.fail("provider spawn"))

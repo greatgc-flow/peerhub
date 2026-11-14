@@ -5,7 +5,7 @@ This page documents the current production contract. Historical migration notes 
 
 ## Current contract
 
-- Executable: `claude.cmd` (observed version `2.1.323` on 2026-11-13; local probe)
+- Executable: `claude.cmd` (observed version `2.1.325` on 2026-11-14; local probe)
 - Transport: process pipe; the prompt is written to standard input
 - Output: stream JSON; `result` is canonical text, `is_error` marks vendor
   failure.
@@ -70,6 +70,16 @@ allow rule is denied and the review reports NOT RUN. For a project, add
       "Bash(gh issue view:*)",
       "Bash(gh pr view:*)",
       "Bash(gh run view:*)",
+      "Bash(python -m peerhub guide:*)",
+      "Bash(python -m peerhub explain:*)",
+      "Bash(python -m peerhub profile:*)",
+      "Bash(git blame:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git merge-base:*)",
+      "Bash(git rev-list:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
       "PowerShell(python -m pytest:*)",
       "PowerShell(python -m pyright:*)",
       "PowerShell(git status:*)",
@@ -83,6 +93,9 @@ allow rule is denied and the review reports NOT RUN. For a project, add
   }
 }
 ```
+
+The `guide`, `explain` and `profile` rules, `git blame|rev-parse|merge-base|rev-list|ls-tree` and `gh pr diff|checks` are offline or read-only reads; add the same entries as `PowerShell(...)` for PowerShell.
+In reviewer prompts tell the cc reviewer "one plain command per call; no cd, &&, pipes": a compound command does not match an allow rule and is denied.
 
 Prefix rules do not match a command that starts with an environment assignment
 (`PYTHONPATH=src python -m pytest ...`), and a PowerShell `$env:` edit is refused.

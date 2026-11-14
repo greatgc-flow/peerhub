@@ -1,10 +1,10 @@
 Reference notes for maintainers. Not an instruction file: open it only when needed.
-[STATUS](STATUS.md) is the single authoritative owner of release status, published versions,
-and the active development queue; this document provides maintainer operating guidance.
+[STATUS](STATUS.md) owns the active development queue and the deferred backlog; the release record is
+CHANGELOG plus the GitHub releases. This document provides maintainer operating guidance.
 
 ## 0. Current status and active queue; details: [STATUS](STATUS.md)
 
-- Release status, active queue and open issues: [STATUS](STATUS.md).
+- Active queue and open issues: [STATUS](STATUS.md); release record: [CHANGELOG](../CHANGELOG.md) plus the GitHub releases.
 - Deferred work and start triggers: [STATUS](STATUS.md#deferred-backlog-start-triggers).
 - Release procedure and release lessons: [CONTRIBUTING](../CONTRIBUTING.md#releasing).
 - Superseded checkpoints (2026-10-13 to 2026-10-26) were removed on 2026-11-10; they are in Git history (`git show 77422a6e82cb3879de207baf9d97dd79acf76aa8:docs/HANDOFF.md`).

@@ -24,7 +24,7 @@ pytest -q
 pyright
 ```
 
-The full suite takes about 25 minutes serially on a 12-core Windows PC. For everyday
+The full suite takes about 15-17 minutes serially on a 12-core Windows PC. For everyday
 work, use `--deselect` to skip `test_rel_005`, which re-runs only the architecture
 tests, fake-peer E2E tests and `tests/communication/fault/test_flt_bridge.py`
 (about 40 tests); CI and releases still run it:
@@ -39,7 +39,7 @@ For an opt-in faster local loop, run the full suite in parallel with pytest-xdis
 pytest -q -n 8
 ```
 
-This takes about 4–5 minutes on a 12-core machine. Keep `pytest -q` as the
+This takes about 8 minutes (4,453 passed in 475 s, measured 2026-11-14 on the maintainer host). Keep `pytest -q` as the
 serial reference command; CI and release gates stay serial. If a test is flaky
 under parallelism, rerun it serially before treating it as a bug.
 
@@ -131,11 +131,13 @@ When filing or triaging an issue that alters a safety or caution fact (peer writ
 
 Before wiring any library-only component (A2A, MCP, ExtensionHost, Work/Skills, Search, Approval, durable plans) into the CLI, review the closed `deferred` issues and docs/STATUS.md "Known deferred defects"; #225, #234 and #238 must be fixed first (#241).
 
-If an ag pool is exhausted, `PEERHUB_LIVE_AG_MODEL=<model>` swaps the ag model for the gate run; it is recorded per case in the JUnit and must be disclosed in the changelog and STATUS (#191).
+If an ag pool is exhausted, `PEERHUB_LIVE_AG_MODEL=<model>` swaps the ag model for the gate run; it is recorded per case in the JUnit and in the evidence JSON (`model_override` field). The JUnit files and the evidence JSON on the GitHub release are the record of the swap (#191).
 
-1. Open a version-bump PR updating `peerhub/_version.py` and the current
-   `v0.x.y` line in `docs/STATUS.md`, and add the matching `CHANGELOG.md`
-   section. Wait for CI to be green: `gh pr checks`
+A release is one PR plus the steps after its merge; there is no post-release docs PR.
+
+1. Open one release PR updating `peerhub/_version.py`, the
+   `## Current source: v0.x.y` heading in `docs/STATUS.md`, and the matching
+   `CHANGELOG.md` section. Wait for CI to be green: `gh pr checks`
    must show zero pending or failed checks before merging. Never merge before
    checks finish.
    For a topic branch before opening its PR, the same hosted matrix can be
@@ -145,19 +147,31 @@ If an ag pool is exhausted, `PEERHUB_LIVE_AG_MODEL=<model>` swaps the ag model f
    `python -m tools.live_gate --yes`. This spends provider quota, refuses CI,
    and requires `agy`, `claude` and `codex` on PATH and logged in. It writes
    `g3.xml`, `g3-slow.xml` and `g3-e2e.xml` under `.peerhub/work/live-gate/`,
-   stamped to HEAD. Require a successful run of all three stages.
+   stamped to HEAD, and the live-evidence JSON
+   `<date>-v<version>.json` in the same folder; the gate prints the evidence
+   file to attach. A full passing run that finds no evidence file for the
+   current version exits 1 and names the expected path
+   (`.peerhub/work/live-gate/<date>-v<version>.json`). Require a successful run
+   of all three stages.
    A failed stage stops the run before later provider calls; each run clears
    old XML for its selected stages so missing evidence cannot appear current.
-3. Extract the selected CHANGELOG section, then create a draft with all three assets.
+3. Extract the selected CHANGELOG section, then create a draft with four assets
+   (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml` and the evidence JSON).
    Run `python -m tools.release_notes --version X.Y.Z > <notes-file>` from
    the merged checkout. The release body must match that section exactly.
    Replace `<HEAD-SHA>` with the full output of `git rev-parse HEAD` and
    `<notes-file>` with the notes path; use the bumped version for `vX.Y.Z`:
 
    ```bash
-   gh release create vX.Y.Z --draft --target <HEAD-SHA> --title vX.Y.Z --notes-file <notes-file> .peerhub/work/live-gate/g3.xml .peerhub/work/live-gate/g3-slow.xml .peerhub/work/live-gate/g3-e2e.xml
+   gh release create vX.Y.Z --draft --target <HEAD-SHA> --title vX.Y.Z --notes-file <notes-file> .peerhub/work/live-gate/g3.xml .peerhub/work/live-gate/g3-slow.xml .peerhub/work/live-gate/g3-e2e.xml .peerhub/work/live-gate/<date>-vX.Y.Z.json
    gh release edit vX.Y.Z --draft=false
    ```
+
+4. After publishing, verify PyPI (a clean virtualenv, `peerhub --version`).
+5. The release is complete only after the evidence asset is confirmed on the
+   GitHub release: `gh release view vX.Y.Z --json assets` must list the
+   evidence JSON. If the upload failed, keep the local evidence file and
+   re-upload it with `gh release upload vX.Y.Z <FILE>` before announcing.
 
 `publish.yml` consumes an already published GitHub Release and does not
 generate or edit its body. Supplying the extracted notes via `--notes-file`
@@ -172,7 +186,7 @@ release preflight check.
 Publishing the draft triggers `.github/workflows/publish.yml`: `verify` runs
 G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. `build` and
 `live-validation` then run in parallel: build produces and tests the wheel and
-sdist, while live-validation fetches the three release assets. After build, the
+sdist, while live-validation fetches the three G3 JUnit assets (the evidence JSON is a fourth, informational asset). After build, the
 10-cell matrix tests the built distributions on Ubuntu/Windows with Python
 3.11–3.15. `release-evidence` waits for verify, build, live-validation and the
 matrix. `publish` uses PyPI OIDC and runs only for a published release.
@@ -199,7 +213,7 @@ gh auth refresh -h github.com -s workflow
 - Release only after the completeness audit scores 100 on every axis; re-run G3 on the final target.
 - `tests/communication/package/test_release_notes.py` pins the version and must change in the bump PR. A CHANGELOG heading for a never-published version needs `(superseded ...)`.
 - Python 3.15 has no pyyaml wheel: run the full suite in CI, not locally.
-- The live gate writes `docs/implementation/live_evidence/<date>-v<version>.json` (dates UTC). The gate ignores that directory; commit the file in the post-release docs PR. Before a repeated run for the same date and version, rename the earlier file to `-attemptN`.
+- The live gate writes `.peerhub/work/live-gate/<date>-v<version>.json` (dates UTC, git-ignored); attach it to the GitHub release instead of committing it. Evidence files committed up to 0.24.12 stay in `docs/implementation/live_evidence/` as history. Before a repeated run for the same date and version, rename the earlier file to `-attemptN`.
 - Never type a SHA by hand; derive it from Git.
 - Delete a blocked or aborted release and its tag before retrying.
 - The `publish.yml` Windows release-matrix `rel_005` sandbox has no Git or provider CLIs, and its oracle forbids skips. Mark tests that need a real Git binary as E2E (the v0.24.1 first attempt failed on this; PR #306 moved real-Git discovery tests to E2E).

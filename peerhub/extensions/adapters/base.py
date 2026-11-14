@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from peerhub.extensions.accounts import AccountRef, AccountSnapshot
 
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets, path_secrets
+from peerhub.extensions.adapters.telemetry import CC_EVENT_TYPES
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, RuntimeTargetError
 
 MAX_PROMPT_BYTES = 1_000_000
@@ -505,7 +506,7 @@ class IncrementalEventParser:
 
     def _handle_event(self, event: dict[str, Any]) -> None:
         if self.kind == "cc":
-            if event.get("type") not in ("system", "assistant", "user", "result", "error", "stream_event"):
+            if event.get("type") not in CC_EVENT_TYPES:
                 self.refusal_evidence_incomplete = True
             if event.get("type") in ("tool_use", "tool_result"):
                 self.has_tool_calls = True

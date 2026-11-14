@@ -153,9 +153,9 @@ def compose(profiles: list[dict[str, Any]], observations: list[dict[str, Any]],
         state = ("UNKNOWN" if corrupt else "EXHAUSTED" if exhausted else "UNKNOWN" if not satisfied else
                  "READY" if last["outcome"] == "terminal" and not profile["policy"] and last["age"] is not None else "UNVERIFIED")
         action = ("ask_uncertain" if last["outcome"] == "uncertain" else
-                  "ask_refusal" if refusal else "ask_delivery_failed" if profile["policy"] else
-                  "wait_reset" if exhausted and any(p["remaining"] == 0 and p["reset_in"] is not None for p in required)
-                  else "inspect_facts" if state != "READY" else None)
+                  "ask_refusal" if refusal else
+                  "wait_reset" if exhausted and any(p["remaining"] == 0 and p["reset_in"] is not None for p in required) else
+                  "ask_delivery_failed" if profile["policy"] else "inspect_facts" if state != "READY" else None)
         profile.update(state=state, last=last, next=None, action=action, stream_id=row["stream_id"] if row else None)
         del profile["binding"]
     if corrupt:

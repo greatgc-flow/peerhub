@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-EVIDENCE_DIR = ROOT / "docs" / "implementation" / "live_evidence"
+EVIDENCE_DIR = ROOT / ".peerhub" / "work" / "live-gate"  # git-ignored; attached to the GitHub release, not committed
 OPT_IN_ENV = "PEERHUB_LIVE"
 PROVIDERS = ("cc", "cx", "ag")
 PROMPT = "Reply with OK"  # <= 20 tokens, fixed tiny response contract
