@@ -538,6 +538,9 @@ def batch_effect(e, option):
 
         with patch.object(batch, "run_batch", forbidden):
             assert e.j(db, *argv)["dry_run"] is True
+    elif option == "--responses":  # a dry run ran nothing, so it has no replies to show
+        code, out, err = e.run(db, *argv, "--responses")
+        assert code == 0 and json.loads(out)["dry_run"] and "response" not in out and not err
     else:
         first = e.j(db, *argv)
         argv[argv.index(option) + 1] = "other" if option == "--batch-id" else "3"
@@ -574,7 +577,7 @@ EFFECT.update({f"ask {option}": (lambda e, option=option: session_selector_effec
 EFFECT.update({f"explain {option}": (lambda e, option=option: explain_effect(e, option))
                for option in ("code", "--json")})
 EFFECT.update({f"batch run {option}": (lambda e, option=option: batch_effect(e, option))
-               for option in ("manifest", "--batch-id", "--max-parallel", "--dry-run", "--json")})
+               for option in ("manifest", "--batch-id", "--max-parallel", "--dry-run", "--json", "--responses")})
 EFFECT.update({f"account {action} {option}": (lambda e, action=action, option=option: account_effect(e, action, option))
                for action, options in (("bind", ("--peer", "--provider", "--alias", "--root", "--json")),
                                        ("list", ("--json", "--show-root")),

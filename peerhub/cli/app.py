@@ -208,8 +208,8 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser.add_argument("--effort")
     ask_parser.add_argument("-p", "--profile", help="Explicit Runtime Target profile; model/effort override its defaults")
     ask_parser.add_argument("--writable", action="store_true", help="Let the peer write files in the workspace (default: read-only)")
-    ask_parser.add_argument("--timeout-seconds", type=float, default=60,
-                            help="Abort after this many seconds (default 60); implementer/review asks need 1800-3600, ag 7200")
+    ask_parser.add_argument("--timeout-seconds", type=float, default=600,
+                            help="Abort after this many seconds (default 600); long implementer/review asks need 1800-3600, ag up to 7200")
     ask_parser.add_argument("--silence-timeout-seconds", type=float, default=None,
                             help="Abort after this many seconds without stdout/stderr; execution remains uncertain")
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
@@ -239,6 +239,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     batch_run.add_argument("--max-parallel", required=True, type=int)
     batch_run.add_argument("--dry-run", action="store_true")
     batch_run.add_argument("--json", action="store_true")
+    batch_run.add_argument("--responses", action="store_true", help="Include each completed task's reply text in the report")
 
     profile_parser = subparsers.add_parser("profile", help="Inspect effective local model profiles (read-only)")
     profile_sub = profile_parser.add_subparsers(dest="action", required=True)
@@ -1120,7 +1121,8 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
             for signum in signals:
                 previous[signum] = signal.signal(signum, request_cancel)
             report = batch.run_batch(tasks, batch_id=args.batch_id, max_parallel=max_parallel,
-                                     db=db, cancel=cancel, argv_builder=batch.default_argv_builder)
+                                     db=db, cancel=cancel, argv_builder=batch.default_argv_builder,
+                                     responses=args.responses)
         finally:
             for signum, handler in previous.items():
                 signal.signal(signum, handler)

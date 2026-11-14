@@ -188,6 +188,45 @@ def test_text_output(tmp_path, capsys, monkeypatch):
     assert "COMPLETED" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("responses", [False, True])
+@pytest.mark.parametrize("json_output", [False, True])
+def test_responses_flag_text_and_json(tmp_path, capsys, monkeypatch, responses, json_output):
+    def builder(task, *, stream, request_id, db, query_file):
+        return [sys.executable, FAKE, str(query_file), str(tmp_path), task.task_id]
+
+    monkeypatch.setattr(batch, "default_argv_builder", builder)
+    options = [*(["--responses"] if responses else []), *(["--json"] if json_output else [])]
+    assert main(argv(tmp_path, manifest(tmp_path), *options)) == 0
+    out = capsys.readouterr().out
+    assert ("pong" in out) is responses
+    if json_output:
+        row = json.loads(out)["tasks"][0]
+        assert row.get("response") == ("pong" if responses else None) and ("response" in row) is responses
+
+
+def test_responses_flag_failed_task_has_no_reply(tmp_path, capsys, monkeypatch):
+    def builder(task, *, stream, request_id, db, query_file):
+        return [sys.executable, FAKE, str(query_file), str(tmp_path), task.task_id]
+
+    monkeypatch.setattr(batch, "default_argv_builder", builder)
+    assert main(argv(tmp_path, manifest(tmp_path, prompt="mode:uncertain"), "--responses", "--json")) == 1
+    row = json.loads(capsys.readouterr().out)["tasks"][0]
+    assert row["status"] == "UNCERTAIN" and "response" not in row
+
+
+def test_responses_flag_dry_run_shows_no_replies(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(batch, "run_batch", lambda *a, **kw: pytest.fail("dry run must not execute workers"))
+    assert main(argv(tmp_path, manifest(tmp_path), "--dry-run", "--responses", "--json")) == 0
+    assert "response" not in capsys.readouterr().out
+    assert main(argv(tmp_path, manifest(tmp_path), "--dry-run", "--responses")) == 0
+    assert "TASK PEER STREAM REQUEST_ID WRITABLE" in capsys.readouterr().out
+
+
+def test_ask_timeout_default_matches_batch():
+    from peerhub.cli.app import build_parser
+    assert build_parser().parse_args(["ask", "cx", "x"]).timeout_seconds == 600 == batch.DEFAULT_TIMEOUT_S
+
+
 def test_real_run_creates_workspace_generation_before_launching_workers(tmp_path, monkeypatch, capsys):
     """First-use race: concurrent workers must never be the ones creating workspace.generation."""
     from peerhub.cli.app import main

@@ -229,7 +229,7 @@
           "takes_value": true
         },
         {
-          "default": 60,
+          "default": 600,
           "dest": "timeout_seconds",
           "flags": [
             "--timeout-seconds"
@@ -334,6 +334,16 @@
           "positional": false,
           "required": true,
           "takes_value": true
+        },
+        {
+          "default": false,
+          "dest": "responses",
+          "flags": [
+            "--responses"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
         },
         {
           "default": null,
