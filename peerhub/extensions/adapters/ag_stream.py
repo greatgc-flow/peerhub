@@ -3,15 +3,18 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from typing import Any, NamedTuple, cast
 
 MAX_STREAM_BYTES = 1_048_576
 MAX_EVENT_BYTES = 262_144
 MAX_STEPS = 512
 USAGE_FIELDS = ("input_tokens", "output_tokens", "thinking_tokens", "cache_read_tokens", "total_tokens")
-STEP_TYPES = frozenset(("user_input", "agent_response", "tool", "checkpoint"))
+STEP_TYPES = frozenset(("user_input", "agent_response", "tool", "checkpoint", "system_message"))
 STATES = frozenset(("ACTIVE", "DONE"))
 RESULT_STATUSES = frozenset(("SUCCESS", "ERROR", "CANCELED", "INTERRUPTED", "INVALID"))
+MAX_UNKNOWN_NAMES = 5
+MAX_UNKNOWN_NAME_CHARS = 40
 
 
 class _DuplicateJsonKey(ValueError):
@@ -78,34 +81,65 @@ def _usage(value: object) -> dict[str, int] | None | bool:
     return counters or None
 
 
-def parse_ag_stream_json(text: str) -> dict[str, Any]:
-    """Return only bounded numeric facts; malformed, ambiguous or incomplete streams fail closed.
-
-    Raw event text, response fragments, tools, paths and vendor conversation IDs are never returned.
-    """
+def _split_events(text: str) -> tuple[str | None, list[dict[str, Any]]]:
+    """Every non-blank line must be one JSON object within the size limits: (failure reason or None, events)."""
     try:
         total_bytes = len(text.encode("utf-8"))
     except UnicodeEncodeError:
-        return _unknown("invalid_encoding")
+        return "invalid_encoding", []
     if total_bytes > MAX_STREAM_BYTES:
-        return _unknown("stream_too_large")
-
+        return "stream_too_large", []
     events: list[dict[str, Any]] = []
     for line in text.split("\n"):
         if not line.strip():
             continue
         if len(line.encode("utf-8")) > MAX_EVENT_BYTES:
-            return _unknown("event_too_large")
+            return "event_too_large", []
         try:
             value: object = json.loads(line, object_pairs_hook=_unique_object)
         except _DuplicateJsonKey:
-            return _unknown("duplicate_json_key")
+            return "duplicate_json_key", []
         except (ValueError, RecursionError):
-            return _unknown("malformed_json")
+            return "malformed_json", []
         if not isinstance(value, dict):
-            return _unknown("invalid_event")
+            return "invalid_event", []
         events.append(cast(dict[str, Any], value))
+    return None, events
 
+
+def _result_facts(value: object) -> dict[str, Any] | str:
+    """Bounded facts of one `result` payload, or the reason one of its fields is invalid."""
+    result = _mapping(value)
+    if result is None or not isinstance(result.get("status"), str) or result["status"] not in RESULT_STATUSES:
+        return "invalid_result"
+    duration = result.get("duration_seconds")
+    safe_duration = _number(duration) if duration is not None else None
+    if duration is not None and safe_duration is None:
+        return "invalid_duration"
+    turns = result.get("num_turns")
+    if turns is not None and (isinstance(turns, bool) or not isinstance(turns, int) or turns < 0):
+        return "invalid_turn_count"
+    safe_usage = _usage(result.get("usage"))
+    if safe_usage is False:
+        return "invalid_usage"
+    facts: dict[str, Any] = {"status": result["status"]}
+    if safe_duration is not None:
+        facts["duration_seconds"] = safe_duration
+    if turns is not None:
+        facts["num_turns"] = turns
+    if safe_usage is not None:
+        facts["usage"] = safe_usage
+    return facts
+
+
+def parse_ag_stream_json(text: str) -> dict[str, Any]:
+    """Return only bounded numeric facts; malformed, ambiguous or incomplete streams fail closed.
+
+    Raw event text, response fragments, tools, paths and vendor conversation IDs are never returned.
+    """
+    reason, events = _split_events(text)
+    if reason is not None:
+        return _unknown(reason)
     if not events or events[0].get("event") != "init":
         return _unknown("missing_init")
     conversation_id = _conversation_id(events[0])
@@ -172,27 +206,10 @@ def parse_ag_stream_json(text: str) -> dict[str, Any]:
             completed_steps.add(index)
             continue
 
-        result = _mapping(event.get("result"))
-        if (result is None or not isinstance(result.get("status"), str)
-                or result["status"] not in RESULT_STATUSES):
-            return _unknown("invalid_result")
-        duration = result.get("duration_seconds")
-        safe_duration = _number(duration) if duration is not None else None
-        if duration is not None and safe_duration is None:
-            return _unknown("invalid_duration")
-        turns = result.get("num_turns")
-        if turns is not None and (isinstance(turns, bool) or not isinstance(turns, int) or turns < 0):
-            return _unknown("invalid_turn_count")
-        safe_usage = _usage(result.get("usage"))
-        if safe_usage is False:
-            return _unknown("invalid_usage")
-        result_facts = {"status": result["status"]}
-        if safe_duration is not None:
-            result_facts["duration_seconds"] = safe_duration
-        if turns is not None:
-            result_facts["num_turns"] = turns
-        if safe_usage is not None:
-            result_facts["usage"] = safe_usage
+        facts = _result_facts(event.get("result"))
+        if isinstance(facts, str):
+            return _unknown(facts)
+        result_facts = facts
 
     if result_facts is None:
         return _unknown("missing_result")
@@ -208,31 +225,73 @@ def encode_user_line(prompt: str) -> bytes:
     return json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode("ascii") + b"\n"
 
 
-def terminal_result(stdout: bytes) -> dict[str, Any]:
-    """Observe the terminal event of a captured stream: `complete`, `absent` (no terminal) or `invalid`.
+def _framing(events: list[dict[str, Any]]) -> str | None:
+    """Decision D1: `init` first, one conversation id wherever one appears, exactly one `result` and it is last,
+    valid terminal fields, and a string `response` for SUCCESS. Step events are never judged here (D2)."""
+    if not events or events[0].get("event") != "init":
+        return "missing_init"
+    conversation_id = _conversation_id(events[0])
+    if conversation_id is None:
+        return "invalid_session_identity"
+    for event in events[1:]:
+        update = _mapping(event.get("step_update")) if event.get("event") == "step_update" else None
+        if update is not None and "conversation_id" in update and update["conversation_id"] != conversation_id:
+            return "session_mismatch"
+    results = [index for index, event in enumerate(events) if event.get("event") == "result"]
+    if not results:
+        return "missing_result"
+    if results[0] != len(events) - 1:
+        return "event_after_result"
+    facts = _result_facts(events[-1].get("result"))
+    if isinstance(facts, str):
+        return facts
+    if _conversation_id(events[-1]) != conversation_id:
+        return "session_mismatch"
+    if facts["status"] == "SUCCESS" and not isinstance(events[-1]["result"].get("response"), str):
+        return "invalid_response"
+    return None
 
-    Only `absent` means no terminal was observed; every other validator failure is `invalid`. For SUCCESS only,
-    `result.response` is returned as found (the caller requires a string); no other field is read by name except
-    the validated conversation id.
+
+def _unknown_step_types(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Distinct unknown step type names in first-seen order: at most 5, each cut to 40 characters of [a-z0-9_]."""
+    names: dict[str, None] = {}
+    for event in events:
+        update = _mapping(event.get("step_update")) if event.get("event") == "step_update" else None
+        step_type = update.get("step_type") if update is not None else None
+        if isinstance(step_type, str) and step_type not in STEP_TYPES:
+            names[step_type] = None
+    shown = [re.sub(r"[^a-z0-9_]", "_", name[:MAX_UNKNOWN_NAME_CHARS]) for name in list(names)[:MAX_UNKNOWN_NAMES]]
+    return {"unknown_step_types": shown, "unknown_step_type_count": len(names)}
+
+
+def terminal_result(stdout: bytes) -> dict[str, Any]:
+    """Observe the terminal event of a captured stream: `complete`, `absent` (no terminal) or `invalid` (decision D).
+
+    Delivery rests on the framing and the terminal only (`_framing`); step events never change the observation.
+    The full validator still runs for telemetry: unless it reports complete, `validation` carries its reason and
+    the bounded unknown step type names, and the caller records usage as unknown. For SUCCESS only,
+    `result.response` (a string) is returned; no other field is read by name except the validated conversation id.
     """
     observed: dict[str, Any] = {"observation": "invalid", "reason": None, "status": None, "usage": None,
-                                "conversation_id": None, "terminal_line": None, "response": None}
+                                "conversation_id": None, "terminal_line": None, "response": None, "validation": None}
     try:
         text = stdout.decode("utf-8")
     except UnicodeDecodeError:
         return {**observed, "reason": "invalid_encoding"}
     if not text.strip():
         return {**observed, "observation": "absent", "reason": "no_output"}
-    facts = parse_ag_stream_json(text)
-    if not facts["complete"]:
-        return {**observed, "observation": "absent" if facts["reason"] == "missing_result" else "invalid",
-                "reason": facts["reason"]}
+    reason, events = _split_events(text)
+    reason = reason or _framing(events)
+    if reason is not None:
+        return {**observed, "observation": "absent" if reason == "missing_result" else "invalid", "reason": reason}
     terminal_line = [line for line in text.split("\n") if line.strip()][-1]
-    result = cast(dict[str, Any], json.loads(terminal_line)["result"])
-    status = facts["result"]["status"]
-    return {**observed, "observation": "complete", "status": status, "usage": facts["result"].get("usage"),
+    result = cast(dict[str, Any], events[-1]["result"])
+    facts = cast(dict[str, Any], _result_facts(result))
+    checked = parse_ag_stream_json(text)
+    validation = None if checked["complete"] else {"reason": checked["reason"], **_unknown_step_types(events)}
+    return {**observed, "observation": "complete", "status": facts["status"], "usage": facts.get("usage"),
             "conversation_id": result.get("conversation_id"), "terminal_line": terminal_line,
-            "response": result.get("response") if status == "SUCCESS" else None}
+            "response": result.get("response") if facts["status"] == "SUCCESS" else None, "validation": validation}
 
 
 class QuotaMatch(NamedTuple):

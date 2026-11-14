@@ -17,6 +17,7 @@ from peerhub.extensions.adapters import CliRuntimeTarget, Sanitizer, ag_stream, 
 from peerhub.extensions.adapters.ag_stream import encode_user_line, parse_ag_stream_json, terminal_quota, terminal_result
 from peerhub.extensions.adapters.base import EXCERPT_CHARS, AgSpec
 from peerhub.extensions.adapters.process import BoundedProcess, ProcessResult
+from peerhub.extensions.adapters.telemetry import unknown_usage
 from peerhub.extensions.ask import ask
 from peerhub.extensions.bridge import PrespawnError
 from tests.communication.bridge_helpers import bseed, sql
@@ -181,10 +182,10 @@ def _active_step() -> dict:
     return {"event": "step_update", "step_update": {"conversation_id": CID, "step_index": 5, "state": "ACTIVE", "step_type": "tool"}}
 
 
+# Decision D (#369): an ACTIVE step next to SUCCESS no longer fails closed; it is delivered (test_d_g).
 MUTATIONS = {
     "cut_mid_line": (RECORDED[:RECORDED.index('"status"')], "ag stream invalid (malformed_json) (exit 0); stderr: "),
     "no_result": (_nd(_events()[:-1]), "ag stream incomplete (missing_result) (exit 0); stderr: "),
-    "active_step": (_nd([*_events()[:-1], _active_step(), _events()[-1]]), "ag stream invalid (step_unfinished) (exit 0); stderr: "),
     "event_after_result": (_nd([*_events(), _events()[3]]), "ag stream invalid (event_after_result) (exit 0); stderr: "),
     **{status: (_with_status(status), f"ag stream result {status} (exit 0); stderr: ")
        for status in ("ERROR", "CANCELED", "INTERRUPTED", "INVALID")},
@@ -565,8 +566,6 @@ NEGATIVES = {
     "d_error_without_quota_with_q": (_with_status("ERROR"), 3, Q_STDERR, f"ag stream result ERROR (exit 3); stderr: {_flat_q()}"),
     "e_event_after_result": (_nd([*_events(), _events()[3]]), 3, Q_STDERR,
                              f"ag stream invalid (event_after_result) (exit 3); stderr: {_flat_q()}"),
-    "f_step_unfinished": (_nd([_events()[0], _active_step(), _terminal("ERROR", error=QUOTA_LINE)]), 3, Q_STDERR,
-                          f"ag stream invalid (step_unfinished) (exit 3); stderr: {_flat_q()}"),
     "g_cut_mid_json": (_nd(_events()[:1]) + '{"event":"step_update","step_up\n', 3, Q_STDERR,
                        f"ag stream invalid (malformed_json) (exit 3); stderr: {_flat_q()}"),
     "h_invalid_usage": (_nd([_events()[0], _terminal("ERROR", error=QUOTA_LINE, usage={"input_tokens": -1})]), 3, Q_STDERR,
@@ -583,6 +582,19 @@ def test_19_s3_negatives_never_set_provider_limit(kit, bridge_h, name):
     else:
         assert (result.status, _error(result)) == ("uncertain", message)
         assert _provider_limit(_error(result)) is None
+    assert kit.launches == 1
+
+
+STEP_UNFINISHED_QUOTA_ERROR = _nd([_events()[0], _active_step(), _terminal("ERROR", error=QUOTA_LINE)])
+
+
+def test_19f_an_unfinished_step_never_hides_a_quota_terminal(kit, bridge_h):
+    # Decision D2 (#369) replaces v4's "invalid (step_unfinished)": steps never change the decision, so case (i) applies.
+    result = _cycle(bridge_h, kit.replay(STEP_UNFINISHED_QUOTA_ERROR, exit_code=3, stderr=Q_STDERR))
+    assert result.status == "uncertain"
+    assert _error(result) == "\n".join(["Individual quota reached (Resets in 20h9m47s)", QUOTA_LINE,
+                                        "ag stream result ERROR (exit 3)"])
+    assert _provider_limit(_error(result)) == QUOTA
     assert kit.launches == 1
 
 
@@ -613,6 +625,7 @@ SCENARIOS = {
     "17c_success_exit_1": _replayed(RECORDED, 1, Q_STDERR),
     "18b_truncated": _replayed(SYNTHETIC_QUOTA_ERROR, 3, Q_STDERR, max_bytes=128),
     **{f"19{name[0]}": _replayed(stdout, exit_code, stderr) for name, (stdout, exit_code, stderr, _m) in NEGATIVES.items()},
+    "19f": _replayed(STEP_UNFINISHED_QUOTA_ERROR, 3, Q_STDERR),
     "22_missing_response": _replayed(_missing_response()),
 }
 
@@ -637,13 +650,15 @@ def test_20_no_relaunch_after_one_launch(kit, bridge_h, monkeypatch, tmp_path, n
 
 @pytest.mark.parametrize("value", ["missing", None, 42, ["a"]], ids=["missing", "null", "int", "list"])
 def test_22_success_without_string_response_is_uncertain(kit, bridge_h, value):
+    # Decision D1 (#369, test h): a non-string SUCCESS response is an invalid terminal field (row 5), not v4's row 11.
     events = _events()
     if value == "missing":
         del events[-1]["result"]["response"]
     else:
         events[-1]["result"]["response"] = value
     result = _cycle(bridge_h, kit.replay(_nd(events)))
-    assert (result.status, _error(result)) == ("uncertain", "ag stream SUCCESS without string response (exit 0); stderr: ")
+    assert (result.status, _error(result)) == ("uncertain", "ag stream invalid (invalid_response) (exit 0); stderr: ")
+    assert terminal_result(_nd(events).encode())["observation"] == "invalid"
 
 
 def test_22_empty_string_response_is_passed_on(kit):
@@ -766,4 +781,126 @@ def test_terminal_result_observations():
     assert observed["observation"] == "complete" and observed["status"] == "SUCCESS"
     assert observed["response"] == "answer-fragment-sentinel" and observed["conversation_id"] == CID
     assert observed["terminal_line"] == RECORDED.splitlines()[-1]
+    assert observed["validation"] is None
     assert ag_stream.terminal_result(_with_status("ERROR").encode())["response"] is None
+
+
+# ---- decision D (#369): delivery from the framing and the terminal only; step events are telemetry
+
+RESUMED = FIXTURE.with_name("agy-stream-json-resume-v1.ndjson").read_text(encoding="utf-8")
+
+
+def _step(step_type, index: int, state: str = "DONE", cid: str = CID) -> dict:
+    return {"event": "step_update", "step_update": {"conversation_id": cid, "step_index": index, "state": state,
+                                                    "step_type": step_type}}
+
+
+def _with_steps(*steps: dict, status: str = "SUCCESS") -> str:
+    events = _events()
+    events[-1]["result"]["status"] = status
+    return _nd([*events[:-1], *steps, events[-1]])
+
+
+def _evidence(bridge_h, kind: str) -> list[dict]:
+    return [json.loads(row[0]) for row in sql(bridge_h, "SELECT detail FROM bridge_evidence WHERE kind=?", (kind,))]
+
+
+def test_d_a_recorded_resume_is_delivered_with_the_session_cumulative_result_usage(kit, bridge_h):
+    assert parse_ag_stream_json(RESUMED)["complete"] is True  # system_message is a known step type
+    result_usage = json.loads(RESUMED.splitlines()[-1])["result"]["usage"]
+    kind, payload = _drain(kit.replay(RESUMED), "resume please")[-1]
+    assert kind == "terminal" and payload["response"].strip() == "answer-fragment-sentinel"
+    assert payload["usage"] == {"input_tokens": 11311, "cached_input_tokens": 7001, "output_tokens": 24}
+    telemetry = payload["provider_telemetry"]
+    assert (telemetry["scope"], telemetry["source"], telemetry["reported"]) == ("session_cumulative", "ag.result.usage", result_usage)
+    assert telemetry["coverage"]["state"] == "MEASURED"
+    assert "ag_stream_validation" not in payload
+    result = _cycle(bridge_h, kit.replay(RESUMED))
+    assert result.status == "delivered"
+    (terminal,) = _evidence(bridge_h, "terminal")
+    assert (terminal["usage"], terminal["usage_scope"]) == (payload["usage"], "session_cumulative")
+    assert "ag_stream_validation" not in terminal
+    (telemetry,) = _evidence(bridge_h, "session_telemetry")
+    assert (telemetry["usage"]["scope"], telemetry["usage"]["reported"]) == ("session_cumulative", result_usage)
+
+
+def test_d_b_unknown_step_type_with_success_is_delivered_and_named_in_the_evidence(kit, bridge_h, tmp_path):
+    stream = _with_steps(_step("future.step", 5))
+    expected = {"reason": "unknown_step_type", "unknown_step_types": ["future_step"], "unknown_step_type_count": 1}
+    kind, payload = _drain(kit.replay(stream), "please answer")[-1]
+    assert kind == "terminal" and payload["response"] == "answer-fragment-sentinel"
+    assert payload["ag_stream_validation"] == expected
+    assert "usage" not in payload
+    assert payload["provider_telemetry"] == unknown_usage("unknown_step_type")
+    assert payload["vendor_session"] == {"id": CID, "source": "ag.conversation_id"}
+    result = _cycle(bridge_h, kit.replay(stream))
+    assert result.status == "delivered"
+    (terminal,) = _evidence(bridge_h, "terminal")
+    assert terminal["ag_stream_validation"] == expected and terminal.get("usage") is None
+    (telemetry,) = _evidence(bridge_h, "session_telemetry")
+    assert telemetry["usage"]["coverage"] == {"state": "UNKNOWN", "reason": "unknown_step_type"}
+    assert bridge_h.bridge.delivery_details(result.delivery_id)["ag_stream_validation"] == expected
+    db = tmp_path / "askdb" / "peerhub.db"
+    first = ask(db, "ag", "unknown step", stream_id="r", request_id="r1", runtime=kit.replay(stream))
+    assert (first["status"], first["ag_stream_validation"]) == ("delivered", expected)
+    again = ask(db, "ag", "unknown step", stream_id="r", request_id="r1", runtime=kit.replay(stream))
+    assert (again["status"], again["ag_stream_validation"]) == ("recovered_terminal", expected)
+    assert kit.launches == 3
+
+
+def test_d_c_unknown_type_names_are_bounded_deduplicated_and_sanitized():
+    names = ["alpha", "alpha", "Beta-Type", "x" * 60, "émoji😀", "five", "six", "seven"]
+    observed = terminal_result(_with_steps(*[_step(name, 5 + i) for i, name in enumerate(names)]).encode())
+    assert (observed["observation"], observed["status"]) == ("complete", "SUCCESS")
+    assert observed["validation"] == {"reason": "unknown_step_type",
+                                      "unknown_step_types": ["alpha", "_eta__ype", "x" * 40, "_moji_", "five"],
+                                      "unknown_step_type_count": 7}
+
+
+def test_d_d_unknown_step_type_with_a_non_success_result_is_uncertain(kit, bridge_h):
+    result = _cycle(bridge_h, kit.replay(_with_steps(_step("future_step", 5), status="ERROR")))
+    assert (result.status, _error(result)) == ("uncertain", "ag stream result ERROR (exit 0); stderr: ")
+    assert _provider_limit(_error(result)) is None
+    assert kit.launches == 1
+
+
+def _cid_mismatch_in_result() -> str:
+    events = _events()
+    events[-1]["result"]["conversation_id"] = "another-conversation"
+    return _nd(events)
+
+
+FRAMING = {
+    "event_after_result": (_nd([*_events(), _step("tool", 9)]), "event_after_result"),
+    "second_result": (_nd([*_events(), _events()[-1]]), "event_after_result"),
+    "step_cid_mismatch": (_with_steps(_step("future_step", 5, cid="another-conversation")), "session_mismatch"),
+    "result_cid_mismatch": (_cid_mismatch_in_result(), "session_mismatch"),
+}
+
+
+@pytest.mark.parametrize("name", list(FRAMING))
+def test_d_e_a_framing_violation_is_invalid(kit, bridge_h, name):
+    stdout, reason = FRAMING[name]
+    result = _cycle(bridge_h, kit.replay(stdout))
+    assert (result.status, _error(result)) == ("uncertain", f"ag stream invalid ({reason}) (exit 0); stderr: ")
+    assert terminal_result(stdout.encode())["observation"] == "invalid"
+    assert kit.launches == 1
+
+
+def test_d_f_no_result_is_absent_even_after_an_unknown_step(kit, bridge_h):
+    stdout = _nd([_events()[0], _step("future_step", 5)])
+    assert terminal_result(stdout.encode())["observation"] == "absent"
+    result = _cycle(bridge_h, kit.replay(stdout, exit_code=3, stderr=Q_STDERR))
+    assert result.status == "uncertain"
+    assert _error(result).startswith("ag exited 3: error: Individual quota reached.")
+    assert _provider_limit(_error(result)) == QUOTA
+
+
+def test_d_g_an_unfinished_known_step_with_success_is_delivered(kit, bridge_h):
+    stream = _with_steps(_active_step())
+    kind, payload = _drain(kit.replay(stream), "please answer")[-1]
+    assert kind == "terminal" and payload["response"] == "answer-fragment-sentinel"
+    assert payload["ag_stream_validation"] == {"reason": "step_unfinished", "unknown_step_types": [],
+                                               "unknown_step_type_count": 0}
+    assert payload["provider_telemetry"] == unknown_usage("step_unfinished") and "usage" not in payload
+    assert _cycle(bridge_h, kit.replay(stream)).status == "delivered"

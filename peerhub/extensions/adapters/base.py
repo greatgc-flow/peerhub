@@ -1196,12 +1196,13 @@ class CliRuntimeTarget:
     def _text(b: bytes, san: Sanitizer, limit: int = EXCERPT_CHARS) -> str:
         return san.clean(decode_stderr(b), limit)
 
-    def _ag_stream_stdout(self, res: ProcessResult, san: Sanitizer, payload_len: int) -> str:
-        """Decide an exited ag stream delivery (design v4 §3.5 rows 4-12); return the flat stdout of a delivered SUCCESS.
+    def _ag_stream_stdout(self, res: ProcessResult, san: Sanitizer, payload_len: int) -> tuple[str, dict[str, Any] | None]:
+        """Decide an exited ag stream delivery (design v4 §3.5 rows 4-12, decision D of #369).
 
+        Returns the flat stdout of a delivered SUCCESS and the validator's telemetry verdict (None when complete).
         Only a terminal event with no terminal observed (`absent`) and a non-zero exit reaches stderr classification.
         Every other failure line starts with `ag stream` or `ag stdin` and carries stderr flattened to one line,
-        so no anchored limit pattern can match it.
+        so no anchored limit pattern can match it. A non-string SUCCESS response is `invalid` (row 5).
         """
         rc = res.returncode
         flat = " ".join(self._text(res.stderr, san).split())
@@ -1227,9 +1228,8 @@ class CliRuntimeTarget:
             raise fail(f"ag stream SUCCESS but exited {rc}; stderr: {flat}")
         if res.stdin_state != "complete":
             raise fail(f"ag stdin write incomplete ({res.stdin_state}, {res.stdin_bytes_written}/{payload_len})" + tail)
-        if not isinstance(term["response"], str):
-            raise fail("ag stream SUCCESS without string response" + tail)
-        return json.dumps({"response": term["response"], "conversation_id": term["conversation_id"], "usage": term["usage"]})
+        flat_stdout = json.dumps({"response": term["response"], "conversation_id": term["conversation_id"], "usage": term["usage"]})
+        return flat_stdout, term["validation"]
 
     def validate_execution_policy(self) -> None:
         """Fail closed before execution when the provider CLI cannot enforce the requested write policy (#140)."""
@@ -1541,7 +1541,8 @@ class CliRuntimeTarget:
             raise RuntimeTargetError(f"{self.runtime_kind} parser failed during output drain; outcome indeterminate",
                                      termination_confirmed=res.termination_confirmed)
         raw_text = res.stdout.decode("utf-8", "replace")
-        stdout_text = self._ag_stream_stdout(res, san, len(stdin_payload or b"")) if stream else raw_text
+        stdout_text, stream_validation = (self._ag_stream_stdout(res, san, len(stdin_payload or b"")) if stream
+                                          else (raw_text, None))
         refusal: dict[str, Any] | None = None
         if (not parser.has_tool_calls and not parser.has_success
                 and not parser.refusal_evidence_incomplete and parser.oversized_count == 0):
@@ -1624,6 +1625,10 @@ class CliRuntimeTarget:
         payload["provider_telemetry"] = (
             unknown_usage("output_incomplete") if res.stdout_truncated or parser.truncated
             else parse_provider_usage(self.runtime_kind, stdout_text))
+        if stream_validation is not None:  # decision D3 (#369): delivered, but usage is not derived from such a stream
+            payload.pop("usage", None)
+            payload["provider_telemetry"] = unknown_usage(stream_validation["reason"])
+            payload["ag_stream_validation"] = stream_validation
         if vendor_session_id is not None:
             source = {"cc": "cc.result.session_id", "cx": "cx.thread.started",
                       "ag": "ag.conversation_id"}[self.runtime_kind]
