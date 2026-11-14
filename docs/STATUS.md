@@ -6,7 +6,7 @@ Dates are UTC.
 
 ## Current source: v0.24.14
 
-The release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases; each published release carries the G3 JUnit files (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml`) and the live-evidence JSON as assets. The release PR sets the heading above; no per-release paragraph or follow-up docs PR is kept here.
+From v0.24.13 each published release carries the G3 JUnit files (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml`) and the live-evidence JSON as assets; the release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases. The release PR sets the heading above; no per-release paragraph or follow-up docs PR is kept here.
 
 ## Remaining work
 
@@ -15,7 +15,7 @@ Slices S1-S4 of the [issue resolution note](design/issue-resolution-2026-10-18.m
 | Track | Status | Design SSOT |
 |---|---|---|
 | Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, arbitrary-model monitor/readiness integration (`ag.argon` profile and exact registry delivered in #194), TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #145, #194 |
-| Open | None. #302 (ag `read_file` denied with trusted `-w`) closed 2026-11-09 as not reproducible (3 re-tests incl. the original ag.argon shape); reopen with `--json` output if it recurs. #313 is deferred (see below). | [Issue #302](https://github.com/greatgc-flow/peerhub/issues/302) |
+| Open | #330 (`diag running` index; waits for the next schema change). #366 (survey plan), #367 (`BoundedProcess.wait` hang) and #369 (ag prompt over stdin) close with the 0.24.14 release. #302 (ag `read_file` denied with trusted `-w`) closed 2026-11-09 as not reproducible (3 re-tests incl. the original ag.argon shape); reopen with `--json` output if it recurs. #313 is deferred (see below). | [Issue #302](https://github.com/greatgc-flow/peerhub/issues/302) |
 
 ### Deferred backlog (start triggers)
 
@@ -30,6 +30,7 @@ Slices S1-S4 of the [issue resolution note](design/issue-resolution-2026-10-18.m
 | Stuck-streams PRs 4-6 and automated timeout settlement ([plan](design/plan-stuck-streams-2026-10-12.md)) | PRs 1-3 shipped in v0.16.0; the rest is deferred until the abandonment and recovery contracts are reviewed (renewal design) and an owner asks. |
 | Monitor extensions: `monitor-expand-details`, `monitor-e2e-lineage`, `live-evidence-archive`, full `db-schema-v2` DDL ([design](design/monitor-peers-view-2026-10-16.md)) | Deferred; start when a demonstrated operator need appears, or with the store schema v2 trigger above. |
 | cx/ag/cc response `final` field separating narration from the final answer (#164 part B) | NOT implemented on purpose: v0.20.0 keeps the aggregate cx response unless explicit phase metadata marks commentary; a final-only response could drop answer content. Revisit with a concrete mismatch case and a schema decision. |
+| LATER L1-L10 of the 2026-11-14 survey | Triggers are recorded in #366. |
 
 Operational lessons and coordinator handoff: [HANDOFF](HANDOFF.md).
 

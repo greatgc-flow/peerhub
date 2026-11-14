@@ -167,11 +167,25 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    gh release edit vX.Y.Z --draft=false
    ```
 
-4. After publishing, verify PyPI (a clean virtualenv, `peerhub --version`).
-5. The release is complete only after the evidence asset is confirmed on the
-   GitHub release: `gh release view vX.Y.Z --json assets` must list the
-   evidence JSON. If the upload failed, keep the local evidence file and
-   re-upload it with `gh release upload vX.Y.Z <FILE>` before announcing.
+4. After publishing, wait until the `publish.yml` run has succeeded, then
+   verify PyPI (a clean virtualenv with
+   `pip install --no-cache-dir peerhub==X.Y.Z`).
+5. Confirm the evidence asset on the GitHub release:
+   `gh release view vX.Y.Z --json assets` must list the evidence JSON. If the
+   upload failed, keep the local evidence file and re-upload it with
+   `gh release upload vX.Y.Z <FILE>` before announcing.
+6. Upgrade the maintainer's shared venv: close `peerhub monitor` first (it
+   locks `peerhub.exe` on Windows), wait for running asks
+   (`peerhub diag running`), then
+   `python -m pip install --no-cache-dir -U peerhub==X.Y.Z`.
+7. Run the shipped-tag check on `vX.Y.Z` (lesson `review-recipe`): one
+   in-repo reviewer and one reviewer from another model family look at what
+   shipped (tag tree, wheel against tag, release notes, assets, the documented
+   steps). A defect in the wheel means a patch release; a documentation defect
+   goes into the next release PR.
+
+The release is complete only after the evidence asset is confirmed (step 5)
+and the shipped-tag check (step 7) is done.
 
 `publish.yml` consumes an already published GitHub Release and does not
 generate or edit its body. Supplying the extracted notes via `--notes-file`
@@ -212,7 +226,7 @@ gh auth refresh -h github.com -s workflow
 
 - Release only after the completeness audit scores 100 on every axis; re-run G3 on the final target.
 - `tests/communication/package/test_release_notes.py` pins the version and must change in the bump PR. A CHANGELOG heading for a never-published version needs `(superseded ...)`.
-- Python 3.15 has no pyyaml wheel: run the full suite in CI, not locally.
+- Python 3.15 has no pyyaml wheel: test files that import yaml run in CI only; the local `-n 8` suite covers the rest (setuptools errors: see AGENTS.md).
 - The live gate writes `.peerhub/work/live-gate/<date>-v<version>.json` (dates UTC, git-ignored); attach it to the GitHub release instead of committing it. Evidence files committed up to 0.24.12 stay in `docs/implementation/live_evidence/` as history. Before a repeated run for the same date and version, rename the earlier file to `-attemptN`.
 - Never type a SHA by hand; derive it from Git.
 - Delete a blocked or aborted release and its tag before retrying.
