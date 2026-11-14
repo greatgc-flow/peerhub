@@ -123,11 +123,17 @@ def _json_lines(text: str) -> list[dict[str, Any]]:
 
 
 def denied_action_names(stdout: str) -> list[str]:
-    """Names of tool actions agy auto-denied in headless mode (`denied_actions`), order-preserving and de-duplicated (#195)."""
+    """Names of tool actions agy auto-denied in headless mode (`denied_actions`), order-preserving and de-duplicated (#195).
+
+    Read from two exact places only: the top level (argv: one flat object) and `result.denied_actions` of a
+    `result` event (stdin stream, agy 1.5.9, #371). No other key is searched, so mentions in text never count.
+    """
     names: list[str] = []
     for obj in _json_lines(stdout):
-        denied: Any = obj.get("denied_actions")
-        items: list[Any] = cast("list[Any]", denied) if isinstance(denied, list) else []
+        result: Any = obj.get("result") if obj.get("event") == "result" else None
+        nested: Any = cast("dict[str, Any]", result).get("denied_actions") if isinstance(result, dict) else None
+        items: list[Any] = [item for denied in (obj.get("denied_actions"), nested)
+                            for item in (cast("list[Any]", denied) if isinstance(denied, list) else [])]
         for item in items:
             name: Any = cast("dict[str, Any]", item).get("action") if isinstance(item, dict) else None
             if isinstance(name, str) and name and name not in names:

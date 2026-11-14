@@ -85,12 +85,14 @@ class Kit:
         command = kw.pop("command", [PY, FAKE])
         return CliRuntimeTarget("ag", self.ws, command=command, env_extra=self.env(mode, stream=stream, **(env or {})), **kw)
 
-    def replay(self, stdout: str | bytes, *, exit_code: int = 0, stderr: str = "", **kw) -> CliRuntimeTarget:
+    def replay_env(self, stdout: str | bytes, *, exit_code: int = 0, stderr: str = "") -> dict[str, str]:
         (self.root / "replay.ndjson").write_bytes(stdout.encode("utf-8") if isinstance(stdout, str) else stdout)
         (self.root / "stderr.txt").write_bytes(stderr.encode("utf-8"))
-        env = {"FAKE_REPLAY": str(self.root / "replay.ndjson"), "FAKE_STDERR_FILE": str(self.root / "stderr.txt"),
-               "FAKE_EXIT": str(exit_code)}
-        return self.target("replay", env=env, **kw)
+        return {"FAKE_REPLAY": str(self.root / "replay.ndjson"), "FAKE_STDERR_FILE": str(self.root / "stderr.txt"),
+                "FAKE_EXIT": str(exit_code)}
+
+    def replay(self, stdout: str | bytes, *, exit_code: int = 0, stderr: str = "", **kw) -> CliRuntimeTarget:
+        return self.target("replay", env=self.replay_env(stdout, exit_code=exit_code, stderr=stderr), **kw)
 
     @property
     def launches(self) -> int:
@@ -951,3 +953,91 @@ def test_d_i_unknown_top_level_event_is_delivered_with_unknown_usage(kit, bridge
     (telemetry,) = _evidence(bridge_h, "session_telemetry")
     assert telemetry["usage"]["coverage"] == {"state": "UNKNOWN", "reason": "unknown_event"}
     assert kit.launches == 2
+
+
+# ---- #371: auto-denied tool actions on both transports (agy 1.5.9 capture)
+
+DENIED = FIXTURE.with_name("agy-stream-json-denied-v1.ndjson").read_text(encoding="utf-8")
+TRANSPORTS = pytest.mark.parametrize("stream", [False, True], ids=["argv", "stream"])
+
+
+def _denied_events() -> list[dict]:
+    return [json.loads(line) for line in DENIED.splitlines()]
+
+
+def _stdout(events: list[dict], stream: bool) -> str:
+    """The stream as captured, or the argv transport's one flat object with the same fields at the top level."""
+    result = events[-1]["result"]
+    return _nd(events) if stream else json.dumps({key: result[key] for key in ("response", "conversation_id", "denied_actions")
+                                                  if key in result}) + "\n"
+
+
+def _ask_ag(kit, tmp_path, monkeypatch, capsys, stdout: str, stream: bool) -> tuple[int, dict]:
+    env = kit.replay_env(stdout)
+    monkeypatch.setattr(ask_module, "CliRuntimeTarget", lambda kind, workspace, **kw: CliRuntimeTarget(
+        kind, workspace, command=[PY, FAKE], env_extra=kit.env("replay", stream=stream, **env), **kw))
+    code = main(["--db", str(tmp_path / "store" / "peerhub.db"), "ask", "ag", "run the probe", "--writable", "--json",
+                 "-w", str(kit.ws)])
+    return code, json.loads(capsys.readouterr().out)
+
+
+@TRANSPORTS
+def test_e_a_denied_empty_turn_is_denied_empty_with_the_names_and_exit_1(kit, tmp_path, monkeypatch, capsys, stream):
+    code, out = _ask_ag(kit, tmp_path, monkeypatch, capsys, _stdout(_denied_events(), stream), stream)
+    assert (out["status"], out["denied_actions"], code) == ("denied_empty", ["command"], 1)
+    assert out["ag_transport"] == ("stream" if stream else "argv")
+    assert out["error"]["code"] == "denied_empty" and out["guidance"]["code"] == "ask_denied_empty"
+    assert kit.launches == 1
+
+
+def test_e_b_a_failed_tool_step_validates_and_keeps_measured_usage(kit):
+    checked = parse_ag_stream_json(DENIED)
+    assert (checked["complete"], checked["reason"]) == (True, None)
+    assert [step["step_index"] for step in checked["steps"]] == [0, 1, 2]
+    observed = terminal_result(DENIED.encode())
+    assert (observed["observation"], observed["status"], observed["response"]) == ("complete", "SUCCESS", "")
+    assert observed["validation"] is None
+    kind, payload = _drain(kit.replay(DENIED), "run the probe")[-1]
+    assert kind == "terminal" and payload["response"] == "" and payload["denied_actions"] == ["command"]
+    assert payload["usage"] == {"input_tokens": 9044, "cached_input_tokens": 0, "output_tokens": 49}
+    assert payload["provider_telemetry"]["coverage"]["state"] == "MEASURED"
+    assert "ag_stream_validation" not in payload
+
+
+@TRANSPORTS
+def test_e_c_denied_actions_next_to_a_reply_are_delivered_alike(kit, tmp_path, monkeypatch, capsys, stream):
+    events = _denied_events()
+    events[-1]["result"]["response"] = "answer-fragment-sentinel"
+    code, out = _ask_ag(kit, tmp_path, monkeypatch, capsys, _stdout(events, stream), stream)
+    assert (out["status"], out["response"], code) == ("delivered", "answer-fragment-sentinel", 0)
+    assert "denied_actions" not in out and "empty_response" not in out  # names are read for an empty reply only
+
+
+def _denied_only_mentioned() -> str:
+    events = _denied_events()
+    listed = events[-1]["result"].pop("denied_actions")
+    events[3]["step_update"]["tool_info"]["denied_actions"] = listed
+    events[4]["step_update"]["denied_actions"] = listed
+    events[2]["step_update"]["text_delta"] = json.dumps({"denied_actions": listed})
+    return _nd(events)
+
+
+def test_e_d_mentions_outside_the_terminal_result_never_produce_names(kit, tmp_path, monkeypatch, capsys):
+    mention = _denied_only_mentioned()
+    assert base.denied_action_names(mention) == []
+    events = _denied_events()
+    events[-1]["result"]["response"] = json.dumps({"denied_actions": [{"action": "command"}]})
+    del events[-1]["result"]["denied_actions"]
+    assert base.denied_action_names(_nd(events)) == []
+    code, out = _ask_ag(kit, tmp_path, monkeypatch, capsys, mention, True)
+    assert (out["status"], out["response"], out["empty_response"], code) == ("delivered", "", True, 0)
+    assert "denied_actions" not in out
+
+
+def test_e_e_names_come_from_the_top_level_or_the_terminal_result_only():
+    flat = '{"response":"","denied_actions":[{"action":"command"},{"action":"edit"}]}'
+    nested = _nd(_denied_events())
+    assert base.denied_action_names(flat) == ["command", "edit"]
+    assert base.denied_action_names(nested) == ["command"]
+    not_terminal = {"event": "step_update", "result": {"denied_actions": [{"action": "command"}]}}
+    assert base.denied_action_names(json.dumps(not_terminal)) == []

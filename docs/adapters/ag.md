@@ -71,6 +71,9 @@ scratch directory; edit approval does not establish workspace trust.
 In headless mode agy auto-denies tools needing an interactive permission prompt
 and can still exit successfully with an empty `response` and a `denied_actions`
 list. PeerHub surfaces those names in the ask result and prints a one-line note.
+The names are read on both transports, as measured on agy 1.5.9: the top-level
+`denied_actions` of the argv transport and `result.denied_actions` of the
+terminal event on the stdin stream transport (#371).
 Shell access needs a matching `command(...)` or broad `command(*)` allow rule
 under `permissions.allow` in agy's `settings.json`; accept-edits alone does not
 approve shell commands. Prefer the narrow matching rule when shell access is
@@ -82,7 +85,8 @@ For an empty reply, check these three causes before changing permissions:
    Use the trusted project folder, even when the task only reads files.
 2. **Unreadable target:** binary, NUL-containing, or huge files may defeat the
    normal file reader and cause a shell fallback that headless permissions deny.
-   Check `denied_actions` and inspect the target locally; use a bounded text
+   Check `denied_actions` in the ask result (either transport) and inspect the
+   target locally; use a bounded text
    extract or explicitly approve the intended shell command rather than assuming
    accept-edits permits it.
 3. **Wrong branch:** confirm the path exists on the checked-out branch; a path
