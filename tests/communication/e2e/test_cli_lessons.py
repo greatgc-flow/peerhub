@@ -144,8 +144,9 @@ def test_new_and_moved_lesson_content():
     assert "--basetemp=" not in cx_fix  # the measured workaround does not work
     assert {"pytest", "tmp_path", "acl", "basetemp"} <= set(by_id["cx-sandbox-and-prompt-hygiene"]["keywords"])
     assert "ACCOUNTS" not in by_id["monitor-states"]["fix"]
-    for needle in ("ACCOUNTS (compact line", "LOGIN token expiry", "display_plan", "plan_changed: true",
-                   "at least five minutes old"):
+    # #374: ACCOUNTS left the compact frame; account problems reach line 1 as alerts
+    for needle in ("ACCOUNTS (--expand rows", "LOGIN token expiry", "reaches line 1 as an alert", "display_plan",
+                   "plan_changed: true", "at least five minutes old"):
         assert needle in by_id["monitor-accounts"]["fix"], needle
     votes = by_id["independent-peer-votes"]["fix"]
     for needle in ("--max-parallel 3 --responses", "not writable", "private empty directory", "inline", "11 s"):

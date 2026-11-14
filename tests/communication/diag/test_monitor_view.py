@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 pytestmark = [pytest.mark.unit, pytest.mark.diag]
+# #374: frames from the read model always carry alert_sources; without them --expand adds `source alerts: not read`
+READ_SOURCES = {"activity": "read", "capacity": "read", "accounts": "read", "facts": "read"}
 
 
 @pytest.fixture
@@ -29,7 +31,7 @@ def quota_visual_frame():
         {"peer_id": "ag", "pool_kind": "quota", "state": "UNKNOWN",
          "reason": "fresh measured evidence is required with a deliberately long explanation", "age_seconds": 2043},
     ])
-    return {"status": "OK", "read_at": 1000.0, "selected_groups": ["capacity"],
+    return {"status": "OK", "read_at": 1000.0, "selected_groups": ["capacity"], "alert_sources": dict(READ_SOURCES),
             "groups": {"capacity": {"status": "OK", "data": {"observations": observations}}}}
 
 
@@ -97,7 +99,8 @@ def test_soonest_exhaustion_ignores_stale_and_counts_down(quota_visual_frame):
     observations[6]["projection"]["exhaustion_at"] = 1100
     quota_visual_frame["display_elapsed_seconds"] = 60
     rendered = render_grouped_frame(quota_visual_frame, width=80, height=12)
-    assert rendered.splitlines()[0].startswith("PeerHub Monitor")
+    assert rendered.splitlines()[0].startswith("OK")  # #374: line 1 is the verdict, then the expand header
+    assert rendered.splitlines()[1].startswith("PeerHub Monitor")
     assert "soonest exhaust: ag P-3H 1% in 29m" in render_grouped_frame(quota_visual_frame, width=120)
     assert "STATE:" not in rendered
     assert "P-1H" in rendered and "P-6H" in rendered
@@ -132,6 +135,7 @@ def frame():
     return {
         "status": "PARTIAL",
         "read_at": 1000.0,
+        "alert_sources": dict(READ_SOURCES),  # the read model always reports them (#374)
         "selected_groups": ["overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"],
         "groups": {
             "overview": {"status": "OK", "data": {"peers": [
@@ -276,7 +280,9 @@ def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, 
 
     assert len(rendered.splitlines()) <= height - 1
     assert all(len(line) <= width - 1 for line in rendered.splitlines())
-    if 1 < height <= 3:
+    if height == 2:  # #374: one line holds only line 1, the verdict
+        assert rendered.startswith("OK") and len(rendered.splitlines()) == 1
+    elif 1 < height <= 3:
         assert "+" in rendered
         if width >= 20:
             assert "--expand" in rendered
@@ -565,13 +571,13 @@ def test_detail_loop_stopping_early_emits_hidden_by_terminal_height(frame):
          "projection": {"state": "safe", "pace_pt": 5.0}, "age_seconds": 10.0}
         for i in range(1, 7)
     ]
-    # Height 6: 1 title + 1 heading + 1 table header + 1 detail row + 1 hidden line = 5 lines (<= height - 1)
-    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=6)
+    # Height 7 (#374: +1 for the verdict line): verdict + title + heading + table header + 1 detail row + hidden line
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=7)
     assert "rows hidden" in rendered
     assert "peerhub monitor --snapshot --group capacity --expand" in rendered
     assert "1h" in rendered
     assert "6h" not in rendered
-    assert len(rendered.splitlines()) <= 5
+    assert len(rendered.splitlines()) <= 6
 
 
 def test_warning_and_next_stop_overhead_accounted_for_without_clipping_quota(frame):
@@ -661,6 +667,7 @@ def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
     fixture = {
         "status": "OK",
         "read_at": t0,
+        "alert_sources": dict(READ_SOURCES),
         "selected_groups": ["overview", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage", "store"],
         "store_selection": {"path": "D:/workspace/core.db", "source": "workspace"},
         "groups": {
@@ -717,7 +724,7 @@ def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
             # Quota block is always at top
             assert "QUOTA [OK]" in rendered
             first_rule_idx = min(i for i, l in enumerate(lines) if "QUOTA [OK]" in l)
-            assert first_rule_idx == (0 if (width, height) == (80, 12) else 2)
+            assert first_rule_idx == (1 if (width, height) == (80, 12) else 3)  # #374: after the verdict line
 
             # Check columns
             if width >= 120:
@@ -814,7 +821,7 @@ def test_expand_quota_row_shows_bar_tick_pace_glyph_and_colour_on_state_and_bar_
     assert "\x1b" not in render_grouped_frame(frame, view="rich", color=True, width=140)
 
 
-@pytest.mark.parametrize("expand, height, hidden", [(False, 5, 4), (True, 6, 3)])
+@pytest.mark.parametrize("expand, height, hidden", [(False, 6, 4), (True, 7, 3)])  # #374: +1 for the verdict line
 def test_bounded_other_details_report_exact_hidden_rows(frame, expand, height, hidden):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
@@ -854,12 +861,12 @@ def test_group_summaries_reserve_space_for_hidden_detail_disclosure(frame):
         frame["groups"][group]["data"] = {"sessions": [
             {"peer_id": f"worker{i}"} for i in range(3)
         ]}
-    rendered = render_grouped_frame(frame, width=100, height=6, unicode=False, expand=True)
+    rendered = render_grouped_frame(frame, width=100, height=7, unicode=False, expand=True)  # #374: +1 for the verdict
     assert "worker0" in rendered and "worker1" in rendered
     assert "+1 rows hidden" in rendered or "+1r" in rendered
     assert "CONTEXT [" not in rendered
     assert "--expand" in rendered
-    assert len(rendered.splitlines()) <= 5
+    assert len(rendered.splitlines()) <= 6
 
 
 
@@ -889,7 +896,7 @@ def test_elapsed_forecast_is_not_measured_exhaustion(frame, rem, elapsed, expect
     rendered = render_grouped_frame(frame, width=160, unicode=False)
     assert expected in next(line for line in rendered.splitlines() if "soonest exhaust:" in line)
     header = next(line for line in rendered.splitlines() if "EXHAUST-IN" in line)
-    row = next(line for line in rendered.splitlines()[2:] if "5h" in line)
+    row = next(line for line in rendered.splitlines()[3:] if "5h" in line)  # after the verdict, the title and the rule
     assert row[header.index("EXHAUST-IN"):header.index("AGE")].strip() == expected
 
 
@@ -900,7 +907,7 @@ def _frame(remaining, credits=None):
     data = {"observations": obs}
     if credits:
         data["reset_credits"] = credits
-    return {"status": "OK", "read_at": 1000.0, "selected_groups": ["capacity"],
+    return {"status": "OK", "read_at": 1000.0, "selected_groups": ["capacity"], "alert_sources": dict(READ_SOURCES),
             "groups": {"capacity": {"status": "OK", "data": data}}}
 
 
@@ -911,7 +918,7 @@ def test_less_than_one_percent_is_never_shown_as_zero(remaining, shown):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
     rows = [ln for ln in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines() if ln.startswith("ag ")]
     assert rows[0].split()[3] == shown
-    assert f"ag G-7D {shown} " in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines()[1]
+    assert f"ag G-7D {shown} " in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines()[2]
 
 
 @pytest.mark.parametrize("remaining,shown", [(0.0, "0%"), (0.000001, "<1%"), (0.0049, "<1%"),

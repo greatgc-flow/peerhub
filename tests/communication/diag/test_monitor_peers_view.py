@@ -20,6 +20,8 @@ def peers_frame() -> dict[str, Any]:
     return {
         "status": "OK",
         "read_at": 1000.0,
+        # #374: the read model always reports alert_sources; without them --expand adds `source alerts: not read`
+        "alert_sources": {"activity": "read", "capacity": "read", "accounts": "read", "facts": "read"},
         "selected_groups": ["peers"],
         "groups": {
             "overview": {
@@ -256,8 +258,8 @@ def test_3_missing_facts_render_as_unknown_never_blank_or_zero(peers_frame):
     assert "latest session: unknown" in rendered
     assert "context: unknown" not in rendered
 
-    # Never false zero or blank
-    assert "0%" not in rendered
+    # Never false zero or blank (#374: the state legend, which names "out 0%", now ends the --expand frame)
+    assert "0%" not in rendered.split("ok enough |", 1)[0]
     assert "resumable" not in rendered
     assert "reused" not in rendered
     assert "fresh" not in rendered
@@ -356,7 +358,8 @@ def test_7_height_limited_tty_keeps_severity_based_omission(peers_frame):
     peers_frame["groups"]["execution"]["status"] = "OK"
     peers_frame["groups"]["peers"]["status"] = "ERROR"
 
-    rendered_err = render_grouped_frame(peers_frame, view="plain", width=80, height=6)
+    rendered_err = render_grouped_frame(peers_frame, view="plain", width=80, height=7)  # #374: +1 for the verdict line
+    assert rendered_err.startswith("OK")
     assert "PEERS [ERROR]" in rendered_err
     assert "[unrecognized group]" not in rendered_err
     assert "rows hidden (1 group)" in rendered_err
@@ -364,7 +367,7 @@ def test_7_height_limited_tty_keeps_severity_based_omission(peers_frame):
     # When peers group is OK and another group is ERROR, the ERROR group is prioritized and peers omitted
     peers_frame["groups"]["peers"]["status"] = "OK"
     peers_frame["groups"]["overview"]["status"] = "ERROR"
-    rendered_ok = render_grouped_frame(peers_frame, view="plain", width=80, height=5)
+    rendered_ok = render_grouped_frame(peers_frame, view="plain", width=80, height=6)
     assert "OVERVIEW [ERROR]" not in rendered_ok
     assert rendered_ok.count("Coverage:") == 1
     assert "PEERS [" not in rendered_ok
@@ -556,7 +559,7 @@ def test_rework_5_narrow_view_uses_available_width_without_fixed_37_cap(peers_fr
     from peerhub.cli.monitor_view import _width, _render_expanded_frame as render_grouped_frame
 
     # At width 46, content width is 43 (columns-1 = 45). Lines should use columns beyond 37.
-    rendered = render_grouped_frame(peers_frame, view="plain", width=46, height=10)
+    rendered = render_grouped_frame(peers_frame, view="plain", width=46, height=11)  # #374: +1 for the verdict line
     lines = rendered.splitlines()
     peer_lines = [line for line in lines if any(line.lstrip().startswith(f"{p}:") for p in ("cc", "cx", "ag"))]
     assert len(peer_lines) == 3

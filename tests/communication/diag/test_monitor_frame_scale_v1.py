@@ -164,7 +164,7 @@ def _assert_scale_cardinalities(db_path: str) -> None:
 def _frame(harness, trace=None):
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     return render_monitor_frame(harness.db_path,
-        ["overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"],
+        ["overview", "activity", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"],
         read_at=READ_AT, trace_callback=trace)
 
 

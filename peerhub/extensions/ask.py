@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.peer_kinds import ALIASES  # noqa: F401  (re-exported for existing importers)
 from peerhub.extensions.bridge import PrespawnError, Bridge, CycleResult, RuntimeTarget, normalize_session_selector
+from peerhub.extensions.caller import detect_caller
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, StaleClaimError
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
@@ -199,7 +200,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     claims = ClaimStore(db_path, generation=lineage.generation)
     # Runtime events may be silent until completion; keep the claim alive for the bounded run.
     lease_sec = timeout_s + 60
-    bridge = Bridge(store, claims, owner_id=f"ask-{uuid.uuid4().hex}", lease_sec=lease_sec)
+    bridge = Bridge(store, claims, owner_id=f"ask-{uuid.uuid4().hex}", lease_sec=lease_sec, caller=detect_caller())
     token = claims.acquire(peer_id, sid, bridge.owner_id, lease_sec)
     started_at = time.monotonic()
     try:

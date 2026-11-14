@@ -17,7 +17,7 @@ def test_monitor_groups_is_read_only_and_does_not_require_a_store(tmp_path, monk
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "2.0"
     assert [group["id"] for group in payload["groups"]] == [
-        "overview", "peers", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
+        "overview", "activity", "peers", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
     ]
     assert all(group.get("description") for group in payload["groups"])
     assert payload["selection_scope"] == "grouped_views"
@@ -59,7 +59,8 @@ def test_monitor_bare_watch_uses_default_grouped_view_and_explicit_schema_11(tmp
     monkeypatch.setattr(monitor, "_run_monitor_grouped_watch",
                         lambda args, selected, preference: calls.append((selected, preference["source"])) or 0)
     assert main(["--db", str(db), "monitor", "--json", "--cycles", "1"]) == 0
-    assert calls == [(["overview", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage"], "packaged")]
+    assert calls == [(["overview", "activity", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage"],
+                      "packaged")]
     calls.clear()
     # Explicit schema selection preserves the frozen 1.1 wire contract.
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
@@ -88,13 +89,13 @@ def test_bare_monitor_renders_default_session_and_execution_groups(tmp_path, mon
         for frame in frames:
             from peerhub.cli.monitor_preferences import GROUP_IDS
             assert frame["snapshot"]["selected_groups"] == [
-                "overview", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage"
+                "overview", "activity", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage"
             ]
             assert frame["snapshot"]["available_groups"] == list(GROUP_IDS)
             assert {"sessions", "execution"} <= set(frame["snapshot"]["groups"])
-    else:
-        assert "sessions " in output and "delivery (sampled): terminal " in output
-        assert "SESSIONS [" not in output and "EXECUTION [" not in output
+    else:  # #374: verdict, line 2, RUNNING (activity is a default group) and POOLS; the footer is --expand only
+        assert output.startswith(("OK", "ATTN")) and "\nRUNNING 0\n" in output and "\nPOOLS " in output
+        assert "SESSIONS [" not in output and "EXECUTION [" not in output and "delivery (sampled)" not in output
         assert '"groups"' not in output
 
 
@@ -203,7 +204,7 @@ def test_monitor_reset_countdown_tty_plain_parity(tmp_path, monkeypatch, tty):
                         lambda db, groups, **kw: render_monitor_frame(db, groups, read_at=T0 + 120, **kw))
 
     assert main(["--db", str(h.db_path), "monitor", "--snapshot", "--group", "capacity"]) in (0, 4)
-    assert "RESETS" in output.getvalue()
+    assert " RESET " in output.getvalue()  # #374: the compact column is RESET
     assert "4h58m" in output.getvalue()
 
 
@@ -256,7 +257,7 @@ def test_monitor_reset_countdown_posix_pty_plain_parity(tmp_path):
             process.kill()
             process.wait(timeout=5)
     for rendered in (plain.stdout, output.decode("utf-8")):
-        assert "RESETS" in rendered
+        assert " RESET " in rendered  # #374: the compact column is RESET
         assert "4h58m" in rendered
 
 
@@ -282,7 +283,7 @@ def test_bare_monitor_default_tty_uses_grouped_sections(tmp_path, monkeypatch):
     db = _db(tmp_path)
     assert main(["--db", str(db), "monitor", "--view", "rich", "--cycles", "1"]) in (0, 4)
     rendered = output.getvalue()
-    assert "sessions " in rendered and "delivery (sampled): terminal " in rendered
+    assert "RUNNING 0" in rendered and "POOLS " in rendered  # #374: the compact sections; the footer is --expand only
     assert "SESSIONS [" not in rendered and "EXECUTION [" not in rendered
     assert '"groups"' not in rendered
 
@@ -306,7 +307,7 @@ def test_bare_monitor_grouped_output_supports_ascii_stdout(tmp_path, monkeypatch
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
     assert main(["--db", str(_db(tmp_path)), "monitor", "--view", "plain", "--cycles", "1"]) in (0, 4)
-    assert "delivery (sampled): terminal " in output.getvalue()
+    assert "RUNNING 0" in output.getvalue() and "POOLS " in output.getvalue()  # #374: written to an ASCII stdout
 
 
 def test_monitor_snapshot_does_not_refresh_providers(tmp_path, monkeypatch, capsys):
@@ -367,7 +368,7 @@ def test_monitor_snapshot_group_all_deduplicates(tmp_path, capsys):
     db = _db(tmp_path)
     assert _run(db, "--snapshot", "--group", "all", "--group", "all", "--json") in (0, 4)
     assert json.loads(capsys.readouterr().out)["selected_groups"] == [
-        "overview", "peers", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
+        "overview", "activity", "peers", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"
     ]
 
 
@@ -375,7 +376,8 @@ def test_monitor_snapshot_plain_view_renders_group_heading(tmp_path, capsys):
     db = _db(tmp_path)
     assert _run(db, "--snapshot", "--group", "store", "--view", "plain") == 0
     output = capsys.readouterr().out
-    assert "details: --expand" in output
+    # #374: `store` owns no compact section; lines 1-2 say what was not read and when
+    assert output.startswith("OK? (asks, quota, accounts, facts not read)") and "\nPeerHub Monitor " in output
     assert "STORE [OK]" not in output
     assert '"groups"' not in output
 
@@ -677,10 +679,10 @@ def test_redirected_snapshot_keeps_full_human_group_frame(tmp_path, capsys):
     output = capsys.readouterr().out
 
     assert code in (0, 4)
-    assert "POOLS" in output and "PEERS" in output
-    assert "sessions " in output and "delivery (sampled): terminal " in output
+    # #374: the compact frame is the verdict, line 2, RUNNING, the suggestion and POOLS; PEERS and the footer are --expand
+    assert "\nPOOLS " in output and "\nRUNNING " in output and "suggest:" in output
+    assert "PEERS" not in output and "delivery (sampled)" not in output
     assert "SESSIONS [" not in output and "EXECUTION [" not in output
-    assert "details: --expand" in output
     assert "groups omitted" not in output.lower()
     assert "\x1b" not in output
     assert output.endswith("\n") and not output.endswith("\n\n")
@@ -730,8 +732,8 @@ def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
     rendered = output.decode("utf-8", errors="replace")
     lines = rendered.rstrip("\r\n").splitlines()
     assert len(lines) <= 7
-    assert re.search(r"\+\d+ rows hidden", rendered)
-    assert "--expand" in rendered
+    # #374 H2: the compact frame has no "+N rows hidden" line; it keeps line 1 and the section headers (with totals)
+    assert re.match(r"^(OK|ATTN)", lines[0]) and "rows hidden" not in rendered
     assert all(_width(line) < 40 for line in lines)
     assert "COLUMNS" not in rendered
     assert "\x1b" not in rendered
@@ -1342,12 +1344,11 @@ def test_monitor_expand_snapshot_human_renders_all_rows(tmp_path, capsys):
     conn.commit()
     conn.close()
 
-    # Compact default summarizes sessions without exposing handles.
+    # Compact default never exposes handles (#374: the sessions count moved to --expand with the footer).
     code = main(["--db", str(db), "monitor", "--snapshot", "--group", "sessions", "--view", "plain"])
     assert code == 0
     out = capsys.readouterr().out
-    assert "sessions >=4 retained (sampled)" in out
-    assert "details: --expand" in out
+    assert out.startswith("OK? (") and "sessions >=" not in out
     assert "sess_0001" not in out
 
     # Snapshot with --expand: all 4 rows rendered with handle, no not shown

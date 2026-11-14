@@ -18,10 +18,6 @@ pytestmark = [pytest.mark.unit, pytest.mark.diag]
 DAY = 86400
 
 
-def md(ts: float) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).strftime("%m-%d")
-
-
 def account(store: Store, peer, *, age=30, state="MEASURED", **fields):
     """One normalized account observation, `age` seconds old (what refresh would have stored)."""
     store.n += 1
@@ -63,8 +59,16 @@ def accounts_json(store, capsys):
     return json.loads(out)["groups"]["capacity"]["data"]["accounts"]
 
 
-def accounts_line(out):
-    return next(line for line in out.splitlines() if line.startswith("ACCOUNTS"))
+def account_row(store, capsys, peer="cc"):
+    """#374: the compact ACCOUNTS line left the compact frame; --expand keeps one row per peer."""
+    out = snapshot(store, capsys, "--expand")
+    return next(line for line in out.splitlines() if re.match(rf"^{re.escape(peer)} (login|account) ", line))
+
+
+def verdict(store, capsys):
+    """Line 1 of the compact frame: account problems reach it as alerts (#374). `--group capacity`: this fixture has no
+    Bridge tables, so the default groups would name two store alerts first."""
+    return snapshot(store, capsys, "--group", "capacity").splitlines()[0]
 
 
 @pytest.mark.parametrize("quota_age,plan,peer,changed", [(20, "free", "cx", True), (40, "free", "cx", False),
@@ -85,7 +89,7 @@ def test_quota_plan_change_requires_newer_same_login_evidence(store, capsys, quo
     assert bool(item.get("plan_changed")) == changed
     if changed:
         assert item["plan_source"] == "quota" and item["state"] == "STALE"
-    assert ("plan changed" in snapshot(store, capsys)) == changed
+    assert "plan changed" not in snapshot(store, capsys)  # #374: ACCOUNTS is --expand only
     assert ("plan changed" in snapshot(store, capsys, "--expand")) == changed
 
 
@@ -135,24 +139,30 @@ def test_corrupt_quota_row_is_identified_as_quota(store, monkeypatch):
             monitor_read_model._read_accounts(conn, rows, store.now)
 
 
-def test_compact_shows_one_accounts_line_with_plan_login_and_near_token_expiry(store, capsys):
+def test_compact_has_no_accounts_line_and_expand_has_one_row_per_peer(store, capsys):
+    # #374: ACCOUNTS left the compact frame; the expanded rows carry plan, login and the token expiry date.
     expires = populated(store)
     out = snapshot(store, capsys)
-    assert sum(line.startswith("ACCOUNTS") for line in out.splitlines()) == 1
-    assert accounts_line(out) == f"ACCOUNTS cc pro login ok (token exp {md(expires)}) | cx prolite login ok | ag plan n/a credits ok"
+    assert "ACCOUNTS" not in out and "token" not in out
+    day = datetime.fromtimestamp(expires, timezone.utc).strftime("%Y-%m-%d")
+    assert account_row(store, capsys, "cc").startswith(f"cc login ok | plan pro | login token expiry {day}")
+    assert account_row(store, capsys, "cx").startswith("cx login ok | plan prolite")
+    assert "credits endpoint ok" in account_row(store, capsys, "ag")
 
 
-def test_token_expiry_only_appears_within_fourteen_days_and_never_as_billing(store, capsys):
-    populated(store, expires_in=40 * DAY)
+@pytest.mark.parametrize("days,alert", [(40, False), (12, False), (1, True)])
+def test_token_expiry_reaches_line_1_only_within_48_hours_and_never_as_billing(store, capsys, days, alert):
+    populated(store, expires_in=days * DAY)
     out = snapshot(store, capsys)
-    assert "token exp" not in accounts_line(out)
+    assert ("token_expiring: cc" in verdict(store, capsys)) == alert
     assert "billing" not in out.lower().replace("not billing", "")
 
 
 def test_expired_login_token_is_labelled_not_logged_out(store, capsys):
-    expires = populated(store, expires_in=-2 * DAY)
-    line = accounts_line(snapshot(store, capsys))
-    assert f"cc pro login ok (token expired {md(expires)})" in line
+    populated(store, expires_in=-2 * DAY)
+    line = verdict(store, capsys)
+    assert "token_expired: cc" in line and "login: cc" not in line
+    assert account_row(store, capsys, "cc").startswith("cc login ok | plan pro")
 
 
 def test_expanded_rows_label_login_token_expiry_and_hide_identity(store, capsys):
@@ -177,26 +187,26 @@ def test_json_parity_with_compact_and_expanded(store, capsys):
     assert items["ag"]["endpoint_access"] == "ok"
     assert set(items["cc"]) == {"peer_id", "state", "stored_state", "age_seconds", "ttl_seconds", "logged_in", "plan", "plan_status",
                                 "login_token_expires_at", "login_expiry_status", "auth_method", "endpoint_access", "probe_error"}
-    compact = snapshot(store, capsys)
-    assert all(f"{peer} " in accounts_line(compact) for peer in items)
-    assert "pro" in accounts_line(compact) and "prolite" in accounts_line(compact)
+    for peer in items:  # #374: the expanded rows, not a compact line
+        assert account_row(store, capsys, peer)
+    assert "plan pro" in account_row(store, capsys, "cc") and "plan prolite" in account_row(store, capsys, "cx")
 
 
 def test_unknown_and_not_applicable_are_distinct(store, capsys):
     store.measured("cc", "C-7D", age=20, source="claude_cli_usage", evidence_ref="probe:cc:usage")
     account(store, "cc", logged_in=True, plan=None, plan_status="UNKNOWN", login_expiry_status="UNKNOWN")
     account(store, "cx", logged_in=False, plan=None, plan_status="n/a")
-    line = accounts_line(snapshot(store, capsys))
-    assert "cc plan ? login ok" in line
-    assert "cx plan n/a login out" in line
+    assert account_row(store, capsys, "cc").startswith("cc login ok | plan ?")
+    assert account_row(store, capsys, "cx").startswith("cx login out | plan n/a")
+    assert "login: cx" in verdict(store, capsys) and "login: cc" not in verdict(store, capsys)
 
 
 def test_probe_failure_renders_unknown_never_logged_out(store, capsys):
     store.measured("cc", "C-7D", age=20, source="claude_cli_usage", evidence_ref="probe:cc:usage")
     account(store, "cc", state="ERROR", reason="timeout")
     out = snapshot(store, capsys)
-    assert "cc account ? (probe error)" in accounts_line(out)
-    assert "login out" not in out
+    assert account_row(store, capsys, "cc").startswith("cc account ? | probe error: timeout")
+    assert "login out" not in out and "login:" not in out.splitlines()[0]
     item = accounts_json(store, capsys)[0]
     assert item["logged_in"] == "UNKNOWN" and item["state"] == "ERROR" and item["probe_error"] == "timeout" and item["plan"] is None
     assert "timeout" in snapshot(store, capsys, "--expand")
@@ -207,7 +217,9 @@ def test_a_failed_probe_keeps_the_last_good_reading_as_aged_with_an_error_note(s
     expires = store.now + 5 * DAY
     account(store, "cc", age=3600, plan="pro", plan_status="reported", login_token_expires_at=int(expires), login_expiry_status="reported")
     account(store, "cc", age=10, state="ERROR", reason="timeout")
-    assert accounts_line(snapshot(store, capsys)) == f"ACCOUNTS cc pro login ok (token exp {md(expires)}) (aged, probe error)"
+    row = account_row(store, capsys, "cc")
+    assert row.startswith("cc login ok | plan pro | login token expiry ") and row.endswith("[STALE]")
+    assert "probe error: timeout" in row
     item = accounts_json(store, capsys)[0]
     assert item["plan"] == "pro" and item["logged_in"] is True and item["state"] == "STALE" and item["stored_state"] == "MEASURED"
     assert item["probe_error"] == "timeout" and 3590 < item["age_seconds"] < 3700  # the age is the good reading's
@@ -220,7 +232,8 @@ def test_a_later_good_probe_clears_the_error_note(store, capsys):
     account(store, "cc", age=3600, plan="pro", plan_status="reported")
     account(store, "cc", age=600, state="ERROR", reason="timeout")
     account(store, "cc", age=10, plan="max", plan_status="reported")
-    assert accounts_line(snapshot(store, capsys)) == "ACCOUNTS cc max login ok"
+    row = account_row(store, capsys, "cc")
+    assert row.startswith("cc login ok | plan max") and "probe error" not in row
     assert accounts_json(store, capsys)[0]["probe_error"] is None
 
 
@@ -229,7 +242,7 @@ def test_an_invalid_stored_expiry_is_unknown_in_json_and_text(store, capsys):
     account(store, "cc", plan="pro", plan_status="reported", login_token_expires_at="garbage", login_expiry_status="reported")
     item = accounts_json(store, capsys)[0]
     assert item["login_expiry_status"] == "UNKNOWN" and item["login_token_expires_at"] is None
-    assert "token" not in accounts_line(snapshot(store, capsys))
+    assert "token" not in snapshot(store, capsys)
     assert "login token expiry ?" in snapshot(store, capsys, "--expand")
 
 
@@ -240,7 +253,7 @@ def test_out_of_range_stored_expiry_is_unknown_in_every_view_and_never_crashes(s
     account(store, "cc", plan="pro", plan_status="reported", login_token_expires_at=stored, login_expiry_status="reported")
     item = accounts_json(store, capsys)[0]
     assert item["login_token_expires_at"] is None and item["login_expiry_status"] == "UNKNOWN"
-    assert "token" not in accounts_line(snapshot(store, capsys))
+    assert "token" not in snapshot(store, capsys)
     assert "login token expiry ?" in snapshot(store, capsys, "--expand")  # would raise OSError/OverflowError if the value reached strftime
 
 
@@ -311,7 +324,7 @@ def test_5h_na_notes_use_the_fresh_account_plan_when_the_quota_probe_reports_non
     other = next(o for o in json.loads(snapshot(store, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
                  if o["pool_ref"] == "quota:cc:C-7D")
     assert "display_plan" not in other and "plan_source" not in other  # only the notes that needed it carry the fields
-    assert "C-5H n/a (plan pro)" in compact and "plan unknown" not in compact
+    assert "C-5H" not in compact and "plan unknown" not in compact  # #374: an n/a 5-hour pool never binds
     assert "(C-5H n/a)" in expanded and "plan unknown" not in expanded
     assert "plan pro: no 5h window" in expanded and "plan unknown: no 5h window" not in expanded
 
@@ -319,19 +332,19 @@ def test_5h_na_notes_use_the_fresh_account_plan_when_the_quota_probe_reports_non
 def test_unknown_plan_stays_unknown_without_a_fresh_account_plan(store, capsys):
     cc_without_5h(store)
     account(store, "cc", age=7 * 3600, plan="pro", plan_status="reported")  # aged: not a fresh reading
-    assert "plan unknown" in snapshot(store, capsys)
+    assert "plan unknown" in snapshot(store, capsys, "--expand")  # #374: the n/a 5-hour note is --expand only
     store2 = Store(store.db.parent.parent / "second")
     cc_without_5h(store2)
     account(store2, "cc", age=30, plan=None, plan_status="UNKNOWN")  # reported nothing
-    assert "plan unknown" in snapshot(store2, capsys)
+    assert "plan unknown" in snapshot(store2, capsys, "--expand")
 
 
 def test_a_quota_probe_plan_is_never_overridden_by_the_account_plan(store, capsys):
     store.measured("cx", "X-7D", age=20, source="codex_app_server", evidence_ref="probe:cx:app-server")
     store.add("cx", "X-5H", "ABSENT", age=20, source="codex_app_server", evidence_ref="probe:cx:app-server", reason=NOT_REPORTED + "prolite")
     account(store, "cx", age=30, plan="other", plan_status="reported")
-    out = snapshot(store, capsys)
-    assert "plan prolite" in out and "plan other" not in out
+    out = snapshot(store, capsys, "--expand")  # #374: the n/a 5-hour note is --expand only
+    assert "(plan prolite)" in out and "plan other" not in out
     items = json.loads(snapshot(store, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
     assert all("display_plan" not in o for o in items)
 
@@ -339,14 +352,14 @@ def test_a_quota_probe_plan_is_never_overridden_by_the_account_plan(store, capsy
 def test_account_ttl_is_hours_so_a_two_hour_old_reading_is_not_aged(store, capsys):
     store.measured("cc", "C-7D", age=20, source="claude_cli_usage", evidence_ref="probe:cc:usage")
     account(store, "cc", age=2 * 3600, plan="pro", plan_status="reported")
-    assert accounts_line(snapshot(store, capsys)) == "ACCOUNTS cc pro login ok"
+    assert account_row(store, capsys, "cc").endswith("[MEASURED]")
     assert accounts_json(store, capsys)[0]["state"] == "MEASURED"
 
 
 def test_stale_account_observation_is_marked_aged_in_every_view(store, capsys):
     store.measured("cc", "C-7D", age=20, source="claude_cli_usage", evidence_ref="probe:cc:usage")
     account(store, "cc", age=7 * 3600, plan="pro", plan_status="reported")
-    assert accounts_line(snapshot(store, capsys)) == "ACCOUNTS cc pro login ok (aged)"
+    assert account_row(store, capsys, "cc").endswith("[STALE]")
     item = accounts_json(store, capsys)[0]
     assert item["state"] == "STALE" and item["stored_state"] == "MEASURED" and item["age_seconds"] > 7 * 3600 - 5
     assert "STALE" in snapshot(store, capsys, "--expand")
@@ -356,7 +369,7 @@ def test_latest_observation_wins_and_history_is_kept(store, capsys):
     store.measured("cc", "C-7D", age=20, source="claude_cli_usage", evidence_ref="probe:cc:usage")
     account(store, "cc", age=7200, plan="pro", plan_status="reported")
     account(store, "cc", age=10, plan="max", plan_status="reported")
-    assert accounts_line(snapshot(store, capsys)) == "ACCOUNTS cc max login ok"
+    assert account_row(store, capsys, "cc").startswith("cc login ok | plan max")
     with sqlite3.connect(store.db) as c:
         assert c.execute("SELECT COUNT(*) FROM observations WHERE kind='account'").fetchone()[0] == 2
 

@@ -369,8 +369,11 @@ def _iso(ts: float) -> str:
 class Bridge:
     def __init__(self, store: CoreStore, claims: ClaimStore, *, owner_id: str = "bridge-1", lease_sec: float = 30.0,
                  max_session_attempts: int = 3, catch_up_limit: int = 100, ack_retries: int = 8,
-                 catch_up_budget: CatchUpBudget | None = None, fault_hook: Callable[[str], None] | None = None) -> None:
+                 catch_up_budget: CatchUpBudget | None = None, fault_hook: Callable[[str], None] | None = None,
+                 caller: Mapping[str, Any] | None = None) -> None:
         self.store, self.claims = store, claims
+        # #374: caller detail (schema v1, peerhub.extensions.caller); evidence only, never part of any digest.
+        self.caller: dict[str, Any] | None = dict(caller) if isinstance(caller, dict) else None
         self.owner_id, self.lease_sec = owner_id, lease_sec
         self.max_session_attempts, self.catch_up_limit, self.ack_retries = max_session_attempts, catch_up_limit, ack_retries
         # Leave room for the current ask and prompt headers within AG's 30,000-byte Windows inline limit.
@@ -563,8 +566,34 @@ class Bridge:
                          "external_session_id, session_generation) VALUES (?,?,?,?,?,?,?)",
                          (delivery_id, n, token.stream_id, token.peer_id, token.generation, detail.get("external_session_id"),
                           detail.get("session_generation")))
+            # #374: durable before the provider can start; once per delivery and process. Another ask process may run a later
+            # invocation of the same NOT_STARTED delivery (begin_attempt reuses it), so a new identity gets its own row.
+            if self.caller is not None and self._caller_changed(conn, delivery_id):
+                conn.execute("INSERT INTO bridge_evidence (delivery_id, stream_id, peer_id, kind, certainty, detail) VALUES (?,?,?,?,?,?)",
+                             (delivery_id, token.stream_id, token.peer_id, "caller", NOT_STARTED,
+                              json.dumps(self.caller, sort_keys=True, default=str)))
             self._evidence(conn, token.stream_id, token.peer_id, "about_to_invoke", delivery_id, NOT_STARTED, invocation_no=n, **detail)
             return n
+
+    _CALLER_IDENTITY = ("host", "ns", "ask_pid", "ask_created")
+
+    def _caller_changed(self, conn: sqlite3.Connection, delivery_id: str) -> bool:
+        """True when the delivery has no caller row yet or its newest one names another process (or no readable identity)."""
+        assert self.caller is not None
+        row = conn.execute("SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='caller' ORDER BY seq DESC LIMIT 1",
+                           (delivery_id,)).fetchone()
+        if row is None:
+            return True
+        try:
+            newest: Any = json.loads(row[0])
+        except (ValueError, TypeError):
+            return True
+        if not isinstance(newest, dict):
+            return True
+        newest = cast("dict[str, Any]", newest)
+        if any(key not in newest or key not in self.caller for key in self._CALLER_IDENTITY):
+            return True
+        return any(newest[key] != self.caller[key] for key in self._CALLER_IDENTITY)
 
     @staticmethod
     def _open_invocation(conn: sqlite3.Connection, delivery_id: str) -> int | None:

@@ -259,6 +259,12 @@ def monitor_effect(e, option):
     db = e.fresh()
     if option == "--view":
         seed_view_pool(db)
+        # #374: the compact frame draws no section rules; a binding 5-hour row under its 7-day pool carries the
+        # view's tree glyph (`└─` rich, "`-" plain), so --view stays observable on redirected output.
+        from tests.communication.e2e.test_cli_diag_quota import seed
+        seed(db, pools=[("G-7D", "QUOTA"), ("G-5H", "QUOTA")], rows=[
+            ("view-peer", "quota", "G-7D", "MEASURED", 6, {"remaining_fraction": 0.9}, "view-fixture"),
+            ("view-peer", "quota", "G-5H", "MEASURED", 7, {"remaining_fraction": 0.2}, "view-fixture")])
     captured = []
     agy_probes = []
     def probe(**kw):

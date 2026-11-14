@@ -31,7 +31,13 @@ def pool_lines(screen: str) -> list[str]:
             and not line.lstrip().startswith(("Columns", "STATE", "cc STALE"))]
 
 
-@pytest.mark.parametrize("expand", [False, True])
+# #374 F5: the profile-containment tree, folded n/a suffixes and blank lines between peers stay in --expand. The compact
+# frame orders POOLS by class (out, low, binding, fast, the rest) and shows a 5-hour row under its 7-day pool only when
+# it binds (test_monitor_activity_view.py). The tree pins below therefore run for --expand only.
+EXPAND_ONLY = pytest.mark.parametrize("expand", [True])
+
+
+@EXPAND_ONLY
 @pytest.mark.parametrize("unicode", [False, True])
 def test_equal_sets_three_windows_and_equal_window_containment(expand: bool, unicode: bool) -> None:
     frame = frame_for({"cc.effort": ["C-5H", "C-7D", "C-30D"],
@@ -63,7 +69,7 @@ def test_equal_sets_three_windows_and_equal_window_containment(expand: bool, uni
 ])
 def test_crossing_or_ambiguous_peer_is_flat(members: dict[str, list[str]]) -> None:
     frame = frame_for(members)
-    for expand in (False, True):
+    for expand in (True,):  # the tree is --expand only (#374 F5)
         screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=expand)
         rows = pool_lines(screen)
         assert not any("|-" in row or "`-" in row for row in rows)
@@ -78,14 +84,14 @@ def test_equal_sets_equal_windows_are_roots_without_name_tiebreak(expand: bool) 
     assert len(rows) == 2 and all("|-" not in row and "`-" not in row for row in rows)
 
 
-@pytest.mark.parametrize("expand", [False, True])
+@EXPAND_ONLY
 def test_tied_shortest_parents_make_the_whole_peer_flat(expand: bool) -> None:
     frame = frame_for({"cc.a": ["C-5H", "C-7D", "F-7D"]})
     rows = pool_lines(mv.render_grouped_frame(frame, unicode=False, expand=expand, width=180))
     assert len(rows) == 3 and all("|-" not in row and "`-" not in row for row in rows)
 
 
-@pytest.mark.parametrize("expand", [False, True])
+@EXPAND_ONLY
 def test_minimal_profile_superset_wins_before_shorter_window(expand: bool) -> None:
     frame = frame_for({"cc.a": ["C-5H", "C-30D", "F-7D"], "cc.b": ["F-7D"]})
     rows = pool_lines(mv.render_grouped_frame(frame, unicode=False, expand=expand, width=180))
@@ -93,7 +99,7 @@ def test_minimal_profile_superset_wins_before_shorter_window(expand: bool) -> No
     assert "`- C-5H" in rows[1] and "`- F-7D" not in rows[2]
 
 
-@pytest.mark.parametrize("expand", [False, True])
+@EXPAND_ONLY
 def test_flat_fallback_preserves_02410_cells(expand: bool) -> None:
     frame = frame_for({"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-7D", "F-7D"], "cc.c": ["F-7D"]})
     rows = pool_lines(mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=expand))
@@ -120,7 +126,7 @@ def test_tree_keeps_each_pools_own_capacity_and_encoding_width(expand: bool) -> 
     assert [mv._width(row) for row in rich_rows] == [mv._width(row) for row in ascii_rows]
 
 
-@pytest.mark.parametrize("expand", [False, True])
+@EXPAND_ONLY
 def test_retired_pools_form_one_dim_note_per_peer(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-5H", "C-7D", "C-30D"]})
@@ -133,7 +139,7 @@ def test_retired_pools_form_one_dim_note_per_peer(expand: bool, monkeypatch: pyt
     assert notes[0].startswith("\x1b[2m") and notes[0].endswith("\x1b[0m")
 
 
-@pytest.mark.parametrize("expand", [False, True])
+@EXPAND_ONLY
 @pytest.mark.parametrize("width", [20, 40, 60, 80, 100])
 def test_folded_na_combines_suffix_after_last_column_without_losing_numbers(expand: bool, width: int) -> None:
     frame = frame_for({"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-7D", "C-30D"]})
@@ -154,7 +160,7 @@ def test_folded_na_combines_suffix_after_last_column_without_losing_numbers(expa
     assert json.dumps(frame, sort_keys=True) == before
 
 
-@pytest.mark.parametrize("expand", [False, True])
+@EXPAND_ONLY
 @pytest.mark.parametrize("with_peers", [False, True])
 def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool, with_peers: bool) -> None:
     frame = frame_for({"cc.a": ["C-5H", "C-7D"]})
@@ -236,7 +242,7 @@ def test_compact_colour_precedence_matches_expanded_without_changing_words(
     before = deepcopy(frame)
     for expand in (False, True):
         screen = mv.render_grouped_frame(frame, color=True, unicode=False, width=180, expand=expand)
-        row = next(line for line in screen.splitlines() if line.startswith("cc "))
+        row = next(line for line in screen.splitlines() if line.lstrip().startswith("cc "))
         state_word = projection.upper() if expand else word
         if state_word == "INSUFFICIENT":
             state_word = "INSUFF"
@@ -246,7 +252,7 @@ def test_compact_colour_precedence_matches_expanded_without_changing_words(
         else:
             assert f"\x1b[{code}m{state_word}\x1b[0m" in row
             assert f"\x1b[{code}m^\x1b[0m" in row
-            assert f"\x1b[{code}m[" in row
+            assert (f"\x1b[{code}m[" in row) == expand  # #374: the bar is --expand only
     assert frame == before
 
 
@@ -286,6 +292,10 @@ def test_na_root_is_a_dim_full_row(expand: bool, monkeypatch: pytest.MonkeyPatch
     frame["groups"]["capacity"]["data"]["observations"][0].update(
         state="ABSENT", reason="not reported by provider", measurements=None)
     screen = mv.render_grouped_frame(frame, color=True, width=180, expand=expand)
+    if not expand:  # #374: the compact POOLS row dims its STATE cell, like every other state colour
+        row = next(line for line in screen.splitlines() if "C-5H" in line)
+        assert "\x1b[2mn/a\x1b[0m" in row and "not reported" in row
+        return
     row = next(line for line in screen.splitlines() if "C-5H" in line and "not reported" not in line)
     assert row.startswith("\x1b[2mcc ") and row.endswith("\x1b[0m")
 
@@ -298,7 +308,7 @@ def test_pace_glyph_uses_row_colour_and_missing_pace_stays_dash(expand: bool, mo
     item["measurements"]["remaining_fraction"] = .5
     colored = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
     assert "\x1b[32m▼\x1b[0m-" in colored
-    assert "\x1b[32m[" in colored
+    assert ("\x1b[32m[" in colored) == expand  # #374: the bar is --expand only
     item["projection"].pop("pace_pt")
     assert "▼" not in "\n".join(pool_lines(mv.render_grouped_frame(frame, color=True, width=180, expand=expand)))
     monkeypatch.setenv("NO_COLOR", "1")
@@ -358,7 +368,7 @@ def test_tree_height_sweep_keeps_bounds_and_never_shows_child_without_parent(exp
     assert frame == before
 
 
-@pytest.mark.parametrize("expand", [False, True])
+@EXPAND_ONLY
 def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool) -> None:
     frame = frame_for({"cc.a": ["C-7D", "C-5H"]})
     observations = frame["groups"]["capacity"]["data"]["observations"]
@@ -374,6 +384,16 @@ def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool) -> N
     assert all("`-" not in row and "|-" not in row for row in rows)
     assert "20%" in rows[1] and "87%" in rows[2]
     assert frame == before
+    compact = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180)  # each keeps its own value
+    assert "20%" in compact and "87%" in compact and "10%" in compact
+
+
+def test_compact_pools_have_no_blank_lines_between_peers() -> None:
+    frame = frame_for({"cc.a": ["C-5H", "C-7D"]})
+    rows = frame["groups"]["capacity"]["data"]["observations"]
+    rows.extend([{**item, "peer_id": "cx", "pool_ref": item["pool_ref"].replace("cc:C", "cx:X")} for item in rows[:]])
+    screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100)
+    assert "\n\n" not in screen and all(pool in screen for pool in ("C-7D", "C-5H", "X-7D", "X-5H"))
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -447,5 +467,7 @@ def test_tiny_heights_never_overflow_and_announce_cuts_when_a_line_fits(height: 
     screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=height, expand=True)
     lines = screen.splitlines()
     assert len(lines) < max(height, 2)  # the cursor line stays free; height 1 renders nothing rather than overflow
-    if height >= 2:
+    if height == 2:  # #374: --expand starts with the verdict line; one line holds only that
+        assert lines == ["OK? (alerts not read)"]
+    if height >= 3:
         assert "rows hidden" in screen

@@ -251,13 +251,16 @@ def test_grouped_monitor_frame_uses_one_read_only_snapshot_and_at_most_six_selec
     harness.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
     statements: list[str] = []
     frame = render_monitor_frame(harness.db_path,
-                                 ["overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"],
+                                 ["overview", "activity", "execution", "sessions", "usage", "context", "capacity", "runtime",
+                                  "coverage", "store"],
                                  read_at=2000.0, trace_callback=statements.append)
     select_statements = [statement for statement in statements if statement.lstrip().upper().startswith(("SELECT", "WITH"))]
     assert len(select_statements) == frame["query_families"] <= 6
     assert frame["status"] == "PARTIAL"
     assert frame["groups"]["capacity"]["status"] == "ERROR"
-    assert set(frame["groups"]) == {"overview", "execution", "sessions", "usage", "context", "capacity", "runtime", "coverage", "store"}
+    assert frame["groups"]["activity"]["status"] == "OK"
+    assert set(frame["groups"]) == {"overview", "activity", "execution", "sessions", "usage", "context", "capacity", "runtime",
+                                    "coverage", "store"}
     assert frame["groups"]["sessions"]["data"]["retained_sessions_by_peer"]["b"] == {
         "value": 1, "complete": True, "reason": None
     }
