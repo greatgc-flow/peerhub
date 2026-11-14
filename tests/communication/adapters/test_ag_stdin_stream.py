@@ -1018,6 +1018,8 @@ def _denied_only_mentioned() -> str:
     listed = events[-1]["result"].pop("denied_actions")
     events[3]["step_update"]["tool_info"]["denied_actions"] = listed
     events[4]["step_update"]["denied_actions"] = listed
+    events[4]["denied_actions"] = listed
+    events[0]["denied_actions"] = listed
     events[2]["step_update"]["text_delta"] = json.dumps({"denied_actions": listed})
     return _nd(events)
 
@@ -1034,10 +1036,21 @@ def test_e_d_mentions_outside_the_terminal_result_never_produce_names(kit, tmp_p
     assert "denied_actions" not in out
 
 
-def test_e_e_names_come_from_the_top_level_or_the_terminal_result_only():
+def test_e_e_names_come_from_a_flat_object_only():
+    # The stream transport hands over the validated terminal's `result.denied_actions` as one flat object (#371).
     flat = '{"response":"","denied_actions":[{"action":"command"},{"action":"edit"}]}'
-    nested = _nd(_denied_events())
     assert base.denied_action_names(flat) == ["command", "edit"]
-    assert base.denied_action_names(nested) == ["command"]
-    not_terminal = {"event": "step_update", "result": {"denied_actions": [{"action": "command"}]}}
-    assert base.denied_action_names(json.dumps(not_terminal)) == []
+    listed = [{"action": "command"}]
+    for event in ({"event": "step_update", "denied_actions": listed}, {"event": "init", "denied_actions": listed},
+                  {"event": "result", "result": {"denied_actions": listed}}):
+        assert base.denied_action_names(json.dumps(event)) == []
+
+
+def test_e_f_a_line_separator_in_the_terminal_event_keeps_the_names(kit):
+    events = _denied_events()
+    events[-1]["result"]["denied_actions"][0]["display_name"] = "Ba sh \x85"
+    stdout = "".join(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n" for event in events)
+    assert len(stdout.splitlines()) == len(events) + 3  # str.splitlines would cut the terminal line three times
+    kind, payload = _drain(kit.replay(stdout), "run the probe")[-1]
+    assert kind == "terminal" and payload["response"] == "" and payload["denied_actions"] == ["command"]
+    assert "ag_stream_validation" not in payload
