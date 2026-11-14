@@ -209,7 +209,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser.add_argument("-p", "--profile", help="Explicit Runtime Target profile; model/effort override its defaults")
     ask_parser.add_argument("--writable", action="store_true", help="Let the peer write files in the workspace (default: read-only)")
     ask_parser.add_argument("--timeout-seconds", type=float, default=600,
-                            help="Abort after this many seconds (default 600); long implementer/review asks need 1800-3600, ag up to 7200")
+                            help="Abort after this many seconds (default 600); long asks: 1800-3600, ag up to 7200")
     ask_parser.add_argument("--silence-timeout-seconds", type=float, default=None,
                             help="Abort after this many seconds without stdout/stderr; execution remains uncertain")
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)

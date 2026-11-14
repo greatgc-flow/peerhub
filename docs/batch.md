@@ -47,6 +47,7 @@ manifests/options. Argparse syntax errors exit 2. Omit `--json` for a compact ta
 `--responses` (opt-in, since 0.24.13) adds each COMPLETED task's reply: a `response`
 field with `--json`, or a `--- TASK reply ---` block after the table. Failed, uncertain
 and other non-COMPLETED tasks get no reply text; `--dry-run --responses` shows none.
+A reply may itself contain a `--- ... reply ---` line, so use `--json` for machine parsing.
 Without the flag the output is unchanged; read a reply with
 `peerhub record read --stream <stream> --json`.
 

@@ -271,17 +271,22 @@ def test_ag_wait_reset_precedes_consent_policy(store, remaining, action):
     assert rep["pools"]["quota:cx:P"]["reset_in"] == 3588
 
 
-def test_ag_exhausted_without_reset_keeps_consent_policy_and_cx_unchanged(store):
+def test_ag_exhausted_without_reset_keeps_consent_policy_and_cx_cc_unchanged(store):
     _ag_store(store)
-    _set_pool(store, 0, None)
+    config = store[1] / ".peerhub/config/models.toml"
+    with config.open("a", encoding="utf-8", newline="\n") as f:
+        f.write('\n[profiles."cc.standard"]\npools=["quota:cx:P"]\npools_source="measured"\nmodel="test-model"\n')
     delivery(store, profile="cx.effort")
+    delivery(store, profile="cc.standard")
+    names = ("cx.effort", "cc.standard")
+    _set_pool(store, 0, None)
     rep = report(store)
     assert profile(rep, "ag.standard")["action"] == "ask_delivery_failed"
-    assert profile(rep, "cx.effort")["action"] == "inspect_facts"
+    assert [profile(rep, n)["action"] for n in names] == ["inspect_facts"] * 2
     _set_pool(store, 0, T0 + 3600)
-    assert profile(report(store), "cx.effort")["action"] == "wait_reset"
+    assert [profile(report(store), n)["action"] for n in names] == ["wait_reset"] * 2
     _set_pool(store, .5, T0 + 3600)
-    assert profile(report(store), "cx.effort")["action"] is None
+    assert [profile(report(store), n)["action"] for n in names] == [None] * 2
 
 
 def test_readonly_determinism_and_batch_query_bound(store, monkeypatch):
