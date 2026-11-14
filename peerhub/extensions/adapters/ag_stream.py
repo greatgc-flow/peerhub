@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import math
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 MAX_STREAM_BYTES = 1_048_576
 MAX_EVENT_BYTES = 262_144
@@ -200,3 +200,68 @@ def parse_ag_stream_json(text: str) -> dict[str, Any]:
         return _unknown("step_unfinished")
     return {"complete": True, "reason": None, "result": result_facts,
             "steps": [steps_by_index[index] for index in sorted(steps_by_index)]}
+
+
+def encode_user_line(prompt: str) -> bytes:
+    """The one stdin message of `agy --input-format stream-json`: pure ASCII, one trailing newline, then EOF."""
+    message = {"event": "user", "message": {"role": "user", "content": prompt}}
+    return json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode("ascii") + b"\n"
+
+
+def terminal_result(stdout: bytes) -> dict[str, Any]:
+    """Observe the terminal event of a captured stream: `complete`, `absent` (no terminal) or `invalid`.
+
+    Only `absent` means no terminal was observed; every other validator failure is `invalid`. For SUCCESS only,
+    `result.response` is returned as found (the caller requires a string); no other field is read by name except
+    the validated conversation id.
+    """
+    observed: dict[str, Any] = {"observation": "invalid", "reason": None, "status": None, "usage": None,
+                                "conversation_id": None, "terminal_line": None, "response": None}
+    try:
+        text = stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        return {**observed, "reason": "invalid_encoding"}
+    if not text.strip():
+        return {**observed, "observation": "absent", "reason": "no_output"}
+    facts = parse_ag_stream_json(text)
+    if not facts["complete"]:
+        return {**observed, "observation": "absent" if facts["reason"] == "missing_result" else "invalid",
+                "reason": facts["reason"]}
+    terminal_line = [line for line in text.split("\n") if line.strip()][-1]
+    result = cast(dict[str, Any], json.loads(terminal_line)["result"])
+    status = facts["result"]["status"]
+    return {**observed, "observation": "complete", "status": status, "usage": facts["result"].get("usage"),
+            "conversation_id": result.get("conversation_id"), "terminal_line": terminal_line,
+            "response": result.get("response") if status == "SUCCESS" else None}
+
+
+class QuotaMatch(NamedTuple):
+    reason: str
+    reset_time: str | None
+    reset_phrase: str | None
+    line: str
+
+
+def terminal_quota(terminal_line: str) -> QuotaMatch | None:
+    """First quota or usage-limit line among every string (keys and values) of one validated terminal event.
+
+    Full lines are classified before anything is shortened; the reset and its phrase come from the same match.
+    """
+    from peerhub.extensions.adapters.base import classify_refusal_text, reset_match
+
+    stack: list[object] = [json.loads(terminal_line)]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, str):
+            for line in node.splitlines():
+                refusal = classify_refusal_text(line)
+                if refusal is not None and refusal["reason"] in ("quota_exhausted", "usage_limit"):
+                    m = reset_match(line)
+                    return QuotaMatch(refusal["reason"], m.group(1).strip() if m else None, m.group(0) if m else None, line)
+        elif isinstance(node, dict):
+            for key, value in reversed(list(cast(dict[str, Any], node).items())):
+                stack.append(value)
+                stack.append(key)
+        elif isinstance(node, list):
+            stack.extend(reversed(cast(list[Any], node)))
+    return None

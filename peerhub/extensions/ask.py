@@ -49,7 +49,8 @@ def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row, peer_
                   "empty_response", "task_effects", "denied_actions", "env_scrubbed") if key in stored})
     for _kind, detail in conn.execute("SELECT kind,detail FROM bridge_evidence WHERE delivery_id=? AND kind IN ('terminal','refusal_detected','execution_metadata') ORDER BY seq", (delivery["delivery_id"],)):
         data = json.loads(detail)
-        for key in ("effective_mode", "fallback_reason", "injected_record_ids", "output_truncated", "display_truncated", "reason", "refusal_reason", "reset_time", "resets_at", "message", "empty_response", "task_effects", "denied_actions", "env_scrubbed"):
+        for key in ("effective_mode", "fallback_reason", "injected_record_ids", "output_truncated", "display_truncated", "reason", "refusal_reason", "reset_time", "resets_at", "message", "empty_response", "task_effects", "denied_actions", "env_scrubbed",
+                    "ag_transport", "ag_transport_source", "ag_cli_version"):
             if key in data:
                 result[key] = data[key]
     row = conn.execute("SELECT body_json,metadata_json FROM records WHERE record_id=?", (delivery["response_record_id"],)).fetchone()
