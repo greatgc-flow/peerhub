@@ -14,16 +14,17 @@ The ag prompt transport (#366 B1; design in #369: four versions, approved unanim
 
 ### Changed
 
-- `peerhub ask ag` sends the prompt over stdin as stream-json when the installed agy supports it (`--input-format` in `agy --help`, probed before every ask without a provider call; about 0.2 s). On that transport the Windows argv limit of 30,000 bytes (120,000 on POSIX) no longer applies: the prompt limit is 1,000,000 bytes, as for cc and cx. An agy without `--input-format` keeps the argv transport and its limits. If the probe cannot be read, the ask fails before submission (`failed_not_started`) instead of guessing. In 29 days of use, 15 ag asks had failed with "prompt too large".
+- `peerhub ask ag` sends the prompt over stdin as stream-json when the installed agy supports it (`--input-format` in `agy --help`; two probes without a provider call before every ask, `agy --version` and `agy --help`, the latter measured at about 0.2 s). On that transport the Windows argv limit of 30,000 bytes (120,000 on POSIX) no longer applies: the prompt limit is 1,000,000 bytes, as for cc and cx. An agy without `--input-format` keeps the argv transport and its limits. If the probe cannot be read, the ask fails before submission (`failed_not_started`) instead of guessing. In 29 days of use, 15 ag asks had failed with "prompt too large".
 - The transport is chosen once, before the process starts, and is never switched after a failure, so a prompt cannot be submitted twice. The delivery evidence and `peerhub ask --json` record `ag_transport` (`stream` or `argv`).
 - `PEERHUB_AG_TRANSPORT=argv` forces the argv transport (an escape hatch if a future agy changes its stream protocol). Unset or empty means automatic detection; any other value is refused before submission.
 - Stream failures fail closed: an incomplete, truncated or non-SUCCESS stream, an incomplete stdin write, or a SUCCESS result without a text response ends `uncertain`. Quota text ("Individual quota reached") is classified from the terminal event of a non-SUCCESS stream, or from stderr only when no terminal event was observed; a SUCCESS stream never sets `provider_limit`.
-- A prompt that contains a lone surrogate is refused before submission.
+- An ag prompt that contains a lone surrogate is refused before submission.
 - On the stream transport, delivery is decided from the stream framing and the terminal `result` only (init first, one conversation id, exactly one result and it is last, a known status, a string response for SUCCESS). Step events never change the outcome: a live canary on agy 1.5.9 showed that a resumed conversation emits a `system_message` step, which an earlier draft rejected. `system_message` is now a known step type. When the full validator does not accept a delivered stream, the usage of that delivery is recorded as unknown, and the evidence field `ag_stream_validation` holds the reason and up to 5 sanitized unknown step type names with their count.
 
 ### Fixed
 
 - #367: `BoundedProcess.wait` returns within its bound when a process-tree kill fails and the surviving child keeps the pipes open. The waiting thread no longer closes stdout or stderr while their drain threads are alive, and it never closes or joins stdin while the writer is alive. The result keeps `termination_confirmed=False`.
+- Documentation defects found by the shipped-tag check of v0.24.13: `docs/STATUS.md` names the open items and the LATER list of the survey; the release steps in `CONTRIBUTING.md` now cover waiting for `publish.yml`, the upgrade of the maintainer's venv and the shipped-tag check; the pyyaml release lesson no longer sends the whole suite to CI. `docs/adapters/ag.md` and the `ag.effort` profile card describe the stdin transport.
 
 
 ## [0.24.13] - 2026-11-14
