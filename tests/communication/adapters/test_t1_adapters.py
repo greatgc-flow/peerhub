@@ -448,6 +448,16 @@ def test_decode_stderr_windows_oem_cp949_claude_not_recognized_fixture(monkeypat
 
 
 
+def test_delivery_details_tolerate_execution_metadata_without_env_scrubbed(mk, bridge_h):
+    """#366 B1 test 21: an ag row carries the transport fields but no env_scrubbed (no account)."""
+    bseed(bridge_h)
+    result = bridge_h.delivery_cycle("b", "s", mk("ag"))
+    assert result.status == "delivered"
+    details = bridge_h.bridge.delivery_details(result.delivery_id)
+    assert "env_scrubbed" not in details
+    assert (details["ag_transport"], details["ag_transport_source"], details["ag_cli_version"]) == ("argv", "help", None)
+
+
 def test_ag_fail_closed_without_writable(mk):
     """#140: ag without writable=True fails closed with PrespawnError before spawning."""
     a = mk("ag", writable=False)

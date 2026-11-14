@@ -18,10 +18,12 @@ import sys
 import threading
 import uuid
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Sequence, cast
 
+from peerhub.extensions.adapters.ag_stream import QuotaMatch, encode_user_line, terminal_quota, terminal_result
 from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_S, BoundedProcess, ProcessResult,
                                                  SpawnFailure, check_argv, decode_stderr, run_bounded)
 if TYPE_CHECKING:
@@ -33,6 +35,7 @@ from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, Run
 
 MAX_PROMPT_BYTES = 1_000_000
 EXCERPT_CHARS = 300
+AG_LIMIT_SUMMARY_CHARS = 100  # the first line of an ag stream quota error: "<prefix> (<reset phrase>)"
 AG_REQUIRES_WRITABLE = (
     "ag execution requires --writable: agy CLI does not enforce a read-only sandbox when "
     "--mode accept-edits is omitted"
@@ -180,9 +183,14 @@ _RESET_AT_TIME_RE = re.compile(r"(?:try\s+again\s+at|resets?(?:\s+at)?)\s+([0-9]
 _RESET_AT_ISO_RE = re.compile(r"(?:resets?\s+at|try\s+again\s+at)\s+([0-9]{4}-[0-9]{2}-[0-9]{2}T[^\s,.]+)", re.IGNORECASE)
 
 
+def reset_match(text: str) -> re.Match[str] | None:
+    """The first reset match in priority order (in, at time, at ISO); group(1) is the reset, group(0) its phrase."""
+    return _RESET_IN_RE.search(text) or _RESET_AT_TIME_RE.search(text) or _RESET_AT_ISO_RE.search(text)
+
+
 def extract_reset_time(text: str) -> str | None:
     """Return provider reset text verbatim, without timezone or rollover inference."""
-    m = _RESET_IN_RE.search(text) or _RESET_AT_TIME_RE.search(text) or _RESET_AT_ISO_RE.search(text)
+    m = reset_match(text)
     return m.group(1).strip() if m else None
 
 
@@ -886,6 +894,21 @@ class AgSpec(ProviderSpec):
             a += ["--conversation", vendor_session_id]
         return a
 
+    @staticmethod
+    def stream_argv(model: str | None, effort: str | None, writable: bool = False,
+                    vendor_session_id: str | None = None) -> list[str]:
+        """The prompt travels on stdin as one stream-json user line; `-p` consumes the next argument, hence `-p=`."""
+        a = ["--input-format", "stream-json", "--output-format", "stream-json"]
+        if model:
+            a += ["--model", model]
+        if effort:
+            a += ["--effort", effort]
+        if writable:
+            a += ["--mode", "accept-edits"]
+        if vendor_session_id is not None:
+            a += ["--conversation", vendor_session_id]
+        return [*a, "-p="]
+
     def parse(self, stdout: str) -> str:
         try:
             v: object = json.loads(stdout.strip())  # strict: the WHOLE stdout is exactly one flat JSON object (no scanning for fragments)
@@ -937,6 +960,110 @@ def resolve_binary(spec: ProviderSpec) -> list[str] | None:
                     return direct
             return [p]
     return None
+
+
+AG_TRANSPORT_ENV = "PEERHUB_AG_TRANSPORT"
+_AG_PROBE_TIMEOUT_S = 10.0
+_AG_TRANSPORT_CACHE: dict[tuple[str, int, int, str], str] = {}  # process-local; undetermined is never cached
+_AG_TRANSPORT_LOCK = threading.Lock()
+
+
+@dataclass(frozen=True)
+class AgTransport:
+    transport: str  # stream | argv | undetermined | invalid_config
+    source: str  # env | help
+    version: str | None
+    error: str | None = None
+
+    def metadata(self) -> dict[str, Any]:
+        return {"ag_transport": self.transport, "ag_transport_source": self.source, "ag_cli_version": self.version}
+
+
+def _probe_cli(base: list[str], args: list[str], *, env: Mapping[str, str], cwd: str, timeout_s: float,
+               max_bytes: int) -> ProcessResult:
+    """A 0-token CLI probe (`--version`, `--help`), shared by discover() and ag transport detection."""
+    return run_bounded([*base, *args], stdin=None, cwd=cwd, env=env, timeout_s=timeout_s, max_bytes=max_bytes)
+
+
+def _probe_failure(probe: str, r: ProcessResult) -> str | None:
+    # output_truncated covers stderr too: the help text is read from both streams.
+    for flag in ("timed_out", "silence_timed_out", "aborted", "stdout_truncated", "output_truncated", "drain_timed_out"):
+        if getattr(r, flag):
+            return f"{probe} {flag}"
+    return None if r.returncode == 0 else f"{probe} exit {r.returncode}"
+
+
+def _detect_ag_transport(base: list[str], env: Mapping[str, str], cwd: str) -> AgTransport:
+    """`stream` when `agy --help` documents stream-json input, `argv` when it lacks --input-format; else undetermined."""
+    def undetermined(why: str, version: str | None = None) -> AgTransport:
+        return AgTransport("undetermined", "help", version, f"cannot determine agy stdin support: {why}")
+
+    def probe(arg: str) -> ProcessResult | str:
+        try:
+            r = _probe_cli(base, [arg], env=env, cwd=cwd, timeout_s=_AG_PROBE_TIMEOUT_S, max_bytes=DEFAULT_MAX_BYTES)
+        except SpawnFailure as e:
+            return f"{arg} could not start ({e})"
+        return _probe_failure(arg, r) or r
+
+    v = probe("--version")
+    if isinstance(v, str):
+        return undetermined(v)
+    first = decode_stderr(v.stdout or v.stderr).strip().splitlines()[:1]
+    m = _VERSION_RE.search(first[0]) if first else None
+    if m is None:
+        return undetermined("--version printed no version")
+    version = m.group(0)
+    try:
+        real = os.path.normcase(os.path.realpath(base[0]))
+        st = os.stat(real)
+    except OSError:
+        return undetermined("cannot identify the agy executable", version)
+    key = (real, st.st_size, st.st_mtime_ns, version)
+    with _AG_TRANSPORT_LOCK:
+        cached = _AG_TRANSPORT_CACHE.get(key)
+    if cached is not None:
+        return AgTransport(cached, "help", version)
+    h = probe("--help")
+    if isinstance(h, str):
+        return undetermined(h, version)
+    text = (h.stdout + h.stderr).decode("utf-8", "replace")
+    if "--input-format" not in text:
+        transport = "argv"
+    elif "stream-json" in text:
+        transport = "stream"
+    else:
+        return undetermined("--help lists --input-format without stream-json", version)
+    with _AG_TRANSPORT_LOCK:
+        _AG_TRANSPORT_CACHE[key] = transport
+    return AgTransport(transport, "help", version)
+
+
+_AG_LIMIT_SUMMARY = {"quota_exhausted": "Individual quota reached", "usage_limit": "usage limit reached"}
+
+
+def _limit_evidence(text: str) -> tuple[str, str | None] | None:
+    """The two steps of `cli.app._provider_limit`: the first limit line gives the reason, the whole text the reset."""
+    for line in text.splitlines():
+        r = classify_refusal_text(line.split(": ", 1)[1] if line.startswith(("ag exited", "cx exited", "cc exited")) else line)
+        if r is not None and r["reason"] in ("quota_exhausted", "usage_limit"):
+            return r["reason"], extract_reset_time(text)
+    return None
+
+
+def _ag_quota_error(match: QuotaMatch, status: str, returncode: int | None, san: Sanitizer) -> str:
+    """Summary (with the verbatim reset phrase), bounded excerpt of the matched line, status; re-parsed to prove it."""
+    prefix = _AG_LIMIT_SUMMARY[match.reason]
+    # " )" keeps a closing parenthesis out of a reset that ends in a run of non-space characters (the ISO pattern).
+    candidates = [san.clean(f"{prefix} ({match.reset_phrase}{end}") for end in (")", " )")] if match.reset_phrase else []
+    summary = next((c for c in candidates if len(c) <= AG_LIMIT_SUMMARY_CHARS
+                    and _limit_evidence(c) == (match.reason, match.reset_time)), san.clean(prefix))
+    excerpt = san.clean(match.line, EXCERPT_CHARS - len(summary) - 1 - len("...[truncated]"))
+    status_line = f"ag stream result {status} (exit {returncode})"
+    for lines in ((summary, excerpt, status_line), (summary, status_line)):
+        text = "\n".join(lines)
+        if _limit_evidence(text) == (match.reason, match.reset_time):
+            return text
+    return "\n".join((san.clean(prefix), status_line))
 
 
 class CliRuntimeTarget:
@@ -999,6 +1126,7 @@ class CliRuntimeTarget:
         self.env_scrubbed: list[str] = []
         self._san = Sanitizer(secrets=[*env_secrets(merged), *self._extra_secrets])
         self.evidence: deque[dict[str, Any]] = deque(maxlen=100)  # sanitized and bounded
+        self._ag_transport: AgTransport | None = None  # decided before submission, consumed by the next delivery
 
     @property
     def _env(self) -> dict[str, str]:
@@ -1023,7 +1151,27 @@ class CliRuntimeTarget:
                                       *self._extra_secrets, *path_secrets(str(snapshot.root_realpath))])
 
     def execution_metadata(self) -> dict[str, Any]:
-        return {"env_scrubbed": list(self.env_scrubbed)} if self._account is not None else {}
+        metadata: dict[str, Any] = {"env_scrubbed": list(self.env_scrubbed)} if self._account is not None else {}
+        if self.runtime_kind == "ag":
+            try:
+                decision = self._ag_transport_decision()
+            except Exception as e:  # evidence must never fail the delivery; the decision fails it closed instead
+                decision = AgTransport("undetermined", "help", None, f"cannot determine agy stdin support: {type(e).__name__}")
+            self._ag_transport = decision
+            metadata.update(decision.metadata())
+        return metadata
+
+    def _ag_transport_decision(self) -> AgTransport:
+        """PEERHUB_AG_TRANSPORT=argv forces argv; unset or empty detects; anything else is a configuration error."""
+        forced = self._env.get(AG_TRANSPORT_ENV)
+        if forced == "argv":
+            return AgTransport("argv", "env", None)
+        if forced:
+            return AgTransport("invalid_config", "env", None, f"{AG_TRANSPORT_ENV} must be unset, empty or 'argv'")
+        base = self._base()
+        if base is None:
+            return AgTransport("undetermined", "help", None, f"cannot determine agy stdin support: {self._spec.binary} executable not found")
+        return _detect_ag_transport(base, self._env, self._workspace)
 
     @property
     def can_resume(self) -> bool:
@@ -1045,12 +1193,46 @@ class CliRuntimeTarget:
         base = self._base()
         if base is None:
             raise SpawnFailure(f"{self._spec.binary} executable not found")
-        return run_bounded([*base, *args], stdin=None, cwd=self._workspace, env=self._env,
-                           timeout_s=timeout_s, max_bytes=self._max_bytes)
+        return _probe_cli(base, args, env=self._env, cwd=self._workspace, timeout_s=timeout_s, max_bytes=self._max_bytes)
 
     @staticmethod
     def _text(b: bytes, san: Sanitizer, limit: int = EXCERPT_CHARS) -> str:
         return san.clean(decode_stderr(b), limit)
+
+    def _ag_stream_stdout(self, res: ProcessResult, san: Sanitizer, payload_len: int) -> tuple[str, dict[str, Any] | None]:
+        """Decide an exited ag stream delivery (design v4 §3.5 rows 4-12, decision D of #369).
+
+        Returns the flat stdout of a delivered SUCCESS and the validator's telemetry verdict (None when complete).
+        Only a terminal event with no terminal observed (`absent`) and a non-zero exit reaches stderr classification.
+        Every other failure line starts with `ag stream` or `ag stdin` and carries stderr flattened to one line,
+        so no anchored limit pattern can match it. A non-string SUCCESS response is `invalid` (row 5).
+        """
+        rc = res.returncode
+        flat = " ".join(self._text(res.stderr, san).split())
+        tail = f" (exit {rc}); stderr: {flat}"
+
+        def fail(message: str) -> RuntimeTargetError:
+            return RuntimeTargetError(message, termination_confirmed=res.termination_confirmed)
+
+        if res.stdout_truncated:
+            raise fail("ag stream incomplete (stdout_truncated)" + tail)
+        term = terminal_result(res.stdout)
+        if term["observation"] == "invalid":
+            raise fail(f"ag stream invalid ({term['reason']})" + tail)
+        if term["observation"] == "absent":
+            if rc != 0:
+                raise fail(f"ag exited {rc}: " + self._text(res.stderr, san))
+            raise fail(f"ag stream incomplete ({term['reason']})" + tail)
+        status = term["status"]
+        if status != "SUCCESS":
+            match = terminal_quota(term["terminal_line"])
+            raise fail(f"ag stream result {status}" + tail if match is None else _ag_quota_error(match, status, rc, san))
+        if rc != 0:
+            raise fail(f"ag stream SUCCESS but exited {rc}; stderr: {flat}")
+        if res.stdin_state != "complete":
+            raise fail(f"ag stdin write incomplete ({res.stdin_state}, {res.stdin_bytes_written}/{payload_len})" + tail)
+        flat_stdout = json.dumps({"response": term["response"], "conversation_id": term["conversation_id"], "usage": term["usage"]})
+        return flat_stdout, term["validation"]
 
     def validate_execution_policy(self) -> None:
         """Fail closed before execution when the provider CLI cannot enforce the requested write policy (#140)."""
@@ -1168,7 +1350,17 @@ class CliRuntimeTarget:
         san = self._san.with_prompt(prompt)
         # ---- genuine pre-spawn failures: nothing was created
         self.validate_execution_policy()
-        n_bytes, limit = len(prompt.encode("utf-8")), min(MAX_PROMPT_BYTES, self._spec.max_prompt_bytes)
+        stream = False
+        if self.runtime_kind == "ag":
+            surrogate = next((i for i, ch in enumerate(prompt) if "\ud800" <= ch <= "\udfff"), None)
+            if surrogate is not None:
+                raise PrespawnError(f"prompt contains a lone surrogate at index {surrogate}")
+            decision, self._ag_transport = self._ag_transport or self._ag_transport_decision(), None
+            if decision.transport not in ("stream", "argv"):
+                raise PrespawnError(san.clean(decision.error or "cannot determine agy stdin support", EXCERPT_CHARS))
+            stream = decision.transport == "stream"
+        n_bytes = len(prompt.encode("utf-8"))
+        limit = MAX_PROMPT_BYTES if stream else min(MAX_PROMPT_BYTES, self._spec.max_prompt_bytes)
         if n_bytes > limit:
             raise PrespawnError(f"prompt is {n_bytes} bytes, exceeding the {self.runtime_kind} inline limit of {limit} bytes "
                                 f"(catch-up history is never truncated silently; lower the catch-up budget)")
@@ -1179,7 +1371,12 @@ class CliRuntimeTarget:
             raise PrespawnError(f"{self._spec.binary} executable not found")
         with self._active_lock:
             vendor_session_id = self._resume_sessions.get(external_session_id)
-        argv = [*base, *self._spec.argv(self._model, self._effort, prompt, self._writable, vendor_session_id)]
+        if stream:
+            argv = [*base, *AgSpec.stream_argv(self._model, self._effort, self._writable, vendor_session_id)]
+            stdin_payload: bytes | None = encode_user_line(prompt)
+        else:
+            argv = [*base, *self._spec.argv(self._model, self._effort, prompt, self._writable, vendor_session_id)]
+            stdin_payload = prompt.encode("utf-8") if self._spec.stdin_prompt else None
         try:
             check_argv(argv)
         except ValueError as e:
@@ -1240,6 +1437,10 @@ class CliRuntimeTarget:
                                     text = "".join(parts)
                         elif not emitted and event.get("type") == "result" and event.get("is_error") is False:
                             text = event.get("result")
+                    elif self.runtime_kind == "ag" and stream:
+                        result_obj = event.get("result") if event.get("event") == "result" else None
+                        if isinstance(result_obj, dict) and cast("dict[str, Any]", result_obj).get("status") == "SUCCESS":
+                            text = cast("dict[str, Any]", result_obj).get("response")
                     elif self.runtime_kind == "ag" and event.get("is_error") not in (True,):
                         text = event.get("response")
                     if isinstance(text, str) and text and self._on_output is not None:
@@ -1284,10 +1485,10 @@ class CliRuntimeTarget:
                     proc.mark_display_truncated()
 
 
-        proc = BoundedProcess(argv, stdin=prompt.encode("utf-8") if self._spec.stdin_prompt else None, cwd=self._workspace,
+        proc = BoundedProcess(argv, stdin=stdin_payload, cwd=self._workspace,
                               env=self._env, timeout_s=self._timeout_s, max_bytes=self._max_bytes,
                               silence_timeout_s=self._silence_timeout_s,
-                              on_stdout=parser.feed,
+                              on_stdout=None if stream else parser.feed,
                               on_display=display_callback if self._on_output is not None else None)
         try:
             # Publish only after spawn; serialize registration with external cancellation.
@@ -1342,6 +1543,9 @@ class CliRuntimeTarget:
         if res.parser_failed or parser.parser_failed:
             raise RuntimeTargetError(f"{self.runtime_kind} parser failed during output drain; outcome indeterminate",
                                      termination_confirmed=res.termination_confirmed)
+        raw_text = res.stdout.decode("utf-8", "replace")
+        stdout_text, stream_validation = (self._ag_stream_stdout(res, san, len(stdin_payload or b"")) if stream
+                                          else (raw_text, None))
         refusal: dict[str, Any] | None = None
         if (not parser.has_tool_calls and not parser.has_success
                 and not parser.refusal_evidence_incomplete and parser.oversized_count == 0):
@@ -1379,7 +1583,7 @@ class CliRuntimeTarget:
                         raise ValueError("ag output is not a well-formed top-level object")
                 text = parser.parse()
             else:
-                text = self._spec.parse(res.stdout.decode("utf-8", "replace"))
+                text = self._spec.parse(stdout_text)
         except ValueError as e:
             err_msg = str(e)
             if parser.terminal_error_summary:
@@ -1394,7 +1598,7 @@ class CliRuntimeTarget:
         if not cleaned_response.strip():
             payload["empty_response"] = True
             payload["task_effects"] = "unverified"
-            denied = denied_action_names(res.stdout.decode("utf-8", "replace")) if self.runtime_kind == "ag" else []
+            denied = denied_action_names(raw_text) if self.runtime_kind == "ag" else []
             if denied:
                 payload["denied_actions"] = denied
         if self.runtime_kind == "cc":
@@ -1409,22 +1613,25 @@ class CliRuntimeTarget:
                 usage = parser.parse_usage()
                 vendor_session_id = parser.parse_session_id()
             else:
-                usage = self._spec.parse_usage(res.stdout.decode("utf-8", "replace"))
-                vendor_session_id = self._spec.parse_session_id(res.stdout.decode("utf-8", "replace"))
+                usage = self._spec.parse_usage(stdout_text)
+                vendor_session_id = self._spec.parse_session_id(stdout_text)
         else:
-            usage = self._spec.parse_usage(res.stdout.decode("utf-8", "replace"))
-            vendor_session_id = self._spec.parse_session_id(res.stdout.decode("utf-8", "replace"))
+            usage = self._spec.parse_usage(stdout_text)
+            vendor_session_id = self._spec.parse_session_id(stdout_text)
         if parser.oversized_count:
             payload["oversized_event_count"] = parser.oversized_count
         if display_truncated:
             payload["display_truncated"] = True
         if usage is not None:
             payload["usage"] = usage
-        telemetry_text = res.stdout.decode("utf-8", "replace")
         from peerhub.extensions.adapters.telemetry import parse_provider_usage, unknown_usage
         payload["provider_telemetry"] = (
             unknown_usage("output_incomplete") if res.stdout_truncated or parser.truncated
-            else parse_provider_usage(self.runtime_kind, telemetry_text))
+            else parse_provider_usage(self.runtime_kind, stdout_text))
+        if stream_validation is not None:  # decision D3 (#369): delivered, but usage is not derived from such a stream
+            payload.pop("usage", None)
+            payload["provider_telemetry"] = unknown_usage(stream_validation["reason"])
+            payload["ag_stream_validation"] = stream_validation
         if vendor_session_id is not None:
             source = {"cc": "cc.result.session_id", "cx": "cx.thread.started",
                       "ag": "ag.conversation_id"}[self.runtime_kind]

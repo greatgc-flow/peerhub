@@ -1442,8 +1442,9 @@ class Bridge:
                             conn.execute("UPDATE bridge_session_history SET bootstrap_truncated=? WHERE stream_id=? AND peer_id=? AND session_generation=?",
                                          (int(provenance["bootstrap_truncated"]), token.stream_id, token.peer_id, row["session_generation"]))
                     term_detail: dict[str, Any] = dict(digest=dig, **native)
-                    if "env_scrubbed" in result:
-                        term_detail["env_scrubbed"] = result["env_scrubbed"]
+                    for key in ("env_scrubbed", "ag_stream_validation"):
+                        if key in result:
+                            term_detail[key] = result[key]
                     if result.get("output_truncated"):
                         term_detail["output_truncated"] = True
                     if result.get("display_truncated"):
@@ -1510,7 +1511,9 @@ class Bridge:
             for kind, detail in conn.execute("SELECT kind, detail FROM bridge_evidence WHERE delivery_id=? ORDER BY seq", (delivery_id,)):
                 data = json.loads(detail)
                 if kind == "execution_metadata":
-                    out["env_scrubbed"] = data["env_scrubbed"]
+                    for key in ("env_scrubbed", "ag_transport", "ag_transport_source", "ag_cli_version"):
+                        if key in data:
+                            out[key] = data[key]
                 if kind == "terminal":
                     if "effective_mode" in data:
                         out.update({key: data[key] for key in ("effective_mode", "fallback_reason", "injected_record_ids")})
@@ -1518,6 +1521,8 @@ class Bridge:
                         out["output_truncated"] = data["output_truncated"]
                     if "display_truncated" in data:
                         out["display_truncated"] = data["display_truncated"]
+                    if "ag_stream_validation" in data:
+                        out["ag_stream_validation"] = data["ag_stream_validation"]
                 elif kind == "refusal_detected":
                     for key in ("task_outcome", "reason", "refusal_reason", "reset_time", "resets_at", "message", "termination_confirmed"):
                         if key in data:

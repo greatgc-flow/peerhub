@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -277,6 +278,95 @@ def test_abort_with_confirmed_kill(tmp_path, bridge_h):
     assert exited_note.get("termination_confirmed") is True
     term_note = next(e for e in target2.evidence if e["event"] == "terminated")
     assert term_note.get("termination_confirmed") is True
+
+
+class _BlockedPipe:
+    """read1 and raw.write block until released; close() during a blocked call is a #367 violation."""
+
+    def __init__(self, name: str, release: threading.Event, violations: list[str]) -> None:
+        self.name, self.release, self.violations = name, release, violations
+        self.busy = False
+        self.raw = self
+
+    def _block(self) -> None:
+        self.busy = True
+        try:
+            self.release.wait()
+        finally:
+            self.busy = False
+
+    def read1(self, n: int) -> bytes:
+        self._block()
+        return b""
+
+    def write(self, view) -> int:
+        self._block()
+        raise BrokenPipeError("released")
+
+    def close(self) -> None:
+        if self.busy:
+            self.violations.append(self.name)
+
+
+class _StuckPopen:
+    def __init__(self, returncode, release: threading.Event, violations: list[str]) -> None:
+        self.pid, self.returncode = 4242, returncode
+        self.stdin, self.stdout, self.stderr = (_BlockedPipe(n, release, violations) for n in ("stdin", "stdout", "stderr"))
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        if self.returncode is None:
+            raise subprocess.TimeoutExpired("stuck", timeout)
+        return self.returncode
+
+
+@pytest.mark.parametrize("returncode,after_kill", [(None, None), (None, 0), (0, None)],
+                         ids=["never-exits", "exits-0-after-failed-kill", "exits-0-on-its-own"])
+def test_failed_kill_with_blocked_pipes_is_bounded_and_never_closes_a_blocked_pipe(tmp_path, bridge_h, monkeypatch,
+                                                                                    returncode, after_kill):
+    """#366 B1 test 16 / #367: wait() is bounded by timeout + reap (10 s) + 5 s and never closes a pipe in use.
+
+    The kill always reports failure; `after_kill` is the exit code the main process then has (None: still running).
+    """
+    import peerhub.extensions.adapters.process as proc_module
+
+    def failed_kill(p):
+        p.returncode = after_kill
+        return False
+
+    release, violations = threading.Event(), []
+    monkeypatch.setattr(proc_module.subprocess, "Popen", lambda *a, **k: _StuckPopen(returncode, release, violations))
+    monkeypatch.setattr(proc_module, "kill_process_tree", failed_kill)
+    timeout_s = 0.5
+    bound = timeout_s + 10 + 5 + 2
+    ws = tmp_path / "ws_stuck"
+    ws.mkdir()
+    try:
+        t0 = time.monotonic()
+        res = BoundedProcess([PY, "-c", "pass"], stdin=b"prompt bytes", cwd=str(ws), env={}, timeout_s=timeout_s).start().wait()
+        assert time.monotonic() - t0 <= bound
+        assert res.drain_timed_out is True
+        assert res.timed_out is (returncode is None)
+        # A kill was attempted and failed: never confirmed, whether or not the main process then exited.
+        assert res.termination_confirmed is (False if returncode is None else None)
+        assert (res.stdin_state, res.stdin_bytes_written) == ("pending", 0)
+
+        target = CliRuntimeTarget("cc", ws, command=[PY, "-c", "pass"], timeout_s=timeout_s)
+        (rec,) = bseed(bridge_h)
+        t0 = time.monotonic()
+        result = bridge_h.delivery_cycle("b", "s", target)
+        assert time.monotonic() - t0 <= bound
+        assert (result.status, result.certainty) == ("uncertain", "STARTED")
+        details = [e["detail"] for e in bridge_h.execution_evidence(rec.record_id, "b")["events"]
+                   if e["kind"] in ("runtime_timeout", "runtime_error")]
+        assert details and all(d.get("termination_confirmed") is not True for d in details)
+        if returncode is None:
+            assert details[0]["termination_confirmed"] is False
+        assert violations == []
+    finally:
+        release.set()
 
 
 def test_runtime_port_dead_parent_taskkill_128_not_swallowed(monkeypatch):

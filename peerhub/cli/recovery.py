@@ -102,7 +102,7 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
         exit_code=1,
         guidance_code="ask_prompt_too_large / ask_launch_failed / ask_delivery_failed",
         meaning="Provider execution failed before starting (prompt limit, missing executable, OS spawn rejection or pre-spawn policy check).",
-        safe_action="For ask_prompt_too_large, split the prompt under the limit, or for an ag argv limit use cc/cx on a separate stream, with a new request-id; otherwise inspect peer adapter availability and PATH configuration via `peerhub diag health`.",
+        safe_action="For ask_prompt_too_large, split the prompt under the limit, or for an ag argv limit (an agy without stream-json input, or PEERHUB_AG_TRANSPORT=argv) use cc/cx on a separate stream, with a new request-id; otherwise inspect peer adapter availability and PATH configuration via `peerhub diag health`.",
     ),
     "not_executed": ResultStatusEntry(
         status="not_executed",
@@ -134,7 +134,7 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
                 "processed_status": "failed_not_started",
                 "guidance_code": "ask_prompt_too_large / ask_launch_failed / ask_delivery_failed",
                 "meaning": "Earlier record failed before execution started (prompt limit, missing executable or pre-spawn policy check).",
-                "safe_action": "For ask_prompt_too_large, split the prompt under the limit, or for an ag argv limit use cc/cx on a separate stream, with a new request-id; otherwise inspect provider binary and PATH configuration via peerhub diag health.",
+                "safe_action": "For ask_prompt_too_large, split the prompt under the limit, or for an ag argv limit (an agy without stream-json input, or PEERHUB_AG_TRANSPORT=argv) use cc/cx on a separate stream, with a new request-id; otherwise inspect provider binary and PATH configuration via peerhub diag health.",
             },
             {
                 "processed_status": "uncertain / blocked_uncertain",
@@ -293,10 +293,10 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_prompt_too_large": GuidanceEntry(
         code="ask_prompt_too_large",
         meaning="The prompt exceeds the provider inline byte limit; no provider process started.",
-        why="Every provider has a 1,000,000-byte inline maximum; ag passes the prompt in argv, so its limit is lower (30,000 bytes on Windows, 120,000 bytes on POSIX). The byte count includes injected catch-up history. cc/cx use stdin and only have the 1,000,000-byte maximum.",
+        why="Every provider has a 1,000,000-byte inline maximum and receives the prompt on stdin. Only ag on the argv transport (an agy without stream-json input, or PEERHUB_AG_TRANSPORT=argv) has a lower limit: 30,000 bytes on Windows, 120,000 bytes on POSIX. The byte count includes injected catch-up history.",
         recover=[{
             "argv": ["peerhub", "ask", "cc", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM_ID", "--request-id", "NEW_REQUEST_ID"],
-            "purpose": "split the prompt into parts under the limit (one ask each); for an ag argv limit, send it to cc/cx instead (stdin, 1,000,000-byte maximum) on a separate stream, since a stream belongs to one peer; if the prompt itself is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id",
+            "purpose": "split the prompt into parts under the limit (one ask each); for an ag argv limit (old agy or PEERHUB_AG_TRANSPORT=argv), send it to cc/cx instead (stdin, 1,000,000-byte maximum) on a separate stream, since a stream belongs to one peer; if the prompt itself is under the limit, catch-up history pushed it over, so start a new --stream; a changed prompt needs a new request-id",
             "prereqs": "Use the byte count and limit in the error detail; switching providers does not help above the shared 1,000,000-byte maximum.",
         }],
         avoid="Do not retry an unchanged over-limit prompt or reuse its request-id for a changed prompt.",

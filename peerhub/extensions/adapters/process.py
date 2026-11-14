@@ -16,6 +16,7 @@ from peerhub.extensions.process_tree import kill_process_tree
 
 DEFAULT_TIMEOUT_S = 120.0
 DEFAULT_MAX_BYTES = 1_048_576
+STDIN_CHUNK = 65_536
 _CMD_UNSAFE = set('&|<>^%"\r\n\0!')
 
 
@@ -40,6 +41,13 @@ class ProcessResult:
     drain_timed_out: bool = False
     display_truncated: bool = False
     parser_failed: bool = False
+    stdin_state: str = "none"  # none | pending | complete | short | broken | error
+    stdin_bytes_written: int = 0
+
+
+def _write_some(stdin: Any, view: memoryview) -> int | None:
+    """The one stdin write seam: an unbuffered write that may accept fewer bytes than offered."""
+    return stdin.raw.write(view)
 
 
 class _HeadTailBuffer:
@@ -162,6 +170,9 @@ class BoundedProcess:
         self._display_lock = threading.Lock()
         self._display_max_bytes = max(0, max_bytes)
         self._parser_failed = False
+        self._stdin_state = "pending"
+        self._stdin_written = 0
+        self._stdin_done = threading.Event()
 
     @property
     def pid(self) -> int:
@@ -258,15 +269,39 @@ class BoundedProcess:
                 self._display_queue.put_nowait(None)
 
     def _feed(self, p: "subprocess.Popen[bytes]") -> None:
+        """Write the payload in bounded chunks and record how far it got; `complete` needs every byte and a clean close."""
+        stdin = p.stdin
         try:
-            stdin = p.stdin
-            if stdin is None:
+            if stdin is None or self._stdin is None:
+                if stdin is not None:
+                    try:
+                        stdin.close()
+                    except (OSError, ValueError):
+                        pass
+                self._stdin_state = "none"
                 return
-            if self._stdin:
-                stdin.write(self._stdin)
-            stdin.close()
-        except (OSError, ValueError):
-            pass
+            payload = memoryview(self._stdin)
+            state = "complete"
+            try:
+                while self._stdin_written < len(payload):
+                    n = _write_some(stdin, payload[self._stdin_written:self._stdin_written + STDIN_CHUNK])
+                    if not n:
+                        state = "short"
+                        break
+                    self._stdin_written += n
+            except OSError:
+                state = "broken"
+            except Exception:
+                state = "error"
+            try:
+                stdin.close()
+            except OSError:
+                state = "broken" if state == "complete" else state
+            except Exception:
+                state = "error" if state == "complete" else state
+            self._stdin_state = state
+        finally:
+            self._stdin_done.set()
 
     def terminate(self) -> None:
         """Kill the tree and observe exit without consuming delivery output on this thread."""
@@ -344,28 +379,26 @@ class BoundedProcess:
                     p.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     pass
-        drain_timed_out = False
-        if p.poll() is None:
-            drain_timed_out = True
-        else:
-            deadline = time.monotonic() + 5.0
+        # One shared deadline bounds the drain and the stdin writer (#367): timeout + reap (10 s) + 5 s.
+        alive = p.poll() is None
+        deadline = time.monotonic() + (0.2 if alive else 5.0)
+        drain_timed_out = alive
+        if not alive:
             for t in self._drain_threads:
-                rem = max(0.0, deadline - time.monotonic())
-                t.join(timeout=rem)
+                t.join(timeout=max(0.0, deadline - time.monotonic()))
                 if t.is_alive():
                     drain_timed_out = True
-        for t in self._threads:
-            if t not in self._drain_threads:
-                t.join(timeout=0.2 if p.poll() is None else 5.0)
+        self._stdin_done.wait(timeout=max(0.0, deadline - time.monotonic()))
         if self._display_thread is not None:
             self._display_thread.join(timeout=0.1)
             if self._display_thread.is_alive():
                 self._display_truncated = True
                 self._on_display = None
 
-        for s in (p.stdout, p.stderr):
+        # Never close a pipe whose drain thread is alive (its blocked read holds the stream lock) nor stdin (the writer owns it).
+        for t, s in zip(self._drain_threads, (p.stdout, p.stderr)):
             try:
-                if s is not None:
+                if s is not None and not t.is_alive():
                     s.close()
             except OSError:
                 pass
@@ -381,7 +414,9 @@ class BoundedProcess:
                              aborted=self._aborted.is_set(), termination_confirmed=self._termination_confirmed,
                              drain_timed_out=drain_timed_out,
                              display_truncated=self._display_truncated,
-                             parser_failed=self._parser_failed)
+                             parser_failed=self._parser_failed,
+                             stdin_state=self._stdin_state if self._stdin_done.is_set() else "pending",
+                             stdin_bytes_written=self._stdin_written)
 
 
 def run_bounded(argv: Sequence[str], *, stdin: bytes | None, cwd: str, env: Mapping[str, str],

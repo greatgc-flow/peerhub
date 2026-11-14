@@ -105,7 +105,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "  implementer/review asks: --timeout-seconds 1800-3600; ag prints nothing until done: up to --timeout-seconds 7200, --silence-timeout-seconds unset or >= it.",
         "",
         "Safety:",
-        "  ag recipe: 'peerhub explain ag-recipe' (--query-file + \"no tools\", one task per ask, --writable even to read, trusted -w, argv limits, never resume after an empty reply).",
+        "  ag recipe: 'peerhub explain ag-recipe' (--query-file + \"no tools\", one task per ask, --writable even to read, trusted -w, stdin prompts up to 1,000,000 bytes, never resume after an empty reply).",
         "  Writes: cx sandbox enforced; cc enforced; ag NOT enforced (issue #140); when edits are intended, pass --writable on every turn, including resumed turns.",
         "  pending_earlier_record: inspect processed_status; delivered => retry same request-id/prompt/binding/selector; uncertain => stop.",
         "  Uncertain: stop that stream (timeouts too), check the working tree for partial edits, 'peerhub diag health' (skipped oversized line: cc ok if an intact result follows (#325), cx needs answer+turn.completed);",
