@@ -932,3 +932,22 @@ def test_d_g_an_unfinished_known_step_with_success_is_delivered(kit, bridge_h):
                                                "unknown_step_type_count": 0}
     assert payload["provider_telemetry"] == unknown_usage("step_unfinished") and "usage" not in payload
     assert _cycle(bridge_h, kit.replay(stream)).status == "delivered"
+
+
+@pytest.mark.parametrize("extra", [{"event": "future_event", "payload": {"secret": "sentinel"}}, _events()[0]],
+                         ids=["unknown_event_type", "second_init_same_id"])
+def test_d_i_unknown_top_level_event_is_delivered_with_unknown_usage(kit, bridge_h, extra):
+    # Decision D1 judges only the framing and the terminal; the validator's `unknown_event` is telemetry only (D3).
+    stream = _with_steps(extra)
+    expected = {"reason": "unknown_event", "unknown_step_types": [], "unknown_step_type_count": 0}
+    kind, payload = _drain(kit.replay(stream), "please answer")[-1]
+    assert kind == "terminal" and payload["response"] == "answer-fragment-sentinel"
+    assert payload["ag_stream_validation"] == expected
+    assert payload["provider_telemetry"] == unknown_usage("unknown_event") and "usage" not in payload
+    result = _cycle(bridge_h, kit.replay(stream))
+    assert result.status == "delivered"
+    (terminal,) = _evidence(bridge_h, "terminal")
+    assert terminal["ag_stream_validation"] == expected and terminal.get("usage") is None
+    (telemetry,) = _evidence(bridge_h, "session_telemetry")
+    assert telemetry["usage"]["coverage"] == {"state": "UNKNOWN", "reason": "unknown_event"}
+    assert kit.launches == 2

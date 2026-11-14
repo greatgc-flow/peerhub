@@ -24,7 +24,7 @@ The ag prompt transport (#366 B1; design in #369: four versions, approved unanim
 ### Fixed
 
 - #367: `BoundedProcess.wait` returns within its bound when a process-tree kill fails and the surviving child keeps the pipes open. The waiting thread no longer closes stdout or stderr while their drain threads are alive, and it never closes or joins stdin while the writer is alive. The result keeps `termination_confirmed=False`.
-- Documentation defects found by the shipped-tag check of v0.24.13: `docs/STATUS.md` names the open items and the LATER list of the survey; the release steps in `CONTRIBUTING.md` now cover waiting for `publish.yml`, the upgrade of the maintainer's venv and the shipped-tag check; the pyyaml release lesson no longer sends the whole suite to CI. `docs/adapters/ag.md` and the `ag.effort` profile card describe the stdin transport.
+- Documentation defects found by the shipped-tag check of v0.24.13: `docs/STATUS.md` names the open items and the LATER list of the survey; the release steps in `CONTRIBUTING.md` now cover waiting for `publish.yml`, the upgrade of the maintainer's venv and the shipped-tag check; the pyyaml release lesson no longer sends the whole suite to CI. `docs/adapters/ag.md` describes the stdin transport, and the `ag.effort` profile card no longer advises against prompts over 30 KB on Windows.
 
 
 ## [0.24.13] - 2026-11-14
