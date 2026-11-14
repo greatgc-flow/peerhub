@@ -578,6 +578,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         reset_credits: list[dict[str, Any]] = []
         accounts: list[dict[str, Any]] = []
         latest_facts_report: dict[str, Any] | None = None
+        latest_facts_seq = -1  # capture_seq is store-wide: the newest report wins, not the first in query order (#366 M1b)
         if bool(set(groups) & {"capacity", "peers"}):
             try:
                 all_rows = conn.execute(_CAPACITY_SQL).fetchall()
@@ -588,10 +589,10 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         observation, capture_seq = row_to_observation(row)
                     except ObservationCorruptError as exc:
                         raise sqlite3.DataError(f"invalid quota observation at capture_seq={row['capture_seq']}") from exc
-                    if latest_facts_report is None and "facts_report" in observation.payload:
+                    if capture_seq > latest_facts_seq and "facts_report" in observation.payload:
                         raw_f: object = observation.payload.get("facts_report")
                         if isinstance(raw_f, dict):
-                            latest_facts_report = cast(dict[str, Any], raw_f)
+                            latest_facts_report, latest_facts_seq = cast(dict[str, Any], raw_f), capture_seq
                     freshness = evaluate_observation(observation, capture_seq, round(now * 1_000_000), FreshnessPolicy())
                     if observation.kind == "reset_credit":
                         shown = freshness.state.value in {"MEASURED", "STALE"}
