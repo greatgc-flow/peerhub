@@ -19,6 +19,7 @@ The ag prompt transport (#366 B1; design in #369: four versions, approved unanim
 - `PEERHUB_AG_TRANSPORT=argv` forces the argv transport (an escape hatch if a future agy changes its stream protocol). Unset or empty means automatic detection; any other value is refused before submission.
 - Stream failures fail closed: an incomplete, truncated or non-SUCCESS stream, an incomplete stdin write, or a SUCCESS result without a text response ends `uncertain`. Quota text ("Individual quota reached") is classified from the terminal event of a non-SUCCESS stream, or from stderr only when no terminal event was observed; a SUCCESS stream never sets `provider_limit`.
 - A prompt that contains a lone surrogate is refused before submission.
+- On the stream transport, delivery is decided from the stream framing and the terminal `result` only (init first, one conversation id, exactly one result and it is last, a known status, a string response for SUCCESS). Step events never change the outcome: a live canary on agy 1.5.9 showed that a resumed conversation emits a `system_message` step, which an earlier draft rejected. `system_message` is now a known step type. When the full validator does not accept a delivered stream, the usage of that delivery is recorded as unknown, and the evidence field `ag_stream_validation` holds the reason and up to 5 sanitized unknown step type names with their count.
 
 ### Fixed
 
