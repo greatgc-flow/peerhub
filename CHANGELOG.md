@@ -8,6 +8,23 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.14] - 2026-11-14
+
+The ag prompt transport (#366 B1; design in #369: four versions, approved unanimously by cc, cx and ag).
+
+### Changed
+
+- `peerhub ask ag` sends the prompt over stdin as stream-json when the installed agy supports it (`--input-format` in `agy --help`, probed before every ask without a provider call; about 0.2 s). On that transport the Windows argv limit of 30,000 bytes (120,000 on POSIX) no longer applies: the prompt limit is 1,000,000 bytes, as for cc and cx. An agy without `--input-format` keeps the argv transport and its limits. If the probe cannot be read, the ask fails before submission (`failed_not_started`) instead of guessing. In 29 days of use, 15 ag asks had failed with "prompt too large".
+- The transport is chosen once, before the process starts, and is never switched after a failure, so a prompt cannot be submitted twice. The delivery evidence and `peerhub ask --json` record `ag_transport` (`stream` or `argv`).
+- `PEERHUB_AG_TRANSPORT=argv` forces the argv transport (an escape hatch if a future agy changes its stream protocol). Unset or empty means automatic detection; any other value is refused before submission.
+- Stream failures fail closed: an incomplete, truncated or non-SUCCESS stream, an incomplete stdin write, or a SUCCESS result without a text response ends `uncertain`. Quota text ("Individual quota reached") is classified from the terminal event of a non-SUCCESS stream, or from stderr only when no terminal event was observed; a SUCCESS stream never sets `provider_limit`.
+- A prompt that contains a lone surrogate is refused before submission.
+
+### Fixed
+
+- #367: `BoundedProcess.wait` returns within its bound when a process-tree kill fails and the surviving child keeps the pipes open. The waiting thread no longer closes stdout or stderr while their drain threads are alive, and it never closes or joins stdin while the writer is alive. The result keeps `termination_confirmed=False`.
+
+
 ## [0.24.13] - 2026-11-14
 
 Self-improvement release from a survey of 29 days of real use (2,832 deliveries; #366). cc, cx and ag agreed the plan and its execution unanimously, and every item was reviewed to 100.
