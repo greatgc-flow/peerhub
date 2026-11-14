@@ -149,7 +149,10 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    `g3.xml`, `g3-slow.xml` and `g3-e2e.xml` under `.peerhub/work/live-gate/`,
    stamped to HEAD, and the live-evidence JSON
    `<date>-v<version>.json` in the same folder; the gate prints the evidence
-   file to attach. Require a successful run of all three stages.
+   file to attach. A full passing run that finds no evidence file for the
+   current version exits 1 and names the expected path
+   (`.peerhub/work/live-gate/<date>-v<version>.json`). Require a successful run
+   of all three stages.
    A failed stage stops the run before later provider calls; each run clears
    old XML for its selected stages so missing evidence cannot appear current.
 3. Extract the selected CHANGELOG section, then create a draft with four assets

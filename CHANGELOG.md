@@ -18,7 +18,7 @@ Self-improvement release from a survey of 29 days of real use (2,832 deliveries;
 - `peerhub guide` is 55 lines and 5,124 bytes (was 60 lines and 5,597 bytes, at its cap). The ag recipe is one line that points to `peerhub explain ag-recipe`; safety lines that restated lessons moved into those lessons; new entries name `peerhub diag --plan`, `peerhub explain lessons` and `peerhub explain peer-subagents`. Guide pointers use exact lesson ids.
 - Lessons: `review-loop` and `review-scores-to-100` are merged into `review-recipe`, which holds a pasteable reviewer brief (the old ids still find it). `monitor-accounts` is split out of `monitor-states`. `ask-timeouts` reflects the new default. `independent-peer-votes` holds the one-command vote recipe. `cx-sandbox-and-prompt-hygiene` records that tests using `tmp_path` cannot run in the cx Windows sandbox, also with `--basetemp` (measured 2026-11-14 on Python 3.15).
 - Releases are one pull request. The live gate writes its evidence JSON to the git-ignored `.peerhub/work/live-gate/` and prints the file at the end of the run; it is attached to the GitHub release as a fourth asset. `docs/STATUS.md` keeps only the current-source line, the remaining work and the deferred backlog; this changelog and the GitHub releases are the release record.
-- Model facts re-observed on 2026-11-14 with agy 1.5.9 and claude 2.1.325 (codex-cli 0.167.2 unchanged). The model lists are identical to 2026-11-13. No pings were run, so every `checked` date stays 2026-11-13.
+- Model facts re-observed on 2026-11-14 with agy 1.5.9 and claude 2.1.325 (codex-cli 0.167.2 unchanged). The model lists are identical to 2026-11-13. No pings were run, so every profile `checked` date stays 2026-11-13.
 
 ### Added
 

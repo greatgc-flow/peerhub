@@ -3,7 +3,9 @@
 Never run from CI. Usage: python -m tools.live_gate --yes [--only live|slow|e2e|canary] [--peer cc|cx|ag] [--out DIR]
 Writes one JUnit file per stage (g3.xml, g3-slow.xml, g3-e2e.xml) and binds each to the candidate commit (tools.release_evidence
 stamp, gate G3), so the files can be attached to a release as the G3 evidence. A dirty working tree is refused: the stamped
-revision must describe the code that was tested. --only canary runs optional measurements separately,
+revision must describe the code that was tested. A full passing run exits 1 when no evidence file <date>-v<version>.json
+exists in .peerhub/work/live-gate; the "Live evidence to attach" line is printed only after a passing run that is not
+--only canary. --only canary runs optional measurements separately,
 writing canary.xml without a G3 stamp; it is excluded from the default release gate.
 """
 from __future__ import annotations
