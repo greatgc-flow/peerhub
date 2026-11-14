@@ -10,12 +10,17 @@ ROOT = Path(__file__).resolve().parents[3] / "peerhub" / "extensions"
 # Edges inside one extension family (several modules that are one unit) and edges to neutral, dependency-free helpers.
 ALLOWED: dict[str, set[str]] = {
     # M1 Session Bridge entry
-    "ask": {"accounts", "bridge", "bridge_claims", "observation", "observation_model", "peer_kinds", "adapters"},
+    "ask": {"accounts", "bridge", "bridge_claims", "observation", "observation_model", "peer_kinds", "adapters",
+            "caller"},  # caller: who started an ask (neutral; stdlib and psutil only)
     "adapters": {"accounts", "runtime_contract", "binary_resolution", "process_tree", "usage_normalization"},  # adapters depend on neutral RuntimeTarget, not the Bridge implementation
     "bridge": {"bridge_claims", "catchup", "schema_guard", "bridge_registry", "session_receipts", "runtime_contract"},
     "bridge_registry": {"session_receipts"},
     "session_receipts": {"usage_normalization"},
-    "monitor_read_model": {"adapters", "observation_model", "quota_projection", "session_receipts"},
+    "monitor_read_model": {"adapters", "observation_model", "quota_projection", "session_receipts",
+                           "caller",  # who started an ask (neutral)
+                           "liveness",  # is that ask process alive (neutral)
+                           "diag_running"},  # the pure row helpers for start time, binding and profile
+    "liveness": {"caller"},  # this host and pid namespace, as caller records them (neutral)
     # Read-only current-profile inspection, canonical observation evaluation,
     # shared quota projection math, and provider receipt validation.
     "bridge_claims": {"schema_guard"},
@@ -98,7 +103,8 @@ def test_extension_import_graph_matches_the_documented_allowlist():
 
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
     m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
-          "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "peer_kinds", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts", "monitor_read_model", "usage_normalization", "runtime_contract"}
+          "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "peer_kinds", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts", "monitor_read_model", "usage_normalization", "runtime_contract",
+          "caller", "liveness"}
     helpers = {"peer_kinds", "binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules
     for src, dst in edges().items():
         if src in m1:

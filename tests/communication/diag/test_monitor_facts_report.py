@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import _compact_footer
 from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+from peerhub.cli.monitor_view import render_grouped_frame as render_compact
 from peerhub.extensions.adapters.profiles import packaged_defaults_meta
 from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation import ObservationStore
@@ -47,8 +47,9 @@ def _capture(store, peer: str, pool: str | None, age_seconds: int, facts: dict[s
 def _facts(store) -> tuple[dict[str, Any], str, str]:
     harness = store.harness
     frame = render_monitor_frame(harness.db_path, ["peers"], read_at=harness.clock.now() + 5, workspace=harness.workspace)
+    # #374: the compact facts footer is gone; a needs_recheck report is an alert on line 1 (the verdict).
     return (frame["groups"]["peers"]["data"]["facts_report"], render_grouped_frame(frame, view="plain", width=120),
-            _compact_footer(frame["groups"])[0])
+            render_compact(frame, view="plain", width=120).splitlines()[0])
 
 
 def test_old_null_pool_drift_does_not_hide_newer_ok_reports(store):
@@ -59,7 +60,7 @@ def test_old_null_pool_drift_does_not_hide_newer_ok_reports(store):
     assert report["status"] == "ok"
     assert "Facts: ok (checked 2026-11-14)" in expanded
     assert "version_drift" not in expanded
-    assert compact.startswith("facts ok 2026-11-14")
+    assert "facts:" not in compact and not compact.startswith("ATTN")
 
 
 def test_newer_drift_report_wins_over_older_ok_reports(store):
@@ -69,7 +70,7 @@ def test_newer_drift_report_wins_over_older_ok_reports(store):
     report, expanded, compact = _facts(store)
     assert report["status"] == "needs_recheck"
     assert "Facts: needs_recheck (ag: version_drift)" in expanded
-    assert compact.startswith("facts needs_recheck 2026-11-15")
+    assert compact.startswith("ATTN 1? | facts: ag: version_drift")  # A7: `peers` alone does not read the asks
 
 
 def test_no_capacity_row_with_report_keeps_the_fallback(store):

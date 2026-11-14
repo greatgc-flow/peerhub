@@ -219,8 +219,8 @@ def row_with(out, pool):
 def test_disabled_bucket_is_na_with_no_capacity_or_reset_in_compact_expanded_and_json(store, capsys):
     disabled_store(store)
     compact = snapshot(store, capsys)
-    line = row_with(compact, "3P-5H")
-    assert "n/a" in line and "100%" not in line and "aged" not in line
+    # #374: a 5-hour pool shows in the compact frame only when it binds; a disabled (n/a) one never does.
+    assert "3P-5H" not in compact and "100%" not in compact and "out" in row_with(compact, "3P-7D").split()
     expanded = snapshot(store, capsys, "--expand")
     line = next(line for line in expanded.splitlines() if "3P-7D" in line and "(3P-5H n/a)" in line)
     assert "(3P-5H n/a)" in line and "100%" not in line and "STALE" not in line
@@ -245,7 +245,8 @@ def test_old_disabled_fact_ages_to_stale_not_a_fresh_na(store, capsys):
     items = store.capacity()
     item = next(o for o in items if o["pool_ref"] == "quota:ag:3P-5H")
     assert item["state"] == "STALE" and item["stored_state"] == "ABSENT" and item["measurements"] is None
-    line = row_with(snapshot(store, capsys), "3P-5H")
+    assert "3P-5H" not in snapshot(store, capsys)  # #374: an aged 5-hour pool with no value never binds
+    line = row_with(snapshot(store, capsys, "--expand"), "3P-5H")
     assert "n/a" not in line and "100%" not in line
 
 

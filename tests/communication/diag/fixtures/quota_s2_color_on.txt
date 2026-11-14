@@ -1,3 +1,4 @@
+OK
 PeerHub Monitor | OK | 00:16:40Z
 [1;36m── QUOTA [OK] | measured remaining | soonest exhaust: ag P-3H 1% in 30m ───────────────────────────────────────────────[0m
 PEER  POOL  STATE          REM  RESET-IN  PACE  [BAR]       EXHAUST-IN  AGE  PROFILES (configured)

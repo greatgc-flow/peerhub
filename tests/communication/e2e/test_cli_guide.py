@@ -46,7 +46,7 @@ def test_guide_line_and_token_cap(capsys, monkeypatch, tmp_path):
     assert "peerhub explain lessons" in out
     assert "peerhub diag --plan" in out
     assert "peerhub explain peer-subagents" in out
-    assert "compact pools/peers dashboard" in out
+    assert "peerhub monitor --group capacity  # AI sessions:" in out  # #374: the guide recommends the capacity group
     assert "suggest a|b = best + alternative peer; peerhub explain monitor-states" in out
     assert "Balance: suggest: is advisory (rule H)" in out
     assert "compare 7D PACE (5H only gates)" in out

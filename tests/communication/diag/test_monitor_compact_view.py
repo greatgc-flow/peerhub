@@ -55,33 +55,37 @@ def _row(screen, pool):
                 and "plan " not in line and "PEERS" not in line)
 
 
+def _header(screen):
+    return next(line for line in screen.splitlines() if line.startswith("POOLS "))
+
+
+def _solo(frame, drop=":G-7D", **kw):
+    """#374: a 5-hour pool shows in the compact frame only when it binds; drop its 7-day pool so it is a row of its own."""
+    frame = deepcopy(frame)
+    rows = frame["groups"]["capacity"]["data"]["observations"]
+    rows[:] = [row for row in rows if not str(row.get("pool_ref")).endswith(drop)]
+    return render_grouped_frame(frame, **kw)
+
+
 def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_frame):
+    # #374: the POOLS table has POOL STATE LEFT RESET PACE FAMILY; a 5-hour row shows only when it binds.
     screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=100)
-    assert "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m" in screen
+    assert screen.splitlines()[1] == "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m"
     assert "/work/.peerhub/core.db" not in screen
     assert "next: peerhub observation refresh" in screen
-    for heading in ("PEER", "POOL", "MEANING", "LEFT", "RESETS", "PACE", "AGE", "STATE", "PROFILES"):
-        assert heading in screen
+    assert _header(screen).split() == ["POOLS", "6", "STATE", "LEFT", "RESET", "PACE", "FAMILY"]
     for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "out", "0%"),
-                                ("A-7D", "aged", "55%"), ("G-5H", "ok", "80%"),
-                                ("G-7D", "reset", None), ("F-7D", "?", None),
+                                ("A-7D", "aged", "55%"), ("G-7D", "reset", None), ("F-7D", "?", None),
                                 ("X-7D", "ok", "89%")):
         row = _row(screen, name)
         assert state in row.split()
         assert "%" not in row if value is None else value in row
-    positions = [screen.index(_row(screen, name)) for name in ("3P-7D", "3P-5H", "A-7D", "G-7D", "G-5H")]
-    assert positions == sorted(positions)  # roots by family; containing windows precede children
-    assert "(X-5H n/a)" in _row(screen, "X-7D")
-    assert "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale" in screen
-    assert "G flash A argon" not in screen
-    assert "X-5H n/a (plan prolite)" in screen
-    assert "deepthink 0% (3P-7D)" in screen
-    assert "unmapped" in _row(screen, "F-7D")
-    for text in ("facts ok 2026-11-08", "sessions >=100 retained (sampled)",
-                 "delivery (sampled): terminal 166 / started 15 / not started 2",
-                 "telemetry 56/60", "details: --expand"):
-        assert text in screen
-    for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:"):
+    positions = [screen.index(_row(screen, name)) for name in ("3P-7D", "3P-5H", "A-7D", "G-7D", "F-7D", "X-7D")]
+    assert positions == sorted(positions)  # out first with its binding 5-hour row, then the rest by peer and pool
+    assert "G-5H" not in screen and "X-5H" not in screen  # neither has less left than its 7-day pool
+    assert "claude-via-ag" in _row(screen, "3P-7D")
+    for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:", "ok enough",
+                "PEERS", "facts ok", "sessions >=", "delivery", "telemetry", "unmapped", "deepthink 0%"):
         assert old not in screen
 
 
@@ -94,11 +98,11 @@ def test_compact_pace_cells_keep_signed_measurement_for_aged_rows(
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "stale" if aged else "on_pace", "pace_pt": pace},
                state="STALE" if aged else "MEASURED", age_seconds=540 if aged else 60)
-    screen = render_grouped_frame(compact_frame, width=width, view=view, unicode=unicode_mode)
-    header = next(line for line in screen.splitlines() if line.startswith("PEER "))
-    assert header.index("RESETS") < header.index("PACE") < header.index("BAR") < header.index("AGE")
+    screen = _solo(compact_frame, width=width, view=view, unicode=unicode_mode)
+    header = _header(screen)
+    assert header.index("RESET") < header.index("PACE") < header.index("FAMILY")
     glyph = ("▲" if unicode_mode else "^") if expected.startswith("+") else ("▼" if unicode_mode else "v") if expected.startswith("-") else ""
-    assert _row(screen, "G-5H")[header.index("PACE"):header.index("BAR")].strip() == glyph + expected
+    assert _row(screen, "G-5H")[header.index("PACE"):header.index("FAMILY")].strip() == glyph + expected
     assert "80%" in _row(screen, "G-5H")
 
 
@@ -118,10 +122,11 @@ def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unus
     if unusable == "inf": row["projection"]["pace_pt"] = float("inf")
     if unusable == "bool": row["projection"]["pace_pt"] = True
     if unusable == "invalid": row.update(last_measurements={"remaining_fraction": 1.1})
-    screen = render_grouped_frame(compact_frame, width=width, view="plain")
-    header = next(line for line in screen.splitlines() if line.startswith("PEER "))
+    screen = _solo(compact_frame, width=width, view="plain")
+    header = _header(screen)
     pool = row["pool_ref"].split(":")[-1]
-    assert _row(screen, pool)[header.index("PACE"):header.index("BAR")].strip() == "-"
+    line = next(line for line in screen.splitlines() if f" {pool} " in line)  # an n/a row names its plan
+    assert line[header.index("PACE"):header.index("FAMILY")].strip() == "-"
 
 
 @pytest.mark.parametrize("width", [80, 100])
@@ -137,10 +142,10 @@ def test_exact_reset_expires_state_pace_and_suggestion(compact_frame, width, ela
         {"profile": "ag.effort", "fields": {"pools": {"value": ["G-5H"]}}}]
     compact_frame["display_elapsed_seconds"] = elapsed
     screen = render_grouped_frame(compact_frame, width=width, view="plain")
-    header = next(line for line in screen.splitlines() if line.startswith("PEER "))
+    header = _header(screen)
     pool = _row(screen, "G-5H")
     assert "reset" in pool.split() and "80%" not in pool
-    assert pool[header.index("PACE"):header.index("BAR")].strip() == "-"
+    assert pool[header.index("PACE"):header.index("FAMILY")].strip() == "-"
     assert "suggest: no eligible profiles; next: peerhub observation refresh" in screen
 
 
@@ -157,7 +162,7 @@ def test_suggestions_reject_zero_reset_seconds():
 def test_narrow_pool_table_keeps_pace_and_quota_facts(compact_frame, width):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row["projection"] = {"pace_pt": 46}
-    screen = render_grouped_frame(compact_frame, width=width, view="plain", unicode=False)
+    screen = _solo(compact_frame, width=width, view="plain", unicode=False)
     pool = _row(screen, "G-5H")
     assert "80%" in pool and "ok" in pool.split()
     assert "1h00m" in pool.split() and "^+46" in pool.split()
@@ -187,7 +192,7 @@ def test_ten_pool_compact_frame_stays_within_1800_bytes(ten_pool_frame, width):
 def test_projection_fast_requires_two_samples(compact_frame, samples, expected):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "threat"}, projection_samples=samples)
-    assert expected in _row(render_grouped_frame(compact_frame, width=100), "G-5H").split()
+    assert expected in _row(_solo(compact_frame, width=100), "G-5H").split()
 
 
 @pytest.mark.parametrize("remaining,projection,samples,age,reset,expected", [
@@ -206,9 +211,8 @@ def test_low_fast_and_higher_priority_states(compact_frame, remaining, projectio
     row.update(last_measurements={"remaining_fraction": remaining}, projection={"state": projection},
                projection_samples=samples, age_seconds=age, resets_at=NOW + reset)
     original = deepcopy(compact_frame)
-    screen = render_grouped_frame(compact_frame, view="plain", width=100)
-    assert expected in _row(screen, "G-5H").split()
-    assert compact_frame == original
+    assert render_grouped_frame(compact_frame, view="plain", width=100) and compact_frame == original
+    assert expected in _row(_solo(compact_frame, view="plain", width=100), "G-5H").split()
 
 
 @pytest.mark.parametrize("stored_state,expected", [("ABSENT", "aged"), ("UNKNOWN", "?"), ("ERROR", "?")])
@@ -216,29 +220,34 @@ def test_stale_row_without_number_is_aged_only_for_absent(compact_frame, stored_
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(last_measurements={"remaining_fraction": None}, stored_state=stored_state, age_seconds=99999,
                resets_at=NOW + 3600)
-    assert expected in _row(render_grouped_frame(compact_frame, view="plain", width=100), "G-5H").split()
+    assert expected in _row(_solo(compact_frame, view="plain", width=100), "G-5H").split()
 
 
 @pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True)])
 @pytest.mark.parametrize("width", [48, 80, 100])
 def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unicode_mode, width):
+    # #374: the legend left the compact frame; --expand prints it whole, wrapped to the width.
     legend = "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan omits | ? unknown"
     screen = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width)
-    legend_lines = screen.split("ok enough", 1)[1].split("PEERS", 1)[0]
-    assert legend in " ".join(("ok enough" + legend_lines).split())
-    assert "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable" in " ".join(legend_lines.split())
+    assert "ok enough" not in screen and "PACE=" not in screen
+    expanded = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width, expand=True)
+    flat = " ".join(expanded.split())
+    assert legend in flat
+    assert "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable" in flat
+    assert "the header time is the snapshot time" in flat
     assert "precedence:" not in screen
     assert all(_width(line) <= min(99, width - 1) for line in screen.splitlines())
+    assert all(_width(line) <= width - 1 for line in expanded.splitlines())
 
 
-def test_fast_with_threat_forecast_is_red_on_state_and_bar_in_rich_output(compact_frame, monkeypatch):
+def test_fast_with_threat_forecast_is_red_on_state_in_rich_output(compact_frame, monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "threat"}, projection_samples=2)
-    screen = render_grouped_frame(compact_frame, view="rich", color=True, width=100)
+    screen = _solo(compact_frame, view="rich", color=True, width=100)
     line = next(line for line in screen.splitlines() if "G-5H" in line and "fast" in line)
     assert not line.startswith("\x1b") and "\x1b[31mfast\x1b[0m" in line
-    assert line.count("\x1b[31m") == 2 and re.search(r"\x1b\[31m\[[^\]]*\]\x1b\[0m", line)
+    assert line.count("\x1b[31m") == 1  # #374: no bar in the compact frame; the pace cell is '-' here
 
 
 def test_ttl_boundary_and_next_absent_when_fresh(compact_frame):
@@ -276,8 +285,10 @@ def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
     compact_frame["configured_profiles"][0]["profile"] = "ag." + "long" * 60
     screen = render_grouped_frame(compact_frame, width=width, unicode=False)
     assert all(_width(line) <= width for line in screen.splitlines())
-    assert "55%" in screen and "89%" in screen
-    assert "--expand" in screen
+    # #374: the footer with "details: --expand" left the compact frame; below 26 columns POOLS keeps POOL and STATE
+    # whole (LEFT drops as a column, never as a cut number).
+    pools = screen.split("\nPOOLS ", 1)[1]
+    assert ("55%" in pools and "89%" in pools) if width >= 26 else "%" not in pools and "~" not in pools
     if width < 48:
         assert "PEER  POOL" not in screen  # labelled vertical pool rows on narrow terminals
 
@@ -286,8 +297,10 @@ def test_unknown_and_all_absent_are_never_zero_or_unlimited(compact_frame):
     rows = compact_frame["groups"]["capacity"]["data"]["observations"]
     compact_frame["groups"]["capacity"]["data"]["observations"] = [rows[6]]
     screen = render_grouped_frame(compact_frame, width=100)
-    assert "? (not reported)" in screen and "? (never measured)" in screen
-    assert "100%" not in screen and "%" not in _row(screen, "X-5H")
+    # #374: the PEERS summaries moved to --expand; the n/a row names the plan in its FAMILY cell.
+    row = next(line for line in screen.splitlines() if "X-5H" in line)
+    assert "n/a" in row.split() and "not reported by plan prolite" in row
+    assert "100%" not in screen and "%" not in row
 
 
 def test_human_render_does_not_mutate_json_and_expand_keeps_details(compact_frame):
@@ -299,7 +312,7 @@ def test_human_render_does_not_mutate_json_and_expand_keeps_details(compact_fram
     before = json.dumps(compact_frame, ensure_ascii=True, separators=(",", ":")).encode()
     original = deepcopy(compact_frame)
     screen = render_grouped_frame(compact_frame, width=100)
-    assert "fast" in _row(screen, "G-5H").split()
+    assert "fast" in _row(_solo(compact_frame, width=100), "G-5H").split()
     assert "normal=cx.effort|ag.effort" in screen
     expanded = render_grouped_frame(compact_frame, width=100, expand=True)
     assert "EXHAUST-IN" in expanded or "Columns omitted" in expanded
@@ -348,7 +361,7 @@ def test_human_only_last_measurements_are_read_only_and_json_bytes_unchanged(tmp
 def test_unavailable_evidence_never_becomes_a_healthy_number(compact_frame, evidence):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(state=evidence, stored_state=evidence)
-    screen = render_grouped_frame(compact_frame, width=100)
+    screen = _solo(compact_frame, width=100)
     assert "?" in _row(screen, "G-5H").split()
     assert "80%" not in _row(screen, "G-5H")
 
@@ -357,7 +370,7 @@ def test_unavailable_evidence_never_becomes_a_healthy_number(compact_frame, evid
 def test_invalid_measurements_are_unknown(compact_frame, remaining):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(last_measurements={"remaining_fraction": remaining}, measurements={"remaining_fraction": remaining})
-    assert "?" in _row(render_grouped_frame(compact_frame), "G-5H").split()
+    assert "?" in _row(_solo(compact_frame), "G-5H").split()
 
 
 def test_stopped_token_use_warning_is_visible(compact_frame):
@@ -410,7 +423,7 @@ def test_absent_and_reset_windows_on_one_peer_do_not_hide_each_other(compact_fra
     reset.update(resets_at=NOW - 1, age_seconds=540, state="STALE")
     compact_frame["groups"]["capacity"]["data"]["observations"] = [absent, reset]
     screen = render_grouped_frame(compact_frame, view="plain", width=100)
-    assert "(X-5H n/a)" in _row(screen, "X-7D")
+    assert "X-5H" not in screen  # #374: an n/a 5-hour pool never binds, so the compact frame leaves it to --expand
     assert "reset" in _row(screen, "X-7D").split()
     assert "%" not in _row(screen, "X-7D")
     assert "89%" not in screen
@@ -424,7 +437,7 @@ def test_poolless_probe_does_not_poison_quota_age_or_refresh(compact_frame):
     screen = render_grouped_frame(compact_frame, view="plain")
     assert "quota age 1m" in screen and "next:" not in screen
     assert "probe error" not in screen  # later successful pool evidence supersedes this failed attempt
-    assert len([line for line in screen.splitlines() if line.startswith("ag ")]) == 2
+    assert len([line for line in screen.splitlines() if line.startswith(" ag ")]) == 1  # #374: one POOLS row, no PEERS line
     rows[1]["age_seconds"] = 30
     screen = render_grouped_frame(compact_frame, view="plain")
     assert screen.count("probe error (30s)") == 1
@@ -433,7 +446,8 @@ def test_poolless_probe_does_not_poison_quota_age_or_refresh(compact_frame):
 
 def test_missing_configured_pool_requests_refresh(compact_frame):
     compact_frame["groups"]["capacity"]["data"]["observations"] = []
-    assert "no quota evidence; next: peerhub observation refresh" in render_grouped_frame(compact_frame)
+    screen = render_grouped_frame(compact_frame)
+    assert "POOLS 0" in screen.splitlines() and "no quota evidence; next: peerhub observation refresh" in screen
     compact_frame["selected_groups"] = ["peers"]
     assert "next: peerhub observation refresh" in render_grouped_frame(compact_frame)
 
@@ -449,7 +463,7 @@ def test_prefix_free_profiles_and_unknown_family(compact_frame):
 def test_expired_absent_is_aged_not_na(compact_frame):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][6]
     row.update(state="STALE", age_seconds=301)
-    screen = render_grouped_frame(compact_frame, view="plain")
+    screen = _solo(compact_frame, drop=":X-7D", view="plain")
     assert "n/a" not in _row(screen, "X-5H").split()
     assert "aged" in _row(screen, "X-5H").split()
 
@@ -470,24 +484,15 @@ def test_suggestions_exclude_unusable_profiles(compact_frame, bad):
 
 
 @pytest.mark.parametrize("aged", [True, False])
-def test_peers_age_suffix_once_at_end(compact_frame, aged):
+def test_peers_lines_left_the_compact_frame(compact_frame, aged):
+    # #374: the PEERS summaries (and their "(aged)" suffix) are --expand only; an aged pool shows as `aged` in POOLS.
     rows = compact_frame["groups"]["capacity"]["data"]["observations"]
     if not aged:
         for row in rows:
             row.update(age_seconds=60, state=row["stored_state"])
     screen = render_grouped_frame(compact_frame, view="plain", width=100)
-    peers = screen.split("PEERS\n", 1)[1].split("suggest:", 1)[0].splitlines()
-    ag = next(line for line in peers if line.startswith("ag "))
-    assert ag.count("(aged)") == int(aged)
-    assert ag.endswith("(aged)") == aged
-
-
-def test_peers_age_suffix_follows_plan_notes(compact_frame):
-    compact_frame["groups"]["capacity"]["data"]["observations"][7].update(age_seconds=301, state="STALE")
-    screen = render_grouped_frame(compact_frame, view="plain", width=100)
-    cx = screen.split("PEERS\n", 1)[1].split("suggest:", 1)[0]
-    cx = next(line for line in cx.splitlines() if line.startswith("cx "))
-    assert cx.endswith("X-5H n/a (plan prolite) (aged)")
+    assert "PEERS" not in screen and "(aged)" not in screen
+    assert ("aged" in _row(screen, "A-7D").split()) == aged
 
 
 def test_suggestions_min_score_na_skip_and_fable_own_pool(compact_frame):
@@ -499,7 +504,7 @@ def test_suggestions_min_score_na_skip_and_fable_own_pool(compact_frame):
             ("cx.effort", ["X-5H", "X-7D"]), ("cc.fable", ["F-7D"]))]
     screen = render_grouped_frame(compact_frame)
     assert "suggest: eco=ag.standard normal=cx.effort quality=- top=cc.fable" in screen
-    assert "fable 70% (F-7D)" in screen
+    assert "70%" in _row(screen, "F-7D")  # #374: was the PEERS summary "fable 70% (F-7D)"
 
 
 def test_suggestions_use_the_worst_pool_score_and_keep_five_percent(compact_frame):
@@ -583,9 +588,9 @@ def test_peers_only_uses_snapshot_capacity_support(compact_frame):
     compact_frame["selected_groups"] = ["peers"]
     compact_frame["_human_observations"] = compact_frame["groups"].pop("capacity")["data"]["observations"]
     screen = render_grouped_frame(compact_frame, view="plain")
-    assert "POOLS" not in screen
-    assert "argon 55% (A-7D)" in screen
-    assert "effort/standard 80% (G-5H)" in screen
+    # #374: `peers` owns no compact section any more (its summaries are --expand only): lines 1-2 and the refresh hint.
+    assert "POOLS" not in screen and "suggest:" not in screen and "argon" not in screen
+    assert screen.splitlines()[1].startswith("PeerHub Monitor") and len(screen.splitlines()) <= 3
 
 
 def test_profile_cache_reuses_parse_and_invalidates_overlay(tmp_path, monkeypatch):
@@ -603,16 +608,12 @@ def test_profile_cache_reuses_parse_and_invalidates_overlay(tmp_path, monkeypatc
     assert len(calls) == 2
 
 
-def test_footer_never_claims_active_or_bare_unknown_counts(compact_frame):
+def test_compact_frame_has_no_footer_counts(compact_frame):
+    # #374: the facts/sessions/telemetry footer and the delivery line are --expand only.
     screen = render_grouped_frame(compact_frame)
     assert "active" not in screen
-    assert "sessions >=100 retained (sampled)" in screen
-    assert "delivery (sampled): terminal 166" in screen
-    compact_frame["groups"].pop("sessions")
-    compact_frame["groups"].pop("execution")
-    compact_frame["groups"].pop("usage")
-    screen = render_grouped_frame(compact_frame)
-    assert "sessions ?" not in screen and "delivery ?" not in screen and "telemetry ?" not in screen
+    for gone in ("sessions >=", "delivery", "telemetry", "facts "):
+        assert gone not in screen
 
 
 def _pool_order(screen):
@@ -628,58 +629,56 @@ def _pool_order(screen):
     return order
 
 
-def test_expand_quota_lists_pools_in_the_compact_order(compact_frame):
-    compact = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
+def _compact_pool_order(screen):
+    order = []
+    peer = ""
+    for line in screen.splitlines():
+        match = re.match(r"^ (?:(ag|cc|cx) |\s+(?:`-|└─) )((?:3P|[ACGFX])-\d+[HD])\s", line)
+        if match:
+            peer = match[1] or peer
+            order.append(f"{peer} {match[2]}")
+    return order
+
+
+def test_compact_and_expand_each_keep_their_pool_order(compact_frame):
+    # #374 F5: one pin per view. Compact: out, low, binding, fast, the rest (then peer and pool), no peer grouping;
+    # --expand keeps today's order and grouping.
+    compact = _compact_pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
     expanded = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=120, expand=True))
-    assert compact[:5] == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "ag G-5H"]
-    assert expanded == compact
+    assert compact == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "cc F-7D", "cx X-7D"]
+    assert expanded[:5] == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "ag G-5H"]
 
 
-COMPACT_COLUMNS = ["PEER", "POOL", "STATE", "LEFT", "RESETS", "PACE", "BAR", "MEANING", "AGE", "PROFILES"]
+COMPACT_COLUMNS = ["STATE", "LEFT", "RESET", "PACE", "FAMILY"]  # after `POOLS n`, the POOL column's title
 
 
-@pytest.mark.parametrize("width", [20, 40, 52, 60])
+@pytest.mark.parametrize("width", [20, 30, 40, 60])
 def test_narrow_pools_table_drops_whole_columns_from_the_right(compact_frame, width):
     screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=width)
-    assert "~" not in screen
-    header = next(line for line in screen.splitlines() if line.startswith("PEER "))
-    names = COMPACT_COLUMNS
-    shown = header.split()
-    assert "PROFILES" not in shown and shown == names[:len(shown)] and len(shown) >= 2
-    omitted = screen.split("Columns omitted:")[1].split("ok enough")[0].split()
-    assert omitted == [name.lower() for name in names[len(shown):]]
-    for pool in ("3P-5H", "G-5H", "X-7D"):  # every row shows the same columns
-        row = _row(screen, pool).split(" (")[0]
-        pool_start = header.index("POOL")
-        pool_end = header.index("STATE") if "STATE" in shown else len(row)
-        # Tree prefixes and the first-row-only peer label occupy their own cells.
-        assert pool in row[pool_start:pool_end]
-        if "STATE" in shown:
-            assert len(row[pool_end:].split()) == len(shown) - 2
+    pools = screen.split("\nPOOLS ", 1)[1]
+    assert "~" not in pools and "Columns omitted" not in screen
+    header = _header(screen)
+    shown = header.split()[2:]
+    assert shown == COMPACT_COLUMNS[:len(shown)] and len(shown) >= 1
+    for pool in ("3P-5H", "3P-7D", "X-7D"):  # every row shows the same columns
+        row = _row(screen, pool)
+        assert len(row[header.index("STATE"):].split()) == len(shown)
 
 
-@pytest.mark.parametrize("width,dropped", [
-    (40, ["resets", "pace", "bar", "meaning", "age", "profiles"]),
-    (60, ["meaning", "age", "profiles"]), (80, ["profiles"])])
+@pytest.mark.parametrize("width,dropped", [(30, ["RESET", "PACE", "FAMILY"]), (40, ["FAMILY"]), (60, [])])
 def test_pools_columns_drop_by_priority_and_state_survives(compact_frame, width, dropped):
-    screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=width)
-    header = next(line for line in screen.splitlines() if line.startswith("PEER ")).split()
-    assert header == [name for name in COMPACT_COLUMNS if name.lower() not in dropped]
+    header = _header(render_grouped_frame(compact_frame, view="plain", unicode=False, width=width)).split()[2:]
+    assert header == [name for name in COMPACT_COLUMNS if name not in dropped]
     assert "STATE" in header and "LEFT" in header
-    if dropped:
-        assert screen.split("Columns omitted:")[1].split("ok enough")[0].split() == dropped
-    else:
-        assert "Columns omitted" not in screen
 
 
-@pytest.mark.parametrize("unicode_mode,full,empty", [(True, "█", "░"), (False, "#", ".")])
-def test_pool_bar_shows_remaining_and_even_burn_tick(compact_frame, unicode_mode, full, empty):
+@pytest.mark.parametrize("unicode_mode", [True, False])
+def test_pool_bar_left_the_compact_frame_and_stays_in_expand(compact_frame, unicode_mode):
+    # #374: no bar in the compact frame; --expand keeps the [BAR] column (_bar_quota is pinned below).
     screen = render_grouped_frame(compact_frame, view="plain", unicode=unicode_mode, width=100)
-    # G-5H: 80% left, 1h of a 5h window left -> even burn leaves 20%, so the tick sits in cell 1
-    assert f"[{full}|{full * 4}{empty * 2}]" in _row(screen, "G-5H")
-    assert "(X-5H n/a)" in _row(screen, "X-7D")  # n/a child is folded
-    assert "[--------]" in _row(screen, "F-7D")  # unknown
-    assert "[--------]" in _row(screen, "G-7D")  # reset window passed
+    assert "[--------]" not in screen and "BAR" not in screen
+    expanded = render_grouped_frame(compact_frame, view="plain", unicode=unicode_mode, width=140, expand=True)
+    assert "[BAR]" in expanded and "[--------]" in expanded
 
 
 def test_bar_even_burn_tick_positions_and_unknown():
@@ -704,42 +703,39 @@ def test_pace_glyph_marks_direction_and_keeps_the_number():
     assert [_pace_glyph(text, False) for text in ("+26", "-89", "0", "-")] == ["^+26", "v-89", "0", "-"]
 
 
-def test_compact_state_bar_and_fold_note_use_evidence_colours_only_when_colour_is_on(compact_frame, monkeypatch):
+def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_frame, monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     fast = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     fast.update(projection={"state": "threat"}, projection_samples=2)
-    colored = render_grouped_frame(compact_frame, view="rich", color=True, width=100)
-    plain = render_grouped_frame(compact_frame, view="rich", color=False, width=100)
+    colored = _solo(compact_frame, view="rich", color=True, width=100)
+    plain = _solo(compact_frame, view="rich", color=False, width=100)
     assert "\x1b" not in plain
     assert re.sub(r"\x1b\[[0-9;]*m", "", colored) == plain  # colour never changes the text or the widths
     for pool, state, code in (("3P-5H", "low", "2"), ("3P-7D", "out", "2"), ("A-7D", "aged", "2"),
-                              ("G-5H", "fast", "31"), ("G-7D", "reset", "2"), ("X-7D", "ok", None)):
+                              ("G-5H", "fast", "31"), ("X-7D", "ok", None)):
         line = _row(colored, pool)
-        if code is None:  # INSUFF >10% is uncoloured; the folded n/a suffix stays dim.
-            assert "\x1b" not in line.split("\x1b[2m(")[0]
-            assert line.count("\x1b[0m") == 1
-        else:
+        if code is None:  # INSUFF >10% is uncoloured
+            assert "\x1b" not in line
+        else:  # #374: the STATE cell only (no bar; these rows have no pace glyph)
             assert f"\x1b[{code}m{state}\x1b[0m" in line
-            assert re.search(rf"\x1b\[{re.escape(code)}m\[[^\]]*\]\x1b\[0m", line)
-            assert line.count("\x1b[0m") == 2
+            assert line.count("\x1b[0m") == 1
         assert not line.startswith("\x1b")
         assert _width(line) <= 99
-    assert "\x1b" not in render_grouped_frame(compact_frame, view="plain", color=True, width=100)
+    assert "\x1b" not in _solo(compact_frame, view="plain", color=True, width=100)
     monkeypatch.setenv("NO_COLOR", "1")
-    assert "\x1b" not in render_grouped_frame(compact_frame, view="rich", color=True, width=100)
+    assert "\x1b" not in _solo(compact_frame, view="rich", color=True, width=100)
 
 
-def test_expand_and_compact_share_the_column_priority_order(compact_frame):
+def test_expand_and_compact_keep_the_column_priority_order(compact_frame):
     expanded = render_grouped_frame(compact_frame, view="plain", unicode=False, width=140, expand=True)
     header = next(line for line in expanded.splitlines() if line.startswith("PEER "))
-    # expand column -> the compact column in the same priority slot
-    slots = {"PEER": "PEER", "POOL": "POOL", "STATE": "STATE", "REM": "LEFT", "RESET-IN": "RESETS",
-             "PACE": "PACE", "[BAR]": "BAR", "EXHAUST-IN": "MEANING", "AGE": "AGE", "PROFILES (configured)": "PROFILES"}
+    slots = ["PEER", "POOL", "STATE", "REM", "RESET-IN", "PACE", "[BAR]", "EXHAUST-IN", "AGE", "PROFILES (configured)"]
     positions = [header.index(name) for name in slots]
     assert positions == sorted(positions) and len(set(positions)) == len(slots)
-    assert list(slots.values()) == COMPACT_COLUMNS
+    compact = _header(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
+    assert compact.split()[2:] == COMPACT_COLUMNS  # STATE directly after POOL (#374 F5)
 
 
 def test_wide_pools_table_keeps_every_column_and_prints_no_omission(compact_frame):
     screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=100)
-    assert "Columns omitted" not in screen and "PROFILES" in screen
+    assert "Columns omitted" not in screen and "FAMILY" in _header(screen)

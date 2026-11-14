@@ -110,8 +110,9 @@ def _usage_fields(usage: object, fields: Mapping[str, str]) -> dict[str, int] | 
 
 def _json_lines(text: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    for line in text.splitlines():
-        line = line.strip()
+    # LF only (#373): str.splitlines also cuts at U+0085, U+2028 and U+2029, which JSON allows raw inside a string.
+    for line in text.split("\n"):
+        line = line.removesuffix("\r").strip()
         if line.startswith("{"):
             try:
                 v: object = json.loads(line)
@@ -1123,7 +1124,8 @@ class CliRuntimeTarget:
         self._parent_env = dict(os.environ)
         self._env_extra = dict(env_extra or {})
         self._extra_secrets = tuple(extra_secrets)
-        unset = {name.upper() for name in env_unset}
+        # #374: batch ids describe the ask process only; a nested ask made by the provider is not a task of that batch.
+        unset = {name.upper() for name in env_unset} | {"PEERHUB_BATCH_ID", "PEERHUB_BATCH_TASK"}
         self._env_unset = unset
         merged = {**self._parent_env, **self._env_extra}
         self._child_env: dict[str, str] | None = (

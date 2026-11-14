@@ -1,10 +1,16 @@
 """Read-only, bounded aggregate queries over canonical monitor projections."""
 from __future__ import annotations
 
+import hashlib
+import os
+import platform
 import sqlite3
 import json
 import math
 import re
+import sys
+import unicodedata
+from collections import Counter
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, cast
@@ -191,9 +197,22 @@ _ROW_COLUMNS = ("o.capture_seq,o.observation_id,o.subject_ref,o.resource_pool_re
                 "o.payload_json,o.observed_at,o.captured_at,o.effective_at_us,p.provider,p.kind AS pool_kind ")
 _ROW_JOINS = ("FROM observation_rollups r JOIN observations o ON o.capture_seq=r.latest_capture_seq "
               "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref ")
+def _payload_resets(alias: str) -> str:
+    return f"CASE WHEN json_valid({alias}.payload_json) THEN json_extract({alias}.payload_json,'$.resets_at') END"
+
+
+# Distinct MEASURED samples (at most 2) of the same pool and reset window: the two-sample rule of `fast`. Computed inside the
+# capacity statement, so every path (compact, --expand, JSON) gets it without another SELECT; the human export query counts
+# the same way (see `human_observations`). Index: idx_obs_session_quota (subject_ref, kind, resource_pool_ref, effective_at_us).
+_SAMPLES_COLUMN = (",CASE WHEN o.kind='quota' THEN (SELECT COUNT(*) FROM (SELECT DISTINCT s.effective_at_us FROM observations s "
+                   "WHERE s.subject_ref=o.subject_ref AND s.kind='quota' AND s.resource_pool_ref IS o.resource_pool_ref "
+                   "AND s.state='MEASURED' AND " + _payload_resets("s") + " IS " + _payload_resets("o") + " "
+                   "ORDER BY s.effective_at_us DESC LIMIT 2)) END AS projection_samples ")
 # Quota rows keep their 100-row cap; account rows ride in the same statement with a cap of their own, so neither starves the other.
-_CAPACITY_SQL = ("SELECT * FROM (SELECT " + _ROW_COLUMNS + _ROW_JOINS + "WHERE r.kind IN ('quota','rate_limit','reset_credit') "
-                 "ORDER BY o.subject_ref,r.pool_key LIMIT 101) UNION ALL SELECT * FROM (SELECT " + _ROW_COLUMNS + _ROW_JOINS +
+_CAPACITY_SQL = ("SELECT * FROM (SELECT " + _ROW_COLUMNS + _SAMPLES_COLUMN + _ROW_JOINS +
+                 "WHERE r.kind IN ('quota','rate_limit','reset_credit') "
+                 "ORDER BY o.subject_ref,r.pool_key LIMIT 101) UNION ALL SELECT * FROM (SELECT " + _ROW_COLUMNS +
+                 ",NULL AS projection_samples " + _ROW_JOINS +
                  "WHERE r.kind='account' ORDER BY o.subject_ref LIMIT 51)")  # 51 = one past ACCOUNT_ROW_CAP, to detect truncation
 ACCOUNT_ROW_CAP = 50
 
@@ -359,9 +378,607 @@ def public_telemetry(raw: object, *, handle: str, generation: int, provider: str
             "usage": public_usage, "context": context}
 
 
+# ---- activity (#374): running and recent asks from one claims-first statement --------------------------------------------
+ALERT_WINDOW_S = 1800  # ONE window: the a1 rule, the a2 overdue rule, the order of ended rows and the text selection
+ACTIVITY_SPAN_S = 86_400  # scopes whose claim expired (or was released) in the last 24 hours
+ACTIVITY_SCOPE_CAP = 1000
+SUPERSEDED_CAP = 50
+TEXT_MAX_CHARS = 262_144  # a longer text is never fetched: "(long text)", so nothing is cut before redaction
+TEXT_NEWEST_ROWS = 20
+LINE_SHORT, LINE_LONG = 60, 200
+TOKEN_EXPIRY_WARN_S = 48 * 3600
+LONG_TEXT = "(long text)"
+
+# Evidence kinds (bridge.py) -> state, for a delivery without a stored result. The newest kind that is not bookkeeping decides.
+_START_KINDS = ("about_to_invoke", "started", "session_call", "output")  # the provider may be running
+_PRESTART_KINDS = ("attempt_created",)  # nothing invoked yet
+_ERROR_KINDS = ("prespawn_failure", "request_rejected", "refusal_detected", "control_halt", "session_unavailable")  # certainly not run
+_UNSURE_KINDS = ("no_terminal", "start_uncertain", "session_tainted", "invocation_unresolved_recovered", "fenced_before_invoke",
+                 "fenced_mid_delivery", "stale_terminal_callback", "terminal")  # plus every runtime_* kind: the provider may have run
+_BOOKKEEPING_KINDS = ("caller", "offset_acked", "response_appended", "session_telemetry", "execution_metadata", "duplicate_terminal",
+                      "conflicting_terminal", "reconcile_registered", "control_applied")
+_BAD_STATES = ("empty", "error", "unsure")
+
+
+def _sql_list(values: tuple[str, ...]) -> str:
+    return ",".join(f"'{value}'" for value in values)  # constants of this module only
+
+
+def _guarded(json_column: str, path: str, value: str) -> str:
+    """`value` (an expression over json_extract/json_type of `json_column`) only when the column is valid JSON; nested CASE so
+    SQLite never evaluates a JSON function on malformed text (which would abort the whole statement)."""
+    return f"CASE WHEN json_valid({json_column}) THEN {value.format(c=json_column, p=path)} END"
+
+
+_R = "tx.result_json"
+_ACTIVITY_SQL = (
+    "WITH s AS (SELECT c.stream_id,c.peer_id,c.generation AS c_generation,c.expires_at,c.lease_sec,c.workspace_generation AS c_wsgen,"
+    "ROW_NUMBER() OVER (ORDER BY c.expires_at DESC,c.stream_id,c.peer_id) AS scope_rank,COUNT(*) OVER () AS scope_total "
+    "FROM bridge_claims c WHERE c.expires_at>=:since ORDER BY c.expires_at DESC,c.stream_id,c.peer_id LIMIT :scope_limit), "
+    # Every delivery of a selected scope is read through the (stream_id, peer_id) prefix of idx_bd_scope_generation (#330 cost class).
+    # Only keys travel through the window sorts; the result and record are joined back by primary key for the kept rows.
+    "dl AS (SELECT s.*,d.delivery_id,d.seq,d.certainty,d.result_json IS NULL AS no_result,"
+    "ROW_NUMBER() OVER (PARTITION BY s.stream_id,s.peer_id ORDER BY d.seq DESC) AS rn "
+    "FROM s CROSS JOIN bridge_deliveries d ON d.stream_id=s.stream_id AND d.peer_id=s.peer_id WHERE s.scope_rank<=:scope_cap), "
+    "pick AS (SELECT dl.*,CASE WHEN dl.rn=1 THEN 0 ELSE 1 END AS sup FROM dl "
+    "WHERE dl.rn=1 OR (dl.certainty IN ('STARTED','MAY_HAVE_STARTED') AND dl.no_result)), "
+    "ranked AS (SELECT pick.*,ROW_NUMBER() OVER (PARTITION BY pick.sup ORDER BY pick.seq DESC) AS sup_rank,"
+    "SUM(pick.sup) OVER () AS sup_total FROM pick), "
+    "kept AS (SELECT k.*,d.claim_generation,d.record_id,d.result_json,d.terminal_at FROM ranked k "
+    "JOIN bridge_deliveries d ON d.delivery_id=k.delivery_id WHERE k.sup=0 OR k.sup_rank<=:sup_cap), "
+    "ev AS (SELECT kept.*,"
+    "(SELECT e.kind FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind NOT IN (" + _sql_list(_BOOKKEEPING_KINDS) + ") "
+    "ORDER BY e.seq DESC LIMIT 1) AS last_kind,"
+    "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='session_call' AND e.certainty='STARTED' "
+    "ORDER BY e.seq DESC LIMIT 1) AS start_detail,"
+    "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=kept.delivery_id AND e.kind='caller' ORDER BY e.seq DESC LIMIT 1) AS caller_detail,"
+    "COALESCE(CAST(strftime('%s',kept.terminal_at) AS REAL),kept.expires_at) AS end_bound,"
+    "CASE WHEN kept.result_json IS NULL THEN NULL WHEN json_valid(kept.result_json) THEN 1 ELSE 0 END AS result_ok FROM kept), "
+    # Open = may be `run` or `overdue`; its text is always read. Ended rows are ranked by their (bounded) end time.
+    "op AS (SELECT ev.*,CASE WHEN ev.sup=0 AND ev.result_json IS NULL AND ev.certainty IN ('NOT_STARTED','STARTED') "
+    "AND ev.expires_at>=:window_start "  # an overdue row is open only for ALERT_WINDOW_S after its lease expired
+    "AND (ev.last_kind IS NULL OR ev.last_kind IN (" + _sql_list(_START_KINDS + _PRESTART_KINDS) + ")) THEN 1 ELSE 0 END AS is_open FROM ev), "
+    # Superseded rows rank apart, so they never take the "20 newest ended" text ranks of real ended rows.
+    "rk AS (SELECT op.*,ROW_NUMBER() OVER (PARTITION BY op.is_open,op.sup ORDER BY op.end_bound DESC,op.seq DESC) AS end_rank FROM op), "
+    "tx AS (SELECT rk.*,CASE WHEN :text_on=1 AND (rk.is_open=1 OR (rk.sup=0 AND rk.end_bound>=:window_start) OR rk.end_rank<=:newest) "
+    "THEN 1 ELSE 0 END AS want_text FROM rk) "
+    "SELECT tx.stream_id,tx.peer_id,tx.c_generation,tx.expires_at,tx.lease_sec,"
+    "CASE WHEN :wsgen IS NULL THEN 1 WHEN tx.c_wsgen=:wsgen THEN 1 ELSE 0 END AS wsgen_match,"
+    "tx.scope_total,tx.sup_total,tx.seq,tx.certainty,tx.claim_generation,tx.terminal_at,tx.sup,tx.last_kind,tx.start_detail,"
+    "tx.caller_detail,tx.result_ok,tx.want_text,"
+    "CASE WHEN tx.result_ok=1 THEN json_type(" + _R + ",'$.response') END AS response_type,"
+    "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' "
+    "THEN length(json_extract(" + _R + ",'$.response')) END END AS reply_len,"
+    "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' "
+    # Byte length of the trimmed reply: length() of text stops at a NUL, so a reply starting with NUL would look empty.
+    "THEN length(CAST(trim(json_extract(" + _R + ",'$.response'),char(32,9,10,11,12,13)) AS BLOB)) END END AS reply_nonblank,"
+    "CASE WHEN tx.result_ok=1 THEN json_type(" + _R + ",'$.empty_response') END AS empty_type,"
+    "CASE WHEN tx.result_ok=1 THEN json_type(" + _R + ",'$.error') END AS error_type,"
+    "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.error.code')='text' "
+    "THEN substr(json_extract(" + _R + ",'$.error.code'),1,200) END END AS error_code,"
+    "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.denied_actions')='array' THEN CASE WHEN "
+    "length(json_extract(" + _R + ",'$.denied_actions'))<=8192 THEN json_extract(" + _R + ",'$.denied_actions') END END END AS denied_json,"
+    "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.usage.input_tokens')='integer' "
+    "THEN json_extract(" + _R + ",'$.usage.input_tokens') END END AS usage_in,"
+    "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.usage.output_tokens')='integer' "
+    "THEN json_extract(" + _R + ",'$.usage.output_tokens') END END AS usage_out,"
+    "r.record_id IS NOT NULL AS has_record,"
+    + _guarded("r.metadata_json", "$.binding",
+               "CASE WHEN json_type({c},'{p}')='text' THEN substr(json_extract({c},'{p}'),1,512) END") + " AS binding,"
+    + _guarded("r.body_json", "$", "CASE WHEN json_type({c})='text' THEN length(json_extract({c},'{p}')) END") + " AS ask_len,"
+    "CASE WHEN tx.want_text=1 THEN " + _guarded(
+        "r.body_json", "$", "CASE WHEN json_type({c})='text' THEN CASE WHEN length(json_extract({c},'{p}'))<=:max_text "
+        "THEN json_extract({c},'{p}') END END") + " END AS ask_text,"
+    "CASE WHEN tx.want_text=1 AND tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' THEN CASE WHEN "
+    "length(json_extract(" + _R + ",'$.response'))<=:max_text THEN json_extract(" + _R + ",'$.response') END END END AS reply_text "
+    "FROM tx LEFT JOIN records r ON r.record_id=tx.record_id ORDER BY tx.sup,tx.seq DESC"
+)
+
+
+def _activity_params(now: float, workspace_generation: str | None, text_on: bool) -> dict[str, Any]:
+    return {"since": now - ACTIVITY_SPAN_S, "scope_limit": ACTIVITY_SCOPE_CAP + 1, "scope_cap": ACTIVITY_SCOPE_CAP,
+            "sup_cap": SUPERSEDED_CAP, "window_start": now - ALERT_WINDOW_S, "newest": TEXT_NEWEST_ROWS,
+            "text_on": 1 if text_on else 0, "wsgen": workspace_generation, "max_text": TEXT_MAX_CHARS}
+
+
+def _workspace_generation(db_path: str) -> tuple[str | None, str | None]:
+    """The lineage of this store, read exactly as `diag running` reads it (diag_running.py); no file means every generation matches."""
+    path = Path(db_path).parent / "workspace.generation"
+    try:
+        return (path.read_text(encoding="utf-8") if path.is_file() else None), None
+    except OSError:
+        return None, "workspace.generation unreadable"
+
+
+# Control (Cc) and format (Cf) characters, except the line breaks LF and CR; a tab becomes a space. Format characters are listed
+# explicitly (a test checks this table against unicodedata), so a secret split by a zero-width character is joined before redaction.
+_FORMAT_RANGES = ((0x00AD, 0x00AD), (0x0600, 0x0605), (0x061C, 0x061C), (0x06DD, 0x06DD), (0x070F, 0x070F), (0x0890, 0x0891),
+                  (0x08E2, 0x08E2), (0x180E, 0x180E), (0x200B, 0x200F), (0x202A, 0x202E), (0x2060, 0x2064), (0x2066, 0x206F),
+                  (0xFEFF, 0xFEFF), (0xFFF9, 0xFFFB), (0x110BD, 0x110BD), (0x110CD, 0x110CD), (0x13430, 0x1343F),
+                  (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A), (0xE0001, 0xE0001), (0xE0020, 0xE007F))
+_CONTROL_RE = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f" + "".join(
+    re.escape(chr(low)) if low == high else f"{re.escape(chr(low))}-{re.escape(chr(high))}" for low, high in _FORMAT_RANGES) + "]")
+_UNSAFE_CATEGORIES = {"Cc", "Cf", "Cs", "Cn", "Co", "Zl", "Zp"}
+
+
+def _strip_controls(text: str) -> str:
+    return _CONTROL_RE.sub("", text.replace("\t", " "))
+
+
+def _fit_line(line: str, cap: int) -> str:
+    """Collapse whitespace, replace what a terminal cannot show safely, cut to `cap` characters with an ellipsis."""
+    head = " ".join(line.split())[:cap + 1]
+    head = "".join("�" if unicodedata.category(ch) in _UNSAFE_CATEGORIES else ch for ch in head)
+    return head if len(head) <= cap else head[:cap - 1] + "…"
+
+
+def _alnum_line(text: str, *, last: bool) -> str | None:
+    lines = text.splitlines()
+    for line in (reversed(lines) if last else lines):
+        if any(ch.isalnum() for ch in line):
+            return line
+    return None
+
+
+def activity_lines(text: str, *, last: bool, secrets: list[str] | None = None) -> tuple[str | None, str | None]:
+    """(short, long) display line of a request (first line with a letter or digit) or a reply (`last`: the last such line).
+    Order: drop control and format characters from the COMPLETE text, redact the complete text, pick the line, fit, cap."""
+    from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets
+    cleaned = Sanitizer(env_secrets() if secrets is None else secrets).clean(_strip_controls(text))
+    line = _alnum_line(cleaned, last=last)
+    return (None, None) if line is None else (_fit_line(line, LINE_SHORT), _fit_line(line, LINE_LONG))
+
+
+def _display(value: object, cap: int, secrets: list[str]) -> str | None:
+    if not isinstance(value, str):
+        return None
+    from peerhub.extensions.adapters.sanitize import Sanitizer
+    shown = _fit_line(Sanitizer(secrets).clean(_strip_controls(value)), cap)
+    return shown or None
+
+
+def _this_host() -> str | None:
+    """The `host` value of a caller row written on this machine (frozen caller schema v1); the writer's helper when present."""
+    try:
+        from peerhub.extensions.caller import host_id
+        return host_id()
+    except ImportError:
+        return f"{platform.node()}|{sys.platform}"[:255]
+
+
+def _this_ns() -> str | None:
+    try:
+        from peerhub.extensions.caller import pid_namespace
+        return pid_namespace()
+    except ImportError:
+        pass
+    if not sys.platform.startswith("linux"):
+        return "-"
+    try:
+        return os.readlink("/proc/self/ns/pid")
+    except OSError:
+        return None
+
+
+def _process_created(pid: int) -> float | str | None:
+    """Creation time of `pid` on this host, None when no such process exists, "denied" when it cannot be read."""
+    try:
+        import psutil  # pyright: ignore[reportMissingModuleSource]
+    except ImportError:
+        return "denied"
+    try:
+        return float(psutil.Process(pid).create_time())
+    except psutil.NoSuchProcess:
+        return None
+    except (psutil.Error, OSError, ValueError, OverflowError):
+        return "denied"
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return float(value) if math.isfinite(value) else None
+    except OverflowError:  # an integer of 2**1024 or more
+        return None
+
+
+def _caller(raw: object) -> tuple[dict[str, Any] | None, bool]:
+    """A valid caller detail (frozen schema v1) or None; the flag says a row was present but unreadable."""
+    if raw is None:
+        return None, False
+    try:
+        parsed: object = json.loads(raw) if isinstance(raw, str) else None
+    except (ValueError, RecursionError):  # RecursionError: a deeply nested detail
+        return None, True
+    if not isinstance(parsed, dict):
+        return None, True
+    item = cast(dict[str, Any], parsed)
+    optional_text = ("session", "ns", "batch", "task")
+    pid, created = item.get("ask_pid"), item.get("ask_created")
+    valid = (item.get("v") == 1 and item.get("tool") in ("cc", "?") and isinstance(item.get("label"), str) and item["label"]
+             and isinstance(item.get("host"), str) and item["host"]
+             and all(item.get(key) is None or isinstance(item.get(key), str) for key in optional_text)
+             and isinstance(pid, int) and not isinstance(pid, bool) and pid > 0
+             and (created is None or (isinstance(created, (int, float)) and not isinstance(created, bool))))
+    if not valid:
+        return None, True
+    item["ask_created"] = _number(created)  # a non-finite or overflowing creation time is unknown (None)
+    return item, False
+
+
+def _lead(caller: dict[str, Any], secrets: list[str]) -> dict[str, Any]:
+    session = caller.get("session")
+    basis = session if session else f"{caller['host']}:{caller['ask_pid']}:{caller.get('ask_created')}"
+    return {"label": _display(caller["label"], 40, secrets) or "?", "tool": caller["tool"],
+            "id": hashlib.sha256(basis.encode("utf-8", "replace")).hexdigest()[:8]}  # a lone surrogate never raises
+
+
+def _iso_seconds(value: object) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.timestamp() if parsed.tzinfo is not None else None
+
+
+def _binding_fields(binding: object) -> tuple[str | None, str | None, str | None]:
+    from peerhub.extensions.diag_running import _profile  # pyright: ignore[reportPrivateUsage]
+    if not isinstance(binding, str) or not binding:
+        return None, None, None
+    parts = binding.split("#", 1)[0].split("/")
+    model, effort = (parts[1], parts[2]) if len(parts) == 3 else (parts[0], parts[1]) if len(parts) == 2 else (None, None)
+    return _public_binding_value(_profile(binding)), _public_binding_value(model), _public_binding_value(effort)
+
+
+def _liveness_of(caller: dict[str, Any], liveness: Callable[..., object] | None,
+                 probe: Callable[[int], object]) -> tuple[bool | None, str | None]:
+    alive: object = None
+    if liveness is not None:
+        try:
+            alive = liveness(caller["host"], caller.get("ns"), caller["ask_pid"], caller.get("ask_created"))
+        except Exception:  # noqa: BLE001 - liveness is a best-effort source: any failure is "unknown", never a group error
+            alive = None
+    if isinstance(alive, bool):
+        return alive, None
+    if caller["host"] != _this_host():
+        return None, "other host"
+    here = _this_ns()
+    if caller.get("ns") is None or here is None or caller.get("ns") != here:
+        return None, "other namespace"
+    if liveness is None or caller.get("ask_created") is None:
+        return None, "not accessible"
+    try:
+        found = probe(int(caller["ask_pid"]))
+    except Exception:  # noqa: BLE001 - see above
+        found = "denied"
+    return None, "pid reused or clock stepped" if _number(found) is not None else "not accessible"
+
+
+def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, text_on: bool, secrets: list[str],
+             liveness: Callable[..., object] | None, probe: Callable[[int], object]) -> dict[str, Any]:
+    from peerhub.extensions.diag_running import _started_at  # pyright: ignore[reportPrivateUsage]
+    reasons: list[str] = []
+    superseded = bool(r["sup"])
+    expires_at = float(r["expires_at"])
+    live = expires_at > now
+    gen_match = r["claim_generation"] == r["c_generation"]
+    last = r["last_kind"] if isinstance(r["last_kind"], str) else None
+    note: str | None = None
+    if superseded:
+        state, note = "unsure", "superseded"
+    elif r["certainty"] == "MAY_HAVE_STARTED":
+        state = "unsure"
+        note = last if last is not None and (last in _UNSURE_KINDS or last.startswith("runtime_")) else "may have started"
+    elif r["result_ok"] == 0:
+        state = "unsure"
+        reasons.append("result unreadable")
+    elif r["result_ok"] == 1:
+        if r["error_type"] not in (None, "null"):
+            state, note = "error", _display(r["error_code"], 40, secrets) or "error"
+        elif (r["empty_type"] == "true" or r["response_type"] in (None, "null")
+              or (r["response_type"] == "text" and not r["reply_nonblank"])):
+            state = "empty"
+            denied: list[str] = []
+            if isinstance(r["denied_json"], str):
+                try:
+                    raw_denied: object = json.loads(r["denied_json"])
+                except (ValueError, RecursionError):
+                    raw_denied = None
+                if isinstance(raw_denied, list):
+                    denied = [shown for shown in (_display(item, 40, secrets) for item in cast(list[object], raw_denied)) if shown]
+            note = _fit_line("denied: " + ", ".join(denied), 120) if denied else None
+        else:
+            state = "ok"
+    elif last in _ERROR_KINDS:
+        state, note = "error", last
+    elif last is not None and (last in _UNSURE_KINDS or last.startswith("runtime_")):
+        state, note = "unsure", _display(last, 40, secrets)
+    elif last is None or last in _START_KINDS or last in _PRESTART_KINDS:
+        if not r["wsgen_match"]:  # a claim of another workspace generation (a restored store), live or expired: never a2
+            state, note = "unsure", "other generation"
+        elif live:
+            state, note = (("unsure", "generation unknown") if gen_reason else
+                           ("unsure", "claim taken") if not gen_match else ("run", None))
+        elif last in _START_KINDS:
+            state = "overdue"
+        elif last is None:
+            state, note = "unsure", "no evidence"
+        else:
+            state, note = "error", "not started"
+    else:
+        state, note = "unsure", _display(last, 40, secrets)
+    try:
+        started_at = _started_at(r["start_detail"])
+    except (OverflowError, RecursionError):  # an integer of 2**1024 or more; a deeply nested detail
+        started_at = None
+    if r["start_detail"] is not None and started_at is None:
+        reasons.append("start time unreadable")
+    terminal_at = _iso_seconds(r["terminal_at"])
+    # An overdue row is in the running set only for ALERT_WINDOW_S after its lease expired; then it is an ended (bad) row.
+    open_row = state == "run" or (state == "overdue" and expires_at >= now - ALERT_WINDOW_S)  # the SQL `is_open` expression
+    ended_at: float | None = None
+    ended_exact: bool | None = None
+    if not open_row:
+        if terminal_at is not None:
+            ended_at, ended_exact = terminal_at, True
+        elif not live:  # the release time of the claim: exact for the claim that ran it, else the latest possible end
+            ended_at, ended_exact = expires_at, gen_match
+    age_s = round(max(0.0, now - ended_at), 3) if ended_at is not None and ended_exact else None
+    if open_row:
+        elapsed_s = None if started_at is None else round(max(0.0, now - started_at), 3)
+    else:
+        elapsed_s = (round(max(0.0, ended_at - started_at), 3)
+                     if started_at is not None and ended_at is not None and ended_exact else None)
+    caller, caller_bad = _caller(r["caller_detail"])
+    if caller_bad:
+        reasons.append("caller unreadable")
+    alive: bool | None = None
+    alive_reason: str | None = None
+    if open_row:
+        alive, alive_reason = (None, "no caller row") if caller is None else _liveness_of(caller, liveness, probe)
+    profile, model, effort = _binding_fields(r["binding"])
+    stream = _display(r["stream_id"], 120, secrets) or "?"
+    batch, task = (caller.get("batch"), caller.get("task")) if caller is not None else (None, None)
+    name = (f"{_display(batch, 40, secrets)}/{_display(task, 40, secrets)}" if isinstance(batch, str) and batch
+            and isinstance(task, str) and task else stream)
+    lines: dict[str, str | None] = {"ask_line": None, "ask_line_long": None, "reply_line": None, "reply_line_long": None}
+    if text_on and r["want_text"]:
+        if r["ask_len"] is None:
+            reasons.append("request text unreadable" if r["has_record"] else "no request record")
+        elif int(r["ask_len"]) > TEXT_MAX_CHARS:
+            lines["ask_line"] = lines["ask_line_long"] = LONG_TEXT
+        elif isinstance(r["ask_text"], str) and len(r["ask_text"]) > TEXT_MAX_CHARS:  # SQLite length() stops at a NUL
+            lines["ask_line"] = lines["ask_line_long"] = LONG_TEXT
+        elif isinstance(r["ask_text"], str):
+            lines["ask_line"], lines["ask_line_long"] = activity_lines(r["ask_text"], last=False, secrets=secrets)
+        if (r["reply_len"] is not None and int(r["reply_len"]) > TEXT_MAX_CHARS) or (
+                isinstance(r["reply_text"], str) and len(r["reply_text"]) > TEXT_MAX_CHARS):
+            lines["reply_line"] = lines["reply_line_long"] = LONG_TEXT
+        elif isinstance(r["reply_text"], str):
+            lines["reply_line"], lines["reply_line_long"] = activity_lines(r["reply_text"], last=True, secrets=secrets)
+    tokens = ({"input": r["usage_in"], "output": r["usage_out"]}
+              if r["usage_in"] is not None or r["usage_out"] is not None else None)
+    return {
+        "state": state, "superseded": superseded, "alive": alive, "alive_reason": alive_reason,
+        "peer": _display(r["peer_id"], 64, secrets) or "?", "profile": profile, "model": model, "effort": effort,
+        "stream": stream, "name": name, "lead": _lead(caller, secrets) if caller is not None else None,
+        "started_at": started_at, "elapsed_s": elapsed_s, "ended_at": ended_at, "ended_exact": ended_exact, "age_s": age_s,
+        "lease_left_s": round(expires_at - now, 3) if open_row else None, "tokens": tokens,
+        "ask_line": lines["ask_line"], "reply_line": lines["reply_line"],
+        "ask_line_long": lines["ask_line_long"], "reply_line_long": lines["reply_line_long"],
+        "note": note, "reasons": reasons,
+    }
+
+
+def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | None, text_on: bool,
+                   liveness: Callable[..., object] | None, probe: Callable[[int], object]) -> dict[str, Any]:
+    """Rows of the activity group. Lead `asks_24h` counts the streams (scopes) of that lead with an ask in the last 24 hours,
+    one per stream and peer, not every ask: older asks of a stream are replaced by its newest one (superseded rows excluded)."""
+    from peerhub.extensions.adapters.sanitize import env_secrets
+    secrets = env_secrets()
+    built = [_ask_row(r, now, gen_reason=gen_reason, text_on=text_on, secrets=secrets, liveness=liveness, probe=probe) for r in rows]
+    main = [a for a in built if not a["superseded"]]
+    running = [a for a in main if a["state"] == "run" or (a["state"] == "overdue" and a["ended_at"] is None)]
+    ended = [a for a in main if not (a["state"] == "run" or (a["state"] == "overdue" and a["ended_at"] is None))]
+    running.sort(key=lambda a: (0 if a["state"] == "overdue" or a["alive"] is False else 1,
+                                -(a["elapsed_s"] if a["elapsed_s"] is not None else -1.0)))
+    window_start = now - ALERT_WINDOW_S
+    bad = (*_BAD_STATES, "overdue")  # an overdue row past the window is a bad outcome among the ended rows
+    ended.sort(key=lambda a: (0 if a["state"] in bad and a["note"] != "other generation"  # A4: a restored lineage is not news
+                              and a["ended_at"] is not None and a["ended_at"] >= window_start else 1,
+                              -(a["ended_at"] if a["ended_at"] is not None else now)))
+    asks = running + ended + [a for a in built if a["superseded"]]
+    leads: dict[str, dict[str, Any]] = {}
+    for a in asks:
+        lead = a["lead"]
+        if lead is None or a["superseded"]:
+            continue
+        entry = leads.setdefault(lead["id"], {**lead, "running": 0, "asks_24h": 0, "last_ask_at": None})
+        entry["asks_24h"] += 1
+        if a in running:
+            entry["running"] += 1
+        stamp = a["started_at"] if a["started_at"] is not None else a["ended_at"]
+        if stamp is not None and (entry["last_ask_at"] is None or stamp > entry["last_ask_at"]):
+            entry["last_ask_at"] = stamp
+    scope_total = int(rows[0]["scope_total"]) if rows else 0
+    sup_total = int(rows[0]["sup_total"] or 0) if rows else 0
+    omitted = max(0, sup_total - SUPERSEDED_CAP)
+    return {
+        "asks": asks,
+        "leads": sorted(leads.values(), key=lambda x: (-x["running"], -(x["last_ask_at"] or 0.0), x["id"])),
+        "counts": {"running": len(running), "overdue": sum(1 for a in running if a["state"] == "overdue"),
+                   "by_peer": dict(sorted(Counter(a["peer"] for a in running).items())),
+                   "leads": len({a["lead"]["id"] for a in running if a["lead"] is not None})},
+        "sample_size": len(asks), "truncated": scope_total > ACTIVITY_SCOPE_CAP or omitted > 0,
+        "scopes_total": scope_total, "superseded_omitted": omitted, "reason": gen_reason,
+    }
+
+
+# ---- alerts (#374 section 3): a pure function over already-read facts -------------------------------------------------------
+
+LastKnown = dict[str, tuple[float, float | None]]  # observation_id -> (validated fraction, resets_at) of a STALE row
+
+
+def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None = None,
+                now: float | None = None, samples: dict[str, int] | None = None) -> list[dict[str, Any]]:
+    """Display state of every quota pool row and its rounded percent left. A fresh (MEASURED) row is out, low, fast, ok or
+    reset; a STALE row with a last-known fraction is `aged` (never out, low or fast, so a3 stays fresh-only), or `reset` once
+    its resets_at passed; anything else is `?`. `fresh` marks a MEASURED row with a valid fraction.
+
+    `shown` is what the POOLS table shows (precedence n/a ? reset out low fast aged ok): `state` for a fresh row; for a STALE
+    row out at 0, low at 0.10 or less, fast on a threat projection, else aged. `fast` needs two projection samples, as in the
+    view (monitor_view `_compact_pool`): the item's `projection_samples`, else `samples[observation_id]`, else 0."""
+    pools: list[dict[str, Any]] = []
+    for item in observations:
+        if item.get("kind") != "quota" or item.get("pool_ref") is None:
+            continue
+        pool = str(item.get("pool_ref")).split(":")[-1]
+        evidence = item.get("state")
+        if evidence == "STALE" and item.get("stored_state", "MEASURED") != "MEASURED":
+            evidence = item.get("stored_state")  # an aged ABSENT or failed reading is not a stale measurement
+        raw_m: object = item.get("measurements")
+        measured = cast(dict[str, Any], raw_m) if isinstance(raw_m, dict) else {}
+        remaining = _number(measured.get("remaining_fraction")) if evidence == "MEASURED" else None
+        if remaining is not None and not 0 <= remaining <= 1:
+            remaining = None
+        fresh = remaining is not None
+        raw_p: object = item.get("projection")
+        projection = cast(dict[str, Any], raw_p) if isinstance(raw_p, dict) else {}
+        reset_in = _number(item.get("reset_in_seconds"))
+        count = _number(item.get("projection_samples"))
+        if count is None:
+            count = _number((samples or {}).get(str(item.get("observation_id"))))
+        threat = projection.get("state") == "threat" and (count or 0) >= 2
+
+        def graded(fraction: float, otherwise: str) -> str:
+            return "out" if fraction == 0 else "low" if fraction <= 0.10 else "fast" if threat else otherwise
+        known = (last_known or {}).get(str(item.get("observation_id"))) if evidence == "STALE" else None
+        if known is not None:
+            remaining, resets_at = known
+            passed = resets_at is not None and now is not None and resets_at <= now
+            state, remaining = ("reset", None) if passed else ("aged", remaining)
+            shown = state if remaining is None else graded(remaining, "aged")
+        elif remaining is None:
+            state = shown = "?"
+        elif reset_in is not None and reset_in <= 0:
+            state, remaining = "reset", None
+            shown = state
+        else:
+            state = shown = graded(remaining, "ok")
+        pools.append({"pool": f"{item.get('peer_id')} {pool}", "left_pct": None if remaining is None else round(remaining * 100),
+                      "state": state, "shown": shown, "window": pool.rpartition("-")[2] if "-" in pool else "?",
+                      "evidence": evidence, "fresh": fresh})
+    return pools
+
+
+def capacity_source(pools: list[dict[str, Any]]) -> str:
+    """`stale` when at least one 7-day row is STALE and no 7-day row is fresh (MEASURED with a valid fraction), else `read`."""
+    weekly = [p for p in pools if p.get("window") == "7D"]
+    if any(p.get("evidence") == "STALE" for p in weekly) and not any(p.get("fresh") for p in weekly):
+        return "stale"
+    return "read"
+
+
+def min_quota(pools: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The lowest 7-day pool with a known percent left: its shown state (as in the POOLS table) and whether it is stale."""
+    weekly = [p for p in pools if p["window"] == "7D" and p["left_pct"] is not None]
+    if not weekly:
+        return None
+    low = min(weekly, key=lambda p: (p["left_pct"], p["pool"]))
+    return {"pool": low["pool"], "left_pct": low["left_pct"], "state": low.get("shown", low["state"]),
+            "aged": low.get("evidence") == "STALE"}
+
+
+def _alert(code: str, kind: str, subject: str, age_s: float | None, severity: str) -> dict[str, Any]:
+    return {"code": code, "kind": kind, "subject": subject, "age_s": age_s, "severity": severity}
+
+
+def build_alerts(*, asks: list[dict[str, Any]] | None, pools: list[dict[str, Any]] | None,
+                 accounts: list[dict[str, Any]] | None, facts_report: dict[str, Any] | None,
+                 failures: list[tuple[str, str]], now: float) -> list[dict[str, Any]]:
+    """Alerts in severity order: a6 failure; a2 gone; a2 overdue; a1; a5 login or expired token; a3 pool out; then the low ones
+    (a5 token expiring within 48 hours, a6 facts needs_recheck). A source that was not read (None) gives no alert."""
+    failed = [_alert("a6", "store", f"{group}: {reason}", None, "high") for group, reason in failures]
+    gone: list[dict[str, Any]] = []
+    overdue: list[dict[str, Any]] = []
+    ended_badly: list[dict[str, Any]] = []
+    for row in asks or []:
+        if row.get("superseded"):
+            continue
+        subject = f"{row.get('profile') or row.get('peer') or '?'} {row.get('name') or '?'}"
+        state = row.get("state")
+        if state == "run" and row.get("alive") is False:
+            gone.append(_alert("a2", "gone", subject, row.get("elapsed_s"), "high"))
+        elif state == "overdue":
+            left = _number(row.get("lease_left_s"))
+            if left is not None and -left <= ALERT_WINDOW_S:
+                overdue.append(_alert("a2", "overdue", subject, round(max(0.0, -left), 3), "high"))
+        elif state in _BAD_STATES and row.get("note") != "other generation":  # A4: no alert at all for another lineage
+            ended = _number(row.get("ended_at"))
+            if ended is not None and now - ended <= ALERT_WINDOW_S:
+                ended_badly.append(_alert("a1", str(state), subject, row.get("age_s"), "high"))
+    login: list[dict[str, Any]] = []
+    expiring: list[dict[str, Any]] = []
+    for account in accounts or []:
+        peer = str(account.get("peer_id") or "?")
+        if account.get("logged_in") is False:
+            login.append(_alert("a5", "login", peer, None, "high"))
+            continue
+        expires = _number(account.get("login_token_expires_at"))
+        if expires is not None and expires <= now:
+            login.append(_alert("a5", "token_expired", peer, round(now - expires, 3), "high"))
+        elif expires is not None and expires - now <= TOKEN_EXPIRY_WARN_S:
+            expiring.append(_alert("a5", "token_expiring", peer, None, "low"))
+    out_pools = [_alert("a3", "pool_out", str(p["pool"]), None, "high") for p in pools or [] if p.get("state") == "out"]
+    facts: list[dict[str, Any]] = []
+    if isinstance(facts_report, dict) and facts_report.get("status") == "needs_recheck":
+        raw_reasons: object = facts_report.get("reasons")
+        reasons = [str(r) for r in cast(list[object], raw_reasons)] if isinstance(raw_reasons, list) else []
+        facts.append(_alert("a6", "facts", _fit_line(", ".join(reasons) or "needs_recheck", 120), None, "low"))
+    return failed + gone + overdue + ended_badly + login + out_pools + expiring + facts
+
+
+_OBSERVATION_TABLES = ("observations", "observation_rollups", "resource_pools")
+
+
+def _no_observation_tables(conn: sqlite3.Connection, exc: sqlite3.Error) -> bool:
+    """True only when the capacity read failed because NONE of the observation tables exists (a store that never had a quota
+    refresh). A missing table among existing ones, an unreadable table, a malformed row or a locked or corrupt store is False.
+    PRAGMA table_info reads the schema without a SELECT, so the pinned statement caps are unchanged."""
+    if not isinstance(exc, sqlite3.OperationalError) or not str(exc).startswith("no such table:"):
+        return False
+    try:
+        return all(not conn.execute(f"PRAGMA table_info({name})").fetchall() for name in _OBSERVATION_TABLES)
+    except sqlite3.Error:
+        return False
+
+
+def _decode_text(raw: bytes) -> str:
+    return raw.decode("utf-8", "replace")
+
+
+def _saved_defaults_source(groups: list[str]) -> str | None:
+    """The saved-defaults layer when `groups` is exactly what it selects; the read model has no other view of the selection."""
+    try:
+        from peerhub.cli.monitor_preferences import effective_preferences
+        preference = effective_preferences()
+    except (ImportError, OSError, ValueError, KeyError, TypeError):
+        return None
+    if preference.get("status") == "OK" and preference.get("source") in ("workspace", "global") \
+            and list(preference.get("selected_groups") or []) == list(groups):
+        return str(preference["source"])
+    return None
+
+
 def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | None = None,
                          trace_callback: Callable[[str], None] | None = None,
-                         workspace: str | Path | None = None, human: bool = False) -> dict[str, Any]:
+                         workspace: str | Path | None = None, human: bool = False,
+                         liveness: Callable[..., object] | None = None,
+                         process_probe: Callable[[int], object] | None = None,
+                         preference_source: str | None = None) -> dict[str, Any]:
     """Read grouped monitor facts from one query-only SQLite snapshot (five bounded query families)."""
     import time
     now = time.time() if read_at is None else read_at
@@ -369,6 +986,8 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
     start_day = (end_day - timedelta(days=29)).isoformat()
     conn = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=5.0, isolation_level=None)
     conn.row_factory = sqlite3.Row
+    # A stored "\ud800" escape makes json_extract return invalid UTF-8; decode it with U+FFFD instead of failing the fetch.
+    conn.text_factory = _decode_text
     output: dict[str, Any] = {}
     errors: dict[str, str] = {}
     select_count = 0
@@ -579,6 +1198,10 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         accounts: list[dict[str, Any]] = []
         latest_facts_report: dict[str, Any] | None = None
         latest_facts_seq = -1  # capture_seq is store-wide: the newest report wins, not the first in query order (#366 M1b)
+        capacity_truncated = accounts_truncated = False
+        last_known: LastKnown = {}
+        capacity_never_refreshed = False  # the observation tables do not exist yet: no quota evidence, not a store failure
+        sample_counts: dict[str, int] = {}  # observation_id -> distinct MEASURED samples of its window (0..2)
         if bool(set(groups) & {"capacity", "peers"}):
             try:
                 all_rows = conn.execute(_CAPACITY_SQL).fetchall()
@@ -621,6 +1244,12 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     )
                     measurements = None
                     reset_in_seconds = None
+                    checked_remaining = _number(remaining) if used_fraction is not None else None  # the value validated above
+                    if freshness.state.value == "STALE" and checked_remaining is not None:  # alerts only: public value stays None
+                        stale_resets: object = observation.payload.get("resets_at")
+                        last_known[observation.observation_id] = (checked_remaining, _number(stale_resets))
+                    if row["projection_samples"] is not None:  # from the capacity statement itself, on every path
+                        sample_counts[observation.observation_id] = int(row["projection_samples"])
                     if freshness.state.value == "MEASURED":
                         resets_at = observation.payload.get("resets_at")
                         if (isinstance(resets_at, (int, float)) and not isinstance(resets_at, bool)
@@ -662,6 +1291,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         "reason": observation.payload.get("reason") or observation.payload.get("condition"),
                     }))
                 observations = [item for probe, item in staged if not _superseded(item, newest_success.get(probe, 0))]
+                capacity_truncated, accounts_truncated = len(rows) > 100, len(account_rows) > ACCOUNT_ROW_CAP
                 accounts = _read_accounts(conn, account_rows[:ACCOUNT_ROW_CAP], now)
                 _fill_unknown_plans(observations, accounts)
                 if "capacity" in groups:
@@ -672,6 +1302,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         "sample_size": min(len(rows), 100), "truncated": len(rows) > 100}}
             except sqlite3.Error as exc:
                 errors["capacity"] = type(exc).__name__
+                capacity_never_refreshed = _no_observation_tables(conn, exc)
                 if "capacity" in groups:
                     output["capacity"] = {"status": "ERROR", "data": None}
         if "peers" in groups:
@@ -838,6 +1469,29 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     "facts_report": latest_facts_report,
                 },
             }
+        activity_data: dict[str, Any] | None = None
+        if "activity" in groups:
+            generation, generation_reason = _workspace_generation(db_path)
+            text_on = os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off"
+            try:
+                try:
+                    activity_rows = conn.execute(_ACTIVITY_SQL, _activity_params(now, generation, text_on)).fetchall()
+                except sqlite3.OperationalError as exc:
+                    if "no such table: bridge_claims" not in str(exc):
+                        raise
+                    activity_rows = []  # no Bridge activity was ever recorded in this store
+                if liveness is None:
+                    try:
+                        from peerhub.extensions.liveness import ask_alive
+                        liveness = ask_alive
+                    except ImportError:
+                        liveness = None
+                activity_data = _activity_data(activity_rows, now, gen_reason=generation_reason, text_on=text_on,
+                                               liveness=liveness, probe=process_probe or _process_created)
+                output["activity"] = {"status": "OK", "data": activity_data}
+            except sqlite3.Error as exc:
+                errors["activity"] = type(exc).__name__
+                output["activity"] = {"status": "ERROR", "data": None}
         if "store" in groups:
             try:
                 output["store"] = {"status": "OK", "data": {"schema_version": schema,
@@ -889,8 +1543,40 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 human_observations.append({**item, "last_measurements": raw,
                     "resets_at": raw.get("resets_at"), "projection_samples": row["samples"] if row else 0})
         conn.execute("ROLLBACK")
+        capacity_read = bool(set(groups) & {"capacity", "peers"})
+        capacity_failed = "capacity" in errors
+
+        no_evidence = capacity_read and capacity_never_refreshed  # never a quota refresh: not read, but not a store failure
+
+        def source(selected: bool, failed: bool, cut: bool) -> str:
+            return "not_selected" if not selected else "error" if failed else "truncated" if cut else "read"
+
+        def quota_source(state: str) -> str:
+            return "no_evidence" if no_evidence else state
+        pools = (pool_states(observations, last_known, now, sample_counts)
+                 if capacity_read and not capacity_failed else None)
+        capacity_state = source(capacity_read, capacity_failed, capacity_truncated)
+        alert_sources: dict[str, Any] = {
+            # Only the scope cap weakens the source: superseded rows never alert, so their cap stays in data.truncated.
+            "activity": source("activity" in groups, "activity" in errors or bool(activity_data and activity_data["reason"]),
+                               bool(activity_data and activity_data["scopes_total"] > ACTIVITY_SCOPE_CAP)),
+            "capacity": quota_source(capacity_source(pools) if capacity_state == "read" and pools is not None else capacity_state),
+            "accounts": quota_source(source(capacity_read, capacity_failed, accounts_truncated)),
+            "facts": quota_source(source(capacity_read, capacity_failed, False)),
+        }
+        if no_evidence:
+            alert_sources["reasons"] = {"capacity": "no quota evidence"}
+        if "activity" not in groups and (preference_source or _saved_defaults_source(groups)) in ("workspace", "global"):
+            alert_sources["hint"] = "peerhub monitor defaults reset"
+        alerts = build_alerts(asks=activity_data["asks"] if activity_data else None, pools=pools,
+                              accounts=accounts if capacity_read and not capacity_failed else None,
+                              facts_report=latest_facts_report if capacity_read and not capacity_failed else None,
+                              failures=[(key, str(value).split(":")[0]) for key, value in errors.items()
+                                        if key != "scope_cap" and not (key == "capacity" and no_evidence)],
+                              now=now)
         return {"schema_version": "2.0", "status": "PARTIAL" if errors else "OK", "read_at": now,
-                "groups": output, "errors": errors, "query_families": select_count,
+                "groups": output, "errors": errors, "alert_sources": alert_sources, "alerts": alerts,
+                "min_quota": min_quota(pools) if pools is not None else None, "query_families": select_count,
                 **({"_human_observations": human_observations} if human else {})}
     finally:
         if conn.in_transaction:

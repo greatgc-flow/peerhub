@@ -85,18 +85,22 @@ peerhub monitor groups --json
 peerhub monitor --snapshot
 peerhub monitor --snapshot --group sessions --group execution
 
-# Watch the eight default groups: overview, peers, execution, sessions, usage,
-# context, capacity, and coverage. Collection may call provider CLIs
+# Watch the nine default groups: overview, activity, peers, execution, sessions,
+# usage, context, capacity, and coverage. Collection may call provider CLIs
 # (including agy /usage and /credits) and consume provider quota.
 peerhub monitor --interval-seconds 60
 peerhub monitor --view plain --cycles 1
+
+# For an AI session: line 1 (the verdict), the suggestion and the pools only; no text of other sessions.
+peerhub monitor --snapshot --group capacity
 
 # Keep the schema 1.1 quota/dashboard output for existing scripts.
 peerhub monitor --json --schema-version 1.1 --cycles 1
 
 # Customize grouped watch and snapshot defaults (workspace by default).
-peerhub monitor defaults set --group overview peers execution sessions usage context capacity coverage
+peerhub monitor defaults set --group overview activity peers execution sessions usage context capacity coverage
 peerhub monitor defaults show
+peerhub monitor defaults reset   # saved before 0.24.16? reset to get the new `activity` group
 
 # Review with a second provider using a declared profile.
 peerhub ask cc "Explain the Core Peer, Stream, Record and Offset flow" --stream learning --request-id learning-001 --profile cc.standard --json
@@ -116,25 +120,26 @@ Quota is collected separately from diagnostics. `diag --fresh` has been replaced
 
 `diag --live` repeatedly reads committed snapshots only and keeps its `--cycles 0` default (until interrupted, including non-TTY stdout). `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
-`monitor groups` lists all ten stable group IDs, their meaning, and whether each
-is selected by the effective defaults. The default monitor includes quota
-capacity (`capacity`), retained session state and configured binding (`sessions`),
-per-peer dependency chains (`peers`), and Bridge delivery certainty (`execution`).
+`monitor groups` lists all eleven stable group IDs, their meaning, and whether each
+is selected by the effective defaults. The default monitor includes running and
+recent asks (`activity`), quota capacity (`capacity`), retained session state and
+configured binding (`sessions`), per-peer dependency chains (`peers`), and Bridge
+delivery certainty (`execution`).
 Delivery certainty describes whether a request was not started, may have
 started, started, or reached a terminal delivery state; `terminal` does not
 mean the model answered the task successfully. PeerHub does not currently
 classify semantic task success/error. Context occupancy intentionally stays 'unknown' because it is not validated by PeerHub (the CLIs do not report it in a form PeerHub accepts; cx 'debug models' exposes a context window but runtime occupancy is not reported in an accepted form). `runtime` and `store` remain available with
 `--group` or `--snapshot --group`.
 
-The default human monitor shows POOLS (meaning, last recorded capacity, reset, `PACE`, age, state and configured profiles), one PEERS line per peer, and a facts/session/delivery/telemetry footer. `low` means more than 0% and at most 10% remaining (0% is `out`); `fast` means ahead of pace with a threat projection supported by at least two samples and more than 10% remaining. `aged` numbers are last-known evidence, not current capacity; refresh before relying on them. Passed reset windows show no capacity number. The `suggest:` line picks an eligible profile per tier; `|<profile>` adds the best eligible alternative from a different peer in that tier (see [balancing guidance](docs/batch.md)). The header always shows the date and `DB:<source>`; the full DB path appears only when it differs from the nearest upward store or on error. `--expand` renders the detailed grouped sections, bars, `EXHAUST-IN` forecasts, `sessions` rows and coverage footer; `peerhub explain <code>` covers its short codes.
+The default human monitor is a compact frame of at most 24 lines, 100 columns and 8,192 bytes, in this order. Line 1 is the verdict: `OK | 3 running | 2 leads | min quota 1% ag 3P-7D low` when every alert source was read, `OK? (asks not read)` or `OK? (quota stale)` when one was not (with `peerhub monitor defaults reset` when saved defaults lack the `activity` group; `min quota ... low (aged)` marks a stale pool), or `ATTN 3 | gone: cc.effort rank-374-r1/cc 41s | empty: ag.standard denied-postinstall 3m | +1` (or `ATTN 3?` when an alert source was not read; `--expand` lists which), which names at most two alerts in importance order (a store or read failure, a running ask whose `peerhub ask` process is gone, an overdue ask, an ask that ended empty, in error or unsure in the last 30 minutes, a login or expired token, a pool that is out, the agy token-use stop, then a token expiring within 48 hours and model facts that need a recheck). Line 2 is the header (time of the snapshot, `DB:<source>`, quota age, live refresh state). `RUNNING n` (with the count per peer) lists at most five running asks: a flag (`!gone`, `!overdue`, `?` for unknown liveness), elapsed time, profile, the label of the lead that launched it, the first line of the request and the name. `RECENT n` lists the two most important ended asks: state, age, profile, lead, the last line of the reply (or the note) and the name. Then the `suggest:` line and `POOLS n` (STATE, LEFT, RESET, `PACE`, family), ordered out, low, binding, fast, then the rest; a 5-hour pool shows under its 7-day pool only when it has less left or is low or out. When the terminal is small, lines go in one fixed order (recent rows first, line 1 last), and each header keeps its total. `peerhub monitor --group capacity` prints lines 1-2, the suggestion and POOLS, without the text of other sessions; AI sessions should use it. Request and reply lines come from the local store, cleaned of secrets known to the environment; `PEERHUB_MONITOR_TEXT=off` hides them. In this release lead sessions appear only as the callers of asks (the label comes from `PEERHUB_LEAD`, else the tool name); their context comes in 0.24.17. `low` means more than 0% and at most 10% remaining (0% is `out`); `fast` means ahead of pace with a threat projection supported by at least two samples and more than 10% remaining. `aged` numbers are last-known evidence, not current capacity; refresh before relying on them. Passed reset windows show no capacity number. The `suggest:` line picks an eligible profile per tier; `|<profile>` adds the best eligible alternative from a different peer in that tier (see [balancing guidance](docs/batch.md)). The header always shows the date and `DB:<source>`; the full DB path appears only when it differs from the nearest upward store or on error. `--expand` prints everything: line 1, ALERTS (every alert with its age), the activity section (RUNNING and RECENT with every field, the 20 newest ended asks plus superseded ones, and LEADS), then the detailed grouped sections as before (pools with bars, 5-hour rows and `EXHAUST-IN` forecasts, PEERS, ACCOUNTS, execution, sessions, usage, context), the legend (`PACE` is used% minus elapsed% in percentage points, `+` ahead of even burn; printed when the output is not a terminal, for example `peerhub monitor --snapshot --expand | more`) and the coverage footer; the header time is the snapshot time. `peerhub explain <code>` covers its short codes.
 
-The monitor also shows one `ACCOUNTS` line (details with `--expand`, fields in JSON `capacity.accounts`): per peer the plan (display data only), login state and, when it is within 14 days (or already past), the **login token** expiry, which is not billing. Example: `ACCOUNTS cc pro login ok (token exp 11-26) | cx prolite login ok | ag plan n/a credits ok`. `?` means it could not be determined and `n/a` that the provider does not expose it (a missing expiry never means logged out; API-key, Bedrock and Vertex logins show `n/a`; `ag` shows endpoint access only). A failed probe keeps the last good reading shown `aged` with a `probe error` note; account evidence ages after 6 hours. Only normalized fields are stored (never an email, organization, account id, token or any identity-derived hash). They are collected, in parallel under the refresh deadline and skipped while still fresh, by `observation refresh` and monitor collection cycles from `claude auth status`, codex app-server `account/read` and `agy /credits` (no model turn); `--snapshot` stays read-only.
+`--expand` also shows the `ACCOUNTS` rows (fields in JSON `capacity.accounts`; a logged-out peer, an expired login token or one expiring within 48 hours also reaches line 1): per peer the plan (display data only), login state and the **login token** expiry, which is not billing. Example: `cc login ok | plan pro | login token expiry 2026-11-26 | auth claude.ai | age 30s [MEASURED]`. `?` means it could not be determined and `n/a` that the provider does not expose it (a missing expiry never means logged out; API-key, Bedrock and Vertex logins show `n/a`; `ag` shows endpoint access only). A failed probe keeps the last good reading shown `aged` with a `probe error` note; account evidence ages after 6 hours. Only normalized fields are stored (never an email, organization, account id, token or any identity-derived hash). They are collected, in parallel under the refresh deadline and skipped while still fresh, by `observation refresh` and monitor collection cycles from `claude auth status`, codex app-server `account/read` and `agy /credits` (no model turn); `--snapshot` stays read-only.
 
-`low`/`fast` take precedence over `aged`; staleness still shows in AGE and the PEERS `(aged)` tag. See `peerhub explain monitor-states` for state meanings and precedence.
+`low`/`fast` take precedence over `aged`; staleness still shows in the line-2 quota age and, with `--expand`, in AGE and the PEERS `(aged)` tag. See `peerhub explain monitor-states` for state meanings and precedence.
 
 The bare `monitor` command shows the compact human dashboard (with `PACE`), redrawing in place on a VT TTY and printing one completed frame per cycle when redirected; use `--expand` for bars, `EXHAUST-IN` and detailed `sessions`/group sections. `--view rich` adds colour; `--expand` adds bars in both views;
-`--view plain` selects ASCII-safe output. Add repeatable `--group` options to
-watch one or more groups, or `--group all` to include all ten. `monitor groups`
+`--view plain` selects ASCII-safe output: the frame's own lines and marks are ASCII, while request, reply, lead and alert text keeps every character the output encoding can show (Korean, Kana and CJK stay readable; ambiguous-width characters become `?`; the cut mark is `~`). Add repeatable `--group` options to
+watch one or more groups, or `--group all` to include all eleven. `monitor groups`
 lists group IDs and meanings; `monitor defaults show|set|reset` inspects and
 changes the default selection. `monitor --snapshot` renders one read-only
 dashboard without refreshing providers. In a terminal, `--snapshot --expand`

@@ -359,7 +359,9 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
         overflow = threading.Event()
         argv = list(argv_builder(t, stream=stream, request_id=request, db=db, query_file=query))
         try:
-            proc = subprocess.Popen(argv,
+            # #374: the child ask records which batch task started it (caller evidence); raw ids as the user gave them.
+            env = {**os.environ, "PEERHUB_BATCH_ID": batch_id, "PEERHUB_BATCH_TASK": t.task_id}
+            proc = subprocess.Popen(argv, env=env,
                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **_launch_flags())
         except OSError as exc:
             return {**row, "status": "FAILED", "reason": f"spawn_failed:{type(exc).__name__}", "elapsed_s": 0.0}

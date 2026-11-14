@@ -138,6 +138,8 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
     from peerhub.cli.monitor_view import render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
+    # A5: separately from the decoration, text cells keep every character this stream can encode (not only on UTF).
+    text_encoding = sys.stdout.encoding or None
     from peerhub.cli.store_select import DEFAULT_DB_PATH, env_override_note, select_store
     selection = payload.get("store_selection", {})
     store_path = Path(str(selection.get("path") or ".peerhub/core.db")).resolve()
@@ -152,7 +154,7 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                "_store_note": env_override_note(str(store_path), selection.get("source"))}
     return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
                                 color=color, unicode=unicode_ok, width=width, height=height,
-                                expand=expand)
+                                expand=expand, text_encoding=text_encoding)
 
 
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -221,8 +223,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     def emit(cycle: int, phase: str, refresh: dict[str, Any]) -> int:
         nonlocal last_payload, last_frame_monotonic
         try:
-            payload: dict[str, Any] = (render_monitor_frame(args.db, selected, human=True) if not args.json and not expand
-                       else render_monitor_frame(args.db, selected))
+            payload: dict[str, Any] = render_monitor_frame(args.db, selected, human=not args.json and not expand,
+                                                           preference_source=preference.get("source"))
         except SchemaVersionError:
             payload = {"schema_version": "2.0", "status": "FAILED", "groups": {},
                        "errors": {"schema": "SchemaVersionError"}}
@@ -360,8 +362,8 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     from peerhub.core.schema_version import SchemaVersionError
     expand = bool(getattr(args, "expand", False))
     try:
-        payload = (render_monitor_frame(args.db, selected, human=True) if not args.json and not expand
-                       else render_monitor_frame(args.db, selected))
+        payload = render_monitor_frame(args.db, selected, human=not args.json and not expand,
+                                       preference_source=preference["source"])
     except SchemaVersionError:
         payload = {"schema_version": "2.0", "status": "FAILED", "selected_groups": selected,
                    "errors": {"schema": "SchemaVersionError"}}

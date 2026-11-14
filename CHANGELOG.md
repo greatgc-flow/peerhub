@@ -8,6 +8,30 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.16] - 2026-11-14
+
+Activity in `peerhub monitor` (#374; design v5 and seven amendments, each approved by cc, cx and ag) and #373.
+
+### Added
+
+- New monitor group `activity`, on by default: running and recent asks and the leads that launched them, read in one query-only statement. A row has its state (`run`, `overdue`, `ok`, `empty`, `error`, `unsure`), elapsed time, profile, lead, the first line of the request and the last line of the reply. Request and reply text comes from the local store and is cleaned of the secrets known to the environment; `PEERHUB_MONITOR_TEXT=off` hides it.
+- An overdue ask (started, no result, lease expired) counts as running for 30 minutes after its lease expired; after that it is a recent bad outcome. Rows of another workspace generation (a restored store) never alert.
+- `peerhub ask` writes caller evidence: with the first invocation marker of a delivery, one `caller` row per invoking process (the tool, a label from `PEERHUB_LEAD` or the name of the working folder, host, process id and creation time, and the batch and task ids). Batch ids are not passed to provider processes. The monitor uses the row for the lead label and for liveness: a running ask whose `peerhub ask` process no longer exists shows `!gone`, and `?` when that cannot be known (another host or namespace, no access). In this release lead sessions appear only as the callers of asks; their context comes in 0.24.17.
+- Line 1 of the compact frame is a verdict in importance order. `OK | 3 running | 2 leads | min quota 1% ag 3P-7D low` when every alert source was read; `OK? (asks not read)` when one was not selected, failed or was cut, and `OK? (quota stale)` when no 7-day pool has a fresh reading; `min quota ... low (aged)` marks a pool whose reading is stale. `ATTN 3 | gone: cc.effort rank-374-r1/cc 41s | empty: ag.standard denied-postinstall 3m | +1` names at most two alerts: a store or read failure, a gone or overdue ask, an ask that ended empty, in error or unsure in the last 30 minutes, a login or expired token, a pool that is out, the agy token-use stop, then a token expiring within 48 hours and model facts that need a recheck. `ATTN 3?` means that, in addition, an alert source was not read; `--expand` lists those sources and why. The fields on the right drop first when the line is full.
+- Schema 2.0 JSON frames carry `alerts`, `alert_sources` and `min_quota` at the top level. A source in `alert_sources` is `read`, `not_selected`, `error`, `truncated`, `stale` or `no_evidence`, and `alert_sources.reasons` gives the reason where one is known. A store that has never had a quota refresh is `no_evidence` (`OK? (quota, accounts, facts not read)`), not a store alert. Schema 1.1 is unchanged and `--expand --json` stays rejected.
+
+### Changed
+
+- The compact frame is at most 24 lines, 100 columns and 8,192 bytes, in this order: line 1, line 2 (the header as before), `RUNNING n` with at most five rows, `RECENT n` with at most two, the `suggest:` line on at most two lines, and `POOLS n` with at most eight rows (STATE, LEFT, RESET, PACE, family). POOLS is ordered out, low, binding, fast, then the rest (a 7-day pool takes the most severe class of itself and its shown 5-hour row), with no blank lines between peers; a 5-hour pool shows under its 7-day pool only when it has less left or is low or out. One budget function removes lines in a single order when the terminal is small (RECENT rows first, line 1 last), and each header keeps its total.
+- The plain view (`--view plain`) keeps Korean, Kana and CJK text in request, reply, lead and alert text when the output encoding can encode it; the frame's own lines stay ASCII, characters of ambiguous width become `?` and the cut mark is `~`. Before, every non-ASCII character became `?`.
+- `peerhub monitor --group capacity` prints lines 1-2, the suggestion and POOLS, without the text of other sessions; the guide recommends it to AI sessions and `peerhub monitor --expand` for everything.
+- The legend, the PEERS lines, ACCOUNTS, the facts line and the delivery line left the compact frame; their problems reach line 1 as alerts. `--expand` prints line 1 first, then every alert and every alert source that was not read, then the activity section (every field of the running asks, of the 20 newest ended asks and the superseded ones, and LEADS), then the groups as before; when the output is not a terminal it ends with the legend (with the unit and sign of PACE) and the note that the header time is the snapshot time.
+- Saved monitor defaults (`monitor.toml`) win over the packaged defaults, so they do not get the new group: run `peerhub monitor defaults reset`. Until then line 1 says `OK? (asks not read; peerhub monitor defaults reset)`.
+
+### Fixed
+
+- #373: provider JSON output is split into lines at LF only, so a line or paragraph separator inside a JSON string no longer splits a line in two. No occurrence was recorded, and it was not measured whether the provider CLIs write these characters raw; the fix closes the possibility.
+
 ## [0.24.15] - 2026-11-14
 
 ### Fixed
