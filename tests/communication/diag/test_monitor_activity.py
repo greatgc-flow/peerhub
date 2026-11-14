@@ -579,7 +579,7 @@ def test_liveness_through_the_injected_callable(db, result, expected):
 
 @pytest.mark.parametrize("detail,probe,reason", [
     ({"host": "elsewhere|linux"}, None, "other host"),
-    ({"ns": "pid:[4026531836]"}, None, "other namespace"),
+    ({"ns": "pid:[another]"}, None, "other namespace"),  # never a real link: the runner itself may be pid:[4026531836]
     ({"ns": None}, None, "other namespace"),
     ({}, 1790812000.4999, "pid reused or clock stepped"),
     ({}, "denied", "not accessible"),
