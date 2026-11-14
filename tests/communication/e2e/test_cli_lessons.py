@@ -87,7 +87,7 @@ def test_no_match_hint(capsys):
 
 
 def test_explain_lessons_prints_index_before_any_lesson_lookup(capsys, monkeypatch):
-    """#366 A5: `explain lessons` is an index (id: title; --json a list of {id, title}), never a keyword search."""
+    """#366 A5: `explain lessons` is an index (id: title; --json {"lessons": [{id, title}]}), never a keyword search."""
     from peerhub.cli import lessons as lessons_mod
     calls = []
     monkeypatch.setattr(lessons_mod, "lesson_by_id", lambda q: calls.append("id") or [])
@@ -96,8 +96,17 @@ def test_explain_lessons_prints_index_before_any_lesson_lookup(capsys, monkeypat
     assert main(["explain", "lessons"]) == 0
     assert capsys.readouterr().out.splitlines() == [f"{lesson['id']}: {lesson['title']}" for lesson in catalog]
     assert main(["explain", "lessons", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out) == [{"id": lesson["id"], "title": lesson["title"]} for lesson in catalog]
+    assert json.loads(capsys.readouterr().out) == {"lessons": [{"id": lesson["id"], "title": lesson["title"]} for lesson in catalog]}
     assert calls == []
+
+
+def test_explain_json_envelope_is_the_same_for_index_and_keyword_lookup(capsys):
+    """#366 F3: `explain lessons --json` and a keyword lookup share one {"lessons": [...]} envelope."""
+    for query in (["lessons"], ["ag", "silence"]):
+        assert main(["explain", *query, "--json"]) == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert list(payload) == ["lessons"] and isinstance(payload["lessons"], list) and payload["lessons"]
+        assert all({"id", "title"} <= set(item) for item in payload["lessons"])
 
 
 def test_review_recipe_merges_review_loop_and_scores_to_100(capsys):
@@ -121,15 +130,19 @@ def test_lessons_without_peerhub_mechanism_are_deleted():
 
 
 def test_new_and_moved_lesson_content():
-    """#366 A1/A4/A5: subagents (#361), cx pytest basetemp, ACCOUNTS split, vote recipe, 600 s default."""
+    """#366 A1/A4/A5: subagents (#361), cx tmp_path tests NOT RUN, ACCOUNTS split, vote recipe, 600 s default."""
     by_id = {lesson["id"]: lesson for lesson in load_lessons()}
     sub = by_id["peer-subagents"]["fix"]
     for needle in ("Agent tool", "spawn_agent", "names that tool explicitly", "invoke_subagent",
                    "no /loop-style persistence", "same peer quota", "disjoint task", "one merged final report"):
         assert needle in sub, needle
     assert "#361" in by_id["peer-subagents"]["issue"]
-    assert "--basetemp=.peerhub/work/pytest-cx-<task>" in by_id["cx-sandbox-and-prompt-hygiene"]["fix"]
-    assert {"pytest", "basetemp", "acl", "temp"} <= set(by_id["cx-sandbox-and-prompt-hygiene"]["keywords"])
+    cx_fix = by_id["cx-sandbox-and-prompt-hygiene"]["fix"]
+    for needle in ("tests that use tmp_path cannot run", "also with --basetemp", "measured 2026-11-14 on Python 3.15",
+                   "NOT RUN for the lead to run", "never add shims or temp folders to the repo"):
+        assert needle in cx_fix, needle
+    assert "--basetemp=" not in cx_fix  # the measured workaround does not work
+    assert {"pytest", "tmp_path", "acl", "basetemp"} <= set(by_id["cx-sandbox-and-prompt-hygiene"]["keywords"])
     assert "ACCOUNTS" not in by_id["monitor-states"]["fix"]
     for needle in ("ACCOUNTS (compact line", "LOGIN token expiry", "display_plan", "plan_changed: true",
                    "at least five minutes old"):

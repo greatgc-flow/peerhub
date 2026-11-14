@@ -724,7 +724,7 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
         # Order: guidance code > exact profile id (above) > lessons index > exact lesson id > keywords.
         if code.strip().casefold() == "lessons":
             index = lessons.lesson_index()
-            print(json.dumps(index, indent=2, ensure_ascii=True) if json_output
+            print(json.dumps({"lessons": index}, indent=2, ensure_ascii=True) if json_output
                   else "\n".join(f"{item['id']}: {item['title']}" for item in index))
             return 0
         matches = lessons.lesson_by_id(code) or lessons.lookup_lessons(code)

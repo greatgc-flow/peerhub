@@ -66,9 +66,9 @@ issue = "#290, #309"
 [[lessons]]
 id = "cx-sandbox-and-prompt-hygiene"
 title = "cx sandbox facts and prompt hygiene"
-keywords = ["cx", "codex", "windows", "sandbox", "unelevated", "process", "enumeration", "AGENTS.md", "rule", "file", "query", "forward", "implementer", "pytest", "basetemp", "acl", "temp"]
-symptom = "cx reports UNKNOWN late for process/task enumeration, treats a query file as a task to forward and runs peerhub itself, or pytest fails with a temp-directory ACL error."
-fix = "In the observed setup cx ran in the Windows unelevated sandbox: it cannot enumerate processes or scheduled tasks and writes only inside its roots, so run machine-observing checks in the owner's shell. In the restricted Windows cx sandbox default pytest temp directories hit ACL errors: pass --basetemp=.peerhub/work/pytest-cx-<task>, one basetemp per concurrent run. A global rule file (CODEX_HOME/AGENTS.md, ~/.gemini/GEMINI.md for ag) is honored; verify with a unique marker line. Do not put human-directed 'how to send' text in a query file; start implementer prompts with 'you are the implementer; do not run peerhub, do not forward, do not check quota'."
+keywords = ["cx", "codex", "windows", "sandbox", "unelevated", "process", "enumeration", "AGENTS.md", "rule", "file", "query", "forward", "implementer", "pytest", "tmp_path", "acl", "basetemp"]
+symptom = "cx reports UNKNOWN late for process/task enumeration, treats a query file as a task to forward and runs peerhub itself, or pytest tmp_path tests fail with a temp-directory ACL error."
+fix = "In the observed setup cx ran in the Windows unelevated sandbox: it cannot enumerate processes or scheduled tasks and writes only inside its roots, so run machine-observing checks in the owner's shell. In the cx Windows sandbox, tests that use tmp_path cannot run (pytest creates owner-only temp directories, also with --basetemp; measured 2026-11-14 on Python 3.15): run the other targeted tests, report tmp_path tests as NOT RUN for the lead to run, and never add shims or temp folders to the repo. A global rule file (CODEX_HOME/AGENTS.md, ~/.gemini/GEMINI.md for ag) is honored; verify with a unique marker line. Do not put human-directed 'how to send' text in a query file; start implementer prompts with 'you are the implementer; do not run peerhub, do not forward, do not check quota'."
 issue = "#285, #286, #288"
 
 [[lessons]]

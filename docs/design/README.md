@@ -33,4 +33,4 @@ Most entries below are shipped; they are kept for provenance. The latest plan is
 ## 3. History & Archival
 
 - [Documentation Archival Ledger (2026-10-17)](../history/ledger-2026-10-17.md): Full record of archived debate docs (`peerhub-session-usage-monitoring-review-*`, `plan-session-reuse-*`, `plan-session-monitoring-*`, `plan-monitoring-v2-*`) and `peerhub-production-call-map-R1.json` with original commits, SHA-256 hashes, retrieval commands, and preserved decisions.
-- The pre-v0.10 design and review notes (September 2026, `docs/history/design` and `docs/history/reviews`), Phase 0, 2026-07 and 2026-08 drafts, and the Engram-era history, including the initial architecture debate, are in Git history; see ledger section 1a for retrieval commands.
+- The pre-v0.10 design and review notes (September 2026), the Phase 0, 2026-07 and 2026-08 drafts and the Engram-era history, including the initial architecture debate, were removed from the tree and are kept in Git history; ledger section 1a lists the retrieval commands.
