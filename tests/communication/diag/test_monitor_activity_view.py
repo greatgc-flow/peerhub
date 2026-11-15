@@ -51,7 +51,8 @@ def activity_data(asks: list[dict[str, Any]]) -> dict[str, Any]:
     leads: dict[str, dict[str, Any]] = {}
     for a in asks:
         if a["lead"]:
-            entry = leads.setdefault(a["lead"]["id"], {**a["lead"], "running": 0, "asks_24h": 0, "last_ask_at": None})
+            entry = leads.setdefault(a["lead"]["id"], {**a["lead"], "running": 0, "asks_24h": 0, "last_ask_at": None,
+                                                       "session": None})
             entry["asks_24h"] += 1
             entry["running"] += a in running
             entry["last_ask_at"] = max(entry["last_ask_at"] or 0.0, a["started_at"])
@@ -60,7 +61,7 @@ def activity_data(asks: list[dict[str, Any]]) -> dict[str, Any]:
                        "by_peer": dict(sorted(by_peer.items())),
                        "leads": len({a["lead"]["id"] for a in running if a["lead"]})},
             "sample_size": len(asks), "truncated": False, "scopes_total": len(asks), "superseded_omitted": 0,
-            "reason": None}
+            "reason": None, "leads_read": {"state": "read", "unreadable": 0, "not_read": 0}}
 
 
 @pytest.fixture
@@ -101,7 +102,7 @@ def lines_of(screen: str) -> list[str]:
 
 def section(lines: list[str], head: str) -> list[str]:
     start = next(i for i, line in enumerate(lines) if line.startswith(head))
-    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^(RUNNING|RECENT|POOLS|suggest:)", lines[i])),
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^(RUNNING|LEADS|RECENT|POOLS|suggest:)", lines[i])),
                len(lines))
     return lines[start:end]
 
@@ -504,9 +505,11 @@ def test_expand_lists_every_field_of_asks_leads_and_alerts(frame):
                  "ask: Review phase four of the interface and every pin it moves (long)",
                  "state empty", "age 3m", "note denied: command", "reasons caller unreadable",
                  "reply: VERDICT: ALL CLOSED (C1-C5 100) (long)", "superseded", "name old-one",
-                 "LEADS 2", "QA | tool cc | id 9f9f9f9f | running 1 | asks 24h 1 | last ask 2026-11-14 23:30:40Z",
-                 "PACE=used%-elapsed% pp", "header time is the snapshot time"):
+                 "LEADS 2", "PACE=used%-elapsed% pp", "header time is the snapshot time"):
         assert text in flat, text
+    # #376: the lead line is longer than the width and wraps between whole fields, so compare without separators
+    assert ("QA cc 9f9f9f9f no session found (ended, or its Claude folder is not in PEERHUB_LEAD_DIRS) running 1"
+            " asks 24h 1 last ask 2026-11-14 23:30:40Z") in flat.replace(" | ", " ")
     assert "RUNNING 3 | cc 2 cx 1" in flat and "RECENT 3" in flat
     assert all(_width(line) <= 119 for line in lines)
 

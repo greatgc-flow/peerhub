@@ -311,8 +311,8 @@ def test_an_alive_session_is_kept_without_a_transcript(tmp_path: Path):
 
 
 def test_process_ticks_is_none_off_windows_and_out_of_range(monkeypatch: pytest.MonkeyPatch):
-    import peerhub.extensions.batch as batch
-    monkeypatch.setattr(batch, "_creation_time", lambda pid: 77)
+    from peerhub.extensions import process_tree
+    monkeypatch.setattr(process_tree, "creation_ticks", lambda pid: 77)
     assert ls.process_ticks(4242, os_name="linux") is None
     assert ls.process_ticks(4242, os_name="darwin") is None
     for pid in (0, -1, 2**32, True):
@@ -321,28 +321,28 @@ def test_process_ticks_is_none_off_windows_and_out_of_range(monkeypatch: pytest.
 
 
 def test_process_ticks_is_none_when_the_wrapped_call_fails(monkeypatch: pytest.MonkeyPatch):
-    import peerhub.extensions.batch as batch
-    monkeypatch.setattr(batch, "_creation_time", lambda pid: -1)
+    from peerhub.extensions import process_tree
+    monkeypatch.setattr(process_tree, "creation_ticks", lambda pid: -1)
     assert ls.process_ticks(4242, os_name="win32") is None
 
     def boom(pid: int) -> int:
         raise OSError("no")
 
-    monkeypatch.setattr(batch, "_creation_time", boom)
+    monkeypatch.setattr(process_tree, "creation_ticks", boom)
     assert ls.process_ticks(4242, os_name="win32") is None
 
 
 def test_process_ticks_passes_an_int_that_a_float_cannot_hold(monkeypatch: pytest.MonkeyPatch):
-    import peerhub.extensions.batch as batch
+    from peerhub.extensions import process_tree
     value = 2**56 + 1
     assert int(float(value)) != value
-    monkeypatch.setattr(batch, "_creation_time", lambda pid: value)
+    monkeypatch.setattr(process_tree, "creation_ticks", lambda pid: value)
     assert ls.process_ticks(4242, os_name="win32") == value
 
 
-def test_process_ticks_is_none_when_batch_is_unavailable(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setitem(sys.modules, "peerhub.extensions.batch", None)  # the M2 batch extension disabled
-    assert ls.process_ticks(4242, os_name="win32") is None
+def test_batch_keeps_the_moved_reader_under_its_old_name():
+    from peerhub.extensions import batch, process_tree
+    assert batch._creation_time is process_tree.creation_ticks  # pyright: ignore[reportPrivateUsage]
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="kernel32 FILETIME reader")

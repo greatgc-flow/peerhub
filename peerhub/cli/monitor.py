@@ -20,6 +20,12 @@ from typing import Any, cast
 from peerhub.cli.support import agy_token_command, agy_token_stop_message, error_line, print_warnings, refresh_with_profile_pools
 from peerhub.cli.monitor_preferences import GROUP_IDS
 
+def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """The lead sessions of the registered Claude Code folders (#376 A-1); looked up at call time, so tests isolate it."""
+    from peerhub.extensions import lead_sessions
+    return lead_sessions.read_leads(lead_sessions.lead_dirs(os.environ), **facts)
+
+
 def register_monitor_parser(subparsers: Any) -> None:
     from peerhub.cli.monitor_view import MONITOR_LEGEND
 
@@ -224,7 +230,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         nonlocal last_payload, last_frame_monotonic
         try:
             payload: dict[str, Any] = render_monitor_frame(args.db, selected, human=not args.json and not expand,
-                                                           preference_source=preference.get("source"))
+                                                           preference_source=preference.get("source"),
+                                                           lead_reader=_lead_reader)
         except SchemaVersionError:
             payload = {"schema_version": "2.0", "status": "FAILED", "groups": {},
                        "errors": {"schema": "SchemaVersionError"}}
@@ -363,7 +370,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     expand = bool(getattr(args, "expand", False))
     try:
         payload = render_monitor_frame(args.db, selected, human=not args.json and not expand,
-                                       preference_source=preference["source"])
+                                       preference_source=preference["source"], lead_reader=_lead_reader)
     except SchemaVersionError:
         payload = {"schema_version": "2.0", "status": "FAILED", "selected_groups": selected,
                    "errors": {"schema": "SchemaVersionError"}}

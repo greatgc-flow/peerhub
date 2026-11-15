@@ -15,7 +15,9 @@ import sys
 from collections.abc import Callable, Mapping
 from typing import Any, cast
 
+from peerhub.extensions import process_tree
 from peerhub.extensions.monitor_read_model import ACTIVITY_SPAN_S, activity_lines
+from peerhub.extensions.monitor_read_model import LEAD_CONTEXT_MARK_PCT as LEAD_CONTEXT_MARK_PCT  # one owner of the mark
 from peerhub.extensions.monitor_read_model import _SAFE_MODEL, _display, _iso_seconds  # pyright: ignore[reportPrivateUsage]
 
 LEAD_DIRS_CAP = 8
@@ -25,7 +27,6 @@ LEAD_PROJECTS_CAP = 2_000
 LEAD_TAIL_BYTES = 262_144
 LEAD_CATALOG_MAX = 1_048_576
 LEAD_PID_SLACK_S = 2.0
-LEAD_CONTEXT_MARK_PCT = 80
 
 _SESSION_NAME = re.compile(r"[0-9]{1,10}\.json")
 _SESSION_ID = re.compile(r"[A-Za-z0-9-]{8,64}")
@@ -66,9 +67,8 @@ def process_ticks(pid: int, *, os_name: str | None = None) -> int | None:
     if (os_name or sys.platform) != "win32" or isinstance(pid, bool) or not 1 <= pid <= 2**32 - 1:
         return None
     try:
-        import peerhub.extensions.batch as batch
-        value = batch._creation_time(pid)  # pyright: ignore[reportPrivateUsage]
-    except Exception:  # an ImportError (batch disabled) or any failure of the kernel calls
+        value = process_tree.creation_ticks(pid)
+    except Exception:  # any failure of the kernel calls
         return None
     return None if value == -1 else value
 

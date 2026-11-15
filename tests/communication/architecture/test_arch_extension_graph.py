@@ -22,7 +22,7 @@ ALLOWED: dict[str, set[str]] = {
                            "diag_running"},  # the pure row helpers for start time, binding and profile
     "liveness": {"caller"},  # this host and pid namespace, as caller records them (neutral)
     "lead_sessions": {"monitor_read_model",  # the display cleaners of the read model it feeds (#376)
-                      "batch"},  # the creation FILETIME reader, imported lazily; None when batch is disabled
+                      "process_tree"},  # the creation FILETIME reader (neutral)
     # Read-only current-profile inspection, canonical observation evaluation,
     # shared quota projection math, and provider receipt validation.
     "bridge_claims": {"schema_guard"},
