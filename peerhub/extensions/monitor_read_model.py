@@ -1364,10 +1364,15 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         **({"accounts_truncated": True} if len(account_rows) > ACCOUNT_ROW_CAP else {}),
                         "sample_size": min(len(rows), 100), "truncated": len(rows) > 100}}
             except sqlite3.Error as exc:
-                errors["capacity"] = type(exc).__name__
                 capacity_never_refreshed = _no_observation_tables(conn, exc)
+                if not capacity_never_refreshed:
+                    errors["capacity"] = type(exc).__name__
                 if "capacity" in groups:
-                    output["capacity"] = {"status": "ERROR", "data": None}
+                    # No observation table at all is a capacity group read with nothing in it (as when the tables are
+                    # empty), not an error: the human frame and the JSON agree, and `alert_sources` says `no_evidence`.
+                    output["capacity"] = ({"status": "OK", "data": {"observations": [], "reset_credits": [],
+                                                                    "sample_size": 0, "truncated": False}}
+                                          if capacity_never_refreshed else {"status": "ERROR", "data": None})
         if "peers" in groups:
             config_workspace = _monitor_workspace(db_path, workspace)
             peer_records: list[dict[str, Any]] = []
@@ -1642,7 +1647,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                               accounts=accounts if capacity_read and not capacity_failed else None,
                               facts_report=latest_facts_report if capacity_read and not capacity_failed else None,
                               failures=[(key, str(value).split(":")[0]) for key, value in errors.items()
-                                        if key != "scope_cap" and not (key == "capacity" and no_evidence)],
+                                        if key != "scope_cap"],
                               now=now)
         return {"schema_version": "2.0", "status": "PARTIAL" if errors else "OK", "read_at": now,
                 "groups": output, "errors": errors, "alert_sources": alert_sources, "alerts": alerts,

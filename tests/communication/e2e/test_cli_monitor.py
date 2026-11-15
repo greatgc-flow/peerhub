@@ -1414,12 +1414,36 @@ def test_human_monitor_exits_0_on_a_store_that_never_had_a_quota_refresh(tmp_pat
         assert "\nPOOLS 0\nno quota evidence; next: peerhub observation refresh\n" in out
 
 
-def test_json_monitor_on_a_never_refreshed_store_is_unchanged(tmp_path, capsys):
-    assert _run(_never_refreshed_db(tmp_path), "--snapshot", "--group", "capacity", "--json") == 4
+@pytest.mark.parametrize("args", [("--snapshot", "--group", "capacity"), ("--snapshot",), ("--cycles", "1"),
+                                  ("--cycles", "1", "--group", "capacity")])
+def test_json_monitor_agrees_on_a_store_that_never_had_a_quota_refresh(tmp_path, capsys, monkeypatch, args):
+    # 0.24.18 (#376 P6): no quota evidence, not an error, in the JSON too
+    _no_refresh(monkeypatch)
+    assert _run(_never_refreshed_db(tmp_path), "--json", *args) == 0
+    out, err = capsys.readouterr()
+    assert "diag_unavailable" not in err and "could not be read" not in err
+    frames = [json.loads(line) for line in out.splitlines()]
+    for payload in (frame.get("snapshot", frame) for frame in frames):
+        assert payload["status"] == "OK" and payload["errors"] == {}
+        assert payload["groups"]["capacity"]["status"] == "OK"
+        assert payload["groups"]["capacity"]["data"] == {"observations": [], "reset_credits": [], "sample_size": 0,
+                                                         "truncated": False}
+        assert payload["alert_sources"]["capacity"] == "no_evidence"
+        assert payload["alert_sources"]["reasons"] == {"capacity": "no quota evidence"}
+        assert payload["alerts"] == [] and payload["min_quota"] is None
+
+
+def test_json_monitor_on_damaged_observation_tables_stays_an_error(tmp_path, capsys):
+    import sqlite3
+
+    db = _db(tmp_path)
+    with sqlite3.connect(db) as conn:
+        conn.execute("DROP TABLE observations")  # two observation tables remain: not "never refreshed"
+    assert _run(db, "--snapshot", "--group", "capacity", "--json") == 4
     out, err = capsys.readouterr()
     payload = json.loads(out)
     assert payload["groups"]["capacity"]["status"] == "ERROR" and payload["errors"] == {"capacity": "OperationalError"}
-    assert payload["alert_sources"]["capacity"] == "no_evidence" and "[diag_unavailable]" in err
+    assert payload["alert_sources"]["capacity"] == "error" and "[diag_unavailable]" in err
 
 
 @pytest.mark.parametrize("args", [("--snapshot", "--group", "capacity"), ("--cycles", "1", "--group", "capacity")])

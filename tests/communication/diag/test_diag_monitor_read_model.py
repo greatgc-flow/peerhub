@@ -256,8 +256,10 @@ def test_grouped_monitor_frame_uses_one_read_only_snapshot_and_at_most_six_selec
                                  read_at=2000.0, trace_callback=statements.append)
     select_statements = [statement for statement in statements if statement.lstrip().upper().startswith(("SELECT", "WITH"))]
     assert len(select_statements) == frame["query_families"] <= 6
-    assert frame["status"] == "PARTIAL"
-    assert frame["groups"]["capacity"]["status"] == "ERROR"
+    # 0.24.18 (#376 P6): this store never had a quota refresh (no observation tables): no quota evidence, not an error
+    assert frame["status"] == "OK" and frame["errors"] == {}
+    assert frame["groups"]["capacity"]["status"] == "OK" and frame["groups"]["capacity"]["data"]["observations"] == []
+    assert frame["alert_sources"]["capacity"] == "no_evidence"
     assert frame["groups"]["activity"]["status"] == "OK"
     assert set(frame["groups"]) == {"overview", "activity", "execution", "sessions", "usage", "context", "capacity", "runtime",
                                     "coverage", "store"}

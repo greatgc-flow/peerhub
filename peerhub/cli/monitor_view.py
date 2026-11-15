@@ -28,6 +28,8 @@ MONITOR_LEGEND = (
     "TIME: the header time is the snapshot time (when the store was read), not the time quota was measured",
     "LEADS: label | state (?busy = alive not confirmed, - = no session) | age of the last activity"
     " | ctx = context of the model's maximum input (! 80% or more; 106k = window unknown; ? unknown) | running asks | model | title",
+    "CTX est: estimated context of a cc session at the end of its last ask (percent of the model's maximum input, with"
+    " its age); not a live measurement",
 )
 
 
@@ -477,6 +479,28 @@ def _usage_values(telemetry: dict[str, Any]) -> tuple[float | None, float | None
     return tokens if tokens is not None and tokens >= 0 else None, inputs, cached
 
 
+def _estimate(context: dict[str, Any], now: float | None) -> str | None:
+    """An estimated context (#376 P2) as text: `2% est, 3m ago`. The read model's ESTIMATED state is the cc adapter's
+    reading at the end of an ask, so it always carries the word and its age (`age ?` without a time) and is never shown
+    as measured. None for every other state or an invalid percent."""
+    percent = _number(context.get("percent"))
+    if context.get("state") != "ESTIMATED" or percent is None or not 0 <= percent <= 100:
+        return None
+    at = _number(context.get("observed_at"))
+    return f"{percent:.0f}% est, " + ("age ?" if at is None or now is None else f"{_compact_age(max(0.0, now - at))} ago")
+
+
+def _session_contexts(groups: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    """The context of the newest session (highest generation) of each stream and peer: what an ended ask of that
+    stream and peer is joined to. Ask rows carry no context of their own."""
+    newest: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in _items(_obj(_obj(groups.get("sessions")).get("data")).get("items")):
+        key = (str(item.get("stream_id")), str(item.get("peer_id")))
+        if key not in newest or (_number(item.get("generation")) or 0) > (_number(newest[key].get("generation")) or 0):
+            newest[key] = item
+    return {key: _obj(_obj(item.get("telemetry")).get("context")) for key, item in newest.items()}
+
+
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
                  elapsed_seconds: float = 0.0, read_at: float | None = None,
                  expand: bool = False, color: bool = False, bounded: bool = False,
@@ -489,6 +513,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     table_size = 0
     sep = " · " if unicode else " | "
     dot = "·" if unicode else "|"
+    now = None if read_at is None else read_at + elapsed_seconds  # the time of this frame, for the age of an estimate
 
     if group_id == "overview":
         peers = _items(data.get("peers"))
@@ -612,9 +637,9 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     pct_str = f"({c_pct:.0f}%)" if tok_str else f"{c_pct:.0f}%"
                     c_wide = f"{tok_str} {pct_str}".strip()
                     c_narr = f"{tok_str} {pct_str}".strip()
-                else:
-                    c_wide = "unknown"
-                    c_narr = "unk"
+                else:  # an estimate (#376 P2) says so and gives its age; anything else is unknown
+                    c_wide = _estimate(c_obj, now) or "unknown"
+                    c_narr = _estimate(c_obj, now) or "unk"
 
             if width < 48:
                 narrow_peers.append([f"{pid}: quota {q_narr}", p_narr, s_narr, f"ctx: {c_narr}" if c_narr != "unk" else ""])
@@ -720,8 +745,10 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 resume = "resumable" if session.get("resumable") else "not resumable"
                 handle = _clean(session.get("handle") or "") if expand else ""
                 uses = f"uses {_count(session.get('uses'))}" if expand else ""
+                estimate = _estimate(_obj(_obj(session.get("telemetry")).get("context")), now) if expand else None
                 fields = [f"{_peer(session)} {_clean(session.get('state') or 'UNKNOWN')}", handle,
-                          f"gen {_count(session.get('generation'))}", uses, f"{profile} / {model} ({effort})", resume]
+                          f"gen {_count(session.get('generation'))}", uses, f"{profile} / {model} ({effort})", resume,
+                          f"ctx {estimate}" if estimate else ""]
                 if bounded and expand:
                     tokens, inputs, cached = _usage_values(_obj(_obj(session.get("telemetry")).get("usage")))
                     usage_text = f"tok {_count(tokens)}"
@@ -732,7 +759,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             # One field set for the whole table: drop trailing fields whole (peer+state and handle always stay).
             shown = _visible_fields(field_rows, sep, width - 2, keep=2)
             rows.extend(sep.join(field for field in fields[:shown] if field) for fields in field_rows)
-            names = ["peer", "handle", "gen", "uses", "profile", "resumable"]
+            names = ["peer", "handle", "gen", "uses", "profile", "resumable", "ctx"]
             if bounded and expand:
                 names.insert(2, "usage")
             if shown < len(names):
@@ -790,8 +817,12 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 context = _obj(session.get("context"))
                 percent = _number(context.get("percent"))
                 state = _clean(context.get("state") or "UNKNOWN").upper()
-                if percent is not None and 0 <= percent <= 100:
-                    cells = max(3, min(12, width // 12))
+                estimate = _estimate(context, now)
+                cells = max(3, min(12, width // 12))
+                if estimate and percent is not None:  # #376 P2: an estimate with its age and its numbers, never MEASURED
+                    rows.append(f"{_peer(session)} {estimate} {_bar(percent / 100, cells, unicode)}{sep}"
+                                f"{_count(context.get('occupancy_tokens'))} of {_count(context.get('window_tokens'))} tokens")
+                elif percent is not None and 0 <= percent <= 100 and state != "ESTIMATED":
                     rows.append(f"{_peer(session)} {percent:.0f}% {_bar(percent / 100, cells, unicode)}{sep}{state}")
                 else:
                     rows.append(f"{_peer(session)} UNKNOWN{sep}{_clean(context.get('reason') or 'context occupancy unreported')}")
@@ -1033,9 +1064,11 @@ def _pack(fields: Sequence[str], width: int) -> list[str]:
     return lines + ([line] if line else [])
 
 
-def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = None) -> list[str]:
+def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = None,
+                context: str | None = None) -> list[str]:
     """Every field of one ask row (#374 C): the expand view hides nothing the read model gives. Text is made plain-view
-    safe here, before packing, so a replaced character can never widen a packed line (A5)."""
+    safe here, before packing, so a replaced character can never widen a packed line (A5). `context` is the estimate
+    of the session an ended ask is joined to (`2% est, 3m ago`), after the tokens."""
 
     def txt(value: object, empty: str = "?") -> str:
         return _cell(value, unicode, empty, keep)
@@ -1070,6 +1103,8 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
                f"lead {txt(lead.get('label'))} ({txt(lead.get('tool'))} {txt(lead.get('id'))})" if lead else "lead none",
                f"name {txt(row.get('name'))}", f"stream {txt(row.get('stream'))}",
                f"tokens in {_count(tokens.get('input'))} out {_count(tokens.get('output'))}" if tokens else "tokens ?"]
+    if context:
+        fields.append(f"ctx {context}")
     if row.get("note"):
         fields.append(f"note {txt(row['note'])}")
     reasons = [txt(reason) for reason in cast(list[object], row.get("reasons") or []) if reason]
@@ -1078,8 +1113,9 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
     return fields
 
 
-def _ask_rows(row: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None) -> list[str]:
-    lines = _pack(_ask_fields(row, unicode, keep), max(1, width - 2))
+def _ask_rows(row: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None,
+              context: str | None = None) -> list[str]:
+    lines = _pack(_ask_fields(row, unicode, keep, context), max(1, width - 2))
     lines[0] = "- " + lines[0]  # marks where each ask starts; continuation lines carry no mark
     texts = [] if _is_open(row) else [("reply", row.get("reply_line_long"))]
     for label, text in [*texts, ("ask", row.get("ask_line_long"))]:
@@ -1129,7 +1165,10 @@ def _lead_rows(lead: dict[str, Any], now: float | None, width: int, unicode: boo
 
 def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None,
                    now: float | None = None) -> list[str]:
-    """RUNNING (every row), RECENT (the 20 newest ended rows and the superseded rows), LEADS: every field."""
+    """RUNNING (every row), RECENT (the 20 newest ended rows and the superseded rows), LEADS: every field. An ended ask
+    shows the estimated context of its stream's and peer's newest session (`_session_contexts`, #376 P2); a running or
+    superseded ask never does, because that estimate is not about it."""
+    contexts = cast(dict[tuple[str, str], dict[str, Any]], data.get("_session_contexts") or {})
     running, ended, superseded = _ask_split(data)
     head, _ = _running_head(data, running, unicode, keep)
     rows = [head]
@@ -1141,7 +1180,10 @@ def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep:
     if superseded or omitted:
         recent += f" | superseded {len(superseded)}" + (f" (+{int(omitted)} not read)" if omitted else "")
     rows.append(recent)
-    for row in [*newest, *superseded]:
+    for row in newest:
+        context = contexts.get((str(row.get("stream")), str(row.get("peer"))))
+        rows.extend(_ask_rows(row, width, unicode, keep, _estimate(context, now) if context else None))
+    for row in superseded:
         rows.extend(_ask_rows(row, width, unicode, keep))
     leads = _items(data.get("leads"))
     rows.append(_leads_header(data, len(leads)))
@@ -1508,7 +1550,8 @@ REQUEST_CAP = 60
 RECENT_EXPAND = 20
 _WEEK = 7 * 86400
 _ALERT_SOURCES = (("activity", "asks"), ("capacity", "quota"), ("accounts", "accounts"), ("facts", "facts"))
-_SOURCE_PHRASES = {"not_selected": "not read", "error": "read failed", "truncated": "partial", "stale": "stale"}
+_SOURCE_PHRASES = {"not_selected": "not read", "error": "read failed", "truncated": "partial", "stale": "stale",
+                   "unknown": "unknown"}  # unknown (#376 P14): no 7-day pool the provider reports has a number
 
 # The rich look (P21). One accent per meaning, from the 256-colour palette in the semicolon SGR form (no truecolor
 # branch): ok, warn, hot and bad for a state or a level, dim for structure, title for a section title.
@@ -1578,7 +1621,7 @@ def _alert_text(alert: dict[str, Any]) -> str:
 
 
 _SOURCE_REASONS = {"not_selected": "not selected", "error": "read failed", "truncated": "partial (sample cut)",
-                   "stale": "stale"}
+                   "stale": "stale", "unknown": "unknown (no 7-day pool has a number)"}
 
 
 def unread_sources(payload: dict[str, Any]) -> list[str]:
@@ -2353,32 +2396,13 @@ def _display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
         **({"_human_observations": replace(observations)} if "_human_observations" in payload else {})}
 
 
-def no_quota_evidence(payload: dict[str, Any]) -> bool:
-    """True for a store that never had a quota refresh (P6): the read model reports the capacity source as
-    `no_evidence` when none of the observation tables exists. That is missing evidence, not a failed read."""
-    return _obj(payload.get("alert_sources")).get("capacity") == "no_evidence"
-
-
-def _without_quota_evidence(payload: dict[str, Any]) -> dict[str, Any]:
-    """A presentation copy for such a store: the capacity group has no observations and is no read error, so both
-    frames print the no-evidence wording instead of `data unavailable`. The payload itself (and --json) is unchanged."""
-    if not no_quota_evidence(payload):
-        return payload
-    shown = dict(_obj(payload.get("groups")))
-    if "capacity" in shown:
-        empty: dict[str, Any] = {"observations": []}
-        shown["capacity"] = {**_obj(shown["capacity"]), "status": "UNKNOWN", "data": empty}
-    return {**payload, "groups": shown,
-            "errors": {key: value for key, value in _obj(payload.get("errors")).items() if key != "capacity"}}
-
-
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
                          expand: bool = False, text_encoding: str | None = None) -> str:
     """Compact human default; the established renderer supplies expanded detail.
 
     `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5)."""
-    payload = _display_plan_omissions(_without_quota_evidence(payload))
+    payload = _display_plan_omissions(payload)
     if expand:
         return _render_expanded_frame(payload, view=view, color=color, unicode=unicode,
                                       width=width, height=height, expand=True, keep=text_encoding)
@@ -2397,7 +2421,7 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
                 if isinstance(selected_raw, Sequence) and not isinstance(selected_raw, str) else list(groups))
     selected = [g for g in selected if g not in {"overview", "coverage"}]
     context_sessions = _items(_obj(_obj(groups.get("context")).get("data")).get("sessions"))
-    if not any(_obj(item.get("context")).get("state") == "MEASURED" for item in context_sessions):
+    if not any(_obj(item.get("context")).get("state") in {"MEASURED", "ESTIMATED"} for item in context_sessions):
         selected = [g for g in selected if g != "context"]
     coverage_partial = any(_obj(group).get("status") not in {"OK", None}
                            or _group_has_uncertain_measurement(_obj(group).get("data"), depth=0)
@@ -2424,6 +2448,10 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     data = _obj(cap.get("data"))
     display_groups = {**groups,
         "capacity": {**cap, "data": {**data, "consumers": {key: ",".join(sorted(set(names))) for key, names in consumers.items()}}}}
+    activity = _obj(groups.get("activity"))
+    if isinstance(activity.get("data"), Mapping):  # #376 P2: what an ended ask's row is joined to (display data only)
+        display_groups["activity"] = {**activity, "data": {**_obj(activity.get("data")),
+                                                             "_session_contexts": _session_contexts(groups)}}
     # X5: the plan the provider reports is display text only, shown beside the peer's quota in the PEERS block.
     plan_windows: dict[str, tuple[str, list[str]]] = {}
     for obs in _items(data.get("observations")):

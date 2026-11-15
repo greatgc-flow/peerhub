@@ -350,11 +350,30 @@ def test_a_store_that_never_had_a_quota_refresh_is_not_a_store_failure(tmp_path,
     assert out["alerts"] == []
     assert out["alert_sources"] == {"activity": "read", "capacity": "no_evidence", "accounts": "no_evidence",
                                     "facts": "no_evidence", "reasons": {"capacity": "no quota evidence"}}
-    assert out["errors"] == {"capacity": "OperationalError"}  # JSON errors and the group status are unchanged
+    # 0.24.18 (#376 P6): no quota evidence is not an error in the JSON either: no `errors` entry, the frame is OK and
+    # the capacity group is read with nothing in it (the shape of a store whose observation tables are empty).
+    assert out["errors"] == {} and out["status"] == "OK"
     if "capacity" in groups:
-        assert out["groups"]["capacity"] == {"status": "ERROR", "data": None, "coverage": out["groups"]["capacity"]["coverage"]}
+        assert out["groups"]["capacity"] == {
+            "status": "OK", "data": {"observations": [], "reset_credits": [], "sample_size": 0, "truncated": False},
+            "coverage": {"read": "complete", "sample_size": 0, "truncated": False, "reason": None}}
     assert out["groups"]["activity"]["status"] == "OK" and len(out["groups"]["activity"]["data"]["asks"]) == 1
     assert out["min_quota"] is None
+    human = mrm.render_monitor_frame(h.db_path, groups, read_at=2000.0, human=True, liveness=lambda *a, **k: True)
+    assert human["_human_observations"] == [] and human["errors"] == {}
+
+
+def test_a_never_refreshed_store_and_one_with_empty_observation_tables_differ_only_in_the_alert_sources(tmp_path):
+    from peerhub.extensions.observation import ObservationStore
+    from tests.communication.diag.test_monitor_activity import _bridge_store  # pyright: ignore[reportPrivateUsage]
+    h = _bridge_store(tmp_path)
+    never = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=2000.0)
+    ObservationStore(h.db_path)  # creates the observation tables; still no observation
+    empty = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=2000.0)
+    assert empty["alert_sources"] == {"activity": "not_selected", "capacity": "read", "accounts": "read", "facts": "read"}
+    assert never["alert_sources"]["capacity"] == "no_evidence"
+    for key in ("status", "groups", "errors", "alerts", "min_quota"):
+        assert never[key] == empty[key], key
 
 
 @pytest.mark.parametrize("source,hint", [("workspace", True), ("global", True), ("command", False), ("packaged", False)])

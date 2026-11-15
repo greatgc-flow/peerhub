@@ -612,11 +612,14 @@ def test_the_rich_view_takes_line_1_and_pools_from_the_same_rows_too():
 
 # ---- P6: a store that never had a quota refresh ----------------------------------------------------------------------
 def never_refreshed() -> dict[str, Any]:
+    """What the read model gives for such a store: the capacity group read with nothing in it, no error, and the
+    capacity, accounts and facts sources marked `no_evidence`."""
     payload = empty_payload()
-    payload.update(status="PARTIAL", errors={"capacity": "OperationalError"}, _human_observations=[],
+    payload.update(_human_observations=[],
                    alert_sources={"activity": "read", "capacity": "no_evidence", "accounts": "no_evidence",
                                   "facts": "no_evidence", "reasons": {"capacity": "no quota evidence"}})
-    payload["groups"]["capacity"] = {"status": "ERROR", "data": None}
+    payload["groups"]["capacity"] = {"status": "OK", "data": {"observations": [], "reset_credits": [], "sample_size": 0,
+                                                              "truncated": False}}
     return payload
 
 
@@ -631,8 +634,8 @@ def test_a_never_refreshed_store_shows_the_no_evidence_wording_not_a_read_error(
     assert payload == before
     expanded = render_grouped_frame(payload, view="plain", unicode=False, width=120, expand=True)
     assert "source capacity: no quota evidence" in expanded.splitlines()
-    assert "-- QUOTA [UNKNOWN] | measured remaining -" in expanded and "Quota capacity: no observations" in expanded
-    assert "QUOTA [ERROR]" not in expanded
+    assert "-- QUOTA [OK] | measured remaining -" in expanded and "Quota capacity: no observations" in expanded
+    assert "PeerHub Monitor | OK | " in expanded
     for height in (30, 60):
         bounded = render_grouped_frame(payload, view="plain", unicode=False, width=120, height=height, expand=True)
         assert "database read failed" not in bounded and "data unavailable" not in bounded
@@ -641,6 +644,8 @@ def test_a_never_refreshed_store_shows_the_no_evidence_wording_not_a_read_error(
 @pytest.mark.parametrize("sources", [{"activity": "read", "capacity": "error", "accounts": "error", "facts": "error"}, None])
 def test_a_capacity_read_error_stays_an_error(sources):
     payload = never_refreshed()
+    payload.update(status="PARTIAL", errors={"capacity": "OperationalError"})
+    payload["groups"]["capacity"] = {"status": "ERROR", "data": None}
     if sources is None:
         payload.pop("alert_sources")
     else:
@@ -650,6 +655,6 @@ def test_a_capacity_read_error_stays_an_error(sources):
     lines = plain(payload).splitlines()
     assert lines[0].startswith("ATTN 1? | store: capacity: OperationalError") and "DB: /w/.peerhub/core.db" in lines
     expanded = render_grouped_frame(payload, view="plain", unicode=False, width=120, expand=True)
-    assert "QUOTA [ERROR] | measured remaining" in expanded and "QUOTA [UNKNOWN]" not in expanded
+    assert "QUOTA [ERROR] | measured remaining" in expanded
     bounded = render_grouped_frame(payload, view="plain", unicode=False, width=120, height=60, expand=True)
     assert "OperationalError: database read failed" in bounded

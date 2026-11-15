@@ -163,16 +163,13 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                                 expand=expand, text_encoding=text_encoding)
 
 
-def _read_failed(payload: dict[str, Any], *, human: bool) -> bool:
-    """True when a selected group could not be read (exit code 4). For the human monitor, the capacity group of a store
-    that never had a quota refresh is missing evidence, which the frame says, not a failed read; --json is unchanged."""
-    from peerhub.cli.monitor_view import no_quota_evidence
-
+def _read_failed(payload: dict[str, Any]) -> bool:
+    """True when a selected group could not be read (exit code 4). A store that never had a quota refresh is not such
+    a case: the read model gives its capacity group as read with no observations, for the human frame and for --json."""
     groups_obj: object = payload.get("groups")
     groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
-    spared = "capacity" if human and no_quota_evidence(payload) else None
     return any(isinstance(group, dict) and cast(dict[str, Any], group).get("status") == "ERROR"
-               for group_id, group in groups.items() if group_id != spared)
+               for group in groups.values())
 
 
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -267,7 +264,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
             output.write(_render_human_frame(payload, view=effective_view, width=width,
                                              height=height if output.live else None, color=color,
                                              expand=expand))
-        if _read_failed(payload, human=not args.json):
+        if _read_failed(payload):
             error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
             return 4
         errors_obj: object = payload.get("errors")
@@ -396,7 +393,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
         print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
     else:
         _print_grouped_snapshot(payload, args.view, expand=expand)
-    if _read_failed(payload, human=not args.json) or payload["status"] == "FAILED":
+    if _read_failed(payload) or payload["status"] == "FAILED":
         error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
         return 4
     return 0

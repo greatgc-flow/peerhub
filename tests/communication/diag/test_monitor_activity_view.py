@@ -332,6 +332,9 @@ def test_agy_token_stop_is_one_more_alert_before_the_low_ones(frame):
     ({"activity": "not_selected", "hint": "peerhub monitor defaults reset"},
      "OK? (asks not read; peerhub monitor defaults reset)"),
     ({"activity": "not_selected", "capacity": "stale"}, "OK? (asks not read; quota stale)"),
+    ({"capacity": "unknown"}, "OK? (quota unknown)"),  # #376 P14: no 7-day pool the provider reports has a number
+    ({"activity": "not_selected", "capacity": "unknown"}, "OK? (asks not read; quota unknown)"),
+    ({"capacity": "unknown", "accounts": "truncated"}, "OK? (quota unknown; accounts partial)"),
 ])
 def test_ok_needs_every_alert_source_read(frame, sources, expected):
     frame["alert_sources"].update(sources)
@@ -354,7 +357,8 @@ def test_min_quota_says_when_its_pool_is_aged(frame, low, expected):
 
 
 @pytest.mark.parametrize("sources,head", [({}, "ATTN 1 |"), ({"activity": "not_selected"}, "ATTN 1? |"),
-                                          ({"capacity": "stale"}, "ATTN 1? |"), ({"accounts": "error"}, "ATTN 1? |")])
+                                          ({"capacity": "stale"}, "ATTN 1? |"), ({"accounts": "error"}, "ATTN 1? |"),
+                                          ({"capacity": "unknown"}, "ATTN 1? |")])
 def test_attn_carries_a_question_mark_when_a_source_was_not_read(frame, sources, head):
     # A7: the same question mark as `OK?`; --expand lists each source that was not read, with its reason
     frame["alert_sources"].update(sources)
@@ -363,7 +367,8 @@ def test_attn_carries_a_question_mark_when_a_source_was_not_read(frame, sources,
     expanded = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=120, expand=True))
     alerts = expanded[next(i for i, line in enumerate(expanded) if "ALERTS 1" in line):]
     alerts = alerts[1:next(i for i, line in enumerate(alerts) if i and line.startswith("-- "))]
-    reasons = {"not_selected": "not selected", "stale": "stale", "error": "read failed"}
+    reasons = {"not_selected": "not selected", "stale": "stale", "error": "read failed",
+               "unknown": "unknown (no 7-day pool has a number)"}
     assert alerts[0].startswith("pool_out: cx X-5H")
     assert alerts[1:] == [f"source {key}: {reasons[value]}" for key, value in sources.items()]
 
@@ -374,6 +379,19 @@ def test_expand_lists_unread_sources_without_alerts_and_the_hint(frame):
     assert expanded.startswith("OK? (asks not read; peerhub monitor defaults reset)")
     assert "ALERTS 0" in expanded and "source activity: not selected" in expanded
     assert "hint: peerhub monitor defaults reset" in expanded
+
+
+@pytest.mark.parametrize("view,unicode_mode,sep", [("plain", False, " | "), ("rich", True, " · ")])
+def test_quota_unknown_on_line_1_and_its_meaning_in_expand(frame, view, unicode_mode, sep):
+    # #376 P14: every 7-day pool the provider reports is unknown or in error, so `min quota` has nothing to name
+    frame["alert_sources"]["capacity"] = "unknown"
+    frame["min_quota"] = None
+    compact = render_grouped_frame(deepcopy(frame), view=view, unicode=unicode_mode, width=100)
+    assert compact.splitlines()[0].startswith(f"OK? (quota unknown){sep}3 running{sep}2 leads")
+    expanded = render_grouped_frame(frame, view=view, unicode=unicode_mode, width=120, expand=True).splitlines()
+    assert expanded[0] == "OK? (quota unknown) | 3 running | 2 leads"
+    assert "source capacity: unknown (no 7-day pool has a number)" in expanded
+    assert not any(line.startswith(("source accounts", "source facts", "source activity")) for line in expanded)
 
 
 def test_expand_says_alerts_were_not_read_when_the_frame_has_no_alert_sources(frame):
