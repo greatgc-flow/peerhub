@@ -741,6 +741,34 @@ def validate_provider_usage(candidate: object, provider_kind: str) -> dict[str, 
     return _provider_usage(candidate, provider_kind)
 
 
+CONTEXT_SOURCE = "cc.stream.context"  # the receipt `source` of the one validated context reading (#376 P2)
+CONTEXT_TOKENS_MAX = 100_000_000
+
+
+def context_estimate(tokens: object, window: object) -> tuple[int, int, int] | None:
+    """(tokens, window, percent) of a context reading, shared by the receipt writer and the monitor reader, else None.
+
+    Both are ints (not bool) with 0 < tokens <= window <= CONTEXT_TOKENS_MAX; percent = tokens * 100 // window. More
+    tokens than the window means the window is not the one the ask ran with, so the reading is unknown."""
+    if (isinstance(tokens, bool) or not isinstance(tokens, int) or isinstance(window, bool) or not isinstance(window, int)
+            or not 0 < tokens <= window <= CONTEXT_TOKENS_MAX):
+        return None
+    return tokens, window, tokens * 100 // window
+
+
+def _context_fields(context: object, provider_kind: str, now: float) -> dict[str, Any]:
+    """The receipt's context fields from the adapter's `context` candidate, validated again at the persistence boundary.
+
+    Only cc has a validated source: an estimate of the occupancy at the end of the ask. Anything else stays unknown."""
+    raw = cast("dict[str, Any]", context) if isinstance(context, dict) else {}
+    estimate = (context_estimate(raw["tokens"], raw["window"])
+                if provider_kind == "cc" and set(raw) == {"tokens", "window"} else None)
+    if estimate is None:
+        return dict(last_input_tokens=None, context_window=None, context_pct=None, source="unknown", window_reported_at=None)
+    return dict(last_input_tokens=estimate[0], context_window=estimate[1], context_pct=estimate[2], source=CONTEXT_SOURCE,
+                window_reported_at=now)
+
+
 def binding_attributes(runtime: object) -> dict[str, Any]:
     method = getattr(runtime, "session_binding", None)
     raw: Any = method() if callable(method) else {}
@@ -899,12 +927,18 @@ def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Ro
     fingerprint = identity["adapter_fingerprint"] if identity else None
     version_match = _ADAPTER_VERSION.fullmatch(fingerprint) if isinstance(fingerprint, str) else None
     adapter_version = version_match.group(2) if version_match and version_match.group(1) == provider_kind else None
+    usage_candidate: object = provider_candidate
+    context: object = None
+    if isinstance(provider_candidate, dict) and "context" in provider_candidate:  # rides beside the usage keys, never in them
+        usage_keys = dict(cast("dict[str, Any]", provider_candidate))
+        context = usage_keys.pop("context")
+        usage_candidate = usage_keys
     detail = dict(handle=accepted["handle"], generation=accepted["generation"], observed_at=now,
-                  last_input_tokens=None, context_window=None, context_pct=None, source="unknown",
-                  window_reported_at=None, configured_model=binding_detail["model"], resolved_model=None, schema_version=3,
+                  **_context_fields(context, provider_kind, now),
+                  configured_model=binding_detail["model"], resolved_model=None, schema_version=3,
                   provider_kind=provider_kind, captured_at=now, adapter_version=adapter_version,
                   provider_cli_version=None, configured_binding=binding_detail,
-                  usage=_provider_usage(provider_candidate, provider_kind),
+                  usage=_provider_usage(usage_candidate, provider_kind),
                   steps=[], step_coverage={"state": "UNKNOWN", "measured": 0, "dropped": 0})
     seq = conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,'session_telemetry',?,?)",
                        (delivery["delivery_id"], delivery["stream_id"], delivery["peer_id"], delivery["certainty"], dumps(detail))).lastrowid

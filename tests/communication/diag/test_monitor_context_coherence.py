@@ -10,7 +10,7 @@ READ_AT = 2_000_000_000.0
 ANCIENT_SAMPLE = READ_AT - 31_536_000  # One year old: clearly stale without defining an exact TTL.
 
 
-def _context_from_public_frame(tmp_path, *, patch_detail=None, read_at: float = READ_AT):
+def _context_from_public_frame(tmp_path, *, patch_detail=None, read_at: float = READ_AT, kind: str = "cc"):
     from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
     from tests.communication.bridge_helpers import bseed
     from tests.communication.harness.bridge import BridgeHarness
@@ -18,7 +18,7 @@ def _context_from_public_frame(tmp_path, *, patch_detail=None, read_at: float = 
 
     harness = BridgeHarness(tmp_path / "workspace")
     bseed(harness)
-    result = harness.delivery_cycle("b", "s", _ProviderTelemetryRuntime())
+    result = harness.delivery_cycle("b", "s", _ProviderTelemetryRuntime(kind))
     with harness.cs.transaction() as conn:
         receipt = conn.execute(
             "SELECT seq,detail FROM bridge_evidence WHERE delivery_id=? AND kind='session_telemetry'",
@@ -98,3 +98,67 @@ def test_writer_null_context_stays_unknown_with_reason_on_public_monitor_path(tm
     assert context["percent"] is None
     assert context["state"] == "UNKNOWN"
     assert isinstance(context["reason"], str) and context["reason"]
+
+
+# ---- #376 P2: the one validated source, an estimate of a cc ask's context at its end ------------------------------------
+SAMPLE_AT = 1_999_999_900.0
+
+
+def _estimate(detail: dict[str, object], **change: object) -> None:
+    """The receipt fields the writer fills for a cc ask (no new key), then one change."""
+    detail.update({"last_input_tokens": 80, "context_window": 100, "context_pct": 80, "source": "cc.stream.context",
+                   "observed_at": SAMPLE_AT, "window_reported_at": SAMPLE_AT})
+    detail.update(change)
+
+
+@pytest.mark.parametrize("change", [
+    {}, {"context_pct": 80.0}, {"last_input_tokens": 100, "context_pct": 100},
+    {"last_input_tokens": 1, "context_window": 100_000_000, "context_pct": 0}, {"window_reported_at": SAMPLE_AT - 5}])
+def test_a_cc_estimate_is_exposed_with_its_time(tmp_path, change):
+    stored: dict[str, object] = {}
+
+    def patch(detail: dict[str, object]) -> None:
+        _estimate(detail, **change)
+        stored.update(detail)
+
+    assert _context_from_public_frame(tmp_path, patch_detail=patch) == {
+        "occupancy_tokens": stored["last_input_tokens"], "window_tokens": stored["context_window"],
+        "percent": int(stored["context_pct"]), "source": "cc.stream.context", "observed_at": SAMPLE_AT,
+        "window_reported_at": stored["window_reported_at"], "state": "ESTIMATED", "reason": None}
+
+
+@pytest.mark.parametrize(("name", "change"), [
+    ("another source", {"source": "cc.context.v1"}),
+    ("no source", {"source": None}),
+    ("percentage inconsistent", {"context_pct": 79}),
+    ("percentage is a bool", {"last_input_tokens": 1, "context_pct": True}),
+    ("percentage is text", {"context_pct": "80"}),
+    ("percentage missing", {"context_pct": None}),
+    ("occupancy exceeds window", {"last_input_tokens": 101, "context_pct": 100}),
+    ("no occupancy", {"last_input_tokens": 0, "context_pct": 0}),
+    ("negative occupancy", {"last_input_tokens": -1, "context_pct": -1}),
+    ("occupancy is a bool", {"last_input_tokens": True, "context_pct": 1}),
+    ("occupancy is a float", {"last_input_tokens": 80.0}),
+    ("occupancy is text", {"last_input_tokens": "80"}),
+    ("window is zero", {"context_window": 0}),
+    ("window is a float", {"context_window": 100.0}),
+    ("window is a bool", {"last_input_tokens": 1, "context_window": True, "context_pct": 100}),
+    ("window over the bound", {"context_window": 100_000_001, "context_pct": 0}),
+    ("window time missing", {"window_reported_at": None}),
+    ("window time is text", {"window_reported_at": "yesterday"}),
+    ("window time is a bool", {"window_reported_at": True}),
+    ("sample time is text", {"observed_at": "yesterday"}),
+    ("sample time is not finite", {"observed_at": float("inf")}),
+])
+def test_a_cc_estimate_that_fails_a_check_is_unknown(tmp_path, name, change):
+    context = _context_from_public_frame(tmp_path, patch_detail=lambda detail: _estimate(detail, **change))
+    assert (context["occupancy_tokens"], context["window_tokens"], context["percent"]) == (None, None, None), name
+    assert (context["observed_at"], context["window_reported_at"]) == (None, None), name
+    assert (context["state"], context["reason"]) == ("UNKNOWN", "unvalidated_context_source"), name
+
+
+@pytest.mark.parametrize("kind", ["cx", "ag"])
+def test_the_cc_source_on_another_provider_stays_unknown(tmp_path, kind):
+    context = _context_from_public_frame(tmp_path, patch_detail=_estimate, kind=kind)
+    assert (context["occupancy_tokens"], context["window_tokens"], context["percent"]) == (None, None, None)
+    assert (context["state"], context["reason"]) == ("UNKNOWN", "unvalidated_context_source")

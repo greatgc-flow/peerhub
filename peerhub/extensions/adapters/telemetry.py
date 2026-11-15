@@ -31,8 +31,35 @@ def unknown_usage(reason: str) -> dict[str, Any]:
             "coverage": {"state": "UNKNOWN", "reason": reason}}
 
 
+def _cc_context(events: list[dict[str, Any]], result: dict[str, Any]) -> dict[str, int] | None:
+    """{tokens, window} of the last main-chain assistant message of a cc stream, or None (#376 P2).
+
+    tokens = its input + cache read + cache creation tokens (a missing kind counts as zero); window = the result event's
+    `modelUsage[<the model of that message>].contextWindow`, by exact key only. A sub-agent message (`parent_tool_use_id`)
+    is skipped; no earlier message and no other model's window is ever used instead."""
+    last = next((e for e in reversed(events) if e.get("type") == "assistant" and not e.get("parent_tool_use_id")), None)
+    message: object = last.get("message") if last else None
+    listed: object = result.get("modelUsage")
+    if not isinstance(message, dict) or not isinstance(listed, dict):
+        return None
+    usage: object = cast("dict[str, Any]", message).get("usage")
+    model: object = cast("dict[str, Any]", message).get("model")
+    entry: object = cast("dict[str, Any]", listed).get(model) if isinstance(model, str) else None
+    if not isinstance(usage, dict) or not isinstance(entry, dict):
+        return None
+    values: list[object] = [cast("dict[str, Any]", usage).get(key, 0)
+                            for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")]
+    values.append(cast("dict[str, Any]", entry).get("contextWindow"))
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in values):
+        return None
+    *parts, window = cast("list[int]", values)
+    return {"tokens": sum(parts), "window": window} if sum(parts) and window else None
+
+
 def parse_provider_usage(kind: str, stdout: str) -> dict[str, Any]:
-    """Project only provider-native token counters; never retain event text or opaque IDs."""
+    """Project only provider-native token counters; never retain event text or opaque IDs.
+
+    A cc stream with a measured usage and an exact context reading adds the key `context` (see `_cc_context`)."""
     if kind not in ("cc", "cx", "ag"):
         return unknown_usage("unsupported_provider")
     try:
@@ -108,5 +135,6 @@ def parse_provider_usage(kind: str, stdout: str) -> dict[str, Any]:
         return {"schema_version": 1, "scope": scope, "source": source, "reported": {}, "normalized": {},
                 "coverage": {"state": "UNSUPPORTED", "reason": "no_allowlisted_counters"}}
     normalized = normalize_provider_usage(kind, reported)
+    context = _cc_context(events, envelope) if kind == "cc" else None
     return {"schema_version": 1, "scope": scope, "source": source, "reported": reported, "normalized": normalized,
-            "coverage": {"state": "MEASURED", "reason": None}}
+            "coverage": {"state": "MEASURED", "reason": None}, **({"context": context} if context else {})}
