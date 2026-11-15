@@ -469,7 +469,8 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
         session = cast("dict[str, Any]", session)
         if has_streamed and not output_has_newline and result["status"] not in ("delivered", "recovered_terminal"):
             print()
-        if args.stream_id is None and result.get("stream_id") not in (None, f"peer:{args.peer}:chat"):
+        from peerhub.extensions.ask import default_stream
+        if args.stream_id is None and result.get("stream_id") not in (None, default_stream(args.peer, None, stateless=False)):
             print(f"stream: {result['stream_id']}")  # ca/oa (#378): the stream this ask got; the next ask needs another
         print(_session_trailer(session))
     error: dict[str, Any] | None = result.get("error")
@@ -1059,28 +1060,36 @@ def _run_account_cli(args: argparse.Namespace) -> int:
         return 1
 
 
+def _peer_kind(db: str | None, peer: str) -> str | None:
+    """The adapter kind of a builtin peer, or of a registered peer in `db` (read-only); None when it is not known."""
+    from peerhub.extensions.peer_kinds import ALIASES
+
+    if peer in ALIASES:
+        return ALIASES[peer]
+    if not db:
+        return None
+    try:
+        conn = sqlite3.connect(Path(os.path.abspath(db)).as_uri() + "?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id = ?", (peer,)).fetchone()
+            return ALIASES.get(row[0]) if row else None
+        finally:
+            conn.close()
+    except sqlite3.OperationalError:
+        return None
+
+
 def _run_batch_cli(args: argparse.Namespace) -> int:
     import signal
     import threading
     from dataclasses import replace
 
     from peerhub.extensions import batch
-    from peerhub.extensions.peer_kinds import ALIASES
 
     db = os.path.abspath(args.db)
 
     def kind_of(peer: str) -> str | None:
-        if peer in ALIASES:
-            return ALIASES[peer]
-        try:
-            conn = sqlite3.connect(Path(db).as_uri() + "?mode=ro", uri=True)
-            try:
-                row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id = ?", (peer,)).fetchone()
-                return ALIASES.get(row[0]) if row else None
-            finally:
-                conn.close()
-        except sqlite3.OperationalError:
-            return None
+        return _peer_kind(db, peer)
 
     try:
         max_parallel = batch.check_max_parallel(args.max_parallel)
@@ -1171,7 +1180,11 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             from peerhub.extensions.adapters.base import AgRequiresWritableError
             guidance_code = select_guidance_code(exception=exception)
             db_arg = getattr(args, "db", None)
-            sid = getattr(args, "stream_id", None) or (f"peer:{args.peer}:chat" if getattr(args, "peer", None) else None)
+            sid = getattr(args, "stream_id", None)
+            if sid is None and getattr(args, "peer", None):  # the stream this ask used, by the rule `ask` itself applies
+                from peerhub.extensions.adapters.api import API_TARGETS
+                from peerhub.extensions.ask import default_stream
+                sid = default_stream(args.peer, getattr(args, "request_id", None), stateless=_peer_kind(db_arg, args.peer) in API_TARGETS)
             if args.json:
                 payload: dict[str, Any] = dict(status="error", response=None, session=session, error=dict(code=code, message=message))
                 if guidance_code:

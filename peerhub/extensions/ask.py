@@ -100,6 +100,16 @@ def _mark_denied_empty(result: dict[str, Any], peer_id: str | None = None) -> No
             result["error"] = dict(code="denied_empty", message=f"{peer_id or result.get('peer_id') or 'provider'} denied tool action(s): {names}; response empty (headless cannot prompt).")
 
 
+def default_stream(peer_id: str, request_id: str | None, *, stateless: bool) -> str | None:
+    """The stream of an ask without --stream: the one rule, for `ask` and for the CLI's guidance.
+
+    A stateless peer (ca, oa; #378) takes one ask per stream, so its stream is the request's own, not a shared chat;
+    None when its request id is not known (`ask` generates one, a caller that has none cannot name the stream)."""
+    if not stateless:
+        return f"peer:{peer_id}:chat"
+    return f"peer:{peer_id}:{request_id}" if request_id else None
+
+
 def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None = None,
         request_id: str | None = None, author: str = "user", workspace: str | Path | None = None,
         model: str | None = None, effort: str | None = None, timeout_s: float = 60,
@@ -162,8 +172,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     else:
         target = runtime
     rid = request_id or uuid.uuid4().hex
-    # A stateless peer (ca, oa; #378) takes one ask per stream, so its default stream is the request's own, not a shared chat.
-    sid = stream_id or f"peer:{peer_id}:{rid if getattr(target, 'stateless', False) else 'chat'}"
+    sid = stream_id or cast(str, default_stream(peer_id, rid, stateless=getattr(target, "stateless", False)))  # rid is known here
     key = f"ask:{rid}"
     prompt_metadata = {"runtime_kind": target.runtime_kind, "binding": target.binding(), "session_selector": selector}
     generation_path = db.parent / "workspace.generation"

@@ -51,6 +51,48 @@ def test_the_shared_default_stream_stays_for_the_cli_peers(tmp_path):
     assert (result["status"], result["stream_id"]) == ("delivered", "peer:cx:chat")  # only a stateless peer gets a stream per ask
 
 
+def test_one_rule_names_the_default_stream():
+    from peerhub.extensions.ask import default_stream
+
+    assert default_stream("cx", "r1", stateless=False) == default_stream("cx", None, stateless=False) == "peer:cx:chat"
+    assert default_stream("ca", "r1", stateless=True) == "peer:ca:r1"
+    assert default_stream("ca", None, stateless=True) is None  # named after a request id that only the ask generates
+
+
+@pytest.mark.parametrize("peer,flags,stream", [
+    ("ca", ["--request-id", "r1"], "peer:ca:r1"),
+    ("oa", ["--request-id", "r1"], "peer:oa:r1"),
+    ("voter", ["--request-id", "r1"], "peer:voter:r1"),  # a custom peer registered with --adapter ca
+    ("ca", ["--request-id", "r1", "--stream", "named"], "named"),
+    ("ca", [], None),  # no request id known: no stream is named
+    ("cx", ["--request-id", "r1"], "peer:cx:chat"),
+    ("reviewer", ["--request-id", "r1"], "peer:reviewer:chat"),  # a custom peer registered with --adapter codex
+])
+def test_exception_guidance_names_the_stream_the_ask_really_used(tmp_path, monkeypatch, capsys, peer, flags, stream):
+    from peerhub.cli.app import main
+    from peerhub.core.models import Peer
+    from peerhub.core.store import CoreStore
+    from peerhub.extensions import ask as ask_module
+    from peerhub.extensions.bridge_claims import ClaimHeldError
+
+    db = tmp_path / "core.db"
+    store = CoreStore(db)
+    store.register_peer(Peer(peer_id="voter", adapter_ref="ca"))
+    store.register_peer(Peer(peer_id="reviewer", adapter_ref="codex"))
+
+    def held(*args, **kwargs):
+        raise ClaimHeldError("claim held by another ask")
+
+    monkeypatch.setattr(ask_module, "ask", held)
+    assert main(["--db", str(db), "ask", peer, "question", "--json", *flags]) == 1
+    guidance = json.loads(capsys.readouterr().out)["guidance"]
+    assert guidance["code"] == "ask_claim_held"
+    argv = guidance["recover"][0]["argv"]
+    named = argv[argv.index("--stream") + 1]
+    assert named == (stream or "STREAM_ID")  # the placeholder stays when the stream is not known
+    assert f"peer:{peer}:chat" not in argv or stream == f"peer:{peer}:chat"
+
+
 def test_packaged_api_profiles_have_three_tiers_a_card_and_no_pool():
     assert sorted(API_PROFILES) == ["ca.deepthink", "ca.effort", "ca.standard", "oa.deepthink", "oa.effort", "oa.standard"]
     for pid, profile in API_PROFILES.items():

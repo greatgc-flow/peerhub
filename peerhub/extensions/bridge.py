@@ -1592,6 +1592,8 @@ class Bridge:
     @staticmethod
     def _incomplete_result(rec: Record, did: str, gen: int | None, detail: dict[str, Any]) -> CycleResult:
         """The result of an incomplete reply of an API peer (#378), fresh or recovered; `detail["reason"]` is its status."""
+        # Two literal returns, not one computed status: the recovery inventory test (test_cli_recovery.py) collects the
+        # statuses of this file from literal `CycleResult("...")` calls, so a computed one would drop out of its coverage.
         if detail["reason"] == "truncated":
             return CycleResult("truncated", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
         return CycleResult("incomplete", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
