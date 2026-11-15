@@ -1457,7 +1457,7 @@ def test_damaged_observation_tables_stay_an_error_for_the_human_monitor(tmp_path
     assert _run(db, "--view", "plain", *args) == 4
     out, err = capsys.readouterr()
     assert "[diag_unavailable] Monitor evidence could not be read; next: peerhub diag health" in err
-    assert out.startswith("ATTN 1? | store: capacity: OperationalError") and "\nDB: " in out
+    assert out.startswith("ATTN 1? | store: capacity: OperationalError") and "\nDB:" in out  # a long path wraps after `DB:`
 
 
 def test_an_incompatible_schema_keeps_its_own_message_and_code_for_the_human_monitor(tmp_path, capsys):
