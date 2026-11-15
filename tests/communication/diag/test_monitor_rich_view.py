@@ -347,9 +347,10 @@ def test_every_pool_state_has_its_glyph_beside_the_state_word(state, glyph):
 def test_the_family_cell_is_dim_and_the_numbers_are_not_painted():
     line = row_of(rich(pools_payload(pool("cc", "C-7D", .63, pace=-20))), "C-7D")
     assert f"\x1b[{mv.RICH_SGR['dim']}mclaude\x1b[0m" in line
-    for text in ("63%", "1d00h", "-20", "cc C-7D"):
-        assert text in line and span(line, text) != mv.RICH_SGR["warn"] or text == "-20"
+    for text in ("63%", "1d00h", "-20", "cc C-7D"):  # the name and the numbers stand outside every span
+        assert text in line and span(line, text) is None, text
     assert f"\x1b[{mv.RICH_SGR['ok']}m{U['down']}\x1b[0m-20" in line  # only the arrow of PACE takes the row's colour
+    assert SGR.findall(line) == [mv.RICH_SGR["ok"], "0"] * 3 + [mv.RICH_SGR["dim"], "0"]  # state, bar, arrow; family
 
 
 def test_the_bar_shrinks_then_goes_before_any_data_column_drops():

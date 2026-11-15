@@ -26,7 +26,7 @@ def estimated(percent: object = 2, at: object = NOW - 180, **over: Any) -> dict[
 
 
 def session(stream: str, context: dict[str, Any], *, peer: str = "cc", generation: int = 1) -> dict[str, Any]:
-    return {"handle": f"sess_{peer}_{generation}_{abs(hash(stream)) % 1000:03d}", "stream_id": stream, "peer_id": peer,
+    return {"handle": f"sess_{peer}_{generation}_{len(stream):03d}", "stream_id": stream, "peer_id": peer,
             "generation": generation, "provider": peer, "state": "ACTIVE", "resumable": True, "execution_mode": "fresh",
             "uses": 1, "configured_binding": {"profile": f"{peer}.fable", "model": "model-x", "effort": "high"},
             "telemetry": {"usage": None, "context": context}}
@@ -122,6 +122,29 @@ def test_a_superseded_ask_shows_no_context_of_the_session_that_replaced_it(frame
     rows = recent(expanded(frame))
     assert [("ctx " in text, "(superseded)" in text) for text in rows if "name shipped15-cc2" in text] == [
         (True, False), (False, True)]
+
+
+@pytest.mark.parametrize("order", ["newest first", "newest last"])
+def test_only_the_newest_ended_ask_of_a_stream_and_peer_shows_the_estimate(frame, order):
+    # The estimate is about the end of the session's last ask: an ask of the same stream that ended hours earlier
+    # must not read `ctx 2% est, 3m ago`.
+    asks = frame["groups"]["activity"]["data"]["asks"]
+    older = [ask("ok", name="shipped15-cc2", profile="cc.fable", age=7200, exact=True, reply_line="first answer"),
+             ask("error", name="shipped15-cc2", profile="cc.fable", age=90_000, exact=True, reply_line="exit 2")]
+    frame["groups"]["activity"]["data"] = activity_data([*asks, *older] if order == "newest first" else [*older, *asks])
+    with_sessions(frame, session(DONE, estimated()))
+    rows = [text for text in recent(expanded(frame)) if "name shipped15-cc2" in text]
+    assert [("age 33m" in text, "age 2h00m" in text, "age 1d01h" in text) for text in rows] == [
+        (True, False, False), (False, True, False), (False, False, True)]  # the newest ended ask comes first
+    assert ["ctx 2% est, 3m ago" in text for text in rows] == [True, False, False]
+    assert sum("% est," in text for text in recent(expanded(frame))) == 1
+
+
+def test_the_newest_ended_ask_of_each_stream_and_peer_shows_its_own_estimate(frame):
+    with_sessions(frame, session(DONE, estimated()), session("peer:ag:rank-374-r1/ag", estimated(7, NOW - 60), peer="ag"))
+    rows = recent(expanded(frame))
+    assert [("ctx 7% est, 1m ago" in text, "ctx 2% est, 3m ago" in text) for text in rows
+            if "% est," in text] == [(True, False), (False, True)]
 
 
 @pytest.mark.parametrize("change,age", [({}, "3m ago"), ({"display_elapsed_seconds": 60}, "4m ago"),

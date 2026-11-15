@@ -342,6 +342,8 @@ class OaRuntimeTarget(ApiRuntimeTarget):
                 answers.append(e)
 
         # A socket timeout limits one operation, so a slow drip would never end: the whole call waits on one deadline.
+        # After the deadline the daemon thread and its socket live until the server stops sending or the process exits
+        # (fine for the CLI: one ask per process).
         worker = threading.Thread(target=exchange, daemon=True)
         worker.start()
         worker.join(self._timeout_s)
@@ -351,7 +353,7 @@ class OaRuntimeTarget(ApiRuntimeTarget):
                 return Outcome("timeout")
             return Outcome("uncertain", detail=san.clean(f"oa request failed: {type(answer).__name__}: {answer}", EXCERPT_CHARS))
         status, raw = answer
-        doc =_json_object(raw.decode("utf-8", "replace")) if len(raw) <= self._max_bytes else None
+        doc = _json_object(raw.decode("utf-8", "replace")) if len(raw) <= self._max_bytes else None
         error: object = doc.get("error") if doc is not None else None
         if isinstance(error, dict):
             detail = cast("dict[str, Any]", error)

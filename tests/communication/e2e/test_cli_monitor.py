@@ -1393,10 +1393,12 @@ def _never_refreshed_db(tmp_path):
 
 
 def _no_refresh(monkeypatch):
-    """The watch's refresh is faked above the store, so the observation tables stay as they are."""
+    """The watch's refresh is faked above the store, so the observation tables stay as they are. The frame width is
+    pinned: a pipe takes it from COLUMNS, and the lines these tests compare must not wrap in a narrow environment."""
     monkeypatch.setattr("peerhub.cli.monitor.refresh_with_profile_pools",
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
+    monkeypatch.setenv("COLUMNS", "100")
 
 
 @pytest.mark.parametrize("args", [("--snapshot",), ("--snapshot", "--group", "capacity"), ("--snapshot", "--expand"),

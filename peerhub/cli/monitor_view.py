@@ -1165,10 +1165,11 @@ def _lead_rows(lead: dict[str, Any], now: float | None, width: int, unicode: boo
 
 def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None,
                    now: float | None = None) -> list[str]:
-    """RUNNING (every row), RECENT (the 20 newest ended rows and the superseded rows), LEADS: every field. An ended ask
-    shows the estimated context of its stream's and peer's newest session (`_session_contexts`, #376 P2); a running or
-    superseded ask never does, because that estimate is not about it."""
-    contexts = cast(dict[tuple[str, str], dict[str, Any]], data.get("_session_contexts") or {})
+    """RUNNING (every row), RECENT (the 20 newest ended rows and the superseded rows), LEADS: every field. The newest
+    ended ask of a stream and peer shows the estimated context of that stream's and peer's newest session
+    (`_session_contexts`, #376 P2): the estimate is about the end of that ask. An earlier ended ask of the same stream
+    and peer, a running ask and a superseded ask never show it."""
+    contexts = dict(cast(dict[tuple[str, str], dict[str, Any]], data.get("_session_contexts") or {}))  # used up below
     running, ended, superseded = _ask_split(data)
     head, _ = _running_head(data, running, unicode, keep)
     rows = [head]
@@ -1180,8 +1181,8 @@ def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep:
     if superseded or omitted:
         recent += f" | superseded {len(superseded)}" + (f" (+{int(omitted)} not read)" if omitted else "")
     rows.append(recent)
-    for row in newest:
-        context = contexts.get((str(row.get("stream")), str(row.get("peer"))))
+    for row in newest:  # newest first, so the first row of a stream and peer is its newest ended ask
+        context = contexts.pop((str(row.get("stream")), str(row.get("peer"))), None)
         rows.extend(_ask_rows(row, width, unicode, keep, _estimate(context, now) if context else None))
     for row in superseded:
         rows.extend(_ask_rows(row, width, unicode, keep))

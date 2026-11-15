@@ -16,7 +16,7 @@ from peerhub.extensions.adapters.profiles import resolve_profile
 from peerhub.extensions.ask import ask
 from tests.communication.harness.api_peers import evidence_kinds
 
-KEY ="sk-test-0123456789abcdefKEY"
+KEY = "sk-test-0123456789abcdefKEY"
 
 
 @pytest.fixture(autouse=True)
