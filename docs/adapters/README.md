@@ -55,9 +55,13 @@ Shared contract:
 
 - One ask is one API call, never retried. No tools, no files, no workspace
   access (the workspace must exist but is not read), no session.
-- One ask per Stream: any other ask on the Stream is refused before anything is
-  stored or sent (`request_rejected`: `ca is stateless; use a new stream`). The
-  same request-id replays its stored result. The default Stream is
+- One ask per Stream: any other record on the Stream (another ask in any state,
+  or a record put there some other way, which would be delivered first as one
+  more API call) refuses the ask before anything is stored or sent
+  (`request_rejected`: `ca is stateless; use a new stream`). Only the same ask
+  may come again: the same request-id AND the same author (`--author-peer`)
+  replay its stored result, because a request-id is unique per author, not per
+  Stream; another author with that request-id is refused. The default Stream is
   `peer:<peer>:<request-id>` (other peers: `peer:<peer>:chat`), so an ask
   without `--stream` gets its own Stream; the text output prints it as a
   `stream:` line before the `session:` line.
@@ -70,10 +74,14 @@ Shared contract:
   A reply cut at the token limit is `truncated`; a reply that ended for another
   reason is `incomplete`. Both are STARTED, exit 1, keep the text in
   `partial_response` and store no response Record (`peerhub explain truncated`,
-  `peerhub explain incomplete`).
+  `peerhub explain incomplete`). The Bridge settles them like a refusal; if an
+  ask is interrupted after the result was stored but before it was
+  acknowledged, the same request finishes that settlement and returns the saved
+  status with `partial_response`, without calling the provider again.
 - Credits used up: `not_executed` with `reason: quota_exhausted` and no reset
   time. An HTTP 400, 401, 403, 404, 413 or 429 answer with an error object:
-  `failed_not_started` (no inference). Anything else: `uncertain`.
+  `failed_not_started` (no inference). Anything else: `uncertain`, including a
+  reply of the wrong shape (see below).
 - Profiles: `ca.standard`, `ca.effort`, `ca.deepthink`, `oa.standard`,
   `oa.effort`, `oa.deepthink` in the packaged `model-defaults.toml`, without
   pools; `peerhub explain <profile>` shows each card.
@@ -90,9 +98,11 @@ and the prompt. `ant` replaces a string that starts with `@` by the content of
 that file; the fixed first line keeps a prompt that starts with `@` literal.
 Every `ANTHROPIC_*` variable is removed from the child environment, so `ant`
 uses its own login (`ant auth login`) and the official endpoint. A reply is
-complete only with exit code 0, one JSON object of type `message`, a
-`stop_reason` of `end_turn` or `stop_sequence` and non-empty text;
-`max_tokens` is `truncated`, any other stop reason is `incomplete`. The text
+complete only with exit code 0, one JSON object of type `message` and a
+`stop_reason` of `end_turn` or `stop_sequence` (empty text is `delivered` with
+`empty_response`); `max_tokens` is `truncated`, any other stop reason is
+`incomplete`. `content` must be a list of objects and the `text` of a `text`
+block a string; any other shape is never a reply and ends `uncertain`. The text
 "credit balance is too low" in an error with HTTP 400, 401, 403, 404 or 413
 means the credits are used up. Without a valid login the API answers HTTP 401
 `authentication_error` (measured with `ant` 2.9.0: `x-api-key header is
@@ -110,8 +120,12 @@ with the default context; a network that needs a proxy is not supported.
 request runs in a worker thread and the ask waits for it at most that long,
 then ends `uncertain` (`runtime_timeout` evidence; a late answer is discarded).
 `--silence-timeout-seconds`, when given, limits one socket operation. A
-reply is complete only with HTTP 200, `status: completed` and non-empty
-`output_text`; `incomplete` with the reason `max_output_tokens` is `truncated`,
-any other status or reason is `incomplete`. The error codes
+reply is complete only with HTTP 200 and `status: completed` (empty
+`output_text` is `delivered` with `empty_response`); `incomplete` with the
+reason `max_output_tokens` is `truncated`, any other status or reason is
+`incomplete`. `output` must be a list of objects with a `type`, the `content`
+of a `message` item a list of objects and the `text` of an `output_text` block a
+string; any other shape ends `uncertain`, and so does an answer that is
+`completed` but carries an `error` object. The error codes
 `credit_balance_exhausted` and `insufficient_quota` mean the credits are used
 up, at any HTTP status.
