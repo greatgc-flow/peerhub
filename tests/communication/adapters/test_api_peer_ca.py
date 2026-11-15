@@ -315,12 +315,16 @@ def test_cli_reports_request_rejected_and_truncated(tmp_path, monkeypatch, capsy
         workspace, command=[sys.executable, FAKE_ANT], env_extra={"FAKE_ANT_STDOUT": message(stop_reason="max_tokens")}, **kw))
     base = ["--db", db, "ask", "ca", "question", "-w", str(tmp_path), "--profile", "ca.standard", "--json"]
     assert main([*base, "--writable"]) == 2
-    rejected = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    rejected = json.loads(captured.out)
     assert rejected["status"] == "error" and rejected["error"]["code"] == "request_rejected"
+    assert rejected["guidance"]["code"] == "request_rejected"  # its own entry, not ask_unexpected_failure
+    assert captured.err.startswith("[request_rejected] ") and "peerhub explain request_rejected" in captured.err
     assert main([*base, "--stream", "s1"]) == 1
     captured = capsys.readouterr()
     truncated = json.loads(captured.out)
-    assert truncated["status"] == "truncated" and truncated["error"]["code"] == "truncated" and "guidance" not in truncated
-    assert captured.err.startswith("[truncated] ")
+    assert truncated["status"] == "truncated" and truncated["error"]["code"] == "truncated"
+    assert truncated["guidance"]["code"] == "truncated"
+    assert captured.err.startswith("[truncated] ") and "details: peerhub explain truncated" in captured.err
     assert main([*base, "--stream", "s1", "--request-id", "other"]) == 2
     assert json.loads(capsys.readouterr().out)["error"]["message"].endswith("ca is stateless; use a new stream")

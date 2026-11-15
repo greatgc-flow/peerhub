@@ -8,6 +8,50 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.18] - 2026-11-16
+
+API peers `ca` and `oa` (#378), the index for `peerhub diag running` (#330) and the remaining items of #376. The plan was agreed unanimously by cc, cx and ag; every item of #376 is done or dropped with its reason below.
+
+### Added
+
+- Two builtin API peers for votes, text reviews and documentation checks that should not spend the subscription pools of cc, cx and ag (#378). They are paid from API credits. They have no quota pool, so they never appear in POOLS, `suggest:`, `peerhub diag readiness`, `observation refresh` or the accounts; PeerHub shows no credit balance (no source for it is known).
+  - `ca` is the Claude API through the `ant` CLI. Sign in once with `ant auth login`; PeerHub never reads, stores or prints a credential. It runs `ant messages create --format json` with the request on stdin, and removes every `ANTHROPIC_*` variable from the environment of `ant`, so the call uses the `ant` login and the official endpoint. Profiles: `ca.standard` (claude-haiku-5-5), `ca.effort` (claude-sonnet-5-5), `ca.deepthink` (claude-opus-5-5).
+  - `oa` is the OpenAI Responses API: one HTTPS request to `https://api.openai.com/v1/responses`. The key comes only from `OPENAI_API_KEY`, read at the call; it is never accepted on the command line or from a file, and it is removed from any error text. `OPENAI_BASE_URL` and proxy variables are ignored, redirects are not followed and TLS is always verified; a network that needs a proxy is not supported. Profiles: `oa.standard` (gpt-6-luna), `oa.effort` (gpt-6.1-sol), `oa.deepthink` (gpt-6-astra).
+  - Limits: one ask is one API call, never retried. No tools, no files, no workspace access and no session: put the text in the prompt. One ask per stream. Replies up to 16,000 output tokens; prompts up to 1,000,000 bytes. `--model` must match `^claude-[a-z0-9.-]{1,64}$` (`ca`) or `^gpt-[a-z0-9.-]{1,64}$` (`oa`). A custom peer uses `--adapter ca` or `--adapter oa`.
+  - Refused before anything is stored or sent, with the code `request_rejected` and exit status 2: a model that does not match, no `--profile` and no `--model`, `--effort`, `--writable`, and a second ask on a stream (`ca is stateless; use a new stream`). The same request-id replays its stored result.
+  - The `@` rule: `ant` replaces a string that starts with `@` by the content of that file. The text that PeerHub sends to `ant` always starts with the fixed line `PeerHub ask (text only, no tools, no files).`, so a prompt whose first line is `@<path>` is sent as literal text. A real call on 2026-11-15 returned the literal path and not the file's content.
+  - Outcomes: a complete reply is `delivered` (empty text: `delivered` with `empty_response: true`). A reply cut at 16,000 output tokens is `truncated`; a reply that ends for another reason (for example a refusal) is `incomplete`. Both exit with status 1, keep the text in `partial_response` and store no response. A credit balance that is used up is `not_executed` with the reason `quota_exhausted` and no reset time. `ant` missing or not logged in, no `OPENAI_API_KEY`, and an HTTP 400, 401, 403, 404, 413 or 429 answer with an error object are `failed_not_started`. Anything else (5xx, a timeout, a broken answer) is `uncertain`.
+  - Guidance entries `truncated`, `incomplete` and `request_rejected` (`peerhub explain <code>`; also in `docs/guidance-reference.md`).
+  - `peerhub batch run` accepts `ca` and `oa` tasks; a task with `writable: true` is refused, and `truncated`, `incomplete` and `request_rejected` are reported as FAILED.
+  - `peerhub guide` has a line for the API peers, and its load line gives `ca 3/oa 3` (advice; nothing enforces a cap).
+  - Live canaries in the canary stage only, outside the release evidence: `python -m tools.live_gate --yes --only canary --peer ca` (or `oa`). `ca`: one reply and one `@` check. `oa`: one reply, skipped when `OPENAI_API_KEY` is not set.
+- The estimated context of cc asks (#376). After a cc ask the session receipt fills its existing fields: `last_input_tokens` (input, cache read and cache creation tokens of the last main-chain assistant message), `context_window` (the model's `contextWindow` in the result) and `context_pct`, with the source `cc.stream.context`. It is an estimate of the occupancy at the end of that ask, with its time (`observed_at`), and carries `state: "ESTIMATED"` in `peerhub session list --json` and `session show --json` (`latest_telemetry.context`). It stays unknown when the model key is not exact, the stream was cut or too large, the usage of that stream was not measured, or the tokens exceed the window. No receipt key was added (receipt schema 3). The `session.telemetry` object of an ask result is unchanged. cx and ag asks stay unknown (see below).
+- `alert_sources.capacity` in the JSON frames can be `unknown`: at least one 7-day pool that the provider is expected to report exists, none is fresh and none is stale (all unknown or in error). A 7-day pool that the provider does not report or has disabled does not count. The pool rows keep their own state.
+- An index for `peerhub diag running` (#330): `idx_bd_scope_claim_generation` on `bridge_deliveries(stream_id, peer_id, claim_generation)`, created with `CREATE INDEX IF NOT EXISTS` when the Bridge sets up the store. The schema version stays 4, so an older PeerHub (0.24.12 was checked) keeps using the same store beside this one, and the index stays after a downgrade. On a copy of a real store the index was built in 0.013 s for 3,482 deliveries. A store without the index still gives the right rows; it is only slower. The earlier plan to wait for the next schema change is superseded.
+
+### Changed
+
+- Caller identity (#376): an unknown value (`host`, `ns`, `ask_pid` or `ask_created` is null, on either side) never counts as the same process, so such an ask writes its own `caller` row. A caller without a readable creation time therefore writes one row per invocation instead of one per process.
+- Lead sessions with the same session id (#376): an unreadable transcript is counted once in `unreadable` per folder and session id, and a kept row whose process could not be confirmed is replaced, in its place in the list, by a later file of the same id whose process is confirmed. A confirmed row is never replaced.
+- Model facts re-observed on 2026-11-15 for codex-cli 0.169.0 (`codex debug models`), agy 1.5.9 and Claude Code 2.1.325: every profile's model still exists and no profile changed (`defaults_revision` 2026-11-15.1).
+- Messages name the new adapters: `register this peer with --adapter cx, cc, ag, ca or oa before asking it`, and the `ask` help lists `ca` and `oa` as built-ins.
+- Documentation: the README has a section for the API peers and says what is and is not known about the context of asks, the lesson `api-peers` is new and `monitor-states` mentions them, and `docs/STATUS.md`, `CONTRIBUTING.md` (the API-peer canaries) and `docs/adapters/README.md` are updated. Local path examples in tests, in `CONTRIBUTING.md` and in a tool comment are neutral now.
+
+### Fixed
+
+- The human monitor no longer stops on an older quota sample whose stored payload is not valid JSON: the export query is guarded with `json_valid`, as the capacity query already was (#376).
+- Four tests that failed under heavy machine load and passed alone are load-proof (#376). The two tests that proved the account probes overlap now use a barrier instead of comparing wall-clock time with sleeps. The cancel test writes its pid file through a temporary file and a rename, and checks the processes by their creation time, because Windows can give a freed pid to a new process. The hung-probe test checks the wait it allows (the deadline plus one second) and that the refresh returns while the probe still hangs, instead of the time of the whole refresh.
+- #373 follow-up, measured with one small real call each on 2026-11-15: codex-cli 0.169.0 (`exec --json`) writes U+2028, U+2029 and U+0085 raw inside its JSON lines, so the fix of 0.24.16 matters; for Claude Code 2.1.325 the result is open (the model did not emit the characters in two attempts); through agy 1.5.9 the stored reply kept U+2028 and U+2029, and U+0085 came back as U+2026.
+
+### Not included
+
+- The context of cx and ag asks: not implemented. The cx rollout file has it; for ag it was not measured.
+- Codex and agy lead sessions: not measured; their discovery is not implemented.
+- An alert when a lead's context is nearly full: dropped, as decided for 0.24.17. Claude Code compacts by itself; the `!` mark in the row stays.
+- A progress signal while an ask runs: dropped. The adapter waits for the provider process between `started` and its exit, so there is no event in between to write without rebuilding the delivery loop. Every event would extend the lease, so a dead ask would look alive longer; a failed write would become a new way to abort a running ask; and the monitors of 0.24.16 and 0.24.17 would show such an ask as `unsure`. RUNNING already shows the elapsed time, liveness and overdue.
+- Measurements of lead sessions on Linux and macOS, of IDE and desktop sessions, of `/clear` and of a plan window smaller than the model's maximum input: they cannot be measured here, and the README lists them as not measured.
+- A credit balance in the monitor, and `claude -p` on API credits: no source for the balance is known, and `claude -p` on credits needs a stored API key.
+
 ## [0.24.17] - 2026-11-15
 
 Lead sessions of Claude Code in `peerhub monitor` (#376; design v5, approved by cc, cx and ag). Codex and agy lead sessions and the context of asks are not part of this release (#376).

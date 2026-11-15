@@ -32,6 +32,8 @@ pytestmark = [pytest.mark.unit]
     ("review-scores-to-100", ["review-recipe"]),
     ("pytest basetemp", ["cx-sandbox-and-prompt-hygiene"]),
     ("subagents", ["peer-subagents"]),
+    ("api credits", ["api-peers"]),
+    ("ca stateless", ["api-peers"]),
     ("ag checkout", []),
     ("", []),
     ("!!!", []),
@@ -218,7 +220,7 @@ def test_guidance_code_beats_lesson_id_and_keywords_still_work(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 28
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 29
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & {lesson["id"] for lesson in lessons}
     for lesson in lessons:
         assert all(lesson.values())

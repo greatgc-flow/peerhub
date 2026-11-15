@@ -546,12 +546,41 @@ def test_account_probes_overlap_the_serial_quota_probes_instead_of_following_the
     assert measured_account_peers(db) == ["ag", "cc", "cx"]
 
 
-def test_a_hung_account_probe_cannot_exceed_the_shared_deadline(tmp_path):
+# This test once slept 4 s in the probe and required the whole refresh to take under 2.5 s (deadline 0.4 s + 1 s grace). Under
+# heavy load that span also stretches with the store reads, the row writes and the thread start-ups, none of which is the wait
+# for the hung probe. It now checks the wait itself: every join of the probe threads may wait at most the deadline plus the
+# grace of AccountCollection (`budget + 1.0`), and the refresh returns while the probe is still held, so it never waited for it.
+# The probe is held by an event that the test sets after its checks; HUNG_HOLD only bounds the hold if a check fails.
+HUNG_DEADLINE = 0.4
+HUNG_HOLD = 60.0
+
+
+def test_a_hung_account_probe_cannot_exceed_the_shared_deadline(tmp_path, monkeypatch):
     db = refresh_env(tmp_path)
-    began = time.monotonic()
-    refresh_quota(db, ["cc", "cx"], pollers={}, deadline_sec=0.4, version_checker=lambda k: None,
-                  account_pollers={"cc": lambda: (time.sleep(4), live_reading("cc"))[1], "cx": lambda: live_reading("cx")})
-    assert time.monotonic() - began < 2.5
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+    join_timeouts: list[float] = []
+    real_join = threading.Thread.join
+
+    def recording_join(self, timeout=None):
+        if timeout is not None:
+            join_timeouts.append(timeout)
+        return real_join(self, timeout)
+
+    def hung():
+        started.set()
+        release.wait(HUNG_HOLD)
+        finished.set()
+        return live_reading("cc")
+
+    monkeypatch.setattr(threading.Thread, "join", recording_join)
+    try:
+        refresh_quota(db, ["cc", "cx"], pollers={}, deadline_sec=HUNG_DEADLINE, version_checker=lambda k: None,
+                      account_pollers={"cc": hung, "cx": lambda: live_reading("cx")})
+        assert started.is_set() and not finished.is_set()  # the refresh returned while the probe was still hung
+    finally:
+        release.set()
+        monkeypatch.undo()
+    assert join_timeouts and max(join_timeouts) <= HUNG_DEADLINE + 1.0  # the only wait: the shared deadline plus the grace
     rows = {r[0]: (r[1], json.loads(r[3])) for r in account_rows(db)}
     assert rows["cx"][0] == "MEASURED"
     assert rows["cc"][0] == "ERROR" and rows["cc"][1]["reason"] == "timeout" and rows["cc"][1]["condition"] == "account_probe_failed"

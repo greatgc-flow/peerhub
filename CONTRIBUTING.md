@@ -155,6 +155,12 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    of all three stages.
    A failed stage stops the run before later provider calls; each run clears
    old XML for its selected stages so missing evidence cannot appear current.
+   The API peers have canaries too, in the canary stage only (they spend API
+   credits and are not release evidence):
+   `python -m tools.live_gate --yes --only canary --peer ca` (or `--peer oa`).
+   `ca` needs `ant` on PATH and `ant auth login` (without `ant` it is skipped;
+   not logged in, it fails). `oa` needs this opt-in and `OPENAI_API_KEY`;
+   without the key it is skipped.
 3. Extract the selected CHANGELOG section, then create a draft with four assets
    (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml` and the evidence JSON).
    Run `python -m tools.release_notes --version X.Y.Z > <notes-file>` from
@@ -252,6 +258,9 @@ python -m tools.live_gate --yes
 # Optional measurements for one peer; outside the release catalog.
 python -m tools.live_gate --yes --only canary --peer cx
 
+# API peers (spend API credits): ca needs `ant auth login`; oa needs OPENAI_API_KEY.
+python -m tools.live_gate --yes --only canary --peer ca
+
 # Direct opt-in: -m live selects exactly the six M1 live-tier tests.
 # Select slow/e2e separately, or canary for optional ask measurements.
 $env:PEERHUB_LIVE = "1"
@@ -296,6 +305,16 @@ python -m pytest -q -m "canary and cx" tests/communication/live/test_ask_measure
 This command spends up to four cx calls; selecting all peers spends up to 12.
 Unset `PEERHUB_SESSION_SELECTION_LIVE` after the bounded check. Optional canary
 results remain separate from release evidence.
+
+The API peers `ca` and `oa` have three canaries in
+`tests/communication/live/test_api_peer_canary.py` (pytest markers `ca` and
+`oa`), one real call each and no retries: `ca.standard` replies OK; a `ca`
+prompt whose first line is `@<temporary file>` comes back with the literal path
+and without the file's marker; `oa.standard` replies OK. They run in the canary
+stage only and spend API credits, not a subscription pool. Without `ant` on
+PATH the `ca` canaries skip with `LIVE-PROVIDER-UNAVAILABLE[provider=ca]`, and
+an `ant` that is not logged in fails them; without `OPENAI_API_KEY` the `oa`
+canary skips with `LIVE-OA-KEY-MISSING[env=OPENAI_API_KEY]`.
 
 `tools/release_evidence.py` requires every blocking M1 catalog test and every
 M2/M3 catalog test (`docs/m2/test-catalog.m2.json` and
@@ -345,7 +364,8 @@ and watch the 7-day pace; distribute work so cc is not the heaviest user.
 - Ordinary text uses LF in the Git index. Preserve each file's existing working
   tree line endings; frozen package files have explicit `.gitattributes` rules.
 - If the Windows Git credential helper blocks a push, check its configured
-  executable: the recorded `gh.exe` path under `D:\PortableDev...` was missing.
+  executable: the recorded `gh.exe` path (for example
+  `C:\tools\gh\bin\gh.exe`) can point to a file that no longer exists.
   With a working `gh` on PATH, clear that helper and use:
 
   ```powershell

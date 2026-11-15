@@ -13,13 +13,16 @@ configuration surface.
 | **ag** | [ag.md](ag.md) | `agy.exe` (Antigravity CLI) |
 | **cc** | [cc.md](cc.md) | `claude.cmd` (Claude Code) |
 | **cx** | [cx.md](cx.md) | `codex.cmd` (Codex CLI) |
+| **ca** | [API peers](#4-api-peers-ca-and-oa) | `ant` (Claude API CLI) |
+| **oa** | [API peers](#4-api-peers-ca-and-oa) | none: one HTTPS request to the OpenAI Responses API |
 
 Ordinary `peerhub ask` calls reuse the latest compatible retained native session for the
 peer/Stream. Otherwise the Bridge creates a fresh generation with bounded
 catch-up. Mutually exclusive `--fresh` / `--session HANDLE` allocate a new
 generation or reuse one exact compatible retained session. Exact rejection
 never substitutes another session. Fresh still receives Stream context; use a
-dedicated Stream for an independent task.
+dedicated Stream for an independent task. The API peers `ca` and `oa` have no
+retained session: one ask per Stream (section 4).
 
 ## 2. CLI Reference & Contracts
 
@@ -37,3 +40,66 @@ Contains verbatim reference snapshots ported from Engram during the 2026-09-03 s
 > Files under `checkpoints/` contain historical paths and workflow descriptions
 > from the pre-separation repository. They are preserved for provenance and must
 > not be used as current operational guidance.
+
+## 4. API peers: ca and oa
+
+`ca` (Claude API) and `oa` (OpenAI Responses API) were added in 0.24.18 (#378).
+They are text-only peers paid from API credits; they have no quota pool, no
+observed CLI version and no retained session. The source is
+`peerhub/extensions/adapters/api.py`; setup and outcomes for users are in the
+[README](../../README.md#api-peers-ca-and-oa).
+
+Shared contract:
+
+- One ask is one API call, never retried. No tools, no files, no workspace
+  access (the workspace must exist but is not read), no session.
+- One ask per Stream: any other ask on the Stream is refused before anything is
+  stored or sent (`request_rejected`: `ca is stateless; use a new stream`). The
+  same request-id replays its stored result.
+- Also refused with `request_rejected` (exit 2): `--writable`, `--effort`, no
+  `--profile` and no `--model`, and a model that does not match
+  `^claude-[a-z0-9.-]{1,64}$` (`ca`) or `^gpt-[a-z0-9.-]{1,64}$` (`oa`).
+- Inline prompt limit: 1,000,000 UTF-8 bytes. Reply limit: 16,000 output tokens.
+- A complete reply is `delivered`; usage keeps `input_tokens` and
+  `output_tokens` (telemetry source `ca.message.usage` or `oa.response.usage`).
+  A reply cut at the token limit is `truncated`; a reply that ended for another
+  reason is `incomplete`. Both are STARTED, exit 1, keep the text in
+  `partial_response` and store no response Record (`peerhub explain truncated`,
+  `peerhub explain incomplete`).
+- Credits used up: `not_executed` with `reason: quota_exhausted` and no reset
+  time. An HTTP 400, 401, 403, 404, 413 or 429 answer with an error object:
+  `failed_not_started` (no inference). Anything else: `uncertain`.
+- Profiles: `ca.standard`, `ca.effort`, `ca.deepthink`, `oa.standard`,
+  `oa.effort`, `oa.deepthink` in the packaged `model-defaults.toml`, without
+  pools; `peerhub explain <profile>` shows each card.
+
+`ca` invocation is equivalent to:
+
+```text
+ant messages create --format json   (request body as JSON on stdin)
+```
+
+The body has the model, `max_tokens` 16,000 and one user message whose content
+is the fixed line `PeerHub ask (text only, no tools, no files).`, an empty line
+and the prompt. `ant` replaces a string that starts with `@` by the content of
+that file; the fixed first line keeps a prompt that starts with `@` literal.
+Every `ANTHROPIC_*` variable is removed from the child environment, so `ant`
+uses its own login (`ant auth login`) and the official endpoint. A reply is
+complete only with exit code 0, one JSON object of type `message`, a
+`stop_reason` of `end_turn` or `stop_sequence` and non-empty text;
+`max_tokens` is `truncated`, any other stop reason is `incomplete`. The text
+"credit balance is too low" in an error with HTTP 400, 401, 403, 404 or 413
+means the credits are used up. Not logged in is recognised by an HTTP 401 error
+or the text `not logged in` / `ant auth login`; it was not checked against
+every wording of the real `ant`, and other wording ends `uncertain`.
+
+`oa` sends one POST to the fixed URL `https://api.openai.com/v1/responses` with
+`{"model", "input", "max_output_tokens": 16000, "store": false}` and the key
+from `OPENAI_API_KEY` in the `Authorization` header only. `OPENAI_BASE_URL` and
+proxy variables are ignored, redirects are not followed, and TLS is verified
+with the default context; a network that needs a proxy is not supported. A
+reply is complete only with HTTP 200, `status: completed` and non-empty
+`output_text`; `incomplete` with the reason `max_output_tokens` is `truncated`,
+any other status or reason is `incomplete`. The error codes
+`credit_balance_exhausted` and `insufficient_quota` mean the credits are used
+up, at any HTTP status.
