@@ -6,4 +6,5 @@ vocabulary both need lives here.
 
 from __future__ import annotations
 
-ALIASES = {"codex": "cx", "cx": "cx", "claude": "cc", "cc": "cc", "agy": "ag", "ag": "ag"}
+ALIASES = {"codex": "cx", "cx": "cx", "claude": "cc", "cc": "cc", "agy": "ag", "ag": "ag",
+           "ca": "ca", "oa": "oa"}  # the API peers (#378): Claude API through `ant`, OpenAI Responses API

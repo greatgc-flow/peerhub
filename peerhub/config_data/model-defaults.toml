@@ -181,6 +181,74 @@ traits = ["45/45 at medium; high slower", "empty reply after tool use (#195)"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#195", "ag-recipe"]
 card_checked = "2026-11-13"
 
+# API peers (#378): one API call per ask, paid by API credits. No quota pool, so no `pools` and no CLI version in
+# [observed_versions]; `--model` must match ^claude-[a-z0-9.-]{1,64}$ (ca) or ^gpt-[a-z0-9.-]{1,64}$ (oa).
+[profiles."ca.standard"]
+selection_mode = "pinned"
+model = "claude-haiku-5-5"
+source = "design:#378 ca-design v3 2026-11-15"
+checked = "2026-11-15"
+use_for = "inline the text; ca reads no file; cheap votes and doc checks"
+avoid_for = "tools, files, multi-turn work (one ask per stream)"
+traits = ["no tools, no workspace, no session", "replies capped at 16,000 tokens", "needs ant auth login; API credits"]
+evidence = ["#378"]
+card_checked = "2026-11-15"
+
+[profiles."ca.effort"]
+selection_mode = "pinned"
+model = "claude-sonnet-5-5"
+source = "design:#378 ca-design v3 2026-11-15"
+checked = "2026-11-15"
+use_for = "inline the text; ca reads no file; text reviews and votes"
+avoid_for = "tools, files, multi-turn work (one ask per stream)"
+traits = ["no tools, no workspace, no session", "replies capped at 16,000 tokens", "needs ant auth login; API credits"]
+evidence = ["#378"]
+card_checked = "2026-11-15"
+
+[profiles."ca.deepthink"]
+selection_mode = "pinned"
+model = "claude-opus-5-5"
+source = "design:#378 ca-design v3 2026-11-15"
+checked = "2026-11-15"
+use_for = "inline the text; ca reads no file; design votes, hard text reviews"
+avoid_for = "tools, files, multi-turn work (one ask per stream)"
+traits = ["no tools, no workspace, no session", "replies capped at 16,000 tokens", "needs ant auth login; API credits"]
+evidence = ["#378"]
+card_checked = "2026-11-15"
+
+[profiles."oa.standard"]
+selection_mode = "pinned"
+model = "gpt-6-luna"
+source = "design:#378 oa-design v3 2026-11-15"
+checked = "2026-11-15"
+use_for = "inline the text; oa reads no file; cheap votes and doc checks"
+avoid_for = "tools, files, multi-turn work (one ask per stream)"
+traits = ["no tools, no workspace, no session", "replies capped at 16,000 tokens", "needs OPENAI_API_KEY; no proxy"]
+evidence = ["#378"]
+card_checked = "2026-11-15"
+
+[profiles."oa.effort"]
+selection_mode = "pinned"
+model = "gpt-6.1-sol"
+source = "design:#378 oa-design v3 2026-11-15"
+checked = "2026-11-15"
+use_for = "inline the text; oa reads no file; text reviews and votes"
+avoid_for = "tools, files, multi-turn work (one ask per stream)"
+traits = ["no tools, no workspace, no session", "replies capped at 16,000 tokens", "needs OPENAI_API_KEY; no proxy"]
+evidence = ["#378"]
+card_checked = "2026-11-15"
+
+[profiles."oa.deepthink"]
+selection_mode = "pinned"
+model = "gpt-6-astra"
+source = "design:#378 oa-design v3 2026-11-15"
+checked = "2026-11-15"
+use_for = "inline the text; oa reads no file; design votes, hard text reviews"
+avoid_for = "tools, files, multi-turn work (one ask per stream)"
+traits = ["no tools, no workspace, no session", "replies capped at 16,000 tokens", "needs OPENAI_API_KEY; no proxy"]
+evidence = ["#378"]
+card_checked = "2026-11-15"
+
 [exact_model_pools."gemini-4-argon-low"]
 pools = ["A-7D"]
 pools_source = "agy /usage group (agy 1.4.0)"

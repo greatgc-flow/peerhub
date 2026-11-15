@@ -599,6 +599,8 @@ def select_guidance_code(
         return "ask_blocked_uncertain"
     if status == "blocked_uncertain" or processed_status in ("uncertain", "blocked_uncertain"):
         return "ask_blocked_uncertain"
+    if status in ("truncated", "incomplete"):  # API peers (#378): the reply ended; the error says why, nothing is uncertain
+        return ""
     if status == "uncertain" or (certainty in ("STARTED", "MAY_HAVE_STARTED") and status != "not_executed"):
         return "ask_uncertain"
     if status == "not_executed" or reason in ("quota_exhausted", "usage_limit", "invalid_model", "auth_failure", "refusal"):
@@ -680,7 +682,7 @@ def render_explain(entry: GuidanceEntry) -> str:
     return "\n".join(lines)
 
 
-_PROFILE_ID = re.compile(r"(?:ag|cc|cx)\.\S+")  # one token; the resolver decides known vs unknown
+_PROFILE_ID = re.compile(r"(?:ag|cc|cx|ca|oa)\.\S+")  # one token; the resolver decides known vs unknown
 
 
 def _explain_profile(profile: str, *, json_output: bool) -> int:

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from peerhub.extensions.accounts import AccountBinding
 
 from peerhub.extensions.adapters import CliRuntimeTarget
+from peerhub.extensions.adapters.api import API_TARGETS, RequestRejected
 from peerhub.extensions.peer_kinds import ALIASES  # noqa: F401  (re-exported for existing importers)
 from peerhub.extensions.bridge import PrespawnError, Bridge, CycleResult, RuntimeTarget, normalize_session_selector
 from peerhub.extensions.caller import detect_caller
@@ -36,10 +37,21 @@ class StreamPeerMismatchError(ValueError):
     code = "stream_peer_mismatch"
 
 
+def _refuse_second_ask(conn: sqlite3.Connection, target: RuntimeTarget, stream_id: str, key: str) -> None:
+    """A stateless peer (ca, oa; #378) has no session to continue: any other ask on the stream, delivered, failed,
+    uncertain or still running, refuses this one before anything is stored or sent."""
+    if getattr(target, "stateless", False) and conn.execute(
+            "SELECT 1 FROM records WHERE stream_id=? AND kind='prompt' AND idempotency_key LIKE 'ask:%' AND idempotency_key<>? LIMIT 1",
+            (stream_id, key)).fetchone():
+        raise RequestRejected(f"{target.runtime_kind} is stateless; use a new stream")
+
+
 def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row, peer_id: str | None = None) -> dict[str, Any]:
     stored = json.loads(delivery["result_json"])
     refused = stored.get("task_outcome") == "NOT_EXECUTED"
-    status = "failed_not_started" if delivery["certainty"] == "NOT_STARTED" else "not_executed" if refused else "recovered_terminal"
+    incomplete = delivery["certainty"] == "STARTED" and stored.get("reason") in ("truncated", "incomplete")  # API peers (#378)
+    status = ("failed_not_started" if delivery["certainty"] == "NOT_STARTED" else "not_executed" if refused
+              else stored["reason"] if incomplete else "recovered_terminal")
     result = asdict(CycleResult(status, delivery["record_id"], delivery["delivery_id"],
                                delivery["certainty"], delivery["response_record_id"], delivery["session_generation"],
                                session=stored.get("session")))
@@ -47,7 +59,7 @@ def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row, peer_
     # final public envelope and allowlisted delivery fields cross the API boundary.
     result.update({key: stored[key] for key in ("response", "session", "error", "task_outcome", "reason", "refusal_reason",
                   "reset_time", "resets_at", "message", "output_truncated", "display_truncated",
-                  "empty_response", "task_effects", "denied_actions", "env_scrubbed") if key in stored})
+                  "empty_response", "task_effects", "denied_actions", "env_scrubbed", "partial_response", "usage") if key in stored})
     for _kind, detail in conn.execute("SELECT kind,detail FROM bridge_evidence WHERE delivery_id=? AND kind IN ('terminal','refusal_detected','execution_metadata') ORDER BY seq", (delivery["delivery_id"],)):
         data = json.loads(detail)
         for key in ("effective_mode", "fallback_reason", "injected_record_ids", "output_truncated", "display_truncated", "reason", "refusal_reason", "reset_time", "resets_at", "message", "empty_response", "task_effects", "denied_actions", "env_scrubbed",
@@ -139,10 +151,11 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         account_args["account"] = AccountRef(account_binding.slot_id)
     if runtime is None:
         if kind is None:
-            raise ValueError("register this peer with --adapter cx, cc or ag before asking it")
-        target = CliRuntimeTarget(kind, workspace or Path.cwd(), model=model, effort=effort,
-                                  profile=profile, silence_timeout_s=silence_timeout_s, writable=writable,
-                                  timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output, **account_args)
+            raise ValueError("register this peer with --adapter cx, cc, ag, ca or oa before asking it")
+        options: dict[str, Any] = dict(model=model, effort=effort, profile=profile, silence_timeout_s=silence_timeout_s,
+                                       writable=writable, timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output)
+        target = (API_TARGETS[kind](workspace or Path.cwd(), **options) if kind in API_TARGETS
+                  else CliRuntimeTarget(kind, workspace or Path.cwd(), **options, **account_args))
     else:
         target = runtime
     sid = stream_id or f"peer:{peer_id}:chat"
@@ -158,6 +171,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         with storage_errors(), closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as conn:
             conn.row_factory = sqlite3.Row
             previous = conn.execute("SELECT * FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?", (sid, author, key)).fetchone()
+            _refuse_second_ask(conn, target, sid, key)
             if previous is not None:
                 previous_metadata = json.loads(previous["metadata_json"])
                 base_metadata = {k: v for k, v in previous_metadata.items() if k not in ("session_selector", *identity_metadata)}
@@ -221,6 +235,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             if scope["stream_id"] != token.stream_id:
                 raise ClaimScopeError("prompt and delivery claim must share a Stream")
             claims.check(conn, token)
+            _refuse_second_ask(conn, target, sid, key)  # again under the claim: the stream is reserved before anything is sent
             for row_targets_json, row_meta_json, row_key in conn.execute(
                 "SELECT targets_json, metadata_json, idempotency_key FROM records WHERE stream_id=? AND kind='prompt'",
                 (sid,),

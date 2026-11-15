@@ -195,7 +195,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge",
                                      description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Select --fresh or an exact --session HANDLE. Results include a session handle and mode.")
-    ask_parser.add_argument("peer", help="Peer ID (built-ins: cx/codex, cc/claude, ag/agy)")
+    ask_parser.add_argument("peer", help="Peer ID (built-ins: cx/codex, cc/claude, ag/agy, ca, oa)")
     ask_parser.add_argument("prompt", nargs="?")
     ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
     ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat)")

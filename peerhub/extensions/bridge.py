@@ -167,7 +167,7 @@ def normalize_session_selector(*, fresh: bool = False, session: str | None = Non
 
 @dataclass
 class CycleResult:
-    status: str  # idle|delivered|recovered_terminal|denied_empty|not_executed|failed_not_started|uncertain|blocked_uncertain|session_unavailable|fenced|paused|cancelled
+    status: str  # idle|delivered|recovered_terminal|denied_empty|not_executed|truncated|incomplete|failed_not_started|uncertain|blocked_uncertain|session_unavailable|fenced|paused|cancelled
     record_id: str | None = None
     delivery_id: str | None = None
     certainty: str | None = None
@@ -539,7 +539,7 @@ class Bridge:
             mapping = bridge_registry.generation(conn, row["stream_id"], row["peer_id"], row["session_generation"])
             won = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
                                "AND session_generation=? AND external_session_id=? AND state NOT IN ('LOST','TOMBSTONED') "
-                               "AND (vendor_session_id IS NOT NULL OR runtime_kind IN ('cc','cx','ag'))",
+                               "AND (vendor_session_id IS NOT NULL OR runtime_kind IN ('cc','cx','ag','ca','oa'))",
                                (row["stream_id"], row["peer_id"], row["session_generation"], row["external_session_id"])).rowcount
             if won:
                 bridge_registry.repair(conn, row["stream_id"], row["peer_id"], self.claims.now())
@@ -952,7 +952,7 @@ class Bridge:
         inflight = self._inflight(token)
         m = (self._mapping_for_generation(token.peer_id, token.stream_id, inflight["session_generation"])
              if inflight is not None and inflight["session_generation"] is not None else self.current_mapping(token.peer_id, token.stream_id))
-        if m is None or m["state"] in ("LOST", "TOMBSTONED") or (reason == "tainted" and m["vendor_session_id"] is None and m["runtime_kind"] not in ("cc", "cx", "ag")):
+        if m is None or m["state"] in ("LOST", "TOMBSTONED") or (reason == "tainted" and m["vendor_session_id"] is None and m["runtime_kind"] not in ("cc", "cx", "ag", "ca", "oa")):
             return
         with self.claims.fenced(token) as conn:
             won = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
@@ -1287,6 +1287,7 @@ class Bridge:
         have_terminal = False
         have_refusal = False
         refusal_payload: dict[str, Any] | None = None
+        incomplete: dict[str, Any] | None = None
         last_termination_confirmed: bool | None = None
         # D-OWN-A4/TD-11: durable invocation marker BEFORE the runtime can possibly act; certainty stays NOT_STARTED while pending,
         # an unresolved marker after a crash is promoted to MAY_HAVE_STARTED by recovery (never re-invoked)
@@ -1330,6 +1331,11 @@ class Bridge:
                             or refusal_payload.get("reason") not in ("quota_exhausted", "usage_limit", "invalid_model", "auth_failure")):
                         raise RuntimeTargetError("invalid provider refusal evidence")
                     have_refusal = True
+                    break
+                elif kind == "incomplete":  # API peers (#378): the reply ended but is not complete; never a response Record
+                    incomplete = cast("dict[str, Any]", ev[1]) if len(ev) > 1 and isinstance(ev[1], dict) else {}
+                    if not started or incomplete.get("code") not in ("truncated", "incomplete"):
+                        raise RuntimeTargetError("invalid incomplete reply evidence")
                     break
                 else:  # timeout / disconnect / error: evidence only, certainty by durable start evidence
                     term_conf = ev[2] if len(ev) > 2 and (isinstance(ev[2], bool) or ev[2] is None) else None
@@ -1385,6 +1391,15 @@ class Bridge:
             self._note(token, did, "refusal_detected", STARTED, **detail)
             self._fire("bridge.after_refusal_evidence")
             return self._settle_refusal(token, rec, did, gen, detail)
+        if incomplete is not None:  # settled like a refusal (STARTED, acked, an error and no response); the text stays in the delivery
+            detail = {"reason": incomplete["code"], "message": str(incomplete.get("message") or incomplete["code"]),
+                      "partial_response": incomplete.get("response")}
+            if isinstance(incomplete.get("usage"), dict):
+                detail["usage"] = incomplete["usage"]
+            self._settle_without_response(token, rec, did, detail, incomplete["code"], incomplete.get("provider_telemetry"))
+            if incomplete["code"] == "truncated":
+                return CycleResult("truncated", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
+            return CycleResult("incomplete", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
         if have_terminal:
             mode = getattr(catch_up, "boundary", {}).get("mode")
             provenance = dict(effective_mode="resumed" if mode == "resumed" else "fresh",
@@ -1509,6 +1524,8 @@ class Bridge:
         if (m is not None and m["runtime_kind"] in ("cc", "cx", "ag")
                 and isinstance(raw_usage, dict)):
             detail.update(usage=raw_usage, usage_scope="session_cumulative", usage_attribution="unattributed")
+        elif m is not None and m["runtime_kind"] in ("ca", "oa") and isinstance(raw_usage, dict):  # one API call per ask (#378)
+            detail.update(usage=raw_usage, usage_scope="delivery", usage_attribution="delivery")
         if (m is not None and m["state"] not in ("LOST", "TOMBSTONED") and m["session_generation"] == delivery["session_generation"]
                     and m["external_session_id"] == delivery["external_session_id"]):
             vendor = result.get("vendor_session")
@@ -1564,21 +1581,27 @@ class Bridge:
 
     def _settle_refusal(self, token: ClaimToken, rec: Record, did: str, gen: int,
                         detail: dict[str, Any]) -> CycleResult:
+        self._settle_without_response(token, rec, did, detail, "refused")
+        return CycleResult("not_executed", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
+
+    def _settle_without_response(self, token: ClaimToken, rec: Record, did: str, detail: dict[str, Any], lost_reason: str,
+                                 provider_candidate: object = None) -> None:
+        """Settle a started delivery that has an error and no response: a provider refusal, or an incomplete reply of
+        an API peer (#378, with its usage)."""
         with self.claims.fenced(token) as conn:
             row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
             if row["result_digest"] is None:
                 refused = dict(response=None, session=session_receipts.snapshot(row), error=dict(code=detail["reason"], message=detail.get("message", detail["reason"])), **detail)
                 conn.execute("UPDATE bridge_deliveries SET result_json=?,result_digest=? WHERE delivery_id=?", (session_receipts.dumps(refused), _digest(refused), did))
-                session_receipts.telemetry(conn, row, self.claims.now())
+                session_receipts.telemetry(conn, row, self.claims.now(), provider_candidate)
         # Durable refusal evidence authorizes recovery at each boundary. Keep the
         # delivery in flight until both session invalidation and offset commit.
-        self._mark_lost(token, "refused")
+        self._mark_lost(token, lost_reason)
         self._advance_to(token, rec.position)
         self._fire("bridge.after_refusal_offset_before_ack")
         with self.claims.fenced(token) as conn:
             if conn.execute("UPDATE bridge_deliveries SET acked=1 WHERE delivery_id=? AND acked=0", (did,)).rowcount:
                 self._evidence(conn, token.stream_id, token.peer_id, "offset_acked", did, STARTED, position=rec.position)
-        return CycleResult("not_executed", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
 
     def _materialize(self, token: ClaimToken, did: str) -> str:
         """Idempotent: append the response Record (fenced, idempotency key), then ack the Offset; each step safe to repeat."""
@@ -1710,7 +1733,7 @@ class Bridge:
                 if kind == "control.cancel":
                     target = conn.execute(sel, (rid, peer)).fetchone()
                     tainted = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
-                                 "AND state NOT IN ('LOST','TOMBSTONED') AND (vendor_session_id IS NOT NULL OR runtime_kind IN ('cc','cx','ag')) AND external_session_id=? AND session_generation=(SELECT session_generation FROM bridge_deliveries WHERE delivery_id=?) "
+                                 "AND state NOT IN ('LOST','TOMBSTONED') AND (vendor_session_id IS NOT NULL OR runtime_kind IN ('cc','cx','ag','ca','oa')) AND external_session_id=? AND session_generation=(SELECT session_generation FROM bridge_deliveries WHERE delivery_id=?) "
                                  "AND EXISTS (SELECT 1 FROM bridge_claims c WHERE c.stream_id=? AND c.peer_id=? "
                                  "AND c.generation=? AND c.workspace_generation=? AND c.expires_at>?)",
                                  (stream, peer, target["target_session_id"], target["target_delivery_id"], stream, peer,
