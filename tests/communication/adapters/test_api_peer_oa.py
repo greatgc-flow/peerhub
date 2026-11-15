@@ -81,7 +81,7 @@ def oa(tmp_path):
 
     def make(**kw):
         kw.setdefault("profile", "oa.standard")
-        kw.setdefault("timeout_s", 20)
+        kw.setdefault("timeout_s", 120)  # generous: a loaded machine must not turn an ordinary answer into a timeout
         return OaRuntimeTarget(tmp_path, url=fake.url, **kw)
 
     make.fake, make.db = fake, tmp_path / "core.db"
@@ -332,37 +332,63 @@ def test_a_redirect_is_never_followed_and_is_uncertain(oa, status):
     assert target.requests == []  # the key never reached another URL
 
 
-def test_a_timeout_is_uncertain(oa):
-    oa.fake.reply = lambda handler: time.sleep(5)
-    result = ask(oa.db, "oa", "question", runtime=oa(timeout_s=1))
+class Unending:
+    """A reply that never ends by itself: silence, or one byte every 50 ms of a header line or of the body, until the
+    test releases it. `why` says how it ended; None while it is still going. The safety wait only stops a test that is
+    already failing (an ask that does not time out); no assertion depends on how long anything takes."""
+
+    SAFETY_S = 120.0
+
+    def __init__(self, part: str) -> None:
+        self.part, self.why = part, None
+        self.release, self.ended = threading.Event(), threading.Event()
+
+    def __call__(self, handler: BaseHTTPRequestHandler) -> None:
+        over = time.monotonic() + self.SAFETY_S
+        try:
+            if self.part != "silence":
+                head = b"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n"
+                handler.wfile.write(head + (b"X-Pad: " if self.part == "headers" else b"\r\n"))  # body: no length, read to the end
+            while not self.release.wait(0.05):
+                if time.monotonic() > over:
+                    self.why = "safety wait over"
+                    return
+                if self.part != "silence":
+                    handler.wfile.write(b"a" if self.part == "headers" else b" ")
+                    handler.wfile.flush()
+            self.why = "released"
+        except OSError:
+            self.why = "client gone"
+        finally:
+            self.ended.set()
+
+
+def timed_out_while_unending(oa, part: str, timeout_s: float) -> None:
+    """The ask ends as a timeout while the server is still sending (or still silent), after exactly one request."""
+    reply = Unending(part)
+    oa.fake.reply = reply
+    try:
+        result = ask(oa.db, "oa", "question", runtime=oa(timeout_s=timeout_s))
+        why_at_return = reply.why
+    finally:
+        reply.release.set()
+        reply.ended.wait(Unending.SAFETY_S)
     assert result["status"] == "uncertain" and "runtime_timeout" in evidence_kinds(oa.db)
+    # Still going when the ask returned (or cut by the client at its deadline): the ask never waited for the reply to end.
+    assert why_at_return in (None, "client gone"), why_at_return
+    assert len(oa.fake.requests) == 1
 
 
+@pytest.mark.timeout(300)
+def test_a_timeout_is_uncertain(oa):
+    timed_out_while_unending(oa, "silence", 1)
+
+
+@pytest.mark.timeout(300)
 @pytest.mark.parametrize("part", ["headers", "body"])
 def test_the_timeout_is_a_total_and_a_slow_drip_does_not_extend_it(oa, part):
-    """Every socket operation gets bytes within 0.2 s, so only a deadline over the whole call ends this ask."""
-    payload = json.dumps(completed()).encode()
-
-    def drip(handler: BaseHTTPRequestHandler) -> None:
-        head = f"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(payload)}\r\n\r\n".encode()
-        slow, fast = (head, payload) if part == "headers" else (payload, head)
-        try:
-            if part == "body":
-                handler.wfile.write(fast)
-            for index in range(0, 40):  # 8 seconds in all
-                handler.wfile.write(slow[index:index + 1] if index < 39 else slow[39:])
-                handler.wfile.flush()
-                time.sleep(0.2)
-            if part == "headers":
-                handler.wfile.write(fast)
-        except OSError:
-            pass  # the client went away at its deadline
-
-    oa.fake.reply = drip
-    began = time.monotonic()
-    result = ask(oa.db, "oa", "question", runtime=oa(timeout_s=1.5))
-    assert result["status"] == "uncertain" and "runtime_timeout" in evidence_kinds(oa.db)
-    assert time.monotonic() - began < 6 and len(oa.fake.requests) == 1
+    """Every socket operation gets a byte within 50 ms, so only a deadline over the whole call ends this ask."""
+    timed_out_while_unending(oa, part, 1.5)
 
 
 def test_the_opener_verifies_tls_follows_no_redirect_and_uses_no_proxy(monkeypatch):

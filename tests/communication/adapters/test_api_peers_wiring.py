@@ -46,7 +46,7 @@ def test_the_shared_default_stream_stays_for_the_cli_peers(tmp_path):
     from peerhub.extensions.ask import ask
     from tests.communication.adapters.conftest import FAKE
 
-    runtime = CliRuntimeTarget("cx", tmp_path, command=[sys.executable, FAKE], env_extra={"FAKE_KIND": "cx"}, timeout_s=30)
+    runtime = CliRuntimeTarget("cx", tmp_path, command=[sys.executable, FAKE], env_extra={"FAKE_KIND": "cx"}, timeout_s=120)
     result = ask(tmp_path / "core.db", "cx", "question", request_id="r1", runtime=runtime)
     assert (result["status"], result["stream_id"]) == ("delivered", "peer:cx:chat")  # only a stateless peer gets a stream per ask
 

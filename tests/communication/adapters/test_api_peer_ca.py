@@ -29,12 +29,14 @@ def ca(tmp_path):
     """Factory: a ca target over the fake `ant`. `make.log` is the launch log, `make.db` a store path in tmp_path."""
     log = tmp_path / "ant.jsonl"
 
-    def make(stdout=None, stderr="", code=0, sleep=0.0, **kw):
+    def make(stdout=None, stderr="", code=0, sleep=0.0, until=None, **kw):
         env = {"FAKE_ANT_LOG": str(log), "FAKE_ANT_EXIT": str(code), "FAKE_ANT_STDERR": stderr, "FAKE_ANT_SLEEP": str(sleep)}
         if stdout is not None:
             env["FAKE_ANT_STDOUT"] = stdout
+        if until is not None:
+            env["FAKE_ANT_UNTIL"] = str(until)
         kw.setdefault("profile", "ca.standard")
-        kw.setdefault("timeout_s", 30)
+        kw.setdefault("timeout_s", 120)  # generous: a loaded machine must not turn an ordinary answer into a timeout
         return CaRuntimeTarget(tmp_path, command=[sys.executable, FAKE_ANT], env_extra=env, **kw)
 
     make.log, make.db = log, tmp_path / "core.db"
@@ -267,7 +269,7 @@ def test_every_other_failure_is_uncertain_and_never_retried(ca, output):
 
 
 def test_a_timeout_is_uncertain(ca):
-    result = ask(ca.db, "ca", "question", runtime=ca(sleep=30, timeout_s=1.5))
+    result = ask(ca.db, "ca", "question", runtime=ca(sleep=600, timeout_s=1.5))  # it never answers: only the timeout ends it
     assert result["status"] == "uncertain" and "runtime_timeout" in evidence_kinds(ca.db)
 
 
@@ -309,19 +311,24 @@ def test_a_second_ask_on_a_stream_is_refused_before_ant_is_started(ca, first, st
     assert ask(ca.db, "ca", "other", stream_id="another", runtime=ca())["status"] == "delivered"
 
 
-def test_a_second_ask_is_refused_while_the_first_is_still_running(ca):
+def test_a_second_ask_is_refused_while_the_first_is_still_running(ca, tmp_path):
+    """The fake `ant` of the first ask answers only when this test lets it: no step depends on how long another takes."""
+    go = tmp_path / "answer-now"
     results: list[dict] = []
-    first = threading.Thread(target=lambda: results.append(ask(ca.db, "ca", "first", stream_id="s", runtime=ca(sleep=3))))
+    first = threading.Thread(target=lambda: results.append(
+        ask(ca.db, "ca", "first", stream_id="s", runtime=ca(until=go, timeout_s=600))))
     first.start()
     try:
-        deadline = time.monotonic() + 20
-        while not launches(ca.log) and time.monotonic() < deadline:
+        patience = time.monotonic() + 120  # a safety wait for the start of the fake, not a bound on anything asserted
+        while not launches(ca.log) and time.monotonic() < patience:
             time.sleep(0.05)
         assert launches(ca.log), "the first ask never started the fake ant"
         with pytest.raises(RequestRejected, match="ca is stateless; use a new stream"):
             ask(ca.db, "ca", "second", stream_id="s", runtime=ca())
+        assert first.is_alive() and results == []  # refused while the first ask was really still running
     finally:
-        first.join(30)
+        go.write_text("go", encoding="utf-8")
+        first.join(180)
     assert results[0]["status"] == "delivered" and len(launches(ca.log)) == 1
 
 
