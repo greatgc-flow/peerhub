@@ -1077,7 +1077,7 @@ def _ask_rows(row: dict[str, Any], width: int, unicode: bool = True, keep: str |
     return lines
 
 
-def _clock(value: object, fmt: str = "%H:%M:%SZ") -> str:
+def _clock(value: object, fmt: str) -> str:
     number = _number(value)
     return "?" if number is None else _utc_text(number, fmt) or "?"
 
@@ -1102,12 +1102,12 @@ def _lead_rows(lead: dict[str, Any], now: float | None, width: int, unicode: boo
     window, pct = _number(item.get("context_window")), _number(item.get("context_pct"))
     ctx = ("ctx ?" if tokens is None else f"ctx {_count(tokens)} of {_count(window)} model max ({int(pct)}%)"
            if window is not None and pct is not None else f"ctx {_count(tokens)} (window unknown)")
-    first = [*head, f"{txt(item.get('state'))} since {_clock(item.get('state_since'))}",
+    first = [*head, f"{txt(item.get('state'))} since {_stamp(item.get('state_since'))}",  # A-4: with the date
              "active ?" if active is None or now is None else f"active {_compact_age(now - active)} ago",
              "alive" if item.get("alive") is True else "alive ?", f"pid {txt(item.get('pid'))}",
              f"entry {txt(item.get('entry'))}", f"claude {txt(item.get('version'))}",
              f"started {_clock(item.get('started_at'), '%Y-%m-%d %H:%MZ')}"]
-    second = [f"model {txt(item.get('model'))}", ctx + ("" if tokens is None else f" at {_clock(item.get('context_at'))}"),
+    second = [f"model {txt(item.get('model'))}", ctx + ("" if tokens is None else f" at {_stamp(item.get('context_at'))}"),
               *asks]
     third = [*([f"name {txt(item['name'])}"] if item.get("name") else []), f"cwd {txt(item.get('cwd'))}"]
     rows = [line for part in (first, second, third) for line in _pack(part, width)]

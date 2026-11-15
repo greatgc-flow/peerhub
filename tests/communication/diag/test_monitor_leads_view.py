@@ -336,10 +336,10 @@ def test_expand_prints_every_field_of_a_lead_session(frame):
     with_leads(frame, [lead("docs-site", running=0, asks=3, last=NOW - 16_238, session=sess(context_pct=11))])
     lines = expanded(frame)
     i = lines.index("LEADS 1")
-    assert lines[i + 1] == ("docs-site | cc 1a2b3c4d | busy since 23:16:29Z | active 12s ago | alive | pid 4242 | entry cli"
-                            " | claude 2.1.323 | started 2026-11-14 09:30Z")
-    assert lines[i + 2] == ("model claude-fable-5-2 | ctx 106,137 of 1,000,000 model max (11%) at 23:45:08Z | running 0"
-                            " | asks 24h 3 | last ask 2026-11-14 19:16:02Z")
+    assert lines[i + 1] == ("docs-site | cc 1a2b3c4d | busy since 2026-11-14 23:16:29Z | active 12s ago | alive | pid 4242"
+                            " | entry cli | claude 2.1.323 | started 2026-11-14 09:30Z")
+    assert lines[i + 2] == ("model claude-fable-5-2 | ctx 106,137 of 1,000,000 model max (11%) at 2026-11-14 23:45:08Z"
+                            " | running 0 | asks 24h 3 | last ask 2026-11-14 19:16:02Z")
     assert lines[i + 3] == "name docs-site-5a | cwd D:/work/docs-site"
     assert lines[i + 4:i + 7] == [f"title: {TITLE}", "prompt: Add the section about the importer",
                                   "said: The importer section is drafted; running the link check now."]
@@ -348,7 +348,20 @@ def test_expand_prints_every_field_of_a_lead_session(frame):
 def test_expand_alive_unknown_and_an_unknown_window(frame):
     with_leads(frame, [lead("shop", session=sess(alive=None, context_pct=None, context_window=None))])
     flat = " ".join(expanded(frame))
-    assert "| alive ? |" in flat and "ctx 106,137 (window unknown) at 23:45:08Z" in flat
+    assert "| alive ? |" in flat and "ctx 106,137 (window unknown) at 2026-11-14 23:45:08Z" in flat
+
+
+def test_expand_since_and_at_carry_the_date(frame):
+    # A-4: a state that began the day before must not read like a time of today
+    with_leads(frame, [lead("docs-site", session=sess(state_since=NOW - 13 * 3600 - 86_400, context_at=NOW - 86_400))])
+    flat = " ".join(expanded(frame))
+    assert "busy since 2026-11-13 10:46:40Z" in flat and "model max (10%) at 2026-11-13 23:46:40Z" in flat
+
+
+def test_expand_unknown_since_and_at_stay_a_question_mark(frame):
+    with_leads(frame, [lead("docs-site", session=sess(state_since=None, context_at=None))])
+    flat = " ".join(expanded(frame))
+    assert "busy since ? |" in flat and "model max (10%) at ? |" in flat
 
 
 def test_expand_with_text_off_has_no_name_title_prompt_or_said(frame):
