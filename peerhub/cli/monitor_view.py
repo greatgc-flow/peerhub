@@ -16,6 +16,7 @@ from peerhub.cli.monitor_preferences import GROUPS
 _NOT_REPORTED = "not reported by provider"
 _DISABLED = "disabled by provider"  # mirrors observation_model.DISABLED_REASON: the window exists but the provider switched it off
 _NA_REASONS = (_NOT_REPORTED, _DISABLED)
+_LEAD_MARK_PCT = 80  # mirrors monitor_read_model.LEAD_CONTEXT_MARK_PCT: the `!` of a lead's ctx cell
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
@@ -25,6 +26,8 @@ MONITOR_LEGEND = (
     "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable",
     "BAR=remaining, | marks the even-burn level (^ ahead, v behind)",
     "TIME: the header time is the snapshot time (when the store was read), not the time quota was measured",
+    "LEADS: label | state (?busy = alive not confirmed, - = no session) | age of the last activity"
+    " | ctx = context of the model's maximum input (! 80% or more; 106k = window unknown; ? unknown) | running asks | model | title",
 )
 
 
@@ -982,7 +985,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             rows.append("none")
 
     elif group_id == "activity":
-        rows.extend(_activity_rows(data, max(1, width - 2), unicode, keep))
+        rows.extend(_activity_rows(data, max(1, width - 2), unicode, keep,
+                                   None if read_at is None else read_at + elapsed_seconds))
 
     else:
         # Keep future fields visible without exposing a JSON-shaped dump.
@@ -1073,7 +1077,48 @@ def _ask_rows(row: dict[str, Any], width: int, unicode: bool = True, keep: str |
     return lines
 
 
-def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None) -> list[str]:
+def _clock(value: object, fmt: str) -> str:
+    number = _number(value)
+    return "?" if number is None else _utc_text(number, fmt) or "?"
+
+
+def _lead_rows(lead: dict[str, Any], now: float | None, width: int, unicode: bool = True,
+               keep: str | None = None) -> list[str]:
+    """Every field of one lead (#376 3.4): its session (the lead and process, then model, context and asks, then name
+    and cwd, then title, prompt and said), or why it has none."""
+
+    def txt(value: object) -> str:
+        return _cell(value, unicode, "?", keep)
+
+    head = [txt(lead.get("label")), f"{txt(lead.get('tool'))} {txt(lead.get('id'))}"]
+    asks = [f"running {_count(lead.get('running'))}", f"asks 24h {_count(lead.get('asks_24h'))}",
+            f"last ask {_stamp(lead.get('last_ask_at'))}"]
+    item = _obj(lead.get("session"))
+    if not item:
+        why = ("no session (not a Claude Code lead)" if lead.get("tool") != "cc"
+               else "no session found (ended, or its Claude folder is not in PEERHUB_LEAD_DIRS)")
+        return _pack([*head, why, *asks], width)
+    active, tokens = _number(item.get("active_at")), _number(item.get("context_tokens"))
+    window, pct = _number(item.get("context_window")), _number(item.get("context_pct"))
+    ctx = ("ctx ?" if tokens is None else f"ctx {_count(tokens)} of {_count(window)} model max ({int(pct)}%)"
+           if window is not None and pct is not None else f"ctx {_count(tokens)} (window unknown)")
+    first = [*head, f"{txt(item.get('state'))} since {_stamp(item.get('state_since'))}",  # A-4: with the date
+             "active ?" if active is None or now is None else f"active {_compact_age(now - active)} ago",
+             "alive" if item.get("alive") is True else "alive ?", f"pid {txt(item.get('pid'))}",
+             f"entry {txt(item.get('entry'))}", f"claude {txt(item.get('version'))}",
+             f"started {_clock(item.get('started_at'), '%Y-%m-%d %H:%MZ')}"]
+    second = [f"model {txt(item.get('model'))}", ctx + ("" if tokens is None else f" at {_stamp(item.get('context_at'))}"),
+              *asks]
+    third = [*([f"name {txt(item['name'])}"] if item.get("name") else []), f"cwd {txt(item.get('cwd'))}"]
+    rows = [line for part in (first, second, third) for line in _pack(part, width)]
+    for label, key in (("title", "title"), ("prompt", "prompt_line"), ("said", "said_line")):
+        if item.get(key):
+            rows.extend(_compact_wrap(f"{label}: {txt(item[key])}", width))
+    return rows
+
+
+def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None,
+                   now: float | None = None) -> list[str]:
     """RUNNING (every row), RECENT (the 20 newest ended rows and the superseded rows), LEADS: every field."""
     running, ended, superseded = _ask_split(data)
     head, _ = _running_head(data, running, unicode, keep)
@@ -1089,12 +1134,9 @@ def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep:
     for row in [*newest, *superseded]:
         rows.extend(_ask_rows(row, width, unicode, keep))
     leads = _items(data.get("leads"))
-    rows.append(f"LEADS {len(leads)}")
+    rows.append(_leads_header(data, len(leads)))
     for lead in leads:
-        rows.extend(_pack([_cell(lead.get("label"), unicode, "?", keep), f"tool {_cell(lead.get('tool'), unicode, '?', keep)}",
-                           f"id {_cell(lead.get('id'), unicode, '?', keep)}", f"running {_count(lead.get('running'))}",
-                           f"asks 24h {_count(lead.get('asks_24h'))}", f"last ask {_stamp(lead.get('last_ask_at'))}"],
-                          width))
+        rows.extend(_lead_rows(lead, now, width, unicode, keep))
     if data.get("truncated"):
         rows.extend(_pack([f"sample truncated: {_count(data.get('scopes_total'))} scopes",
                            f"superseded not read {_count(data.get('superseded_omitted'))}"], width))
@@ -1448,6 +1490,8 @@ def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, An
 COMPACT_MAX_LINES = 24
 COMPACT_MAX_BYTES = 8192
 RUNNING_CAP = 5
+LEADS_CAP = 3
+LEAD_LABEL_COLS = 16
 RECENT_CAP = 2
 POOLS_CAP = 8
 REQUEST_CAP = 60
@@ -1600,6 +1644,8 @@ class CompactFrame:
     header: list[str] = field(default_factory=lambda: list[str]())  # line 2, then the lines that belong to it
     running: list[str] | None = None  # [RUNNING header, *rows]; None when `activity` is not selected
     running_total: int = 0
+    leads: list[str] | None = None  # [LEADS header, *rows]; None when there is no lead to show and the read was complete
+    leads_total: int = 0
     recent: list[str] | None = None  # [RECENT header, *rows]; None when there is no ended ask
     suggest: list[str] = field(default_factory=lambda: list[str]())
     pools: list[str] | None = None  # [POOLS header, *rows]; None when `capacity` is not selected
@@ -1638,11 +1684,14 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
     """The one owner of the compact frame's size (#374 H2).
 
     Every line is fitted to `width`. While the frame is over the height bound (height - 1 lines), `max_lines` or
-    `max_bytes`, lines go in this single order: RECENT rows from the bottom (down to one), RUNNING rows after the third,
-    POOLS rows after the fourth, the second suggestion line, the remaining RUNNING rows, the remaining POOLS rows, the
-    RECENT header with its last row, the first suggestion line, the POOLS header, the RUNNING header, line 2 (its
-    attached lines first). Line 1 is the fallback: alone, it is fitted to the byte ceiling; a budget of 0 prints nothing.
-    An overflow line is refitted whenever its count changes; the removal that creates one removes two rows.
+    `max_bytes`, lines go in this single order: RECENT rows from the bottom (down to one), LEADS rows (down to one),
+    RUNNING rows after the third, POOLS rows after the fourth, the second suggestion line, the remaining RUNNING rows,
+    the remaining POOLS rows, the RECENT header with its last row, the LEADS header with its last row, the first
+    suggestion line, the POOLS header, the RUNNING header, line 2 (its attached lines first). Line 1 is the fallback:
+    alone, it is fitted to the byte ceiling; a budget of 0 prints nothing. An overflow line is refitted whenever its
+    count changes; the removal that creates one removes two rows. A row step with a floor of one or more never leaves a
+    header without a row: when those two rows are the last ones, the step does nothing, and the rows leave with their
+    header in its own step (#376 A-3).
     """
     limit = max_lines if height is None else min(max_lines, max(0, height - 1))
     if limit <= 0 or width <= 0:
@@ -1657,10 +1706,10 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
     verdict = fit(frame.verdict)
     header = [fit(line) for line in frame.header]
     suggest = [fit(line) for line in frame.suggest]
-    parts: dict[str, list[str] | None] = {"running": fitted(frame.running), "recent": fitted(frame.recent),
-                                          "pools": fitted(frame.pools)}
-    totals = {"running": frame.running_total, "pools": frame.pools_total}
-    nouns = {"running": "more", "pools": "pools"}
+    parts: dict[str, list[str] | None] = {"running": fitted(frame.running), "leads": fitted(frame.leads),
+                                          "recent": fitted(frame.recent), "pools": fitted(frame.pools)}
+    totals = {"running": frame.running_total, "leads": frame.leads_total, "pools": frame.pools_total}
+    nouns = {"running": "more", "leads": "leads", "pools": "pools"}
 
     def section(key: str) -> list[str]:
         lines = parts[key]
@@ -1671,14 +1720,17 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
         return [*lines, _overflow(hidden, nouns[key], width, unicode)] if key in totals and hidden > 0 and rows > 0 else lines
 
     def assemble() -> list[str]:
-        return [verdict, *header, *section("running"), *section("recent"), *suggest, *section("pools")]
+        return [verdict, *header, *section("running"), *section("leads"), *section("recent"), *suggest, *section("pools")]
 
     def pop_rows(key: str, floor: int) -> bool:
         lines = parts[key]
         if lines is None or len(lines) - 1 <= floor:
             return False
         total = totals.get(key, 0)
-        created = total - (len(lines) - 1) <= 0 < total  # this removal makes the overflow line
+        rows = len(lines) - 1
+        created = total - rows <= 0 < total  # this removal makes the overflow line
+        if created and floor >= 1 and rows <= 2:  # A-3: K5 would leave the header without a row; do nothing
+            return False
         lines.pop()
         if created and len(lines) > 1:  # even below the floor: one row for one overflow line would save nothing (K5)
             lines.pop()
@@ -1698,12 +1750,14 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
 
     steps: list[Callable[[], bool]] = [
         lambda: pop_line(parts["recent"], 2),
+        lambda: pop_rows("leads", 1),
         lambda: pop_rows("running", 3),
         lambda: pop_rows("pools", 4),
         lambda: pop_line(suggest, 1),
         lambda: pop_rows("running", 0),
         lambda: pop_rows("pools", 0),
         lambda: drop("recent"),
+        lambda: drop("leads"),
         lambda: pop_line(suggest, 0),
         lambda: drop("pools"),
         lambda: drop("running"),
@@ -1825,6 +1879,58 @@ def _activity_sections(groups: dict[str, Any], width: int, unicode: bool,
                  for row in ended[:RECENT_CAP]]
         recent = [f"RECENT {len(ended)}", *(" " + line for line in _table(table, width - 1, unicode, right=(1,), elastic=4))]
     return [head, *rows], total, recent
+
+
+def _leads_header(data: dict[str, Any], count: int) -> str:
+    """`LEADS n`, with `| partial (...)` or `| read failed` when the lead sessions were not read completely (#376 3.4);
+    the count is `?` when such a read leaves nothing to count."""
+    read = _obj(data.get("leads_read"))
+    state = read.get("state")
+    notes = [f"{_count(read.get(key))} {words}" for key, words in (("unreadable", "unreadable"), ("not_read", "not read"))
+             if (_number(read.get(key)) or 0) > 0]
+    note = (" | partial" + (f" ({', '.join(notes)})" if notes else "") if state == "partial"
+            else " | read failed" if state == "error" else "")
+    return f"LEADS {'?' if note and count == 0 else count}{note}"
+
+
+def _ctx_cell(item: dict[str, Any]) -> str:
+    pct, tokens = _number(item.get("context_pct")), _number(item.get("context_tokens"))
+    if pct is not None:
+        return f"ctx {int(pct)}%" + ("!" if pct >= _LEAD_MARK_PCT else "")
+    if tokens is not None and tokens >= 0:
+        return f"ctx {int(tokens) // 1000}k" if tokens >= 1000 else f"ctx {int(tokens)}"
+    return "ctx ?"
+
+
+def _lead_cells(lead: dict[str, Any], now: float, unicode: bool, keep: str | None) -> list[str]:
+    """label, state with the flag, age of the last activity, ctx, running asks, model, title (empty when unknown)."""
+    label = _short(_cell(lead.get("label"), unicode, "?", keep), LEAD_LABEL_COLS, unicode)
+    run = f"{_count(lead.get('running'))} run"
+    item = _obj(lead.get("session"))
+    if not item:
+        return [label, "-", "-", "-", run, "-", ""]
+    known = _cell(item.get("state"), unicode, "", keep)
+    state = ("?" if item.get("alive") is None else "") + known if known else "?"  # the flag only on a known state
+    active = _number(item.get("active_at"))
+    model = re.sub(r"^claude-", "", _clean(item.get("model") or ""))
+    return [label, state, "-" if active is None else _compact_age(now - active), _ctx_cell(item), run,
+            _short(_cell(model or None, unicode, "-", keep), 16, unicode), _cell(item.get("title"), unicode, "", keep)]
+
+
+def _leads_section(groups: dict[str, Any], now: float, width: int, unicode: bool,
+                   keep: str | None = None) -> tuple[list[str] | None, int]:
+    """LEADS (header and at most LEADS_CAP rows of the leads with a session or a running ask, the total before the cap),
+    or None when there is no such lead and the lead sessions were read completely."""
+    data = _obj(_obj(groups.get("activity")).get("data"))
+    leads = [lead for lead in _items(data.get("leads")) if lead.get("session") or (_number(lead.get("running")) or 0) > 0]
+    header = _leads_header(data, len(leads))
+    if not leads and header == "LEADS 0":
+        return None, 0
+    table = [_lead_cells(lead, now, unicode, keep) for lead in leads[:LEADS_CAP]]
+    titled = any(row[-1] for row in table)
+    rows = _table([row if titled else row[:-1] for row in table], width - 1, unicode, right=(2,),
+                  elastic=6 if titled else None)
+    return [header, *(" " + line for line in rows)], len(leads)
 
 
 def _has_value(row: dict[str, Any]) -> bool:
@@ -1978,6 +2084,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
     frame = CompactFrame(verdict=verdict, header=header)
     if "activity" in selected_ids:
         frame.running, frame.running_total, frame.recent = _activity_sections(groups, width, unicode, keep)
+        frame.leads, frame.leads_total = _leads_section(groups, now + elapsed, width, unicode, keep)
     if "capacity" in selected_ids:
         frame.suggest = _suggest_lines(_compact_suggestions(configured_profiles, rows), width, unicode)
         if rows:

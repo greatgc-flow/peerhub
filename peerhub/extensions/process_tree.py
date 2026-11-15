@@ -21,3 +21,24 @@ def kill_process_tree(proc: subprocess.Popen[bytes] | subprocess.Popen[str]) -> 
         return True
     except (OSError, subprocess.SubprocessError):
         return False
+
+
+def creation_ticks(pid: int) -> int:
+    """The creation FILETIME of `pid` as one int (Windows), or -1 when it cannot be read or on another platform."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.restype = wintypes.HANDLE
+        handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return -1
+        try:
+            times = [wintypes.FILETIME() for _ in range(4)]
+            if not k32.GetProcessTimes(handle, *[ctypes.byref(t) for t in times]):
+                return -1
+            return (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        finally:
+            k32.CloseHandle(handle)
+
+    return -1

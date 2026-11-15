@@ -494,7 +494,8 @@ def test_counts_and_leads(db):
     assert d["counts"] == {"running": 3, "overdue": 0, "by_peer": {"cc": 1, "cx": 2}, "leads": 2}
     leads = {lead["id"]: lead for lead in d["leads"]}
     lead1 = leads[hashlib.sha256(b"lead-1").hexdigest()[:8]]
-    assert lead1 == {"label": "peerhub", "tool": "cc", "id": lead1["id"], "running": 2, "asks_24h": 2, "last_ask_at": NOW - 30.0}
+    assert lead1 == {"label": "peerhub", "tool": "cc", "id": lead1["id"], "running": 2, "asks_24h": 2, "last_ask_at": NOW - 30.0,
+                     "session": None}
     other = leads[hashlib.sha256(b"lead-9").hexdigest()[:8]]
     assert other["running"] == 0 and other["asks_24h"] == 1 and other["tool"] == "?"
     assert d["sample_size"] == 4 and d["truncated"] is False

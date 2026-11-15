@@ -485,6 +485,29 @@ def test_parse_agy_usage_output_preserves_all_four_windows():
     assert parsed["gemini-weekly"]["reset_time"] == "2026-09-30T02:26:19Z"
 
 
+def _agy_json_with_separator() -> str:
+    """One envelope line with a raw U+2028 inside a JSON string value, after a launcher line."""
+    envelope = json.loads(AGY_USAGE_JSON)
+    envelope["command"]["data"]["groups"][0]["name"] = "Gemini\u2028Models"
+    return "launcher: starting\n" + json.dumps(envelope, ensure_ascii=False) + "\n"
+
+
+def test_parse_agy_usage_output_fallback_keeps_line_separator_inside_json_string():
+    text = _agy_json_with_separator()
+    assert "\u2028" in text
+    parsed = _parse_agy_usage_output(text)
+    assert set(parsed) == {"gemini-weekly", "gemini-5h", "3p-weekly", "3p-5h"}
+    assert parsed["gemini-weekly"]["group"] == "Gemini\u2028Models"
+
+
+def test_agy_envelope_fallback_keeps_line_separator_inside_json_string():
+    from peerhub.extensions.quota_probes import _agy_envelope  # pyright: ignore[reportPrivateUsage]
+
+    envelope = _agy_envelope(_agy_json_with_separator())
+    assert envelope is not None
+    assert envelope["command"]["data"]["groups"][0]["name"] == "Gemini\u2028Models"
+
+
 def test_poll_agy_usage_prefers_live_slash_command(monkeypatch, tmp_path):
     class Completed:
         returncode = 0

@@ -608,10 +608,11 @@ def _caller(raw: object) -> tuple[dict[str, Any] | None, bool]:
 
 
 def _lead(caller: dict[str, Any], secrets: list[str]) -> dict[str, Any]:
+    """A caller's lead; `key` (the full digest) groups and merges leads and is removed before output (#376 C8)."""
     session = caller.get("session")
     basis = session if session else f"{caller['host']}:{caller['ask_pid']}:{caller.get('ask_created')}"
-    return {"label": _display(caller["label"], 40, secrets) or "?", "tool": caller["tool"],
-            "id": hashlib.sha256(basis.encode("utf-8", "replace")).hexdigest()[:8]}  # a lone surrogate never raises
+    key = hashlib.sha256(basis.encode("utf-8", "replace")).hexdigest()  # a lone surrogate never raises
+    return {"label": _display(caller["label"], 40, secrets) or "?", "tool": caller["tool"], "id": key[:8], "key": key}
 
 
 def _iso_seconds(value: object) -> float | None:
@@ -786,8 +787,7 @@ def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | Non
     running.sort(key=lambda a: (0 if a["state"] == "overdue" or a["alive"] is False else 1,
                                 -(a["elapsed_s"] if a["elapsed_s"] is not None else -1.0)))
     window_start = now - ALERT_WINDOW_S
-    bad = (*_BAD_STATES, "overdue")  # an overdue row past the window is a bad outcome among the ended rows
-    ended.sort(key=lambda a: (0 if a["state"] in bad and a["note"] != "other generation"  # A4: a restored lineage is not news
+    ended.sort(key=lambda a: (0 if a["state"] in _BAD_STATES and a["note"] != "other generation"  # A4: a restored lineage is not news
                               and a["ended_at"] is not None and a["ended_at"] >= window_start else 1,
                               -(a["ended_at"] if a["ended_at"] is not None else now)))
     asks = running + ended + [a for a in built if a["superseded"]]
@@ -796,7 +796,7 @@ def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | Non
         lead = a["lead"]
         if lead is None or a["superseded"]:
             continue
-        entry = leads.setdefault(lead["id"], {**lead, "running": 0, "asks_24h": 0, "last_ask_at": None})
+        entry = leads.setdefault(lead["key"], {**lead, "running": 0, "asks_24h": 0, "last_ask_at": None})
         entry["asks_24h"] += 1
         if a in running:
             entry["running"] += 1
@@ -808,13 +808,69 @@ def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | Non
     omitted = max(0, sup_total - SUPERSEDED_CAP)
     return {
         "asks": asks,
-        "leads": sorted(leads.values(), key=lambda x: (-x["running"], -(x["last_ask_at"] or 0.0), x["id"])),
+        "leads": list(leads.values()),  # still keyed: `_merge_leads` merges, orders and removes the digest
         "counts": {"running": len(running), "overdue": sum(1 for a in running if a["state"] == "overdue"),
                    "by_peer": dict(sorted(Counter(a["peer"] for a in running).items())),
-                   "leads": len({a["lead"]["id"] for a in running if a["lead"] is not None})},
+                   "leads": len({a["lead"]["key"] for a in running if a["lead"] is not None})},
         "sample_size": len(asks), "truncated": scope_total > ACTIVITY_SCOPE_CAP or omitted > 0,
         "scopes_total": scope_total, "superseded_omitted": omitted, "reason": gen_reason,
     }
+
+
+LeadReader = Callable[..., tuple[list[dict[str, Any]], dict[str, Any]]]
+LEAD_CONTEXT_MARK_PCT = 80  # a lead session at this share of its model's maximum input is marked `!` and, when alive, first
+_LEAD_READ_ERROR = {"state": "error", "unreadable": 0, "not_read": 0}
+
+
+def _lead_sessions(lead_reader: LeadReader | None, **facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """(sessions, read) of the injected reader (#376 3.3); none and no read object without a reader. A reader that raises
+    or returns anything but a list of sessions with a `key` and a valid read object gives no sessions and `error`."""
+    if lead_reader is None:
+        return [], None
+    try:
+        result: object = lead_reader(**facts)
+        sessions, read = cast(tuple[object, object], result)
+    except Exception:  # noqa: BLE001 - the lead reader is a best-effort source: any failure is `error`, never a frame failure
+        return [], dict(_LEAD_READ_ERROR)
+    if _valid_lead_read(read) and isinstance(sessions, list) and all(
+            isinstance(item, dict) and isinstance(cast(dict[str, Any], item).get("key"), str) for item in cast(list[object], sessions)):
+        return cast(list[dict[str, Any]], sessions), cast(dict[str, Any], read)
+    return [], dict(_LEAD_READ_ERROR)
+
+
+def _valid_lead_read(read: object) -> bool:
+    """A read object: `state` read, partial or error, and `unreadable` and `not_read` ints (not bool) of 0 or more."""
+    item = cast(dict[str, Any], read) if isinstance(read, dict) else {}
+    return item.get("state") in ("read", "partial", "error") and all(
+        isinstance(item.get(key), int) and not isinstance(item.get(key), bool) and item[key] >= 0
+        for key in ("unreadable", "not_read"))
+
+
+def _merge_leads(data: dict[str, Any], sessions: list[dict[str, Any]], read: dict[str, Any] | None) -> None:
+    """Merge the lead sessions into the leads on the full digest, order the leads and remove the digest (#376 3.3).
+
+    A lead gets `session` (or None); a session without caller rows is a lead of its own, labelled by its name, else its
+    folder, else `?`. Order: a session at LEAD_CONTEXT_MARK_PCT or more that is alive; leads with a session; more running
+    asks; the newer of the last activity and the last ask; the id."""
+    by_key = {item["key"]: {k: v for k, v in item.items() if k != "key"} for item in sessions}
+    leads: list[dict[str, Any]] = data["leads"]
+    for lead in leads:
+        lead["session"] = by_key.pop(lead.pop("key"), None)
+    leads += [{"label": item.get("name") or item.get("folder") or "?", "tool": "cc", "id": key[:8], "running": 0,
+               "asks_24h": 0, "last_ask_at": None, "session": item} for key, item in by_key.items()]
+
+    def rank(lead: dict[str, Any]) -> tuple[int, int, int, float, str]:
+        item: dict[str, Any] = lead["session"] or {}
+        pct = _number(item.get("context_pct"))
+        marked = pct is not None and pct >= LEAD_CONTEXT_MARK_PCT and item.get("alive") is True
+        newest = max(_number(item.get("active_at")) or 0.0, _number(lead["last_ask_at"]) or 0.0)
+        return 0 if marked else 1, 0 if lead["session"] else 1, -int(lead["running"]), -newest, str(lead["id"])
+
+    leads.sort(key=rank)
+    for ask in data["asks"]:
+        if ask["lead"] is not None:
+            ask["lead"].pop("key", None)
+    data["leads_read"] = read
 
 
 # ---- alerts (#374 section 3): a pure function over already-read facts -------------------------------------------------------
@@ -978,8 +1034,12 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                          workspace: str | Path | None = None, human: bool = False,
                          liveness: Callable[..., object] | None = None,
                          process_probe: Callable[[int], object] | None = None,
-                         preference_source: str | None = None) -> dict[str, Any]:
-    """Read grouped monitor facts from one query-only SQLite snapshot (five bounded query families)."""
+                         preference_source: str | None = None,
+                         lead_reader: LeadReader | None = None) -> dict[str, Any]:
+    """Read grouped monitor facts from one query-only SQLite snapshot (five bounded query families).
+
+    `lead_reader` (composed in peerhub/cli) gives the lead sessions; it runs only when `activity` was read, after the
+    read transaction ends. Without it no file is read, every lead has `session: None` and `leads_read` is None."""
     import time
     now = time.time() if read_at is None else read_at
     end_day = datetime.fromtimestamp(now, timezone.utc).date()
@@ -1470,9 +1530,9 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 },
             }
         activity_data: dict[str, Any] | None = None
+        text_on = os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off"
         if "activity" in groups:
             generation, generation_reason = _workspace_generation(db_path)
-            text_on = os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off"
             try:
                 try:
                     activity_rows = conn.execute(_ACTIVITY_SQL, _activity_params(now, generation, text_on)).fetchall()
@@ -1543,6 +1603,11 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 human_observations.append({**item, "last_measurements": raw,
                     "resets_at": raw.get("resets_at"), "projection_samples": row["samples"] if row else 0})
         conn.execute("ROLLBACK")
+        if activity_data is not None:  # only when `activity` was read; after the read transaction (#376 3.3)
+            from peerhub.extensions.adapters.sanitize import env_secrets
+            sessions, leads_read = _lead_sessions(lead_reader, now=now, text_on=text_on, secrets=env_secrets(),
+                                                  created=process_probe or _process_created)
+            _merge_leads(activity_data, sessions, leads_read)
         capacity_read = bool(set(groups) & {"capacity", "peers"})
         capacity_failed = "capacity" in errors
 

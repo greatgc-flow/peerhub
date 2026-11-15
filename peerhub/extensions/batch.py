@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, cast
 
-from peerhub.extensions.process_tree import kill_process_tree
+from peerhub.extensions.process_tree import creation_ticks as _creation_time, kill_process_tree
 
 DEFAULT_TIMEOUT_S = 600.0
 MAX_TASKS = 256
@@ -257,25 +257,6 @@ def _descendants(pid: int) -> list[tuple[int, int]]:
                 todo.append(child)
     return [(p, _creation_time(p)) for p in found]
 
-
-def _creation_time(pid: int) -> int:
-    if sys.platform == "win32":
-        import ctypes
-        from ctypes import wintypes
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        k32.OpenProcess.restype = wintypes.HANDLE
-        handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not handle:
-            return -1
-        try:
-            times = [wintypes.FILETIME() for _ in range(4)]
-            if not k32.GetProcessTimes(handle, *[ctypes.byref(t) for t in times]):
-                return -1
-            return (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
-        finally:
-            k32.CloseHandle(handle)
-
-    return -1
 
 def _still_alive(pid: int, created: int) -> bool:
     if sys.platform == "win32":
