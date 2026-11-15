@@ -37,12 +37,15 @@ class StreamPeerMismatchError(ValueError):
     code = "stream_peer_mismatch"
 
 
-def _refuse_second_ask(conn: sqlite3.Connection, target: RuntimeTarget, stream_id: str, key: str) -> None:
-    """A stateless peer (ca, oa; #378) has no session to continue: any other ask on the stream, delivered, failed,
-    uncertain or still running, refuses this one before anything is stored or sent."""
+def _refuse_second_ask(conn: sqlite3.Connection, target: RuntimeTarget, stream_id: str, author: str, key: str) -> None:
+    """A stateless peer (ca, oa; #378) has no session to continue: its ask needs a stream of its own. Any record on the
+    stream refuses this ask before anything is stored or sent: another ask (delivered, failed, uncertain or still
+    running), or a record put there some other way, which would be delivered first as one more API call. Only the same
+    ask (the same author AND the same request id; a request id is unique per author, not per stream) may come again."""
     if getattr(target, "stateless", False) and conn.execute(
-            "SELECT 1 FROM records WHERE stream_id=? AND kind='prompt' AND idempotency_key LIKE 'ask:%' AND idempotency_key<>? LIMIT 1",
-            (stream_id, key)).fetchone():
+            "SELECT 1 FROM records WHERE stream_id=? AND NOT EXISTS "
+            "(SELECT 1 FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?) LIMIT 1",
+            (stream_id, stream_id, author, key)).fetchone():
         raise RequestRejected(f"{target.runtime_kind} is stateless; use a new stream")
 
 
@@ -172,7 +175,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         with storage_errors(), closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as conn:
             conn.row_factory = sqlite3.Row
             previous = conn.execute("SELECT * FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?", (sid, author, key)).fetchone()
-            _refuse_second_ask(conn, target, sid, key)
+            _refuse_second_ask(conn, target, sid, author, key)
             if previous is not None:
                 previous_metadata = json.loads(previous["metadata_json"])
                 base_metadata = {k: v for k, v in previous_metadata.items() if k not in ("session_selector", *identity_metadata)}
@@ -236,7 +239,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             if scope["stream_id"] != token.stream_id:
                 raise ClaimScopeError("prompt and delivery claim must share a Stream")
             claims.check(conn, token)
-            _refuse_second_ask(conn, target, sid, key)  # again under the claim: the stream is reserved before anything is sent
+            _refuse_second_ask(conn, target, sid, author, key)  # again under the claim: the stream is reserved before anything is sent
             for row_targets_json, row_meta_json, row_key in conn.execute(
                 "SELECT targets_json, metadata_json, idempotency_key FROM records WHERE stream_id=? AND kind='prompt'",
                 (sid,),

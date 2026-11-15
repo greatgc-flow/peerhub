@@ -144,6 +144,49 @@ def test_max_tokens_is_truncated_and_keeps_the_partial_text_out_of_the_stream(ca
     assert again["status"] == "truncated" and again["partial_response"] == "fine" and len(launches(ca.log)) == 1
 
 
+@pytest.mark.parametrize("stop,status", [("max_tokens", "truncated"), ("refusal", "incomplete")])
+def test_an_incomplete_result_recovers_after_an_interruption_before_the_acknowledgement(tmp_path, ca, stop, status):
+    from tests.communication.bridge_helpers import bseed, offset_row, responses, sql
+    from tests.communication.fakes import CrashInjected, CrashInjector, FakeRuntimeTarget
+    from tests.communication.harness.bridge import BridgeHarness
+
+    h = BridgeHarness(tmp_path / "ws", fault_hook=CrashInjector("bridge.after_refusal_offset_before_ack"))
+    (rec,) = bseed(h)
+    with pytest.raises(CrashInjected):  # the result is committed, the delivery is not acknowledged yet
+        h.delivery_cycle("b", "s", ca(stdout=message(stop_reason=stop)))
+    assert sql(h, "SELECT certainty, acked FROM bridge_deliveries WHERE record_id=?", (rec.record_id,)) == [("STARTED", 0)]
+    h = BridgeHarness(tmp_path / "ws", h.clock)  # restart
+    never_invoke = FakeRuntimeTarget()
+    result = h.delivery_cycle("b", "s", never_invoke)
+    assert (result.status, result.certainty) == (status, "STARTED")
+    assert result.detail["reason"] == status and result.detail["partial_response"] == "fine"
+    assert result.detail["usage"] == {"input_tokens": 7, "output_tokens": 2}
+    assert never_invoke.calls == [] and len(launches(ca.log)) == 1  # the provider is not called a second time
+    assert offset_row(h)[0] == rec.position and responses(h) == []
+    assert sql(h, "SELECT acked FROM bridge_deliveries WHERE record_id=?", (rec.record_id,)) == [(1,)]
+    assert h.delivery_cycle("b", "s", never_invoke).status == "idle" and never_invoke.calls == []
+
+
+def test_ask_returns_the_saved_status_after_an_interrupted_settlement(ca, monkeypatch):
+    from peerhub.extensions.bridge import Bridge
+
+    class Interrupted(Exception):
+        pass
+
+    def fire(self, point):
+        if point == "bridge.after_refusal_offset_before_ack":
+            raise Interrupted()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Bridge, "_fire", fire)
+        with pytest.raises(Interrupted):
+            ask(ca.db, "ca", "question", stream_id="s", request_id="one", runtime=ca(stdout=message(stop_reason="max_tokens")))
+    again = ask(ca.db, "ca", "question", stream_id="s", request_id="one", runtime=ca())
+    assert (again["status"], again["certainty"], again["response"]) == ("truncated", "STARTED", None)
+    assert again["error"]["code"] == "truncated" and again["partial_response"] == "fine"
+    assert len(launches(ca.log)) == 1
+
+
 def test_another_stop_reason_is_incomplete_started_and_not_uncertain(ca):
     result = ask(ca.db, "ca", "question", runtime=ca(stdout=message(stop_reason="refusal")))
     assert (result["status"], result["certainty"], result["response"]) == ("incomplete", "STARTED", None)
@@ -158,6 +201,10 @@ def test_another_stop_reason_is_incomplete_started_and_not_uncertain(ca):
     (message() + "\n" + message(), 0),  # two objects are not one object
     (message(type="other"), 0),
     (message(content="text"), 0),
+    (json.dumps({key: value for key, value in json.loads(message()).items() if key != "content"}), 0),  # no content
+    (message(content=["text"]), 0),  # a block that is not an object
+    (message(content=[{"type": "text", "text": "fine"}, {"type": "text", "text": 7}]), 0),  # a text that is not a string
+    (message(content=[{"type": "text"}]), 0),  # a text block without text
     (message(stop_reason=None), 0),
     (message()[:-5], 0),  # partial output
     (message()[:-5], 1),
@@ -278,7 +325,65 @@ def test_a_second_ask_is_refused_while_the_first_is_still_running(ca):
     assert results[0]["status"] == "delivered" and len(launches(ca.log)) == 1
 
 
-def test_the_second_ask_check_runs_again_under_the_claim(ca, monkeypatch):
+def test_another_author_with_the_same_request_id_is_another_ask_and_is_refused(ca):
+    """Only the same ask (same author and same request id) may come again; the request id alone does not make it the same."""
+    assert ask(ca.db, "ca", "question", stream_id="s", request_id="one", runtime=ca())["status"] == "delivered"
+    with pytest.raises(RequestRejected, match="ca is stateless; use a new stream"):
+        ask(ca.db, "ca", "question", stream_id="s", request_id="one", author="someone-else", runtime=ca())
+    assert ask(ca.db, "ca", "question", request_id="two", runtime=ca())["stream_id"] == "peer:ca:two"  # the default stream too
+    with pytest.raises(RequestRejected, match="ca is stateless; use a new stream"):
+        ask(ca.db, "ca", "question", request_id="two", author="someone-else", runtime=ca())
+    assert len(launches(ca.log)) == 2
+    with sqlite3.connect(ca.db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM records WHERE author_peer_id='someone-else'").fetchone()[0] == 0
+    assert ask(ca.db, "ca", "question", stream_id="s", request_id="one", runtime=ca())["status"] == "recovered_terminal"
+
+
+def test_a_stream_that_already_holds_another_record_is_refused(ca):
+    """A record that is not this ask would be delivered first as a turn of its own: a second API call on the stream."""
+    from peerhub.core.models import Peer, Stream
+    from peerhub.core.store import CoreStore
+
+    store = CoreStore(ca.db)
+    for peer in ("user", "ca"):
+        store.register_peer(Peer(peer_id=peer))
+    store.create_stream(Stream(stream_id="s", members=["user", "ca"]))
+    store.append_record(stream_id="s", author_peer_id="user", kind="prompt", body="seeded text", targets=["ca"],
+                        idempotency_key="seed", created_at="2026-11-16T00:00:00Z")
+    with pytest.raises(RequestRejected, match="ca is stateless; use a new stream"):
+        ask(ca.db, "ca", "question", stream_id="s", request_id="one", runtime=ca())
+    assert launches(ca.log) == []
+    store.create_stream(Stream(stream_id="empty", members=["user", "ca"]))  # a stream without records is a new stream
+    assert ask(ca.db, "ca", "question", stream_id="empty", request_id="one", runtime=ca())["status"] == "delivered"
+
+
+def test_no_other_peer_name_or_changed_request_passes_the_one_ask_rule(ca, tmp_path):
+    from peerhub.core.models import Peer
+    from peerhub.core.store import CoreStore, IdempotencyConflictError
+
+    assert ask(ca.db, "ca", "question", stream_id="s", request_id="one", runtime=ca())["status"] == "delivered"
+    CoreStore(ca.db).register_peer(Peer(peer_id="voter", adapter_ref="ca"))  # a custom peer with --adapter ca
+    with pytest.raises(RequestRejected, match="ca is stateless; use a new stream"):
+        ask(ca.db, "voter", "question", stream_id="s", request_id="two", runtime=ca())
+    for changed in ({"peer_id": "voter"}, {"prompt": "another question"}, {"runtime": ca(model="claude-opus-5-5")},
+                    {"fresh": True}):  # the same author and request id with anything else changed is a conflict, not a new call
+        arguments = {"peer_id": "ca", "prompt": "question", "runtime": ca(), **changed}
+        with pytest.raises((IdempotencyConflictError, RequestRejected)):
+            ask(ca.db, arguments.pop("peer_id"), arguments.pop("prompt"), stream_id="s", request_id="one", **arguments)
+    for other_name in ("S", "s ", " s", "s​"):  # stream names are compared exactly: these are other, new streams
+        result = ask(ca.db, "ca", "question", stream_id=other_name, request_id="one-" + repr(other_name), runtime=ca())
+        assert result["status"] == "delivered" and result["stream_id"] == other_name
+    assert len(launches(ca.log)) == 5
+
+
+def test_an_uncertain_ask_is_never_called_again_with_the_same_request(ca):
+    first = ask(ca.db, "ca", "question", stream_id="s", request_id="one", runtime=ca(**SERVER_ERROR))
+    again = ask(ca.db, "ca", "question", stream_id="s", request_id="one", runtime=ca())
+    assert (first["status"], again["status"]) == ("uncertain", "blocked_uncertain") and len(launches(ca.log)) == 1
+
+
+@pytest.mark.parametrize("request_id,author", [("two", "user"), ("one", "someone-else")])
+def test_the_second_ask_check_runs_again_under_the_claim(ca, monkeypatch, request_id, author):
     """The check before the claim saw an empty stream; another ask stored its prompt before this one got the claim."""
     from peerhub.extensions.bridge_claims import ClaimStore
 
@@ -293,7 +398,7 @@ def test_the_second_ask_check_runs_again_under_the_claim(ca, monkeypatch):
 
     monkeypatch.setattr(ClaimStore, "acquire", acquire)
     with pytest.raises(RequestRejected, match="ca is stateless; use a new stream"):
-        ask(ca.db, "ca", "second", stream_id="s", request_id="two", runtime=ca())
+        ask(ca.db, "ca", "second", stream_id="s", request_id=request_id, author=author, runtime=ca())
     assert raced == ["running", "delivered"] and len(launches(ca.log)) == 1
     with sqlite3.connect(ca.db) as conn:
         assert [json.loads(row[0]) for row in conn.execute("SELECT body_json FROM records WHERE kind='prompt'")] == ["first"]

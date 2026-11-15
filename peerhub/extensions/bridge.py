@@ -1176,6 +1176,13 @@ class Bridge:
             refusal_detail = self.delivery_details(infl["delivery_id"])
             if infl["certainty"] == STARTED and refusal_detail.get("task_outcome") == "NOT_EXECUTED":
                 return self._settle_refusal(token, rec, infl["delivery_id"], infl["session_generation"], refusal_detail)
+            saved: object = json.loads(infl["result_json"]) if infl["certainty"] == STARTED and infl["result_json"] else None
+            stored = cast("dict[str, Any]", saved) if isinstance(saved, dict) else {}
+            if stored.get("reason") in ("truncated", "incomplete"):
+                # API peers (#378): the incomplete reply is committed; finish its settlement, never invoke the provider again.
+                detail: dict[str, Any] = {key: stored[key] for key in ("reason", "message", "partial_response", "usage") if key in stored}
+                self._settle_without_response(token, rec, infl["delivery_id"], detail, str(detail["reason"]))
+                return self._incomplete_result(rec, infl["delivery_id"], infl["session_generation"], detail)
             if infl["certainty"] in (STARTED, MAY_HAVE_STARTED):
                 self._mark_lost(token, "tainted")
             st = self.control_state(peer, stream)
@@ -1397,9 +1404,7 @@ class Bridge:
             if isinstance(incomplete.get("usage"), dict):
                 detail["usage"] = incomplete["usage"]
             self._settle_without_response(token, rec, did, detail, incomplete["code"], incomplete.get("provider_telemetry"))
-            if incomplete["code"] == "truncated":
-                return CycleResult("truncated", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
-            return CycleResult("incomplete", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
+            return self._incomplete_result(rec, did, gen, detail)
         if have_terminal:
             mode = getattr(catch_up, "boundary", {}).get("mode")
             provenance = dict(effective_mode="resumed" if mode == "resumed" else "fresh",
@@ -1583,6 +1588,13 @@ class Bridge:
                         detail: dict[str, Any]) -> CycleResult:
         self._settle_without_response(token, rec, did, detail, "refused")
         return CycleResult("not_executed", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
+
+    @staticmethod
+    def _incomplete_result(rec: Record, did: str, gen: int | None, detail: dict[str, Any]) -> CycleResult:
+        """The result of an incomplete reply of an API peer (#378), fresh or recovered; `detail["reason"]` is its status."""
+        if detail["reason"] == "truncated":
+            return CycleResult("truncated", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
+        return CycleResult("incomplete", rec.record_id, did, STARTED, session_generation=gen, detail=detail)
 
     def _settle_without_response(self, token: ClaimToken, rec: Record, did: str, detail: dict[str, Any], lost_reason: str,
                                  provider_candidate: object = None) -> None:

@@ -189,6 +189,60 @@ def test_a_second_ask_on_a_stream_is_refused_before_anything_is_sent(oa):
 
 
 # ---- completion rule (design 4) -----------------------------------------------------------------------------------------
+def test_another_author_with_the_same_request_id_is_another_ask_and_is_refused(oa):
+    assert ask(oa.db, "oa", "question", stream_id="s", request_id="one", runtime=oa())["status"] == "delivered"
+    with pytest.raises(RequestRejected, match="oa is stateless; use a new stream"):
+        ask(oa.db, "oa", "question", stream_id="s", request_id="one", author="someone-else", runtime=oa())
+    assert ask(oa.db, "oa", "question", request_id="two", runtime=oa())["stream_id"] == "peer:oa:two"
+    with pytest.raises(RequestRejected, match="oa is stateless; use a new stream"):
+        ask(oa.db, "oa", "question", request_id="two", author="someone-else", runtime=oa())
+    assert len(oa.fake.requests) == 2  # nothing was sent for the other author
+
+
+MESSAGE = {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "OK"}]}
+
+
+@pytest.mark.parametrize("output", [
+    None,  # no output at all
+    "OK",
+    {"type": "message", "content": [{"type": "output_text", "text": "OK"}]},  # an object, not a list
+    [MESSAGE, "OK"],  # an item that is not an object
+    [MESSAGE, {"content": [{"type": "output_text", "text": "OK"}]}],  # an item without a type
+    [{"type": "message", "role": "assistant"}],  # a message without content
+    [{"type": "message", "content": "OK"}],
+    [{"type": "message", "content": ["OK"]}],  # a block that is not an object
+    [MESSAGE, {"type": "message", "content": [{"type": "output_text", "text": 7}]}],  # a text that is not a string
+    [{"type": "message", "content": [{"type": "output_text"}]}],
+])
+@pytest.mark.parametrize("state", ["completed", "incomplete"])
+def test_a_malformed_output_is_uncertain_and_never_a_complete_or_empty_reply(oa, output, state):
+    doc = completed(status=state, incomplete_details={"reason": "max_output_tokens"} if state == "incomplete" else None)
+    if output is None:
+        del doc["output"]
+    else:
+        doc["output"] = output
+    oa.fake.reply = (200, json.dumps(doc).encode(), {})
+    result = ask(oa.db, "oa", "question", runtime=oa())
+    assert (result["status"], result["response"]) == ("uncertain", None) and "partial_response" not in result
+    with sqlite3.connect(oa.db) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM records WHERE kind='response'").fetchone()[0] == 0
+
+
+def test_a_completed_answer_that_carries_an_error_is_uncertain(oa):
+    doc = completed(error={"code": "server_error", "message": "the model failed"})
+    oa.fake.reply = (200, json.dumps(doc).encode(), {})
+    result = ask(oa.db, "oa", "question", runtime=oa())
+    assert (result["status"], result["response"]) == ("uncertain", None)
+
+
+def test_other_output_items_and_blocks_are_not_text(oa):
+    output = [{"type": "reasoning", "summary": []}, {"type": "message", "content": [{"type": "refusal", "refusal": "no"}]},
+              {"type": "message", "content": [{"type": "output_text", "text": "OK"}]}]
+    oa.fake.reply = (200, json.dumps(completed(output=output)).encode(), {})
+    result = ask(oa.db, "oa", "question", runtime=oa())
+    assert (result["status"], result["response"]) == ("delivered", "OK")
+
+
 def test_empty_text_is_empty_as_for_other_peers(oa):
     oa.fake.reply = (200, json.dumps(completed(output=[{"type": "message", "content": [{"type": "output_text", "text": " "}]}])).encode(), {})
     result = ask(oa.db, "oa", "question", runtime=oa())

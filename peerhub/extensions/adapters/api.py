@@ -78,14 +78,39 @@ def _json_object(text: str) -> dict[str, Any] | None:
     return cast("dict[str, Any]", value) if isinstance(value, dict) else None
 
 
-def _joined_text(blocks: object, block_type: str) -> str:
-    """The joined `text` of the blocks of one type in a JSON list (other blocks, for example thinking, are not text)."""
+def _joined_text(blocks: object, block_type: str) -> str | None:
+    """The joined `text` of the blocks of one type in a JSON list (other blocks, for example thinking, are not text).
+
+    None for a wrong shape: not a list, a block that is not an object, a block of that type whose text is not a string."""
+    if not isinstance(blocks, list):
+        return None
     parts: list[str] = []
-    for block in cast("list[Any]", blocks) if isinstance(blocks, list) else []:
-        if isinstance(block, dict):
-            item = cast("dict[str, Any]", block)
-            if item.get("type") == block_type and isinstance(item.get("text"), str):
-                parts.append(item["text"])
+    for block in cast("list[Any]", blocks):
+        if not isinstance(block, dict):
+            return None
+        item = cast("dict[str, Any]", block)
+        if item.get("type") == block_type:
+            if not isinstance(item.get("text"), str):
+                return None
+            parts.append(item["text"])
+    return "".join(parts)
+
+
+def _oa_text(output: object) -> str | None:
+    """The joined `output_text` of the message items of a Responses `output`; None for a wrong shape (not a list, an
+    item that is not an object with a type, a message whose content is not a list of well-formed blocks)."""
+    if not isinstance(output, list):
+        return None
+    parts: list[str] = []
+    for entry in cast("list[Any]", output):
+        if not isinstance(entry, dict) or not isinstance(cast("dict[str, Any]", entry).get("type"), str):
+            return None
+        item = cast("dict[str, Any]", entry)
+        if item["type"] == "message":  # other items (for example reasoning) carry no reply text
+            text = _joined_text(item.get("content"), "output_text")
+            if text is None:
+                return None
+            parts.append(text)
     return "".join(parts)
 
 
@@ -250,8 +275,9 @@ class CaRuntimeTarget(ApiRuntimeTarget):
         message = _json_object(out)
         if res.returncode == 0 and message is not None and message.get("type") == "message":
             stop: object = message.get("stop_reason")
-            if isinstance(message.get("content"), list) and isinstance(stop, str):
-                return self._reply(_joined_text(message["content"], "text"), message.get("usage"), complete=stop in ("end_turn", "stop_sequence"),
+            reply = _joined_text(message.get("content"), "text")
+            if reply is not None and isinstance(stop, str):  # a wrong shape is never a reply: it falls through to uncertain
+                return self._reply(reply, message.get("usage"), complete=stop in ("end_turn", "stop_sequence"),
                                    truncated=stop == "max_tokens", why=san.clean(f"stop_reason {stop}", 80))
         output = out + "\n" + decode_stderr(res.stderr)
         status_match = _ANT_STATUS.search(output)
@@ -361,12 +387,11 @@ class OaRuntimeTarget(ApiRuntimeTarget):
             if detail.get("code") in OA_LIMIT_CODES or status != 200:  # the code is checked before the status
                 return self._error(status, detail.get("code") in OA_LIMIT_CODES, text)
         state: object = doc.get("status") if doc is not None else None
-        if status != 200 or doc is None or not isinstance(state, str):
+        reply = _oa_text(doc.get("output")) if doc is not None else None
+        # A wrong shape is never a reply, and "completed" with an error object contradicts itself: both are uncertain.
+        if status != 200 or doc is None or not isinstance(state, str) or reply is None or (state == "completed" and error is not None):
             excerpt = san.clean(" ".join(raw[:EXCERPT_CHARS * 4].decode("utf-8", "replace").split()), EXCERPT_CHARS)
             return Outcome("uncertain", detail=f"oa: HTTP {status}: unexpected answer: {excerpt}")
-        items: object = doc.get("output")
-        reply = "".join(_joined_text(cast("dict[str, Any]", item).get("content"), "output_text")
-                        for item in (cast("list[Any]", items) if isinstance(items, list) else []) if isinstance(item, dict))
         details: object = doc.get("incomplete_details")
         reason: object = cast("dict[str, Any]", details).get("reason") if isinstance(details, dict) else None
         return self._reply(reply, doc.get("usage"), complete=state == "completed",
