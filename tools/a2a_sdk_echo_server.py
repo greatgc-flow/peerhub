@@ -1,4 +1,4 @@
-# Run: D:\PkgDev\_sys\data\temp\a2a_venv\Scripts\python.exe -B echo_server.py
+# Run: <a2a-venv>\Scripts\python.exe -B echo_server.py  (a separate venv with a2a-sdk[http-server] and uvicorn)
 # A2A 1.0 JSON-RPC endpoint: http://127.0.0.1:18765/
 # Clients must send the HTTP header A2A-Version: 1.0.
 # Methods: SendMessage, GetTask and CancelTask; message.role is ROLE_USER.

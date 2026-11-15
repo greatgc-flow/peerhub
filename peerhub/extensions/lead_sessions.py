@@ -80,48 +80,56 @@ def read_leads(dirs: list[str], *, now: float, text_on: bool, secrets: list[str]
     """(sessions, read) of the registered folders; read = {state: read | partial | error, unreadable, not_read}.
 
     A folder whose sessions cannot be listed (or that fails unexpectedly) makes the state `error`; the next folder is
-    still read. Each session carries `key`, the full SHA-256 digest of its id, which callers must not emit."""
+    still read. One row per session id: the first kept file, replaced (in its place) by a later file of the same id only
+    when the first could not be confirmed (`alive` None) and the later one is (`alive` True). Each session carries `key`,
+    the full SHA-256 digest of its id, which callers must not emit."""
     domain = f"{os_name}:{platform.node().lower() if host is None else host}"
     counts = {"unreadable": 0, "not_read": max(0, len(dirs) - LEAD_DIRS_CAP)}
-    seen: set[str] = set()
-    sessions: list[dict[str, Any]] = []
+    kept: dict[str, dict[str, Any]] = {}  # session id -> row
     failed = False
     for base in dirs[:LEAD_DIRS_CAP]:
         try:
-            sessions += _read_folder(base, seen, counts, now=now, text_on=text_on, secrets=secrets,
-                                     created=created, ticks=ticks, domain=domain)
+            kept.update(_read_folder(base, kept, counts, now=now, text_on=text_on, secrets=secrets,
+                                     created=created, ticks=ticks, domain=domain))
         except Exception:  # _Unreadable for the sessions folder; anything else is a defect that must not stop the frame
             failed = True
     state = "error" if failed else "partial" if counts["unreadable"] + counts["not_read"] else "read"
-    return sessions, {"state": state, **counts}
+    return list(kept.values()), {"state": state, **counts}
 
 
-def _read_folder(base: str, seen: set[str], counts: dict[str, int], *, now: float, text_on: bool,
-                 secrets: list[str], created: Probe, ticks: Probe, domain: str) -> list[dict[str, Any]]:
+def _read_folder(base: str, kept: dict[str, dict[str, Any]], counts: dict[str, int], *, now: float, text_on: bool,
+                 secrets: list[str], created: Probe, ticks: Probe, domain: str) -> dict[str, dict[str, Any]]:
+    """The rows of one folder by session id: new sessions, and whole rows that replace an unconfirmed row of `kept`."""
     names = _candidates(base, counts)
     if not names:
-        return []
+        return {}
     projects = _projects(base, counts)
     windows = _windows(base, counts)
-    rows: list[dict[str, Any]] = []
+    rows: dict[str, dict[str, Any]] = {}
+    tails: dict[str, Read | None] = {}  # one read (and at most one `unreadable`) per transcript, however many files share it
     for name in names:
         item = _candidate(base, name, counts, created)
         if item is None or item.get("kind") != "interactive" or not isinstance(item.get("entrypoint"), str) \
-                or item["entrypoint"].startswith("sdk-") or item["sessionId"] in seen:
+                or item["entrypoint"].startswith("sdk-"):
+            continue
+        sid = item["sessionId"]
+        known = rows.get(sid) or kept.get(sid)  # only a kept row hides a later file of the same session (a dead file never does)
+        if known is not None and known["alive"] is True:
             continue
         alive = _liveness(item, created=created, ticks=ticks, domain=domain)
-        if alive is False:
+        if alive is False or (known is not None and alive is None):
             continue
-        try:
-            tail = _transcript(base, projects, item["sessionId"])
-        except _Unreadable:
-            counts["unreadable"] += 1
-            tail = None
+        if sid not in tails:
+            try:
+                tails[sid] = _transcript(base, projects, sid)
+            except _Unreadable:
+                counts["unreadable"] += 1
+                tails[sid] = None
+        tail = tails[sid]
         if alive is None and (tail is None or now - tail[2] > ACTIVITY_SPAN_S):
             continue
         facts = _tail_facts(tail[0], tail[1], text_on) if tail else {}
-        seen.add(item["sessionId"])  # only a kept row hides a later file of the same session (a dead file never does)
-        rows.append(_row(item, alive, tail[2] if tail else None, facts, windows, text_on, secrets))
+        rows[sid] = _row(item, alive, tail[2] if tail else None, facts, windows, text_on, secrets)
     return rows
 
 

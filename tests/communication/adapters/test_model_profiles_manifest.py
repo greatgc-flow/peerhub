@@ -15,11 +15,13 @@ DIR = REPO / "docs" / "model-profiles"
 MANIFEST = json.loads((DIR / "model-profiles.json").read_text(encoding="utf-8"))
 TOML = tomllib.loads((REPO / "peerhub" / "config_data" / "model-defaults.toml").read_text(encoding="utf-8"))
 PEERS = ("ag", "cc", "cx")
+API_PEERS = ("ca", "oa")  # #378: no CLI recipe, no observed version, no pool (see test_api_peers_wiring.py)
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def packaged_profiles() -> dict:
-    return {k: v for k, v in TOML["profiles"].items() if k != "*"}
+def packaged_profiles(peers: tuple[str, ...] = PEERS) -> dict:
+    """The packaged profiles of the CLI peers; pass PEERS + API_PEERS for all of them."""
+    return {k: v for k, v in TOML["profiles"].items() if k.split(".", 1)[0] in peers}
 
 
 def test_manifest_is_valid_against_its_json_schema():
@@ -39,10 +41,13 @@ def test_toml_metadata_is_well_formed():
 
 
 def test_every_profile_id_names_a_peer_and_has_required_fields():
-    for pid, p in packaged_profiles().items():
-        assert re.fullmatch(r"(ag|cc|cx)\.[a-z0-9-]+", pid), pid
+    assert set(packaged_profiles(PEERS + API_PEERS)) == set(TOML["profiles"])  # no profile of an unknown peer
+    for pid, p in packaged_profiles(PEERS + API_PEERS).items():
+        assert re.fullmatch(r"(ag|cc|cx|ca|oa)\.[a-z0-9-]+", pid), pid
         assert p["selection_mode"] == "pinned" and p["model"], pid
         assert DATE.match(p["checked"]), pid
+        assert p["source"], pid
+    for pid, p in packaged_profiles().items():
         assert p["pools_source"], pid
 
 
@@ -125,6 +130,6 @@ def test_added_profile_needs_only_a_toml_table(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(home))
     names = [p["profile"] for p in list_profiles(tmp_path)]
-    assert "cx.terra" in names and set(packaged_profiles()) <= set(names)
+    assert "cx.terra" in names and set(packaged_profiles(PEERS + API_PEERS)) <= set(names)
     fields = inspect_profile("cx.terra", tmp_path)["fields"]
     assert fields["model"]["value"] == "gpt-6.1-terra" and fields["effort"]["value"] == "low"

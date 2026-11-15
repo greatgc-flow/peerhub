@@ -195,10 +195,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge",
                                      description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Select --fresh or an exact --session HANDLE. Results include a session handle and mode.")
-    ask_parser.add_argument("peer", help="Peer ID (built-ins: cx/codex, cc/claude, ag/agy)")
+    ask_parser.add_argument("peer", help="Peer ID (built-ins: cx/codex, cc/claude, ag/agy, ca, oa)")
     ask_parser.add_argument("prompt", nargs="?")
     ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
-    ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat)")
+    ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat; ca and oa: peer:<id>:<request-id>, one ask per stream)")
     ask_parser.add_argument("--request-id", help="Reuse on retries; uncertain execution is never replayed automatically")
     ask_parser.add_argument("--fresh", action="store_true", help="Allocate a fresh session with bounded Stream catch-up")
     ask_parser.add_argument("--session", metavar="HANDLE", help="Reuse this exact retained handle; incompatible sessions are rejected")
@@ -469,6 +469,9 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
         session = cast("dict[str, Any]", session)
         if has_streamed and not output_has_newline and result["status"] not in ("delivered", "recovered_terminal"):
             print()
+        from peerhub.extensions.ask import default_stream
+        if args.stream_id is None and result.get("stream_id") not in (None, default_stream(args.peer, None, stateless=False)):
+            print(f"stream: {result['stream_id']}")  # ca/oa (#378): the stream this ask got; the next ask needs another
         print(_session_trailer(session))
     error: dict[str, Any] | None = result.get("error")
     if error is not None and error.get("code") != "session_lost" and (error.get("code") == "legacy_selector_unsupported" or str(error.get("code", "")).startswith("session_")):
@@ -1057,28 +1060,37 @@ def _run_account_cli(args: argparse.Namespace) -> int:
         return 1
 
 
+def _peer_kind(db: str | None, peer: str) -> str | None:
+    """The provider kind of a peer by the rule `ask` uses: the adapter registered in `db` (read-only) decides, else
+    the name of a builtin peer; None when it is not known. A store that cannot be read (missing, a directory, locked,
+    corrupt or not a database) counts as no registration."""
+    from peerhub.extensions.peer_kinds import peer_kind
+
+    adapter_ref: str | None = None
+    if db:
+        try:
+            conn = sqlite3.connect(Path(os.path.abspath(db)).as_uri() + "?mode=ro", uri=True)
+            try:
+                row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id = ?", (peer,)).fetchone()
+                adapter_ref = row[0] if row else None
+            finally:
+                conn.close()
+        except sqlite3.DatabaseError:  # OperationalError (cannot open, locked) and a corrupt or foreign file
+            pass
+    return peer_kind(adapter_ref, peer)
+
+
 def _run_batch_cli(args: argparse.Namespace) -> int:
     import signal
     import threading
     from dataclasses import replace
 
     from peerhub.extensions import batch
-    from peerhub.extensions.peer_kinds import ALIASES
 
     db = os.path.abspath(args.db)
 
     def kind_of(peer: str) -> str | None:
-        if peer in ALIASES:
-            return ALIASES[peer]
-        try:
-            conn = sqlite3.connect(Path(db).as_uri() + "?mode=ro", uri=True)
-            try:
-                row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id = ?", (peer,)).fetchone()
-                return ALIASES.get(row[0]) if row else None
-            finally:
-                conn.close()
-        except sqlite3.OperationalError:
-            return None
+        return _peer_kind(db, peer)
 
     try:
         max_parallel = batch.check_max_parallel(args.max_parallel)
@@ -1169,7 +1181,14 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             from peerhub.extensions.adapters.base import AgRequiresWritableError
             guidance_code = select_guidance_code(exception=exception)
             db_arg = getattr(args, "db", None)
-            sid = getattr(args, "stream_id", None) or (f"peer:{args.peer}:chat" if getattr(args, "peer", None) else None)
+            sid = getattr(args, "stream_id", None)
+            if sid is None and getattr(args, "peer", None):  # the stream this ask used, by the rule `ask` itself applies
+                from peerhub.extensions.adapters.api import API_TARGETS
+                from peerhub.extensions.ask import default_stream
+                try:
+                    sid = default_stream(args.peer, getattr(args, "request_id", None), stateless=_peer_kind(db_arg, args.peer) in API_TARGETS)
+                except Exception:  # any failure the lookup itself does not handle: the error being reported wins, and no stream is named
+                    sid = None
             if args.json:
                 payload: dict[str, Any] = dict(status="error", response=None, session=session, error=dict(code=code, message=message))
                 if guidance_code:

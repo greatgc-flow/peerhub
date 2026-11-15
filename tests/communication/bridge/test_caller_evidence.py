@@ -81,6 +81,16 @@ def test_any_identity_field_that_differs_is_another_process(tmp_path, field):
     assert len(caller_rows(h)) == 2
 
 
+@pytest.mark.parametrize("unknown", [("host",), ("ns",), ("ask_pid",), ("ask_created",), ("host", "ns", "ask_pid", "ask_created")])
+def test_an_unknown_identity_value_never_makes_two_callers_the_same_process(tmp_path, unknown):
+    """#376 s3: equal None values are not evidence of one process (the all-None detail is what an unreadable environment yields)."""
+    blind = {**A, **{field: None for field in unknown}}
+    h = BridgeHarness(tmp_path / "ws", caller=blind)
+    _fail_first_invocation(h)
+    assert h.new_bridge("second-ask", caller=dict(blind)).delivery_cycle("b", "s", FakeRuntimeTarget()).status == "delivered"
+    assert len(caller_rows(h)) == 2
+
+
 def test_the_same_process_in_a_new_bridge_adds_no_row(tmp_path):
     h = BridgeHarness(tmp_path / "ws", caller=A)
     _fail_first_invocation(h)

@@ -166,7 +166,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     kinds: list[str] = []
     for peer in peers:
         kind = ALIASES.get(peer)
-        if kind is None:
+        if kind not in ("cx", "cc", "ag"):  # the API peers ca and oa have no quota pool (#378)
             raise ValueError("quota providers: cx/codex, cc/claude, ag/agy")
         kinds.append(kind)
     injected_pollers = pollers is not None

@@ -163,6 +163,15 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                                 expand=expand, text_encoding=text_encoding)
 
 
+def _read_failed(payload: dict[str, Any]) -> bool:
+    """True when a selected group could not be read (exit code 4). A store that never had a quota refresh is not such
+    a case: the read model gives its capacity group as read with no observations, for the human frame and for --json."""
+    groups_obj: object = payload.get("groups")
+    groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
+    return any(isinstance(group, dict) and cast(dict[str, Any], group).get("status") == "ERROR"
+               for group in groups.values())
+
+
 def run_monitor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     validate_monitor_args(parser, args)
     if args.cycles is None:
@@ -229,7 +238,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     def emit(cycle: int, phase: str, refresh: dict[str, Any]) -> int:
         nonlocal last_payload, last_frame_monotonic
         try:
-            payload: dict[str, Any] = render_monitor_frame(args.db, selected, human=not args.json and not expand,
+            payload: dict[str, Any] = render_monitor_frame(args.db, selected, human=not args.json,
                                                            preference_source=preference.get("source"),
                                                            lead_reader=_lead_reader)
         except SchemaVersionError:
@@ -255,14 +264,26 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
             output.write(_render_human_frame(payload, view=effective_view, width=width,
                                              height=height if output.live else None, color=color,
                                              expand=expand))
-        groups_obj: object = payload.get("groups")
-        groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
-        if any(isinstance(v, dict) and cast(dict[str, Any], v).get("status") == "ERROR" for v in groups.values()):
+        if _read_failed(payload):
             error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
             return 4
         errors_obj: object = payload.get("errors")
         errors = cast(dict[str, Any], errors_obj) if isinstance(errors_obj, dict) else {}
         return 6 if "schema" in errors else 0
+
+    def redraw(state: str, next_in: float | None = None) -> None:
+        """Draw the last payload again between two reads. Every such frame is that one payload aged by the time since
+        its read, so line 1 and POOLS always show the same moment (P9)."""
+        if last_payload is None:
+            return
+        display = dict(last_payload)
+        display["refresh_state"] = state
+        display["display_elapsed_seconds"] = max(0.0, monotonic() - last_frame_monotonic)
+        if next_in is not None:
+            display["next_refresh_in"] = next_in
+        width, height = output.geometry()
+        output.write(_render_human_frame(display, view=effective_view, width=width, height=height, color=color,
+                                         expand=expand))
 
     try:
         if args.json or sys.stdout.isatty():
@@ -277,13 +298,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                 return 5
             refresh: dict[str, Any]
             if done % args.collect_every == 0:
-                if output.live and last_payload is not None:
-                    display = dict(last_payload)
-                    display["refresh_state"] = "REFRESHING"
-                    display["next_refresh_in"] = 0
-                    width, height = output.geometry()
-                    output.write(_render_human_frame(display, view=effective_view, width=width,
-                                                     height=height, color=color, expand=expand))
+                if output.live:
+                    redraw("REFRESHING", 0)
                 result = refresh_with_profile_pools(args.db, args.peers, sys_dir=getattr(args, "sys_dir", None),
                                                     deadline_sec=args.timeout)
                 last_refresh_code = 1 if result["status"] != "OK" else 0
@@ -296,11 +312,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                 if token_command and not args.allow_agy_token_use:
                     message = agy_token_stop_message(token_command)
                     if output.live and last_payload is not None:
-                        display = dict(last_payload)
-                        display["refresh_state"] = "STOPPED · AGY TOKEN USE"
-                        width, height = output.geometry()
-                        output.write(_render_human_frame(display, view=effective_view, width=width,
-                                                         height=height, color=color, expand=expand))
+                        redraw("STOPPED · AGY TOKEN USE")
                     else:
                         print(message, file=sys.stderr, flush=True)
                     return 1
@@ -317,15 +329,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                 while remaining > 0:
                     sleep(min(1.0, remaining))
                     remaining = next_deadline - monotonic()
-                    if remaining > 0 and last_payload is not None:
-                        display = dict(last_payload)
-                        display["next_refresh_in"] = remaining
-                        display["display_elapsed_seconds"] = max(0.0, monotonic() - last_frame_monotonic)
-                        display["refresh_state"] = "REFRESH OK" if last_refresh_code == 0 else "REFRESH WARN"
-                        width, height = output.geometry()
-                        output.write(_render_human_frame(display, view=effective_view,
-                                                         width=width, height=height, color=color,
-                                                         expand=expand))
+                    if remaining > 0:
+                        redraw("REFRESH OK" if last_refresh_code == 0 else "REFRESH WARN", remaining)
             elif remaining > 0:
                 sleep(remaining)
             now = monotonic()
@@ -369,7 +374,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     from peerhub.core.schema_version import SchemaVersionError
     expand = bool(getattr(args, "expand", False))
     try:
-        payload = render_monitor_frame(args.db, selected, human=not args.json and not expand,
+        payload = render_monitor_frame(args.db, selected, human=not args.json,
                                        preference_source=preference["source"], lead_reader=_lead_reader)
     except SchemaVersionError:
         payload = {"schema_version": "2.0", "status": "FAILED", "selected_groups": selected,
@@ -388,14 +393,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
         print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
     else:
         _print_grouped_snapshot(payload, args.view, expand=expand)
-    groups_obj: object = payload.get("groups")
-    groups = cast(dict[str, Any], groups_obj) if isinstance(groups_obj, dict) else {}
-    group_errors = False
-    for value in groups.values():
-        if isinstance(value, dict) and cast(dict[str, Any], value).get("status") == "ERROR":
-            group_errors = True
-            break
-    if group_errors or payload["status"] == "FAILED":
+    if _read_failed(payload) or payload["status"] == "FAILED":
         error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
         return 4
     return 0

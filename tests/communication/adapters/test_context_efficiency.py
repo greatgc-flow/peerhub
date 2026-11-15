@@ -1,10 +1,11 @@
 """Stage 1: reported usage and explicit, compact catch-up prompts."""
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from peerhub.extensions.adapters import base
-from peerhub.extensions.adapters.telemetry import parse_provider_usage
+from peerhub.extensions.adapters.telemetry import parse_provider_usage, unknown_usage
 from peerhub.extensions.catchup import ProjectedRecords
 
 pytestmark = pytest.mark.unit
@@ -39,7 +40,8 @@ def test_literal_usage_is_normalized_and_carried_in_terminal(kind, stdout, expec
 
 
 def test_truncated_output_marks_provider_telemetry_unknown(monkeypatch, tmp_path):
-    stdout = b'{"type":"result","is_error":false,"result":"OK","usage":{"output_tokens":1}}'
+    stdout = (Path(__file__).parents[1] / "fixtures" / "telemetry" / "cc-stream-real-2026-11-14.ndjson").read_bytes()
+    assert "context" in parse_provider_usage("cc", stdout.decode("utf-8"))  # complete, this stream gives a context reading
     result = base.ProcessResult(123, 0, stdout, b"", False, False, 0.1)
     process = SimpleNamespace(pid=123, start=lambda: None, wait=lambda: result)
 
@@ -65,8 +67,7 @@ def test_truncated_output_marks_provider_telemetry_unknown(monkeypatch, tmp_path
     adapter = base.CliRuntimeTarget("cc", tmp_path, command=["fake.exe"])
     events = list(adapter.deliver("session", SimpleNamespace(body="question"), []))
     assert events[-1][0] == "terminal"
-    assert events[-1][1]["provider_telemetry"]["coverage"] == {
-        "state": "UNKNOWN", "reason": "output_incomplete"}
+    assert events[-1][1]["provider_telemetry"] == unknown_usage("output_incomplete")  # no usage and no context (#376 P2)
 
 
 @pytest.mark.parametrize("kind", ["cc", "cx", "ag"])

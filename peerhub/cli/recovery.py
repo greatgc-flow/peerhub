@@ -158,6 +158,20 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
         meaning="Session selector or handle validation failed before invocation could begin.",
         safe_action="List valid sessions via `peerhub session list` or pass `--fresh` to allocate a fresh session.",
     ),
+    "truncated": ResultStatusEntry(
+        status="truncated",
+        exit_code=1,
+        guidance_code="truncated",
+        meaning="An API peer (ca, oa) reply was cut at its limit of 16,000 output tokens; the ask is not delivered, and the partial text is in partial_response.",
+        safe_action="Ask again on a new stream with a narrower question or a request for a shorter answer; a ca or oa stream takes one ask only.",
+    ),
+    "incomplete": ResultStatusEntry(
+        status="incomplete",
+        exit_code=1,
+        guidance_code="incomplete",
+        meaning="An API peer (ca, oa) reply ended for a reason other than the token limit (for example a refusal); the ask is not delivered, and any text is in partial_response.",
+        safe_action="Read the reason in the error message; rephrase, or use another profile or peer, on a new stream. Do not count the partial text as a reply.",
+    ),
     "uncertain": ResultStatusEntry(
         status="uncertain",
         exit_code=1,
@@ -429,6 +443,46 @@ REGISTRY: dict[str, GuidanceEntry] = {
             {"code": 2, "context": "Invalid CLI arguments or unrecognized ask options (ValueError other than selector/session errors)."},
         ],
     ),
+    # API peers ca and oa (#378): one API call per ask, no tools, no session.
+    "truncated": GuidanceEntry(
+        code="truncated",
+        meaning="The reply of an API peer (ca, oa) was cut at its limit of 16,000 output tokens; the ask is not delivered.",
+        why="The provider stopped at the output limit (ca stop_reason max_tokens; oa status incomplete with reason max_output_tokens). The call ran and spent API credits; the cut text is kept in partial_response (--json) and is not a response Record.",
+        recover=[{
+            "argv": ["peerhub", "ask", "PEER_ID", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM_ID", "--profile", "PROFILE"],
+            "purpose": "Ask again on a new stream with a narrower question or a request for a shorter answer, the text inlined",
+            "prereqs": "A ca or oa stream takes one ask only; read partial_response first to see where the reply stopped.",
+        }],
+        avoid="Do not treat the cut text as a complete reply, and do not ask again on the same stream (it is refused: one ask per stream).",
+        docs="docs/adapters/README.md",
+        exits=[{"code": 1, "context": "API peer reply cut at the output token limit (truncated result status)."}],
+    ),
+    "incomplete": GuidanceEntry(
+        code="incomplete",
+        meaning="The reply of an API peer (ca, oa) ended for a reason other than the token limit; the ask is not delivered.",
+        why="The provider ended the reply without completing it (for example ca stop_reason refusal, or an oa status other than completed). The call ran and spent API credits; the error message names the reason, and any text is kept in partial_response (--json).",
+        recover=[{
+            "argv": ["peerhub", "ask", "PEER_ID", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM_ID", "--profile", "PROFILE"],
+            "purpose": "Read the reason, then rephrase or use another profile or peer on a new stream",
+            "prereqs": "A ca or oa stream takes one ask only.",
+        }],
+        avoid="Do not count the partial text as a reply (for example as a vote), and do not ask again on the same stream.",
+        docs="docs/adapters/README.md",
+        exits=[{"code": 1, "context": "API peer reply ended without completing (incomplete result status)."}],
+    ),
+    "request_rejected": GuidanceEntry(
+        code="request_rejected",
+        meaning="An ask to an API peer (ca, oa) was refused before anything was stored or sent.",
+        why="ca and oa take a model that matches their pattern (from --profile or --model), no --effort and no --writable, and one ask per stream; this request broke one of those rules. The message names the rule.",
+        recover=[{
+            "argv": ["peerhub", "explain", "PROFILE"],
+            "purpose": "Correct the command named in the message: a ca/oa profile or a valid --model, no --effort, no --writable, a new stream for a new ask",
+            "prereqs": "PROFILE is ca.standard, ca.effort, ca.deepthink, oa.standard, oa.effort or oa.deepthink.",
+        }],
+        avoid="Do not retry the same command unchanged; nothing was sent, so no provider work needs recovery.",
+        docs="docs/adapters/README.md",
+        exits=[{"code": 2, "context": "API peer request refused before anything was stored or sent (RequestRejected)."}],
+    ),
 }
 
 # The store-missing lesson owns the detailed store-selection recovery recipe.
@@ -579,6 +633,10 @@ def select_guidance_code(
             return "ask_launch_failed" if _is_launch_failure_text(str(exception)) else "ask_delivery_failed"
         if isinstance(exception, (StorageReadOnlyError, StorageFullError, StorageCorruptError)):
             return "ask_delivery_failed"
+        from peerhub.extensions.adapters.api import RequestRejected
+
+        if isinstance(exception, RequestRejected):  # API peers (#378): refused before anything was stored or sent
+            return "request_rejected"
         if isinstance(exception, ValueError) and "session" in type(exception).__name__.lower():
             return "ask_selector_error"
         return "ask_unexpected_failure"
@@ -599,6 +657,8 @@ def select_guidance_code(
         return "ask_blocked_uncertain"
     if status == "blocked_uncertain" or processed_status in ("uncertain", "blocked_uncertain"):
         return "ask_blocked_uncertain"
+    if status in ("truncated", "incomplete"):  # API peers (#378): the reply ended; the error says why, nothing is uncertain
+        return status
     if status == "uncertain" or (certainty in ("STARTED", "MAY_HAVE_STARTED") and status != "not_executed"):
         return "ask_uncertain"
     if status == "not_executed" or reason in ("quota_exhausted", "usage_limit", "invalid_model", "auth_failure", "refusal"):
@@ -680,7 +740,7 @@ def render_explain(entry: GuidanceEntry) -> str:
     return "\n".join(lines)
 
 
-_PROFILE_ID = re.compile(r"(?:ag|cc|cx)\.\S+")  # one token; the resolver decides known vs unknown
+_PROFILE_ID = re.compile(r"(?:ag|cc|cx|ca|oa)\.\S+")  # one token; the resolver decides known vs unknown
 
 
 def _explain_profile(profile: str, *, json_output: bool) -> int:

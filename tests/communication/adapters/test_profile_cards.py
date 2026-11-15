@@ -44,7 +44,7 @@ def test_packaged_card_evidence_resolves():
 def test_packaged_cards_never_restate_pools():
     for pid, p in PACKAGED.items():
         text = " ".join([p["use_for"], p["avoid_for"], *p["traits"]])
-        for pool in p["pools"]:
+        for pool in p.get("pools", []):  # the API peers ca and oa have no pool (#378)
             assert pool not in text, (pid, pool)
 
 

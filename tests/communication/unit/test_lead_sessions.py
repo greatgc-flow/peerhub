@@ -583,6 +583,85 @@ def test_an_old_unknown_file_does_not_hide_a_live_session_with_the_same_id(tmp_p
     assert [s["pid"] for s in read([tmp_path / "a", tmp_path / "b"])[0]] == [2]
 
 
+def deny(monkeypatch: pytest.MonkeyPatch, *paths: Path) -> None:
+    """Make every one of `paths` a file that exists and cannot be opened."""
+    denied = {os.path.normcase(os.path.realpath(path)) for path in paths}
+    real = os.open
+
+    def opener(name: str, flags: int, *args: Any) -> int:
+        if os.path.normcase(name) in denied:
+            raise PermissionError(13, "denied")
+        return real(name, flags, *args)
+
+    monkeypatch.setattr(ls, "_open", opener)
+
+
+@pytest.mark.parametrize("second_confirmed", [True, False])
+def test_an_unreadable_transcript_shared_by_two_files_of_one_id_counts_once(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, second_confirmed: bool):
+    first = write_session(tmp_path, pid=1, pidDomain="win32:other")  # unconfirmed and no readable transcript: not kept
+    second = write_session(tmp_path, pid=2, pidDomain=f"win32:{HOST}" if second_confirmed else "win32:other")
+    os.utime(first, (NOW, NOW))  # newest first: the unconfirmed file is read first
+    os.utime(second, (NOW - 100, NOW - 100))
+    deny(monkeypatch, write_transcript(tmp_path, [assistant()]))
+    sessions, state = read([tmp_path])
+    assert [s["pid"] for s in sessions] == ([2] if second_confirmed else [])
+    assert state == clean_read(unreadable=1)
+
+
+def test_unreadable_transcripts_of_one_id_in_two_folders_are_two_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    write_session(tmp_path / "a", pid=1, pidDomain="win32:other")
+    write_session(tmp_path / "b", pid=2)
+    deny(monkeypatch, write_transcript(tmp_path / "a", [assistant()]), write_transcript(tmp_path / "b", [assistant()]))
+    sessions, state = read([tmp_path / "a", tmp_path / "b"])
+    assert [s["pid"] for s in sessions] == [2] and state == clean_read(unreadable=2)
+
+
+@pytest.mark.parametrize("confirmed_first", [False, True])
+def test_a_confirmed_file_replaces_an_unconfirmed_row_of_the_same_id_in_one_folder(tmp_path: Path, confirmed_first: bool):
+    unconfirmed = write_session(tmp_path, pid=1, pidDomain="win32:other", name="old-name", cwd="D:/work/old")
+    confirmed = write_session(tmp_path, pid=2)
+    write_transcript(tmp_path, [assistant()])  # written in the last day: the unconfirmed row alone would be kept
+    newest, older = (confirmed, unconfirmed) if confirmed_first else (unconfirmed, confirmed)
+    os.utime(newest, (NOW, NOW))  # newest first
+    os.utime(older, (NOW - 100, NOW - 100))
+    session = one([tmp_path])
+    assert (session["pid"], session["alive"], session["name"], session["folder"]) == (2, True, "docs-site-5a", "docs-site")
+    assert read([tmp_path])[1] == clean_read()
+    unconfirmed.unlink()
+    assert session == one([tmp_path])  # exactly the row of the confirmed file alone
+
+
+@pytest.mark.parametrize("confirmed_first", [False, True])
+def test_a_confirmed_file_in_another_folder_replaces_an_unconfirmed_row_and_none_of_its_fields_survive(
+        tmp_path: Path, confirmed_first: bool):
+    a, b = tmp_path / "a", tmp_path / "b"
+    write_session(a, pid=1, pidDomain="win32:other", name="old-name", cwd="D:/work/old", status="idle", version="1.0.0",
+                  entrypoint="claude-vscode", startedAt=(STARTED - 500) * 1000, statusUpdatedAt=(NOW - 900) * 1000)
+    write_transcript(a, [{"type": "ai-title", "aiTitle": "Old title"}, {"type": "last-prompt", "lastPrompt": "old prompt"},
+                         assistant()])
+    write_catalog(a, [window("claude-fable-5-2", 1_000_000)])
+    write_session(b, pid=2)  # no transcript and no catalog: every transcript field of this row is None
+    old, alone = one([a]), one([b])
+    assert old["alive"] is None and old["title"] == "Old title" and old["context_pct"] == 0
+    assert alone["alive"] is True and alone["context_tokens"] is None and alone["title"] is None
+    assert read([b, a] if confirmed_first else [a, b]) == ([alone], clean_read())
+
+
+def test_only_a_confirmed_file_replaces_a_row_and_the_replaced_row_keeps_its_place(tmp_path: Path):
+    folders = [tmp_path / name for name in "abcd"]
+    other = write_session(folders[0], pid=7, sessionId="session-other")
+    os.utime(other, (NOW - 100, NOW - 100))  # read after the file of pid 1
+    for pid, folder in enumerate(folders, start=1):
+        path = write_session(folder, pid=pid, pidDomain="win32:other" if pid < 3 else f"win32:{HOST}")
+        os.utime(path, (NOW, NOW))
+        write_transcript(folder, [assistant()])
+    assert [s["pid"] for s in read(folders[:2])[0]] == [1, 7]  # a second unconfirmed file replaces nothing
+    sessions, state = read(folders)
+    assert [(s["pid"], s["alive"]) for s in sessions] == [(3, True), (7, True)]  # the first confirmed file is final
+    assert state == clean_read()
+
+
 def test_more_than_two_thousand_project_names_count_not_read(tmp_path: Path):
     write_session(tmp_path)
     projects = tmp_path / "projects"

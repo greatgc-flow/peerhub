@@ -30,7 +30,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--yes", action="store_true", help="acknowledge that this spends real provider quota")
     ap.add_argument("--only", choices=[s[0] for s in (*STAGES, CANARY_STAGE)], help="run a single stage")
-    ap.add_argument("--peer", choices=("cc", "cx", "ag"), help="with --only live/canary: select one peer to reduce quota use")
+    ap.add_argument("--peer", choices=("cc", "cx", "ag", "ca", "oa"),
+                    help="with --only live/canary: select one peer to reduce quota use (ca and oa exist in canary only; they spend API credits)")
     ap.add_argument("--out", type=Path, default=EVIDENCE_DIR, help="JUnit output directory")
     args = ap.parse_args(argv)
     if args.peer and args.only not in ("live", "canary"):

@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
+from peerhub.extensions.adapters.api import API_TARGETS
 from peerhub.extensions.adapters.profiles import inspect_model_pools, list_profiles
 from peerhub.extensions.adapters.base import classify_refusal_text
 from peerhub.extensions.diag import ReadonlyDiag
@@ -34,6 +35,8 @@ def readiness_report(db_path: str | Path, *, read_at: float | None = None,
 def configured_profiles(workspace: Path) -> list[dict[str, Any]]:
     profiles: list[dict[str, Any]] = []
     for item in list_profiles(workspace, include_pool_source=True):
+        if item["profile"].split(".", 1)[0] in API_TARGETS:  # ca and oa (#378) have no quota pool: no readiness to cache
+            continue
         fields = item["fields"]
         model, effort = fields["model"]["value"], fields["effort"]["value"]
         exact = inspect_model_pools(model, workspace) if model else None

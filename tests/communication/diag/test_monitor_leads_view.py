@@ -59,7 +59,7 @@ def test_leads_sit_between_running_and_recent_with_the_column_order(frame):
     with_leads(frame, [lead("docs-site", session=sess())])
     lines = screen(frame)
     heads = [line.split()[0] for line in lines if re.match(r"^(RUNNING|LEADS|RECENT|POOLS|suggest:)", line)]
-    assert heads == ["RUNNING", "LEADS", "RECENT", "suggest:", "POOLS"]
+    assert heads == ["POOLS", "suggest:", "RUNNING", "LEADS", "RECENT"]  # P21: the quota first, then the activity
     block = leads_block(lines)
     assert block[0] == "LEADS 1"
     assert block[1].split() == ["docs-site", "busy", "12s", "ctx", "10%", "0", "run", "fable-5-2", *TITLE.split()]
@@ -210,7 +210,8 @@ def test_the_unbounded_frame_with_leads_keeps_24_lines():
     assert len(lines) == 24
     i = lines.index("LEADS 5")
     assert lines[i - 1] == "+6 more (--expand)" and lines[i + 1].startswith(" lead-0") and lines[i + 2] == "+4 leads (--expand)"
-    assert lines[i + 3] == "RECENT 4" and lines[i + 4].endswith("done-a") and lines[i + 5].startswith("suggest:")
+    assert lines[i + 3] == "RECENT 4" and lines[i + 4].endswith("done-a") and len(lines) == i + 5  # RECENT is last
+    assert lines[lines.index("RUNNING 9 | cc 9") - 1].startswith("  quality")  # P21: the suggestion precedes RUNNING
 
 
 def test_each_step_removes_in_the_one_order_with_leads():
@@ -311,7 +312,8 @@ def test_the_worst_case_frame_with_leads_stays_within_the_bounds(frame, width, u
     lines = text.splitlines()
     assert len(lines) <= 24 and len(text.encode("utf-8")) <= 8192
     assert all(_width(line) <= min(100, width) - 1 for line in lines)
-    assert any(line.startswith("LEADS 12 | partial (9 unreadable, 99 not read)") for line in lines)
+    head = "── LEADS 12 · partial (9 unreadable, 99 not read) ─" if unicode else "LEADS 12 | partial (9 unreadable, 99 not read)"
+    assert any(line.startswith(head) for line in lines)  # P21: the rich view draws the head as a rule
 
 
 @pytest.mark.parametrize("height", range(2, 9))

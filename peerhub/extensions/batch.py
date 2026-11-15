@@ -140,7 +140,9 @@ def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None
     for t in tasks:
         kind = kind_of(t.peer)
         if kind is None:
-            raise ManifestError(f"task {t.task_id}: unknown peer {t.peer!r} (register it with --adapter cx, cc or ag)")
+            raise ManifestError(f"task {t.task_id}: unknown peer {t.peer!r} (register it with --adapter cx, cc, ag, ca or oa)")
+        if t.writable and kind in ("ca", "oa"):
+            raise ManifestError(f"task {t.task_id}: {kind} has no workspace access; remove writable")
         if t.workspace is not None and not t.workspace.is_dir():
             raise ManifestError(f"task {t.task_id}: workspace {t.workspace} is not an existing directory")
         spaces.append((t, _real(t.workspace), t.writable or kind == "ag"))  # ag writes regardless of the flag (#140)
@@ -200,6 +202,10 @@ def classify_worker(returncode: int | None, stdout: str, *, overflow: bool = Fal
         return "UNCERTAIN", "uncertain"
     error = result.get("error")
     code = cast(dict[str, Any], error).get("code") if isinstance(error, dict) else None
+    if status in ("truncated", "incomplete"):  # API peers (#378): the reply ended and is not usable
+        return "FAILED", str(status)
+    if code == "request_rejected":  # refused before anything was started
+        return "FAILED", "request_rejected"
     return "UNCERTAIN", code if isinstance(code, str) and code else f"exit_{returncode}"
 
 

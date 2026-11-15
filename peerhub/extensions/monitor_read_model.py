@@ -197,8 +197,16 @@ _ROW_COLUMNS = ("o.capture_seq,o.observation_id,o.subject_ref,o.resource_pool_re
                 "o.payload_json,o.observed_at,o.captured_at,o.effective_at_us,p.provider,p.kind AS pool_kind ")
 _ROW_JOINS = ("FROM observation_rollups r JOIN observations o ON o.capture_seq=r.latest_capture_seq "
               "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref ")
+
+
+def _guarded(json_column: str, path: str, value: str) -> str:
+    """`value` (an expression over json_extract/json_type of `json_column`) only when the column is valid JSON; nested CASE so
+    SQLite never evaluates a JSON function on malformed text (which would abort the whole statement)."""
+    return f"CASE WHEN json_valid({json_column}) THEN {value.format(c=json_column, p=path)} END"
+
+
 def _payload_resets(alias: str) -> str:
-    return f"CASE WHEN json_valid({alias}.payload_json) THEN json_extract({alias}.payload_json,'$.resets_at') END"
+    return _guarded(f"{alias}.payload_json", "$.resets_at", "json_extract({c},'{p}')")
 
 
 # Distinct MEASURED samples (at most 2) of the same pool and reset window: the two-sample rule of `fast`. Computed inside the
@@ -343,10 +351,10 @@ def public_telemetry(raw: object, *, handle: str, generation: int, provider: str
                             "state": "UNKNOWN", "reason": "invalid_or_missing_receipt"}}
     def model(value: object) -> str | None:
         return value if isinstance(value, str) and _SAFE_MODEL.fullmatch(value) else None
+    from peerhub.extensions.session_receipts import CONTEXT_SOURCE, context_estimate, validate_provider_usage
     usage_raw: object = detail.get("usage")
     public_usage: dict[str, Any] | None = None
     if isinstance(usage_raw, dict):
-        from peerhub.extensions.session_receipts import validate_provider_usage
         usage = cast(dict[str, Any], usage_raw)
         candidate = {key: usage.get(key) for key in ("schema_version", "scope", "source", "reported", "normalized", "coverage")}
         checked = validate_provider_usage(candidate, provider)
@@ -354,23 +362,20 @@ def public_telemetry(raw: object, *, handle: str, generation: int, provider: str
             public_usage = {key: usage.get(key) for key in ("schema_version", "scope", "attribution", "reported", "normalized", "coverage")}
     occupancy, window, pct = detail.get("last_input_tokens"), detail.get("context_window"), detail.get("context_pct")
     sample_at, window_at = detail.get("observed_at"), detail.get("window_reported_at")
-    valid_context = (
-        isinstance(occupancy, int) and not isinstance(occupancy, bool) and occupancy >= 0 and
-        isinstance(window, int) and not isinstance(window, bool) and window > 0 and
-        isinstance(pct, (int, float)) and not isinstance(pct, bool) and math.isfinite(float(pct)) and 0 <= pct <= 100 and
-        isinstance(sample_at, (int, float)) and not isinstance(sample_at, bool) and
-        isinstance(window_at, (int, float)) and not isinstance(window_at, bool)
-    )
+    # One validated source (#376 P2): the cc adapter's reading of the ask's own stream, an ESTIMATE of the occupancy at the
+    # end of that ask (`observed_at`). Every other source, provider or value that fails a check stays unknown.
+    estimate = context_estimate(occupancy, window) if provider == "cc" and detail.get("source") == CONTEXT_SOURCE else None
+    valid_context = (estimate is not None and _number(pct) == estimate[2]
+                     and _number(sample_at) is not None and _number(window_at) is not None)
     has_context = any(detail.get(key) is not None for key in
                       ("last_input_tokens", "context_window", "context_pct", "context_sample"))
-    # No adapter currently has a validated, versioned occupancy source. Keep
-    # values unknown until a provider-specific validator is explicitly added.
-    context = {"occupancy_tokens": None, "window_tokens": None, "percent": None,
+    tokens, size, percent = estimate if estimate is not None and valid_context else (None, None, None)
+    context = {"occupancy_tokens": tokens, "window_tokens": size, "percent": percent,
                "source": model(detail.get("source")),
                "observed_at": sample_at if valid_context else None,
                "window_reported_at": window_at if valid_context else None,
-               "state": "UNKNOWN",
-               "reason": "unvalidated_context_source" if has_context else "no_context_measurement"}
+               "state": "ESTIMATED" if valid_context else "UNKNOWN",
+               "reason": None if valid_context else "unvalidated_context_source" if has_context else "no_context_measurement"}
     return {"configured_model": model(detail.get("configured_model")), "resolved_model": model(detail.get("resolved_model")),
             "adapter_version": _public_binding_value(detail.get("adapter_version")),
             "provider_cli_version": _public_binding_value(detail.get("provider_cli_version")),
@@ -404,18 +409,12 @@ def _sql_list(values: tuple[str, ...]) -> str:
     return ",".join(f"'{value}'" for value in values)  # constants of this module only
 
 
-def _guarded(json_column: str, path: str, value: str) -> str:
-    """`value` (an expression over json_extract/json_type of `json_column`) only when the column is valid JSON; nested CASE so
-    SQLite never evaluates a JSON function on malformed text (which would abort the whole statement)."""
-    return f"CASE WHEN json_valid({json_column}) THEN {value.format(c=json_column, p=path)} END"
-
-
 _R = "tx.result_json"
 _ACTIVITY_SQL = (
     "WITH s AS (SELECT c.stream_id,c.peer_id,c.generation AS c_generation,c.expires_at,c.lease_sec,c.workspace_generation AS c_wsgen,"
     "ROW_NUMBER() OVER (ORDER BY c.expires_at DESC,c.stream_id,c.peer_id) AS scope_rank,COUNT(*) OVER () AS scope_total "
     "FROM bridge_claims c WHERE c.expires_at>=:since ORDER BY c.expires_at DESC,c.stream_id,c.peer_id LIMIT :scope_limit), "
-    # Every delivery of a selected scope is read through the (stream_id, peer_id) prefix of idx_bd_scope_generation (#330 cost class).
+    # Every delivery of a selected scope is read through the (stream_id, peer_id) prefix of a scope index (#330 cost class).
     # Only keys travel through the window sorts; the result and record are joined back by primary key for the kept rows.
     "dl AS (SELECT s.*,d.delivery_id,d.seq,d.certainty,d.result_json IS NULL AS no_result,"
     "ROW_NUMBER() OVER (PARTITION BY s.stream_id,s.peer_id ORDER BY d.seq DESC) AS rn "
@@ -882,7 +881,8 @@ def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None
                 now: float | None = None, samples: dict[str, int] | None = None) -> list[dict[str, Any]]:
     """Display state of every quota pool row and its rounded percent left. A fresh (MEASURED) row is out, low, fast, ok or
     reset; a STALE row with a last-known fraction is `aged` (never out, low or fast, so a3 stays fresh-only), or `reset` once
-    its resets_at passed; anything else is `?`. `fresh` marks a MEASURED row with a valid fraction.
+    its resets_at passed; anything else is `?`. `fresh` marks a MEASURED row with a valid fraction; `na` marks a window the
+    provider says it does not have or has disabled (ABSENT with one of ABSENT_FACT_REASONS, also when aged).
 
     `shown` is what the POOLS table shows (precedence n/a ? reset out low fast aged ok): `state` for a fresh row; for a STALE
     row out at 0, low at 0.10 or less, fast on a threat projection, else aged. `fast` needs two projection samples, as in the
@@ -926,16 +926,19 @@ def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None
             state = shown = graded(remaining, "ok")
         pools.append({"pool": f"{item.get('peer_id')} {pool}", "left_pct": None if remaining is None else round(remaining * 100),
                       "state": state, "shown": shown, "window": pool.rpartition("-")[2] if "-" in pool else "?",
-                      "evidence": evidence, "fresh": fresh})
+                      "evidence": evidence, "fresh": fresh,
+                      "na": evidence == "ABSENT" and str(item.get("reason") or "").startswith(ABSENT_FACT_REASONS)})
     return pools
 
 
 def capacity_source(pools: list[dict[str, Any]]) -> str:
-    """`stale` when at least one 7-day row is STALE and no 7-day row is fresh (MEASURED with a valid fraction), else `read`."""
-    weekly = [p for p in pools if p.get("window") == "7D"]
-    if any(p.get("evidence") == "STALE" for p in weekly) and not any(p.get("fresh") for p in weekly):
-        return "stale"
-    return "read"
+    """The 7-day rows, without the windows a provider says it does not have (`na`): `read` when there is none or one is fresh
+    (MEASURED with a valid fraction); else `stale` when at least one is STALE; else `unknown` (every one is unknown or in
+    error, so no 7-day pool has a number)."""
+    weekly = [p for p in pools if p.get("window") == "7D" and not p.get("na")]
+    if not weekly or any(p.get("fresh") for p in weekly):
+        return "read"
+    return "stale" if any(p.get("evidence") == "STALE" for p in weekly) else "unknown"
 
 
 def min_quota(pools: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -1361,10 +1364,15 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         **({"accounts_truncated": True} if len(account_rows) > ACCOUNT_ROW_CAP else {}),
                         "sample_size": min(len(rows), 100), "truncated": len(rows) > 100}}
             except sqlite3.Error as exc:
-                errors["capacity"] = type(exc).__name__
                 capacity_never_refreshed = _no_observation_tables(conn, exc)
+                if not capacity_never_refreshed:
+                    errors["capacity"] = type(exc).__name__
                 if "capacity" in groups:
-                    output["capacity"] = {"status": "ERROR", "data": None}
+                    # No observation table at all is a capacity group read with nothing in it (as when the tables are
+                    # empty), not an error: the human frame and the JSON agree, and `alert_sources` says `no_evidence`.
+                    output["capacity"] = ({"status": "OK", "data": {"observations": [], "reset_credits": [],
+                                                                    "sample_size": 0, "truncated": False}}
+                                          if capacity_never_refreshed else {"status": "ERROR", "data": None})
         if "peers" in groups:
             config_workspace = _monitor_workspace(db_path, workspace)
             peer_records: list[dict[str, Any]] = []
@@ -1484,6 +1492,8 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         ctx_data = {
                             "percent": tel_ctx.get("percent"),
                             "occupancy_tokens": tel_ctx.get("occupancy_tokens"),
+                            "window_tokens": tel_ctx.get("window_tokens"),
+                            "observed_at": tel_ctx.get("observed_at"),  # the end of the ask the estimate belongs to
                             "state": tel_ctx.get("state"),
                         }
                 peer_records.append({
@@ -1592,7 +1602,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 "(SELECT DISTINCT s.effective_at_us FROM observations s "
                 "WHERE s.subject_ref=o.subject_ref AND s.resource_pool_ref IS o.resource_pool_ref "
                 "AND s.kind='quota' AND s.state='MEASURED' "
-                "AND json_extract(s.payload_json,'$.resets_at') IS json_extract(o.payload_json,'$.resets_at') "
+                "AND " + _payload_resets("s") + " IS " + _payload_resets("o") + " "  # guarded: a malformed sample never aborts
                 "ORDER BY s.effective_at_us DESC LIMIT 2)) AS samples "
                 "FROM observations o WHERE o.observation_id IN (" + ",".join("?" for _ in ids) + ")", ids,
             ).fetchall()
@@ -1637,7 +1647,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                               accounts=accounts if capacity_read and not capacity_failed else None,
                               facts_report=latest_facts_report if capacity_read and not capacity_failed else None,
                               failures=[(key, str(value).split(":")[0]) for key, value in errors.items()
-                                        if key != "scope_cap" and not (key == "capacity" and no_evidence)],
+                                        if key != "scope_cap"],
                               now=now)
         return {"schema_version": "2.0", "status": "PARTIAL" if errors else "OK", "read_at": now,
                 "groups": output, "errors": errors, "alert_sources": alert_sources, "alerts": alerts,

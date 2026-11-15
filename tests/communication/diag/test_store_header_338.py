@@ -11,7 +11,7 @@ from peerhub.cli.store_select import env_override_note
 from peerhub.cli.view import render_view, visible_len
 from peerhub.extensions.diag import DiagnosticReport
 
-LONG = r"D:\PkgDev\workspace\peerhub\.peerhub\core.db"
+LONG = r"C:\example\workspace\my-app\.peerhub\core.db"
 
 
 @pytest.fixture(autouse=True)

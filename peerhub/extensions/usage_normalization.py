@@ -8,6 +8,8 @@ REPORTED_FIELDS: dict[str, set[str]] = {
     "cc": {"input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"},
     "cx": {"input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens", "reasoning_output_tokens"},
     "ag": {"input_tokens", "output_tokens", "thinking_tokens", "cache_read_tokens", "total_tokens"},
+    "ca": {"input_tokens", "output_tokens"},  # the API peers (#378) send no cached context
+    "oa": {"input_tokens", "output_tokens", "total_tokens"},
 }
 NORMALIZED_FIELDS = {
     "provider_input_tokens", "uncached_input_tokens", "cached_input_tokens", "cache_read_input_tokens",
@@ -44,7 +46,7 @@ def normalize_provider_usage(provider_kind: str, reported: dict[str, Any]) -> di
         ):
             if source in reported:
                 normalized[target] = reported[source]
-    elif provider_kind == "ag":
+    elif provider_kind in ("ag", "ca", "oa"):
         if "input_tokens" in reported:
             normalized["provider_input_tokens"] = reported["input_tokens"]
         for source, target in (

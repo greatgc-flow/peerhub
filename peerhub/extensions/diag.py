@@ -407,7 +407,9 @@ class ReadonlyDiag:
                 return out  # no Bridge activity ever recorded
             # CROSS JOIN fixes the join order: the small claims table (one row per stream/peer) is filtered first and only a live
             # claim's own deliveries are looked up through the (stream_id, peer_id) index, so finished scopes' history is never read.
-            # LIMIT: no existing index covers claim_generation, so a live scope's OWN delivery history is still read (cost grows with it).
+            # idx_bd_scope_claim_generation (#330) also covers claim_generation, so a live scope's own earlier generations are skipped
+            # too. A store last opened by peerhub 0.24.17 or older has no such index yet: the same query then reads the live scope's
+            # own delivery history through the (stream_id, peer_id) prefix (cost grows with it), and stays correct and read-only.
             rows = [dict(r) for r in conn.execute(
                 "SELECT d.delivery_id,d.peer_id,d.stream_id,d.certainty,c.expires_at,r.idempotency_key,r.metadata_json,"
                 "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='session_call' "

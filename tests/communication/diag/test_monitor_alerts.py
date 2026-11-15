@@ -121,7 +121,7 @@ def test_pool_states_and_min_quota():
     pools = mrm.pool_states(observations)
     by_name = {p["pool"]: p for p in pools}
     assert by_name["ag 3P-7D"] == {"pool": "ag 3P-7D", "left_pct": 1, "state": "low", "shown": "low", "window": "7D",
-                                   "evidence": "MEASURED", "fresh": True}
+                                   "evidence": "MEASURED", "fresh": True, "na": False}
     assert by_name["cc C-5H"]["state"] == "out" and by_name["cx X-7D"]["state"] == by_name["cx X-7D"]["shown"] == "fast"
     assert by_name["cx X-5H"]["state"] == "ok"  # a threat projection from fewer than two samples is not `fast`
     assert by_name["cc F-7D"]["state"] == "?" and by_name["cc F-7D"]["left_pct"] is None
@@ -171,6 +171,43 @@ def test_capacity_source_is_stale_only_without_a_fresh_seven_day_pool():
     assert mrm.capacity_source(mrm.pool_states([stale("ag", "3P-7D", "o1"), fresh], {"o1": (0.2, None)}, NOW)) == "read"
     assert mrm.capacity_source(mrm.pool_states([stale("ag", "3P-5H", "o1")], {}, NOW)) == "read"  # no 7-day row is stale
     assert mrm.capacity_source([]) == "read"  # providers that never report quota
+
+
+def unread(peer, pool, state="UNKNOWN", **kw):
+    return {"observation_id": f"{peer}-{pool}", "peer_id": peer, "kind": "quota", "pool_ref": f"{peer}:{pool}", "state": state,
+            "measurements": None, "projection": {}, "reset_in_seconds": None, **kw}
+
+
+def test_capacity_source_is_unknown_when_no_seven_day_pool_has_a_reading():
+    """#376 P14: every 7-day pool is unknown or in error and none is STALE; a window the provider says it has not is no pool."""
+    def source(*observations):
+        return mrm.capacity_source(mrm.pool_states(list(observations), {"o1": (0.2, None)}, NOW))
+
+    fresh = {"observation_id": "f", "peer_id": "cc", "kind": "quota", "pool_ref": "cc:F-7D", "state": "MEASURED",
+             "measurements": {"remaining_fraction": 0.4}, "projection": {}, "reset_in_seconds": 100.0}
+    not_reported = unread("cc", "C-7D", "ABSENT", reason="not reported by provider; plan=pro")
+    assert source(unread("cc", "C-7D"), unread("cx", "X-7D", "ERROR"), unread("ag", "A-7D", "UNAVAILABLE")) == "unknown"
+    assert source(unread("cc", "C-7D", "ABSENT", reason="no usage block")) == "unknown"  # absent, but not a provider fact
+    assert source(unread("cc", "C-7D"), fresh) == "read"
+    assert source(unread("cc", "C-7D"), stale("ag", "3P-7D", "o1")) == "stale"
+    assert source(unread("cc", "C-5H")) == "read"  # no 7-day row at all
+    assert source(not_reported) == "read"
+    assert source(unread("cc", "C-7D", "STALE", stored_state="ABSENT", reason="disabled by provider: weekly limit")) == "read"
+    assert source(not_reported, unread("cc", "F-7D", "ERROR")) == "unknown"
+    assert [p["na"] for p in mrm.pool_states([not_reported, unread("cc", "F-7D")])] == [True, False]
+
+
+def test_a_frame_whose_only_seven_day_pool_is_unknown_reports_unknown_capacity(tmp_path):
+    from tests.communication.fakes.observation import FakeObservationSource, unavailable
+    from tests.communication.harness.observation import T0, ObservationHarness
+    h = ObservationHarness(tmp_path / "unknown")
+    h.register_pool({"schema_version": "1.0", "resource_pool_id": "cx:X-7D", "provider": "openai", "kind": "QUOTA", "metadata": {}})
+    h.capture("cx", "quota", FakeObservationSource(unavailable("probe_failed")), resource_pool_ref="cx:X-7D")
+    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10, preference_source="command")
+    assert out["alert_sources"] == {"activity": "not_selected", "capacity": "unknown", "accounts": "read", "facts": "read"}
+    assert out["min_quota"] is None and out["alerts"] == [] and out["errors"] == {}
+    (pool,) = out["groups"]["capacity"]["data"]["observations"]  # the pool's own error stays visible
+    assert (pool["state"], pool["reason"], pool["measurements"]) == ("UNAVAILABLE", "probe_failed", None)
 
 
 def _quota_store(tmp_path, fraction):
@@ -236,6 +273,25 @@ def test_fast_needs_two_samples_on_every_path_without_another_statement(tmp_path
     assert out["query_families"] == (2 if human else 1)  # the count rides in the capacity statement; human adds its export only
 
 
+def test_a_malformed_older_sample_does_not_abort_the_human_export(tmp_path):
+    """#376 P8: the export's sample count guards its JSON functions, exactly as the capacity statement does."""
+    import sqlite3
+    from contextlib import closing
+    from tests.communication.harness.observation import T0
+    h = _quota_store(tmp_path, 0.42)
+    with closing(sqlite3.connect(h.db_path)) as c:  # an older MEASURED row of the same pool whose payload is not JSON
+        c.execute("INSERT INTO observations (observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, "
+                  "observed_at, captured_at, effective_at_us) VALUES ('bad-json','cx','cx:X-7D','quota','s','MEASURED','{not json',"
+                  "'2026-10-01T00:00:00Z', NULL, 0)")
+        c.commit()
+    plain = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10, preference_source="command")
+    out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10, preference_source="command", human=True)
+    (item,) = out["_human_observations"]
+    assert item["last_measurements"] == {"remaining_fraction": 0.42} and item["projection_samples"] == 2
+    assert out["errors"] == {} and out["min_quota"] == plain["min_quota"] == {
+        "pool": "cx X-7D", "left_pct": 42, "state": "ok", "aged": False}
+
+
 def test_fresh_frame_reads_capacity_and_alerts_on_an_out_pool(tmp_path):
     from tests.communication.harness.observation import T0
     out = mrm.render_monitor_frame(_quota_store(tmp_path, 0.0).db_path, ["capacity"], read_at=T0 + 10, preference_source="command")
@@ -294,11 +350,30 @@ def test_a_store_that_never_had_a_quota_refresh_is_not_a_store_failure(tmp_path,
     assert out["alerts"] == []
     assert out["alert_sources"] == {"activity": "read", "capacity": "no_evidence", "accounts": "no_evidence",
                                     "facts": "no_evidence", "reasons": {"capacity": "no quota evidence"}}
-    assert out["errors"] == {"capacity": "OperationalError"}  # JSON errors and the group status are unchanged
+    # 0.24.18 (#376 P6): no quota evidence is not an error in the JSON either: no `errors` entry, the frame is OK and
+    # the capacity group is read with nothing in it (the shape of a store whose observation tables are empty).
+    assert out["errors"] == {} and out["status"] == "OK"
     if "capacity" in groups:
-        assert out["groups"]["capacity"] == {"status": "ERROR", "data": None, "coverage": out["groups"]["capacity"]["coverage"]}
+        assert out["groups"]["capacity"] == {
+            "status": "OK", "data": {"observations": [], "reset_credits": [], "sample_size": 0, "truncated": False},
+            "coverage": {"read": "complete", "sample_size": 0, "truncated": False, "reason": None}}
     assert out["groups"]["activity"]["status"] == "OK" and len(out["groups"]["activity"]["data"]["asks"]) == 1
     assert out["min_quota"] is None
+    human = mrm.render_monitor_frame(h.db_path, groups, read_at=2000.0, human=True, liveness=lambda *a, **k: True)
+    assert human["_human_observations"] == [] and human["errors"] == {}
+
+
+def test_a_never_refreshed_store_and_one_with_empty_observation_tables_differ_only_in_the_alert_sources(tmp_path):
+    from peerhub.extensions.observation import ObservationStore
+    from tests.communication.diag.test_monitor_activity import _bridge_store  # pyright: ignore[reportPrivateUsage]
+    h = _bridge_store(tmp_path)
+    never = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=2000.0)
+    ObservationStore(h.db_path)  # creates the observation tables; still no observation
+    empty = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=2000.0)
+    assert empty["alert_sources"] == {"activity": "not_selected", "capacity": "read", "accounts": "read", "facts": "read"}
+    assert never["alert_sources"]["capacity"] == "no_evidence"
+    for key in ("status", "groups", "errors", "alerts", "min_quota"):
+        assert never[key] == empty[key], key
 
 
 @pytest.mark.parametrize("source,hint", [("workspace", True), ("global", True), ("command", False), ("packaged", False)])

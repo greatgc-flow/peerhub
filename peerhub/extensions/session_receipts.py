@@ -106,7 +106,7 @@ _SECRET_LIKE_BINDING = re.compile(
     r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}|"
     r"\b(?:api[_-]?key|token|secret|password|credential)[_-][A-Za-z0-9_-]{8,}\b)"
 )
-_ADAPTER_VERSION = re.compile(r"adapter:(cc|cx|ag):v([0-9]{1,3})\Z")
+_ADAPTER_VERSION = re.compile(r"adapter:(cc|cx|ag|ca|oa):v([0-9]{1,3})\Z")
 PROCESS_CLOCK_DOMAIN = str(uuid.uuid4())
 monotonic_ns = time.monotonic_ns
 _MAX_TICK = 2**63 - 1
@@ -331,7 +331,7 @@ def telemetry_coverage_state(conn: sqlite3.Connection, delivery: Mapping[str, An
         return "UNKNOWN"
     identity = conn.execute("SELECT runtime_kind FROM bridge_session_history WHERE session_handle=?",
                             (accepted["handle"],)).fetchone()
-    provider_kind = identity[0] if identity and identity[0] in ("cc", "cx", "ag") else "unknown"
+    provider_kind = identity[0] if identity and identity[0] in _PROVIDER_USAGE_CONTRACT else "unknown"
     usage_raw = detail.get("usage")
     if not isinstance(usage_raw, dict):
         return "UNKNOWN"
@@ -612,7 +612,7 @@ def repair_latest_telemetry_pointers(conn: sqlite3.Connection) -> None:
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.observed_at') END IN ('integer','real') "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.provider_kind') END='text' "
         "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.provider_kind') END="
-        "CASE WHEN h.runtime_kind IN ('cc','cx','ag') THEN h.runtime_kind ELSE 'unknown' END "
+        "CASE WHEN h.runtime_kind IN ('cc','cx','ag','ca','oa') THEN h.runtime_kind ELSE 'unknown' END "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.configured_binding') END='object' "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.steps') END='array' "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.step_coverage') END='object' "
@@ -633,7 +633,7 @@ def repair_latest_telemetry_pointers(conn: sqlite3.Connection) -> None:
         "THEN 'delivery' ELSE 'unattributed' END "
         "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.source') END IS "
         "CASE h.runtime_kind WHEN 'cc' THEN 'cc.result.usage' WHEN 'cx' THEN 'cx.turn.completed.usage' "
-        "WHEN 'ag' THEN 'ag.result.usage' ELSE NULL END "
+        "WHEN 'ag' THEN 'ag.result.usage' WHEN 'ca' THEN 'ca.message.usage' WHEN 'oa' THEN 'oa.response.usage' ELSE NULL END "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.coverage.state') END='text' "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.coverage.reason') END IN ('text','null') "
         "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.coverage.state') END IN ('MEASURED','ABSENT','UNSUPPORTED','UNKNOWN')")
@@ -671,6 +671,8 @@ _PROVIDER_USAGE_CONTRACT = {
     "cc": ("session_cumulative", "cc.result.usage"),
     "cx": ("session_cumulative", "cx.turn.completed.usage"),
     "ag": ("session_cumulative", "ag.result.usage"),
+    "ca": ("delivery", "ca.message.usage"),  # the API peers (#378): one call per ask
+    "oa": ("delivery", "oa.response.usage"),
 }
 _SAFE_COVERAGE_REASON = re.compile(r"[a-z_]{1,64}\Z")
 
@@ -739,6 +741,34 @@ def _provider_usage(candidate: object, provider_kind: str) -> dict[str, Any]:
 def validate_provider_usage(candidate: object, provider_kind: str) -> dict[str, Any]:
     """Shared versioned receipt validator for writers and read-only monitor projections."""
     return _provider_usage(candidate, provider_kind)
+
+
+CONTEXT_SOURCE = "cc.stream.context"  # the receipt `source` of the one validated context reading (#376 P2)
+CONTEXT_TOKENS_MAX = 100_000_000
+
+
+def context_estimate(tokens: object, window: object) -> tuple[int, int, int] | None:
+    """(tokens, window, percent) of a context reading, shared by the receipt writer and the monitor reader, else None.
+
+    Both are ints (not bool) with 0 < tokens <= window <= CONTEXT_TOKENS_MAX; percent = tokens * 100 // window. More
+    tokens than the window means the window is not the one the ask ran with, so the reading is unknown."""
+    if (isinstance(tokens, bool) or not isinstance(tokens, int) or isinstance(window, bool) or not isinstance(window, int)
+            or not 0 < tokens <= window <= CONTEXT_TOKENS_MAX):
+        return None
+    return tokens, window, tokens * 100 // window
+
+
+def _context_fields(context: object, provider_kind: str, now: float) -> dict[str, Any]:
+    """The receipt's context fields from the adapter's `context` candidate, validated again at the persistence boundary.
+
+    Only cc has a validated source: an estimate of the occupancy at the end of the ask. Anything else stays unknown."""
+    raw = cast("dict[str, Any]", context) if isinstance(context, dict) else {}
+    estimate = (context_estimate(raw["tokens"], raw["window"])
+                if provider_kind == "cc" and set(raw) == {"tokens", "window"} else None)
+    if estimate is None:
+        return dict(last_input_tokens=None, context_window=None, context_pct=None, source="unknown", window_reported_at=None)
+    return dict(last_input_tokens=estimate[0], context_window=estimate[1], context_pct=estimate[2], source=CONTEXT_SOURCE,
+                window_reported_at=now)
 
 
 def binding_attributes(runtime: object) -> dict[str, Any]:
@@ -895,16 +925,22 @@ def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Ro
         raw_binding = {}
     raw_binding = cast("dict[str, Any]", raw_binding)
     binding_detail = {key: _safe_binding(raw_binding.get(key)) for key in ("profile", "model", "effort")}
-    provider_kind = identity["runtime_kind"] if identity and identity["runtime_kind"] in ("cc", "cx", "ag") else "unknown"
+    provider_kind = identity["runtime_kind"] if identity and identity["runtime_kind"] in _PROVIDER_USAGE_CONTRACT else "unknown"
     fingerprint = identity["adapter_fingerprint"] if identity else None
     version_match = _ADAPTER_VERSION.fullmatch(fingerprint) if isinstance(fingerprint, str) else None
     adapter_version = version_match.group(2) if version_match and version_match.group(1) == provider_kind else None
+    usage_candidate: object = provider_candidate
+    context: object = None
+    if isinstance(provider_candidate, dict) and "context" in provider_candidate:  # rides beside the usage keys, never in them
+        usage_keys = dict(cast("dict[str, Any]", provider_candidate))
+        context = usage_keys.pop("context")
+        usage_candidate = usage_keys
     detail = dict(handle=accepted["handle"], generation=accepted["generation"], observed_at=now,
-                  last_input_tokens=None, context_window=None, context_pct=None, source="unknown",
-                  window_reported_at=None, configured_model=binding_detail["model"], resolved_model=None, schema_version=3,
+                  **_context_fields(context, provider_kind, now),
+                  configured_model=binding_detail["model"], resolved_model=None, schema_version=3,
                   provider_kind=provider_kind, captured_at=now, adapter_version=adapter_version,
                   provider_cli_version=None, configured_binding=binding_detail,
-                  usage=_provider_usage(provider_candidate, provider_kind),
+                  usage=_provider_usage(usage_candidate, provider_kind),
                   steps=[], step_coverage={"state": "UNKNOWN", "measured": 0, "dropped": 0})
     seq = conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) VALUES (?,?,?,'session_telemetry',?,?)",
                        (delivery["delivery_id"], delivery["stream_id"], delivery["peer_id"], delivery["certainty"], dumps(detail))).lastrowid

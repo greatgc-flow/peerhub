@@ -25,13 +25,21 @@ pytestmark = [pytest.mark.unit]
     ("ag", ["ag-recipe", "ag-bulk-profile-heuristics", "ag-requires-writable", "ag-silence-long-asks", "multi-peer-quota-shaping", "plan-windows"]),
     ("cc allow rules", ["cc-allow-rules"]),
     ("fable haiku", ["cc-allow-rules"]),
-    ("monitor", ["monitor-accounts", "monitor-states", "plan-windows"]),
+    ("monitor", ["monitor-accounts", "monitor-states", "monitor-view", "plan-windows"]),
+    ("monitor-view", ["monitor-view"]),
+    ("order", ["monitor-view"]),
+    ("glyph", ["monitor-view"]),
+    ("colour bar", ["monitor-view"]),
+    ("pill", ["monitor-view"]),
+    ("quota unknown", ["monitor-states"]),
     ("low fast aged suggest alternative cycles tty legend", ["monitor-states"]),
     ("accounts", ["monitor-accounts"]),
     ("review-loop", ["review-recipe"]),
     ("review-scores-to-100", ["review-recipe"]),
     ("pytest basetemp", ["cx-sandbox-and-prompt-hygiene"]),
     ("subagents", ["peer-subagents"]),
+    ("api credits", ["api-peers"]),
+    ("ca stateless", ["api-peers"]),
     ("ag checkout", []),
     ("", []),
     ("!!!", []),
@@ -218,7 +226,7 @@ def test_guidance_code_beats_lesson_id_and_keywords_still_work(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 28
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 30
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & {lesson["id"] for lesson in lessons}
     for lesson in lessons:
         assert all(lesson.values())

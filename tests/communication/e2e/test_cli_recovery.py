@@ -21,6 +21,7 @@ from peerhub.cli.recovery import (
 from typing import Any
 
 from peerhub.extensions.bridge_claims import ClaimHeldError
+from peerhub.extensions.adapters.api import RequestRejected
 from peerhub.extensions.adapters.base import AgRequiresWritableError
 from peerhub.extensions.bridge import (
     ConflictingSessionFlagsError,
@@ -277,6 +278,9 @@ STATUS_SCENARIOS: dict[str, list[tuple[dict[str, Any], str]]] = {
     "not_executed": [
         ({}, "ask_refusal"),
     ],
+    # API peers (#378): the reply ended and the error says why; their own guidance, never ask_uncertain although STARTED.
+    "truncated": [({"certainty": "STARTED", "reason": "truncated"}, "truncated")],
+    "incomplete": [({"certainty": "STARTED", "reason": "incomplete"}, "incomplete")],
     "failed_not_started": [
         ({"detail_error": PROMPT_LIMIT_ERROR}, "ask_prompt_too_large"),
         ({"detail_error": "executable not found"}, "ask_launch_failed"),
@@ -336,6 +340,9 @@ EXCEPTION_SCENARIOS: dict[str, list[tuple[Exception, str]]] = {
     ],
     "StreamPeerMismatchError": [
         (StreamPeerMismatchError("stream peer mismatch"), "ask_stream_peer_mismatch"),
+    ],
+    "RequestRejected": [
+        (RequestRejected("ca takes no effort"), "request_rejected"),
     ],
     "LegacySelectorUnsupported": [
         (LegacySelectorUnsupported("legacy selector unsupported"), "ask_selector_error"),

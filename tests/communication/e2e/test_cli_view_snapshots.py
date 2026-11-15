@@ -10,7 +10,7 @@ from peerhub.extensions.diag_quota import projection as item_projection
 
 TZ = timezone(timedelta(hours=9))
 NOW = datetime.fromisoformat("2026-10-12T08:52:46+09:00").timestamp()
-STORE = r"D:\PkgDev\workspace\peerhub\.peerhub\core.db"
+STORE = r"C:\example\workspace\my-app\.peerhub\core.db"
 INPUTS = [
     ("ag", "3P-5H", 5 * 3600, 0, 4 * 3600 + 59 * 60),
     ("ag", "G-5H", 5 * 3600, 0, 4 * 3600 + 59 * 60),
@@ -531,7 +531,7 @@ def test_forecast_countdowns_never_use_seconds(seconds, expected):
 
 
 SNAPSHOTS: dict[int, str] = {
-    80: """PeerHub OK 2026-10-12 10:42+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db
+    80: """PeerHub OK 2026-10-12 10:42+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db
 (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar  USED PACE(pt) RESET FORECAST                        FRESH
@@ -548,7 +548,7 @@ Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
 PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit""",
-    100: """PeerHub OK 2026-10-12 10:42:24+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db (explicit)
+    100: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                          FRESH
 ag   3P-5H [..........]   0%        ? 4h59m : not enough data                                 *59s
@@ -564,7 +564,7 @@ Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
 PACE + = faster than even | forecasts are conditional window-average | Ctrl-C quit""",
-    120: """PeerHub OK 2026-10-12 10:42:24+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db (explicit)
+    120: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                                              FRESH
 ag   3P-5H [..........]   0%        ? 4h59m : not enough data                                                     *59s
@@ -583,7 +583,7 @@ PACE + = faster than even | forecasts are conditional window-average | Ctrl-C qu
 }
 
 RICH_SNAPSHOTS: dict[int, str] = {
-    80: """PeerHub OK 2026-10-12 10:42+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db
+    80: """PeerHub OK 2026-10-12 10:42+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db
 (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar  USED PACE(pt) RESET FORECAST                        FRESH
@@ -600,7 +600,7 @@ Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
 PACE +=faster than even | forecasts: conditional window-average | Ctrl-C quit""",
-    100: """PeerHub OK 2026-10-12 10:42:24+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db (explicit)
+    100: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                          FRESH
 ag   3P-5H [░░░░░░░░░░]   0%        ? 4h59m ○ not enough data                                 ●59s
@@ -616,7 +616,7 @@ Asks ag delivered 1h03m ago, took 14m
 Asks cx delivered 1m47s ago, took 4m
 Probes ag:OK cc:OK cx:OK
 PACE + = faster than even | forecasts are conditional window-average | Ctrl-C quit""",
-    120: """PeerHub OK 2026-10-12 10:42:24+0900 D:\\PkgDev\\workspace\\peerhub\\.peerhub\\core.db (explicit)
+    120: """PeerHub OK 2026-10-12 10:42:24+0900 C:\\example\\workspace\\my-app\\.peerhub\\core.db (explicit)
 Threats: 2 threats - earliest cx/X-5H 11:33 (in 51m); cc/C-7D
 PEER POOL  USAGE-bar    USED PACE(pt) RESET FORECAST                                                              FRESH
 ag   3P-5H [░░░░░░░░░░]   0%        ? 4h59m ○ not enough data                                                     ●59s

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import sys
 import time
@@ -865,7 +866,9 @@ def test_scale_one_scope_with_a_long_delivery_history(tmp_path):
     small, rows_small, _, _ = steps(small_db)
     big, rows_big, seconds, plan = steps(big_db)
     assert rows_small == rows_big == 151
-    assert "SEARCH d USING INDEX idx_bd_scope_generation" in plan, plan  # the scope prefix of the index, never a table scan
+    # The scope prefix of an index, never a table scan. Both scope indexes start with (stream_id, peer_id); since #330 added
+    # idx_bd_scope_claim_generation the planner may take either for this prefix-only search.
+    assert re.search(r"SEARCH d USING INDEX idx_bd_scope_(claim_)?generation \(stream_id=\? AND peer_id=\?\)", plan), plan
     # The statement reads every delivery of each scope active in the last 24 hours (the cost class of #330): linear in that history.
     print(f"activity statement VM steps: history 150 -> {small}, history 9000 -> {big} ({seconds * 1000:.1f} ms)")
     assert big < small * 120 and seconds < 1.0

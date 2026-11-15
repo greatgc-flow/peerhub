@@ -12,10 +12,12 @@ The table below maps actual result statuses (`result["status"]` returned by `pee
 | `delivered` | 0 | (none) | Request executed successfully and terminal response was committed to the stream. | None required. Continue subsequent turns on the same stream to reuse the active session. |
 | `denied_empty` | 1 | `ask_denied_empty` | Turn ended (certainty TERMINAL) with an empty response after the provider denied tool action(s); not a usable answer and task effects are unverified. | Treat the reply as unusable; the denied tool names are in denied_actions. Do not resume the stream: start a new stream with the needed content inlined via --query-file, and verify the workspace. |
 | `failed_not_started` | 1 | `ask_prompt_too_large / ask_launch_failed / ask_delivery_failed` | Provider execution failed before starting (prompt limit, missing executable, OS spawn rejection or pre-spawn policy check). | For ask_prompt_too_large, split the prompt under the limit, or for an ag argv limit (an agy without stream-json input, or PEERHUB_AG_TRANSPORT=argv) use cc/cx on a separate stream, with a new request-id; otherwise inspect peer adapter availability and PATH configuration via `peerhub diag health`. |
+| `incomplete` | 1 | `incomplete` | An API peer (ca, oa) reply ended for a reason other than the token limit (for example a refusal); the ask is not delivered, and any text is in partial_response. | Read the reason in the error message; rephrase, or use another profile or peer, on a new stream. Do not count the partial text as a reply. |
 | `not_executed` | 1 | `ask_refusal` | Provider explicitly refused execution before performing tool calls (e.g. quota exhausted, auth failure, invalid model). | Inspect quota pools and reset times via `peerhub diag quota` or verify profile configuration via `peerhub profile list`. |
 | `pending_earlier_record` | 1 | `context-dependent` | Cycle processed an earlier record on the stream rather than this prompt. Meaning and guidance depend on processed_status (earlier may have delivered, refused, failed, or ended uncertain). | Inspect processed_status: if earlier delivered, retry this queued prompt with the same request-id, prompt, binding and selector; check quota/health if refused/failed; abandon stream if uncertain. |
 | `recovered_terminal` | 0 | (none) | Prior idempotent execution or replayed terminal response recovered. | None required. Prior committed result recovered. |
 | `session_unavailable` | 2 | `ask_selector_error` | Session selector or handle validation failed before invocation could begin. | List valid sessions via `peerhub session list` or pass `--fresh` to allocate a fresh session. |
+| `truncated` | 1 | `truncated` | An API peer (ca, oa) reply was cut at its limit of 16,000 output tokens; the ask is not delivered, and the partial text is in partial_response. | Ask again on a new stream with a narrower question or a request for a shorter answer; a ca or oa stream takes one ask only. |
 | `uncertain` | 1 | `ask_uncertain` | Request started execution but ended without terminal certainty (timeout or abort). | Inspect stream health via `peerhub diag health --stream STREAM_ID`. Do not retry or pass `--fresh` on this stream; abandon stream. |
 
 ### `pending_earlier_record` Case Matrix
@@ -54,14 +56,17 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `delivery_failed` | 1 | The command failed before returning a usable result. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `diag_unavailable` | 4 or 5 (context-dependent) | Diagnostic evidence is unavailable or incomplete. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `idempotency_conflict` | 2 | The request conflicts with an existing idempotency key. | `peerhub diag health` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `incomplete` | 1 | The reply of an API peer (ca, oa) ended for a reason other than the token limit; the ask is not delivered. | `peerhub ask PEER_ID --query-file CONTENT_FILE --stream NEW_STREAM_ID --profile PROFILE` (Read the reason, then rephrase or use another profile or peer on a new stream) | Do not count the partial text as a reply (for example as a vote), and do not ask again on the same stream. |
 | `invalid_arguments` | 1 or 2 (context-dependent) | The command arguments were rejected before dispatch. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `invalid_manifest` | 1 | Batch validation failed before any worker was launched. | `peerhub batch run tasks.json --batch-id BATCH_ID --max-parallel 1 --dry-run` (Correct the reported validation error and validate the manifest) | Do not change the batch identifier to bypass an uncertain earlier execution. |
 | `peer_not_found` | 1 | The selected peer does not exist in this store. | `peerhub peer list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `request_rejected` | 2 | An ask to an API peer (ca, oa) was refused before anything was stored or sent. | `peerhub explain PROFILE` (Correct the command named in the message: a ca/oa profile or a valid --model, no --effort, no --writable, a new stream for a new ask) | Do not retry the same command unchanged; nothing was sent, so no provider work needs recovery. |
 | `schema_version_error` | 6 | The selected store uses an unsupported schema version. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `session_not_found` | 1 | The selected retained session does not exist. | `peerhub session list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `storage_corrupt` | 4 | The selected store could not complete a storage operation. | `peerhub diag integrity` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `store_missing` | 5 | The selected database does not exist. | `peerhub explain store-missing` (Pass --db PATH, set PEERHUB_DB, or run from the main checkout; see the store-missing lesson for the recipe) | Do not create a substitute store when you intend to use existing data. |
 | `stream_not_found` | 1 | The selected stream does not exist in this store. | `peerhub stream list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `truncated` | 1 | The reply of an API peer (ca, oa) was cut at its limit of 16,000 output tokens; the ask is not delivered. | `peerhub ask PEER_ID --query-file CONTENT_FILE --stream NEW_STREAM_ID --profile PROFILE` (Ask again on a new stream with a narrower question or a request for a shorter answer, the text inlined) | Do not treat the cut text as a complete reply, and do not ask again on the same stream (it is refused: one ask per stream). |
 
 ### Detailed Recovery Advice by Outcome Code
 
@@ -265,6 +270,16 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 - **Avoid**: Do not blindly replay provider work whose execution may already have begun.
 - **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
 
+#### `incomplete`
+
+- **Exit Code**: 1
+- **Meaning**: The reply of an API peer (ca, oa) ended for a reason other than the token limit; the ask is not delivered.
+- **Why**: The provider ended the reply without completing it (for example ca stop_reason refusal, or an oa status other than completed). The call ran and spent API credits; the error message names the reason, and any text is kept in partial_response (--json).
+- **Safe Recovery Actions**:
+  1. `peerhub ask PEER_ID --query-file CONTENT_FILE --stream NEW_STREAM_ID --profile PROFILE`: Read the reason, then rephrase or use another profile or peer on a new stream (Prerequisites: A ca or oa stream takes one ask only.)
+- **Avoid**: Do not count the partial text as a reply (for example as a vote), and do not ask again on the same stream.
+- **Documentation**: [docs/adapters/README.md](adapters/README.md)
+
 #### `invalid_arguments`
 
 - **Exit Codes** (context-dependent):
@@ -296,6 +311,16 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
   1. `peerhub peer list`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
 - **Avoid**: Do not blindly replay provider work whose execution may already have begun.
 - **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `request_rejected`
+
+- **Exit Code**: 2
+- **Meaning**: An ask to an API peer (ca, oa) was refused before anything was stored or sent.
+- **Why**: ca and oa take a model that matches their pattern (from --profile or --model), no --effort and no --writable, and one ask per stream; this request broke one of those rules. The message names the rule.
+- **Safe Recovery Actions**:
+  1. `peerhub explain PROFILE`: Correct the command named in the message: a ca/oa profile or a valid --model, no --effort, no --writable, a new stream for a new ask (Prerequisites: PROFILE is ca.standard, ca.effort, ca.deepthink, oa.standard, oa.effort or oa.deepthink.)
+- **Avoid**: Do not retry the same command unchanged; nothing was sent, so no provider work needs recovery.
+- **Documentation**: [docs/adapters/README.md](adapters/README.md)
 
 #### `schema_version_error`
 
@@ -346,6 +371,16 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
   1. `peerhub stream list`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)
 - **Avoid**: Do not blindly replay provider work whose execution may already have begun.
 - **Documentation**: [docs/config-hierarchy.md](config-hierarchy.md)
+
+#### `truncated`
+
+- **Exit Code**: 1
+- **Meaning**: The reply of an API peer (ca, oa) was cut at its limit of 16,000 output tokens; the ask is not delivered.
+- **Why**: The provider stopped at the output limit (ca stop_reason max_tokens; oa status incomplete with reason max_output_tokens). The call ran and spent API credits; the cut text is kept in partial_response (--json) and is not a response Record.
+- **Safe Recovery Actions**:
+  1. `peerhub ask PEER_ID --query-file CONTENT_FILE --stream NEW_STREAM_ID --profile PROFILE`: Ask again on a new stream with a narrower question or a request for a shorter answer, the text inlined (Prerequisites: A ca or oa stream takes one ask only; read partial_response first to see where the reply stopped.)
+- **Avoid**: Do not treat the cut text as a complete reply, and do not ask again on the same stream (it is refused: one ask per stream).
+- **Documentation**: [docs/adapters/README.md](adapters/README.md)
 
 ## Session Lifecycle & State Definitions
 
