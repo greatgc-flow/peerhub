@@ -1688,7 +1688,10 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
     RUNNING rows after the third, POOLS rows after the fourth, the second suggestion line, the remaining RUNNING rows,
     the remaining POOLS rows, the RECENT header with its last row, the LEADS header with its last row, the first
     suggestion line, the POOLS header, the RUNNING header, line 2 (its attached lines first). Line 1 is the fallback:
-    alone, it is fitted to the byte ceiling; a budget of 0 prints nothing. An overflow line is refitted whenever its count changes; the removal that creates one removes two rows.
+    alone, it is fitted to the byte ceiling; a budget of 0 prints nothing. An overflow line is refitted whenever its
+    count changes; the removal that creates one removes two rows. A row step with a floor of one or more never leaves a
+    header without a row: when those two rows are the last ones, the step does nothing, and the rows leave with their
+    header in its own step (#376 A-3).
     """
     limit = max_lines if height is None else min(max_lines, max(0, height - 1))
     if limit <= 0 or width <= 0:
@@ -1724,7 +1727,10 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
         if lines is None or len(lines) - 1 <= floor:
             return False
         total = totals.get(key, 0)
-        created = total - (len(lines) - 1) <= 0 < total  # this removal makes the overflow line
+        rows = len(lines) - 1
+        created = total - rows <= 0 < total  # this removal makes the overflow line
+        if created and floor >= 1 and rows <= 2:  # A-3: K5 would leave the header without a row; do nothing
+            return False
         lines.pop()
         if created and len(lines) > 1:  # even below the floor: one row for one overflow line would save nothing (K5)
             lines.pop()
@@ -1903,7 +1909,8 @@ def _lead_cells(lead: dict[str, Any], now: float, unicode: bool, keep: str | Non
     item = _obj(lead.get("session"))
     if not item:
         return [label, "-", "-", "-", run, "-", ""]
-    state = ("?" if item.get("alive") is None else "") + _cell(item.get("state"), unicode, "?", keep)
+    known = _cell(item.get("state"), unicode, "", keep)
+    state = ("?" if item.get("alive") is None else "") + known if known else "?"  # the flag only on a known state
     active = _number(item.get("active_at"))
     model = re.sub(r"^claude-", "", _clean(item.get("model") or ""))
     return [label, state, "-" if active is None else _compact_age(now - active), _ctx_cell(item), run,

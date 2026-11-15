@@ -77,7 +77,7 @@ def test_the_four_ctx_forms(frame, over, cell):
 
 
 @pytest.mark.parametrize(("over", "state"), [({"alive": None}, "?busy"), ({"state": None}, "?"),
-                                             ({"state": None, "alive": None}, "??")])
+                                             ({"state": None, "alive": None}, "?")])
 def test_the_state_flag(frame, over, state):
     with_leads(frame, [lead("docs-site", session=sess(**over))])
     assert leads_block(screen(frame))[1].split()[1] == state
@@ -247,6 +247,53 @@ def test_the_removal_that_creates_the_leads_overflow_line_removes_two_rows():
     assert lines[-2:] == [" a", "+2 leads (--expand)"] and len(lines) == len(full) - 1
 
 
+TWO_LEADS: dict[str, Any] = dict(leads=["LEADS 2", " lead-0  busy  1m  ctx 10%", " lead-1  busy  2m  ctx 20%"],
+                                 leads_total=2)
+
+
+def test_two_lead_rows_stay_while_running_goes_to_three_rows():
+    # A-3: removing one of two rows would create `+1 leads`, so K5 takes both; a step with a floor of one or more
+    # never leaves a header without a row, so it does nothing and RUNNING gives up its rows instead.
+    lines = fitted(None, **TWO_LEADS)  # 27 lines before fitting
+    assert len(lines) == 24
+    i = lines.index("LEADS 2")
+    assert lines[i + 1].startswith(" lead-0") and lines[i + 2].startswith(" lead-1")
+    assert sum("task-" in line for line in lines) == 3 and "+6 more (--expand)" in lines
+
+
+def test_two_lead_rows_leave_together_with_their_header():
+    for height in range(2, 30):
+        lines = fitted(height, max_lines=40, **TWO_LEADS)
+        assert sum(line.startswith(" lead-") for line in lines) in ((0, 2) if "LEADS 2" not in lines else (2,)), (height, lines)
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 4, 5])
+def test_no_height_shows_a_leads_header_without_a_row(frame, count):
+    with_leads(frame, [lead(f"l{i}", session=sess()) for i in range(count)])
+    for height in range(2, 30):
+        lines = render_grouped_frame(deepcopy(frame), view="plain", unicode=False, width=100, height=height).splitlines()
+        heads = [i for i, line in enumerate(lines) if line.startswith("LEADS")]
+        assert all(i + 1 < len(lines) and lines[i + 1].startswith(" ") for i in heads), (count, height, lines)
+
+
+def test_running_and_pools_steps_are_unchanged_by_the_leads_rule():
+    # floors 3, 4 and 0: the K5 double removal still happens (two rows for the first overflow line)
+    for key, total in (("running", 4), ("pools", 5)):
+        rows = [f" row {i}" for i in range(total)]
+        other = "pools" if key == "running" else "running"
+        base: dict[str, Any] = {key: ["RUNNING 4" if key == "running" else "POOLS 5", *rows], f"{key}_total": total,
+                                other: None, f"{other}_total": 0, "recent": None, "suggest": [], "leads": None}
+        full = fitted(None, **base)
+        lines = fitted(len(full), **base)
+        noun = "more" if key == "running" else "pools"
+        assert f"+2 {noun} (--expand)" in lines and sum(line.startswith(" row") for line in lines) == total - 2
+    base = {"running": ["RUNNING 9", " r0", " r1"], "running_total": 9, "pools": None, "recent": None, "suggest": [],
+            "leads": None}
+    assert fitted(6, **base) == ["OK | 9 running | 1 lead", "PeerHub Monitor 2026-11-14 01:46Z | DB:env | quota age 10s",
+                                 "RUNNING 9", " r0", "+8 more (--expand)"]
+    assert fitted(5, **base)[-1] == "RUNNING 9"  # floor 0: RUNNING may still go down to its header
+
+
 @pytest.mark.parametrize("width", [80, 100])
 @pytest.mark.parametrize("unicode", [True, False])
 def test_the_worst_case_frame_with_leads_stays_within_the_bounds(frame, width, unicode):
@@ -351,18 +398,18 @@ SECRET = "hunter2-very-secret-376"
 DIRTY = f"a\x1b[31m\u200bb {SECRET}"
 
 
-def dirty_folder(root: Path) -> None:
+def dirty_folder(root: Path, *, entry: str = "cli", status: str = "busy", model: str = "claude-fable-5-2") -> None:
     sessions = root / "sessions"
     sessions.mkdir(parents=True)
     item = {"pid": 4242, "sessionId": "11111111-2222-3333-4444-555555555555", "cwd": f"D:/work/{DIRTY}",
-            "startedAt": (NOW - 3600) * 1000, "version": f"2.1\x07 {SECRET}", "kind": "interactive", "entrypoint": "cli",
-            "pidDomain": "win32:another-machine", "name": DIRTY, "status": "busy", "statusUpdatedAt": (NOW - 100) * 1000}
+            "startedAt": (NOW - 3600) * 1000, "version": f"2.1\x07 {SECRET}", "kind": "interactive", "entrypoint": entry,
+            "pidDomain": "win32:another-machine", "name": DIRTY, "status": status, "statusUpdatedAt": (NOW - 100) * 1000}
     (sessions / "4242.json").write_text(json.dumps(item), encoding="utf-8")
     project = root / "projects" / "p"
     project.mkdir(parents=True)
     lines = [{"type": "ai-title", "aiTitle": DIRTY}, {"type": "last-prompt", "lastPrompt": DIRTY},
              {"type": "assistant", "isSidechain": False, "timestamp": "2026-11-14T23:45:00Z",
-              "message": {"model": "claude-fable-5-2", "usage": {"input_tokens": 10, "cache_read_input_tokens": 90},
+              "message": {"model": model, "usage": {"input_tokens": 10, "cache_read_input_tokens": 90},
                           "content": [{"type": "text", "text": DIRTY}]}}]
     path = project / "11111111-2222-3333-4444-555555555555.jsonl"
     path.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
@@ -398,3 +445,27 @@ def test_json_keys_schema_and_the_text_rule_from_files_to_every_output(tmp_path,
         assert SECRET not in text and "\x1b" not in text and "\u200b" not in text and "\x07" not in text, name
         assert "\\u001b" not in text and "\\u0007" not in text and "\\u200b" not in text, name
     assert "[REDACTED]" in outputs["compact"] and "[REDACTED]" in outputs["expand"]
+
+
+def test_a_secret_matching_the_entry_state_and_model_patterns_reaches_no_output(tmp_path, monkeypatch, db):  # noqa: F811
+    from peerhub.extensions import lead_sessions
+    from peerhub.extensions import monitor_read_model as mrm
+
+    state_secret = "sekret_state_x"  # the state pattern allows lower-case letters and `_` only
+    monkeypatch.setenv("PEERHUB_TEST_TOKEN", SECRET)  # matches the entry and the safe-model patterns
+    monkeypatch.setenv("PEERHUB_STATE_SECRET", state_secret)
+    root = tmp_path / "claude"
+    dirty_folder(root, entry=SECRET, status=state_secret, model=SECRET)
+
+    def reader(**facts: Any) -> Any:
+        return lead_sessions.read_leads([str(root)], **facts)
+
+    payload = mrm.render_monitor_frame(str(db), ["activity"], read_at=NOW, lead_reader=reader,
+                                       process_probe=lambda pid: None)
+    (only,) = payload["groups"]["activity"]["data"]["leads"]
+    assert (only["session"]["entry"], only["session"]["state"], only["session"]["model"]) == (None, None, None)
+    payload.update(selected_groups=["activity"], store_selection={"path": str(db), "source": "explicit"})
+    for text in (json.dumps(payload, ensure_ascii=False),
+                 render_grouped_frame(deepcopy(payload), view="rich", unicode=True, width=100),
+                 render_grouped_frame(deepcopy(payload), view="rich", unicode=True, width=200, expand=True)):
+        assert SECRET not in text and state_secret not in text

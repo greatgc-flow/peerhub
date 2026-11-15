@@ -223,6 +223,25 @@ def test_a_reader_that_returns_garbage_is_an_error(db, returned):
     assert data["leads_read"] == {"state": "error", "unreadable": 0, "not_read": 0} and data["leads"] == []
 
 
+@pytest.mark.parametrize("read", [
+    {}, {"state": "read", "unreadable": 0}, {"state": "read", "not_read": 0}, {"unreadable": 0, "not_read": 0},
+    {"state": "done", "unreadable": 0, "not_read": 0}, {"state": None, "unreadable": 0, "not_read": 0},
+    {"state": "read", "unreadable": True, "not_read": 0}, {"state": "read", "unreadable": 0, "not_read": False},
+    {"state": "partial", "unreadable": -1, "not_read": 0}, {"state": "partial", "unreadable": 0, "not_read": -3},
+    {"state": "partial", "unreadable": 1.0, "not_read": 0}, {"state": "partial", "unreadable": "1", "not_read": 0},
+])
+def test_a_malformed_read_object_is_an_error(db, read):
+    data = activity(db, lead_reader=lambda **facts: ([session()], read))
+    assert data["leads_read"] == {"state": "error", "unreadable": 0, "not_read": 0} and data["leads"] == []
+
+
+@pytest.mark.parametrize("read", [READ, {"state": "partial", "unreadable": 2, "not_read": 1},
+                                  {"state": "error", "unreadable": 0, "not_read": 0}])
+def test_a_valid_read_object_is_kept(db, read):
+    data = activity(db, lead_reader=lambda **facts: ([session()], dict(read)))
+    assert data["leads_read"] == read and len(data["leads"]) == 1
+
+
 def test_the_reader_is_not_called_when_activity_is_not_selected(db):
     calls: list[dict[str, Any]] = []
     out = frame(db, groups=("store",), lead_reader=reader([session()], calls=calls))

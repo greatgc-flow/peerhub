@@ -26,6 +26,7 @@ Lead sessions of Claude Code in `peerhub monitor` (#376; design v5, approved by 
 ### Changed
 
 - The README, the lesson `monitor-states` and `docs/STATUS.md` describe the LEADS section, what was measured and what was not. Four statements in the 0.24.16 entries of this file are corrected (the verdict wording for asks that failed or were cut, the unsure rows of another workspace generation, the end of `--expand` on a pipe, the name `peerhub guide`). `CONTRIBUTING.md` release step 6 says that only running asks of this venv block the upgrade (an ask of another venv that shares the store does not) and that the `peerhub diag running` output is recorded with the release; the shipped-tag check also compares `licenses/LICENSE`, the long description and the RECORD hashes of the wheel.
+- A sort-key member that could never match was removed from the order of ended asks; the order does not change.
 
 ### Fixed
 

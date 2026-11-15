@@ -824,7 +824,7 @@ _LEAD_READ_ERROR = {"state": "error", "unreadable": 0, "not_read": 0}
 
 def _lead_sessions(lead_reader: LeadReader | None, **facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     """(sessions, read) of the injected reader (#376 3.3); none and no read object without a reader. A reader that raises
-    or returns anything but a list of sessions with a `key` and a read object gives no sessions and `error`."""
+    or returns anything but a list of sessions with a `key` and a valid read object gives no sessions and `error`."""
     if lead_reader is None:
         return [], None
     try:
@@ -832,10 +832,18 @@ def _lead_sessions(lead_reader: LeadReader | None, **facts: Any) -> tuple[list[d
         sessions, read = cast(tuple[object, object], result)
     except Exception:  # noqa: BLE001 - the lead reader is a best-effort source: any failure is `error`, never a frame failure
         return [], dict(_LEAD_READ_ERROR)
-    if isinstance(read, dict) and isinstance(sessions, list) and all(
+    if _valid_lead_read(read) and isinstance(sessions, list) and all(
             isinstance(item, dict) and isinstance(cast(dict[str, Any], item).get("key"), str) for item in cast(list[object], sessions)):
         return cast(list[dict[str, Any]], sessions), cast(dict[str, Any], read)
     return [], dict(_LEAD_READ_ERROR)
+
+
+def _valid_lead_read(read: object) -> bool:
+    """A read object: `state` read, partial or error, and `unreadable` and `not_read` ints (not bool) of 0 or more."""
+    item = cast(dict[str, Any], read) if isinstance(read, dict) else {}
+    return item.get("state") in ("read", "partial", "error") and all(
+        isinstance(item.get(key), int) and not isinstance(item.get(key), bool) and item[key] >= 0
+        for key in ("unreadable", "not_read"))
 
 
 def _merge_leads(data: dict[str, Any], sessions: list[dict[str, Any]], read: dict[str, Any] | None) -> None:

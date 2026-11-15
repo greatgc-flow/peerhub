@@ -357,16 +357,17 @@ def _said(message: object) -> str | None:
 def _row(item: dict[str, Any], alive: bool | None, active_at: float | None, facts: dict[str, Any],
          windows: dict[str, int], text_on: bool, secrets: list[str]) -> dict[str, Any]:
     digest = hashlib.sha256(item["sessionId"].encode("ascii")).hexdigest()
-    tokens, context_at, model = facts.get("context", (None, None, None))
+    tokens, context_at, raw_model = facts.get("context", (None, None, None))
+    model = _cleaned_match(_SAFE_MODEL, raw_model, 128, secrets)
     window = windows.get(model) if model else None
     cleaned_cwd = _display(item.get("cwd"), LEAD_FILE_MAX, secrets)  # cleaned and redacted whole before its last part is taken
     return {
         "key": digest, "id": digest[:8], "tool": "cc", "pid": item["pid"], "alive": alive,
-        "entry": _matching(_ENTRY, item.get("entrypoint")),
+        "entry": _cleaned_match(_ENTRY, item.get("entrypoint"), 24, secrets),
         "name": _display(item.get("name"), 40, secrets) if text_on else None,
         "folder": _display(re.split(r"[\\/]", cleaned_cwd.rstrip("\\/"))[-1], 40, secrets) if cleaned_cwd else None,
         "cwd": _display(item.get("cwd"), 200, secrets),
-        "state": _matching(_STATE, item.get("status")),
+        "state": _cleaned_match(_STATE, item.get("status"), 16, secrets),
         "state_since": _epoch_ms(item.get("statusUpdatedAt")),
         "started_at": item["startedAt"] / 1000,
         "version": _display(item.get("version"), 20, secrets),
@@ -386,6 +387,12 @@ def _line(text: object, *, last: bool, secrets: list[str]) -> str | None:
 
 def _matching(pattern: re.Pattern[str], value: object) -> str | None:
     return value if isinstance(value, str) and pattern.fullmatch(value) else None
+
+
+def _cleaned_match(pattern: re.Pattern[str], value: object, cap: int, secrets: list[str]) -> str | None:
+    """`value` cleaned and redacted like every string from a file (#376 3.5) when it matches `pattern` before and after;
+    None otherwise (a redacted secret no longer matches)."""
+    return _matching(pattern, _display(value, cap, secrets)) if _matching(pattern, value) else None
 
 
 def _finite(value: object) -> float | None:

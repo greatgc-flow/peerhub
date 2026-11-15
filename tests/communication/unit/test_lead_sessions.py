@@ -684,6 +684,22 @@ def test_controls_and_secrets_are_removed_from_every_string(tmp_path: Path):
         assert "\x07" not in value and "[REDACTED]" in value, key
 
 
+def test_a_secret_that_matches_the_entry_state_and_model_patterns_never_reaches_the_result(tmp_path: Path):
+    secret = "sekret_value"  # matches the entry, state and safe-model patterns alike
+    write_session(tmp_path, entrypoint=secret, status=secret)
+    write_transcript(tmp_path, [assistant(model=secret)])
+    session = one([tmp_path], secrets=[secret])
+    assert (session["entry"], session["state"], session["model"]) == (None, None, None)
+    assert session["context_tokens"] == 1110 and secret not in json.dumps(session)
+
+
+def test_entry_state_and_model_without_a_secret_are_kept(tmp_path: Path):
+    write_session(tmp_path, entrypoint="claude-vscode", status="busy")
+    write_transcript(tmp_path, [assistant(model="claude-opus-5-5")])
+    session = one([tmp_path], secrets=["unrelated-secret"])
+    assert (session["entry"], session["state"], session["model"]) == ("claude-vscode", "busy", "claude-opus-5-5")
+
+
 def test_a_secret_split_by_a_format_character_is_still_redacted(tmp_path: Path):
     write_session(tmp_path)
     write_transcript(tmp_path, [{"type": "ai-title", "aiTitle": "x hunter2-very-\u200bsecret y"}])
