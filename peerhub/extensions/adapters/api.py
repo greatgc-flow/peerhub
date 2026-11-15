@@ -378,17 +378,27 @@ class OaRuntimeTarget(ApiRuntimeTarget):
             if isinstance(answer, TimeoutError) or isinstance(getattr(answer, "reason", None), TimeoutError):
                 return Outcome("timeout")
             return Outcome("uncertain", detail=san.clean(f"oa request failed: {type(answer).__name__}: {answer}", EXCERPT_CHARS))
-        status, raw = answer
+        return self._classify(*answer, san)
+
+    def _classify(self, status: int, raw: bytes, san: Sanitizer) -> Outcome:
+        """The outcome of one HTTP answer. The order matters:
+
+        1. HTTP 200: only the status and the shape of the response object decide. A wrong shape, or `completed`
+           with an error object (it contradicts itself), is uncertain; else `completed` is complete, `incomplete` with
+           the reason `max_output_tokens` is truncated, any other status is incomplete. An error code is never read
+           here: at 200 it is no proof that nothing ran.
+        2. Any other HTTP status with an error object (an error answer): the error code first (a quota code is a
+           provider limit at any status), then the status (a listed one is not started, any other is uncertain).
+        3. Everything else is uncertain.
+        """
         doc = _json_object(raw.decode("utf-8", "replace")) if len(raw) <= self._max_bytes else None
         error: object = doc.get("error") if doc is not None else None
-        if isinstance(error, dict):
+        if status != 200 and isinstance(error, dict):
             detail = cast("dict[str, Any]", error)
-            text = san.clean(f"oa: HTTP {status}: {detail.get('code')}: {detail.get('message')}", EXCERPT_CHARS)
-            if detail.get("code") in OA_LIMIT_CODES or status != 200:  # the code is checked before the status
-                return self._error(status, detail.get("code") in OA_LIMIT_CODES, text)
+            return self._error(status, detail.get("code") in OA_LIMIT_CODES,
+                               san.clean(f"oa: HTTP {status}: {detail.get('code')}: {detail.get('message')}", EXCERPT_CHARS))
         state: object = doc.get("status") if doc is not None else None
         reply = _oa_text(doc.get("output")) if doc is not None else None
-        # A wrong shape is never a reply, and "completed" with an error object contradicts itself: both are uncertain.
         if status != 200 or doc is None or not isinstance(state, str) or reply is None or (state == "completed" and error is not None):
             excerpt = san.clean(" ".join(raw[:EXCERPT_CHARS * 4].decode("utf-8", "replace").split()), EXCERPT_CHARS)
             return Outcome("uncertain", detail=f"oa: HTTP {status}: unexpected answer: {excerpt}")

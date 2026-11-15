@@ -1061,22 +1061,23 @@ def _run_account_cli(args: argparse.Namespace) -> int:
 
 
 def _peer_kind(db: str | None, peer: str) -> str | None:
-    """The adapter kind of a builtin peer, or of a registered peer in `db` (read-only); None when it is not known."""
-    from peerhub.extensions.peer_kinds import ALIASES
+    """The provider kind of a peer by the rule `ask` uses: the adapter registered in `db` (read-only) decides, else
+    the name of a builtin peer; None when it is not known. A store that cannot be read (missing, a directory, locked,
+    corrupt or not a database) counts as no registration."""
+    from peerhub.extensions.peer_kinds import peer_kind
 
-    if peer in ALIASES:
-        return ALIASES[peer]
-    if not db:
-        return None
-    try:
-        conn = sqlite3.connect(Path(os.path.abspath(db)).as_uri() + "?mode=ro", uri=True)
+    adapter_ref: str | None = None
+    if db:
         try:
-            row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id = ?", (peer,)).fetchone()
-            return ALIASES.get(row[0]) if row else None
-        finally:
-            conn.close()
-    except sqlite3.OperationalError:
-        return None
+            conn = sqlite3.connect(Path(os.path.abspath(db)).as_uri() + "?mode=ro", uri=True)
+            try:
+                row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id = ?", (peer,)).fetchone()
+                adapter_ref = row[0] if row else None
+            finally:
+                conn.close()
+        except sqlite3.DatabaseError:  # OperationalError (cannot open, locked) and a corrupt or foreign file
+            pass
+    return peer_kind(adapter_ref, peer)
 
 
 def _run_batch_cli(args: argparse.Namespace) -> int:
@@ -1184,7 +1185,10 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             if sid is None and getattr(args, "peer", None):  # the stream this ask used, by the rule `ask` itself applies
                 from peerhub.extensions.adapters.api import API_TARGETS
                 from peerhub.extensions.ask import default_stream
-                sid = default_stream(args.peer, getattr(args, "request_id", None), stateless=_peer_kind(db_arg, args.peer) in API_TARGETS)
+                try:
+                    sid = default_stream(args.peer, getattr(args, "request_id", None), stateless=_peer_kind(db_arg, args.peer) in API_TARGETS)
+                except Exception:  # a corrupt, locked or unreadable store: the error being reported wins, and no stream is named
+                    sid = None
             if args.json:
                 payload: dict[str, Any] = dict(status="error", response=None, session=session, error=dict(code=code, message=message))
                 if guidance_code:

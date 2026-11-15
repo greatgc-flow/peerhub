@@ -93,6 +93,74 @@ def test_exception_guidance_names_the_stream_the_ask_really_used(tmp_path, monke
     assert f"peer:{peer}:chat" not in argv or stream == f"peer:{peer}:chat"
 
 
+def test_the_registered_adapter_comes_before_the_peer_name_as_in_ask(tmp_path, monkeypatch, capsys):
+    from peerhub.cli.app import main
+    from peerhub.core.models import Peer
+    from peerhub.core.store import CoreStore
+    from peerhub.extensions import ask as ask_module
+    from peerhub.extensions.bridge_claims import ClaimHeldError
+    from peerhub.extensions.peer_kinds import peer_kind
+
+    assert peer_kind("codex", "ca") == "cx" and peer_kind("ca", "cx") == "ca"  # the one rule `ask` uses
+    assert peer_kind(None, "oa") == "oa" and peer_kind(None, "nobody") is None and peer_kind("no-such-adapter", "ca") is None
+    db = tmp_path / "core.db"
+    store = CoreStore(db)
+    store.register_peer(Peer(peer_id="ca", adapter_ref="codex"))  # a builtin name registered with another adapter
+    store.register_peer(Peer(peer_id="cx", adapter_ref="oa"))
+
+    def held(*args, **kwargs):
+        raise ClaimHeldError("claim held by another ask")
+
+    monkeypatch.setattr(ask_module, "ask", held)
+    for peer, stream in (("ca", "peer:ca:chat"), ("cx", "peer:cx:r1")):
+        assert main(["--db", str(db), "ask", peer, "question", "--json", "--request-id", "r1"]) == 1
+        argv = json.loads(capsys.readouterr().out)["guidance"]["recover"][0]["argv"]
+        assert argv[argv.index("--stream") + 1] == stream
+
+
+@pytest.mark.parametrize("store", ["garbage", "directory", "missing"])
+def test_a_store_problem_on_an_ask_to_a_custom_peer_ends_as_without_the_peer_lookup(tmp_path, monkeypatch, capsys, store):
+    """The error path reads the store to name the stream; that read must never replace the error being reported."""
+    import peerhub.cli.app as app
+
+    db = tmp_path / "core.db"
+    if store == "garbage":
+        db.write_bytes(b"this is not a database file\n" * 200)
+    elif store == "directory":
+        db.mkdir()
+    argv = ["--db", str(db), "ask", "voter", "question", "--json", "--request-id", "r1"]
+    code = app.main(argv)  # no exception escapes (before the fix: sqlite3.DatabaseError, a traceback)
+    payload = json.loads(capsys.readouterr().out)
+    with monkeypatch.context() as patch:  # what the same command did before the error path read the store
+        patch.setattr(app, "_peer_kind", lambda db, peer: None)
+        before = app.main(argv)
+        assert (code, payload["error"]) == (before, json.loads(capsys.readouterr().out)["error"])
+    if store == "garbage":
+        assert code == 4 and payload["error"]["code"] == "storage_corrupt" and payload["guidance"]["code"]
+
+
+@pytest.mark.parametrize("failure", [__import__("sqlite3").DatabaseError("database disk image is malformed"),
+                                     __import__("sqlite3").OperationalError("database is locked"), OSError("gone"), RuntimeError("x")])
+def test_a_failed_peer_lookup_names_no_stream_and_keeps_the_reported_error(tmp_path, monkeypatch, capsys, failure):
+    import peerhub.cli.app as app
+    from peerhub.extensions import ask as ask_module
+    from peerhub.extensions.bridge_claims import ClaimHeldError
+
+    def held(*args, **kwargs):
+        raise ClaimHeldError("claim held by another ask")
+
+    def lookup(db, peer):
+        raise failure
+
+    monkeypatch.setattr(ask_module, "ask", held)
+    monkeypatch.setattr(app, "_peer_kind", lookup)
+    assert app.main(["--db", str(tmp_path / "core.db"), "ask", "voter", "question", "--json", "--request-id", "r1"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["guidance"]["code"] == "ask_claim_held"
+    argv = payload["guidance"]["recover"][0]["argv"]
+    assert argv[argv.index("--stream") + 1] == "STREAM_ID"  # the adapter is not known, so no stream is named
+
+
 def test_packaged_api_profiles_have_three_tiers_a_card_and_no_pool():
     assert sorted(API_PROFILES) == ["ca.deepthink", "ca.effort", "ca.standard", "oa.deepthink", "oa.effort", "oa.standard"]
     for pid, profile in API_PROFILES.items():

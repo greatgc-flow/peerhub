@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.adapters.api import API_TARGETS, RequestRejected
-from peerhub.extensions.peer_kinds import ALIASES  # noqa: F401  (re-exported for existing importers)
+from peerhub.extensions.peer_kinds import ALIASES as ALIASES, peer_kind  # ALIASES: re-exported for existing importers
 from peerhub.extensions.bridge import PrespawnError, Bridge, CycleResult, RuntimeTarget, normalize_session_selector
 from peerhub.extensions.caller import detect_caller
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, StaleClaimError
@@ -41,7 +41,7 @@ def _refuse_second_ask(conn: sqlite3.Connection, target: RuntimeTarget, stream_i
     """A stateless peer (ca, oa; #378) has no session to continue: its ask needs a stream of its own. Any record on the
     stream refuses this ask before anything is stored or sent: another ask (delivered, failed, uncertain or still
     running), or a record put there some other way, which would be delivered first as one more API call. Only the same
-    ask (the same author AND the same request id; a request id is unique per author, not per stream) may come again."""
+    ask (the same author AND the same request id; a request id is unique per stream and author) may come again."""
     if getattr(target, "stateless", False) and conn.execute(
             "SELECT 1 FROM records WHERE stream_id=? AND NOT EXISTS "
             "(SELECT 1 FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?) LIMIT 1",
@@ -154,7 +154,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                         raise PrespawnError("account adapter and binding disagree")
             elif tables:
                 raise StorageCorruptError("database does not contain the communication Core schema; v0 support is archived on branch legacy/v0-main-final")
-    kind = ALIASES.get(adapter_ref or peer_id)
+    kind = peer_kind(adapter_ref, peer_id)
     target: RuntimeTarget
     account_args: dict[str, Any] = {}
     if account_binding is not None:

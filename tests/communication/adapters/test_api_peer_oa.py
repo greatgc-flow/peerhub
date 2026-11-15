@@ -228,11 +228,27 @@ def test_a_malformed_output_is_uncertain_and_never_a_complete_or_empty_reply(oa,
         assert conn.execute("SELECT COUNT(*) FROM records WHERE kind='response'").fetchone()[0] == 0
 
 
-def test_a_completed_answer_that_carries_an_error_is_uncertain(oa):
-    doc = completed(error={"code": "server_error", "message": "the model failed"})
+@pytest.mark.parametrize("code", ["server_error", "insufficient_quota", "credit_balance_exhausted"])
+def test_a_completed_answer_that_carries_an_error_is_uncertain(oa, code):
+    """At HTTP 200 the status and the shape decide first: a quota code there is no proof that nothing ran."""
+    doc = completed(error={"code": code, "message": "the model failed"})
     oa.fake.reply = (200, json.dumps(doc).encode(), {})
     result = ask(oa.db, "oa", "question", runtime=oa())
     assert (result["status"], result["response"]) == ("uncertain", None)
+    assert result.get("task_outcome") != "NOT_EXECUTED"
+
+
+@pytest.mark.parametrize("code", ["insufficient_quota", "credit_balance_exhausted"])
+def test_at_http_200_an_error_code_never_decides(oa, code):
+    error = {"code": code, "message": "You exceeded your current quota"}
+    oa.fake.reply = (200, json.dumps({"error": error}).encode(), {})  # no status: a wrong shape
+    assert ask(oa.db, "oa", "question", stream_id="bare", runtime=oa())["status"] == "uncertain"
+    oa.fake.reply = (200, json.dumps(completed(status="failed", error=error)).encode(), {})
+    failed = ask(oa.db, "oa", "question", stream_id="failed", runtime=oa())
+    assert (failed["status"], failed["certainty"]) == ("incomplete", "STARTED")  # by its status, like any other failed answer
+    oa.fake.reply = (429, json.dumps({"error": error}).encode(), {})  # an error answer: the code decides, before the status
+    limited = ask(oa.db, "oa", "question", stream_id="limited", runtime=oa())
+    assert (limited["status"], limited["reason"]) == ("not_executed", "quota_exhausted")
 
 
 def test_other_output_items_and_blocks_are_not_text(oa):

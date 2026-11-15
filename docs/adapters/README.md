@@ -60,8 +60,8 @@ Shared contract:
   more API call) refuses the ask before anything is stored or sent
   (`request_rejected`: `ca is stateless; use a new stream`). Only the same ask
   may come again: the same request-id AND the same author (`--author-peer`)
-  replay its stored result, because a request-id is unique per author, not per
-  Stream; another author with that request-id is refused. The default Stream is
+  replay its stored result, because a request-id is unique per Stream and
+  author; another author with that request-id is refused. The default Stream is
   `peer:<peer>:<request-id>` (other peers: `peer:<peer>:chat`), so an ask
   without `--stream` gets its own Stream; the text output prints it as a
   `stream:` line before the `session:` line.
