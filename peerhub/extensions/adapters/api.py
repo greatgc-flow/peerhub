@@ -388,7 +388,7 @@ class OaRuntimeTarget(ApiRuntimeTarget):
            the reason `max_output_tokens` is truncated, any other status is incomplete. An error code is never read
            here: at 200 it is no proof that nothing ran.
         2. Any other HTTP status with an error object (an error answer): the error code first (a quota code is a
-           provider limit at any status), then the status (a listed one is not started, any other is uncertain).
+           provider limit at any such status), then the status (a listed one is not started, any other is uncertain).
         3. Everything else is uncertain.
         """
         doc = _json_object(raw.decode("utf-8", "replace")) if len(raw) <= self._max_bytes else None

@@ -126,6 +126,8 @@ reason `max_output_tokens` is `truncated`, any other status or reason is
 `incomplete`. `output` must be a list of objects with a `type`, the `content`
 of a `message` item a list of objects and the `text` of an `output_text` block a
 string; any other shape ends `uncertain`, and so does an answer that is
-`completed` but carries an `error` object. The error codes
-`credit_balance_exhausted` and `insufficient_quota` mean the credits are used
-up, at any HTTP status.
+`completed` but carries an `error` object. In an error answer (an HTTP status other
+than 200 with an error object) the error codes `credit_balance_exhausted` and
+`insufficient_quota` mean the credits are used up, whatever that status is. At
+HTTP 200 an error code is never read: only the status and the shape of the
+response decide.

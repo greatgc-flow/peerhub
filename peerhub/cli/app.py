@@ -1187,7 +1187,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 from peerhub.extensions.ask import default_stream
                 try:
                     sid = default_stream(args.peer, getattr(args, "request_id", None), stateless=_peer_kind(db_arg, args.peer) in API_TARGETS)
-                except Exception:  # a corrupt, locked or unreadable store: the error being reported wins, and no stream is named
+                except Exception:  # any failure the lookup itself does not handle: the error being reported wins, and no stream is named
                     sid = None
             if args.json:
                 payload: dict[str, Any] = dict(status="error", response=None, session=session, error=dict(code=code, message=message))
