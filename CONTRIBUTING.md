@@ -159,7 +159,7 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    credits and are not release evidence):
    `python -m tools.live_gate --yes --only canary --peer ca` (or `--peer oa`).
    `ca` needs `ant` on PATH and `ant auth login` (without `ant` it is skipped;
-   not logged in, it fails). `oa` needs this opt-in and `OPENAI_API_KEY`;
+   not signed in, it fails). `oa` needs this opt-in and `OPENAI_API_KEY`;
    without the key it is skipped.
 3. Extract the selected CHANGELOG section, then create a draft with four assets
    (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml` and the evidence JSON).
@@ -313,7 +313,7 @@ prompt whose first line is `@<temporary file>` comes back with the literal path
 and without the file's marker; `oa.standard` replies OK. They run in the canary
 stage only and spend API credits, not a subscription pool. Without `ant` on
 PATH the `ca` canaries skip with `LIVE-PROVIDER-UNAVAILABLE[provider=ca]`, and
-an `ant` that is not logged in fails them; without `OPENAI_API_KEY` the `oa`
+an `ant` that is not signed in fails them; without `OPENAI_API_KEY` the `oa`
 canary skips with `LIVE-OA-KEY-MISSING[env=OPENAI_API_KEY]`.
 
 `tools/release_evidence.py` requires every blocking M1 catalog test and every

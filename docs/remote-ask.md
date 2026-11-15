@@ -73,6 +73,8 @@ Cross-shell quoting and file transfer remain **unverified** here.
 `--stream` names a durable conversation, not stdout streaming. Use a separate
 stream per independent job: the default `peer:<id>:chat` shares history and a
 claim with other asks (`peerhub/extensions/ask.py:71,80`; Review finding (ag)).
+The API peers `ca` and `oa` take one ask per stream; their default stream is
+`peer:<id>:<request-id>`, so the same request ID finds the same stream again.
 Repeat the exact command after a lost connection: preserve the host, database,
 peer, stream, prompt, request ID and runtime binding/options. A completed retry
 returns `recovered_terminal`; changed content/binding conflicts. Uncertain

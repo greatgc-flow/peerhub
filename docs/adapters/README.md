@@ -55,7 +55,10 @@ Shared contract:
   access (the workspace must exist but is not read), no session.
 - One ask per Stream: any other ask on the Stream is refused before anything is
   stored or sent (`request_rejected`: `ca is stateless; use a new stream`). The
-  same request-id replays its stored result.
+  same request-id replays its stored result. The default Stream is
+  `peer:<peer>:<request-id>` (other peers: `peer:<peer>:chat`), so an ask
+  without `--stream` gets its own Stream; the text output prints it as a
+  `stream:` line before the `session:` line.
 - Also refused with `request_rejected` (exit 2): `--writable`, `--effort`, no
   `--profile` and no `--model`, and a model that does not match
   `^claude-[a-z0-9.-]{1,64}$` (`ca`) or `^gpt-[a-z0-9.-]{1,64}$` (`oa`).
@@ -89,15 +92,22 @@ complete only with exit code 0, one JSON object of type `message`, a
 `stop_reason` of `end_turn` or `stop_sequence` and non-empty text;
 `max_tokens` is `truncated`, any other stop reason is `incomplete`. The text
 "credit balance is too low" in an error with HTTP 400, 401, 403, 404 or 413
-means the credits are used up. Not logged in is recognised by an HTTP 401 error
-or the text `not logged in` / `ant auth login`; it was not checked against
-every wording of the real `ant`, and other wording ends `uncertain`.
+means the credits are used up. Without a valid login the API answers HTTP 401
+`authentication_error` (measured with `ant` 2.9.0: `x-api-key header is
+required`); the error then reads `ant is not signed in or its login expired
+(run: ant auth login): HTTP 401: authentication_error: ...` and the ask is
+`failed_not_started`. Output without an HTTP status and an error object ends
+`uncertain`.
 
 `oa` sends one POST to the fixed URL `https://api.openai.com/v1/responses` with
 `{"model", "input", "max_output_tokens": 16000, "store": false}` and the key
 from `OPENAI_API_KEY` in the `Authorization` header only. `OPENAI_BASE_URL` and
 proxy variables are ignored, redirects are not followed, and TLS is verified
-with the default context; a network that needs a proxy is not supported. A
+with the default context; a network that needs a proxy is not supported.
+`--timeout-seconds` is a total over the whole call (connect, headers, body): the
+request runs in a worker thread and the ask waits for it at most that long,
+then ends `uncertain` (`runtime_timeout` evidence; a late answer is discarded).
+`--silence-timeout-seconds`, when given, limits one socket operation. A
 reply is complete only with HTTP 200, `status: completed` and non-empty
 `output_text`; `incomplete` with the reason `max_output_tokens` is `truncated`,
 any other status or reason is `incomplete`. The error codes
