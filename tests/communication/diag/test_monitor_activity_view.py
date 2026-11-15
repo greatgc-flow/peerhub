@@ -117,8 +117,8 @@ def test_compact_frame_order_and_width_with_korean_text(frame, width, unicode_mo
     assert lines[0] == "OK | 3 running | 2 leads | min quota 1% ag 3P-7D low"
     assert lines[1] == "PeerHub Monitor 2026-11-14 23:46Z | DB:env | quota age 10s"
     heads = [line.split()[0] for line in lines if re.match(r"^(RUNNING|RECENT|POOLS|suggest:)", line)]
-    assert heads == ["RUNNING", "RECENT", "suggest:", "POOLS"]
-    assert lines[2] == "RUNNING 3 | cc 2 cx 1"
+    assert heads == ["POOLS", "suggest:", "RUNNING", "RECENT"]  # P21: the quota comes first
+    assert lines[2].startswith("POOLS 8 ") and "RUNNING 3 | cc 2 cx 1" in lines
     assert all(_width(line) <= width - 1 for line in lines), screen
     korean = next(line for line in lines if "activity-374-cc" in line or "평가" in line or "?? ??" in line)
     assert korean.startswith(" ") and "cc.fable" in korean
@@ -455,7 +455,8 @@ def test_pools_cap_at_eight_rows_with_an_overflow_line(frame):
 def test_suggestion_belongs_to_capacity_and_wraps_to_two_lines(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=50))
     start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
-    assert lines[start + 2].startswith("POOLS") or lines[start + 1].startswith("POOLS")
+    assert lines[start + 2].startswith("RUNNING") and not lines[start + 1].startswith(("RUNNING", "POOLS"))  # two lines
+    assert lines[start - 1].startswith((" ", "+"))  # P21: the suggestion follows the POOLS rows
     frame["selected_groups"] = ["activity"]
     assert "suggest:" not in render_grouped_frame(frame, view="plain", unicode=False, width=100)
 
@@ -467,7 +468,7 @@ def test_group_capacity_prints_lines_1_2_the_suggestion_and_pools(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     assert lines[0] == "OK? (asks not read) | min quota 1% ag 3P-7D low"
     assert lines[1].startswith("PeerHub Monitor")
-    assert lines[2].startswith("suggest:") and lines[3].startswith("POOLS 8")
+    assert lines[2].startswith("POOLS 8") and lines[11].startswith("suggest:")  # P21: POOLS, then the suggestion
     assert len(lines) == 12
     assert not any(line.startswith(("RUNNING", "RECENT")) for line in lines)
 

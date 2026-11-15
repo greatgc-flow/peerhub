@@ -300,8 +300,8 @@ def _pace_glyph(text: str, unicode: bool) -> str:
     match = re.match(r"[+-]\d+(?:\.\d+)?", text)
     if not match or float(match[0]) == 0:
         return text
-    up, down = ("▲", "▼") if unicode else ("^", "v")
-    return (up if match[0][0] == "+" else down) + text
+    glyphs = RICH_GLYPHS[unicode]
+    return (glyphs["up"] if match[0][0] == "+" else glyphs["down"]) + text
 
 
 def _quota_color(state: str, remaining: float | None = None, *, aged: bool = False) -> str | None:
@@ -390,15 +390,25 @@ def _format_duration(seconds: float) -> str:
         return f"{mins}m"
 
 
+def _rule(title: str, rest: str, width: int, unicode: bool, paint: bool) -> str:
+    """A section head drawn as a rule (P21): `── POOLS 9 ── STATE ──────── LEFT  RESET ───`. The head's content
+    stays: the title, then `rest` as it is, with the line drawn through the gap after the title (three cells or
+    more), through a gap of five cells or more and to the end of the line. With `paint` the line is dim and the
+    title bold."""
+    dash = RICH_GLYPHS[unicode]["rule"]
+
+    def line(count: int) -> str:
+        return _paint(dash * count, RICH_SGR["dim"]) if paint else dash * count
+
+    room = width - 3 - _width(title + rest)
+    rest = re.sub("^ {3,}| {5,}", lambda gap: f" {line(len(gap[0]) - 2)} ", rest)
+    tail = f" {line(room - 1)}" if room >= 2 else ""
+    return f"{line(2)} {_paint(title, RICH_SGR['title']) if paint else title}{rest}{tail}"
+
+
 def _section_rule(label: str, width: int, unicode: bool, color: bool = False) -> str:
     label = _fit_fields(label, max(0, width - 4), unicode)
-    prefix = f"── {label} " if unicode else f"-- {label} "
-    fill = max(0, width - _width(prefix))
-    rule = prefix + ("─" if unicode else "-") * fill
-    rule = _fit(rule, width, unicode)
-    if color:
-        rule = f"\x1b[1;36m{rule}\x1b[0m"
-    return rule
+    return _fit(_rule(label, "", width, unicode, color), width, unicode, painted=True)
 
 
 _FRONT_GROUPS = ("alerts", "activity")  # --expand: every alert, then the activity section, then today's groups
@@ -1485,7 +1495,7 @@ def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, An
     return "suggest: " + " ".join(suggestions)
 
 
-# ---- compact frame (#374): line 1 verdict, line 2 header, RUNNING, RECENT, the suggestion, POOLS ------------------------
+# ---- compact frame (#374, P21): line 1 verdict, line 2 header, POOLS, the suggestion, RUNNING, LEADS, RECENT -----------
 
 COMPACT_MAX_LINES = 24
 COMPACT_MAX_BYTES = 8192
@@ -1499,6 +1509,22 @@ RECENT_EXPAND = 20
 _WEEK = 7 * 86400
 _ALERT_SOURCES = (("activity", "asks"), ("capacity", "quota"), ("accounts", "accounts"), ("facts", "facts"))
 _SOURCE_PHRASES = {"not_selected": "not read", "error": "read failed", "truncated": "partial", "stale": "stale"}
+
+# The rich look (P21). One accent per meaning, from the 256-colour palette in the semicolon SGR form (no truecolor
+# branch): ok, warn, hot and bad for a state or a level, dim for structure, title for a section title.
+RICH_SGR = {"ok": "38;5;78", "warn": "38;5;221", "hot": "38;5;208", "bad": "38;5;203", "dim": "38;5;245", "title": "1"}
+PILL_SGR = {"OK": "1;38;5;16;48;5;78", "OK?": "1;38;5;16;48;5;221", "ATTN": "1;38;5;231;48;5;160"}
+# Every glyph is one cell wide (as `_width` counts it) and has an ASCII form for a stream that cannot show it; a
+# terminal that draws these as two cells uses the plain view. `none` is a bar or meter without a value.
+RICH_GLYPHS = {
+    True: {"rule": "─", "sep": "·", "full": "█", "empty": "░", "none": "─", "on": "■", "off": "□", "ok": "●", "fast": "▲",
+           "low": "▼", "out": "×", "aged": "○", "run": "►", "gone": "×", "dot": "●", "up": "▲", "down": "▼"},
+    False: {"rule": "-", "sep": "|", "full": "#", "empty": ".", "none": "-", "on": "#", "off": ".", "ok": "*", "fast": "^",
+            "low": "v", "out": "x", "aged": "o", "run": ">", "gone": "x", "dot": "*", "up": "^", "down": "v"},
+}
+BAR_CELLS = 20  # the quota bar of a POOLS row; it shrinks to BAR_MIN cells, then goes, before a data column drops
+BAR_MIN = 4
+METER_CELLS = 5  # the context meter of a LEADS row
 
 
 def _ascii(text: str, keep: str | None = None) -> str:
@@ -1592,8 +1618,9 @@ def _unread(payload: dict[str, Any]) -> str | None:
     return "; ".join(parts)
 
 
-def verdict_line(payload: dict[str, Any], width: int, unicode: bool, keep: str | None = None) -> str:
-    """Line 1: `OK`, `OK? (... not read)` or `ATTN n` with two named alerts; the right-hand fields drop first."""
+def verdict_line(payload: dict[str, Any], width: int, unicode: bool, keep: str | None = None, sep: str = " | ") -> str:
+    """Line 1: `OK`, `OK? (... not read)` or `ATTN n` with two named alerts; the right-hand fields drop first.
+    `sep` joins the fields (the rich view uses ` · `)."""
     alerts = frame_alerts(payload)
     counts = _obj(_obj(_obj(_obj(payload.get("groups")).get("activity")).get("data")).get("counts"))
     right: list[str] = []
@@ -1614,7 +1641,7 @@ def verdict_line(payload: dict[str, Any], width: int, unicode: bool, keep: str |
         head = "OK" if unread is None else f"OK? ({unread})"
         head = head if unicode else _ascii(head, keep)
         for fields in range(len(right), -1, -1):
-            line = " | ".join([head, *right[:fields]])
+            line = sep.join([head, *right[:fields]])
             if _width(line) <= width:
                 return line
         return _fit(head, width, unicode)
@@ -1623,18 +1650,32 @@ def verdict_line(payload: dict[str, Any], width: int, unicode: bool, keep: str |
 
     def compose(shown: int, fields: int) -> str:
         rest = len(alerts) - shown
-        return " | ".join([head, *names[:shown], *([f"+{rest}"] if rest else []), *right[:fields]])
+        return sep.join([head, *names[:shown], *([f"+{rest}"] if rest else []), *right[:fields]])
 
     for shown in range(len(names), 0, -1):
         for fields in (range(len(right), -1, -1) if shown == len(names) else (0,)):
             line = compose(shown, fields)
             if _width(line) <= width:
                 return line
-    tail = f" | +{len(alerts) - 1}" if len(alerts) > 1 else ""
-    room = width - _width(f"{head} | {tail}")
+    tail = f"{sep}+{len(alerts) - 1}" if len(alerts) > 1 else ""
+    room = width - _width(f"{head}{sep}{tail}")
     if room >= 4:
-        return f"{head} | {_fit(names[0], room, unicode)}{tail}"
+        return f"{head}{sep}{_fit(names[0], room, unicode)}{tail}"
     return _fit(compose(0, 0), width, unicode)
+
+
+def _decorate_verdict(verdict: str, sep: str, clock: str, width: int, paint: bool) -> str:
+    """Line 1 of the rich look (P21): the status word as a pill, the separators dim, and the time at the right edge when
+    two cells of room remain before it. `verdict` was fitted for two cells less: the pill's padding."""
+    match = re.match(r"OK\??|ATTN \d+\??", verdict)
+    head = match[0] if match else ""
+    gap = width - _width(verdict) - (2 if head else 0) - _width(clock)
+    timed = bool(clock) and gap >= 2
+    if not paint:
+        return verdict + (" " * (gap + (2 if head else 0)) + clock if timed else "")
+    dim = RICH_SGR["dim"]
+    pill = _paint(f" {head} ", PILL_SGR["ATTN" if head.startswith("ATTN") else head]) if head else ""
+    return pill + verdict[len(head):].replace(sep, _paint(sep, dim)) + (" " * gap + _paint(clock, dim) if timed else "")
 
 
 @dataclass
@@ -1681,10 +1722,12 @@ def _fit_bytes(text: str, budget: int, unicode: bool) -> str:
 def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, unicode: bool,
                       max_lines: int = COMPACT_MAX_LINES, max_bytes: int = COMPACT_MAX_BYTES,
                       keep: str | None = None) -> str:
-    """The one owner of the compact frame's size (#374 H2).
+    """The one owner of the compact frame's size (#374 H2) and of its order: line 1, line 2 with its lines, POOLS,
+    the suggestion, RUNNING, LEADS, RECENT (P21: the quota comes first; what is cut first is unchanged).
 
     Every line is fitted to `width`. While the frame is over the height bound (height - 1 lines), `max_lines` or
-    `max_bytes`, lines go in this single order: RECENT rows from the bottom (down to one), LEADS rows (down to one),
+    `max_bytes` (the bytes of the lines as given, SGR codes included), lines go in this single order: RECENT rows from
+    the bottom (down to one), LEADS rows (down to one),
     RUNNING rows after the third, POOLS rows after the fourth, the second suggestion line, the remaining RUNNING rows,
     the remaining POOLS rows, the RECENT header with its last row, the LEADS header with its last row, the first
     suggestion line, the POOLS header, the RUNNING header, line 2 (its attached lines first). Line 1 is the fallback:
@@ -1720,7 +1763,7 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
         return [*lines, _overflow(hidden, nouns[key], width, unicode)] if key in totals and hidden > 0 and rows > 0 else lines
 
     def assemble() -> list[str]:
-        return [verdict, *header, *section("running"), *section("leads"), *section("recent"), *suggest, *section("pools")]
+        return [verdict, *header, *section("pools"), *suggest, *section("running"), *section("leads"), *section("recent")]
 
     def pop_rows(key: str, floor: int) -> bool:
         lines = parts[key]
@@ -1773,16 +1816,12 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
     return "\n".join(lines) + "\n"
 
 
-def _table(rows: list[list[str]], width: int, unicode: bool, *, right: Sequence[int] = (), elastic: int | None = None,
-           floor: int = 12, codes: Sequence[str | None] = (), paint_col: int | None = None,
-           glyph_col: int | None = None) -> list[str]:
-    """One column set for all rows; whole columns drop from the right, and the elastic column (text) shrinks first."""
-    if not rows:
-        return []
-    count = len(rows[0])
-    natural = [max(_width(row[i]) for row in rows) for i in range(count)]
+def _columns(rows: list[list[str]], width: int, elastic: int | None, floor: int = 12) -> tuple[int, list[int]]:
+    """How many leading columns a table shows, and their sizes: whole columns drop from the right, and the elastic
+    column (text) shrinks first, down to `floor` cells."""
+    natural = [max(_width(row[i]) for row in rows) for i in range(len(rows[0]))] if rows else []
     sizes = list(natural)
-    shown = count
+    shown = len(natural)
     while shown > 1:
         fixed = sum(natural[i] for i in range(shown) if i != elastic) + 2 * (shown - 1)
         if elastic is not None and elastic < shown:
@@ -1792,20 +1831,40 @@ def _table(rows: list[list[str]], width: int, unicode: bool, *, right: Sequence[
         elif fixed <= width:
             break
         shown -= 1
+    return shown, sizes
+
+
+def _table(rows: list[list[str]], width: int, unicode: bool, *, right: Sequence[int] = (), elastic: int | None = None,
+           floor: int = 12, paint: Callable[[int, int, str], str] | None = None) -> list[str]:
+    """One column set for all rows (see `_columns`). `paint(row, column, cell)` colours a cell after it was fitted, so
+    colour never changes a width (P21 C4)."""
+    shown, sizes = _columns(rows, width, elastic, floor)
     lines: list[str] = []
     for index, row in enumerate(rows):
         cells: list[str] = []
         for i in range(shown):
             text = _fit(row[i], sizes[i], unicode) if i == elastic and _width(row[i]) > sizes[i] else row[i]
             pad = " " * max(0, sizes[i] - _width(text))
-            code = codes[index] if i in (paint_col, glyph_col) and index < len(codes) else None
-            if code and i == glyph_col:  # only the direction glyph of PACE takes the row colour, never the number
-                text = _paint(text[0], code) + text[1:] if text[:1] in {"▲", "▼", "^", "v"} else text
-            elif code:
-                text = _paint(text, code)
+            if paint is not None and text:
+                text = paint(index, i, text)
             cells.append(pad + text if i in right else text + pad)
         lines.append("  ".join(cells).rstrip())
     return lines
+
+
+def _head_rule(head: str, width: int, unicode: bool, paint: bool) -> str:
+    """The rule that replaces a section head in the rich view (P21 C2): the same content on the same line. The first
+    two words are the title (`POOLS 9`); a ` | ` of the head is the view's separator. A head that would be cut to
+    make room for the line keeps its content and loses the line."""
+    ruled = _width(head) <= width - 3
+    head = _fit(head, width, unicode)
+    match = re.match(r"\S+ \S+", head)
+    title = match[0] if match else head
+    sep = f" {RICH_GLYPHS[unicode]['sep']} "
+    rest = head[len(title):].replace(" | ", _paint(sep, RICH_SGR["dim"]) if paint else sep)
+    if ruled:
+        return _rule(title, rest, width, unicode, paint)
+    return (_paint(title, RICH_SGR["title"]) if paint else title) + rest
 
 
 def _flag(row: dict[str, Any]) -> str:
@@ -1847,14 +1906,33 @@ def _recent_text(row: dict[str, Any]) -> object:
     return "-" if row.get("state") == "ok" else "(no reply)"
 
 
-def _activity_sections(groups: dict[str, Any], width: int, unicode: bool,
-                       keep: str | None = None) -> tuple[list[str], int, list[str] | None]:
-    """RUNNING (header and at most five rows, the total before the cap) and RECENT (at most two rows, or None)."""
+_RUN_MARKS = {"": ("run", "", "ok"), "!gone": ("gone", " gone", "bad"), "!overdue": ("", "! overdue", "warn"),
+              "?": ("", "?", "warn")}  # a RUNNING row's flag: its glyph, the word beside it, its colour
+_RECENT_COLOURS = {"ok": "ok", "unsure": "warn", "overdue": "warn"}  # every other ended state is bad
+
+
+def _column_painter(column: int, colours: Sequence[str | None]) -> Callable[[int, int, str], str]:
+    """Paints one column of a table: each row's cell in that row's colour."""
+    def paint(index: int, col: int, text: str) -> str:
+        colour = colours[index] if col == column else None
+        return _paint(text, RICH_SGR[colour]) if colour else text
+    return paint
+
+
+def _activity_sections(groups: dict[str, Any], width: int, unicode: bool, keep: str | None = None, *,
+                       rich: bool = False, paint: bool = False) -> tuple[list[str], int, list[str] | None]:
+    """RUNNING (header and at most five rows, the total before the cap) and RECENT (at most two rows, or None).
+    The rich view (P21) draws each head as a rule, starts a RUNNING row with its state glyph (and the word of a flag)
+    and a RECENT row with a state dot; such a cell is used only when it costs no column."""
+    def head_line(head: str) -> str:
+        return _head_rule(head, width, unicode, paint) if rich else head
+
     group = _obj(groups.get("activity"))
     if not isinstance(group.get("data"), Mapping):
         why = "read failed" if _clean(group.get("status") or "").upper() in {"ERROR", "FAILED"} else "not read"
-        return [f"RUNNING ? | activity {why}"], 0, None
+        return [head_line(f"RUNNING ? | activity {why}")], 0, None
     data = _obj(group.get("data"))
+    glyphs = RICH_GLYPHS[unicode]
 
     def cell(value: object) -> str:  # text cells keep what the plain view's encoding can show (A5)
         return _cell(value, unicode, "-", keep)
@@ -1869,7 +1947,14 @@ def _activity_sections(groups: dict[str, Any], width: int, unicode: bool,
               _short(cell(row.get("ask_line")), REQUEST_CAP, unicode), cell(row.get("name"))]
              for row, flag in zip(shown, flags)]
     first = 1 if flagged else 0
-    rows = [" " + line for line in _table(table, width - 1, unicode, right=(first,), elastic=first + 3)]
+    painter = None
+    if rich and table:
+        marks = [_RUN_MARKS[flag] for flag in flags]
+        marked = [[glyphs.get(glyph, "") + word, *row[first:]] for (glyph, word, _), row in zip(marks, table)]
+        if _columns(marked, width - 1, 4)[0] - 1 >= _columns(table, width - 1, first + 3)[0] - first:
+            table, first = marked, 1
+            painter = _column_painter(0, [colour for _, _, colour in marks]) if paint else None
+    rows = [" " + line for line in _table(table, width - 1, unicode, right=(first,), elastic=first + 3, paint=painter)]
     recent: list[str] | None = None
     if ended:
         table = [[cell(row.get("state")),
@@ -1877,8 +1962,15 @@ def _activity_sections(groups: dict[str, Any], width: int, unicode: bool,
                   cell(row.get("profile") or row.get("peer")), cell(_obj(row.get("lead")).get("label")),
                   _short(cell(_recent_text(row)), REQUEST_CAP, unicode), cell(row.get("name"))]
                  for row in ended[:RECENT_CAP]]
-        recent = [f"RECENT {len(ended)}", *(" " + line for line in _table(table, width - 1, unicode, right=(1,), elastic=4))]
-    return [head, *rows], total, recent
+        colours = [_RECENT_COLOURS.get(str(row.get("state")), "bad") for row in ended[:RECENT_CAP]]
+        if rich:
+            dotted = [[f"{glyphs['dot']} {row[0]}", *row[1:]] for row in table]
+            if _columns(dotted, width - 1, 4)[0] >= _columns(table, width - 1, 4)[0]:
+                table = dotted
+        painter = _column_painter(0, colours) if rich and paint else None
+        recent = [head_line(f"RECENT {len(ended)}"),
+                  *(" " + line for line in _table(table, width - 1, unicode, right=(1,), elastic=4, paint=painter))]
+    return [head_line(head), *rows], total, recent
 
 
 def _leads_header(data: dict[str, Any], count: int) -> str:
@@ -1917,10 +2009,23 @@ def _lead_cells(lead: dict[str, Any], now: float, unicode: bool, keep: str | Non
             _short(_cell(model or None, unicode, "-", keep), 16, unicode), _cell(item.get("title"), unicode, "", keep)]
 
 
-def _leads_section(groups: dict[str, Any], now: float, width: int, unicode: bool,
-                   keep: str | None = None) -> tuple[list[str] | None, int]:
+def _ctx_meter(cell: str, pct: float | None, unicode: bool) -> str:
+    """The ctx cell with its meter (P21): `ctx ■■□□□ 46%`; a cell without a percent (`ctx 106k`, `ctx ?`) gets the
+    meter without a value, and a lead without a session keeps its `-`."""
+    if not cell.startswith("ctx "):
+        return cell
+    glyphs = RICH_GLYPHS[unicode]
+    if pct is None:
+        return f"ctx {glyphs['none'] * METER_CELLS} {cell[4:]}"
+    filled = min(METER_CELLS, max(0, int(pct / 100 * METER_CELLS + 0.5)))
+    return f"ctx {glyphs['on'] * filled}{glyphs['off'] * (METER_CELLS - filled)} {cell[4:]}"
+
+
+def _leads_section(groups: dict[str, Any], now: float, width: int, unicode: bool, keep: str | None = None, *,
+                   rich: bool = False, paint: bool = False) -> tuple[list[str] | None, int]:
     """LEADS (header and at most LEADS_CAP rows of the leads with a session or a running ask, the total before the cap),
-    or None when there is no such lead and the lead sessions were read completely."""
+    or None when there is no such lead and the lead sessions were read completely. The rich view (P21) draws the head
+    as a rule and the context as a meter, unless the meter would cost a column."""
     data = _obj(_obj(groups.get("activity")).get("data"))
     leads = [lead for lead in _items(data.get("leads")) if lead.get("session") or (_number(lead.get("running")) or 0) > 0]
     header = _leads_header(data, len(leads))
@@ -1928,13 +2033,39 @@ def _leads_section(groups: dict[str, Any], now: float, width: int, unicode: bool
         return None, 0
     table = [_lead_cells(lead, now, unicode, keep) for lead in leads[:LEADS_CAP]]
     titled = any(row[-1] for row in table)
-    rows = _table([row if titled else row[:-1] for row in table], width - 1, unicode, right=(2,),
-                  elastic=6 if titled else None)
-    return [header, *(" " + line for line in rows)], len(leads)
+    table = [row if titled else row[:-1] for row in table]
+    elastic = 6 if titled else None
+    pcts = [_number(_obj(lead.get("session")).get("context_pct")) for lead in leads[:LEADS_CAP]]
+    metered = [[*row[:3], _ctx_meter(row[3], pct, unicode), *row[4:]] for row, pct in zip(table, pcts)]
+    meters = rich and _columns(metered, width - 1, elastic)[0] >= _columns(table, width - 1, elastic)[0]
+
+    def painter(index: int, col: int, text: str) -> str:
+        if col != 3 or not text.startswith("ctx "):
+            return text
+        pct = pcts[index]
+        if pct is None:  # no value: the meter is structure
+            meter, _, value = text[4:].partition(" ")
+            return f"ctx {_paint(meter, RICH_SGR['dim'])} {value}"
+        return f"ctx {_paint(text[4:], RICH_SGR['bad'])}" if pct >= _LEAD_MARK_PCT else text
+
+    rows = _table(metered if meters else table, width - 1, unicode, right=(2,), elastic=elastic,
+                  paint=painter if meters and paint else None)
+    return [_head_rule(header, width, unicode, paint) if rich else header, *(" " + line for line in rows)], len(leads)
 
 
 def _has_value(row: dict[str, Any]) -> bool:
     return row["state"] not in {"n/a", "?", "reset"} and _number(row["remaining"]) is not None
+
+
+def _min_quota(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Line 1's `min quota` from the rows POOLS draws (P9): the lowest 7-day pool that has a percent at the time of
+    this redraw, with the state the table shows. The rule is monitor_read_model.min_quota's."""
+    weekly = [(round(float(row["remaining"]) * 100), f"{row['peer']} {row['pool']}", row) for row in rows
+              if str(row["pool"]).rpartition("-")[1:] == ("-", "7D") and _has_value(row)]
+    if not weekly:
+        return None
+    left, name, row = min(weekly, key=lambda item: item[:2])
+    return {"pool": name, "left_pct": left, "state": row["state"], "aged": bool(row["aged"] or row["stale"])}
 
 
 def _binds(child: dict[str, Any], parent: dict[str, Any]) -> bool:
@@ -1983,27 +2114,90 @@ def _ordered_pools(rows: list[dict[str, Any]]) -> list[tuple[dict[str, Any], boo
     return ordered
 
 
-def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, paint: bool,
-                  keep: str | None = None) -> tuple[list[str], int]:
-    """`POOLS n` with the column titles, then at most eight rows: POOL STATE LEFT RESET PACE FAMILY."""
+def _pool_colour(row: dict[str, Any]) -> str | None:
+    """A POOLS row's one colour in the rich view (P21 C5). `_quota_color` decides first, so evidence that is aged,
+    unknown, reset or n/a is dim and a threat or an exhausted pool is bad; a valid pool takes the colour of what is
+    left (ok above 50%, warn above 25%, hot above 10%, bad at 10% or less), and never a milder one than its state's."""
+    remaining = _number(row["remaining"])
+    code = "2" if row["state"] == "n/a" else _quota_color(str(row["color_state"]), remaining,
+                                                           aged=bool(row["aged"] or row["stale"]))
+    if code == "2":
+        return "dim"
+    if code in {"1;31", "31"}:
+        return "bad"
+    order = ("ok", "warn", "hot", "bad")
+    state = "warn" if code == "33" else "ok"
+    if remaining is None:
+        return state if code else None
+    left = "ok" if remaining > .50 else "warn" if remaining > .25 else "hot" if remaining > .10 else "bad"
+    return max(state, left, key=order.index)
+
+
+def _pool_bar(row: dict[str, Any], cells: int, unicode: bool) -> str:
+    """What is left as a bar; a non-zero remainder shows at least one cell, and a row without a value shows none."""
+    glyphs = RICH_GLYPHS[unicode]
+    if not _has_value(row):
+        return glyphs["none"] * cells
+    remaining = float(row["remaining"])
+    filled = max(int(remaining * cells + 0.5), 1 if remaining > 0 else 0)
+    return glyphs["full"] * filled + glyphs["empty"] * (cells - filled)
+
+
+def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
+                  rich: bool = False, paint: bool = False) -> tuple[list[str], int]:
+    """`POOLS n` with the column titles, then at most eight rows: POOL STATE LEFT RESET PACE FAMILY.
+
+    The rich view (P21) draws the head as a rule, puts a state glyph before the state word and a bar of what is left
+    after it (POOL STATE bar LEFT ...). A decoration never costs a data column: the glyph stays only when the table
+    shows the columns of the plain view, and the bar takes the cells left over when every cell is whole (at most
+    BAR_CELLS; fewer than BAR_MIN: no bar), so it shrinks and goes before a column drops or the FAMILY note is cut."""
     ordered = _ordered_pools(rows)
+    shown = ordered[:POOLS_CAP]
+    glyphs = RICH_GLYPHS[unicode]
     branch = "└─ " if unicode else "`- "
-    table = [[f"POOLS {len(ordered)}", "STATE", "LEFT", "RESET", "PACE", "FAMILY"]]
-    codes: list[str | None] = [None]
-    for row, child in ordered[:POOLS_CAP]:
+    head = f"POOLS {len(ordered)}"
+    table = [[head, "STATE", "LEFT", "RESET", "PACE", "FAMILY"]]
+    for row, child in shown:
         peer, pool = _cell(row["peer"], unicode, "-", keep), _cell(row["pool"], unicode, "-", keep)
         name = f"{' ' * _width(peer)} {branch}{pool}" if child else f"{peer} {pool}"
         family = str(row["meaning"]) + (f"; {_na_note(row)}" if row["state"] == "n/a" else "")
         table.append([" " + name, str(row["state"]), str(row["left"]), str(row["resets"]),
                       _pace_glyph(str(row["pace"]), unicode), _cell(family, unicode, "-", keep)])
-        codes.append(("2" if row["state"] == "n/a" else
-                      _quota_color(str(row["color_state"]), _number(row["remaining"]), aged=bool(row["aged"] or row["stale"])))
-                     if paint else None)
     # Whole columns drop from the right (FAMILY first). FAMILY shrinks only down to its widest family name, so a long
     # n/a note is cut (with the cut mark) rather than taking the whole column away; no other cell is ever cut.
-    floor = max([_width("FAMILY"), *(_width(_cell(row["meaning"], unicode, "-", keep)) for row, _ in ordered[:POOLS_CAP])])
-    return (_table(table, width, unicode, right=(2, 4), elastic=5, floor=floor, codes=codes, paint_col=1, glyph_col=4),
-            len(ordered))
+    floor = max([_width("FAMILY"), *(_width(_cell(row["meaning"], unicode, "-", keep)) for row, _ in shown)])
+    if not rich:
+        return _table(table, width, unicode, right=(2, 4), elastic=5, floor=floor), len(ordered)
+    plain_shown = _columns(table, width, 5, floor)[0]
+    ruled = [[f"{glyphs['rule'] * 2} {head}", *table[0][1:]], *table[1:]]  # the rule's first cells, so titles stay aligned
+    states = [glyphs.get(str(row["state"]), glyphs["aged"]) for row, _ in shown]
+    glyphed = [ruled[0], *([cells[0], f"{glyph} {cells[1]}", *cells[2:]] for glyph, cells in zip(states, ruled[1:]))]
+    chosen = next((cells for cells in (glyphed, ruled) if _columns(cells, width, 5, floor)[0] >= plain_shown), table)
+    names = ["POOL", "STATE", "LEFT", "RESET", "PACE", "FAMILY"]
+    right, elastic = (2, 4), 5
+    room = width - sum(max(_width(cells[i]) for cells in chosen) for i in range(6)) - 2 * 6
+    if chosen is not table and min(BAR_CELLS, room) >= BAR_MIN:
+        bars = ["", *(_pool_bar(row, min(BAR_CELLS, room), unicode) for row, _ in shown)]
+        chosen = [[*cells[:2], bar, *cells[2:]] for bar, cells in zip(bars, chosen)]
+        names.insert(2, "BAR")
+        right, elastic = (3, 5), 6
+    colours = [None, *(_pool_colour(row) for row, _ in shown)]
+
+    def painter(index: int, col: int, text: str) -> str:
+        colour = colours[index]
+        if index == 0:
+            return text
+        if names[col] == "FAMILY":
+            return _paint(text, RICH_SGR["dim"])
+        if colour and names[col] in {"STATE", "BAR"}:
+            return _paint(text, RICH_SGR[colour])
+        if colour and names[col] == "PACE" and text[0] in {glyphs["up"], glyphs["down"]}:
+            return _paint(text[0], RICH_SGR[colour]) + text[1:]  # only the direction glyph, never the number
+        return text
+
+    lines = _table(chosen, width, unicode, right=right, elastic=elastic, floor=floor, paint=painter if paint else None)
+    lines[0] = _head_rule(lines[0] if chosen is table else lines[0][3:], width, unicode, paint)
+    return lines, len(ordered)
 
 
 def _suggest_lines(text: str, width: int, unicode: bool) -> list[str]:
@@ -2014,7 +2208,9 @@ def _suggest_lines(text: str, width: int, unicode: bool) -> list[str]:
 def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: bool,
                           width: int, height: int | None, keep: str | None = None) -> str:
     width = max(1, min(100, width) - 1)  # leave the terminal's autowrap column unused
-    paint = color and view == "rich" and "NO_COLOR" not in os.environ
+    rich = view == "rich"  # P21: the rich look; `unicode` picks its glyphs and `paint` adds the colour
+    paint = color and rich and "NO_COLOR" not in os.environ
+    sep = f" {RICH_GLYPHS[unicode]['sep']} " if rich else " | "
     groups = _obj(payload.get("groups"))
     selected = payload.get("selected_groups")
     selected_ids = set(cast(list[str], selected)) if isinstance(selected, list) else set(groups)
@@ -2050,8 +2246,9 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
     else:
         cut = _width(title) > width
         title = _fit_fields(title, width, unicode, inline_note=False)
+    title = title.replace(" | ", sep)  # the rich view's separator; line 2 is structure, so its colour is dim
     # Fields dropped from line 2 are disclosed on a line of their own, so a narrow terminal keeps the timestamp.
-    header = [title, *(["Fields hidden | --expand"] if cut else [])]
+    header = [_paint(title, RICH_SGR["dim"]) if paint else title, *([f"Fields hidden{sep}--expand"] if cut else [])]
     errors = _obj(payload.get("errors"))
     nearest = payload.get("_nearest_store_path")
     same_store = bool(nearest and store.get("path") and os.path.normcase(os.path.abspath(str(nearest))) == os.path.normcase(os.path.abspath(str(store["path"]))))
@@ -2076,23 +2273,28 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
     if (selected_ids & {"capacity", "peers"} and (missing_pool or any(row["needs_refresh"] for row in rows))
             and (rows or "capacity" not in selected_ids)):
         header.append("next: peerhub observation refresh")
-    verdict = verdict_line(payload, width, unicode, keep)
-    if paint:
-        head = verdict.split(" | ", 1)[0]
-        code = "1;31" if head.startswith("ATTN") else "33" if head.startswith("OK?") else "32"
-        verdict = _paint(head, code) + verdict[len(head):]
+    if "_human_observations" in payload:
+        # P9: the read model's `min_quota` is as of the read; a redraw ages the rows, so line 1 takes its pool from
+        # the rows POOLS draws. A payload without the human observations cannot age a stale pool: it keeps `min_quota`.
+        payload = {**payload, "min_quota": _min_quota(rows)}
+    if rich:  # the pill's padding takes two cells; the time is that of line 2
+        verdict = _decorate_verdict(verdict_line(payload, max(1, width - 2), unicode, keep, sep), sep,
+                                    stamp[-6:] if read_at is not None and stamp.endswith("Z") else "", width, paint)
+    else:
+        verdict = verdict_line(payload, width, unicode, keep)
     frame = CompactFrame(verdict=verdict, header=header)
     if "activity" in selected_ids:
-        frame.running, frame.running_total, frame.recent = _activity_sections(groups, width, unicode, keep)
-        frame.leads, frame.leads_total = _leads_section(groups, now + elapsed, width, unicode, keep)
+        frame.running, frame.running_total, frame.recent = _activity_sections(groups, width, unicode, keep,
+                                                                               rich=rich, paint=paint)
+        frame.leads, frame.leads_total = _leads_section(groups, now + elapsed, width, unicode, keep, rich=rich, paint=paint)
     if "capacity" in selected_ids:
         frame.suggest = _suggest_lines(_compact_suggestions(configured_profiles, rows), width, unicode)
         if rows:
-            frame.pools, frame.pools_total = _pool_section(rows, width, unicode, paint, keep)
+            frame.pools, frame.pools_total = _pool_section(rows, width, unicode, keep, rich=rich, paint=paint)
         else:
             notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None
                      else _compact_wrap("no quota evidence; next: peerhub observation refresh", width))
-            frame.pools = ["POOLS 0", *notes]
+            frame.pools = [_head_rule("POOLS 0", width, unicode, paint) if rich else "POOLS 0", *notes]
     return fit_compact_frame(frame, width=width, height=height, unicode=unicode, keep=keep)
 
 
@@ -2151,13 +2353,32 @@ def _display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
         **({"_human_observations": replace(observations)} if "_human_observations" in payload else {})}
 
 
+def no_quota_evidence(payload: dict[str, Any]) -> bool:
+    """True for a store that never had a quota refresh (P6): the read model reports the capacity source as
+    `no_evidence` when none of the observation tables exists. That is missing evidence, not a failed read."""
+    return _obj(payload.get("alert_sources")).get("capacity") == "no_evidence"
+
+
+def _without_quota_evidence(payload: dict[str, Any]) -> dict[str, Any]:
+    """A presentation copy for such a store: the capacity group has no observations and is no read error, so both
+    frames print the no-evidence wording instead of `data unavailable`. The payload itself (and --json) is unchanged."""
+    if not no_quota_evidence(payload):
+        return payload
+    shown = dict(_obj(payload.get("groups")))
+    if "capacity" in shown:
+        empty: dict[str, Any] = {"observations": []}
+        shown["capacity"] = {**_obj(shown["capacity"]), "status": "UNKNOWN", "data": empty}
+    return {**payload, "groups": shown,
+            "errors": {key: value for key, value in _obj(payload.get("errors")).items() if key != "capacity"}}
+
+
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
                          expand: bool = False, text_encoding: str | None = None) -> str:
     """Compact human default; the established renderer supplies expanded detail.
 
     `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5)."""
-    payload = _display_plan_omissions(payload)
+    payload = _display_plan_omissions(_without_quota_evidence(payload))
     if expand:
         return _render_expanded_frame(payload, view=view, color=color, unicode=unicode,
                                       width=width, height=height, expand=True, keep=text_encoding)
@@ -2225,7 +2446,9 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     # #338: the store path and the --db/PEERHUB_DB note wrap; a truncated path cannot name the store.
     store_lines = [*(_compact_wrap(db_line, max(1, width - 1)) if db_line else []),
                    *(_compact_wrap(str(payload["_store_note"]), max(1, width - 1)) if payload.get("_store_note") else [])]
-    verdict = verdict_line(payload, max(1, width - 1), unicode, keep)
+    verdict = verdict_line(payload, max(1, width - 1 - (2 if color else 0)), unicode, keep)
+    if color:  # P21: the pill of the compact frame (fitted above for its padding); the words of line 1 are unchanged
+        verdict = _decorate_verdict(verdict, " | ", "", max(1, width - 1), True)
     # #374: the verdict is line 1; the grouped frame below it is laid out for one terminal line less.
     inner_height = None if height is None else height - 1
     overhead = 1 + len(store_lines)

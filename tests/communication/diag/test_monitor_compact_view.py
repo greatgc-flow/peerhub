@@ -56,7 +56,8 @@ def _row(screen, pool):
 
 
 def _header(screen):
-    return next(line for line in screen.splitlines() if line.startswith("POOLS "))
+    """The POOLS head: a line of words in the plain view, a rule in the rich view (P21); its titles sit over the columns."""
+    return next(line for line in screen.splitlines() if line.startswith(("POOLS ", "── POOLS ", "-- POOLS ")))
 
 
 def _solo(frame, drop=":G-7D", **kw):
@@ -244,10 +245,14 @@ def test_fast_with_threat_forecast_is_red_on_state_in_rich_output(compact_frame,
     monkeypatch.delenv("NO_COLOR", raising=False)
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "threat"}, projection_samples=2)
+    from peerhub.cli.monitor_view import RICH_SGR
+
     screen = _solo(compact_frame, view="rich", color=True, width=100)
     line = next(line for line in screen.splitlines() if "G-5H" in line and "fast" in line)
-    assert not line.startswith("\x1b") and "\x1b[31mfast\x1b[0m" in line
-    assert line.count("\x1b[31m") == 1  # #374: no bar in the compact frame; the pace cell is '-' here
+    bad = f"\x1b[{RICH_SGR['bad']}m"
+    assert not line.startswith("\x1b") and f"{bad}▲ fast\x1b[0m" in line
+    assert line.count(bad) == 2  # P21: the state cell and the bar take the row's colour; the pace cell is '-' here
+    assert f"{bad}████████████████░░░░\x1b[0m   80%" in line
 
 
 def test_ttl_boundary_and_next_absent_when_fresh(compact_frame):
@@ -287,7 +292,8 @@ def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
     assert all(_width(line) <= width for line in screen.splitlines())
     # #374: the footer with "details: --expand" left the compact frame; below 26 columns POOLS keeps POOL and STATE
     # whole (LEFT drops as a column, never as a cut number).
-    pools = screen.split("\nPOOLS ", 1)[1]
+    pools = re.split(r"\n(?:-- )?POOLS ", screen, maxsplit=1)[1]  # P21: this view (rich, ASCII glyphs) draws a rule
+    pools = pools.split("\nsuggest:", 1)[0]  # P21: the suggestion and the activity follow POOLS
     assert ("55%" in pools and "89%" in pools) if width >= 26 else "%" not in pools and "~" not in pools
     if width < 48:
         assert "PEER  POOL" not in screen  # labelled vertical pool rows on narrow terminals
@@ -446,8 +452,10 @@ def test_poolless_probe_does_not_poison_quota_age_or_refresh(compact_frame):
 
 def test_missing_configured_pool_requests_refresh(compact_frame):
     compact_frame["groups"]["capacity"]["data"]["observations"] = []
-    screen = render_grouped_frame(compact_frame)
+    screen = render_grouped_frame(compact_frame, view="plain")
     assert "POOLS 0" in screen.splitlines() and "no quota evidence; next: peerhub observation refresh" in screen
+    rich = render_grouped_frame(compact_frame).splitlines()  # P21: the head is a rule; the notes are the same lines
+    assert rich[2] == "── POOLS 0 " + "─" * 88 and rich[3:] == screen.splitlines()[3:]
     compact_frame["selected_groups"] = ["peers"]
     assert "next: peerhub observation refresh" in render_grouped_frame(compact_frame)
 
@@ -655,7 +663,7 @@ COMPACT_COLUMNS = ["STATE", "LEFT", "RESET", "PACE", "FAMILY"]  # after `POOLS n
 @pytest.mark.parametrize("width", [20, 30, 40, 60])
 def test_narrow_pools_table_drops_whole_columns_from_the_right(compact_frame, width):
     screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=width)
-    pools = screen.split("\nPOOLS ", 1)[1]
+    pools = screen.split("\nPOOLS ", 1)[1].split("\nsuggest:", 1)[0]  # P21: the suggestion follows the POOLS rows
     assert "~" not in pools and "Columns omitted" not in screen
     header = _header(screen)
     shown = header.split()[2:]
@@ -707,18 +715,22 @@ def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_fram
     monkeypatch.delenv("NO_COLOR", raising=False)
     fast = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     fast.update(projection={"state": "threat"}, projection_samples=2)
+    from peerhub.cli.monitor_view import RICH_SGR
+
     colored = _solo(compact_frame, view="rich", color=True, width=100)
     plain = _solo(compact_frame, view="rich", color=False, width=100)
     assert "\x1b" not in plain
-    assert re.sub(r"\x1b\[[0-9;]*m", "", colored) == plain  # colour never changes the text or the widths
-    for pool, state, code in (("3P-5H", "low", "2"), ("3P-7D", "out", "2"), ("A-7D", "aged", "2"),
-                              ("G-5H", "fast", "31"), ("X-7D", "ok", None)):
+    bare = re.sub(r"\x1b\[[0-9;]*m", "", colored).splitlines()
+    assert bare[1:] == plain.splitlines()[1:]  # colour never changes the text or the widths
+    assert bare[0].split() == plain.splitlines()[0].split() and bare[0].startswith(" OK? ")  # line 1: the pill's padding
+    # P21: the state cell (glyph and word) and the bar take the row's one colour: evidence that is stale is dim
+    # whatever is left, a threat is bad, and a valid pool takes the colour of what is left (89%: ok).
+    for pool, state, colour in (("3P-5H", "▼ low", "dim"), ("3P-7D", "× out", "dim"), ("A-7D", "○ aged", "dim"),
+                                ("G-5H", "▲ fast", "bad"), ("X-7D", "● ok", "ok")):
         line = _row(colored, pool)
-        if code is None:  # INSUFF >10% is uncoloured
-            assert "\x1b" not in line
-        else:  # #374: the STATE cell only (no bar; these rows have no pace glyph)
-            assert f"\x1b[{code}m{state}\x1b[0m" in line
-            assert line.count("\x1b[0m") == 1
+        assert f"\x1b[{RICH_SGR[colour]}m{state}\x1b[0m" in line
+        assert re.search(r"\x1b\[" + RICH_SGR[colour] + r"m[█░]{20}\x1b\[0m", line)
+        assert {code for code in re.findall(r"\x1b\[([0-9;]*)m", line)} == {RICH_SGR[colour], RICH_SGR["dim"], "0"}
         assert not line.startswith("\x1b")
         assert _width(line) <= 99
     assert "\x1b" not in _solo(compact_frame, view="plain", color=True, width=100)

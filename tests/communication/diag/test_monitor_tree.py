@@ -123,7 +123,13 @@ def test_tree_keeps_each_pools_own_capacity_and_encoding_width(expand: bool) -> 
     for pool, value in (("C-30D", "10%"), ("C-5H", "20%"), ("C-7D", "30%")):
         row = next(row for row in ascii_rows if pool in row)
         assert value in row.split()
-    assert [mv._width(row) for row in rich_rows] == [mv._width(row) for row in ascii_rows]
+        assert value in next(row for row in rich_rows if pool in row).split()
+    # P21: the compact rich rows carry the state glyph and the bar, so the width parity of the two glyph sets is
+    # checked inside one view (--expand has the same rows in both views).
+    same_view = pool_lines(mv.render_grouped_frame(frame, unicode=False, width=180, expand=expand))
+    assert [mv._width(row) for row in rich_rows] == [mv._width(row) for row in same_view]
+    if expand:
+        assert same_view == ascii_rows
 
 
 @EXPAND_ONLY
@@ -217,22 +223,27 @@ def test_colour_precedence(state: str, remaining: float, aged: bool, expected: s
     assert mv._quota_color(state, remaining, aged=aged) == expected
 
 
-@pytest.mark.parametrize("remaining,projection,samples,aged,word,code", [
-    (0, "threat", 2, False, "out", "1;31"),
-    (.05, "threat", 2, False, "low", "31"),
-    (.5, "threat", 2, False, "fast", "31"),
-    (.5, "threat", 1, False, "ok", "31"),
-    (.05, "insufficient", 2, False, "low", "33"),
-    (.5, "watch", 2, False, "ok", "33"),
-    (.5, "fast", 2, False, "ok", "33"),
-    (.5, "insufficient", 2, False, "ok", None),
-    (.5, "on_pace", 2, False, "ok", "32"),
-    (0, "threat", 2, True, "out", "2"),
-    (.05, "threat", 2, True, "low", "2"),
+@pytest.mark.parametrize("remaining,projection,samples,aged,word,code,colour", [
+    (0, "threat", 2, False, "out", "1;31", "bad"),
+    (.05, "threat", 2, False, "low", "31", "bad"),
+    (.5, "threat", 2, False, "fast", "31", "bad"),
+    (.5, "threat", 1, False, "ok", "31", "bad"),
+    (.05, "insufficient", 2, False, "low", "33", "bad"),    # 10% or less left is bad, whatever the state's colour
+    (.5, "watch", 2, False, "ok", "33", "warn"),
+    (.8, "watch", 2, False, "ok", "33", "warn"),            # never milder than the state's colour
+    (.5, "fast", 2, False, "ok", "33", "warn"),
+    (.5, "insufficient", 2, False, "ok", None, "warn"),     # a valid pool takes the colour of what is left
+    (.5, "on_pace", 2, False, "ok", "32", "warn"),
+    (.8, "on_pace", 2, False, "ok", "32", "ok"),
+    (.2, "on_pace", 2, False, "ok", "32", "hot"),
+    (0, "threat", 2, True, "out", "2", "dim"),
+    (.05, "threat", 2, True, "low", "2", "dim"),
 ])
 def test_compact_colour_precedence_matches_expanded_without_changing_words(
         remaining: float, projection: str, samples: int, aged: bool, word: str,
-        code: str | None, monkeypatch: pytest.MonkeyPatch) -> None:
+        code: str | None, colour: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`code` is --expand's colour, straight from `_quota_color`. P21: the compact rich row has one colour from the
+    256-colour palette (`colour`): `_quota_color` first (dim for aged evidence, bad for a threat), then what is left."""
     monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-5H"]})
     item = frame["groups"]["capacity"]["data"]["observations"][0]
@@ -247,12 +258,18 @@ def test_compact_colour_precedence_matches_expanded_without_changing_words(
         if state_word == "INSUFFICIENT":
             state_word = "INSUFF"
         assert state_word in mv._ANSI.sub("", row).split()
-        if code is None:
+        if not expand:
+            sgr = mv.RICH_SGR[colour]
+            glyph = mv.RICH_GLYPHS[False].get(word, "o")
+            assert f"\x1b[{sgr}m{glyph} {state_word}\x1b[0m" in row and f"\x1b[{sgr}m^\x1b[0m+12" in row
+            assert re.search(r"\x1b\[" + sgr + r"m[#.]{20}\x1b\[0m", row)  # P21: the bar, in the row's colour
+            assert set(re.findall(r"\x1b\[([0-9;]*)m", row)) == {sgr, mv.RICH_SGR["dim"], "0"}
+        elif code is None:
             assert "\x1b" not in row
         else:
             assert f"\x1b[{code}m{state_word}\x1b[0m" in row
             assert f"\x1b[{code}m^\x1b[0m" in row
-            assert (f"\x1b[{code}m[" in row) == expand  # #374: the bar is --expand only
+            assert f"\x1b[{code}m[" in row
     assert frame == before
 
 
@@ -268,8 +285,10 @@ def test_stale_out_is_dim_even_before_ttl(expand: bool, monkeypatch: pytest.Monk
     item = frame["groups"]["capacity"]["data"]["observations"][0]
     item.update(state="STALE", last_measurements={"remaining_fraction": 0})
     screen = mv.render_grouped_frame(frame, color=True, width=180, expand=expand)
-    assert "\x1b[1;31m" not in screen
-    assert "\x1b[2mSTALE:window" in screen if expand else "\x1b[2mout" in screen
+    assert "\x1b[1;31m" not in screen and f"\x1b[{mv.RICH_SGR['bad']}m" not in screen
+    # P21: the compact row is dim in the palette's dim, state cell and (empty) bar alike
+    assert "\x1b[2mSTALE:window" in screen if expand else f"\x1b[{mv.RICH_SGR['dim']}m× out\x1b[0m" in screen
+    assert expand or f"\x1b[{mv.RICH_SGR['dim']}m{'░' * 20}\x1b[0m" in screen
 
 
 @pytest.mark.parametrize("reset,elapsed", [(0, 0), (10, 10), (-1, 0)])
@@ -280,9 +299,9 @@ def test_passed_measurement_reset_colour_matches_between_views(
     item = frame["groups"]["capacity"]["data"]["observations"][0]
     item["measurements"]["reset_in_seconds"] = reset
     frame["display_elapsed_seconds"] = elapsed
-    for expand, word in ((False, "reset"), (True, "ON_PACE")):
+    for expand, cell in ((False, f"\x1b[{mv.RICH_SGR['dim']}m○ reset\x1b[0m"), (True, "\x1b[2mON_PACE\x1b[0m")):
         screen = mv.render_grouped_frame(frame, color=True, width=180, expand=expand)
-        assert f"\x1b[2m{word}\x1b[0m" in screen
+        assert cell in screen  # dim in both views (P21: the compact view uses the palette's dim)
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -292,9 +311,11 @@ def test_na_root_is_a_dim_full_row(expand: bool, monkeypatch: pytest.MonkeyPatch
     frame["groups"]["capacity"]["data"]["observations"][0].update(
         state="ABSENT", reason="not reported by provider", measurements=None)
     screen = mv.render_grouped_frame(frame, color=True, width=180, expand=expand)
-    if not expand:  # #374: the compact POOLS row dims its STATE cell, like every other state colour
+    if not expand:  # #374: the compact POOLS row dims its STATE cell, like every other state colour (P21: and its bar)
         row = next(line for line in screen.splitlines() if "C-5H" in line)
-        assert "\x1b[2mn/a\x1b[0m" in row and "not reported" in row
+        dim = mv.RICH_SGR["dim"]
+        assert f"\x1b[{dim}m○ n/a\x1b[0m" in row and "not reported" in row and f"\x1b[{dim}m{'─' * 20}\x1b[0m" in row
+        assert set(re.findall(r"\x1b\[([0-9;]*)m", row)) == {dim, "0"}
         return
     row = next(line for line in screen.splitlines() if "C-5H" in line and "not reported" not in line)
     assert row.startswith("\x1b[2mcc ") and row.endswith("\x1b[0m")
@@ -307,8 +328,9 @@ def test_pace_glyph_uses_row_colour_and_missing_pace_stays_dash(expand: bool, mo
     item = frame["groups"]["capacity"]["data"]["observations"][0]
     item["measurements"]["remaining_fraction"] = .5
     colored = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
-    assert "\x1b[32m▼\x1b[0m-" in colored
-    assert ("\x1b[32m[" in colored) == expand  # #374: the bar is --expand only
+    code = "32" if expand else mv.RICH_SGR["warn"]  # P21: 50% left is the palette's warn in the compact row
+    assert f"\x1b[{code}m▼\x1b[0m-" in colored
+    assert f"\x1b[{code}m[" in colored if expand else f"\x1b[{code}m{'█' * 10}{'░' * 10}\x1b[0m" in colored
     item["projection"].pop("pace_pt")
     assert "▼" not in "\n".join(pool_lines(mv.render_grouped_frame(frame, color=True, width=180, expand=expand)))
     monkeypatch.setenv("NO_COLOR", "1")
@@ -402,8 +424,8 @@ def test_error_evidence_keeps_alarm_colour(expand: bool, monkeypatch: pytest.Mon
     frame = frame_for({"cc.a": ["C-5H"]})
     frame["groups"]["capacity"]["data"]["observations"][0].update(state="ERROR", measurements=None)
     screen = mv.render_grouped_frame(frame, color=True, width=180, expand=expand)
-    word = "ERROR" if expand else "?"
-    assert f"\x1b[1;31m{word}\x1b[0m" in screen
+    cell = "\x1b[1;31mERROR\x1b[0m" if expand else f"\x1b[{mv.RICH_SGR['bad']}m○ ?\x1b[0m"  # P21: the palette's bad
+    assert cell in screen
 
 
 def test_fast_and_low_intentionally_share_warning_colour() -> None:

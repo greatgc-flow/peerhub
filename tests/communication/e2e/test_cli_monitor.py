@@ -1384,3 +1384,151 @@ def test_monitor_expand_help_wording(capsys):
     clean_out = " ".join(out.split())
     assert "Render detailed grouped sections with bars, pace and forecasts" in clean_out
 
+
+# ---- P6 (#376 s3): a store that never had a quota refresh is not an error for the human monitor ---------------------
+def _never_refreshed_db(tmp_path):
+    """A real store with one ask and no observation tables: no quota refresh ever ran on it."""
+    from tests.communication.diag.test_monitor_activity import _bridge_store  # pyright: ignore[reportPrivateUsage]
+    return _bridge_store(tmp_path).db_path
+
+
+def _no_refresh(monkeypatch):
+    """The watch's refresh is faked above the store, so the observation tables stay as they are."""
+    monkeypatch.setattr("peerhub.cli.monitor.refresh_with_profile_pools",
+                        lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
+    monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
+
+
+@pytest.mark.parametrize("args", [("--snapshot",), ("--snapshot", "--group", "capacity"), ("--snapshot", "--expand"),
+                                  ("--cycles", "1"), ("--cycles", "2", "--expand")])
+def test_human_monitor_exits_0_on_a_store_that_never_had_a_quota_refresh(tmp_path, capsys, monkeypatch, args):
+    _no_refresh(monkeypatch)
+    assert _run(_never_refreshed_db(tmp_path), "--view", "plain", *args) == 0
+    out, err = capsys.readouterr()
+    assert "diag_unavailable" not in err and "could not be read" not in err
+    assert out.startswith("OK? (") and "quota, accounts, facts not read" in out.splitlines()[0]
+    if "--expand" in args:
+        assert "source capacity: no quota evidence" in out and "Quota capacity: no observations" in out
+        assert "QUOTA [ERROR]" not in out and "database read failed" not in out
+    else:
+        assert "\nPOOLS 0\nno quota evidence; next: peerhub observation refresh\n" in out
+
+
+def test_json_monitor_on_a_never_refreshed_store_is_unchanged(tmp_path, capsys):
+    assert _run(_never_refreshed_db(tmp_path), "--snapshot", "--group", "capacity", "--json") == 4
+    out, err = capsys.readouterr()
+    payload = json.loads(out)
+    assert payload["groups"]["capacity"]["status"] == "ERROR" and payload["errors"] == {"capacity": "OperationalError"}
+    assert payload["alert_sources"]["capacity"] == "no_evidence" and "[diag_unavailable]" in err
+
+
+@pytest.mark.parametrize("args", [("--snapshot", "--group", "capacity"), ("--cycles", "1", "--group", "capacity")])
+def test_damaged_observation_tables_stay_an_error_for_the_human_monitor(tmp_path, capsys, monkeypatch, args):
+    import sqlite3
+
+    _no_refresh(monkeypatch)
+    db = _db(tmp_path)
+    with sqlite3.connect(db) as conn:  # one observation table is missing among existing ones: not "never refreshed"
+        conn.execute("DROP TABLE observation_rollups")
+    assert _run(db, "--view", "plain", *args) == 4
+    out, err = capsys.readouterr()
+    assert "[diag_unavailable] Monitor evidence could not be read; next: peerhub diag health" in err
+    assert out.startswith("ATTN 1? | store: capacity: OperationalError") and "\nDB: " in out
+
+
+def test_an_incompatible_schema_keeps_its_own_message_and_code_for_the_human_monitor(tmp_path, capsys):
+    import sqlite3
+
+    db = _never_refreshed_db(tmp_path)
+    with sqlite3.connect(db) as conn:
+        conn.execute("PRAGMA user_version=999")
+    assert _run(db, "--snapshot", "--view", "plain") == 6
+    assert "[schema_version_error] Unsupported database schema" in capsys.readouterr().err
+
+
+def test_a_corrupt_store_keeps_its_own_message_for_the_human_monitor(tmp_path, capsys):
+    db = tmp_path / "broken.db"
+    db.write_bytes(b"this is not a database" * 64)
+    assert _run(db, "--snapshot", "--view", "plain") == 1
+    out, err = capsys.readouterr()
+    assert "file is not a database" in err and "no quota evidence" not in out
+
+
+def test_a_permission_failure_keeps_its_own_message_for_the_human_monitor(tmp_path, capsys, monkeypatch):
+    def denied(*a, **kw):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", denied)
+    assert _run(_never_refreshed_db(tmp_path), "--snapshot", "--view", "plain") == 1
+    out, err = capsys.readouterr()
+    assert "Permission denied" in err and "no quota evidence" not in out
+
+
+# ---- P9 (#376 s3): every redraw between two reads is the last payload aged by the time since its read ----------------
+def test_every_tty_redraw_ages_the_one_payload_so_line_1_and_pools_agree(tmp_path, monkeypatch):
+    import io
+
+    from peerhub.cli import monitor
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.extensions.observation_model import EvidenceState, Observation, epoch_to_iso
+    from tests.communication.harness.observation import T0, ObservationHarness
+
+    h = ObservationHarness(tmp_path / "workspace")
+    h.register_pool({"schema_version": "1.0", "resource_pool_id": "quota:cx:X-7D", "provider": "openai", "kind": "QUOTA",
+                     "metadata": {}})
+    h.obs.persist(Observation(
+        observation_id="week", subject_ref="cx", resource_pool_ref="quota:cx:X-7D", kind="quota", source="fixture",
+        observed_at=epoch_to_iso(T0), captured_at=epoch_to_iso(T0), state=EvidenceState.MEASURED,
+        payload={"remaining_fraction": 0.12, "resets_at": T0 + 86400}))
+
+    class TTY(io.StringIO):
+        encoding = "utf-8"
+
+        def isatty(self):
+            return True
+
+    clock = [1000.0]
+    reads: list[float] = []
+    frames: list[dict] = []
+    render = monitor._render_human_frame
+
+    def read(db, groups, **kw):  # the store's clock follows the monitor's; the evidence is 200 s old at the first read
+        reads.append(clock[0])
+        return render_monitor_frame(db, groups, read_at=T0 + 200 + (clock[0] - 1000.0), **kw)
+
+    def sleep(seconds):
+        clock[0] += seconds
+
+    def spy(payload, **kw):
+        text = render(payload, **kw)
+        frames.append({"state": payload.get("refresh_state"), "elapsed": payload.get("display_elapsed_seconds"),
+                       "next": payload.get("next_refresh_in"), "read": len(reads), "text": text})
+        return text
+
+    monkeypatch.setattr("sys.stdout", TTY())
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setattr("peerhub.cli.view.FrameOutput.geometry", staticmethod(lambda: (100, 30)))
+    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", read)
+    monkeypatch.setattr(monitor, "refresh_with_profile_pools",
+                        lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
+    monkeypatch.setattr(monitor, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(monitor, "sleep", sleep)
+    monkeypatch.setattr(monitor, "_render_human_frame", spy)
+    assert main(["--db", str(h.db_path), "monitor", "--group", "capacity", "--view", "plain", "--cycles", "2",
+                 "--interval-seconds", "150"]) == 0
+    assert len(reads) == 3  # the initial frame and two cycles
+    countdown = [frame for frame in frames if frame["state"] == "REFRESH OK" and frame["next"]]  # not the frames of a read
+    refreshing = [frame for frame in frames if frame["state"] == "REFRESHING"]
+    assert len(countdown) >= 140 and len(refreshing) == 2 and len(frames) == len(countdown) + len(refreshing) + 3
+    for frame in frames:  # one payload, one moment: line 1 names the pool with the state its POOLS row shows
+        lines = frame["text"].splitlines()
+        state = next(line for line in lines[2:] if " cx X-7D " in line).split()[2]
+        assert state in ("ok", "aged") and lines[0].endswith(f"min quota 12% cx X-7D {state}"), frame
+    # the pool passes its TTL (300 s) during the countdown: both lines turn to `aged` in the same redraw
+    states = [frame["text"].splitlines()[0].rsplit(" ", 1)[1] for frame in countdown if frame["read"] == 2]
+    assert states[0] == "ok" and states[-1] == "aged" and states == sorted(states, reverse=True)
+    assert all(frame["elapsed"] is not None for frame in countdown + refreshing)
+    # the REFRESHING frame is that payload at its age then, not the payload as it was read 150 s earlier
+    last = refreshing[-1]
+    assert last["elapsed"] == pytest.approx(150.0) and last["text"].splitlines()[0].endswith("cx X-7D aged")
+

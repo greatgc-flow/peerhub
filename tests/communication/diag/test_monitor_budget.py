@@ -30,7 +30,9 @@ def fitted(height: int | None, width: int = 100, **over: Any) -> list[str]:
 def test_unbounded_frame_keeps_every_section_within_24_lines():
     lines = fitted(None)
     assert len(lines) == 24
-    assert lines[8] == "+4 more (--expand)" and lines[-1] == "+2 pools (--expand)"
+    assert lines[11] == "+2 pools (--expand)" and lines[20] == "+4 more (--expand)"  # P21: POOLS first, RECENT last
+    assert [line.split()[0] for line in lines if not line.startswith((" ", "+"))][2:] == [
+        "POOLS", "suggest:", "RUNNING", "RECENT"]
     assert lines.count("RECENT 4") == 1 and len([line for line in lines if line.startswith(" ok ")]) == 2
 
 
@@ -39,8 +41,8 @@ def test_unbounded_frame_keeps_every_section_within_24_lines():
     (2, ["OK | 9 running | 1 lead"]),
     (3, ["OK | 9 running | 1 lead", "PeerHub Monitor"]),
     (4, ["OK | 9 running | 1 lead", "PeerHub Monitor", "RUNNING 9"]),
-    (5, ["OK | 9 running | 1 lead", "PeerHub Monitor", "RUNNING 9", "POOLS 10"]),
-    (6, ["OK | 9 running | 1 lead", "PeerHub Monitor", "RUNNING 9", "suggest:", "POOLS 10"]),
+    (5, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10", "RUNNING 9"]),
+    (6, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10", "suggest:", "RUNNING 9"]),
 ])
 def test_small_heights_follow_the_removal_order_to_the_end(height, expected):
     lines = fitted(height)
@@ -153,8 +155,8 @@ def test_rendered_frame_with_10_pools_and_9_running_asks_at_small_heights(frame,
     lines = screen.splitlines()
     assert len(lines) == max(0, height - 1)
     expected = ["OK | 9 running", "PeerHub Monitor", "RUNNING 9", "POOLS", "suggest:"]
-    order = {2: expected[:1], 3: expected[:2], 4: expected[:3], 5: [*expected[:3], "POOLS"],
-             6: [*expected[:3], "suggest:", "POOLS"]}.get(height, [])
+    order = {2: expected[:1], 3: expected[:2], 4: expected[:3], 5: [*expected[:2], "POOLS", "RUNNING 9"],
+             6: [*expected[:2], "POOLS", "suggest:", "RUNNING 9"]}.get(height, [])  # the same lines, P21's order
     assert [next(p for p in order if line.startswith(p)) for line in lines] == order[:len(lines)]
 
 

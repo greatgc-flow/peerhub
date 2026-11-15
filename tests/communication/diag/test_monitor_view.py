@@ -69,7 +69,9 @@ def test_quota_color_suppression_preserves_identical_text(quota_visual_frame, mo
     options = {"width": 80, "height": 24, "unicode": False}
     off = render_grouped_frame(quota_visual_frame, color=False, **options)
     on = render_grouped_frame(quota_visual_frame, color=True, **options)
-    assert re.sub(r"\x1b\[[0-9;]*m", "", on) == off
+    bare = re.sub(r"\x1b\[[0-9;]*m", "", on)
+    assert bare.splitlines()[1:] == off.splitlines()[1:]
+    assert bare.splitlines()[0] == " OK " and off.splitlines()[0] == "OK"  # P21: line 1 is a pill, with its padding
     assert render_grouped_frame(quota_visual_frame, view="plain", color=True, **options) == off
     monkeypatch.setenv("NO_COLOR", "")
     assert render_grouped_frame(quota_visual_frame, color=True, **options) == off
@@ -257,18 +259,19 @@ def test_rich_frame_respects_terminal_width_without_losing_groups(frame, width):
     rendered = render_grouped_frame(frame, view="rich", color=True, unicode=True, width=width)
     assert all(group.upper() in rendered or (group == "capacity" and "QUOTA" in rendered) for group in frame["selected_groups"] if group not in {"overview", "coverage"})
     assert all(_width(line) <= width for line in rendered.splitlines())
-    if width >= 48:
-        assert any("── " in line for line in rendered.splitlines())
+    if width >= 48:  # P21: the rule's line and its title are separate spans
+        assert any(re.sub(r"\x1b\[[0-9;]*m", "", line).startswith("── ") for line in rendered.splitlines())
 
 
 def test_colored_heading_keeps_ansi_after_width_fitting(frame, monkeypatch):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_view import RICH_SGR, _render_expanded_frame as render_grouped_frame
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     rendered = render_grouped_frame(frame, view="rich", color=True, unicode=True, width=80)
-    assert "\x1b[1;36m── EXECUTION" in rendered
+    dim, title = RICH_SGR["dim"], RICH_SGR["title"]  # P21: a dim line and a bright title, as in the compact frame
+    assert f"\x1b[{dim}m──\x1b[0m \x1b[{title}mEXECUTION [OK]\x1b[0m \x1b[{dim}m─" in rendered
     assert "EXECUTION [OK]" in rendered
-    assert "\x1b[0m" in rendered
+    assert "\x1b[1;36m" not in rendered
 
 
 @pytest.mark.parametrize("width", [15, 20, 40, 80, 120, 200])
@@ -815,8 +818,10 @@ def test_expand_quota_row_shows_bar_tick_pace_glyph_and_colour_on_state_and_bar_
     line = next(line for line in colored.splitlines() if " G-5H " in line)
     assert "\x1b[32mON_PACE\x1b[0m" in line and "\x1b[32m[####|...]\x1b[0m" in line and line.count("\x1b") == 6
     assert "\x1b[32m^\x1b[0m+12.5pp" in line
-    assert _width(line) == _width(row) and re.sub(r"\x1b\[[0-9;]*m", "", colored) == render_grouped_frame(
-        frame, view="rich", color=False, unicode=False, width=140)
+    bare = re.sub(r"\x1b\[[0-9;]*m", "", colored).splitlines()
+    uncoloured = render_grouped_frame(frame, view="rich", color=False, unicode=False, width=140).splitlines()
+    assert _width(line) == _width(row) and bare[1:] == uncoloured[1:]
+    assert bare[0] == " OK?  (alerts not read)" and uncoloured[0] == "OK? (alerts not read)"  # P21: the pill's padding
     monkeypatch.setenv("NO_COLOR", "1")
     assert "\x1b" not in render_grouped_frame(frame, view="rich", color=True, width=140)
 
@@ -1033,7 +1038,10 @@ def test_stored_escape_sequences_never_reach_the_terminal_even_when_colour_is_on
     assert "\x1b" not in plain and "\x07" not in plain
     colored = render_grouped_frame(quota_visual_frame, view="rich", color=True, width=140, height=height)
     assert "\x1b[32mON_PACE\x1b[0m" in colored  # the palette still paints the quota cells
-    assert not re.sub(r"\x1b\[(?:1;36|1;31|31|32|33|2|0)m", "", colored).count("\x1b")
+    from peerhub.cli.monitor_view import PILL_SGR, RICH_SGR
+    ours = "|".join(re.escape(code) for code in ("1;31", "31", "32", "33", "2", "0", RICH_SGR["dim"], RICH_SGR["title"],
+                                                 *PILL_SGR.values()))  # P21: the pill and the rules join the palette
+    assert not re.sub(rf"\x1b\[(?:{ours})m", "", colored).count("\x1b") and "\x1b[1;36m" not in colored
     assert "�[31m�]0;x�" in colored if height is None else True
     assert "\x07" not in colored and "\x1b]" not in colored
 
