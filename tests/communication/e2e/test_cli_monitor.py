@@ -7,6 +7,22 @@ from unittest.mock import patch
 import pytest
 
 from peerhub.cli.app import main
+from tests.communication.e2e.cli_extension_effects import lead_isolated_env
+
+
+def _child_env(tmp_path, **extra):
+    """The environment of a child `peerhub` process: no real Claude folder is read (#376 test 18)."""
+    return lead_isolated_env(tmp_path, dict(os.environ, **extra))
+
+
+def test_child_peerhub_environments_read_no_real_claude_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "real-claude"))
+    monkeypatch.setenv("PEERHUB_LEAD_DIRS", str(tmp_path / "registered"))
+    env = _child_env(tmp_path, TERM="xterm")
+    assert "PEERHUB_LEAD_DIRS" not in env and env["TERM"] == "xterm"
+    assert env["CLAUDE_CONFIG_DIR"] != str(tmp_path / "real-claude")
+    assert os.path.isdir(env["CLAUDE_CONFIG_DIR"]) and os.listdir(env["CLAUDE_CONFIG_DIR"]) == []
+    assert os.path.commonpath([env["CLAUDE_CONFIG_DIR"], str(tmp_path)]) == str(tmp_path)
 
 
 def test_monitor_groups_is_read_only_and_does_not_require_a_store(tmp_path, monkeypatch, capsys):
@@ -233,7 +249,7 @@ def test_monitor_reset_countdown_posix_pty_plain_parity(tmp_path):
     ))
     command = [sys.executable, "-m", "peerhub", "--db", str(h.db_path),
                "monitor", "--snapshot", "--group", "capacity"]
-    env = dict(os.environ, TERM="xterm", NO_COLOR="1", COLUMNS="120", LINES="24")
+    env = _child_env(tmp_path, TERM="xterm", NO_COLOR="1", COLUMNS="120", LINES="24")
     plain = subprocess.run(command, capture_output=True, text=True, env=env, timeout=30)
     assert plain.returncode in (0, 4)
     master, slave = pty.openpty()
@@ -704,8 +720,7 @@ def test_posix_pty_snapshot_obeys_physical_viewport(tmp_path):
     db = _db(tmp_path)
     master, slave = pty.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 8, 40, 0, 0))
-    env = os.environ.copy()
-    env.update({"TERM": "xterm", "NO_COLOR": "1", "COLUMNS": "120", "LINES": "60"})
+    env = _child_env(tmp_path, TERM="xterm", NO_COLOR="1", COLUMNS="120", LINES="60")
     root = Path(__file__).resolve().parents[3]
     process = subprocess.Popen(
         [sys.executable, "-m", "peerhub", "--db", str(db), "monitor", "--snapshot", "--group", "all"],

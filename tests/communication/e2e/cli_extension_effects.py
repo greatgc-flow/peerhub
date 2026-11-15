@@ -12,6 +12,16 @@ from peerhub.core.store import CoreStore
 from tests.communication.fakes import FakeRuntimeTarget
 
 
+def lead_isolated_env(tmp, base):
+    """`base` for a peerhub run that must not read a real Claude folder: CLAUDE_CONFIG_DIR is an empty temporary
+    folder and PEERHUB_LEAD_DIRS is removed (#376 test 18)."""
+    empty = Path(tmp) / "lead-claude-config"
+    empty.mkdir(exist_ok=True)
+    env = {name: value for name, value in base.items() if name.upper() != "PEERHUB_LEAD_DIRS"}
+    env["CLAUDE_CONFIG_DIR"] = str(empty)
+    return env
+
+
 def ask_effect(e, option):
     db = e.fresh(False)
     captured = []
@@ -352,7 +362,8 @@ def monitor_management_effect(e, argv, *, needs_bridge=False):
 
     db = e.tmp / "monitor-management" / "core.db"
     env_dir = e.tmp / "monitor-config-home"
-    with patch.dict(os.environ, {"PEERHUB_CONFIG_HOME": str(env_dir)}), \
+    environ = lead_isolated_env(e.tmp, {**os.environ, "PEERHUB_CONFIG_HOME": str(env_dir)})
+    with patch.dict(os.environ, environ, clear=True), \
          patch("pathlib.Path.cwd", return_value=e.tmp):
         if needs_bridge:
             from tests.communication.bridge.test_retained_sessions import _ProviderTelemetryRuntime
@@ -479,7 +490,8 @@ def account_effect(e, action, option):
     home, root, other = e.tmp / "account-home", e.tmp / "account-root", e.tmp / "other-account-root"
     for directory in (home, root, other):
         directory.mkdir(exist_ok=True)
-    isolated = {name: value for name, value in os.environ.items() if name.upper() not in ("CLAUDE_CONFIG_DIR", "CODEX_HOME")}
+    isolated = {name: value for name, value in os.environ.items()
+                if name.upper() not in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "PEERHUB_LEAD_DIRS")}  # ~/.claude is below `home`
     isolated.update(HOME=str(home), USERPROFILE=str(home))
     base = ["account", "bind", "--peer", "worker", "--provider", "cc", "--alias", "work", "--root", str(root), "--json"]
     with patch.dict(os.environ, isolated, clear=True), patch.object(Path, "home", return_value=home):
