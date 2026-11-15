@@ -598,9 +598,37 @@ def test_a_payload_without_human_observations_keeps_the_min_quota_of_the_read_mo
     payload["min_quota"] = {"pool": "ag 3P-7D", "left_pct": 1, "state": "low", "aged": True}
     payload["display_elapsed_seconds"] = 300
     assert verdict(payload).endswith("| min quota 1% ag 3P-7D low (aged)")
-    expanded = render_grouped_frame(human_payload(pool("cc", "C-7D", .12), min_quota=payload["min_quota"]), view="plain",
-                                    unicode=False, width=120, expand=True)
-    assert expanded.splitlines()[0].endswith("| min quota 1% ag 3P-7D low (aged)")  # --expand is not a redraw of POOLS
+    expanded = render_grouped_frame(payload, view="plain", unicode=False, width=120, expand=True)
+    assert expanded.splitlines()[0].endswith("| min quota 1% ag 3P-7D low (aged)")  # the same rule in --expand
+
+
+@pytest.mark.parametrize("elapsed,expected", [(0, "min quota 12% cc C-7D ok"), (300, "min quota 12% cc C-7D aged")])
+@pytest.mark.parametrize("view", ["plain", "rich"])
+def test_expand_line_1_takes_min_quota_from_the_aged_rows_as_the_compact_frame_does(elapsed, expected, view):
+    # One rule in both frames (P9): with the human observations, line 1 names the pool as the rows are at this redraw.
+    # (Until 0.24.18's last follow-up --expand kept the read model's `min_quota`, frozen at the read.)
+    payload = human_payload(pool("cc", "C-7D", .12), pool("cx", "X-7D", .89),
+                            min_quota={"pool": "ag 3P-7D", "left_pct": 1, "state": "low", "aged": True})
+    payload["display_elapsed_seconds"] = elapsed
+    before = deepcopy(payload)
+    for height in (None, 40):
+        expanded = render_grouped_frame(payload, view=view, color=False, unicode=view == "rich", width=120, height=height,
+                                        expand=True).splitlines()
+        assert expanded[0].endswith("| " + expected), (height, expanded[0])
+        compact = render_grouped_frame(payload, view="plain", unicode=False, width=120, height=height).splitlines()
+        assert compact[0].split(" | ")[-1] == expanded[0].split(" | ")[-1] == expected  # line 1 agrees in both frames
+    assert payload == before
+
+
+def test_expand_line_1_moves_min_quota_after_a_reset_and_drops_it_without_a_value():
+    payload = human_payload(pool("cc", "C-7D", .12, reset=30.0), pool("cx", "X-7D", .89),
+                            min_quota={"pool": "cc C-7D", "left_pct": 12, "state": "ok", "aged": False})
+    payload["display_elapsed_seconds"] = 60
+    expanded = render_grouped_frame(payload, view="plain", unicode=False, width=120, expand=True).splitlines()
+    assert expanded[0].endswith("| min quota 89% cx X-7D ok")
+    payload["_human_observations"] = payload["groups"]["capacity"]["data"]["observations"] = [pool("cc", "C-7D", .12, reset=30.0)]
+    expanded = render_grouped_frame(payload, view="plain", unicode=False, width=120, expand=True).splitlines()
+    assert "min quota" not in expanded[0]
 
 
 def test_the_rich_view_takes_line_1_and_pools_from_the_same_rows_too():

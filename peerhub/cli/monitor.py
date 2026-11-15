@@ -238,7 +238,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     def emit(cycle: int, phase: str, refresh: dict[str, Any]) -> int:
         nonlocal last_payload, last_frame_monotonic
         try:
-            payload: dict[str, Any] = render_monitor_frame(args.db, selected, human=not args.json and not expand,
+            payload: dict[str, Any] = render_monitor_frame(args.db, selected, human=not args.json,
                                                            preference_source=preference.get("source"),
                                                            lead_reader=_lead_reader)
         except SchemaVersionError:
@@ -374,7 +374,7 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     from peerhub.core.schema_version import SchemaVersionError
     expand = bool(getattr(args, "expand", False))
     try:
-        payload = render_monitor_frame(args.db, selected, human=not args.json and not expand,
+        payload = render_monitor_frame(args.db, selected, human=not args.json,
                                        preference_source=preference["source"], lead_reader=_lead_reader)
     except SchemaVersionError:
         payload = {"schema_version": "2.0", "status": "FAILED", "selected_groups": selected,

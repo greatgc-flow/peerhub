@@ -638,8 +638,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     c_wide = f"{tok_str} {pct_str}".strip()
                     c_narr = f"{tok_str} {pct_str}".strip()
                 else:  # an estimate (#376 P2) says so and gives its age; anything else is unknown
-                    c_wide = _estimate(c_obj, now) or "unknown"
-                    c_narr = _estimate(c_obj, now) or "unk"
+                    estimate = _estimate(c_obj, now)
+                    c_wide, c_narr = estimate or "unknown", estimate or "unk"
 
             if width < 48:
                 narrow_peers.append([f"{pid}: quota {q_narr}", p_narr, s_narr, f"ctx: {c_narr}" if c_narr != "unk" else ""])
@@ -1167,8 +1167,9 @@ def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep:
                    now: float | None = None) -> list[str]:
     """RUNNING (every row), RECENT (the 20 newest ended rows and the superseded rows), LEADS: every field. The newest
     ended ask of a stream and peer shows the estimated context of that stream's and peer's newest session
-    (`_session_contexts`, #376 P2): the estimate is about the end of that ask. An earlier ended ask of the same stream
-    and peer, a running ask and a superseded ask never show it."""
+    (`_session_contexts`, #376 P2) when that ask produced it: the estimate was read at or after the ask's start (both
+    times come from the one clock of the store's writer). An ask that never started or ended without a reading, an
+    earlier ended ask of the same stream and peer, a running ask and a superseded ask never show it."""
     contexts = dict(cast(dict[tuple[str, str], dict[str, Any]], data.get("_session_contexts") or {}))  # used up below
     running, ended, superseded = _ask_split(data)
     head, _ = _running_head(data, running, unicode, keep)
@@ -1182,8 +1183,10 @@ def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep:
         recent += f" | superseded {len(superseded)}" + (f" (+{int(omitted)} not read)" if omitted else "")
     rows.append(recent)
     for row in newest:  # newest first, so the first row of a stream and peer is its newest ended ask
-        context = contexts.pop((str(row.get("stream")), str(row.get("peer"))), None)
-        rows.extend(_ask_rows(row, width, unicode, keep, _estimate(context, now) if context else None))
+        context = contexts.pop((str(row.get("stream")), str(row.get("peer"))), None) or {}
+        started, read = _number(row.get("started_at")), _number(context.get("observed_at"))
+        own = started is not None and read is not None and read >= started
+        rows.extend(_ask_rows(row, width, unicode, keep, _estimate(context, now) if own else None))
     for row in superseded:
         rows.extend(_ask_rows(row, width, unicode, keep))
     leads = _items(data.get("leads"))
@@ -2249,6 +2252,27 @@ def _suggest_lines(text: str, width: int, unicode: bool) -> list[str]:
     return lines if len(lines) <= 2 else [lines[0], _fit(" ".join(lines[1:]), width, unicode)]
 
 
+def _frame_pools(payload: dict[str, Any], consumers: dict[str, list[str]]
+                 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """(the frame's observations, its quota pools, their rows): each pool as it is at the time of this redraw (the read
+    time plus the display's elapsed time). The human observations are used when the payload has them."""
+    read_at = _number(payload.get("read_at"))
+    elapsed = _number(payload.get("display_elapsed_seconds")) or 0
+    observations = (_items(payload.get("_human_observations")) if "_human_observations" in payload else
+                    _items(_obj(_obj(_obj(payload.get("groups")).get("capacity")).get("data")).get("observations")))
+    quota = [item for item in observations if item.get("kind", "quota") == "quota" and item.get("pool_ref")]
+    rows = [_compact_pool(item, read_at if read_at is not None else 0, elapsed, consumers) for item in quota]
+    rows.sort(key=lambda row: _pool_order(str(row["peer"]), str(row["pool"])))
+    return observations, quota, rows
+
+
+def _with_min_quota(payload: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """P9, the one rule of both frames: the read model's `min_quota` is as of the read, and a redraw ages the pools,
+    so line 1 takes its pool from the aged rows. A payload without the human observations cannot age a stale pool
+    (its last value is not public): it keeps the read model's `min_quota`."""
+    return {**payload, "min_quota": _min_quota(rows)} if "_human_observations" in payload else payload
+
+
 def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: bool,
                           width: int, height: int | None, keep: str | None = None) -> str:
     width = max(1, min(100, width) - 1)  # leave the terminal's autowrap column unused
@@ -2268,10 +2292,8 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
         peer, _, suffix = name.partition(".")
         for raw_pool in cast(list[object], _obj(_obj(profile.get("fields")).get("pools")).get("value") or []):
             consumers.setdefault(f"{peer}:{_clean(raw_pool)}", []).append(suffix)
-    observations = _items(payload.get("_human_observations")) if "_human_observations" in payload else _items(_obj(_obj(groups.get("capacity")).get("data")).get("observations"))
-    quota = [item for item in observations if item.get("kind", "quota") == "quota" and item.get("pool_ref")]
-    rows = [_compact_pool(item, now, elapsed, consumers) for item in quota]
-    rows.sort(key=lambda row: _pool_order(str(row["peer"]), str(row["pool"])))
+    observations, quota, rows = _frame_pools(payload, consumers)
+    payload = _with_min_quota(payload, rows)
     store = _obj(payload.get("store_selection"))
     source = _clean(store.get("source") or "unknown")
     try:
@@ -2317,10 +2339,6 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
     if (selected_ids & {"capacity", "peers"} and (missing_pool or any(row["needs_refresh"] for row in rows))
             and (rows or "capacity" not in selected_ids)):
         header.append("next: peerhub observation refresh")
-    if "_human_observations" in payload:
-        # P9: the read model's `min_quota` is as of the read; a redraw ages the rows, so line 1 takes its pool from
-        # the rows POOLS draws. A payload without the human observations cannot age a stale pool: it keeps `min_quota`.
-        payload = {**payload, "min_quota": _min_quota(rows)}
     if rich:  # the pill's padding takes two cells; the time is that of line 2
         verdict = _decorate_verdict(verdict_line(payload, max(1, width - 2), unicode, keep, sep), sep,
                                     stamp[-6:] if read_at is not None and stamp.endswith("Z") else "", width, paint)
@@ -2475,6 +2493,7 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     # #338: the store path and the --db/PEERHUB_DB note wrap; a truncated path cannot name the store.
     store_lines = [*(_compact_wrap(db_line, max(1, width - 1)) if db_line else []),
                    *(_compact_wrap(str(payload["_store_note"]), max(1, width - 1)) if payload.get("_store_note") else [])]
+    payload = _with_min_quota(payload, _frame_pools(payload, {})[2])
     verdict = verdict_line(payload, max(1, width - 1 - (2 if color else 0)), unicode, keep)
     if color:  # P21: the pill of the compact frame (fitted above for its padding); the words of line 1 are unchanged
         verdict = _decorate_verdict(verdict, " | ", "", max(1, width - 1), True)

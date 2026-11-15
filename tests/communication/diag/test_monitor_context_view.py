@@ -33,7 +33,11 @@ def session(stream: str, context: dict[str, Any], *, peer: str = "cc", generatio
 
 
 def with_sessions(payload: dict[str, Any], *items: dict[str, Any]) -> dict[str, Any]:
-    """The sessions and context groups as the read model gives them, and each peer's newest context."""
+    """The sessions and context groups as the read model gives them, and each peer's newest context. The fixture starts
+    every ask 41 s before now; an ended ask gets the times of a real row here (it started `elapsed_s` before its end)."""
+    for row in payload["groups"]["activity"]["data"]["asks"]:
+        if row["ended_at"] is not None:
+            row["started_at"] = row["ended_at"] - (row["elapsed_s"] or 0.0)
     payload["selected_groups"] = [*payload["selected_groups"], "sessions", "context"]
     payload["groups"]["sessions"] = {"status": "OK", "data": {"items": list(items), "sample_size": len(items),
                                                               "truncated": False}}
@@ -156,9 +160,38 @@ def test_the_age_is_counted_at_the_time_of_the_frame(frame, change, age):
 
 
 @pytest.mark.parametrize("at", [None, "yesterday", True, float("nan")])
-def test_an_estimate_without_a_time_says_so(frame, at):
+def test_an_estimate_without_a_time_says_so_and_belongs_to_no_ask(frame, at):
     with_sessions(frame, session(DONE, estimated(at=at)))
-    assert any("ctx 2% est, age ?" in text for text in recent(expanded(frame)))
+    lines = expanded(frame, width=160)
+    assert not any("ctx " in text for text in recent(lines))  # without its time it cannot be the estimate of an ask
+    assert any(line.endswith("| ctx 2% est, age ?") for line in part(lines, "-- SESSIONS [", ("-- ",)))
+
+
+def done_ask(payload: dict[str, Any]) -> dict[str, Any]:
+    return next(row for row in payload["groups"]["activity"]["data"]["asks"] if row["name"] == "shipped15-cc2")
+
+
+@pytest.mark.parametrize("offset,shown", [(0.0, True), (0.001, True), (41.0, True), (-0.001, False), (-3600.0, False)])
+def test_the_estimate_is_shown_only_on_the_ask_that_produced_it(frame, offset, shown):
+    # The receipt's time and the ask's start come from one clock: an estimate read before the ask started is the
+    # estimate of an earlier ask of that session (this ask ended without a reading of its own).
+    with_sessions(frame, session(DONE, estimated()))
+    started = done_ask(frame)["started_at"]
+    frame["groups"]["sessions"]["data"]["items"][0]["telemetry"]["context"]["observed_at"] = started + offset
+    lines = expanded(frame, width=160)
+    assert any("ctx 2% est, " in text for text in recent(lines)) is shown
+    assert any("| ctx 2% est, " in line for line in part(lines, "-- SESSIONS [", ("-- ",)))  # the session keeps it
+
+
+def test_an_ask_that_never_started_shows_no_estimate_and_passes_none_to_an_earlier_ask(frame):
+    asks = frame["groups"]["activity"]["data"]["asks"]
+    failed = ask("error", name="shipped15-cc2", profile="cc.fable", age=30, exact=True, note="not started")
+    frame["groups"]["activity"]["data"] = activity_data([failed, *asks])
+    with_sessions(frame, session(DONE, estimated()))
+    failed["started_at"] = None  # no start evidence: the newest ended ask of the stream failed before it ran
+    rows = [text for text in recent(expanded(frame)) if "name shipped15-cc2" in text]
+    assert ["note not started" in text for text in rows] == [True, False] and "started ?" in rows[0]
+    assert not any("ctx " in text for text in rows)
 
 
 def test_an_estimate_from_the_future_is_not_given_a_negative_age(frame):
@@ -265,3 +298,37 @@ def test_a_measured_peer_context_is_unchanged(frame):
                     context={"percent": 22.0, "state": "MEASURED", "occupancy_tokens": 45000})
     frame["selected_groups"] = ["peers"]
     assert any("-> context: 45k (22%)" in line for line in expanded(frame))
+
+
+# ---- end to end: a real store, the read model's ask row and session item, the --expand frame ------------------------
+def test_a_real_cc_ask_shows_its_estimate_in_expand_from_the_store_to_the_frame(tmp_path, bridge_h):
+    import json
+
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from tests.communication.adapters.test_cc_telemetry_events import REAL_CC_STREAM, _cc_target  # pyright: ignore[reportPrivateUsage]
+    from tests.communication.bridge_helpers import bseed
+
+    bseed(bridge_h)  # one ask of a cc runtime: the adapter reads the context from the recorded stream of a real ask
+    assert bridge_h.delivery_cycle("b", "s", _cc_target(tmp_path, REAL_CC_STREAM, 0)).status == "delivered"
+    with bridge_h.cs.transaction() as conn:
+        receipt = json.loads(conn.execute("SELECT detail FROM bridge_evidence WHERE kind='session_telemetry'").fetchone()[0])
+    groups = ["activity", "peers", "sessions", "context"]
+    payload = render_monitor_frame(bridge_h.db_path, groups, read_at=receipt["observed_at"] + 200,
+                                   liveness=lambda *a, **k: True)
+    payload.update(selected_groups=groups, store_selection={"path": str(bridge_h.db_path), "source": "explicit"})
+    (row,) = payload["groups"]["activity"]["data"]["asks"]
+    (item,) = payload["groups"]["sessions"]["data"]["items"]
+    # the join the view makes: the ask row's `stream` and `peer` are the session item's `stream_id` and `peer_id`
+    assert (row["stream"], row["peer"]) == (item["stream_id"], item["peer_id"]) == ("s", "b")
+    assert row["state"] == "ok" and row["started_at"] <= receipt["observed_at"] <= row["ended_at"]
+    assert item["telemetry"]["context"]["state"] == "ESTIMATED" and item["telemetry"]["context"]["percent"] == 2
+    lines = expanded(payload, width=160)
+    (ended,) = recent(lines)
+    assert "name s" in ended and "| ctx 2% est, 3m ago" in ended.replace("\n", " | ")
+    assert not any("ctx" in text for text in running(lines))
+    assert any(line.endswith("| ctx 2% est, 3m ago") for line in part(lines, "-- SESSIONS [", ("-- ",)))
+    assert any(line.startswith("b 2% est, 3m ago ") and line.endswith("| 25,848 of 1,000,000 tokens")
+               for line in part(lines, "-- CONTEXT [", ("-- ",)))
+    assert any(line.endswith("-> context: 2% est, 3m ago") for line in part(lines, "-- PEERS [", ("-- ",)))
+    compact = render_grouped_frame(deepcopy(payload), view="plain", unicode=False, width=100)
+    assert "% est," not in compact and "ctx" not in compact

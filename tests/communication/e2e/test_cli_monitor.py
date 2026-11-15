@@ -1491,7 +1491,8 @@ def test_a_permission_failure_keeps_its_own_message_for_the_human_monitor(tmp_pa
 
 
 # ---- P9 (#376 s3): every redraw between two reads is the last payload aged by the time since its read ----------------
-def test_every_tty_redraw_ages_the_one_payload_so_line_1_and_pools_agree(tmp_path, monkeypatch):
+@pytest.mark.parametrize("expand", [False, True])  # one rule in both frames: line 1 follows the aged rows
+def test_every_tty_redraw_ages_the_one_payload_so_line_1_and_pools_agree(tmp_path, monkeypatch, expand):
     import io
 
     from peerhub.cli import monitor
@@ -1541,13 +1542,17 @@ def test_every_tty_redraw_ages_the_one_payload_so_line_1_and_pools_agree(tmp_pat
     monkeypatch.setattr(monitor, "sleep", sleep)
     monkeypatch.setattr(monitor, "_render_human_frame", spy)
     assert main(["--db", str(h.db_path), "monitor", "--group", "capacity", "--view", "plain", "--cycles", "2",
-                 "--interval-seconds", "150"]) == 0
+                 "--interval-seconds", "150", *(["--expand"] if expand else [])]) == 0
     assert len(reads) == 3  # the initial frame and two cycles
     countdown = [frame for frame in frames if frame["state"] == "REFRESH OK" and frame["next"]]  # not the frames of a read
     refreshing = [frame for frame in frames if frame["state"] == "REFRESHING"]
     assert len(countdown) >= 140 and len(refreshing) == 2 and len(frames) == len(countdown) + len(refreshing) + 3
     for frame in frames:  # one payload, one moment: line 1 names the pool with the state its POOLS row shows
         lines = frame["text"].splitlines()
+        if expand:  # the QUOTA table of --expand has no display state (a stale row has no REM); line 1 is ok or aged
+            assert any(" X-7D " in line for line in lines[2:]), frame
+            assert lines[0].endswith(("min quota 12% cx X-7D ok", "min quota 12% cx X-7D aged")), frame
+            continue
         state = next(line for line in lines[2:] if " cx X-7D " in line).split()[2]
         assert state in ("ok", "aged") and lines[0].endswith(f"min quota 12% cx X-7D {state}"), frame
     # the pool passes its TTL (300 s) during the countdown: both lines turn to `aged` in the same redraw
