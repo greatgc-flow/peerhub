@@ -159,6 +159,7 @@ def stamp_junit(path: Path, *, commit: str, gate: str, repo_root: Path = ROOT, d
     if not suites:
         raise ValueError(f"{path}: no testsuite element")
     for suite in suites:
+        suite.set("hostname", "")  # the file goes to a public release: no host name
         holder = suite.find("properties")
         if holder is None:
             holder = ET.Element("properties")

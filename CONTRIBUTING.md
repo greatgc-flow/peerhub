@@ -175,13 +175,17 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    upload failed, keep the local evidence file and re-upload it with
    `gh release upload vX.Y.Z <FILE>` before announcing.
 6. Upgrade the maintainer's shared venv: close `peerhub monitor` first (it
-   locks `peerhub.exe` on Windows), wait for running asks
+   locks `peerhub.exe` on Windows), wait for the running asks of this venv
    (`peerhub diag running`), then
-   `python -m pip install --no-cache-dir -U peerhub==X.Y.Z`.
+   `python -m pip install --no-cache-dir -U peerhub==X.Y.Z`. An ask of another
+   venv that shares the store does not block the upgrade; check with the
+   process list which venv an ask runs in. Record the `peerhub diag running`
+   output with the release.
 7. Run the shipped-tag check on `vX.Y.Z` (lesson `review-recipe`): one
    in-repo reviewer and one reviewer from another model family look at what
    shipped (tag tree, wheel against tag, release notes, assets, the documented
-   steps). A defect in the wheel means a patch release; a documentation defect
+   steps). The wheel comparison also covers `licenses/LICENSE`, the long
+   description and the RECORD hashes. A defect in the wheel means a patch release; a documentation defect
    goes into the next release PR.
 
 The release is complete only after the evidence asset is confirmed (step 5)

@@ -487,7 +487,7 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
     The line-wise fallback tolerates launchers that prepend a diagnostic line.
     """
 
-    candidates = [text.strip(), *(line.strip() for line in reversed(text.splitlines()))]
+    candidates = [text.strip(), *(line.strip() for line in reversed(text.split("\n")))]  # LF only: U+2028 may sit inside a JSON string (#373)
     envelope: dict[str, Any] | None = None
     for candidate in candidates:
         if not candidate:
@@ -575,7 +575,7 @@ def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
 
 def _agy_envelope(text: str) -> Optional[dict[str, Any]]:
     """First JSON object in agy's stdout (whole text, else last-line-first, tolerating a launcher prefix line)."""
-    for candidate in (text.strip(), *(line.strip() for line in reversed(text.splitlines()))):
+    for candidate in (text.strip(), *(line.strip() for line in reversed(text.split("\n")))):  # LF only (#373)
         if not candidate:
             continue
         try:
