@@ -198,7 +198,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser.add_argument("peer", help="Peer ID (built-ins: cx/codex, cc/claude, ag/agy, ca, oa)")
     ask_parser.add_argument("prompt", nargs="?")
     ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
-    ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat)")
+    ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat; ca and oa: peer:<id>:<request-id>, one ask per stream)")
     ask_parser.add_argument("--request-id", help="Reuse on retries; uncertain execution is never replayed automatically")
     ask_parser.add_argument("--fresh", action="store_true", help="Allocate a fresh session with bounded Stream catch-up")
     ask_parser.add_argument("--session", metavar="HANDLE", help="Reuse this exact retained handle; incompatible sessions are rejected")
@@ -469,6 +469,8 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
         session = cast("dict[str, Any]", session)
         if has_streamed and not output_has_newline and result["status"] not in ("delivered", "recovered_terminal"):
             print()
+        if args.stream_id is None and result.get("stream_id") not in (None, f"peer:{args.peer}:chat"):
+            print(f"stream: {result['stream_id']}")  # ca/oa (#378): the stream this ask got; the next ask needs another
         print(_session_trailer(session))
     error: dict[str, Any] | None = result.get("error")
     if error is not None and error.get("code") != "session_lost" and (error.get("code") == "legacy_selector_unsupported" or str(error.get("code", "")).startswith("session_")):

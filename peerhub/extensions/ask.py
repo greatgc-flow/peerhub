@@ -158,8 +158,9 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                   else CliRuntimeTarget(kind, workspace or Path.cwd(), **options, **account_args))
     else:
         target = runtime
-    sid = stream_id or f"peer:{peer_id}:chat"
     rid = request_id or uuid.uuid4().hex
+    # A stateless peer (ca, oa; #378) takes one ask per stream, so its default stream is the request's own, not a shared chat.
+    sid = stream_id or f"peer:{peer_id}:{rid if getattr(target, 'stateless', False) else 'chat'}"
     key = f"ask:{rid}"
     prompt_metadata = {"runtime_kind": target.runtime_kind, "binding": target.binding(), "session_selector": selector}
     generation_path = db.parent / "workspace.generation"

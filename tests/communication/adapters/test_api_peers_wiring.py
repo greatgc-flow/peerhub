@@ -39,6 +39,18 @@ def test_targets_share_one_base_and_are_stateless(tmp_path, kind, cls):
     assert not (target.supports_interrupt or target.supports_terminate or target.supports_steer)
 
 
+def test_the_shared_default_stream_stays_for_the_cli_peers(tmp_path):
+    import sys
+
+    from peerhub.extensions.adapters import CliRuntimeTarget
+    from peerhub.extensions.ask import ask
+    from tests.communication.adapters.conftest import FAKE
+
+    runtime = CliRuntimeTarget("cx", tmp_path, command=[sys.executable, FAKE], env_extra={"FAKE_KIND": "cx"}, timeout_s=30)
+    result = ask(tmp_path / "core.db", "cx", "question", request_id="r1", runtime=runtime)
+    assert (result["status"], result["stream_id"]) == ("delivered", "peer:cx:chat")  # only a stateless peer gets a stream per ask
+
+
 def test_packaged_api_profiles_have_three_tiers_a_card_and_no_pool():
     assert sorted(API_PROFILES) == ["ca.deepthink", "ca.effort", "ca.standard", "oa.deepthink", "oa.effort", "oa.standard"]
     for pid, profile in API_PROFILES.items():

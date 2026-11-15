@@ -18,12 +18,12 @@ was sent. PeerHub never reads, stores or prints a credential; error text passes 
 """
 from __future__ import annotations
 
-import http.client
 import json
 import os
 import re
 import shutil
 import ssl
+import threading
 import urllib.error
 import urllib.request
 import uuid
@@ -50,8 +50,7 @@ OA_LIMIT_CODES = ("credit_balance_exhausted", "insufficient_quota")
 NOT_STARTED_STATUS = (400, 401, 403, 404, 413, 429)  # with an error object: refused before inference
 _CA_CREDIT_STATUS = (400, 401, 403, 404, 413)
 _CA_CREDIT_TEXT = "credit balance is too low"
-_ANT_STATUS = re.compile(r"\b(?:POST|GET) \S+: ([1-5][0-9]{2})\b")  # `POST "<url>": 400 Bad Request`
-_ANT_LOGIN = re.compile(r"not logged in|ant auth login", re.IGNORECASE)
+_ANT_STATUS = re.compile(r"\b(?:POST|GET) \S+: ([1-5][0-9]{2})\b")  # stderr: `POST "<url>": 400 Bad Request`
 _ERROR_OBJECTS_SCANNED = 20
 
 
@@ -257,18 +256,20 @@ class CaRuntimeTarget(ApiRuntimeTarget):
         output = out + "\n" + decode_stderr(res.stderr)
         status_match = _ANT_STATUS.search(output)
         status = int(status_match.group(1)) if status_match else None
-        error = self._error_message(output)
+        error = self._error_object(output)
         if status is not None and error is not None:
-            return self._error(status, status in _CA_CREDIT_STATUS and _CA_CREDIT_TEXT in error.lower(),
-                               san.clean(f"ca: HTTP {status}: {error}", EXCERPT_CHARS))
+            kind, text = error.get("type"), str(error.get("message"))
+            # Measured (ant 2.9.0): without a login the API answers 401 authentication_error "x-api-key header is required".
+            who = ("ant is not signed in or its login expired (run: ant auth login)"
+                   if status == 401 and kind == "authentication_error" else "ca")
+            return self._error(status, status in _CA_CREDIT_STATUS and _CA_CREDIT_TEXT in text.lower(),
+                               san.clean(f"{who}: HTTP {status}: {kind}: {text}", EXCERPT_CHARS))
         excerpt = san.clean(" ".join(output.split()), EXCERPT_CHARS)
-        if res.returncode != 0 and status is None and not out.strip() and _ANT_LOGIN.search(output):
-            return Outcome("not_started", detail=f"ant is not logged in (run: ant auth login): {excerpt}")
         return Outcome("uncertain", detail=f"ca call ended without a complete reply (exit {res.returncode}): {excerpt}")
 
     @staticmethod
-    def _error_message(output: str) -> str | None:
-        """The message of the first API error object ({"type": "error", "error": {...}}) printed by `ant`."""
+    def _error_object(output: str) -> dict[str, Any] | None:
+        """The `error` of the first API error object ({"type": "error", "error": {...}}) printed by `ant`."""
         decoder = json.JSONDecoder()
         start = output.find("{")
         for _ in range(_ERROR_OBJECTS_SCANNED):
@@ -282,8 +283,7 @@ class CaRuntimeTarget(ApiRuntimeTarget):
                 doc = cast("dict[str, Any]", value)
                 error: object = doc.get("error")
                 if doc.get("type") == "error" and isinstance(error, dict):
-                    detail = cast("dict[str, Any]", error)
-                    return f"{detail.get('type')}: {detail.get('message')}"
+                    return cast("dict[str, Any]", error)
             start = output.find("{", start + 1)
         return None
 
@@ -295,11 +295,17 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def oa_opener() -> urllib.request.OpenerDirector:
+    """No proxy from the environment, no followed redirect, TLS verified by the default context (a certificate for the host name)."""
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect(),
+                                       urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+
+
 class OaRuntimeTarget(ApiRuntimeTarget):
     """One POST to the Responses API with the standard library. The key is read from OPENAI_API_KEY at the call.
 
     `url` exists for tests only: `ask` passes none, and no variable or option changes the host (OPENAI_BASE_URL is ignored).
-    No proxy from the environment is used; TLS is verified with the default context.
+    The timeout of the ask is a total over the whole call; the silence timeout, when given, limits one socket operation.
     """
 
     runtime_kind = "oa"
@@ -321,21 +327,31 @@ class OaRuntimeTarget(ApiRuntimeTarget):
                            "store": False}).encode("utf-8")
         request = urllib.request.Request(self.url, data=body, method="POST", headers={
             "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect(),
-                                             urllib.request.HTTPSHandler(context=ssl.create_default_context()))
-        timeout = min(self._timeout_s, self._silence_timeout_s or self._timeout_s)
-        try:
+        per_operation = min(self._timeout_s, self._silence_timeout_s or self._timeout_s)
+        answers: list[tuple[int, bytes] | Exception] = []
+
+        def exchange() -> None:
             try:
-                with opener.open(request, timeout=timeout) as response:
-                    status, raw = int(response.status), cast(bytes, response.read(self._max_bytes + 1))
-            except urllib.error.HTTPError as e:
-                with e:
-                    status, raw = int(e.code), e.read(self._max_bytes + 1)
-        except (OSError, http.client.HTTPException) as e:  # URLError, a timeout, a dropped connection
-            if isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError):
+                try:
+                    with oa_opener().open(request, timeout=per_operation) as response:
+                        answers.append((int(response.status), cast(bytes, response.read(self._max_bytes + 1))))
+                except urllib.error.HTTPError as e:
+                    with e:
+                        answers.append((int(e.code), e.read(self._max_bytes + 1)))
+            except Exception as e:  # URLError, a timeout, a dropped connection: all uncertain
+                answers.append(e)
+
+        # A socket timeout limits one operation, so a slow drip would never end: the whole call waits on one deadline.
+        worker = threading.Thread(target=exchange, daemon=True)
+        worker.start()
+        worker.join(self._timeout_s)
+        answer = answers[0] if answers else TimeoutError()
+        if isinstance(answer, Exception):
+            if isinstance(answer, TimeoutError) or isinstance(getattr(answer, "reason", None), TimeoutError):
                 return Outcome("timeout")
-            return Outcome("uncertain", detail=san.clean(f"oa request failed: {type(e).__name__}: {e}", EXCERPT_CHARS))
-        doc = _json_object(raw.decode("utf-8", "replace")) if len(raw) <= self._max_bytes else None
+            return Outcome("uncertain", detail=san.clean(f"oa request failed: {type(answer).__name__}: {answer}", EXCERPT_CHARS))
+        status, raw = answer
+        doc =_json_object(raw.decode("utf-8", "replace")) if len(raw) <= self._max_bytes else None
         error: object = doc.get("error") if doc is not None else None
         if isinstance(error, dict):
             detail = cast("dict[str, Any]", error)

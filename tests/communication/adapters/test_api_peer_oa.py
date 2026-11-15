@@ -14,8 +14,9 @@ from peerhub.extensions.adapters import api
 from peerhub.extensions.adapters.api import OaRuntimeTarget, RequestRejected
 from peerhub.extensions.adapters.profiles import resolve_profile
 from peerhub.extensions.ask import ask
+from tests.communication.harness.api_peers import evidence_kinds
 
-KEY = "sk-test-0123456789abcdefKEY"
+KEY ="sk-test-0123456789abcdefKEY"
 
 
 @pytest.fixture(autouse=True)
@@ -86,11 +87,6 @@ def oa(tmp_path):
     make.fake, make.db = fake, tmp_path / "core.db"
     yield make
     fake.close()
-
-
-def evidence_kinds(db) -> list[str]:
-    with sqlite3.connect(db) as conn:
-        return [row[0] for row in conn.execute("SELECT kind FROM bridge_evidence ORDER BY seq")]
 
 
 def store_bytes(db) -> bytes:
@@ -286,6 +282,49 @@ def test_a_timeout_is_uncertain(oa):
     oa.fake.reply = lambda handler: time.sleep(5)
     result = ask(oa.db, "oa", "question", runtime=oa(timeout_s=1))
     assert result["status"] == "uncertain" and "runtime_timeout" in evidence_kinds(oa.db)
+
+
+@pytest.mark.parametrize("part", ["headers", "body"])
+def test_the_timeout_is_a_total_and_a_slow_drip_does_not_extend_it(oa, part):
+    """Every socket operation gets bytes within 0.2 s, so only a deadline over the whole call ends this ask."""
+    payload = json.dumps(completed()).encode()
+
+    def drip(handler: BaseHTTPRequestHandler) -> None:
+        head = f"HTTP/1.0 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(payload)}\r\n\r\n".encode()
+        slow, fast = (head, payload) if part == "headers" else (payload, head)
+        try:
+            if part == "body":
+                handler.wfile.write(fast)
+            for index in range(0, 40):  # 8 seconds in all
+                handler.wfile.write(slow[index:index + 1] if index < 39 else slow[39:])
+                handler.wfile.flush()
+                time.sleep(0.2)
+            if part == "headers":
+                handler.wfile.write(fast)
+        except OSError:
+            pass  # the client went away at its deadline
+
+    oa.fake.reply = drip
+    began = time.monotonic()
+    result = ask(oa.db, "oa", "question", runtime=oa(timeout_s=1.5))
+    assert result["status"] == "uncertain" and "runtime_timeout" in evidence_kinds(oa.db)
+    assert time.monotonic() - began < 6 and len(oa.fake.requests) == 1
+
+
+def test_the_opener_verifies_tls_follows_no_redirect_and_uses_no_proxy(monkeypatch):
+    import ssl
+    import urllib.request
+
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+    opener = api.oa_opener()
+    (https,) = [h for h in opener.handlers if isinstance(h, urllib.request.HTTPSHandler)]
+    context = https._context  # the context this handler gives every HTTPS connection
+    assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname is True  # a certificate, for this host name
+    (redirect,) = [h for h in opener.handlers if isinstance(h, urllib.request.HTTPRedirectHandler)]
+    assert redirect.redirect_request(None, None, 302, "Found", {}, "https://elsewhere.invalid/") is None
+    # The empty ProxyHandler replaces the default one and registers nothing: no handler reads the proxy variables.
+    assert not [h for h in opener.handlers if isinstance(h, urllib.request.ProxyHandler)]
+    assert [h for h in urllib.request.build_opener().handlers if isinstance(h, urllib.request.ProxyHandler)]  # control
 
 
 def test_a_dropped_connection_is_uncertain(oa):
