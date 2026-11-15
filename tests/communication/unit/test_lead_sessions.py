@@ -317,6 +317,8 @@ def test_process_ticks_is_none_off_windows_and_out_of_range(monkeypatch: pytest.
     assert ls.process_ticks(4242, os_name="darwin") is None
     for pid in (0, -1, 2**32, True):
         assert ls.process_ticks(pid, os_name="win32") is None
+    for odd in ("4242", None, 4242.0):
+        assert ls.process_ticks(odd, os_name="win32") is None  # pyright: ignore[reportArgumentType]
     assert ls.process_ticks(2**32 - 1, os_name="win32") == 77
 
 
@@ -557,6 +559,28 @@ def test_a_duplicate_session_id_in_a_second_folder_is_excluded(tmp_path: Path):
     write_session(tmp_path / "b", pid=2)
     sessions, state = read([tmp_path / "a", tmp_path / "b"])
     assert [s["pid"] for s in sessions] == [1] and state == clean_read()
+
+
+def test_a_dead_file_does_not_hide_a_live_session_with_the_same_id_in_one_folder(tmp_path: Path):
+    dead = write_session(tmp_path, pid=1)  # the file of a process that ended (a resume wrote a second file)
+    live = write_session(tmp_path, pid=2)
+    os.utime(dead, (NOW, NOW))  # newest first: the dead file is read first
+    os.utime(live, (NOW - 100, NOW - 100))
+    sessions, state = read([tmp_path], created=lambda pid: None if pid == 1 else STARTED - 0.5)
+    assert [s["pid"] for s in sessions] == [2] and state == clean_read()
+
+
+def test_a_dead_file_does_not_hide_a_live_session_with_the_same_id_in_a_later_folder(tmp_path: Path):
+    write_session(tmp_path / "a", pid=1)
+    write_session(tmp_path / "b", pid=2)
+    sessions, state = read([tmp_path / "a", tmp_path / "b"], created=lambda pid: None if pid == 1 else STARTED - 0.5)
+    assert [s["pid"] for s in sessions] == [2] and state == clean_read()
+
+
+def test_an_old_unknown_file_does_not_hide_a_live_session_with_the_same_id(tmp_path: Path):
+    write_session(tmp_path / "a", pid=1, pidDomain="win32:other")  # unknown and no transcript: excluded by the 24-hour rule
+    write_session(tmp_path / "b", pid=2)
+    assert [s["pid"] for s in read([tmp_path / "a", tmp_path / "b"])[0]] == [2]
 
 
 def test_more_than_two_thousand_project_names_count_not_read(tmp_path: Path):

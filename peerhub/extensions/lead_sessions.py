@@ -64,7 +64,8 @@ def lead_dirs(env: Mapping[str, str]) -> list[str]:
 
 def process_ticks(pid: int, *, os_name: str | None = None) -> int | None:
     """The creation FILETIME of `pid` as one int (Windows only), else None; never raises."""
-    if (os_name or sys.platform) != "win32" or isinstance(pid, bool) or not 1 <= pid <= 2**32 - 1:
+    if ((os_name or sys.platform) != "win32" or not isinstance(pid, int)  # pyright: ignore[reportUnnecessaryIsInstance]
+            or isinstance(pid, bool) or not 1 <= pid <= 2**32 - 1):
         return None
     try:
         value = process_tree.creation_ticks(pid)
@@ -108,7 +109,6 @@ def _read_folder(base: str, seen: set[str], counts: dict[str, int], *, now: floa
         if item is None or item.get("kind") != "interactive" or not isinstance(item.get("entrypoint"), str) \
                 or item["entrypoint"].startswith("sdk-") or item["sessionId"] in seen:
             continue
-        seen.add(item["sessionId"])
         alive = _liveness(item, created=created, ticks=ticks, domain=domain)
         if alive is False:
             continue
@@ -120,6 +120,7 @@ def _read_folder(base: str, seen: set[str], counts: dict[str, int], *, now: floa
         if alive is None and (tail is None or now - tail[2] > ACTIVITY_SPAN_S):
             continue
         facts = _tail_facts(tail[0], tail[1], text_on) if tail else {}
+        seen.add(item["sessionId"])  # only a kept row hides a later file of the same session (a dead file never does)
         rows.append(_row(item, alive, tail[2] if tail else None, facts, windows, text_on, secrets))
     return rows
 

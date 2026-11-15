@@ -401,6 +401,12 @@ def test_an_older_payload_without_session_or_leads_read_still_renders(frame):
     assert any(line.startswith("QA | cc 9f9f9f9f | no session found") for line in lines)
 
 
+def test_the_view_mark_mirrors_the_read_model_mark():
+    from peerhub.cli import monitor_view
+    from peerhub.extensions import monitor_read_model
+    assert monitor_view._LEAD_MARK_PCT == monitor_read_model.LEAD_CONTEXT_MARK_PCT  # pyright: ignore[reportPrivateUsage]
+
+
 def test_the_legend_names_the_leads_columns():
     legend = " ".join(MONITOR_LEGEND)
     assert "LEADS" in legend and "?busy" in legend and "ctx" in legend and "106k" in legend
