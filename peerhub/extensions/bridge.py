@@ -216,6 +216,9 @@ _DDL = [
     "CREATE INDEX IF NOT EXISTS idx_bd_record_peer_attempt ON bridge_deliveries(record_id,peer_id,attempt)",
     "CREATE INDEX IF NOT EXISTS idx_bd_scope_generation ON bridge_deliveries(stream_id,peer_id,session_generation)",
     "CREATE INDEX IF NOT EXISTS idx_be_stream_kind_seq ON bridge_evidence(stream_id,kind,seq)",
+    # #330: `diag running` reads only the live claim generation of a scope. No schema version change: older writers on the same
+    # store keep it up to date, and the read-only reader works (more slowly) on a store that does not have it yet.
+    "CREATE INDEX IF NOT EXISTS idx_bd_scope_claim_generation ON bridge_deliveries(stream_id, peer_id, claim_generation)",
     """CREATE TABLE IF NOT EXISTS bridge_reconciliations (
         delivery_id TEXT PRIMARY KEY, reconcile_record_id TEXT NOT NULL, decision TEXT NOT NULL, consumed_attempt INTEGER)""",
     """CREATE TABLE IF NOT EXISTS bridge_controls (
@@ -578,7 +581,8 @@ class Bridge:
     _CALLER_IDENTITY = ("host", "ns", "ask_pid", "ask_created")
 
     def _caller_changed(self, conn: sqlite3.Connection, delivery_id: str) -> bool:
-        """True when the delivery has no caller row yet or its newest one names another process (or no readable identity)."""
+        """True when the delivery has no caller row yet or its newest one names another process (or no readable identity). An unknown
+        (None) identity value on either side never establishes continuity: two unreadable identities are not one process."""
         assert self.caller is not None
         row = conn.execute("SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='caller' ORDER BY seq DESC LIMIT 1",
                            (delivery_id,)).fetchone()
@@ -591,7 +595,7 @@ class Bridge:
         if not isinstance(newest, dict):
             return True
         newest = cast("dict[str, Any]", newest)
-        if any(key not in newest or key not in self.caller for key in self._CALLER_IDENTITY):
+        if any(newest.get(key) is None or self.caller.get(key) is None for key in self._CALLER_IDENTITY):
             return True
         return any(newest[key] != self.caller[key] for key in self._CALLER_IDENTITY)
 

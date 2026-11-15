@@ -492,44 +492,58 @@ def live_reading(kind="cc", **payload):
     return AccountObserved(ref, EvidenceState.MEASURED, f"{kind}_test", int(time.time()), {**base, **payload})
 
 
+# The two overlap tests below once compared wall-clock time with sleeps (refresh < 1.6 s against >= 1.8 s serial; < 2.1 s against
+# ~2.4 s). Under heavy machine load they failed: the measured span also holds opening the store, the version and facts reads, the
+# row writes and the thread start-ups, which all stretch with load and say nothing about overlap. They now prove the overlap
+# itself with a barrier that opens only while the probes run at the same moment; a probe that runs after another one breaks the
+# barrier, and its broken wait becomes an ERROR row. The wait is bounded, so a serial implementation fails within OVERLAP_WAIT.
+OVERLAP_WAIT = 10.0
+OVERLAP_DEADLINE = 3 * OVERLAP_WAIT  # the shared probe deadline: longer than any barrier wait, so only the barrier decides
+
+
+def measured_account_peers(db):
+    return sorted(r[0] for r in account_rows(db) if r[1] == "MEASURED")
+
+
 def test_account_probes_run_in_parallel_inside_one_shared_budget(tmp_path):
     db = refresh_env(tmp_path)
-    starts = []
+    all_running = threading.Barrier(3, timeout=OVERLAP_WAIT)  # opens only while all three account probes run at once
 
-    def slow(kind):
+    def probe(kind):
         def poll():
-            starts.append(time.monotonic())
-            time.sleep(0.6)
+            all_running.wait()
             return live_reading(kind)
         return poll
 
     began = time.monotonic()
-    refresh_quota(db, ["cc", "cx", "ag"], pollers={}, deadline_sec=3, version_checker=lambda k: None,
-                  account_pollers={"cc": slow("cc"), "cx": slow("cx"), "ag": slow("cc")})
-    assert time.monotonic() - began < 1.6  # sequential would take >= 1.8s
-    assert max(starts) - min(starts) < 0.4  # all started together
-    assert sorted(r[0] for r in account_rows(db)) == ["ag", "cc", "cx"]
+    refresh_quota(db, ["cc", "cx", "ag"], pollers={}, deadline_sec=OVERLAP_DEADLINE, version_checker=lambda k: None,
+                  account_pollers={"cc": probe("cc"), "cx": probe("cx"), "ag": probe("cc")})
+    assert time.monotonic() - began < OVERLAP_DEADLINE  # joined when the probes finish, not at the shared deadline
+    assert measured_account_peers(db) == ["ag", "cc", "cx"]
 
 
 def test_account_probes_overlap_the_serial_quota_probes_instead_of_following_them(tmp_path):
-    """The account budget runs alongside the quota loop: three 0.5 s quota probes plus 0.9 s account probes finish in ~1.5 s, not ~2.4 s."""
+    """The account probes run alongside the quota loop: all three are running while the first quota probe runs."""
     db = refresh_env(tmp_path)
+    overlap = threading.Barrier(4, timeout=OVERLAP_WAIT)  # the three account probes and the first quota probe
+    quota_calls = []
 
-    def slow_quota(**kw):
-        time.sleep(0.5)
+    def quota(**kw):
+        quota_calls.append(kw["instance_id"])
+        if len(quota_calls) == 1:
+            overlap.wait()
         return ()
 
-    def slow_account(kind):
+    def account(kind):
         def poll():
-            time.sleep(0.9)
+            overlap.wait()
             return live_reading(kind)
         return poll
 
-    began = time.monotonic()
-    refresh_quota(db, ["cc", "cx", "ag"], pollers={"cc": slow_quota, "cx": slow_quota, "ag": slow_quota}, deadline_sec=3,
-                  version_checker=lambda k: None, account_pollers={"cc": slow_account("cc"), "cx": slow_account("cx"), "ag": slow_account("cc")})
-    assert time.monotonic() - began < 2.1
-    assert sorted(r[0] for r in account_rows(db)) == ["ag", "cc", "cx"]
+    refresh_quota(db, ["cc", "cx", "ag"], pollers={"cc": quota, "cx": quota, "ag": quota}, deadline_sec=OVERLAP_DEADLINE,
+                  version_checker=lambda k: None, account_pollers={"cc": account("cc"), "cx": account("cx"), "ag": account("cc")})
+    assert quota_calls == ["cc", "cx", "ag"]  # each quota probe ran once, in peer order
+    assert measured_account_peers(db) == ["ag", "cc", "cx"]
 
 
 def test_a_hung_account_probe_cannot_exceed_the_shared_deadline(tmp_path):

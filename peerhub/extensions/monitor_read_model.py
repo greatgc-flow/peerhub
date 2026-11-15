@@ -415,7 +415,7 @@ _ACTIVITY_SQL = (
     "WITH s AS (SELECT c.stream_id,c.peer_id,c.generation AS c_generation,c.expires_at,c.lease_sec,c.workspace_generation AS c_wsgen,"
     "ROW_NUMBER() OVER (ORDER BY c.expires_at DESC,c.stream_id,c.peer_id) AS scope_rank,COUNT(*) OVER () AS scope_total "
     "FROM bridge_claims c WHERE c.expires_at>=:since ORDER BY c.expires_at DESC,c.stream_id,c.peer_id LIMIT :scope_limit), "
-    # Every delivery of a selected scope is read through the (stream_id, peer_id) prefix of idx_bd_scope_generation (#330 cost class).
+    # Every delivery of a selected scope is read through the (stream_id, peer_id) prefix of a scope index (#330 cost class).
     # Only keys travel through the window sorts; the result and record are joined back by primary key for the kept rows.
     "dl AS (SELECT s.*,d.delivery_id,d.seq,d.certainty,d.result_json IS NULL AS no_result,"
     "ROW_NUMBER() OVER (PARTITION BY s.stream_id,s.peer_id ORDER BY d.seq DESC) AS rn "

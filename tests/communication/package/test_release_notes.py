@@ -20,9 +20,9 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.24.17"
-    assert "PEERHUB_MONITOR_TEXT" in body and "#373" in body and "PEERHUB_LEAD_DIRS" in body
-    assert "#376" in body
+    assert __version__ == "0.24.18"
+    assert "#378" in body and "#330" in body
+    assert "stamp_junit" not in body  # no adjacent history (0.24.17)
     assert "ATTN 3?" not in body  # no adjacent history (0.24.16)
     assert "rename this heading" not in body  # the pre-release note is gone
     assert "#371" not in body  # no adjacent history (0.24.15)

@@ -45,10 +45,14 @@ def wait_done(adapter: ProcessRuntimeAdapter, job_id: str, timeout: float = 20.0
     raise AssertionError("job did not finish")
 
 
-def gone(pid: int, timeout: float = 10.0) -> bool:
+def gone(target: int | psutil.Process, timeout: float = 10.0) -> bool:
+    """True once the process is dead. A `psutil.Process` taken while it ran is checked by identity (pid and creation time): on a
+    loaded machine Windows can hand a freed pid to a new process within seconds, and a bare pid check then reports the dead
+    process as still running."""
+    alive = target.is_running if isinstance(target, psutil.Process) else (lambda: psutil.pid_exists(target))
     end = time.monotonic() + timeout
     while time.monotonic() < end:
-        if not psutil.pid_exists(pid):
+        if not alive():
             return True
         time.sleep(0.05)
     return False
@@ -99,10 +103,14 @@ def test_registration_refuses_unsafe_command_shapes_and_no_raw_shell_exists():
         a.submit("never-registered", {})
 
 
+# The pid file is published whole with a rename: `open(path, "w")` creates it empty before the write, and on a loaded machine
+# the test could see the file in that gap and fail on int("").
 TREE = textwrap.dedent("""
-    import subprocess, sys, time
+    import os, subprocess, sys, time
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
-    open(sys.argv[1], "w").write(str(child.pid))
+    with open(sys.argv[1] + ".tmp", "w") as f:
+        f.write(str(child.pid))
+    os.replace(sys.argv[1] + ".tmp", sys.argv[1])
     time.sleep(120)
 """)
 
@@ -116,12 +124,12 @@ def test_cancel_kills_the_whole_process_tree_and_reports_cancelled(tmp_path):
     end = time.monotonic() + 15
     while not pidfile.exists() and time.monotonic() < end:
         time.sleep(0.05)
-    child_pid = int(pidfile.read_text())
-    parent_pid = a._procs[job.job_id][0].pid  # noqa: SLF001 - test-only peek at the spawned parent
-    assert psutil.pid_exists(child_pid) and psutil.pid_exists(parent_pid)
+    child = psutil.Process(int(pidfile.read_text()))
+    parent = psutil.Process(a._procs[job.job_id][0].pid)  # noqa: SLF001 - test-only peek at the spawned parent
+    assert child.is_running() and parent.is_running()
     cancelled = a.cancel(job.job_id)
     assert cancelled.status == "CANCELLED"
-    assert gone(parent_pid) and gone(child_pid)  # no orphaned grandchild keeps running after a "hard" cancel
+    assert gone(parent) and gone(child)  # no orphaned grandchild keeps running after a "hard" cancel
     assert a.cancel(job.job_id).status == "CANCELLED"  # idempotent
 
 

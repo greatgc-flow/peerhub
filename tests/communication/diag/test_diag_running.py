@@ -336,6 +336,55 @@ def test_delivery_history_in_finished_scopes_does_not_add_query_work(tmp_path):
     assert running_query_steps(big) <= running_query_steps(small) * 1.3, "history of finished scopes must not be read"
 
 
+SCOPE_INDEX = "idx_bd_scope_claim_generation"
+
+
+def seed_live_scope_history(db, deliveries):
+    """`deliveries` acknowledged deliveries of earlier claim generations in the scope of the live claim of `add(db, 1, ...)`."""
+    with closing(sqlite3.connect(db)) as c:
+        c.executemany("INSERT INTO bridge_deliveries (delivery_id,seq,stream_id,peer_id,record_id,record_position,attempt,certainty,claim_generation,acked) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                      [(f"old{i}", i + 100, "s1", "cx", f"old-r{i}", i, 1, "NOT_STARTED", 1 + i % 5, 1) for i in range(deliveries)])
+        c.commit()
+
+
+def index_names(db):
+    with closing(sqlite3.connect(db)) as c:
+        return {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+
+
+def test_history_inside_the_one_live_scope_does_not_add_query_work(tmp_path):
+    """#330: the deliveries of earlier claim generations in the live claim's own scope are skipped by the scope index."""
+    small, big = CoreHarness(tmp_path / "small").db_path, CoreHarness(tmp_path / "big").db_path
+    for path, history in ((small, 10), (big, 3000)):
+        with closing(sqlite3.connect(path)) as c:
+            for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+                c.execute(stmt)
+            c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
+            c.commit()
+        seed_live_scope_history(path, history)
+        add(path, 1, claim_generation=6, delivery_generation=6)
+    assert [r["delivery_id"] for r in report(big)["rows"]] == ["d1"]
+    assert running_query_steps(big) <= running_query_steps(small) * 1.3, "the live scope's own history must not be read"
+    assert SCOPE_INDEX in index_names(big)
+
+
+def test_running_works_on_a_store_without_the_scope_index(tmp_path):
+    """A store last opened by an older peerhub has no scope index; the read-only reader neither needs nor creates it."""
+    path = CoreHarness(tmp_path / "old").db_path
+    with closing(sqlite3.connect(path)) as c:
+        for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+            if SCOPE_INDEX not in stmt:
+                c.execute(stmt)
+        c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
+        c.commit()
+    seed_live_scope_history(path, 50)
+    add(path, 1, claim_generation=6, delivery_generation=6)
+    rep = report(path)
+    assert rep["status"] == "OK" and [r["delivery_id"] for r in rep["rows"]] == ["d1"]
+    assert SCOPE_INDEX not in index_names(path)
+
+
 # ---- read-only guarantees -------------------------------------------------------------------
 
 def sha(path):

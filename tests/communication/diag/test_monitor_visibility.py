@@ -222,7 +222,7 @@ def test_all_measured_viewports_preserve_bounds_and_disclose_cuts(
 @pytest.fixture
 def round2_frame(frame: dict[str, Any]) -> dict[str, Any]:
     frame.update(refresh_state="REFRESH OK", next_refresh_in=589,
-                 store_selection={"source": "env", "path": "D:/PkgDev/workspace/peerhub/.peerhub/core.db"})
+                 store_selection={"source": "env", "path": "C:/example/workspace/my-app/.peerhub/core.db"})
     cap = frame["groups"]["capacity"]["data"]
     cap["accounts"] = [{"peer_id": p, "plan": "pro", "plan_status": "reported", "logged_in": True,
                         "login_expiry_status": "n/a", "auth_method": "chatgpt", "age_seconds": 16000,
