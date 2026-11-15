@@ -61,6 +61,7 @@ API peers `ca` and `oa` (#378), the index for `peerhub diag running` (#330), the
 - A progress signal while an ask runs: dropped. The adapter waits for the provider process between `started` and its exit, so there is no event in between to write without rebuilding the delivery loop. Every event would extend the lease, so a dead ask would look alive longer; a failed write would become a new way to abort a running ask; and the monitors of 0.24.16 and 0.24.17 would show such an ask as `unsure`. RUNNING already shows the elapsed time, liveness and overdue.
 - Measurements of lead sessions on Linux and macOS, of IDE and desktop sessions, of `/clear` and of a plan window smaller than the model's maximum input: they cannot be measured here, and the README lists them as not measured.
 - A credit balance in the monitor, and `claude -p` on API credits: no source for the balance is known, and `claude -p` on credits needs a stored API key.
+- Feeding the cc quota rows from Claude Code's status line: dropped. The quota probe already measures those pools.
 
 ## [0.24.17] - 2026-11-15
 

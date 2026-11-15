@@ -141,6 +141,7 @@ The compact frame has two views with the same lines and rows. The plain view (`-
 - A RUNNING row starts with `►` (green), `× gone` (red), `! overdue` (yellow) or `?` (yellow). A LEADS row shows the context as a meter of five cells: `ctx ■■□□□ 46%`, red with `!` at 80 % or more, and a dim `ctx ───── 106k` or `ctx ───── ?` when the percentage is unknown. A RECENT row starts with a dot and its state: green `● ok`, yellow for unsure, red for empty or error.
 - No state is shown by colour or glyph alone: the words of the plain view stay. The colours come from the 256-colour palette (semicolon SGR codes only; `COLORTERM` changes nothing). `NO_COLOR` keeps the rich layout with its Unicode glyphs and prints no colour. Output that cannot show Unicode gets the same layout with ASCII glyphs (`--`, `#`, `.`, `*`, `^`, `v`, `x`, `o`, `>`). A terminal that draws these glyphs two cells wide should use `--view plain` (or `PEERHUB_MONITOR_VIEW=plain`).
 - `--expand` keeps its content; with colour it gets the same pill and rules, and no new bars or glyphs.
+- `peerhub explain monitor-view` sums up the order and the look; `peerhub explain monitor-states` explains the states, PACE and `suggest:`.
 
 An example of the rich view, shown here without colour (the uncoloured frame, as `NO_COLOR` prints it):
 

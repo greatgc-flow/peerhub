@@ -47,7 +47,9 @@ Contains verbatim reference snapshots ported from Engram during the 2026-09-03 s
 They are text-only peers paid from API credits; they have no quota pool, no
 observed CLI version and no retained session. The source is
 `peerhub/extensions/adapters/api.py`; setup and outcomes for users are in the
-[README](../../README.md#api-peers-ca-and-oa).
+[README](../../README.md#api-peers-ca-and-oa). The live canaries of `ca` and
+`oa` (canary stage only; they spend API credits) are described in
+[CONTRIBUTING](../../CONTRIBUTING.md#local-live-gate).
 
 Shared contract:
 
