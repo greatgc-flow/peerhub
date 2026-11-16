@@ -1,7 +1,9 @@
-"""API peers behind the Session Bridge RuntimeTarget (#378): `ca` (Claude API through the `ant` CLI) and `oa` (OpenAI
-Responses API over HTTPS). Extension side only.
+"""API peers behind the Session Bridge RuntimeTarget (#378, #381). Extension side only.
 
-One ask is one API call: no tools, no workspace access, no session, at most 16,000 output tokens, never retried.
+`ca` is the Claude API through the `ant` CLI; `oa` (OpenAI Responses API) and `ga` (Gemini API) are one HTTPS request.
+
+One ask is one API call: no tools, no workspace access, no session, never retried, and an output limit per class
+(`max_output_tokens`: 16,000 for ca and oa; 32,000 for ga, where thinking counts against it).
 Each target adds only its transport and field names; the base maps one `Outcome` onto the runtime events:
 
     complete        -> ("started", ...) then ("terminal", ...); empty text is an empty reply as for other peers
@@ -40,13 +42,20 @@ from peerhub.extensions.adapters.telemetry import unknown_usage
 from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, RuntimeTargetError
 from peerhub.extensions.usage_normalization import REPORTED_FIELDS, normalize_provider_usage
 
-MAX_OUTPUT_TOKENS = 16_000
 CA_HEADER = "PeerHub ask (text only, no tools, no files)."  # the content never starts with "@": `ant` inlines no file
 CA_MODEL = re.compile(r"claude-[a-z0-9.-]{1,64}")
 OA_MODEL = re.compile(r"gpt-[a-z0-9.-]{1,64}")
 OA_URL = "https://api.openai.com/v1/responses"
 OA_KEY_ENV = "OPENAI_API_KEY"
 OA_LIMIT_CODES = ("credit_balance_exhausted", "insufficient_quota")
+# The model is one URL path segment between `models/` and `:generateContent`: the pattern (with fullmatch) keeps `/`, `:`,
+# `?`, `#`, `%`, whitespace and uppercase out of the URL; a `..` inside the segment is harmless there.
+GA_MODEL = re.compile(r"gemini-[a-z0-9.-]{1,64}")
+GA_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+GA_KEY_ENV = "GEMINI_API_KEY"
+GA_LIMIT = (429, "RESOURCE_EXHAUSTED")  # a rate limit and spent or missing quota alike: no inference ran
+GA_NOT_STARTED = {400: ("INVALID_ARGUMENT", "FAILED_PRECONDITION"), 401: ("UNAUTHENTICATED",), 403: ("PERMISSION_DENIED",),
+                  404: ("NOT_FOUND",)}  # the pairs (HTTP status, error.status) that prove no inference; 413: any status
 NOT_STARTED_STATUS = (400, 401, 403, 404, 413, 429)  # with an error object: refused before inference
 _CA_CREDIT_STATUS = (400, 401, 403, 404, 413)
 _CA_CREDIT_TEXT = "credit balance is too low"
@@ -114,10 +123,49 @@ def _oa_text(output: object) -> str | None:
     return "".join(parts)
 
 
+def _ga_text(candidate: dict[str, Any]) -> str | None:
+    """The joined `text` of the parts of a Gemini candidate without `thought: true`; a missing `content` or missing
+    `parts` is no text. None for a wrong shape: a content that is present and not an object, parts that are present and
+    not a list, a part that is not an object, a `text` that is present and not a string (in a thought part too)."""
+    content: object = candidate.get("content", {})
+    parts: object = cast("dict[str, Any]", content).get("parts", []) if isinstance(content, dict) else None
+    if not isinstance(parts, list):
+        return None
+    texts: list[str] = []
+    for entry in cast("list[Any]", parts):
+        if not isinstance(entry, dict):
+            return None
+        part = cast("dict[str, Any]", entry)
+        if "text" in part:
+            if not isinstance(part["text"], str):
+                return None
+            if part.get("thought") is not True:
+                texts.append(part["text"])
+    return "".join(texts)
+
+
+def _ga_usage(meta: object) -> dict[str, int] | None:
+    """`usageMetadata` as {"input_tokens", "output_tokens"}, or None when it is not measured (absent, never zero).
+
+    Measured: an object whose `promptTokenCount` is an int >= 0 and whose `candidatesTokenCount` and `thoughtsTokenCount`,
+    when present, are ints >= 0 (bool excluded). Only these two count as 0 when missing; every other key is ignored.
+    The output is their sum: thinking is output, and the provider counts it against the limit."""
+    if not isinstance(meta, dict):
+        return None
+    counts = cast("dict[str, Any]", meta)
+    values: list[object] = [counts.get("promptTokenCount"), counts.get("candidatesTokenCount", 0), counts.get("thoughtsTokenCount", 0)]
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in values):
+        return None
+    prompt, candidates, thoughts = cast("list[int]", values)
+    return {"input_tokens": prompt, "output_tokens": candidates + thoughts}
+
+
 class ApiRuntimeTarget:
-    """What ca and oa share: the refusal rules, the binding, the outcome table. A subclass implements `_call`."""
+    """What ca, oa and ga share: the refusal rules, the binding, the outcome table. A subclass implements `_call`."""
 
     runtime_kind: str
+    max_output_tokens = 16_000  # sent in the request and named by the truncation message; a class may set another limit
+    profile_tiers: tuple[str, ...] = ("standard", "effort", "deepthink")  # the packaged profiles, for the refusal message
     stateless = True  # `ask` refuses a second ask on a stream: there is no session to continue
     resumable = False
     supports_interrupt = False
@@ -142,7 +190,7 @@ class ApiRuntimeTarget:
         if effort is not None:
             raise RequestRejected(f"{kind} takes no effort")
         if model is None:
-            raise RequestRejected(f"{kind} needs --profile ({kind}.standard, {kind}.effort, {kind}.deepthink) or --model")
+            raise RequestRejected(f"{kind} needs --profile ({', '.join(f'{kind}.{tier}' for tier in self.profile_tiers)}) or --model")
         if not self._model.fullmatch(model):
             raise RequestRejected(f"{kind} model must match ^{self._model.pattern}$")
         self._workspace = str(workspace)
@@ -215,7 +263,7 @@ class ApiRuntimeTarget:
         if complete:
             return Outcome("complete", text, usage=usage)
         if truncated:
-            return Outcome("truncated", text, f"{self.runtime_kind} reply cut at {MAX_OUTPUT_TOKENS} output tokens ({why})", usage)
+            return Outcome("truncated", text, f"{self.runtime_kind} reply cut at {self.max_output_tokens} output tokens ({why})", usage)
         return Outcome("incomplete", text, f"{self.runtime_kind} reply is not complete ({why})", usage)
 
     @staticmethod
@@ -250,7 +298,7 @@ class CaRuntimeTarget(ApiRuntimeTarget):
         # The batch ids describe the ask process only (#374).
         env = {name: value for name, value in merged.items()
                if not name.upper().startswith("ANTHROPIC_") and name.upper() not in ("PEERHUB_BATCH_ID", "PEERHUB_BATCH_TASK")}
-        body = json.dumps({"model": self._model_id, "max_tokens": MAX_OUTPUT_TOKENS,
+        body = json.dumps({"model": self._model_id, "max_tokens": self.max_output_tokens,
                            "messages": [{"role": "user", "content": f"{CA_HEADER}\n\n{prompt}"}]}).encode("utf-8")
         proc = BoundedProcess([*base, "messages", "create", "--format", "json"], stdin=body, cwd=self._workspace, env=env,
                               timeout_s=self._timeout_s, max_bytes=self._max_bytes, silence_timeout_s=self._silence_timeout_s)
@@ -321,45 +369,42 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def oa_opener() -> urllib.request.OpenerDirector:
+def http_opener() -> urllib.request.OpenerDirector:
     """No proxy from the environment, no followed redirect, TLS verified by the default context (a certificate for the host name)."""
     return urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect(),
                                        urllib.request.HTTPSHandler(context=ssl.create_default_context()))
 
 
-class OaRuntimeTarget(ApiRuntimeTarget):
-    """One POST to the Responses API with the standard library. The key is read from OPENAI_API_KEY at the call.
+oa_opener = http_opener  # the name of 0.24.18, when oa was the only HTTP peer
 
-    `url` exists for tests only: `ask` passes none, and no variable or option changes the host (OPENAI_BASE_URL is ignored).
-    The timeout of the ask is a total over the whole call; the silence timeout, when given, limits one socket operation.
+
+class HttpRuntimeTarget(ApiRuntimeTarget):
+    """What oa and ga share: one HTTPS POST with the standard library (`_call`). A subclass gives three hooks: the name of
+    the key variable (`key_env`), the request (`_request`) and the outcome of one HTTP answer (`_classify`).
+
+    The key is read from the environment at the call, sent in one header only and never stored or printed. `self.url` is
+    fixed by the class: no variable or option changes the host. The timeout of the ask is a total over the whole call;
+    the silence timeout, when given, limits one socket operation.
     """
 
-    runtime_kind = "oa"
-    _model = OA_MODEL
-    _usage_source = "oa.response.usage"
-
-    def __init__(self, workspace: str | Path, *, url: str = OA_URL, **options: Any) -> None:
-        super().__init__(workspace, **options)
-        self.url = url
+    key_env: str
+    url: str
 
     def _call(self, prompt: str) -> Outcome:
-        key = os.environ.get(OA_KEY_ENV)
+        key = os.environ.get(self.key_env)
         if not key:
-            raise PrespawnError(f"set {OA_KEY_ENV}")
+            raise PrespawnError(f"set {self.key_env}")
         if not key.isascii() or not key.isprintable() or " " in key:  # http.client would quote a refused header value in its error
-            raise PrespawnError(f"{OA_KEY_ENV} is not usable in a header (printable ASCII without spaces)")
+            raise PrespawnError(f"{self.key_env} is not usable in a header (printable ASCII without spaces)")
         san = Sanitizer([*env_secrets(), key]).with_prompt(prompt)
-        body = json.dumps({"model": self._model_id, "input": prompt, "max_output_tokens": MAX_OUTPUT_TOKENS,
-                           "store": False}).encode("utf-8")
-        request = urllib.request.Request(self.url, data=body, method="POST", headers={
-            "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        request = self._request(prompt, key)
         per_operation = min(self._timeout_s, self._silence_timeout_s or self._timeout_s)
         answers: list[tuple[int, bytes] | Exception] = []
 
         def exchange() -> None:
             try:
                 try:
-                    with oa_opener().open(request, timeout=per_operation) as response:
+                    with http_opener().open(request, timeout=per_operation) as response:
                         answers.append((int(response.status), cast(bytes, response.read(self._max_bytes + 1))))
                 except urllib.error.HTTPError as e:
                     with e:
@@ -377,8 +422,38 @@ class OaRuntimeTarget(ApiRuntimeTarget):
         if isinstance(answer, Exception):
             if isinstance(answer, TimeoutError) or isinstance(getattr(answer, "reason", None), TimeoutError):
                 return Outcome("timeout")
-            return Outcome("uncertain", detail=san.clean(f"oa request failed: {type(answer).__name__}: {answer}", EXCERPT_CHARS))
+            return Outcome("uncertain", detail=san.clean(f"{self.runtime_kind} request failed: {type(answer).__name__}: {answer}",
+                                                         EXCERPT_CHARS))
         return self._classify(*answer, san)
+
+    # ---- the hooks
+    def _request(self, prompt: str, key: str) -> urllib.request.Request:
+        raise NotImplementedError
+
+    def _classify(self, status: int, raw: bytes, san: Sanitizer) -> Outcome:
+        raise NotImplementedError
+
+
+class OaRuntimeTarget(HttpRuntimeTarget):
+    """One POST to the Responses API. The key is read from OPENAI_API_KEY at the call.
+
+    `url` exists for tests only: `ask` passes none, and no variable or option changes the host (OPENAI_BASE_URL is ignored).
+    """
+
+    runtime_kind = "oa"
+    key_env = OA_KEY_ENV
+    _model = OA_MODEL
+    _usage_source = "oa.response.usage"
+
+    def __init__(self, workspace: str | Path, *, url: str = OA_URL, **options: Any) -> None:
+        super().__init__(workspace, **options)
+        self.url = url
+
+    def _request(self, prompt: str, key: str) -> urllib.request.Request:
+        body = json.dumps({"model": self._model_id, "input": prompt, "max_output_tokens": self.max_output_tokens,
+                           "store": False}).encode("utf-8")
+        return urllib.request.Request(self.url, data=body, method="POST", headers={
+            "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
 
     def _classify(self, status: int, raw: bytes, san: Sanitizer) -> Outcome:
         """The outcome of one HTTP answer. The order matters:
@@ -409,4 +484,74 @@ class OaRuntimeTarget(ApiRuntimeTarget):
                            why=san.clean(f"status {state}, reason {reason}", 80))
 
 
-API_TARGETS: dict[str, Callable[..., ApiRuntimeTarget]] = {"ca": CaRuntimeTarget, "oa": OaRuntimeTarget}
+class GaRuntimeTarget(HttpRuntimeTarget):
+    """One POST to the Gemini API (`generateContent`). The key is read from GEMINI_API_KEY at the call and sent in the
+    header `x-goog-api-key` only, never in the URL.
+
+    `base_url` exists for tests only: `ask` passes none, and no variable or option changes the host. The model is one
+    path segment of the URL; `GA_MODEL` keeps every character that could change the path out of it.
+    """
+
+    runtime_kind = "ga"
+    max_output_tokens = 32_000  # thinking counts against the limit (measured: 20 tokens gave MAX_TOKENS and no text)
+    profile_tiers = ("standard", "effort")  # no deep profile is packaged (#381): a stronger model goes by --model
+    key_env = GA_KEY_ENV
+    _model = GA_MODEL
+    _usage_source = "ga.response.usage"
+
+    def __init__(self, workspace: str | Path, *, base_url: str = GA_BASE_URL, **options: Any) -> None:
+        super().__init__(workspace, **options)
+        self.url = f"{base_url}/models/{self._model_id}:generateContent"
+
+    def _request(self, prompt: str, key: str) -> urllib.request.Request:
+        body = json.dumps({"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                           "generationConfig": {"maxOutputTokens": self.max_output_tokens}}).encode("utf-8")
+        return urllib.request.Request(self.url, data=body, method="POST", headers={
+            "x-goog-api-key": key, "Content-Type": "application/json"})
+
+    def _classify(self, status: int, raw: bytes, san: Sanitizer) -> Outcome:
+        """The outcome of one HTTP answer. The order matters:
+
+        1. Any HTTP status other than 200 with an error object (an error answer): the pair (HTTP status, `error.status`)
+           decides. 429 with RESOURCE_EXHAUSTED is a provider limit; a pair of `GA_NOT_STARTED`, 413 with any status, and
+           400, 401, 403, 404, 413 or 429 without an `error.status` are not started; every other pair is uncertain (an
+           unknown status, a pair that contradicts itself, any 5xx).
+        2. HTTP 200: only the shape and the finish reason decide, in this order. Not one JSON object, or an `error` that
+           is not null: uncertain. No candidates (missing or an empty list) with a `promptFeedback.blockReason` string:
+           incomplete with that reason; no candidate list otherwise: uncertain. A first candidate that is not an object
+           or has no `finishReason` string, or a malformed `content`: uncertain. Then STOP is complete, MAX_TOKENS is
+           truncated, any other finish reason is incomplete; the text is kept in both cases.
+        3. Everything else is uncertain.
+        """
+        doc = _json_object(raw.decode("utf-8", "replace")) if len(raw) <= self._max_bytes else None
+        error: object = doc.get("error") if doc is not None else None
+        if status != 200 and isinstance(error, dict):
+            detail = cast("dict[str, Any]", error)
+            name: object = detail.get("status")
+            text = san.clean(f"ga: HTTP {status}: {name}: {detail.get('message')}", EXCERPT_CHARS)
+            if "status" not in detail:
+                return self._error(status, False, text)
+            if (status, name) == GA_LIMIT:
+                return Outcome("provider_limit", detail=text)
+            listed = status == 413 or (isinstance(name, str) and name in GA_NOT_STARTED.get(status, ()))
+            return Outcome("not_started" if listed else "uncertain", detail=text)
+        if status == 200 and doc is not None and error is None:
+            usage = _ga_usage(doc.get("usageMetadata"))
+            candidates: object = doc.get("candidates", [])
+            if candidates == []:  # missing or an empty list: only a blocked prompt explains it
+                feedback: object = doc.get("promptFeedback")
+                block: object = cast("dict[str, Any]", feedback).get("blockReason") if isinstance(feedback, dict) else None
+                if isinstance(block, str):
+                    return self._reply("", usage, complete=False, truncated=False, why=san.clean(f"blockReason {block}", 80))
+            elif isinstance(candidates, list) and isinstance(cast("list[Any]", candidates)[0], dict):
+                first = cast("dict[str, Any]", cast("list[Any]", candidates)[0])
+                finish: object = first.get("finishReason")
+                reply = _ga_text(first)
+                if isinstance(finish, str) and reply is not None:
+                    return self._reply(reply, usage, complete=finish == "STOP", truncated=finish == "MAX_TOKENS",
+                                       why=san.clean(f"finishReason {finish}", 80))
+        excerpt = san.clean(" ".join(raw[:EXCERPT_CHARS * 4].decode("utf-8", "replace").split()), EXCERPT_CHARS)
+        return Outcome("uncertain", detail=f"ga: HTTP {status}: unexpected answer: {excerpt}")
+
+
+API_TARGETS: dict[str, Callable[..., ApiRuntimeTarget]] = {"ca": CaRuntimeTarget, "oa": OaRuntimeTarget, "ga": GaRuntimeTarget}

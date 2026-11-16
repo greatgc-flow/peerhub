@@ -140,8 +140,8 @@ def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None
     for t in tasks:
         kind = kind_of(t.peer)
         if kind is None:
-            raise ManifestError(f"task {t.task_id}: unknown peer {t.peer!r} (register it with --adapter cx, cc, ag, ca or oa)")
-        if t.writable and kind in ("ca", "oa"):
+            raise ManifestError(f"task {t.task_id}: unknown peer {t.peer!r} (register it with --adapter cx, cc, ag, ca, oa or ga)")
+        if t.writable and kind in ("ca", "oa", "ga"):
             raise ManifestError(f"task {t.task_id}: {kind} has no workspace access; remove writable")
         if t.workspace is not None and not t.workspace.is_dir():
             raise ManifestError(f"task {t.task_id}: workspace {t.workspace} is not an existing directory")

@@ -35,7 +35,7 @@ def readiness_report(db_path: str | Path, *, read_at: float | None = None,
 def configured_profiles(workspace: Path) -> list[dict[str, Any]]:
     profiles: list[dict[str, Any]] = []
     for item in list_profiles(workspace, include_pool_source=True):
-        if item["profile"].split(".", 1)[0] in API_TARGETS:  # ca and oa (#378) have no quota pool: no readiness to cache
+        if item["profile"].split(".", 1)[0] in API_TARGETS:  # ca, oa and ga (#378) have no quota pool: no readiness to cache
             continue
         fields = item["fields"]
         model, effort = fields["model"]["value"], fields["effort"]["value"]

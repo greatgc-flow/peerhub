@@ -13,16 +13,17 @@ configuration surface.
 | **ag** | [ag.md](ag.md) | `agy.exe` (Antigravity CLI) |
 | **cc** | [cc.md](cc.md) | `claude.cmd` (Claude Code) |
 | **cx** | [cx.md](cx.md) | `codex.cmd` (Codex CLI) |
-| **ca** | [API peers](#4-api-peers-ca-and-oa) | `ant` (Claude API CLI) |
-| **oa** | [API peers](#4-api-peers-ca-and-oa) | none: one HTTPS request to the OpenAI Responses API |
+| **ca** | [API peers](#4-api-peers-ca-oa-and-ga) | `ant` (Claude API CLI) |
+| **oa** | [API peers](#4-api-peers-ca-oa-and-ga) | none: one HTTPS request to the OpenAI Responses API |
+| **ga** | [API peers](#4-api-peers-ca-oa-and-ga) | none: one HTTPS request to the Gemini API |
 
 Ordinary `peerhub ask` calls reuse the latest compatible retained native session for the
 peer/Stream. Otherwise the Bridge creates a fresh generation with bounded
 catch-up. Mutually exclusive `--fresh` / `--session HANDLE` allocate a new
 generation or reuse one exact compatible retained session. Exact rejection
 never substitutes another session. Fresh still receives Stream context; use a
-dedicated Stream for an independent task. The API peers `ca` and `oa` have no
-retained session: one ask per Stream (section 4).
+dedicated Stream for an independent task. The API peers `ca`, `oa` and `ga` have
+no retained session: one ask per Stream (section 4).
 
 ## 2. CLI Reference & Contracts
 
@@ -41,14 +42,15 @@ Contains verbatim reference snapshots ported from Engram during the 2026-09-03 s
 > from the pre-separation repository. They are preserved for provenance and must
 > not be used as current operational guidance.
 
-## 4. API peers: ca and oa
+## 4. API peers: ca, oa and ga
 
-`ca` (Claude API) and `oa` (OpenAI Responses API) were added in 0.24.18 (#378).
+`ca` (Claude API) and `oa` (OpenAI Responses API) were added in 0.24.18 (#378),
+`ga` (Gemini API) in 0.24.19 (#381).
 They are text-only peers paid from API credits; they have no quota pool, no
 observed CLI version and no retained session. The source is
 `peerhub/extensions/adapters/api.py`; setup and outcomes for users are in the
-[README](../../README.md#api-peers-ca-and-oa). The live canaries of `ca` and
-`oa` (canary stage only; they spend API credits) are described in
+[README](../../README.md#api-peers-ca-oa-and-ga). The live canaries of `ca`,
+`oa` and `ga` (canary stage only; they spend API credits) are described in
 [CONTRIBUTING](../../CONTRIBUTING.md#local-live-gate).
 
 Shared contract:
@@ -67,10 +69,14 @@ Shared contract:
   `stream:` line before the `session:` line.
 - Also refused with `request_rejected` (exit 2): `--writable`, `--effort`, no
   `--profile` and no `--model`, and a model that does not match
-  `^claude-[a-z0-9.-]{1,64}$` (`ca`) or `^gpt-[a-z0-9.-]{1,64}$` (`oa`).
-- Inline prompt limit: 1,000,000 UTF-8 bytes. Reply limit: 16,000 output tokens.
+  `^claude-[a-z0-9.-]{1,64}$` (`ca`), `^gpt-[a-z0-9.-]{1,64}$` (`oa`) or
+  `^gemini-[a-z0-9.-]{1,64}$` (`ga`). The whole value must match.
+- Inline prompt limit: 1,000,000 UTF-8 bytes. Reply limit: 16,000 output tokens
+  for `ca` and `oa`, 32,000 for `ga`. It is the class attribute
+  `max_output_tokens`: the request and the `truncated` message read it.
 - A complete reply is `delivered`; usage keeps `input_tokens` and
-  `output_tokens` (telemetry source `ca.message.usage` or `oa.response.usage`).
+  `output_tokens` (telemetry source `ca.message.usage`, `oa.response.usage` or
+  `ga.response.usage`).
   A reply cut at the token limit is `truncated`; a reply that ended for another
   reason is `incomplete`. Both are STARTED, exit 1, keep the text in
   `partial_response` and store no response Record (`peerhub explain truncated`,
@@ -79,12 +85,18 @@ Shared contract:
   acknowledged, the same request finishes that settlement and returns the saved
   status with `partial_response`, without calling the provider again.
 - Credits used up: `not_executed` with `reason: quota_exhausted` and no reset
-  time. An HTTP 400, 401, 403, 404, 413 or 429 answer with an error object:
-  `failed_not_started` (no inference). Anything else: `uncertain`, including a
-  reply of the wrong shape (see below).
+  time. For `ca` and `oa`, an HTTP 400, 401, 403, 404, 413 or 429 answer with
+  an error object: `failed_not_started` (no inference); `ga` has its own table
+  (below). Anything else: `uncertain`, including a reply of the wrong shape
+  (see below).
 - Profiles: `ca.standard`, `ca.effort`, `ca.deepthink`, `oa.standard`,
-  `oa.effort`, `oa.deepthink` in the packaged `model-defaults.toml`, without
-  pools; `peerhub explain <profile>` shows each card.
+  `oa.effort`, `oa.deepthink`, `ga.standard`, `ga.effort` in the packaged
+  `model-defaults.toml`, without pools; `peerhub explain <profile>` shows each
+  card. `ga` has no deep profile: a stronger model is used with `--model <id>`
+  when the key has quota for it. The class attribute `profile_tiers` names the
+  packaged tiers of a peer for the refusal message.
+- The credit balance is not shown: no API gives it to the login or key that
+  PeerHub uses. No usage total is built either (see the CHANGELOG of 0.24.19).
 
 `ca` invocation is equivalent to:
 
@@ -111,16 +123,23 @@ required`); the error then reads `ant is not signed in or its login expired
 `failed_not_started`. Output without an HTTP status and an error object ends
 `uncertain`.
 
-`oa` sends one POST to the fixed URL `https://api.openai.com/v1/responses` with
+`oa` and `ga` share one HTTP exchange (`HttpRuntimeTarget._call`). It reads the
+key from the environment at the call, refuses a key that cannot be a header
+value (`failed_not_started`), adds the key to the sanitizer, and sends one POST
+with the standard library. Proxy variables are ignored, redirects are not
+followed, and TLS is verified with the default context; a network that needs a
+proxy is not supported. `--timeout-seconds` is a total over the whole call
+(connect, headers, body): the request runs in a worker thread and the ask waits
+for it at most that long, then ends `uncertain` (`runtime_timeout` evidence; a
+late answer is discarded). `--silence-timeout-seconds`, when given, limits one
+socket operation. Each of the two peers adds three hooks only: the name of the
+key variable (`key_env`), the request (`_request`) and the outcome of one HTTP
+answer (`_classify`).
+
+`oa` sends its POST to the fixed URL `https://api.openai.com/v1/responses` with
 `{"model", "input", "max_output_tokens": 16000, "store": false}` and the key
-from `OPENAI_API_KEY` in the `Authorization` header only. `OPENAI_BASE_URL` and
-proxy variables are ignored, redirects are not followed, and TLS is verified
-with the default context; a network that needs a proxy is not supported.
-`--timeout-seconds` is a total over the whole call (connect, headers, body): the
-request runs in a worker thread and the ask waits for it at most that long,
-then ends `uncertain` (`runtime_timeout` evidence; a late answer is discarded).
-`--silence-timeout-seconds`, when given, limits one socket operation. A
-reply is complete only with HTTP 200 and `status: completed` (empty
+from `OPENAI_API_KEY` in the `Authorization` header only. `OPENAI_BASE_URL` is
+ignored. A reply is complete only with HTTP 200 and `status: completed` (empty
 `output_text` is `delivered` with `empty_response`); `incomplete` with the
 reason `max_output_tokens` is `truncated`, any other status or reason is
 `incomplete`. `output` must be a list of objects with a `type`, the `content`
@@ -131,3 +150,92 @@ than 200 with an error object) the error codes `credit_balance_exhausted` and
 `insufficient_quota` mean the credits are used up, whatever that status is. At
 HTTP 200 an error code is never read: only the status and the shape of the
 response decide.
+
+`ga` sends its POST to
+`https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent`
+with `{"contents": [{"role": "user", "parts": [{"text": <prompt>}]}],
+"generationConfig": {"maxOutputTokens": 32000}}` and the key from
+`GEMINI_API_KEY` in the `x-goog-api-key` header only, never in the URL. The
+host is fixed. The model is one path segment of the URL, and the model pattern
+keeps `/`, `:`, `?`, `#`, `%`, whitespace and uppercase out of it. Thinking
+counts against `maxOutputTokens`, which is why the limit is 32,000.
+
+At HTTP 200 only the shape and the finish reason decide, in this order:
+
+1. The body is not one JSON object, or it has an `error` that is not null:
+   `uncertain`.
+2. `candidates` is missing or an empty list, and `promptFeedback.blockReason`
+   is a string: `incomplete` with that reason. `candidates` missing, empty or
+   not a list otherwise: `uncertain`.
+3. The first candidate is not an object, or its `finishReason` is not a string:
+   `uncertain`.
+4. `content` is present and not an object, `parts` is present and not a list, a
+   part is not an object, or a part's `text` is present and not a string:
+   `uncertain`.
+5. The reply text is the joined `text` of the parts without `thought: true`.
+   A missing `content` or missing `parts` is no text.
+6. `finishReason` `STOP` is complete (empty text is `delivered` with
+   `empty_response`, so a reply that only thinks is an empty reply);
+   `MAX_TOKENS` is `truncated`; any other finish reason is `incomplete` with
+   that reason. The text is kept in both cases.
+
+Usage is measured only when `usageMetadata` is an object, `promptTokenCount` is
+an integer of 0 or more, and `candidatesTokenCount` and `thoughtsTokenCount`,
+when present, are integers of 0 or more (true and false do not count as
+integers). Then `input_tokens` is `promptTokenCount` and `output_tokens` is
+`candidatesTokenCount` plus `thoughtsTokenCount`; only these two count as 0
+when missing, and every other key is ignored. Otherwise the usage is absent,
+never zero.
+
+An error answer is an HTTP status other than 200 with an `error` object. The
+pair of the HTTP status and `error.status` decides:
+
+| HTTP status | `error.status` | Outcome |
+|---|---|---|
+| 429 | `RESOURCE_EXHAUSTED` | `not_executed`, `quota_exhausted`, no reset time, the message kept |
+| 400 | `INVALID_ARGUMENT` or `FAILED_PRECONDITION` | `failed_not_started` |
+| 401 | `UNAUTHENTICATED` | `failed_not_started` |
+| 403 | `PERMISSION_DENIED` | `failed_not_started` |
+| 404 | `NOT_FOUND` | `failed_not_started` |
+| 413 | any | `failed_not_started` |
+| 400, 401, 403, 404, 413, 429 | missing | `failed_not_started` |
+| every other pair | | `uncertain` |
+
+`RESOURCE_EXHAUSTED` covers a rate limit and a spent or missing quota alike; no
+inference ran. "Every other pair" includes an unknown status name, a pair that
+contradicts itself (for example 500 with `RESOURCE_EXHAUSTED`) and any 5xx.
+`error.status` is missing only when the `status` member is absent: a status
+that is null or not a string is no listed pair.
+
+Measured on 2026-11-16 with one key, through PeerHub on a temporary store and
+directly against the API:
+
+- `ga.standard` (gemini-3.5-flash-lite) answered through PeerHub (9 input
+  tokens, 1 output token).
+- `ga.effort` (gemini-3.6-flash) answered 4 of 4 calls (1.6 s, 1.6 s, 3.5 s
+  and 17.5 s). In the same minutes gemini-3.5-flash answered 4 of 4 (1.1 s,
+  1.1 s, 4.1 s and 9.8 s).
+- gemini-3.8-flash answered 1 of 10 tries between 00:29Z and 01:41Z: once in
+  12.7 s; HTTP 503 `UNAVAILABLE` ("This model is currently experiencing high
+  demand") twice; no answer within 40 to 90 s seven times, three of them
+  through PeerHub, which ended `uncertain` by the timeout.
+- gemini-3.7-flash answered HTTP 503 `UNAVAILABLE` once.
+- That is why `ga.effort` is gemini-3.6-flash. It says which model answered for
+  that key, not which model is better: no benchmark was run through the API,
+  and every pro-class model answers 429 for that key, so the result may be
+  particular to that key's tier. gemini-3.8-flash is used with
+  `--model gemini-3.8-flash`.
+- gemini-4-argon, gemini-4-carbon, gemini-pro-latest and gemini-3.1-pro-preview
+  answered HTTP 429 `RESOURCE_EXHAUSTED` ("You exceeded your current quota,
+  please check your plan and billing details") for that key. PeerHub ends such
+  an ask `not_executed` with `quota_exhausted` and keeps the message. This
+  status does not tell a rate limit from a key without quota for the model.
+- gemini-2.5-flash and gemini-2.5-pro answered HTTP 404 `NOT_FOUND` ("no longer
+  available to new users").
+- An invalid key gave HTTP 401 `UNAUTHENTICATED` in a direct call (400
+  `INVALID_ARGUMENT` is reported for other key forms).
+- Without `GEMINI_API_KEY` the ask ended `failed_not_started`. A model name
+  with `/` was refused before anything was sent. The key's bytes were not in
+  the store.
+
+Not measured: a rate limit as such, and a safety block.

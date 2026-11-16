@@ -181,8 +181,9 @@ traits = ["45/45 at medium; high slower", "empty reply after tool use (#195)"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#195", "ag-recipe"]
 card_checked = "2026-11-13"
 
-# API peers (#378): one API call per ask, paid by API credits. No quota pool, so no `pools` and no CLI version in
-# [observed_versions]; `--model` must match ^claude-[a-z0-9.-]{1,64}$ (ca) or ^gpt-[a-z0-9.-]{1,64}$ (oa).
+# API peers (#378, #381): one API call per ask, paid by API credits. No quota pool, so no `pools` and no CLI version in
+# [observed_versions]. `--model` must match the pattern of its peer:
+# ^claude-[a-z0-9.-]{1,64}$ (ca), ^gpt-[a-z0-9.-]{1,64}$ (oa), ^gemini-[a-z0-9.-]{1,64}$ (ga).
 [profiles."ca.standard"]
 selection_mode = "pinned"
 model = "claude-haiku-5-5"
@@ -248,6 +249,33 @@ avoid_for = "tools, files, multi-turn work (one ask per stream)"
 traits = ["no tools, no workspace, no session", "replies capped at 16,000 tokens", "needs OPENAI_API_KEY; no proxy"]
 evidence = ["#378"]
 card_checked = "2026-11-15"
+
+# ga (#381): two profiles; each model answered real calls on 2026-11-16. No deep profile is packaged: use
+# `--model <id>` for a stronger model when the key has quota for it. Thinking counts against the 32,000 output tokens.
+[profiles."ga.standard"]
+selection_mode = "pinned"
+model = "gemini-3.5-flash-lite"
+source = "design:#381 ga-design v3 2026-11-16"
+checked = "2026-11-16"
+use_for = "inline the text; ga reads no file; cheap votes and doc checks"
+avoid_for = "tools, files, multi-turn work (one ask per stream)"
+traits = ["no tools, no workspace, no session", "32,000 output tokens incl. thinking", "needs GEMINI_API_KEY; no proxy"]
+evidence = ["#381"]
+card_checked = "2026-11-16"
+
+# ga.effort is chosen by availability, not by a capability comparison: no benchmark exists through the API. Measured
+# on 2026-11-16 with one key: gemini-3.6-flash answered 4 of 4 calls (1.6 s to 17.5 s); gemini-3.8-flash answered 1 of 10
+# (503 UNAVAILABLE twice, no answer within 40-90 s seven times). The result may be particular to that key's tier.
+[profiles."ga.effort"]
+selection_mode = "pinned"
+model = "gemini-3.6-flash"
+source = "measured:#381 4 of 4 API calls answered 2026-11-16 (one key)"
+checked = "2026-11-16"
+use_for = "inline the text; ga reads no file; text reviews and votes"
+avoid_for = "tools, files, multi-turn work (one ask per stream)"
+traits = ["4 of 4 calls answered; no API benchmark", "32,000 output tokens incl. thinking", "needs GEMINI_API_KEY; no proxy"]
+evidence = ["#381"]
+card_checked = "2026-11-16"
 
 [exact_model_pools."gemini-4-argon-low"]
 pools = ["A-7D"]

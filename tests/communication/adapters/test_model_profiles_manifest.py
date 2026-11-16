@@ -15,7 +15,7 @@ DIR = REPO / "docs" / "model-profiles"
 MANIFEST = json.loads((DIR / "model-profiles.json").read_text(encoding="utf-8"))
 TOML = tomllib.loads((REPO / "peerhub" / "config_data" / "model-defaults.toml").read_text(encoding="utf-8"))
 PEERS = ("ag", "cc", "cx")
-API_PEERS = ("ca", "oa")  # #378: no CLI recipe, no observed version, no pool (see test_api_peers_wiring.py)
+API_PEERS = ("ca", "oa", "ga")  # #378, #381: no CLI recipe, no observed version, no pool (see test_api_peers_wiring.py)
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -43,7 +43,7 @@ def test_toml_metadata_is_well_formed():
 def test_every_profile_id_names_a_peer_and_has_required_fields():
     assert set(packaged_profiles(PEERS + API_PEERS)) == set(TOML["profiles"])  # no profile of an unknown peer
     for pid, p in packaged_profiles(PEERS + API_PEERS).items():
-        assert re.fullmatch(r"(ag|cc|cx|ca|oa)\.[a-z0-9-]+", pid), pid
+        assert re.fullmatch(r"(ag|cc|cx|ca|oa|ga)\.[a-z0-9-]+", pid), pid
         assert p["selection_mode"] == "pinned" and p["model"], pid
         assert DATE.match(p["checked"]), pid
         assert p["source"], pid
