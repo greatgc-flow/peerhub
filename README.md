@@ -249,7 +249,7 @@ colour while retaining supported cursor controls.
 
 `ca` (the Claude API), `oa` (the OpenAI Responses API) and `ga` (the Gemini API) answer one text question per ask. Use them for votes, text reviews and documentation checks when the text fits in the prompt, so that the subscription pools of cc, cx and ag are kept for work with tools and files. They are paid from API credits, not from a subscription pool: they have no POOLS row, `suggest:` never names them, and `diag readiness`, `observation refresh` and the accounts leave them out.
 
-Can PeerHub read the credit balance? No. None of the three APIs gives the balance to the login or key that PeerHub uses. The Claude cost and usage reports need an admin key and report spend, not the balance. The OpenAI cost report needs a key with a usage scope, and the credit grants are readable in the browser only. For a Gemini API key no balance endpoint is known. Read the balance in the console of each provider: the Claude Console, the OpenAI Platform and Google AI Studio.
+Can PeerHub read the credit balance? No. None of the three APIs gives the balance to the login or key that PeerHub uses. The Claude cost and usage reports need an admin key and report spend, not the balance. The OpenAI cost report needs a key with a usage scope, and the credit grants are readable in the browser only. For a Gemini API key no balance endpoint is known. Read the balance in the console of each provider: the Claude Console, the OpenAI Platform and Google AI Studio. What the account-side answers mean and where to read the balance by hand: [API credits](docs/api-credits.md).
 
 Setup:
 
