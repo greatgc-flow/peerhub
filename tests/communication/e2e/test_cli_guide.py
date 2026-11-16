@@ -65,7 +65,11 @@ def test_guide_lines_point_to_lessons_with_exact_ids(capsys, monkeypatch, tmp_pa
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
     assert main(["guide"]) == 0
     out = capsys.readouterr().out.replace("\r\n", "\n")
-    assert len(out.splitlines()) == 56  # restructured baseline + the API peers line (#378); headroom under the 60-line cap
+    # Restructured baseline + the API peers line (#378) + one more profile row, so that ga.standard does not push
+    # cx.effort out of the table (#381); headroom under the 60-line cap.
+    assert len(out.splitlines()) == 57
+    assert all(pid in out for pid in ("ag.standard", "ca.standard", "cc.standard", "cx.standard", "ga.standard", "oa.standard",
+                                      "ag.effort", "ca.effort", "cc.effort", "cx.effort"))
     assert "--writable even to read" in out
     ids = {lesson["id"] for lesson in load_lessons()}
     pointers = set(re.findall(r"peerhub explain ([a-z][a-z0-9-]*-[a-z0-9-]+)", out))

@@ -20,8 +20,9 @@ def test_release_notes_extracts_exact_body():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.24.18"
-    assert "#378" in body and "#330" in body
+    assert __version__ == "0.24.19"
+    assert "#381" in body and "GEMINI_API_KEY" in body
+    assert "#330" not in body and "idx_bd_scope_claim_generation" not in body  # no adjacent history (0.24.18)
     assert "stamp_junit" not in body  # no adjacent history (0.24.17)
     assert "ATTN 3?" not in body  # no adjacent history (0.24.16)
     assert "rename this heading" not in body  # the pre-release note is gone

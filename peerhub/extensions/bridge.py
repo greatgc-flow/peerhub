@@ -539,7 +539,7 @@ class Bridge:
             mapping = bridge_registry.generation(conn, row["stream_id"], row["peer_id"], row["session_generation"])
             won = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
                                "AND session_generation=? AND external_session_id=? AND state NOT IN ('LOST','TOMBSTONED') "
-                               "AND (vendor_session_id IS NOT NULL OR runtime_kind IN ('cc','cx','ag','ca','oa'))",
+                               "AND (vendor_session_id IS NOT NULL OR runtime_kind IN ('cc','cx','ag','ca','oa','ga'))",
                                (row["stream_id"], row["peer_id"], row["session_generation"], row["external_session_id"])).rowcount
             if won:
                 bridge_registry.repair(conn, row["stream_id"], row["peer_id"], self.claims.now())
@@ -952,7 +952,7 @@ class Bridge:
         inflight = self._inflight(token)
         m = (self._mapping_for_generation(token.peer_id, token.stream_id, inflight["session_generation"])
              if inflight is not None and inflight["session_generation"] is not None else self.current_mapping(token.peer_id, token.stream_id))
-        if m is None or m["state"] in ("LOST", "TOMBSTONED") or (reason == "tainted" and m["vendor_session_id"] is None and m["runtime_kind"] not in ("cc", "cx", "ag", "ca", "oa")):
+        if m is None or m["state"] in ("LOST", "TOMBSTONED") or (reason == "tainted" and m["vendor_session_id"] is None and m["runtime_kind"] not in ("cc", "cx", "ag", "ca", "oa", "ga")):
             return
         with self.claims.fenced(token) as conn:
             won = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
@@ -1529,7 +1529,7 @@ class Bridge:
         if (m is not None and m["runtime_kind"] in ("cc", "cx", "ag")
                 and isinstance(raw_usage, dict)):
             detail.update(usage=raw_usage, usage_scope="session_cumulative", usage_attribution="unattributed")
-        elif m is not None and m["runtime_kind"] in ("ca", "oa") and isinstance(raw_usage, dict):  # one API call per ask (#378)
+        elif m is not None and m["runtime_kind"] in ("ca", "oa", "ga") and isinstance(raw_usage, dict):  # one API call per ask (#378)
             detail.update(usage=raw_usage, usage_scope="delivery", usage_attribution="delivery")
         if (m is not None and m["state"] not in ("LOST", "TOMBSTONED") and m["session_generation"] == delivery["session_generation"]
                     and m["external_session_id"] == delivery["external_session_id"]):
@@ -1747,7 +1747,7 @@ class Bridge:
                 if kind == "control.cancel":
                     target = conn.execute(sel, (rid, peer)).fetchone()
                     tainted = conn.execute("UPDATE bridge_session_history SET state='LOST', vendor_session_id=NULL WHERE stream_id=? AND peer_id=? "
-                                 "AND state NOT IN ('LOST','TOMBSTONED') AND (vendor_session_id IS NOT NULL OR runtime_kind IN ('cc','cx','ag','ca','oa')) AND external_session_id=? AND session_generation=(SELECT session_generation FROM bridge_deliveries WHERE delivery_id=?) "
+                                 "AND state NOT IN ('LOST','TOMBSTONED') AND (vendor_session_id IS NOT NULL OR runtime_kind IN ('cc','cx','ag','ca','oa','ga')) AND external_session_id=? AND session_generation=(SELECT session_generation FROM bridge_deliveries WHERE delivery_id=?) "
                                  "AND EXISTS (SELECT 1 FROM bridge_claims c WHERE c.stream_id=? AND c.peer_id=? "
                                  "AND c.generation=? AND c.workspace_generation=? AND c.expires_at>?)",
                                  (stream, peer, target["target_session_id"], target["target_delivery_id"], stream, peer,

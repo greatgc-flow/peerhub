@@ -26,7 +26,7 @@ def _cell(value: object, width: int) -> str:
     return text.ljust(width)
 
 
-PROFILE_ROWS = 10  # keeps the guide within its 60-line cap however many profiles are configured
+PROFILE_ROWS = 11  # keeps the guide within its 60-line cap however many profiles are configured
 
 
 def render_guide(workspace: Path | None = None) -> str:
@@ -114,8 +114,8 @@ def render_guide(workspace: Path | None = None) -> str:
         "    stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor (locks peerhub.exe on Windows; also wait for running asks (diag running), else broken install: reinstall, check results before resend); don't run dev builds on the real store; after restore, reopen stores (old instances fenced).",
         "  Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only); uncertain streams may stay quota-blocked after reset. Aged quota is last-known; refresh first.",
         "  Batch: executes asks (spends quota); ag tasks always writable; overlapping writers rejected; cancel: Windows tree kill, POSIX best-effort; inspect UNCERTAIN; keep manifest + batch-id.",
-        "  API peers: ca (Claude API, `ant auth login`) and oa (OpenAI API, OPENAI_API_KEY) spend API credits, not a pool: inline the text; ca reads no file (oa neither); one ask per stream; no --writable.",
-        "  Load: 4 active asks (max 6; cc 3/cx 3/ag 1/ca 3/oa 3). Balance: suggest: is advisory (rule H); reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer; compare 7D PACE (5H only gates); PACE (pp, used%-elapsed%) needs a fresh quota age; + = ahead of even burn.",
+        "  API peers: ca (Claude API, `ant auth login`), oa (OpenAI API, OPENAI_API_KEY) and ga (Gemini API, GEMINI_API_KEY) spend API credits, not a pool: inline the text; ca reads no file (oa, ga neither); one ask per stream; no --writable.",
+        "  Load: 4 active asks (max 6; cc 3/cx 3/ag 1/ca 3/oa 3/ga 3). Balance: suggest: is advisory (rule H); reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer; compare 7D PACE (5H only gates); PACE (pp, used%-elapsed%) needs a fresh quota age; + = ahead of even burn.",
         "  Accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots.",
         "  Secrets: prompts/streams persist in local store; no tokens/passwords.",
         "Discovery & Inspection Commands:",

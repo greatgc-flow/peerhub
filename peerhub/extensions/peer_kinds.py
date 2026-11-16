@@ -7,7 +7,7 @@ vocabulary both need lives here.
 from __future__ import annotations
 
 ALIASES = {"codex": "cx", "cx": "cx", "claude": "cc", "cc": "cc", "agy": "ag", "ag": "ag",
-           "ca": "ca", "oa": "oa"}  # the API peers (#378): Claude API through `ant`, OpenAI Responses API
+           "ca": "ca", "oa": "oa", "ga": "ga"}  # the API peers (#378, #381): Claude API through `ant`, OpenAI, Gemini
 
 
 def peer_kind(adapter_ref: str | None, peer_id: str) -> str | None:

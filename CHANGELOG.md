@@ -8,6 +8,37 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.19] - 2026-11-16
+
+The Gemini API peer `ga` (#381). The design was agreed unanimously by cc, cx and ag.
+
+### Added
+
+- A third builtin API peer, `ga`: the Gemini API (#381). Like `ca` and `oa` it answers one text question per ask, is paid from API credits and has no quota pool. What is not named here is as for `oa`: one call per ask, never retried, no tools, no files, one ask per stream, no `--writable`, no `--effort`.
+  - Setup: put the key in the environment variable `GEMINI_API_KEY`. It is read at the call and sent only in the `x-goog-api-key` header, never in the URL. It is never accepted on the command line or from a file, never stored or printed, and removed from any error text. Without it the ask is `failed_not_started` (`set GEMINI_API_KEY`). `GOOGLE_API_KEY` is not read.
+  - One HTTPS request to `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent`. The host is fixed. Proxy variables are ignored, redirects are not followed and TLS is always verified. `--timeout-seconds` is a total over the whole call.
+  - Profiles: `ga.standard` (gemini-3.5-flash-lite), `ga.effort` (gemini-3.8-flash), `ga.deepthink` (gemini-4-hydrogen). Each model answered one direct API call on 2026-11-16. `--model` must match `^gemini-[a-z0-9.-]{1,64}$` as a whole. A custom peer uses `--adapter ga`.
+  - Replies up to 32,000 output tokens. A Gemini model counts its thinking against the output limit: a real call with a limit of 20 tokens ended at the limit without any text.
+  - Outcomes: the finish reason `STOP` is `delivered` (empty text, or a reply that only thinks, is `delivered` with `empty_response: true`). `MAX_TOKENS` is `truncated`. Any other finish reason is `incomplete` with the reason, and so is a blocked prompt (no candidates and a `promptFeedback.blockReason`). Thinking parts are never part of the reply text. A reply of the wrong shape is `uncertain`, and so is an HTTP 200 answer that carries an `error`.
+  - Usage: `input_tokens` is the prompt count, and `output_tokens` is the reply plus the thinking. When the answer has no usable counts, the usage is left out. It is never shown as zero.
+  - Error answers go by the HTTP status and the status name in the error together. HTTP 429 with `RESOURCE_EXHAUSTED` is `not_executed` with the reason `quota_exhausted` and no reset time: Google uses it for a rate limit and for a spent or missing quota alike. These are `failed_not_started`: 400 with `INVALID_ARGUMENT` or `FAILED_PRECONDITION`, 401 with `UNAUTHENTICATED`, 403 with `PERMISSION_DENIED`, 404 with `NOT_FOUND`, 413 with any name, and 400, 401, 403, 404, 413 or 429 without a name. Every other pair is `uncertain`, for example 500 with `RESOURCE_EXHAUSTED`, or any 5xx.
+  - `peerhub batch run` accepts `ga` tasks; a task with `writable: true` is refused. `peerhub guide` names `ga`, and its load line gives `ga 3` (advice; nothing enforces a cap). The `ask` help lists `ga`.
+  - Live canaries in the canary stage only, outside the release evidence: `python -m tools.live_gate --yes --only canary --peer ga` runs `ga.standard` and `ga.deepthink`, one real call each. Both are skipped with `LIVE-GA-KEY-MISSING[env=GEMINI_API_KEY]` when the key is not set.
+
+### Changed
+
+- `oa` and `ga` share one HTTP exchange: reading the key, checking it as a header value, the sanitizer, the worker thread with one deadline and the mapping of failures. Each peer keeps three parts of its own: the name of the key variable, the request and the reading of the answer. The behaviour of `oa` did not change, and its tests pass as they were.
+- The output limit is per peer class: 16,000 tokens for `ca` and `oa`, 32,000 for `ga`. The request and the `truncated` message use the limit of the peer, and `peerhub explain truncated`, the result-status table and the lesson `api-peers` name both limits.
+- `peerhub guide` shows one more profile row (10 profiles, then the `+N more profiles` line; 57 lines in all), so that `ga.standard` does not push `cx.effort` out of the table.
+- A message names the new adapter: `register this peer with --adapter cx, cc, ag, ca, oa or ga before asking it`.
+- Documentation: the README section for the API peers covers `ga` and answers the question about the credit balance. It also says that an API key in the environment is visible to every peer process: with the Codex and agy CLIs logged in with an account, an invalid key in the environment did not change the answer (measured with codex-cli 0.169.0 and agy 1.5.9; this does not tell "ignored" from "tried, then fell back"), so set the keys only where the API peers are used. The lesson `api-peers`, `docs/adapters/README.md` (section 4), `docs/guidance-reference.md`, `CONTRIBUTING.md` (the canaries) and `docs/STATUS.md` are updated.
+
+### Not included
+
+- Usage totals and the credit balance. The balance cannot be read: none of the three APIs gives it to the login or key that PeerHub uses. The Claude cost and usage reports need an admin key and report spend, not the balance; the OpenAI cost report needs a key with a usage scope, and the credit grants are readable in the browser only; for a Gemini API key no balance endpoint is known. Read the balance in the Claude Console, the OpenAI Platform or Google AI Studio. A usage total is not built either. A 30-day total would be a scan over every delivery row with JSON extraction, because each API ask is its own stream and there is no index by peer or time. Truncated and incomplete asks have usage but no end time. And a total would be per store, not per key.
+- A money estimate, admin keys, Vertex AI, streaming, tools, images and thinking-level settings.
+- Removing API keys from the environment of `cx` or `ag`: a CLI that is logged in by an API key in the environment must keep working.
+
 ## [0.24.18] - 2026-11-16
 
 API peers `ca` and `oa` (#378), the index for `peerhub diag running` (#330), the quota first and a new rich look in `peerhub monitor`, and the remaining items of #376. The plan was agreed unanimously by cc, cx and ag; every item of #376 is done or dropped with its reason below.

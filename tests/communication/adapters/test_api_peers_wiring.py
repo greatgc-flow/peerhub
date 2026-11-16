@@ -1,16 +1,20 @@
-"""Wiring of the API peers ca and oa (#378): kinds, profiles, guide, batch, quota and usage contracts. No provider is called."""
+"""Wiring of the API peers ca, oa (#378) and ga (#381): kinds, profiles, guide, batch, quota and usage contracts. No
+provider is called."""
+import ast
 import json
+import re
 import tomllib
 from pathlib import Path
 
 import pytest
 
 from peerhub.extensions.adapters import api
-from peerhub.extensions.adapters.api import ApiRuntimeTarget, CaRuntimeTarget, OaRuntimeTarget
+from peerhub.extensions.adapters.api import ApiRuntimeTarget, CaRuntimeTarget, GaRuntimeTarget, OaRuntimeTarget
 
 REPO = Path(__file__).resolve().parents[3]
 TOML = tomllib.loads((REPO / "peerhub" / "config_data" / "model-defaults.toml").read_text(encoding="utf-8"))
-API_PROFILES = {pid: p for pid, p in TOML["profiles"].items() if pid.split(".", 1)[0] in ("ca", "oa")}
+API_KINDS = ("ca", "oa", "ga")
+API_PROFILES = {pid: p for pid, p in TOML["profiles"].items() if pid.split(".", 1)[0] in API_KINDS}
 
 
 @pytest.fixture(autouse=True)
@@ -18,15 +22,89 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "config"))
 
 
-def test_ca_and_oa_are_builtin_peer_kinds_without_other_aliases():
+def test_the_api_peers_are_builtin_peer_kinds_without_other_aliases():
     from peerhub.extensions.peer_kinds import ALIASES
 
-    assert ALIASES["ca"] == "ca" and ALIASES["oa"] == "oa"
-    assert sorted(alias for alias, kind in ALIASES.items() if kind in ("ca", "oa")) == ["ca", "oa"]
-    assert api.API_TARGETS == {"ca": CaRuntimeTarget, "oa": OaRuntimeTarget}
+    assert all(ALIASES[kind] == kind for kind in API_KINDS)
+    assert sorted(alias for alias, kind in ALIASES.items() if kind in API_KINDS) == sorted(API_KINDS)
+    assert api.API_TARGETS == {"ca": CaRuntimeTarget, "oa": OaRuntimeTarget, "ga": GaRuntimeTarget}
+    assert tuple(api.API_TARGETS) == API_KINDS
 
 
-@pytest.mark.parametrize("kind,cls", [("ca", CaRuntimeTarget), ("oa", OaRuntimeTarget)])
+def _kind_lists(tree: ast.AST):
+    """Every string collection of a module: (line, strings) of each tuple, list, set and dict (its keys), at any depth."""
+    for node in ast.walk(tree):
+        items = node.keys if isinstance(node, ast.Dict) else node.elts if isinstance(node, (ast.Tuple, ast.List, ast.Set)) else []
+        strings = {item.value for item in items if isinstance(item, ast.Constant) and isinstance(item.value, str)}
+        if strings:
+            yield node.lineno, strings
+
+
+def test_every_list_that_names_ca_and_oa_names_ga():
+    """Design 8 (#381): a kind list that knows `ca` and `oa` must know `ga`. Walks the package, the live gate and the
+    packaged texts two ways, so a missing entry fails here and not in a store or in a message:
+
+    1. every Python collection (tuple, list, set, dict keys) that holds "ca" and "oa" holds "ga";
+    2. every line that names `ca` and `oa` (a regular expression, an SQL list, a message, a comment) names `ga`."""
+    word = {kind: re.compile(rf"(?<![A-Za-z0-9_.-]){kind}(?![A-Za-z0-9_-])") for kind in API_KINDS}
+    python = [*sorted((REPO / "peerhub").rglob("*.py")), REPO / "tools" / "live_gate.py"]
+    texts = [*sorted((REPO / "peerhub" / "config_data").glob("*.toml")), REPO / "pyproject.toml"]
+    assert len(python) > 50 and len(texts) >= 3  # the walk really sees the package
+    missing: list[str] = []
+    seen = 0
+    for path in python:
+        source = path.read_text(encoding="utf-8")
+        for line, strings in _kind_lists(ast.parse(source)):
+            if {"ca", "oa"} <= strings:
+                seen += 1
+                if "ga" not in strings:
+                    missing.append(f"{path.relative_to(REPO)}:{line}: a collection with ca and oa has no ga")
+    for path in (*python, *texts):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if word["ca"].search(line) and word["oa"].search(line):
+                seen += 1
+                if not word["ga"].search(line):
+                    missing.append(f"{path.relative_to(REPO)}:{number}: a line with ca and oa has no ga")
+    assert not missing, "\n".join(missing)
+    assert seen >= 30  # the files of design 8 are among them (the next assertions name each one)
+    from peerhub.extensions import batch, bridge, peer_kinds, session_receipts, usage_normalization
+
+    receipts = Path(session_receipts.__file__).read_text(encoding="utf-8")
+    assert "adapter:(cc|cx|ag|ca|oa|ga)" in receipts and "'ca','oa','ga'" in receipts and "WHEN 'ga' THEN 'ga.response.usage'" in receipts
+    assert session_receipts._PROVIDER_USAGE_CONTRACT["ga"] == ("delivery", "ga.response.usage")  # pyright: ignore[reportPrivateUsage]
+    bridge_source = Path(bridge.__file__).read_text(encoding="utf-8")
+    assert bridge_source.count("'ca','oa','ga'") == 2 and bridge_source.count('"ca", "oa", "ga"') == 2
+    assert '"ca", "oa", "ga"' in Path(batch.__file__).read_text(encoding="utf-8")
+    assert peer_kinds.ALIASES["ga"] == "ga" and usage_normalization.REPORTED_FIELDS["ga"] == {"input_tokens", "output_tokens"}
+    for name in ("cli/app.py", "cli/guide.py", "cli/recovery.py", "extensions/ask.py", "config_data/lessons.toml"):
+        text = (REPO / "peerhub" / name).read_text(encoding="utf-8")
+        assert word["ga"].search(text), name
+    assert "(?:ag|cc|cx|ca|oa|ga)" in (REPO / "peerhub" / "cli" / "recovery.py").read_text(encoding="utf-8")
+
+
+def test_the_output_limit_is_per_class_in_every_text_that_names_it():
+    """Design 3 (#381): 16,000 for ca and oa, 32,000 for ga, in the request, the messages and the recovery texts."""
+    from peerhub.cli.lessons import load_lessons
+    from peerhub.cli.recovery import REGISTRY, RESULT_STATUS_REGISTRY
+
+    limits = {kind: cls.max_output_tokens for kind, cls in api.API_TARGETS.items()}
+    assert limits == {"ca": 16_000, "oa": 16_000, "ga": 32_000}
+    named = "16,000 tokens for ca and oa; 32,000 for ga"
+    assert named in REGISTRY["truncated"].meaning and named in RESULT_STATUS_REGISTRY["truncated"].meaning
+    lesson = next(item for item in load_lessons() if item["id"] == "api-peers")
+    assert "16,000 output tokens for ca and oa and at 32,000 for ga" in lesson["fix"]
+    for pid, profile in API_PROFILES.items():
+        assert f"{limits[pid.split('.', 1)[0]]:,}" in " ".join(profile["traits"]), pid
+    for kind, cls in api.API_TARGETS.items():
+        target = cls(REPO, model={"ca": "claude-x", "oa": "gpt-x", "ga": "gemini-x"}[kind])
+        cut = target._reply("", None, complete=False, truncated=True, why="why")  # pyright: ignore[reportPrivateUsage]
+        assert cut.detail == f"{kind} reply cut at {limits[kind]} output tokens (why)"
+    for path in ("README.md", "docs/adapters/README.md", "docs/guidance-reference.md", "docs/lessons.md"):
+        text = (REPO / path).read_text(encoding="utf-8")
+        assert "32,000" in text and "16,000" in text, path
+
+
+@pytest.mark.parametrize("kind,cls", [("ca", CaRuntimeTarget), ("oa", OaRuntimeTarget), ("ga", GaRuntimeTarget)])
 def test_targets_share_one_base_and_are_stateless(tmp_path, kind, cls):
     target = cls(tmp_path, profile=f"{kind}.standard")
     assert isinstance(target, ApiRuntimeTarget) and target.runtime_kind == kind
@@ -62,7 +140,11 @@ def test_one_rule_names_the_default_stream():
 @pytest.mark.parametrize("peer,flags,stream", [
     ("ca", ["--request-id", "r1"], "peer:ca:r1"),
     ("oa", ["--request-id", "r1"], "peer:oa:r1"),
+    ("ga", ["--request-id", "r1"], "peer:ga:r1"),
+    ("ga", ["--request-id", "r1", "--stream", "named"], "named"),
+    ("ga", [], None),
     ("voter", ["--request-id", "r1"], "peer:voter:r1"),  # a custom peer registered with --adapter ca
+    ("judge", ["--request-id", "r1"], "peer:judge:r1"),  # a custom peer registered with --adapter ga
     ("ca", ["--request-id", "r1", "--stream", "named"], "named"),
     ("ca", [], None),  # no request id known: no stream is named
     ("cx", ["--request-id", "r1"], "peer:cx:chat"),
@@ -78,6 +160,7 @@ def test_exception_guidance_names_the_stream_the_ask_really_used(tmp_path, monke
     db = tmp_path / "core.db"
     store = CoreStore(db)
     store.register_peer(Peer(peer_id="voter", adapter_ref="ca"))
+    store.register_peer(Peer(peer_id="judge", adapter_ref="ga"))
     store.register_peer(Peer(peer_id="reviewer", adapter_ref="codex"))
 
     def held(*args, **kwargs):
@@ -103,16 +186,19 @@ def test_the_registered_adapter_comes_before_the_peer_name_as_in_ask(tmp_path, m
 
     assert peer_kind("codex", "ca") == "cx" and peer_kind("ca", "cx") == "ca"  # the one rule `ask` uses
     assert peer_kind(None, "oa") == "oa" and peer_kind(None, "nobody") is None and peer_kind("no-such-adapter", "ca") is None
+    assert peer_kind(None, "ga") == "ga" and peer_kind("ga", "cx") == "ga" and peer_kind("agy", "ga") == "ag"
     db = tmp_path / "core.db"
     store = CoreStore(db)
     store.register_peer(Peer(peer_id="ca", adapter_ref="codex"))  # a builtin name registered with another adapter
     store.register_peer(Peer(peer_id="cx", adapter_ref="oa"))
+    store.register_peer(Peer(peer_id="ga", adapter_ref="claude"))
+    store.register_peer(Peer(peer_id="cc", adapter_ref="ga"))
 
     def held(*args, **kwargs):
         raise ClaimHeldError("claim held by another ask")
 
     monkeypatch.setattr(ask_module, "ask", held)
-    for peer, stream in (("ca", "peer:ca:chat"), ("cx", "peer:cx:r1")):
+    for peer, stream in (("ca", "peer:ca:chat"), ("cx", "peer:cx:r1"), ("ga", "peer:ga:chat"), ("cc", "peer:cc:r1")):
         assert main(["--db", str(db), "ask", peer, "question", "--json", "--request-id", "r1"]) == 1
         argv = json.loads(capsys.readouterr().out)["guidance"]["recover"][0]["argv"]
         assert argv[argv.index("--stream") + 1] == stream
@@ -162,15 +248,18 @@ def test_a_failed_peer_lookup_names_no_stream_and_keeps_the_reported_error(tmp_p
 
 
 def test_packaged_api_profiles_have_three_tiers_a_card_and_no_pool():
-    assert sorted(API_PROFILES) == ["ca.deepthink", "ca.effort", "ca.standard", "oa.deepthink", "oa.effort", "oa.standard"]
+    assert sorted(API_PROFILES) == sorted(f"{kind}.{tier}" for kind in API_KINDS for tier in ("standard", "effort", "deepthink"))
+    models = {"ca": api.CA_MODEL, "oa": api.OA_MODEL, "ga": api.GA_MODEL}
     for pid, profile in API_PROFILES.items():
         kind = pid.split(".", 1)[0]
         assert profile["selection_mode"] == "pinned" and "reasoning_effort" not in profile, pid
-        assert (api.CA_MODEL if kind == "ca" else api.OA_MODEL).fullmatch(profile["model"]), pid
+        assert models[kind].fullmatch(profile["model"]), pid
         assert "pools" not in profile and "pools_source" not in profile, pid
         assert f"inline the text; {kind} reads no file" in profile["use_for"], pid
-        assert profile["evidence"] == ["#378"], pid
-    assert not any(kind in TOML["observed_versions"] for kind in ("ca", "oa"))  # no CLI version drift check
+        assert profile["evidence"] == (["#381"] if kind == "ga" else ["#378"]), pid
+    assert {pid: API_PROFILES[pid]["model"] for pid in API_PROFILES if pid.startswith("ga.")} == {
+        "ga.standard": "gemini-3.5-flash-lite", "ga.effort": "gemini-3.8-flash", "ga.deepthink": "gemini-4-hydrogen"}  # design 1
+    assert not any(kind in TOML["observed_versions"] for kind in API_KINDS)  # no CLI version drift check
 
 
 def test_profile_list_and_explain_show_the_api_profiles(tmp_path, monkeypatch, capsys):
@@ -179,9 +268,9 @@ def test_profile_list_and_explain_show_the_api_profiles(tmp_path, monkeypatch, c
 
     assert main(["profile", "list", "--workspace", str(tmp_path)]) == 0
     out = capsys.readouterr().out
-    assert "inline the text; ca reads no file" in out and "inline the text; oa reads no file" in out
+    assert all(f"inline the text; {kind} reads no file" in out for kind in API_KINDS)
     monkeypatch.chdir(tmp_path)
-    for pid in ("ca.standard", "oa.deepthink"):
+    for pid in ("ca.standard", "oa.deepthink", "ga.standard", "ga.effort", "ga.deepthink"):
         assert run_explain_cli(pid) == 0
         assert capsys.readouterr().out.startswith(f"Profile: {pid}")
 
@@ -191,8 +280,9 @@ def test_guide_names_the_api_peers_their_rule_and_their_cap(capsys):
 
     assert main(["guide"]) == 0
     out = capsys.readouterr().out
-    assert "inline the text; ca reads no file" in out
-    assert "cc 3/cx 3/ag 1/ca 3/oa 3" in out
+    assert "inline the text; ca reads no file (oa, ga neither)" in out
+    assert "ga (Gemini API, GEMINI_API_KEY)" in out
+    assert "cc 3/cx 3/ag 1/ca 3/oa 3/ga 3" in out
     assert len(out.splitlines()) <= 60 and len(out.replace("\r\n", "\n").encode("utf-8")) <= 5600
 
 
@@ -201,18 +291,18 @@ def test_suggest_never_names_an_api_peer(tmp_path):
     from peerhub.extensions.adapters.profiles import list_profiles
 
     profiles = list_profiles(tmp_path)
-    assert {"ca.standard", "oa.standard"} <= {p["profile"] for p in profiles}
+    assert {"ca.standard", "oa.standard", "ga.standard"} <= {p["profile"] for p in profiles}
     rows = [{"peer": peer, "pool": pool, "aged": False, "state": "ok", "remaining": 0.9, "reset_seconds": 3600.0}
             for p in profiles for peer in [p["profile"].split(".", 1)[0]] for pool in (p["fields"]["pools"]["value"] or [])]
     text = _compact_suggestions(profiles, rows)
-    assert text.startswith("suggest: eco=") and "ca." not in text and "oa." not in text
+    assert text.startswith("suggest: eco=") and not any(f"{kind}." in text for kind in API_KINDS)
 
 
 def test_cached_readiness_lists_no_api_profile(tmp_path):
     from peerhub.extensions.diag_readiness import configured_profiles
 
     ids = {profile["id"] for profile in configured_profiles(tmp_path)}
-    assert "cx.standard" in ids and not any(pid.split(".", 1)[0] in ("ca", "oa") for pid in ids)  # readiness is pool evidence
+    assert "cx.standard" in ids and not any(pid.split(".", 1)[0] in API_KINDS for pid in ids)  # readiness is pool evidence
 
 
 def test_quota_refresh_has_no_probe_for_an_api_peer(tmp_path):
@@ -221,7 +311,7 @@ def test_quota_refresh_has_no_probe_for_an_api_peer(tmp_path):
 
     db = tmp_path / "core.db"
     CoreStore(db)
-    for peer in ("ca", "oa"):
+    for peer in API_KINDS:
         with pytest.raises(ValueError, match="quota providers: cx/codex, cc/claude, ag/agy"):
             refresh_quota(db, [peer], pollers={})
 
@@ -231,9 +321,11 @@ def test_batch_accepts_api_peers_refuses_writable_and_classifies_incomplete_repl
     from peerhub.extensions.peer_kinds import ALIASES
 
     task = batch.Task("t1", "ca", "question", None, "ca.standard", False, 60.0)
-    batch.validate_tasks([task, batch.Task("t2", "oa", "question", None, None, False, 60.0)], kind_of=ALIASES.get)
-    with pytest.raises(batch.ManifestError, match="t3: ca has no workspace access"):
-        batch.validate_tasks([batch.Task("t3", "ca", "question", None, None, True, 60.0)], kind_of=ALIASES.get)
+    batch.validate_tasks([task, batch.Task("t2", "oa", "question", None, None, False, 60.0),
+                          batch.Task("t4", "ga", "question", None, "ga.standard", False, 60.0)], kind_of=ALIASES.get)
+    for kind in API_KINDS:
+        with pytest.raises(batch.ManifestError, match=f"t3: {kind} has no workspace access"):
+            batch.validate_tasks([batch.Task("t3", kind, "question", None, None, True, 60.0)], kind_of=ALIASES.get)
     for status in ("truncated", "incomplete"):
         out = json.dumps({"status": status, "certainty": "STARTED", "response": None, "error": {"code": status, "message": "m"}})
         assert batch.classify_worker(1, out) == ("FAILED", status)
@@ -248,7 +340,8 @@ def test_usage_contract_knows_the_api_peers():
     assert normalize_provider_usage("ca", {"input_tokens": 5, "output_tokens": 2}) == {"provider_input_tokens": 5, "output_tokens": 2}
     assert normalize_provider_usage("oa", {"input_tokens": 5, "output_tokens": 2, "total_tokens": 7}) == {
         "provider_input_tokens": 5, "output_tokens": 2, "provider_total_tokens": 7}
-    for kind, source in (("ca", "ca.message.usage"), ("oa", "oa.response.usage")):
+    assert normalize_provider_usage("ga", {"input_tokens": 5, "output_tokens": 2}) == {"provider_input_tokens": 5, "output_tokens": 2}
+    for kind, source in (("ca", "ca.message.usage"), ("oa", "oa.response.usage"), ("ga", "ga.response.usage")):
         reported = {"input_tokens": 5, "output_tokens": 2}
         candidate = {"schema_version": 1, "scope": "delivery", "source": source, "reported": reported,
                      "normalized": normalize_provider_usage(kind, reported), "coverage": {"state": "MEASURED", "reason": None}}
@@ -262,13 +355,15 @@ def test_messages_name_the_api_peers(tmp_path, capsys):
     from peerhub.extensions import batch
     from peerhub.extensions.ask import ask
 
-    with pytest.raises(ValueError, match="--adapter cx, cc, ag, ca or oa"):
+    with pytest.raises(ValueError, match="--adapter cx, cc, ag, ca, oa or ga"):
         ask(tmp_path / "core.db", "nobody", "question")
-    with pytest.raises(batch.ManifestError, match="--adapter cx, cc, ag, ca or oa"):
+    with pytest.raises(batch.ManifestError, match="--adapter cx, cc, ag, ca, oa or ga"):
         batch.validate_tasks([batch.Task("t1", "nobody", "question", None, None, False, 60.0)], kind_of=lambda peer: None)
     with pytest.raises(SystemExit):
         build_parser().parse_args(["ask", "--help"])
-    assert "cx/codex, cc/claude, ag/agy, ca, oa" in " ".join(capsys.readouterr().out.split())
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert "cx/codex, cc/claude, ag/agy, ca, oa, ga" in help_text
+    assert "ca, oa and ga: peer:<id>:<request-id>" in help_text
 
 
 def test_live_gate_can_select_the_api_peers():
@@ -277,7 +372,9 @@ def test_live_gate_can_select_the_api_peers():
     canary = (REPO / "tests" / "communication" / "live" / "test_api_peer_canary.py").read_text(encoding="utf-8")
     assert "pytest.mark.canary" in canary and "pytest.mark.live" not in canary  # outside the release catalog and the G3 stages
     assert "OPENAI_API_KEY" in canary and "LIVE-OA-KEY-MISSING" in canary
+    assert "GEMINI_API_KEY" in canary and "LIVE-GA-KEY-MISSING" in canary
+    assert canary.count("@pytest.mark.ga\n") == 2 and '"ga.standard"' in canary and '"ga.deepthink"' in canary
     parser_source = Path(live_gate.__file__).read_text(encoding="utf-8")
-    assert '"cc", "cx", "ag", "ca", "oa"' in parser_source
+    assert '"cc", "cx", "ag", "ca", "oa", "ga"' in parser_source
     markers = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]["markers"]
-    assert "ca" in markers and "oa" in markers
+    assert all(kind in markers for kind in API_KINDS)

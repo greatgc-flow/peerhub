@@ -1,5 +1,5 @@
-"""Local paid canaries of the API peers ca and oa (#378). They spend API credits: opt-in only (PEERHUB_LIVE=1 and
-`-m canary`, for example `python -m tools.live_gate --yes --only canary --peer ca`), never part of the release gate.
+"""Local paid canaries of the API peers ca, oa (#378) and ga (#381). They spend API credits: opt-in only (PEERHUB_LIVE=1
+and `-m canary`, for example `python -m tools.live_gate --yes --only canary --peer ca`), never part of the release gate.
 
 One real call each through the public `ask` function on a store in tmp_path; no retries."""
 from __future__ import annotations
@@ -51,5 +51,26 @@ def test_oa_standard_replies_ok(tmp_path):
     if not os.environ.get("OPENAI_API_KEY"):
         pytest.skip("LIVE-OA-KEY-MISSING[env=OPENAI_API_KEY]: set OPENAI_API_KEY to run the oa canary (it spends API credits)")
     result = _delivered(ask(tmp_path / "core.db", "oa", "Reply with OK only.", workspace=tmp_path, profile="oa.standard",
+                            timeout_s=240))
+    assert "ok" in result["response"].lower()
+
+
+@pytest.fixture
+def gemini_key():
+    if not os.environ.get("GEMINI_API_KEY"):
+        pytest.skip("LIVE-GA-KEY-MISSING[env=GEMINI_API_KEY]: set GEMINI_API_KEY to run the ga canaries (they spend API credits)")
+
+
+@pytest.mark.ga
+def test_ga_standard_replies_ok(tmp_path, gemini_key):
+    result = _delivered(ask(tmp_path / "core.db", "ga", "Reply with OK only.", workspace=tmp_path, profile="ga.standard",
+                            timeout_s=240))
+    assert "ok" in result["response"].lower()
+
+
+@pytest.mark.ga
+def test_ga_deepthink_replies_ok(tmp_path, gemini_key):
+    """The deep profile thinks before it answers: the thinking counts as output and is never part of the reply."""
+    result = _delivered(ask(tmp_path / "core.db", "ga", "Reply with OK only.", workspace=tmp_path, profile="ga.deepthink",
                             timeout_s=240))
     assert "ok" in result["response"].lower()

@@ -38,7 +38,7 @@ class StreamPeerMismatchError(ValueError):
 
 
 def _refuse_second_ask(conn: sqlite3.Connection, target: RuntimeTarget, stream_id: str, author: str, key: str) -> None:
-    """A stateless peer (ca, oa; #378) has no session to continue: its ask needs a stream of its own. Any record on the
+    """A stateless peer (ca, oa, ga; #378) has no session to continue: its ask needs a stream of its own. Any record on the
     stream refuses this ask before anything is stored or sent: another ask (delivered, failed, uncertain or still
     running), or a record put there some other way, which would be delivered first as one more API call. Only the same
     ask (the same author AND the same request id; a request id is unique per stream and author) may come again."""
@@ -103,7 +103,7 @@ def _mark_denied_empty(result: dict[str, Any], peer_id: str | None = None) -> No
 def default_stream(peer_id: str, request_id: str | None, *, stateless: bool) -> str | None:
     """The stream of an ask without --stream: the one rule, for `ask` and for the CLI's guidance.
 
-    A stateless peer (ca, oa; #378) takes one ask per stream, so its stream is the request's own, not a shared chat;
+    A stateless peer (ca, oa, ga; #378) takes one ask per stream, so its stream is the request's own, not a shared chat;
     None when its request id is not known (`ask` generates one, a caller that has none cannot name the stream)."""
     if not stateless:
         return f"peer:{peer_id}:chat"
@@ -164,7 +164,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         account_args["account"] = AccountRef(account_binding.slot_id)
     if runtime is None:
         if kind is None:
-            raise ValueError("register this peer with --adapter cx, cc, ag, ca or oa before asking it")
+            raise ValueError("register this peer with --adapter cx, cc, ag, ca, oa or ga before asking it")
         options: dict[str, Any] = dict(model=model, effort=effort, profile=profile, silence_timeout_s=silence_timeout_s,
                                        writable=writable, timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output)
         target = (API_TARGETS[kind](workspace or Path.cwd(), **options) if kind in API_TARGETS
