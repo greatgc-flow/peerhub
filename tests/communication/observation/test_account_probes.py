@@ -580,7 +580,9 @@ def test_a_hung_account_probe_cannot_exceed_the_shared_deadline(tmp_path, monkey
     finally:
         release.set()
         monkeypatch.undo()
-    assert join_timeouts and max(join_timeouts) <= HUNG_DEADLINE + 1.0  # the only wait: the shared deadline plus the grace
+    # The only wait is the shared deadline plus the grace. The timeout is a difference of two large clock readings,
+    # so it can exceed the exact sum by float rounding (seen: 1.400000000000091 for 0.4 + 1.0): allow a microsecond.
+    assert join_timeouts and max(join_timeouts) <= HUNG_DEADLINE + 1.0 + 1e-6
     rows = {r[0]: (r[1], json.loads(r[3])) for r in account_rows(db)}
     assert rows["cx"][0] == "MEASURED"
     assert rows["cc"][0] == "ERROR" and rows["cc"][1]["reason"] == "timeout" and rows["cc"][1]["condition"] == "account_probe_failed"
