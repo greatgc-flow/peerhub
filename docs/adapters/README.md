@@ -212,11 +212,19 @@ directly against the API:
 
 - `ga.standard` (gemini-3.5-flash-lite) answered through PeerHub (9 input
   tokens, 1 output token).
-- `ga.effort` (gemini-3.8-flash): one direct call answered in 12.7 s. Through
-  PeerHub it got HTTP 503 `UNAVAILABLE` ("This model is currently experiencing
-  high demand") and ended `uncertain`. Two more direct calls gave no answer
-  within 45 s and 60 s; such an ask ends `uncertain` by the timeout.
-  gemini-3.6-flash and gemini-3.5-flash answered at the same time.
+- `ga.effort` (gemini-3.6-flash) answered 4 of 4 calls (1.6 s, 1.6 s, 3.5 s
+  and 17.5 s). In the same minutes gemini-3.5-flash answered 4 of 4 (1.1 s,
+  1.1 s, 4.1 s and 9.8 s).
+- gemini-3.8-flash answered 1 of 10 tries between 00:29Z and 01:41Z: once in
+  12.7 s; HTTP 503 `UNAVAILABLE` ("This model is currently experiencing high
+  demand") twice; no answer within 40 to 90 s seven times, three of them
+  through PeerHub, which ended `uncertain` by the timeout.
+- gemini-3.7-flash answered HTTP 503 `UNAVAILABLE` once.
+- That is why `ga.effort` is gemini-3.6-flash. It says which model answered for
+  that key, not which model is better: no benchmark was run through the API,
+  and every pro-class model answers 429 for that key, so the result may be
+  particular to that key's tier. gemini-3.8-flash is used with
+  `--model gemini-3.8-flash`.
 - gemini-4-argon, gemini-4-carbon, gemini-pro-latest and gemini-3.1-pro-preview
   answered HTTP 429 `RESOURCE_EXHAUSTED` ("You exceeded your current quota,
   please check your plan and billing details") for that key. PeerHub ends such

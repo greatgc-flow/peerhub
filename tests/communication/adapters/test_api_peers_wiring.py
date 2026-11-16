@@ -267,7 +267,10 @@ def test_packaged_api_profiles_have_their_tiers_a_card_and_no_pool():
         assert f"inline the text; {kind} reads no file" in profile["use_for"], pid
         assert profile["evidence"] == (["#381"] if kind == "ga" else ["#378"]), pid
     assert {pid: API_PROFILES[pid]["model"] for pid in API_PROFILES if pid.startswith("ga.")} == {
-        "ga.standard": "gemini-3.5-flash-lite", "ga.effort": "gemini-3.8-flash"}
+        "ga.standard": "gemini-3.5-flash-lite", "ga.effort": "gemini-3.6-flash"}  # 3.6: it answered 4 of 4 calls (#381)
+    effort = API_PROFILES["ga.effort"]
+    assert (effort["checked"], effort["card_checked"]) == ("2026-11-16", "2026-11-16")
+    assert "4 of 4" in " ".join(effort["traits"]) and "no API benchmark" in " ".join(effort["traits"])  # no capability claim
     assert not any(kind in TOML["observed_versions"] for kind in API_KINDS)  # no CLI version drift check
     from peerhub.cli.recovery import REGISTRY
 
@@ -388,8 +391,9 @@ def test_live_gate_can_select_the_api_peers():
     assert "pytest.mark.canary" in canary and "pytest.mark.live" not in canary  # outside the release catalog and the G3 stages
     assert "OPENAI_API_KEY" in canary and "LIVE-OA-KEY-MISSING" in canary
     assert "GEMINI_API_KEY" in canary and "LIVE-GA-KEY-MISSING" in canary
-    assert canary.count("@pytest.mark.ga\n") == 1 and '"ga.standard"' in canary  # ga.effort is tried by hand at release time
-    assert "ga.deepthink" not in canary and "ga.effort" not in canary
+    ga_profiles = sorted(pid for pid in API_PROFILES if pid.startswith("ga."))
+    assert canary.count("@pytest.mark.ga\n") == 1 and "ga.deepthink" not in canary
+    assert f'@pytest.mark.parametrize("profile", {json.dumps(sorted(ga_profiles, reverse=True))})' in canary  # every packaged ga profile
     parser_source = Path(live_gate.__file__).read_text(encoding="utf-8")
     assert '"cc", "cx", "ag", "ca", "oa", "ga"' in parser_source
     markers = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]["markers"]

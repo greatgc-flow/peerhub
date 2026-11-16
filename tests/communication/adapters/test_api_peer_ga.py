@@ -38,7 +38,7 @@ def candidate(**over) -> dict:
 def answer(**over) -> dict:
     doc = {"candidates": [candidate()],
            "usageMetadata": {"promptTokenCount": 8, "candidatesTokenCount": 1, "thoughtsTokenCount": 77, "totalTokenCount": 86},
-           "modelVersion": "gemini-3.8-flash", "responseId": "response-1"}
+           "modelVersion": "gemini-3.6-flash", "responseId": "response-1"}
     doc.update(over)
     return doc
 
