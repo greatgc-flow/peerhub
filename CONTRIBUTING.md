@@ -39,7 +39,7 @@ For an opt-in faster local loop, run the full suite in parallel with pytest-xdis
 pytest -q -n 8
 ```
 
-This takes about 8 minutes (4,453 passed in 475 s, measured 2026-11-14 on the maintainer host). Keep `pytest -q` as the
+This takes about 8 to 10 minutes on the maintainer host (measured 2026-11-14 and 2026-11-16); the passed count grows with every release, so take it from the last line of your own run. Keep `pytest -q` as the
 serial reference command; CI and release gates stay serial. If a test is flaky
 under parallelism, rerun it serially before treating it as a bug.
 
@@ -165,7 +165,8 @@ A release is one PR plus the steps after its merge; there is no post-release doc
 3. Extract the selected CHANGELOG section, then create a draft with four assets
    (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml` and the evidence JSON).
    Run `python -m tools.release_notes --version X.Y.Z > <notes-file>` from
-   the merged checkout. The release body must match that section exactly.
+   the merged checkout. The release body must match that section exactly;
+   the notes file has LF line endings on every platform (the tool writes UTF-8 bytes itself).
    Replace `<HEAD-SHA>` with the full output of `git rev-parse HEAD` and
    `<notes-file>` with the notes path; use the bumped version for `vX.Y.Z`:
 

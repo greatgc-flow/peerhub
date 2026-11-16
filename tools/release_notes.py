@@ -1,8 +1,9 @@
-"""Print the selected CHANGELOG section verbatim for a GitHub release body."""
+"""Write the selected CHANGELOG section verbatim (UTF-8, LF line endings) for a GitHub release body."""
 
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 
@@ -21,7 +22,11 @@ def main() -> None:
     parser.add_argument("--version", required=True)
     args = parser.parse_args()
     changelog = Path(__file__).resolve().parents[1] / "CHANGELOG.md"
-    print(release_notes(changelog.read_text(encoding="utf-8"), args.version), end="")
+    notes = release_notes(changelog.read_text(encoding="utf-8"), args.version)
+    # Bytes, not print: a redirect on Windows would turn every LF into CRLF (and use the console encoding),
+    # and the release body must match the section exactly.
+    sys.stdout.buffer.write(notes.encode("utf-8"))
+    sys.stdout.buffer.flush()
 
 
 if __name__ == "__main__":

@@ -8,6 +8,11 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- `python -m tools.release_notes --version X.Y.Z` writes the section as UTF-8 bytes with LF line endings on every platform. It used `print`, so a redirect on Windows wrote CRLF, and a release body made from that file differed from the CHANGELOG section by its line endings. CONTRIBUTING (step 3 of the release) says so.
+- The lesson `monitor-view` said that `--expand` "gets only the pill and the rules". The pill is drawn only with colour and the section rules always: the lesson now reads "gets only the pill (with colour) and the rules (always)".
+
 ## [0.24.19] - 2026-11-16
 
 The Gemini API peer `ga` (#381). The design was agreed unanimously by cc, cx and ag.

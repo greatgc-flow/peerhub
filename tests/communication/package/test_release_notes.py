@@ -1,5 +1,7 @@
 """Release bodies come from a single version section, without adjacent history."""
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,18 @@ def test_release_notes_extracts_exact_body():
     assert release_notes(text, "0.14.0") == "- Old.\n"
     with pytest.raises(ValueError, match="No CHANGELOG section"):
         release_notes(text, "0.99.0")
+
+
+def test_tool_writes_the_section_as_lf_bytes_on_every_platform():
+    # `> <notes-file>` stores what the tool writes: text-mode stdout would give CRLF on Windows.
+    repo = Path(__file__).resolve().parents[3]
+    section = release_notes((repo / "CHANGELOG.md").read_text(encoding="utf-8"), __version__)
+    run = subprocess.run([sys.executable, "-m", "tools.release_notes", "--version", __version__],
+                         cwd=repo, capture_output=True, timeout=60, check=False)
+    assert run.returncode == 0, run.stderr
+    assert b"\r" not in run.stdout
+    assert run.stdout == section.encode("utf-8")
+    assert run.stdout.endswith(b"\n") and not run.stdout.endswith(b"\n\n")
 
 
 def test_current_package_version_has_changelog_release_body():
