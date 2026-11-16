@@ -18,6 +18,12 @@ from tests.communication.harness.api_peers import evidence_kinds
 
 KEY = "gk-test-0123456789abcdefKEY"  # no real key has this form
 QUOTA_MESSAGE = "You exceeded your current quota, please check your plan and billing details."  # measured 2026-11-16
+# The answer of the Gemini API to every model on 2026-11-16 04:24Z (0.3-0.4 s), byte for byte (#384): HTTP 402.
+PREPAY_BODY = (b'{"error": {"code": 402, "message": "Your prepayment credits are depleted. Please go to AI Studio at '
+               b'https://ai.studio/projects to manage your project and billing. Learn more at '
+               b'https://ai.google.dev/gemini-api/docs/billing#prepay. ", "status": "RESOURCE_EXHAUSTED"}}')
+PREPAY_MESSAGE = ("Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your "
+                  "project and billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#prepay. ")
 
 
 @pytest.fixture(autouse=True)
@@ -417,6 +423,21 @@ def test_429_resource_exhausted_is_a_provider_limit_without_a_reset_time(ga):
     assert len(ga.fake.requests) == 1
 
 
+def test_402_resource_exhausted_is_a_provider_limit_without_a_reset_time(ga):
+    """The measured body (every model, 2026-11-16 04:24Z; #384): a depleted prepay balance. 0.24.19 ended it uncertain."""
+    assert json.loads(PREPAY_BODY)["error"] == {"code": 402, "message": PREPAY_MESSAGE, "status": "RESOURCE_EXHAUSTED"}
+    ga.reply(PREPAY_BODY, 402)
+    result = ask(ga.db, "ga", "question", runtime=ga())
+    assert (result["status"], result["task_outcome"], result["reason"]) == ("not_executed", "NOT_EXECUTED", "quota_exhausted")
+    assert result.get("reset_time") is None
+    assert result["message"] == f"ga: HTTP 402: RESOURCE_EXHAUSTED: {PREPAY_MESSAGE}"  # the message is kept
+    assert len(ga.fake.requests) == 1
+
+
+def test_the_provider_limits_are_exactly_402_and_429_with_resource_exhausted():
+    assert api.GA_LIMITS == ((402, "RESOURCE_EXHAUSTED"), (429, "RESOURCE_EXHAUSTED"))
+
+
 @pytest.mark.parametrize("status,name", [
     (400, "INVALID_ARGUMENT"), (400, "FAILED_PRECONDITION"), (401, "UNAUTHENTICATED"), (403, "PERMISSION_DENIED"),
     (404, "NOT_FOUND"),
@@ -448,7 +469,8 @@ def test_the_measured_error_answers_are_not_started_and_keep_their_text(ga, stat
     (400, "RESOURCE_EXHAUSTED"), (400, "NOT_FOUND"), (400, "UNAUTHENTICATED"), (401, "INVALID_ARGUMENT"),  # contradicting pairs
     (401, "PERMISSION_DENIED"), (403, "UNAUTHENTICATED"), (403, "RESOURCE_EXHAUSTED"), (404, "INVALID_ARGUMENT"),
     (429, "UNAVAILABLE"), (429, "INVALID_ARGUMENT"), (500, "RESOURCE_EXHAUSTED"), (503, "RESOURCE_EXHAUSTED"),
-    (402, "RESOURCE_EXHAUSTED"), (500, "INVALID_ARGUMENT"), (500, "NOT_FOUND"),
+    (402, "INVALID_ARGUMENT"), (402, "FAILED_PRECONDITION"), (402, "resource_exhausted"), (402, 7),  # 402: one pair is listed
+    (500, "INVALID_ARGUMENT"), (500, "NOT_FOUND"),
     (400, "SOMETHING_NEW"), (429, "SOMETHING_NEW"), (404, "not_found"), (429, "resource_exhausted"),  # unknown status strings
     (400, 7), (429, 7), (404, ["NOT_FOUND"]), (401, True),  # a status that is present and not a string
     (500, "INTERNAL"), (502, "UNAVAILABLE"), (503, "UNAVAILABLE"), (504, "DEADLINE_EXCEEDED"), (500, None), (503, None),  # any 5xx
@@ -461,7 +483,7 @@ def test_every_other_pair_is_uncertain(ga, status, name):
     assert len(ga.fake.requests) == 1  # never retried
 
 
-@pytest.mark.parametrize("status", [400, 429])
+@pytest.mark.parametrize("status", [400, 402, 429])
 def test_an_error_status_that_is_null_is_present_and_not_missing(ga, status):
     """`"status": null` is a status that is not a string, so it is no listed pair (only an absent key is missing)."""
     ga.reply(json.dumps({"error": {"code": status, "message": "refused", "status": None}}).encode(), status)
@@ -470,7 +492,7 @@ def test_an_error_status_that_is_null_is_present_and_not_missing(ga, status):
 
 @pytest.mark.parametrize("payload", [b"<html>bad gateway</html>", json.dumps({"error": "RESOURCE_EXHAUSTED"}).encode(),
                                      json.dumps({"error": None}).encode(), json.dumps(answer()).encode(), b""])
-@pytest.mark.parametrize("status", [400, 429])
+@pytest.mark.parametrize("status", [400, 402, 429])
 def test_a_listed_status_without_an_error_object_is_uncertain(ga, status, payload):
     ga.reply(payload, status)
     result = ask(ga.db, "ga", "question", runtime=ga())

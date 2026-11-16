@@ -34,8 +34,9 @@ def test_tool_writes_the_section_as_lf_bytes_on_every_platform():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.24.19"
-    assert "#381" in body and "GEMINI_API_KEY" in body
+    assert __version__ == "0.24.20"
+    assert "#384" in body and "Your prepayment credits are depleted" in body
+    assert "#381" not in body and "GEMINI_API_KEY" not in body  # no adjacent history (0.24.19)
     assert "#330" not in body and "idx_bd_scope_claim_generation" not in body  # no adjacent history (0.24.18)
     assert "stamp_junit" not in body  # no adjacent history (0.24.17)
     assert "ATTN 3?" not in body  # no adjacent history (0.24.16)

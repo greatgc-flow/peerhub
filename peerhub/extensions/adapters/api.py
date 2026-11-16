@@ -53,7 +53,9 @@ OA_LIMIT_CODES = ("credit_balance_exhausted", "insufficient_quota")
 GA_MODEL = re.compile(r"gemini-[a-z0-9.-]{1,64}")
 GA_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 GA_KEY_ENV = "GEMINI_API_KEY"
-GA_LIMIT = (429, "RESOURCE_EXHAUSTED")  # a rate limit and spent or missing quota alike: no inference ran
+# The pairs (HTTP status, error.status) of a provider limit: no inference ran. 429 is a rate limit and spent or missing
+# quota alike; 402 is a depleted prepay balance (measured 2026-11-16, #384).
+GA_LIMITS = ((402, "RESOURCE_EXHAUSTED"), (429, "RESOURCE_EXHAUSTED"))
 GA_NOT_STARTED = {400: ("INVALID_ARGUMENT", "FAILED_PRECONDITION"), 401: ("UNAUTHENTICATED",), 403: ("PERMISSION_DENIED",),
                   404: ("NOT_FOUND",)}  # the pairs (HTTP status, error.status) that prove no inference; 413: any status
 NOT_STARTED_STATUS = (400, 401, 403, 404, 413, 429)  # with an error object: refused before inference
@@ -513,9 +515,9 @@ class GaRuntimeTarget(HttpRuntimeTarget):
         """The outcome of one HTTP answer. The order matters:
 
         1. Any HTTP status other than 200 with an error object (an error answer): the pair (HTTP status, `error.status`)
-           decides. 429 with RESOURCE_EXHAUSTED is a provider limit; a pair of `GA_NOT_STARTED`, 413 with any status, and
-           400, 401, 403, 404, 413 or 429 without an `error.status` are not started; every other pair is uncertain (an
-           unknown status, a pair that contradicts itself, any 5xx).
+           decides. 402 or 429 with RESOURCE_EXHAUSTED is a provider limit; a pair of `GA_NOT_STARTED`, 413 with any
+           status, and 400, 401, 403, 404, 413 or 429 without an `error.status` are not started; every other pair is
+           uncertain (an unknown status, a pair that contradicts itself, any 5xx, 402 with another status or without one).
         2. HTTP 200: only the shape and the finish reason decide, in this order. Not one JSON object, or an `error` that
            is not null: uncertain. No candidates (missing or an empty list) with a `promptFeedback.blockReason` string:
            incomplete with that reason; no candidate list otherwise: uncertain. A first candidate that is not an object
@@ -531,7 +533,7 @@ class GaRuntimeTarget(HttpRuntimeTarget):
             text = san.clean(f"ga: HTTP {status}: {name}: {detail.get('message')}", EXCERPT_CHARS)
             if "status" not in detail:
                 return self._error(status, False, text)
-            if (status, name) == GA_LIMIT:
+            if (status, name) in GA_LIMITS:
                 return Outcome("provider_limit", detail=text)
             listed = status == 413 or (isinstance(name, str) and name in GA_NOT_STARTED.get(status, ()))
             return Outcome("not_started" if listed else "uncertain", detail=text)

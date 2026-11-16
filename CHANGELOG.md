@@ -8,8 +8,17 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.20] - 2026-11-16
+
+The Gemini API peer `ga` treats a depleted prepay balance as a provider limit (#384; decided unanimously by cc, cx and ag).
+
 ### Fixed
 
+- `ga`: an HTTP 402 answer with the status `RESOURCE_EXHAUSTED` is a provider limit, exactly like 429 with `RESOURCE_EXHAUSTED`: the ask ends `not_executed` with the reason `quota_exhausted` and no reset time, and the message is kept (#384).
+  - Measured on 2026-11-16 04:24Z with one key, after the billing setup of the key's project changed: every model answered HTTP 402 in 0.3 to 0.4 s with the status `RESOURCE_EXHAUSTED` and the message "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#prepay." The prepay balance is managed in Google AI Studio.
+  - 0.24.19 ended such an ask `uncertain` with the message `ga: HTTP 402: RESOURCE_EXHAUSTED: Your prepayment credits are depleted...`.
+  - Now it ends `not_executed` (`quota_exhausted`) with that same message. Every other row of the error table is as it was: 402 with another status name or without one stays `uncertain`, and so does a pair that contradicts itself (for example 500 with `RESOURCE_EXHAUSTED`).
+  - Documentation: the README section for the API peers, the error table in `docs/adapters/README.md` and the lesson `api-peers` name the pair and the measurement.
 - `python -m tools.release_notes --version X.Y.Z` writes the section as UTF-8 bytes with LF line endings on every platform. It used `print`, so a redirect on Windows wrote CRLF, and a release body made from that file differed from the CHANGELOG section by its line endings. CONTRIBUTING (step 3 of the release) says so.
 - The lesson `monitor-view` said that `--expand` "gets only the pill and the rules". The pill is drawn only with colour and the section rules always: the lesson now reads "gets only the pill (with colour) and the rules (always)".
 
