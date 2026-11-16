@@ -41,8 +41,14 @@ pytestmark = [pytest.mark.unit]
     ("api credits", ["api-peers"]),
     ("ca stateless", ["api-peers"]),
     ("ga gemini", ["api-peers"]),
-    ("GEMINI_API_KEY", ["api-peers"]),
+    ("GEMINI_API_KEY", ["api-peers", "setup"]),
+    ("OPENAI_API_KEY", ["api-peers", "setup"]),
     ("credit balance", ["api-peers"]),
+    ("setup", ["setup"]),
+    ("install claude", ["setup"]),
+    ("ant install", ["setup"]),
+    ("executable not found", ["setup"]),
+    ("codex sign-in", ["setup"]),
     ("ag checkout", []),
     ("", []),
     ("!!!", []),
@@ -177,6 +183,69 @@ def test_ag_recipe_holds_the_former_guide_lines():
         assert needle in fix, needle
 
 
+SETUP_TOOLS = {  # peer -> (the tool, its official page), read 2026-11-16 (#385)
+    "cc": ("claude", "https://code.claude.com/docs/en/setup"),
+    "cx": ("codex", "https://developers.openai.com/codex/cli"),
+    "ag": ("agy", "https://antigravity.google/docs/cli/install"),
+    "ca": ("ant", "https://platform.claude.com/docs/en/cli-sdks-libraries/cli/quickstart"),
+}
+SETUP_KEYS = {  # peer -> (the key variable, the page where a key is made)
+    "oa": ("OPENAI_API_KEY", "https://platform.openai.com/api-keys"),
+    "ga": ("GEMINI_API_KEY", "https://aistudio.google.com/apikey"),
+}
+ANT_WINDOWS = "https://github.com/anthropics/anthropic-cli/releases"
+INSTALL_COMMANDS = ("irm ", "iex", "curl", "| sh", "| bash", "brew ", "go install", "npm ", "winget ", "pip install", "pipx ")
+
+
+def _links(text: str) -> set[str]:
+    import re
+    return {link.rstrip(".") for link in re.findall(r"https://[^\s);,|]+", text)}
+
+
+def test_setup_lesson_has_one_row_per_peer_with_links_and_checks_and_no_install_command(capsys):
+    """#385 S1/S2: what each peer needs, the official page, the sign-in step and the check. Links only."""
+    from peerhub.cli.lessons import lesson_by_id
+    from peerhub.cli.recovery import ALIASES, REGISTRY
+
+    (lesson,) = lesson_by_id("setup")
+    assert "setup" not in REGISTRY and "setup" not in ALIASES  # a valid lesson id: no guidance code or alias shadows it
+    assert lesson["keywords"] and lesson["issue"] == "#385"
+    fix = lesson["fix"]
+    assert "never downloads or runs an installer" in fix
+    for peer, (tool, page) in SETUP_TOOLS.items():
+        assert f"{peer}: the {tool} CLI, signed in" in fix and page in fix and f"check: {tool} --version" in fix, peer
+    assert "ant auth login" in fix and f"Windows binaries: {ANT_WINDOWS}" in fix
+    for peer, (variable, page) in SETUP_KEYS.items():
+        assert f"{peer}: the environment variable {variable}" in fix and page in fix, peer
+    assert "in the environment of the process that runs PeerHub" in fix
+    assert "never on a command line or in a file" in fix
+    assert _links(fix) == {page for _tool, page in SETUP_TOOLS.values()} | {page for _var, page in SETUP_KEYS.values()} | {ANT_WINDOWS}
+    assert not [command for command in INSTALL_COMMANDS if command in fix]
+    assert all(peer in lesson["symptom"] or tool in lesson["symptom"] for peer, (tool, _page) in SETUP_TOOLS.items())
+    assert "executable not found" in lesson["symptom"] and "set OPENAI_API_KEY" in lesson["symptom"]
+    assert main(["explain", "setup"]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines()[0].startswith("setup:") and len(out.splitlines()) <= 5
+
+
+def test_readme_install_section_has_the_same_rows_and_points_to_the_lesson():
+    """#385 S3: the README table and the lesson name the same peers, pages and checks."""
+    from peerhub.cli.lessons import lesson_by_id
+
+    section = Path("README.md").read_text(encoding="utf-8").split("\n## Install\n", 1)[1].split("\n## ", 1)[0]
+    assert "\n### What each peer needs\n" in section and "`peerhub explain setup`" in section
+    assert "never downloads or runs an installer" in section
+    rows = {line.split("`")[1]: line for line in section.splitlines() if line.startswith("| `")}
+    assert list(rows) == ["cc", "cx", "ag", "ca", "oa", "ga"]
+    for peer, (tool, page) in SETUP_TOOLS.items():
+        assert f"`{tool}` CLI" in rows[peer] and page in rows[peer] and f"`{tool} --version`" in rows[peer], peer
+    assert "`ant auth login`" in rows["ca"] and ANT_WINDOWS in rows["ca"]
+    for peer, (variable, page) in SETUP_KEYS.items():
+        assert f"`{variable}`" in rows[peer] and page in rows[peer], peer
+    assert _links(section) == _links(lesson_by_id("setup")[0]["fix"])
+    assert not [command for command in INSTALL_COMMANDS if command in section.split("### What each peer needs", 1)[1]]
+
+
 def test_known_guidance_and_alias_take_priority(capsys):
     for query in ("ask_uncertain", "uncertain"):
         assert main(["explain", query]) == 0
@@ -229,7 +298,7 @@ def test_guidance_code_beats_lesson_id_and_keywords_still_work(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 30
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 31
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & {lesson["id"] for lesson in lessons}
     for lesson in lessons:
         assert all(lesson.values())

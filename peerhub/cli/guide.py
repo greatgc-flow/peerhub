@@ -120,6 +120,7 @@ def render_guide(workspace: Path | None = None) -> str:
         "  Secrets: prompts/streams persist in local store; no tokens/passwords.",
         "Discovery & Inspection Commands:",
         "  peerhub explain lessons      # lesson index (id: title); then peerhub explain <id> or free words",
+        "  peerhub explain setup        # what each peer needs",  # kept short: the guide is close to its 5600-byte cap
         "  peerhub monitor --group capacity  # AI sessions: verdict line + pools; suggest a|b = best + alternative peer; peerhub explain monitor-states",
         "  peerhub monitor --expand     # everything: alerts, asks, leads, pools, peers, accounts, sessions, usage (or --snapshot)",
         "  peerhub diag                 # read-only diagnostics",

@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence, cast
 
-from peerhub.extensions.adapters.base import EXCERPT_CHARS, MAX_PROMPT_BYTES, CliRuntimeTarget
+from peerhub.extensions.adapters.base import EXCERPT_CHARS, MAX_PROMPT_BYTES, SETUP_HINT, CliRuntimeTarget, executable_not_found
 from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_S, BoundedProcess, SpawnFailure,
                                                  decode_stderr)
 from peerhub.extensions.adapters.profiles import qualified_profile, resolve_profile
@@ -295,7 +295,7 @@ class CaRuntimeTarget(ApiRuntimeTarget):
         found = shutil.which("ant") if self._command is None else None
         base = self._command if self._command is not None else [found] if found else None
         if base is None:
-            raise PrespawnError("ant executable not found")
+            raise PrespawnError(executable_not_found("ant"))
         # Keys, tokens, base URL and profile overrides are removed: the call uses the `ant` login and the official endpoint.
         # The batch ids describe the ask process only (#374).
         env = {name: value for name, value in merged.items()
@@ -395,7 +395,7 @@ class HttpRuntimeTarget(ApiRuntimeTarget):
     def _call(self, prompt: str) -> Outcome:
         key = os.environ.get(self.key_env)
         if not key:
-            raise PrespawnError(f"set {self.key_env}")
+            raise PrespawnError(f"set {self.key_env} {SETUP_HINT}")
         if not key.isascii() or not key.isprintable() or " " in key:  # http.client would quote a refused header value in its error
             raise PrespawnError(f"{self.key_env} is not usable in a header (printable ASCII without spaces)")
         san = Sanitizer([*env_secrets(), key]).with_prompt(prompt)

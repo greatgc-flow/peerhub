@@ -277,7 +277,7 @@ def test_ant_missing_is_a_prespawn_failure(ca, tmp_path, monkeypatch):
     monkeypatch.setattr(api.shutil, "which", lambda name: None)
     missing = ask(ca.db, "ca", "question", runtime=CaRuntimeTarget(tmp_path, profile="ca.standard"))
     assert (missing["status"], missing["certainty"]) == ("failed_not_started", "NOT_STARTED")
-    assert missing["detail"]["error"] == "ant executable not found"
+    assert missing["detail"]["error"] == "ant executable not found: install it and sign in (peerhub explain setup)"  # #385
     unstartable = ask(ca.db, "ca", "question",
                       runtime=CaRuntimeTarget(tmp_path, profile="ca.standard", command=[str(tmp_path / "no-such-ant")]))
     assert unstartable["status"] == "failed_not_started" and unstartable["detail"]["error"].startswith("cannot spawn ant")

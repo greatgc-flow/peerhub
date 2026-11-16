@@ -10,7 +10,16 @@ they do not claim new validation or publication evidence.
 
 ## [0.24.20] - 2026-11-16
 
-The Gemini API peer `ga` treats a depleted prepay balance as a provider limit (#384; decided unanimously by cc, cx and ag).
+The Gemini API peer `ga` treats a depleted prepay balance as a provider limit (#384; decided unanimously by cc, cx and ag). PeerHub says what each peer needs and where its official page is (#385).
+
+### Added
+
+- What each peer needs, in one place (#385). `cc`, `cx` and `ag` need the `claude`, `codex` and `agy` CLI, signed in; `ca` needs the `ant` CLI, signed in with `ant auth login`; `oa` and `ga` need a key in an environment variable. Only the peers that are used need anything.
+  - No automatic install: PeerHub never downloads or runs an installer. A vendor's installer is a script from the network that differs per system and changes over time, so PeerHub says exactly what is missing and where the official page is.
+  - A new lesson, `peerhub explain setup` (also in `docs/lessons.md`): one row per peer with what it needs, the official page, the sign-in step and the check (`claude --version`, `codex --version`, `agy --version`, `ant --version`; for a key: the variable is set in the environment of the process that runs PeerHub, never on a command line or in a file for PeerHub). Links only, no install commands. The `ant` row also names the page with the Windows binaries, and the `oa` and `ga` rows the pages where a key is made.
+  - The README section "Install" has the subsection "What each peer needs" with the same table, and `peerhub guide` has one line that points to the lesson (58 lines in all).
+  - The messages name the next step. A missing tool: `claude executable not found: install it and sign in (peerhub explain setup)`, the same for `codex` and `ant`, and for `agy` after `cannot determine agy stdin support:` (0.24.19: `claude executable not found`). A missing key: `set OPENAI_API_KEY (peerhub explain setup)` or `set GEMINI_API_KEY (peerhub explain setup)` (0.24.19: `set OPENAI_API_KEY`, `set GEMINI_API_KEY`). The outcome (`failed_not_started`), the exit status and the classification by `peerhub explain` are unchanged.
+  - Not built: a check command that lists per peer whether its tool is on PATH and whether its key variable is set.
 
 ### Fixed
 

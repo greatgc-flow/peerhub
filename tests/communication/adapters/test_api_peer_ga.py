@@ -116,7 +116,8 @@ def test_no_key_is_a_prespawn_failure_and_sends_nothing(ga, monkeypatch):
     monkeypatch.setenv("GOOGLE_API_KEY", "another-variable-0123456789")  # only GEMINI_API_KEY is read
     result = ask(ga.db, "ga", "question", runtime=ga())
     assert (result["status"], result["certainty"]) == ("failed_not_started", "NOT_STARTED")
-    assert result["detail"]["error"] == "set GEMINI_API_KEY" and "prespawn_failure" in evidence_kinds(ga.db)
+    assert result["detail"]["error"] == "set GEMINI_API_KEY (peerhub explain setup)"  # #385: the message names the next step
+    assert "prespawn_failure" in evidence_kinds(ga.db)
     assert ga.fake.requests == []
 
 

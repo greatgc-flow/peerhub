@@ -35,6 +35,7 @@ from peerhub.extensions.runtime_contract import PrespawnError, RuntimeEvent, Run
 
 MAX_PROMPT_BYTES = 1_000_000
 EXCERPT_CHARS = 300
+SETUP_HINT = "(peerhub explain setup)"  # the lesson `setup`: what each peer needs, the official page and the check (#385)
 AG_LIMIT_SUMMARY_CHARS = 100  # the first line of an ag stream quota error: "<prefix> (<reset phrase>)"
 AG_REQUIRES_WRITABLE = (
     "ag execution requires --writable: agy CLI does not enforce a read-only sandbox when "
@@ -51,6 +52,12 @@ class AgRequiresWritableError(PrespawnError):
 
     def __init__(self, message: str = AG_REQUIRES_WRITABLE) -> None:
         super().__init__(message)
+
+
+def executable_not_found(binary: str) -> str:
+    """The message for a tool that is not on PATH. It names the next step and keeps the text `executable not found`:
+    `peerhub.cli.recovery` classifies a launch failure by it."""
+    return f"{binary} executable not found: install it and sign in {SETUP_HINT}"
 
 
 def _now() -> str:
@@ -1177,7 +1184,7 @@ class CliRuntimeTarget:
             return AgTransport("invalid_config", "env", None, f"{AG_TRANSPORT_ENV} must be unset, empty or 'argv'")
         base = self._base()
         if base is None:
-            return AgTransport("undetermined", "help", None, f"cannot determine agy stdin support: {self._spec.binary} executable not found")
+            return AgTransport("undetermined", "help", None, f"cannot determine agy stdin support: {executable_not_found(self._spec.binary)}")
         return _detect_ag_transport(base, self._env, self._workspace)
 
     @property
@@ -1199,7 +1206,7 @@ class CliRuntimeTarget:
     def _run(self, args: list[str], timeout_s: float) -> ProcessResult:
         base = self._base()
         if base is None:
-            raise SpawnFailure(f"{self._spec.binary} executable not found")
+            raise SpawnFailure(executable_not_found(self._spec.binary))
         return _probe_cli(base, args, env=self._env, cwd=self._workspace, timeout_s=timeout_s, max_bytes=self._max_bytes)
 
     @staticmethod
@@ -1377,7 +1384,7 @@ class CliRuntimeTarget:
             raise PrespawnError("workspace is not a directory")
         base = self._base()
         if base is None:
-            raise PrespawnError(f"{self._spec.binary} executable not found")
+            raise PrespawnError(executable_not_found(self._spec.binary))
         with self._active_lock:
             vendor_session_id = self._resume_sessions.get(external_session_id)
         if stream:
