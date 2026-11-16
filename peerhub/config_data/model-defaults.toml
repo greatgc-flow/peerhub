@@ -250,7 +250,8 @@ traits = ["no tools, no workspace, no session", "replies capped at 16,000 tokens
 evidence = ["#378"]
 card_checked = "2026-11-15"
 
-# ga (#381): each model answered one real call on 2026-11-16. Thinking counts against the 32,000 output tokens.
+# ga (#381): two profiles; each model answered one real call on 2026-11-16. No deep profile is packaged: use
+# `--model <id>` for a stronger model when the key has quota for it. Thinking counts against the 32,000 output tokens.
 [profiles."ga.standard"]
 selection_mode = "pinned"
 model = "gemini-3.5-flash-lite"
@@ -268,17 +269,6 @@ model = "gemini-3.8-flash"
 source = "design:#381 ga-design v3 2026-11-16"
 checked = "2026-11-16"
 use_for = "inline the text; ga reads no file; text reviews and votes"
-avoid_for = "tools, files, multi-turn work (one ask per stream)"
-traits = ["no tools, no workspace, no session", "32,000 output tokens incl. thinking", "needs GEMINI_API_KEY; no proxy"]
-evidence = ["#381"]
-card_checked = "2026-11-16"
-
-[profiles."ga.deepthink"]
-selection_mode = "pinned"
-model = "gemini-4-hydrogen"
-source = "design:#381 ga-design v3 2026-11-16"
-checked = "2026-11-16"
-use_for = "inline the text; ga reads no file; design votes, hard text reviews"
 avoid_for = "tools, files, multi-turn work (one ask per stream)"
 traits = ["no tools, no workspace, no session", "32,000 output tokens incl. thinking", "needs GEMINI_API_KEY; no proxy"]
 evidence = ["#381"]

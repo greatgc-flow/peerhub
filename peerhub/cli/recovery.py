@@ -477,7 +477,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
         recover=[{
             "argv": ["peerhub", "explain", "PROFILE"],
             "purpose": "Correct the command named in the message: a ca/oa/ga profile or a valid --model, no --effort, no --writable, a new stream for a new ask",
-            "prereqs": "PROFILE is ca.standard, ca.effort, ca.deepthink, oa.standard, oa.effort, oa.deepthink, ga.standard, ga.effort or ga.deepthink.",
+            "prereqs": "PROFILE is ca.standard, ca.effort, ca.deepthink, oa.standard, oa.effort, oa.deepthink, ga.standard or ga.effort.",
         }],
         avoid="Do not retry the same command unchanged; nothing was sent, so no provider work needs recovery.",
         docs="docs/adapters/README.md",

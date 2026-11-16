@@ -153,10 +153,14 @@ def test_oa_and_ga_share_the_exchange_and_keep_only_their_hooks():
 
 # ---- model, profile, request refusal (design 1) ---------------------------------------------------------------------------
 def test_profiles_and_a_valid_model_override(ga, tmp_path):
-    for profile in ("ga.standard", "ga.effort", "ga.deepthink"):
+    for profile in ("ga.standard", "ga.effort"):
         model = resolve_profile("ga", profile, tmp_path)[0]
         assert model and api.GA_MODEL.fullmatch(model)
         assert ga(profile=profile).binding() == f"{profile}/{model}/default"
+    assert GaRuntimeTarget.profile_tiers == ("standard", "effort")
+    with pytest.raises(ValueError, match="unknown model profile"):  # no deep profile is packaged: a stronger model goes by --model
+        ga(profile="ga.deepthink")
+    assert ga.fake.requests == []
     assert ask(ga.db, "ga", "question", runtime=ga(model="gemini-4-carbon"))["status"] == "delivered"
     assert ga.fake.requests[0]["path"] == "/v1beta/models/gemini-4-carbon:generateContent"
     assert "model" not in json.loads(ga.fake.requests[0]["body"])  # the model is in the URL path only
@@ -178,8 +182,9 @@ def test_an_invalid_model_writable_and_effort_are_refused_before_anything_is_sta
         ask(db, "ga", "question", profile="ga.standard", writable=True)
     with pytest.raises(RequestRejected, match="effort"):
         ask(db, "ga", "question", profile="ga.standard", effort="high")
-    with pytest.raises(RequestRejected, match="--profile"):
+    with pytest.raises(RequestRejected) as missing:
         ask(db, "ga", "question")
+    assert str(missing.value) == "ga needs --profile (ga.standard, ga.effort) or --model"  # only the packaged profiles are named
     assert not db.parent.exists()
 
 

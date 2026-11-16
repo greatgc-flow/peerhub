@@ -308,18 +308,18 @@ This command spends up to four cx calls; selecting all peers spends up to 12.
 Unset `PEERHUB_SESSION_SELECTION_LIVE` after the bounded check. Optional canary
 results remain separate from release evidence.
 
-The API peers `ca`, `oa` and `ga` have five canaries in
+The API peers `ca`, `oa` and `ga` have four canaries in
 `tests/communication/live/test_api_peer_canary.py` (pytest markers `ca`, `oa`
 and `ga`), one real call each and no retries: `ca.standard` replies OK; a `ca`
 prompt whose first line is `@<temporary file>` comes back with the literal path
 and without the file's marker; `oa.standard` replies OK; `ga.standard` replies
-OK; `ga.deepthink` replies OK (a model that thinks before it answers). They run
-in the canary stage only and spend API credits, not a subscription pool. Without
-`ant` on PATH the `ca` canaries skip with
+OK. They run in the canary stage only and spend API credits, not a subscription
+pool. Without `ant` on PATH the `ca` canaries skip with
 `LIVE-PROVIDER-UNAVAILABLE[provider=ca]`, and an `ant` that is not signed in
 fails them; without `OPENAI_API_KEY` the `oa` canary skips with
-`LIVE-OA-KEY-MISSING[env=OPENAI_API_KEY]`; without `GEMINI_API_KEY` the two `ga`
-canaries skip with `LIVE-GA-KEY-MISSING[env=GEMINI_API_KEY]`. Set a key in the
+`LIVE-OA-KEY-MISSING[env=OPENAI_API_KEY]`; without `GEMINI_API_KEY` the `ga`
+canary skips with `LIVE-GA-KEY-MISSING[env=GEMINI_API_KEY]`. `ga.effort` has no
+canary: try it by hand at release time and record the result. Set a key in the
 environment of the shell that runs the gate, never on a command line.
 
 `tools/release_evidence.py` requires every blocking M1 catalog test and every

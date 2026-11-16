@@ -90,9 +90,11 @@ Shared contract:
   (below). Anything else: `uncertain`, including a reply of the wrong shape
   (see below).
 - Profiles: `ca.standard`, `ca.effort`, `ca.deepthink`, `oa.standard`,
-  `oa.effort`, `oa.deepthink`, `ga.standard`, `ga.effort`, `ga.deepthink` in
-  the packaged `model-defaults.toml`, without pools; `peerhub explain <profile>`
-  shows each card.
+  `oa.effort`, `oa.deepthink`, `ga.standard`, `ga.effort` in the packaged
+  `model-defaults.toml`, without pools; `peerhub explain <profile>` shows each
+  card. `ga` has no deep profile: a stronger model is used with `--model <id>`
+  when the key has quota for it. The class attribute `profile_tiers` names the
+  packaged tiers of a peer for the refusal message.
 - The credit balance is not shown: no API gives it to the login or key that
   PeerHub uses. No usage total is built either (see the CHANGELOG of 0.24.19).
 
@@ -202,9 +204,30 @@ pair of the HTTP status and `error.status` decides:
 `RESOURCE_EXHAUSTED` covers a rate limit and a spent or missing quota alike; no
 inference ran. "Every other pair" includes an unknown status name, a pair that
 contradicts itself (for example 500 with `RESOURCE_EXHAUSTED`) and any 5xx.
-`error.status` is missing only when the key is absent: a status that is null or
-not a string is no listed pair. Measured on 2026-11-16 with direct API calls:
-an unknown model gave 404 `NOT_FOUND`, an invalid key 401 `UNAUTHENTICATED`
-(400 `INVALID_ARGUMENT` is reported for other key forms), and a model without
-quota for the key 429 `RESOURCE_EXHAUSTED`. Not measured: a rate limit, a
-safety block and a 5xx answer.
+`error.status` is missing only when the `status` member is absent: a status
+that is null or not a string is no listed pair.
+
+Measured on 2026-11-16 with one key, through PeerHub on a temporary store and
+directly against the API:
+
+- `ga.standard` (gemini-3.5-flash-lite) answered through PeerHub (9 input
+  tokens, 1 output token).
+- `ga.effort` (gemini-3.8-flash): one direct call answered in 12.7 s. Through
+  PeerHub it got HTTP 503 `UNAVAILABLE` ("This model is currently experiencing
+  high demand") and ended `uncertain`. Two more direct calls gave no answer
+  within 45 s and 60 s; such an ask ends `uncertain` by the timeout.
+  gemini-3.6-flash and gemini-3.5-flash answered at the same time.
+- gemini-4-argon, gemini-4-carbon, gemini-pro-latest and gemini-3.1-pro-preview
+  answered HTTP 429 `RESOURCE_EXHAUSTED` ("You exceeded your current quota,
+  please check your plan and billing details") for that key. PeerHub ends such
+  an ask `not_executed` with `quota_exhausted` and keeps the message. This
+  status does not tell a rate limit from a key without quota for the model.
+- gemini-2.5-flash and gemini-2.5-pro answered HTTP 404 `NOT_FOUND` ("no longer
+  available to new users").
+- An invalid key gave HTTP 401 `UNAUTHENTICATED` in a direct call (400
+  `INVALID_ARGUMENT` is reported for other key forms).
+- Without `GEMINI_API_KEY` the ask ended `failed_not_started`. A model name
+  with `/` was refused before anything was sent. The key's bytes were not in
+  the store.
+
+Not measured: a rate limit as such, and a safety block.

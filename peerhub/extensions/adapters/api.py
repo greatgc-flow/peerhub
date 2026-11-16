@@ -165,6 +165,7 @@ class ApiRuntimeTarget:
 
     runtime_kind: str
     max_output_tokens = 16_000  # sent in the request and named by the truncation message; a class may set another limit
+    profile_tiers: tuple[str, ...] = ("standard", "effort", "deepthink")  # the packaged profiles, for the refusal message
     stateless = True  # `ask` refuses a second ask on a stream: there is no session to continue
     resumable = False
     supports_interrupt = False
@@ -189,7 +190,7 @@ class ApiRuntimeTarget:
         if effort is not None:
             raise RequestRejected(f"{kind} takes no effort")
         if model is None:
-            raise RequestRejected(f"{kind} needs --profile ({kind}.standard, {kind}.effort, {kind}.deepthink) or --model")
+            raise RequestRejected(f"{kind} needs --profile ({', '.join(f'{kind}.{tier}' for tier in self.profile_tiers)}) or --model")
         if not self._model.fullmatch(model):
             raise RequestRejected(f"{kind} model must match ^{self._model.pattern}$")
         self._workspace = str(workspace)
@@ -493,6 +494,7 @@ class GaRuntimeTarget(HttpRuntimeTarget):
 
     runtime_kind = "ga"
     max_output_tokens = 32_000  # thinking counts against the limit (measured: 20 tokens gave MAX_TOKENS and no text)
+    profile_tiers = ("standard", "effort")  # no deep profile is packaged (#381): a stronger model goes by --model
     key_env = GA_KEY_ENV
     _model = GA_MODEL
     _usage_source = "ga.response.usage"
@@ -528,7 +530,7 @@ class GaRuntimeTarget(HttpRuntimeTarget):
             name: object = detail.get("status")
             text = san.clean(f"ga: HTTP {status}: {name}: {detail.get('message')}", EXCERPT_CHARS)
             if "status" not in detail:
-                return Outcome("not_started" if status in NOT_STARTED_STATUS else "uncertain", detail=text)
+                return self._error(status, False, text)
             if (status, name) == GA_LIMIT:
                 return Outcome("provider_limit", detail=text)
             listed = status == 413 or (isinstance(name, str) and name in GA_NOT_STARTED.get(status, ()))

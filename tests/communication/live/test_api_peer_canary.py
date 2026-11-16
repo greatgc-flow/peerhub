@@ -55,22 +55,10 @@ def test_oa_standard_replies_ok(tmp_path):
     assert "ok" in result["response"].lower()
 
 
-@pytest.fixture
-def gemini_key():
+@pytest.mark.ga
+def test_ga_standard_replies_ok(tmp_path):
     if not os.environ.get("GEMINI_API_KEY"):
-        pytest.skip("LIVE-GA-KEY-MISSING[env=GEMINI_API_KEY]: set GEMINI_API_KEY to run the ga canaries (they spend API credits)")
-
-
-@pytest.mark.ga
-def test_ga_standard_replies_ok(tmp_path, gemini_key):
+        pytest.skip("LIVE-GA-KEY-MISSING[env=GEMINI_API_KEY]: set GEMINI_API_KEY to run the ga canary (it spends API credits)")
     result = _delivered(ask(tmp_path / "core.db", "ga", "Reply with OK only.", workspace=tmp_path, profile="ga.standard",
-                            timeout_s=240))
-    assert "ok" in result["response"].lower()
-
-
-@pytest.mark.ga
-def test_ga_deepthink_replies_ok(tmp_path, gemini_key):
-    """The deep profile thinks before it answers: the thinking counts as output and is never part of the reply."""
-    result = _delivered(ask(tmp_path / "core.db", "ga", "Reply with OK only.", workspace=tmp_path, profile="ga.deepthink",
                             timeout_s=240))
     assert "ok" in result["response"].lower()

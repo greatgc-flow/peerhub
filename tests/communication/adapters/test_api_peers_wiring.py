@@ -247,8 +247,17 @@ def test_a_failed_peer_lookup_names_no_stream_and_keeps_the_reported_error(tmp_p
     assert argv[argv.index("--stream") + 1] == "STREAM_ID"  # the adapter is not known, so no stream is named
 
 
-def test_packaged_api_profiles_have_three_tiers_a_card_and_no_pool():
-    assert sorted(API_PROFILES) == sorted(f"{kind}.{tier}" for kind in API_KINDS for tier in ("standard", "effort", "deepthink"))
+def test_packaged_api_profiles_have_their_tiers_a_card_and_no_pool():
+    """ca and oa have three tiers; ga has no deep profile (#381: gemini-4-hydrogen gets no profile yet, and
+    gemini-4-argon had no quota for the measured key), so a stronger Gemini model goes by --model."""
+    tiers = {kind: cls.profile_tiers for kind, cls in api.API_TARGETS.items()}  # pyright: ignore[reportAttributeAccessIssue]
+    assert tiers == {"ca": ("standard", "effort", "deepthink"), "oa": ("standard", "effort", "deepthink"), "ga": ("standard", "effort")}
+    assert sorted(API_PROFILES) == sorted(f"{kind}.{tier}" for kind in API_KINDS for tier in tiers[kind])
+    for kind, cls in api.API_TARGETS.items():
+        named = ", ".join(f"{kind}.{tier}" for tier in tiers[kind])
+        with pytest.raises(api.RequestRejected) as missing:
+            cls(REPO)
+        assert str(missing.value) == f"{kind} needs --profile ({named}) or --model"
     models = {"ca": api.CA_MODEL, "oa": api.OA_MODEL, "ga": api.GA_MODEL}
     for pid, profile in API_PROFILES.items():
         kind = pid.split(".", 1)[0]
@@ -258,8 +267,12 @@ def test_packaged_api_profiles_have_three_tiers_a_card_and_no_pool():
         assert f"inline the text; {kind} reads no file" in profile["use_for"], pid
         assert profile["evidence"] == (["#381"] if kind == "ga" else ["#378"]), pid
     assert {pid: API_PROFILES[pid]["model"] for pid in API_PROFILES if pid.startswith("ga.")} == {
-        "ga.standard": "gemini-3.5-flash-lite", "ga.effort": "gemini-3.8-flash", "ga.deepthink": "gemini-4-hydrogen"}  # design 1
+        "ga.standard": "gemini-3.5-flash-lite", "ga.effort": "gemini-3.8-flash"}
     assert not any(kind in TOML["observed_versions"] for kind in API_KINDS)  # no CLI version drift check
+    from peerhub.cli.recovery import REGISTRY
+
+    prereqs = REGISTRY["request_rejected"].recover[0]["prereqs"]
+    assert set(re.findall(r"\b[a-z]{2}\.[a-z]+\b", prereqs)) == set(API_PROFILES)  # the recovery text names the packaged ones only
 
 
 def test_profile_list_and_explain_show_the_api_profiles(tmp_path, monkeypatch, capsys):
@@ -270,9 +283,11 @@ def test_profile_list_and_explain_show_the_api_profiles(tmp_path, monkeypatch, c
     out = capsys.readouterr().out
     assert all(f"inline the text; {kind} reads no file" in out for kind in API_KINDS)
     monkeypatch.chdir(tmp_path)
-    for pid in ("ca.standard", "oa.deepthink", "ga.standard", "ga.effort", "ga.deepthink"):
+    for pid in ("ca.standard", "oa.deepthink", "ga.standard", "ga.effort"):
         assert run_explain_cli(pid) == 0
         assert capsys.readouterr().out.startswith(f"Profile: {pid}")
+    assert run_explain_cli("ga.deepthink") == 1  # not packaged
+    assert "unknown profile" in capsys.readouterr().err
 
 
 def test_guide_names_the_api_peers_their_rule_and_their_cap(capsys):
@@ -373,7 +388,8 @@ def test_live_gate_can_select_the_api_peers():
     assert "pytest.mark.canary" in canary and "pytest.mark.live" not in canary  # outside the release catalog and the G3 stages
     assert "OPENAI_API_KEY" in canary and "LIVE-OA-KEY-MISSING" in canary
     assert "GEMINI_API_KEY" in canary and "LIVE-GA-KEY-MISSING" in canary
-    assert canary.count("@pytest.mark.ga\n") == 2 and '"ga.standard"' in canary and '"ga.deepthink"' in canary
+    assert canary.count("@pytest.mark.ga\n") == 1 and '"ga.standard"' in canary  # ga.effort is tried by hand at release time
+    assert "ga.deepthink" not in canary and "ga.effort" not in canary
     parser_source = Path(live_gate.__file__).read_text(encoding="utf-8")
     assert '"cc", "cx", "ag", "ca", "oa", "ga"' in parser_source
     markers = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]["markers"]

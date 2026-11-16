@@ -318,7 +318,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 - **Meaning**: An ask to an API peer (ca, oa, ga) was refused before anything was stored or sent.
 - **Why**: ca, oa and ga take a model that matches their pattern (from --profile or --model), no --effort and no --writable, and one ask per stream; this request broke one of those rules. The message names the rule.
 - **Safe Recovery Actions**:
-  1. `peerhub explain PROFILE`: Correct the command named in the message: a ca/oa/ga profile or a valid --model, no --effort, no --writable, a new stream for a new ask (Prerequisites: PROFILE is ca.standard, ca.effort, ca.deepthink, oa.standard, oa.effort, oa.deepthink, ga.standard, ga.effort or ga.deepthink.)
+  1. `peerhub explain PROFILE`: Correct the command named in the message: a ca/oa/ga profile or a valid --model, no --effort, no --writable, a new stream for a new ask (Prerequisites: PROFILE is ca.standard, ca.effort, ca.deepthink, oa.standard, oa.effort, oa.deepthink, ga.standard or ga.effort.)
 - **Avoid**: Do not retry the same command unchanged; nothing was sent, so no provider work needs recovery.
 - **Documentation**: [docs/adapters/README.md](adapters/README.md)
 
