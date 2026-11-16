@@ -8,7 +8,7 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
-## [0.24.18] - 2026-11-15
+## [0.24.18] - 2026-11-16
 
 API peers `ca` and `oa` (#378), the index for `peerhub diag running` (#330), the quota first and a new rich look in `peerhub monitor`, and the remaining items of #376. The plan was agreed unanimously by cc, cx and ag; every item of #376 is done or dropped with its reason below.
 
