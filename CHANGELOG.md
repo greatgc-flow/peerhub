@@ -8,6 +8,33 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.20] - 2026-11-16
+
+The Gemini API peer `ga` treats a depleted prepay balance as a provider limit (#384; decided unanimously by cc, cx and ag). PeerHub says what each peer needs and where its official page is (#385).
+
+### Added
+
+- What each peer needs, in one place (#385). `cc`, `cx` and `ag` need the `claude`, `codex` and `agy` CLI, signed in; `ca` needs the `ant` CLI, signed in with `ant auth login`; `oa` and `ga` need a key in an environment variable. Only the peers that are used need anything.
+  - No automatic install: PeerHub never downloads or runs an installer. A vendor's installer is a script from the network that differs per system and changes over time, so PeerHub says exactly what is missing and where the official page is.
+  - A new lesson, `peerhub explain setup` (also in `docs/lessons.md`): one row per peer with what it needs, the official page, the sign-in step and the check (`claude --version`, `codex --version`, `agy --version`, `ant --version`; for a key: the variable is set in the environment of the process that runs PeerHub, never on a command line or in a file for PeerHub). Links only, no install commands. The `ant` row also names the page with the Windows binaries, and the `oa` and `ga` rows the pages where a key is made.
+  - The README section "Install" has the subsection "What each peer needs" with the same table, and `peerhub guide` has one line that points to the lesson (58 lines in all).
+  - The messages name the next step. A missing tool: `claude executable not found: install it and sign in (peerhub explain setup)`, the same for `codex` and `ant`, and for `agy` after `cannot determine agy stdin support:` (0.24.19: `claude executable not found`). A missing key: `set OPENAI_API_KEY (peerhub explain setup)` or `set GEMINI_API_KEY (peerhub explain setup)` (0.24.19: `set OPENAI_API_KEY`, `set GEMINI_API_KEY`). The outcome (`failed_not_started`), the exit status and the classification by `peerhub explain` are unchanged.
+  - Not built: a check command that lists per peer whether its tool is on PATH and whether its key variable is set.
+
+### Fixed
+
+- `ga`: an HTTP 402 answer with the status `RESOURCE_EXHAUSTED` is a provider limit, exactly like 429 with `RESOURCE_EXHAUSTED`: the ask ends `not_executed` with the reason `quota_exhausted` and no reset time, and the message is kept (#384).
+  - Measured on 2026-11-16 04:24Z with one key, after the billing setup of the key's project changed: every model answered HTTP 402 in 0.3 to 0.4 s with the status `RESOURCE_EXHAUSTED` and the message "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing. Learn more at https://ai.google.dev/gemini-api/docs/billing#prepay." The prepay balance is managed in Google AI Studio.
+  - 0.24.19 ended such an ask `uncertain` with the message `ga: HTTP 402: RESOURCE_EXHAUSTED: Your prepayment credits are depleted...`.
+  - Now it ends `not_executed` (`quota_exhausted`) with that same message. Every other row of the error table is as it was: 402 with another status name or without one stays `uncertain`, and so does a pair that contradicts itself (for example 500 with `RESOURCE_EXHAUSTED`).
+  - Documentation: the README section for the API peers, the error table in `docs/adapters/README.md` and the lesson `api-peers` name the pair and the measurement.
+- `python -m tools.release_notes --version X.Y.Z` writes the section as UTF-8 bytes with LF line endings on every platform. It used `print`, so a redirect on Windows wrote CRLF, and a release body made from that file differed from the CHANGELOG section by its line endings. CONTRIBUTING (step 3 of the release) says so.
+- The lesson `monitor-view` said that `--expand` "gets only the pill and the rules". The pill is drawn only with colour and the section rules always: the lesson now reads "gets only the pill (with colour) and the rules (always)".
+
+### Changed
+
+- `AGENTS.md` and `CONTRIBUTING.md` no longer quote a passed count of the full suite: it grows with every release and depends on the installed extras.
+
 ## [0.24.19] - 2026-11-16
 
 The Gemini API peer `ga` (#381). The design was agreed unanimously by cc, cx and ag.

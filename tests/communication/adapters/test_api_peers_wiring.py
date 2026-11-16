@@ -104,6 +104,22 @@ def test_the_output_limit_is_per_class_in_every_text_that_names_it():
         assert "32,000" in text and "16,000" in text, path
 
 
+def test_the_ga_provider_limits_are_named_where_the_error_table_is_documented():
+    """#384: 402 and 429 with RESOURCE_EXHAUSTED are the provider limits of ga, in the code, the table, the README and the lesson."""
+    from peerhub.cli.lessons import load_lessons
+
+    assert api.GA_LIMITS == ((402, "RESOURCE_EXHAUSTED"), (429, "RESOURCE_EXHAUSTED"))
+    table = (REPO / "docs" / "adapters" / "README.md").read_text(encoding="utf-8")
+    assert "| 402 or 429 | `RESOURCE_EXHAUSTED` | `not_executed`, `quota_exhausted`, no reset time, the message kept |" in table
+    assert "| 429 | `RESOURCE_EXHAUSTED` |" not in table
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "HTTP 402 or 429 answer with the status `RESOURCE_EXHAUSTED`" in readme
+    for text in (readme, " ".join(table.split())):  # the adapter document wraps its lines
+        assert "04:24Z" in text and "Your prepayment credits are depleted" in text and "Google AI Studio" in text
+    lesson = next(item for item in load_lessons() if item["id"] == "api-peers")
+    assert "HTTP 402 or 429 with RESOURCE_EXHAUSTED is a provider limit" in lesson["fix"] and "#384" in lesson["issue"]
+
+
 @pytest.mark.parametrize("kind,cls", [("ca", CaRuntimeTarget), ("oa", OaRuntimeTarget), ("ga", GaRuntimeTarget)])
 def test_targets_share_one_base_and_are_stateless(tmp_path, kind, cls):
     target = cls(tmp_path, profile=f"{kind}.standard")

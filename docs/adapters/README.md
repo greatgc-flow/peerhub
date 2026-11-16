@@ -192,7 +192,7 @@ pair of the HTTP status and `error.status` decides:
 
 | HTTP status | `error.status` | Outcome |
 |---|---|---|
-| 429 | `RESOURCE_EXHAUSTED` | `not_executed`, `quota_exhausted`, no reset time, the message kept |
+| 402 or 429 | `RESOURCE_EXHAUSTED` | `not_executed`, `quota_exhausted`, no reset time, the message kept |
 | 400 | `INVALID_ARGUMENT` or `FAILED_PRECONDITION` | `failed_not_started` |
 | 401 | `UNAUTHENTICATED` | `failed_not_started` |
 | 403 | `PERMISSION_DENIED` | `failed_not_started` |
@@ -201,9 +201,11 @@ pair of the HTTP status and `error.status` decides:
 | 400, 401, 403, 404, 413, 429 | missing | `failed_not_started` |
 | every other pair | | `uncertain` |
 
-`RESOURCE_EXHAUSTED` covers a rate limit and a spent or missing quota alike; no
-inference ran. "Every other pair" includes an unknown status name, a pair that
-contradicts itself (for example 500 with `RESOURCE_EXHAUSTED`) and any 5xx.
+With 429, `RESOURCE_EXHAUSTED` covers a rate limit and a spent or missing quota
+alike; with 402 it is a depleted prepay balance (#384). No inference ran.
+"Every other pair" includes an unknown status name, a pair that contradicts
+itself (for example 500 with `RESOURCE_EXHAUSTED`), any 5xx, and 402 with
+another status name or without one.
 `error.status` is missing only when the `status` member is absent: a status
 that is null or not a string is no listed pair.
 
@@ -230,6 +232,11 @@ directly against the API:
   please check your plan and billing details") for that key. PeerHub ends such
   an ask `not_executed` with `quota_exhausted` and keeps the message. This
   status does not tell a rate limit from a key without quota for the model.
+- On 2026-11-16 04:24Z, after the billing setup of the key's project changed,
+  every model answered HTTP 402 `RESOURCE_EXHAUSTED` ("Your prepayment credits
+  are depleted") in 0.3 to 0.4 s. 0.24.19 ended such an ask `uncertain`; from
+  0.24.20 it ends `not_executed` with `quota_exhausted` and keeps the message
+  (#384). The prepay balance is managed in Google AI Studio.
 - gemini-2.5-flash and gemini-2.5-pro answered HTTP 404 `NOT_FOUND` ("no longer
   available to new users").
 - An invalid key gave HTTP 401 `UNAUTHENTICATED` in a direct call (400

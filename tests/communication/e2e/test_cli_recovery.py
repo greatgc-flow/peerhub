@@ -1202,7 +1202,9 @@ def test_failure_exit_contexts(tmp_path, monkeypatch, capsys, exception, error_c
     ("recovered_terminal", None, ""),
     ("not_executed", None, "ask_refusal"),
     ("failed_not_started", "executable not found", "ask_launch_failed"),
+    ("failed_not_started", "claude executable not found: install it and sign in (peerhub explain setup)", "ask_launch_failed"),  # #385
     ("failed_not_started", "execution policy rejected", "ask_delivery_failed"),
+    ("failed_not_started", "set OPENAI_API_KEY (peerhub explain setup)", "ask_delivery_failed"),  # #385: as "set OPENAI_API_KEY" was
     ("failed_not_started", PROMPT_LIMIT_ERROR, "ask_prompt_too_large"),
     ("uncertain", None, "ask_blocked_uncertain"),
     ("blocked_uncertain", None, "ask_blocked_uncertain"),

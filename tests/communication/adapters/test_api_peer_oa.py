@@ -124,7 +124,8 @@ def test_no_key_is_a_prespawn_failure_and_sends_nothing(oa, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY")
     result = ask(oa.db, "oa", "question", runtime=oa())
     assert (result["status"], result["certainty"]) == ("failed_not_started", "NOT_STARTED")
-    assert result["detail"]["error"] == "set OPENAI_API_KEY" and "prespawn_failure" in evidence_kinds(oa.db)
+    assert result["detail"]["error"] == "set OPENAI_API_KEY (peerhub explain setup)"  # #385: the message names the next step
+    assert "prespawn_failure" in evidence_kinds(oa.db)
     assert oa.fake.requests == []
 
 

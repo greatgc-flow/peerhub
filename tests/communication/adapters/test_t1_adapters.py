@@ -139,6 +139,22 @@ def test_t1_executable_not_on_path_is_prespawn(monkeypatch, mk):
         drain(CliRuntimeTarget("cc", mk.ws).deliver("s", rec(), []))
 
 
+@pytest.mark.parametrize("kind,prefix", [("cc", ""), ("cx", ""), ("ag", "cannot determine agy stdin support: ")])
+def test_t1_a_missing_tool_names_the_next_step(monkeypatch, mk, kind, prefix):
+    """#385: the message says what to do and keeps `executable not found`, the text a launch failure is classified by."""
+    from peerhub.cli.lessons import lesson_by_id
+    from peerhub.cli.recovery import select_guidance_code
+
+    monkeypatch.setattr("peerhub.extensions.adapters.base.shutil.which", lambda n: None)
+    monkeypatch.delenv("PEERHUB_AG_TRANSPORT", raising=False)
+    with pytest.raises(PrespawnError) as failure:
+        drain(CliRuntimeTarget(kind, mk.ws, writable=kind == "ag").deliver("s", rec(), []))
+    tool = SPECS[kind].binary
+    assert str(failure.value) == f"{prefix}{tool} executable not found: install it and sign in (peerhub explain setup)"
+    assert select_guidance_code(exception=failure.value) == "ask_launch_failed"  # the classification did not change
+    assert [lesson["id"] for lesson in lesson_by_id("setup")] == ["setup"]  # the pointer resolves
+
+
 def test_t1_hang_times_out_kills_process_and_is_uncertain(tmp_path, mk):
     a = mk("cc", "hang", timeout_s=1.0)
     t0 = time.monotonic()
