@@ -166,7 +166,7 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml` and the evidence JSON).
    Run `python -m tools.release_notes --version X.Y.Z > <notes-file>` from
    the merged checkout. The release body must match that section exactly;
-   the notes file has LF line endings on every platform (the tool writes UTF-8 bytes itself).
+   the notes file has LF line endings in a shell that keeps the bytes of a redirect (cmd, bash, PowerShell 7.4 or later); the tool writes UTF-8 bytes itself.
    Replace `<HEAD-SHA>` with the full output of `git rev-parse HEAD` and
    `<notes-file>` with the notes path; use the bumped version for `vX.Y.Z`:
 
