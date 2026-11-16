@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- `docs/api-credits.md` (#386): where to read the balance of each API by hand, why PeerHub cannot, and what the account-side answers (402 or 429 with `RESOURCE_EXHAUSTED`) mean; measured, reported and vendor statements are kept apart.
+
 ## [0.24.20] - 2026-11-16
 
 The Gemini API peer `ga` treats a depleted prepay balance as a provider limit (#384; decided unanimously by cc, cx and ag). PeerHub says what each peer needs and where its official page is (#385).
