@@ -312,6 +312,37 @@ def test_quota_details_have_the_compact_state_and_a_forecast_column_and_no_bar()
     assert rows["X-7D"][3] == "42%" and rows["X-7D"][5] == f"{U['up']}+31.0pp"  # REM and PACE stay
 
 
+@pytest.mark.parametrize("unicode", [True, False])
+def test_stale_duplicate_pool_names_keep_each_human_observations_state(unicode):
+    observations = []
+    for peer, account, remaining in (("cc", "one", .05), ("cc", "two", .70), ("cx", "one", .80)):
+        item = pool(peer, "C-7D", remaining)
+        item.update(pool_ref=f"quota:{account}:C-7D", state="STALE", age_seconds=540, measurements=None)
+        observations.append(item)
+    wire = [{**item, "last_measurements": None} for item in observations]
+    payload = _payload([], wire, _human_observations=observations)
+    screen = expand(payload, width=160, unicode=unicode)
+    glyphs = U if unicode else A
+    expected = [[glyphs["low"], "low"], [glyphs["aged"], "aged"], [glyphs["aged"], "aged"]]
+    for head in ("POOLS", "QUOTA"):
+        states = [cells[at + 1:at + 3] for line in block(screen, head)[1:]
+                  if "C-7D" in (cells := line.split()) and "next:" not in line
+                  for at in [cells.index("C-7D")]]
+        assert states == expected, (head, states)
+
+
+@pytest.mark.parametrize("elapsed", [0, 2])
+def test_quota_remaining_matches_pools_after_reset_passes(elapsed):
+    payload = _payload([], [pool("cc", "C-7D", .10, reset=-1 if elapsed == 0 else 1)],
+                       display_elapsed_seconds=elapsed)
+    screen = expand(payload, width=160)
+    pool_cells = block(screen, "POOLS")[1].split()
+    quota_cells = quota_rows(screen)["C-7D"]
+    assert pool_cells[2:4] == quota_cells[:2] == [U["aged"], "reset"]
+    assert pool_cells[5] == "-"
+    assert quota_cells[3] == pool_cells[5]
+
+
 def test_the_forecast_legend_replaces_the_state_legend_and_the_even_burn_sentence_goes():
     screen = expand(detail_payload(), width=140)
     quota = block(screen, "QUOTA")
@@ -586,8 +617,11 @@ def test_the_lesson_the_readme_and_the_changelog_describe_the_expand_frame():
     assert "no new bars or glyphs" not in readme and "`--expand` has its bars in both views" not in readme
     probes = (root / "docs" / "implementation" / "OBSERVATION_PROBES.md").read_text(encoding="utf-8")
     assert sections in probes and "FORECAST" in probes
-    unreleased = (root / "CHANGELOG.md").read_text(encoding="utf-8").split("## [Unreleased]")[1].split("\n## [")[0]
-    assert "### Changed" in unreleased and "`--expand`" in unreleased and sections in unreleased
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    unreleased = changelog.split("## [Unreleased]")[1].split("\n## [")[0]
+    assert not unreleased.strip()
+    release = changelog.split("## [0.24.21] - 2026-11-17")[1].split("\n## [")[0]
+    assert "### Changed" in release and "`--expand`" in release and sections in release
 
 
 # ---- the plain view and the payload are untouched ---------------------------------------------------------------------

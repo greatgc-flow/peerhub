@@ -966,11 +966,12 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             for row in layout:
                 cells = row["cells"]
                 if rich:  # the row POOLS draws for this pool (the frame's rows), so both show one glyph and word
-                    summary = pool_rows.get((str(row["peer"]), str(row["pool"]))) or _compact_pool(
+                    summary = pool_rows.get((str(row["source"].get("peer_id")), str(row["source"].get("pool_ref")))) or _compact_pool(
                         row["source"], read_at or 0, elapsed_seconds, {})
                     row["summary"] = summary
                     glyphs = RICH_GLYPHS[unicode]
                     cells["STATE"] = f"{glyphs.get(str(summary['state']), glyphs['aged'])} {summary['state']}"
+                    cells["REM"] = summary["left"]
                 cells["PEER"], cells["POOL"] = row["display_peer"], row["display_pool"]
             table = [row["cells"] for row in layout]
             natural = bounded or rich  # a column is as wide as its widest cell; the unbounded plain table has minimums
@@ -2769,10 +2770,10 @@ def _rich_expanded_frame(payload: dict[str, Any], display: dict[str, Any], store
     read_at = _number(payload.get("read_at"))
     elapsed = _number(payload.get("display_elapsed_seconds")) or 0.0
     now = None if read_at is None else read_at + elapsed
-    pool_rows: dict[tuple[str, str], dict[str, Any]] = {}
-    for row in _frame_pools(payload, {})[2]:  # the rows POOLS drew: the QUOTA details show the same state
-        key = (str(row["peer"]), str(row["pool"]))
-        pool_rows[key] = {} if key in pool_rows else row  # duplicate names use each observation's own source
+    # Use POOLS' human observations and full identities: distinct pools can share a display name.
+    pool_rows = {(str(item.get("peer_id")), str(item.get("pool_ref"))):
+                 _compact_pool(item, read_at if read_at is not None else 0, elapsed, {})
+                 for item in _frame_pools(payload, {})[1]}
     recent: list[str] = []
     for group_id in [*(gid for gid in _RICH_ORDER if gid in selected), *(gid for gid in selected if gid not in _RICH_ORDER)]:
         group = _obj(groups.get(group_id))
