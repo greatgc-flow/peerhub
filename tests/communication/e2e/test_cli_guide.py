@@ -387,4 +387,20 @@ def test_readme_upgrade_guidance():
     assert "PyPI index lag" in text
 
 
+def test_contributing_release_steps_cover_the_matrix_time_limit_the_full_commit_id_and_the_exe_lock():
+    """#390: a full-matrix job cancelled at its time limit fails `ci-pass`; the step names the rerun command."""
+    import re
+
+    steps = Path("CONTRIBUTING.md").read_text(encoding="utf-8").split("\n## Releasing\n", 1)[1].split("\n### Release lessons\n", 1)[0]
+    steps = " ".join(steps.split())
+    workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+    limit = re.search(r"\n  full-matrix:\n(?:    .*\n)*?    timeout-minutes: (\d+)\n", workflow)
+    assert limit is not None
+    assert f"{limit.group(1)} minute limit" in steps
+    assert "full-matrix" in steps and "Windows with Python 3.11" in steps and "is cancelled" in steps
+    assert "fails `ci-pass`" in steps and "`gh run rerun <RUN-ID> --failed`" in steps
+    assert "the 40-character commit id" in steps and "`git rev-parse HEAD`" in steps
+    assert "locks `peerhub.exe` on Windows" in steps
+
+
 

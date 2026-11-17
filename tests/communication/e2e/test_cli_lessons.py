@@ -183,6 +183,35 @@ def test_ag_recipe_holds_the_former_guide_lines():
         assert needle in fix, needle
 
 
+def test_ag_recipe_names_allow_list_scope_and_cx_lesson_holds_the_cx_facts():
+    """#391: a `*` in a prompt path, allow-list scope in the order of causes, inline text for ag; cx facts stay in the cx lesson."""
+    by_id = {lesson["id"]: lesson for lesson in load_lessons()}
+    ag = by_id["ag-recipe"]
+    for needle in ("A * in a path inside a prompt is not expanded and triggers a denied read",
+                   "allow-list scope (agy's permissions.allow read roots and shell rules",
+                   "reads outside the -w root, grep/cat and unlisted CLIs are denied headless",
+                   "ag cannot run commands and cannot read outside its workspace",
+                   "give it inline text and take its text answer",
+                   "denied_actions reports only the tool names"):
+        assert needle in ag["fix"], needle
+    causes = ag["fix"].split("check in order:", 1)[1]
+    order = [causes.index(cause) for cause in ("many or unreadable files", "trustedWorkspaces", "binary/NUL/huge files",
+                                               "allow-list scope", "pool quota exhausted")]
+    assert order == sorted(order)
+    assert "#391" in ag["issue"] and {"allow-list", "scope", "glob", "wildcard"} <= set(ag["keywords"])
+    for cx_fact in ("peerhub store", "checkpoint receipts", "runtime_error"):
+        assert cx_fact not in ag["fix"], cx_fact  # cx sentences are not in the ag recipe
+    cx = by_id["cx-sandbox-and-prompt-hygiene"]
+    for needle in ("cx sandbox lanes cannot open the peerhub store",
+                   "reader asks must be launched by the orchestrator",
+                   "use checkpoint receipts and a silence timeout",
+                   "runtime_error leaves partial edits"):
+        assert needle in cx["fix"], needle
+    assert "#391" in cx["issue"] and {"store", "checkpoint", "runtime_error"} <= set(cx["keywords"])
+    assert [lesson["id"] for lesson in lookup_lessons("ag allow-list scope")] == ["ag-recipe"]
+    assert [lesson["id"] for lesson in lookup_lessons("cx checkpoint")] == ["cx-sandbox-and-prompt-hygiene"]
+
+
 SETUP_TOOLS = {  # peer -> (the tool, its official page), read 2026-11-16 (#385)
     "cc": ("claude", "https://code.claude.com/docs/en/setup"),
     "cx": ("codex", "https://developers.openai.com/codex/cli"),

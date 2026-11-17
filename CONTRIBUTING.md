@@ -143,6 +143,10 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    For a topic branch before opening its PR, the same hosted matrix can be
    started directly with `gh workflow run ci.yml --ref <branch>`; ordinary
    branch pushes do not trigger `ci.yml`.
+   A full-matrix job (seen on Windows with Python 3.11) can reach the
+   60 minute limit of `full-matrix`; it is cancelled, which fails `ci-pass`.
+   This is not a test failure: run `gh run rerun <RUN-ID> --failed`, which
+   repeats only the failed and cancelled jobs, and wait for `ci-pass` again.
 2. From a **clean checkout of the merged main commit**, run
    `python -m tools.live_gate --yes`. This spends provider quota, refuses CI,
    and requires `agy`, `claude` and `codex` on PATH and logged in. It writes
@@ -167,7 +171,8 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    Run `python -m tools.release_notes --version X.Y.Z > <notes-file>` from
    the merged checkout. The release body must match that section exactly;
    the notes file has LF line endings in a shell that keeps the bytes of a redirect (cmd, bash, PowerShell 7.4 or later); the tool writes UTF-8 bytes itself.
-   Replace `<HEAD-SHA>` with the full output of `git rev-parse HEAD` and
+   Replace `<HEAD-SHA>` with the full output of `git rev-parse HEAD` (the
+   40-character commit id, not a short id) and
    `<notes-file>` with the notes path; use the bumped version for `vX.Y.Z`:
 
    ```bash
