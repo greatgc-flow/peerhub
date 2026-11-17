@@ -8,13 +8,15 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.21] - 2026-11-17
+
 ### Added
 
 - `docs/api-credits.md` (#386): where to read the balance of each API by hand, why PeerHub cannot, and what the account-side answers (402 or 429 with `RESOURCE_EXHAUSTED`) mean; measured, reported and vendor statements are kept apart.
 
 ### Changed
 
-- `peerhub monitor --expand` in the rich view looks like the compact frame, with the quota on top. Before, it was a third layout: plain pipes on line 1, a `PeerHub Monitor | <status> | <time>` title, ALERTS and ACTIVITY first, and the QUOTA table (8-cell bars, `THREAT`/`ON_PACE` words) only after them, at line 208 of 558 on a store measured with `--snapshot --view rich --expand`.
+- `peerhub monitor --expand` in the rich view (#388) looks like the compact frame, with the quota on top. Before, it was a third layout: plain pipes on line 1, a `PeerHub Monitor | <status> | <time>` title, ALERTS and ACTIVITY first, and the QUOTA table (8-cell bars, `THREAT`/`ON_PACE` words) only after them, at line 208 of 558 on a store measured with `--snapshot --view rich --expand`.
   - The frame starts exactly as the compact frame does: the pill line, the header line, `POOLS` and the `suggest:` line. `POOLS` lists every pool: there is no cap and no `+N pools` line, and a 5-hour row that does not bind is listed under its 7-day pool too. The suggestion wraps without a cap. The header no longer says `Fields hidden · --expand`.
   - One line with the store follows (`DB:env (<path>)`; it wraps on a narrow terminal and is never cut), then the detail sections in one order: ALERTS, RUNNING, LEADS, QUOTA, PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT, any other selected group, and RECENT last. The legend and the coverage footer end the frame as before. The frame's own title line is gone.
   - QUOTA details: the STATE column is the state of the POOLS row (the same glyph, word and colour), a new FORECAST column carries the projection (`threat`, `on_pace`, `safe`, `insuff`), and the 8-cell bar column is gone. The legend line is `FORECAST: insuff=insufficient projection data; threat=exhausts before reset` (it was `STATE: INSUFF=...`), and the legend's `BAR` line no longer has the even-burn sentence. An evidence state that the state word does not name has a note (`cc F-7D evidence UNKNOWN; next: peerhub observation refresh --peers cc`). ACCOUNTS, the reset credits and the notes are kept.
