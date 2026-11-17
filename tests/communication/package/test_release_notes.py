@@ -34,8 +34,10 @@ def test_tool_writes_the_section_as_lf_bytes_on_every_platform():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.24.21"
-    assert "#388" in body and "#386" in body and "POOLS" in body
+    assert __version__ == "0.24.22"
+    assert "ATTN" in body and "blocked" in body and "POOLS" in body
+    assert "--compact" in body and "--show-quota-notes" in body
+    assert "#388" not in body and "#386" not in body  # no adjacent history (0.24.21)
     assert "#384" not in body and "Your prepayment credits are depleted" not in body  # no adjacent history (0.24.20)
     assert "#385" not in body and "peerhub explain setup" not in body  # no adjacent history (0.24.20)
     assert "#381" not in body and "x-goog-api-key" not in body  # no adjacent history (0.24.19)

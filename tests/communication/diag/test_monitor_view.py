@@ -1091,8 +1091,8 @@ def _cx_plan_frame(absent_state="ABSENT", peer_quota=None):
 
 def test_not_reported_pool_renders_na_with_plan_never_zero_or_incomplete():
     """X3/X5: a window the provider does not report is n/a (plan shown); the peer line keeps the reported pool's %."""
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
-    rendered = render_grouped_frame(_cx_plan_frame(), view="plain", unicode=False, width=120)
+    from peerhub.cli.monitor_view import render_grouped_frame
+    rendered = render_grouped_frame(_cx_plan_frame(), view="plain", unicode=False, width=120, expand=True, show_quota_notes=True)
     assert "cx X-5H n/a not reported (plan prolite)" in rendered
     row = next(line for line in rendered.splitlines() if line.startswith("cx") and " X-5H " in line and "PROFILES" not in line)
     assert "STALE" not in row and "ABSENT" not in row and "n/a" in row
@@ -1101,17 +1101,17 @@ def test_not_reported_pool_renders_na_with_plan_never_zero_or_incomplete():
 
 
 def test_all_pools_not_reported_is_question_mark_never_full():
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_view import render_grouped_frame
     unknown = {"state": "UNKNOWN", "pool_ref": "not_reported", "remaining_fraction": None, "percent": None,
                "age_seconds": None, "scope": "mapped"}
-    rendered = render_grouped_frame(_cx_plan_frame(peer_quota=unknown), view="plain", unicode=False, width=120)
+    rendered = render_grouped_frame(_cx_plan_frame(peer_quota=unknown), view="plain", unicode=False, width=120, expand=True, show_quota_notes=True)
     assert "quota: ? (not reported)" in rendered
     assert "100%" not in rendered and "incomplete" not in rendered
 
 
 def test_aged_not_reported_pool_is_question_mark_with_refresh_hint():
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
-    rendered = render_grouped_frame(_cx_plan_frame(absent_state="STALE"), view="plain", unicode=False, width=120)
+    from peerhub.cli.monitor_view import render_grouped_frame
+    rendered = render_grouped_frame(_cx_plan_frame(absent_state="STALE"), view="plain", unicode=False, width=120, expand=True, show_quota_notes=True)
     assert "cx X-5H ? not reported (plan prolite), aged; next: peerhub observation refresh --peers cx" in rendered
     assert "STALE:window" not in rendered
 

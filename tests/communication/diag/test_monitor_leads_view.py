@@ -61,7 +61,7 @@ def test_leads_sit_between_running_and_recent_with_the_column_order(frame):
     heads = [line.split()[0] for line in lines if re.match(r"^(RUNNING|LEADS|RECENT|POOLS|suggest:)", line)]
     assert heads == ["POOLS", "suggest:", "RUNNING", "LEADS", "RECENT"]  # P21: the quota first, then the activity
     block = leads_block(lines)
-    assert block[0] == "LEADS 1"
+    assert block[0] == "LEADS 1 entry | 1 session found"
     assert block[1].split() == ["docs-site", "busy", "12s", "ctx", "10%", "0", "run", "fable-5-2", *TITLE.split()]
 
 
@@ -98,21 +98,21 @@ def test_three_rows_then_the_overflow_line_in_read_model_order(frame):
     leads = [lead(f"lead-{i}", lead_id=f"0000000{i}", session=sess(active_at=NOW - 60 * i)) for i in range(5)]
     with_leads(frame, leads)
     block = leads_block(screen(frame))
-    assert block[0] == "LEADS 5" and [row.split()[0] for row in block[1:4]] == ["lead-0", "lead-1", "lead-2"]
+    assert block[0] == "LEADS 5 entries | 5 sessions found" and [row.split()[0] for row in block[1:4]] == ["lead-0", "lead-1", "lead-2"]
     assert block[4] == "+2 leads (--expand)" and len(block) == 5
 
 
 def test_only_leads_with_a_session_or_a_running_ask_are_rows(frame):
     with_leads(frame, [lead("old", asks=3, last=NOW - 4000), lead("live", session=sess()), lead("busy", running=1)])
     block = leads_block(screen(frame))
-    assert block[0] == "LEADS 2" and [row.split()[0] for row in block[1:]] == ["live", "busy"]
+    assert block[0] == "LEADS 2 entries | 1 session found" and [row.split()[0] for row in block[1:]] == ["live", "busy"]
 
 
 @pytest.mark.parametrize(("read", "header"), [
-    (READ, "LEADS 1"),
-    ({"state": "partial", "unreadable": 1, "not_read": 2}, "LEADS 1 | partial (1 unreadable, 2 not read)"),
-    ({"state": "partial", "unreadable": 0, "not_read": 2}, "LEADS 1 | partial (2 not read)"),
-    ({"state": "error", "unreadable": 0, "not_read": 0}, "LEADS 1 | read failed"),
+    (READ, "LEADS 1 entry | 1 session found"),
+    ({"state": "partial", "unreadable": 1, "not_read": 2}, "LEADS 1 entry | partial (1 unreadable, 2 not read) | 1 session found"),
+    ({"state": "partial", "unreadable": 0, "not_read": 2}, "LEADS 1 entry | partial (2 not read) | 1 session found"),
+    ({"state": "error", "unreadable": 0, "not_read": 0}, "LEADS 1 entry | read failed | 1 session found"),
 ])
 def test_the_header_forms(frame, read, header):
     with_leads(frame, [lead("live", session=sess())], read)
@@ -312,7 +312,8 @@ def test_the_worst_case_frame_with_leads_stays_within_the_bounds(frame, width, u
     lines = text.splitlines()
     assert len(lines) <= 24 and len(text.encode("utf-8")) <= 8192
     assert all(_width(line) <= min(100, width) - 1 for line in lines)
-    head = "── LEADS 12 · partial (9 unreadable, 99 not read) ─" if unicode else "LEADS 12 | partial (9 unreadable, 99 not read)"
+    head = ("── LEADS 12 entries · partial (9 unreadable, 99 not read)" if unicode else
+            "LEADS 12 entries | partial (9 unreadable, 99 not read)")
     assert any(line.startswith(head) for line in lines)  # P21: the rich view draws the head as a rule
 
 
@@ -337,7 +338,7 @@ def expanded(payload: dict[str, Any]) -> list[str]:
 def test_expand_prints_every_field_of_a_lead_session(frame):
     with_leads(frame, [lead("docs-site", running=0, asks=3, last=NOW - 16_238, session=sess(context_pct=11))])
     lines = expanded(frame)
-    i = lines.index("LEADS 1")
+    i = lines.index("LEADS 1 entry | 1 session found")
     assert lines[i + 1] == ("docs-site | cc 1a2b3c4d | busy since 2026-11-14 23:16:29Z | active 12s ago | alive | pid 4242"
                             " | entry cli | claude 2.1.323 | started 2026-11-14 09:30Z")
     assert lines[i + 2] == ("model claude-fable-5-2 | ctx 106,137 of 1,000,000 model max (11%) at 2026-11-14 23:45:08Z"
@@ -379,7 +380,7 @@ def test_expand_the_two_no_session_wordings_and_the_header_notes(frame):
                        lead("ci-box", tool="?", lead_id="51c2a9f0", running=1, asks=4, last=NOW - 60)],
                {"state": "partial", "unreadable": 1, "not_read": 2})
     lines = expanded(frame)
-    i = lines.index("LEADS 2 | partial (1 unreadable, 2 not read)")
+    i = lines.index("LEADS 2 entries | partial (1 unreadable, 2 not read) | 0 sessions found")
     assert lines[i + 1] == ("old-lead | cc 9a41c0de | no session found (ended, or its Claude folder is not in"
                             " PEERHUB_LEAD_DIRS) | running 0 | asks 24h 2 | last ask 2026-11-14 11:12:10Z")
     assert lines[i + 2] == ("ci-box | ? 51c2a9f0 | no session (not a Claude Code lead) | running 1 | asks 24h 4"
@@ -397,10 +398,57 @@ def test_an_older_payload_without_session_or_leads_read_still_renders(frame):
     for item in data["leads"]:
         item.pop("session", None)
     compact = screen(frame)
-    assert leads_block(compact)[0] == "LEADS 2"
+    assert leads_block(compact)[0] == "LEADS 2 entries"
     assert all(row.split()[1:4] == ["-", "-", "-"] for row in leads_block(compact)[1:])
     lines = expanded(frame)
     assert any(line.startswith("QA | cc 9f9f9f9f | no session found") for line in lines)
+
+
+@pytest.mark.parametrize("view", ["plain", "rich"])
+@pytest.mark.parametrize("alive", [True, None])
+def test_entry_count_and_found_sessions_explain_the_open_ask_lead_count_without_changing_it(frame, view, alive):
+    frame["groups"]["activity"]["data"] = activity_data([
+        ask(name="ongoing-task", lead=("current-found", "cc", "aaaa1111"))])
+    frame["selected_groups"] = ["activity"]
+    with_leads(frame, [lead("current-found", lead_id="aaaa1111", running=1, asks=1,
+                           last=NOW - 41, session=sess(state="idle", alive=alive)),
+                       lead("history-only", lead_id="bbbb2222", asks=2, last=NOW - 3600)])
+    before = deepcopy(frame)
+    for expand, entries in ((False, "1 entry"), (True, "2 entries")):
+        output = render_grouped_frame(frame, view=view, expand=expand, unicode=False, width=200)
+        lines = output.splitlines()
+        assert re.search(r"\b1 lead\b", lines[0]) and "2 leads" not in lines[0]
+        header = next(line for line in lines if re.search(r"\bLEADS\b", line))
+        assert f"LEADS {entries} | 1 session found" in header
+        assert ("history-only" in output) == expand
+        if expand and alive is None:
+            assert "alive ?" in output  # found describes the session evidence, not confirmed process liveness
+    assert frame == before
+
+
+@pytest.mark.parametrize("view", ["plain", "rich"])
+@pytest.mark.parametrize("read,statistic", [(READ, " | 0 sessions found"), (None, "")])
+def test_empty_expanded_leads_only_claim_zero_found_sessions_after_a_known_read(frame, view, read, statistic):
+    with_leads(frame, [], read)
+    frame["selected_groups"] = ["activity"]
+    expanded_text = render_grouped_frame(frame, view=view, expand=True, unicode=False, width=200)
+    head = next(line for line in expanded_text.splitlines() if re.search(r"\bLEADS\b", line))
+    assert f"LEADS 0 entries{statistic}" in head
+    assert ("sessions found" in head) == (read is not None)
+    compact_text = render_grouped_frame(frame, view=view, unicode=False, width=200)
+    assert not any(re.search(r"\bLEADS\b", line) for line in compact_text.splitlines())
+
+
+@pytest.mark.parametrize("read", [None, READ, {"state": "partial", "unreadable": 1, "not_read": 0},
+                                  {"state": "error", "unreadable": 0, "not_read": 0}])
+def test_unmatched_caller_session_statistic_respects_read_evidence(frame, read):
+    with_leads(frame, [lead("caller-only", running=1)], read)
+    header = leads_block(screen(frame))[0]
+    assert header.startswith("LEADS 1 entry")
+    assert ("0 sessions found" in header) == (read is not None)
+    if read and read["state"] != "read":
+        warning = "partial" if read["state"] == "partial" else "read failed"
+        assert header.index(warning) < header.index("0 sessions found")
 
 
 def test_the_view_mark_mirrors_the_read_model_mark():

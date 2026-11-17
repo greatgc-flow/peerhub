@@ -80,11 +80,12 @@ def _restore_console_mode(mode: int | None) -> None:
 class FrameOutput:
     """Overwrite VT terminals and append elsewhere, with exception-safe cleanup."""
 
-    def __init__(self, interactive: bool = True, *, overwrite: bool = True) -> None:
+    def __init__(self, interactive: bool = True, *, overwrite: bool = True, anchor_rows: bool = False) -> None:
         self.original_console_mode = _console_mode() if interactive and os.name == "nt" else None
         self.vt = (interactive and sys.stdout.isatty()
                    and os.environ.get("TERM", "").lower() != "dumb" and enable_vt())
         self.live = self.vt and overwrite
+        self.anchor_rows = anchor_rows
         self.started = False
 
     def write(self, frame: str) -> None:
@@ -94,8 +95,15 @@ class FrameOutput:
                 prefix = "\x1b[?25l\x1b[H\x1b[2J"
             else:
                 prefix = "\x1b[H"
-            # Buffer one complete frame so resize/redraw cannot expose half a panel.
-            body = "\x1b[K\r\n".join(frame.splitlines()) + "\x1b[K\x1b[J"
+            if self.anchor_rows:
+                # For height-bounded frames only: a wider rich glyph must not push
+                # later rows down and scroll ATTN away. Unbounded diag frames keep
+                # CRLF below, since terminal row addresses clamp at the bottom.
+                body = "".join(f"\x1b[{row};1H{line}\x1b[K"
+                               for row, line in enumerate(frame.splitlines(), 1)) + "\x1b[J"
+            else:
+                body = "\x1b[K\r\n".join(frame.splitlines()) + "\x1b[K\x1b[J"
+            # Buffer one complete frame and erase shorter rows and old tail rows.
             sys.stdout.write(prefix + body)
             sys.stdout.flush()
         else:

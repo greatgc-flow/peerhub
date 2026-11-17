@@ -145,7 +145,7 @@ def test_d5_successful_probe_retires_omitted_window_at_read_time(frame: dict[str
     frame["selected_groups"] = ["capacity"]
     frame["configured_profiles"] = [p for p in frame["configured_profiles"] if p["profile"].startswith("cx.")]
     before = deepcopy(frame)
-    screen = render_grouped_frame(frame, width=120, height=40, view=_view(expand), expand=expand, unicode=False)
+    screen = render_grouped_frame(frame, show_quota_notes=True, width=120, height=40, view=_view(expand), expand=expand, unicode=False)
     row = next(line for line in screen.splitlines() if "X-30D" in line)
     assert "n/a" in row and "93%" not in row and "23195s" not in row
     assert "not reported by plan pro" in screen

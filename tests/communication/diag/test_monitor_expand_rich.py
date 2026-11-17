@@ -3,8 +3,8 @@
 It starts exactly like the compact frame (the pill line, the header line, POOLS and the suggestion), with every pool
 and the whole suggestion. One line with the store path follows, then the detail sections in this order: ALERTS,
 RUNNING, LEADS, QUOTA (details), PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT, any other group, RECENT. The entries of a
-section carry the compact frame's markers and keep every field. The plain view keeps the grouped layout it had
-(`fixtures/monitor/plain_expand_v0_24_20.json`, captured from the v0.24.20 renderer).
+section carry the compact frame's markers and keep every field. The plain view keeps its grouped layout
+(`fixtures/monitor/plain_expand_v0_24_20.json`, captured from v0.24.20), with 0.24.22's clearer lead-count labels.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import pytest
 from peerhub.cli import monitor_view as mv
 from peerhub.cli.monitor_view import render_grouped_frame, _width
 from tests.communication.diag.test_monitor_activity_view import pool
-from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload, quiet_payload
+from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload, quiet_payload, with_lead_count_labels
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values()}
@@ -152,7 +152,7 @@ def test_expand_uses_the_terminal_width_and_the_compact_frame_stays_at_100_colum
 
 def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
-    small, big = compact(payload).splitlines(), expand(payload).splitlines()
+    small, big = compact(payload).splitlines(), expand(payload, show_quota_notes=True).splitlines()
     assert small[3].startswith("── POOLS 9 ─") and "+1 pools (--expand)" in small
     assert big[3].startswith("── POOLS 11 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
     rows = block("\n".join(big), "POOLS")[1:]
@@ -256,7 +256,7 @@ def test_every_section_head_is_a_rule_like_the_compact_ones():
     assert all(line.startswith(f"\x1b[{dim}m──\x1b[0m \x1b[{title}m") and _width(line) == 99 for line in rules)
     texts = [strip(line) for line in rules]
     assert any(text.startswith("── RUNNING 4 · ag 1 cc 2 cx 1 ─") for text in texts)
-    assert any(text.startswith("── LEADS 4 · partial (1 unreadable, 2 not read) ─") for text in texts)
+    assert any(text.startswith("── LEADS 4 entries · partial (1 unreadable, 2 not read) · 3 sessions found ─") for text in texts)
     assert any(text.startswith("── QUOTA [OK] · measured remaining ─") for text in texts)
     assert any(text.startswith("── PEERS [OK] ─") for text in texts) and any(text.startswith("── RECENT 4 ─") for text in texts)
     assert f"\x1b[{title}mQUOTA [OK]\x1b[0m\x1b[{dim}m · \x1b[0mmeasured remaining" in screen  # title, dim separator
@@ -358,7 +358,7 @@ def test_the_forecast_legend_replaces_the_state_legend_and_the_even_burn_sentenc
 
 
 def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns():
-    screen = expand(detail_payload(), width=140)
+    screen = expand(detail_payload(), show_quota_notes=True, width=140)
     quota = block(screen, "QUOTA")
     for row in (" cx X-30D n/a not reported (plan prolite)", " ag STALE:window; next: peerhub observation refresh --peers ag",
                 " cc F-7D evidence UNKNOWN; next: peerhub observation refresh --peers cc",
@@ -366,7 +366,7 @@ def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns(
                 " ACCOUNTS (plan is display data; the expiry is the login token's, not billing)"):
         assert row in quota, row
     assert "Columns omitted" not in screen and "cc.effort" in next(line for line in quota if " C-7D " in line)
-    narrow = block(expand(detail_payload(), width=60), "QUOTA")
+    narrow = block(expand(detail_payload(), show_quota_notes=True, width=60), "QUOTA")
     assert narrow[1].split()[:4] == ["PEER", "POOL", "STATE", "FORECAST"] and "PROFILES" not in narrow[1]
     omitted = flat(" ".join(line for line in narrow if "omitted" in line.lower() or line.strip() in {
         "profiles", "(configured)", "age", "exhaust-in"}))
@@ -625,7 +625,7 @@ def test_the_lesson_the_readme_and_the_changelog_describe_the_expand_frame():
     assert "### Changed" in release and "`--expand`" in release and sections in release
 
 
-# ---- the plain view and the payload are untouched ---------------------------------------------------------------------
+# ---- the plain view retains its layout; the payload is untouched ------------------------------------------------------
 PLAIN_WIDTHS = (60, 120)
 PLAIN_HEIGHTS = (None, 14, 40)
 PLAIN_PAYLOADS = {"full": full_payload, "detail": detail_payload}
@@ -647,11 +647,11 @@ def test_the_plain_expand_goldens_cover_every_case():
 
 
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in plain_cases()])
-def test_plain_expand_is_byte_identical_to_v0_24_20(case, payload, kwargs):
-    screen = render_grouped_frame(payload, **kwargs)
-    assert screen == GOLDENS[case]
+def test_plain_expand_preserves_v0_24_20_text_except_lead_labels(case, payload, kwargs):
+    screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
+    assert screen == with_lead_count_labels(GOLDENS[case], kwargs["width"])
     assert "\x1b" not in screen and screen.isascii()
-    assert render_grouped_frame(payload, color=True, **kwargs) == screen  # the plain view is never painted
+    assert render_grouped_frame(payload, show_quota_notes=True, color=True, **kwargs) == screen  # the plain view is never painted
 
 
 def test_the_plain_expand_frame_keeps_its_grouped_layout():

@@ -303,7 +303,7 @@ def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
 def test_unknown_and_all_absent_are_never_zero_or_unlimited(compact_frame):
     rows = compact_frame["groups"]["capacity"]["data"]["observations"]
     compact_frame["groups"]["capacity"]["data"]["observations"] = [rows[6]]
-    screen = render_grouped_frame(compact_frame, width=100)
+    screen = render_grouped_frame(compact_frame, show_quota_notes=True, width=100)
     # #374: the PEERS summaries moved to --expand; the n/a row names the plan in its FAMILY cell.
     row = next(line for line in screen.splitlines() if "X-5H" in line)
     assert "n/a" in row.split() and "not reported by plan prolite" in row

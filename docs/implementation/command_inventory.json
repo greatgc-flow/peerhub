@@ -1407,6 +1407,16 @@
           "takes_value": true
         },
         {
+          "default": false,
+          "dest": "compact",
+          "flags": [
+            "--compact"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": null,
           "dest": "cycles",
           "flags": [
@@ -1475,6 +1485,16 @@
           "positional": false,
           "required": false,
           "takes_value": true
+        },
+        {
+          "default": false,
+          "dest": "show_quota_notes",
+          "flags": [
+            "--show-quota-notes"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
         },
         {
           "default": false,
