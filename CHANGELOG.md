@@ -12,6 +12,18 @@ they do not claim new validation or publication evidence.
 
 - `docs/api-credits.md` (#386): where to read the balance of each API by hand, why PeerHub cannot, and what the account-side answers (402 or 429 with `RESOURCE_EXHAUSTED`) mean; measured, reported and vendor statements are kept apart.
 
+### Changed
+
+- `peerhub monitor --expand` in the rich view looks like the compact frame, with the quota on top. Before, it was a third layout: plain pipes on line 1, a `PeerHub Monitor | <status> | <time>` title, ALERTS and ACTIVITY first, and the QUOTA table (8-cell bars, `THREAT`/`ON_PACE` words) only after them, at line 208 of 558 on a store measured with `--snapshot --view rich --expand`.
+  - The frame starts exactly as the compact frame does: the pill line, the header line, `POOLS` and the `suggest:` line. `POOLS` lists every pool: there is no cap and no `+N pools` line, and a 5-hour row that does not bind is listed under its 7-day pool too. The suggestion wraps without a cap. The header no longer says `Fields hidden · --expand`.
+  - One line with the store follows (`DB:env (<path>)`; it wraps on a narrow terminal and is never cut), then the detail sections in one order: ALERTS, RUNNING, LEADS, QUOTA, PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT, any other selected group, and RECENT last. The legend and the coverage footer end the frame as before. The frame's own title line is gone.
+  - QUOTA details: the STATE column is the state of the POOLS row (the same glyph, word and colour), a new FORECAST column carries the projection (`threat`, `on_pace`, `safe`, `insuff`), and the 8-cell bar column is gone. The legend line is `FORECAST: insuff=insufficient projection data; threat=exhausts before reset` (it was `STATE: INSUFF=...`), and the legend's `BAR` line no longer has the even-burn sentence. An evidence state that the state word does not name has a note (`cc F-7D evidence UNKNOWN; next: peerhub observation refresh --peers cc`). ACCOUNTS, the reset credits and the notes are kept.
+  - Every section head is a rule (`── RUNNING 4 · ag 1 cc 2 cx 1 ───`, `── QUOTA [OK] · measured remaining ───`), and the entries have the compact markers with every field kept: a RUNNING entry starts with `►`, `!`, `×` or `?`, a RECENT entry with its state dot, and a lead's `ctx` has its meter. The rows of a section join their fields with ` · `, not ` | `.
+  - One width rule: every line of `--expand` uses the terminal width less one column (the compact frame still stops at 100 columns). Very narrow terminals get fitted lines instead of `Narrow; use >=20 columns`.
+  - `NO_COLOR` keeps this layout without colour (the pill line no longer depends on colour), and output that cannot show Unicode gets the same layout with ASCII glyphs. One palette: the old SGR codes `31`, `32`, `33`, `1;31` and `2` are no longer printed.
+  - On a terminal of bounded height the frame keeps its own top and ends with `+N rows hidden` and the `peerhub monitor --snapshot --group all --expand | more` command (then the coverage line when there is room); a section head never stands alone before that line. A group that failed starts with the class of its error in the unbounded frame too.
+  - Unchanged: the compact frame, `--json`, and `--view plain --expand`, which is byte for byte the 0.24.20 output (pinned by `tests/communication/fixtures/monitor/plain_expand_v0_24_20.json`). The lesson `monitor-view`, the README and `docs/implementation/OBSERVATION_PROBES.md` describe the new frame.
+
 ## [0.24.20] - 2026-11-16
 
 The Gemini API peer `ga` treats a depleted prepay balance as a provider limit (#384; decided unanimously by cc, cx and ag). PeerHub says what each peer needs and where its official page is (#385).

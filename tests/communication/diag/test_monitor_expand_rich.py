@@ -83,7 +83,8 @@ def detail_payload() -> dict[str, Any]:
 
 def eight_pools_payload() -> dict[str, Any]:
     """Eight pools that the compact frame shows whole (six 7-day pools and two binding 5-hour rows), nothing to
-    refresh, one suggestion line: the compact frame's first 12 lines are line 1, line 2, POOLS and the suggestion."""
+    refresh, one suggestion line (two below 100 columns): the compact frame's first 12 lines are line 1, line 2,
+    POOLS and the suggestion."""
     observations = [pool("ag", "3P-5H", .05), pool("ag", "3P-7D", .31, pace=11), pool("ag", "A-7D", .79, pace=14),
                     pool("ag", "G-7D", .97, pace=-4), pool("cc", "C-7D", .63, pace=-20), pool("cc", "F-7D", .57),
                     pool("cx", "X-5H", 0.0, reset=3600), pool("cx", "X-7D", .42, fast=True, pace=31)]
@@ -134,9 +135,11 @@ def test_the_first_12_lines_of_expand_are_the_compact_frames_top(width, color, u
     assert small[:12] == big[:12]
     rule, sep = ("──", "·") if unicode else ("--", "|")
     assert strip(small[2]).startswith(f"{rule} POOLS 8 ") and strip(small[11]).startswith("suggest: ")
-    assert strip(small[12]).startswith(f"{rule} RUNNING 4 {sep} ")  # the compact frame goes on with the activity
-    assert strip(big[12]) == DB_LINE  # --expand: the store, then the detail sections
-    assert strip(big[13]).startswith(f"{rule} ALERTS ") or strip(big[13]).startswith(f"{rule} RUNNING ")
+    end = 12 + (width < 100)  # the suggestion takes a second line below 100 columns
+    assert small[:end] == big[:end]
+    assert strip(small[end]).startswith(f"{rule} RUNNING 4 {sep} ")  # the compact frame goes on with the activity
+    assert strip(big[end]) == DB_LINE  # --expand: the store, then the detail sections
+    assert strip(big[end + 1]).startswith(f"{rule} ALERTS ") or strip(big[end + 1]).startswith(f"{rule} RUNNING ")
 
 
 def test_expand_uses_the_terminal_width_and_the_compact_frame_stays_at_100_columns():
@@ -170,10 +173,13 @@ def test_the_suggestion_wraps_without_a_cap():
         {"profile": f"{peer}.{suffix}", "fields": {"pools": {"value": [pool_name]}}}
         for peer, pool_name in (("cc", "C-7D"), ("cx", "X-7D"), ("ag", "A-7D"))
         for suffix in ("standard", "effort", "deepthink", "a-very-long-top-profile-name")]
-    whole = flat(" ".join(line for line in compact(payload, width=250).splitlines() if line.startswith("suggest:")))
+    wide = compact(payload, width=250).splitlines()  # the compact frame stops at 100 columns: two whole lines
+    first = next(i for i, line in enumerate(wide) if line.startswith("suggest:"))
+    whole = flat(" ".join(wide[first:next(i for i in range(first, len(wide)) if wide[i].startswith("─"))]))
     assert whole.count("=") == 4 and "…" not in whole
-    small = [line for line in compact(payload, width=30).splitlines() if not line.startswith((" ", "─", "+"))][2:]
-    assert len(small) == 2 and small[1].endswith("…")  # the compact frame gives the suggestion two lines
+    narrow = compact(payload, width=30).splitlines()
+    at = next(i for i, line in enumerate(narrow) if line.startswith("suggest:"))
+    assert narrow[at + 1].endswith("…") and narrow[at + 2].startswith("─")  # the compact frame gives it two lines
     lines = expand(payload, width=30).splitlines()
     start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
     end = next(i for i, line in enumerate(lines) if line.startswith("DB:"))
@@ -289,12 +295,15 @@ def test_quota_details_have_the_compact_state_and_a_forecast_column_and_no_bar()
     assert table[1].split() == ["PEER", "POOL", "STATE", "FORECAST", "REM", "RESET-IN", "PACE", "EXHAUST-IN", "AGE",
                                 "PROFILES", "(configured)"]
     assert "[BAR]" not in screen and not re.search(r"\[[█░▏|#.:-]{8}\]", screen)
-    pools = {" ".join(row.replace("└─ ", "").split()[:2]): row.replace("└─ ", "").split()[2:4]
-             for row in block(screen, "POOLS")[1:]}
+    pools: dict[str, list[str]] = {}  # pool name -> [glyph, word] of its POOLS row (a sub-row has no peer cell)
+    for row in block(screen, "POOLS")[1:]:
+        cells = row.replace("└─ ", "").split()
+        at = next(i for i, cell in enumerate(cells[:2]) if re.fullmatch(r"[0-9A-Z]+-\d+[HD]", cell))
+        pools[cells[at]] = cells[at + 1:at + 3]
     rows = quota_rows(screen)
-    assert set(rows) == {name.split()[1] for name in pools} and len(rows) == 11
+    assert set(rows) == set(pools) and len(rows) == 11
     for name, state in pools.items():  # the same glyph and word as the POOLS row
-        assert rows[name.split()[1]][:2] == state, name
+        assert rows[name][:2] == state, name
     assert {name: cells[2] for name, cells in rows.items()} == {
         "3P-7D": "insuff", "3P-5H": "insuff", "A-7D": "-", "G-7D": "insuff", "G-5H": "insuff", "C-7D": "insuff",
         "C-5H": "insuff", "F-7D": "-", "X-7D": "threat", "X-5H": "insuff", "X-30D": "-"}
@@ -336,7 +345,9 @@ def test_quota_details_take_their_colour_from_the_pool_colour():
     screen = expand(detail_payload(), color=True, width=140)
     lines = screen.splitlines()
     start = next(i for i, line in enumerate(lines) if "QUOTA [" in line)
-    pools = [line for line in lines[:start] if re.search(r"-\d+[HD] ", strip(line)) and strip(line).startswith(" ")]
+    first = next(i for i, line in enumerate(lines) if strip(line).startswith("── POOLS "))
+    pools = lines[first + 1:next(i for i, line in enumerate(lines) if strip(line).startswith("suggest:"))]
+    assert len(pools) == 11
     details = [line for line in lines[start:] if re.search(r"-\d+[HD] ", strip(line)) and "FORECAST" not in line]
 
     def state_code(line: str) -> tuple[str, str]:
@@ -430,7 +441,7 @@ def test_leads_entries_list_every_lead_with_a_context_meter():
                  "name docs-site-5a · cwd D:/work/docs-site", "title: Release notes for the spring update",
                  "prompt: Add the section about the importer",
                  "said: The importer section is drafted; running the link check now."):
-        assert text in flat(rows[0]), text
+        assert text.replace(" · ", " ") in flat(rows[0]).replace(" · ", " "), text  # a line may end between two fields
     assert all(line.startswith("   ") for row in rows for line in row.splitlines()[1:])
     assert f"ctx \x1b[{mv.RICH_SGR['bad']}m■■■■□\x1b[0m 106,137" in screen  # 80% or more
     assert f"ctx \x1b[{mv.RICH_SGR['dim']}m─────\x1b[0m 106,137 (window unknown)" in screen  # no value: structure
@@ -483,7 +494,7 @@ def test_no_color_keeps_the_same_layout_without_sgr(build, width, monkeypatch):
 def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     screen = expand(detail_payload(), unicode=False, width=width)
     assert screen.isascii() and "\x1b" not in screen
-    assert heads(screen) == ORDER and len(screen.splitlines()) == len(expand(detail_payload(), width=width).splitlines())
+    assert heads(screen) == ORDER
     lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m")
     assert any(line.startswith("-- POOLS 11 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
@@ -495,6 +506,9 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     assert f"{A['fast']} fast" in " ".join(block(screen, "QUOTA")) and "FORECAST: insuff=" in screen
     kept = expand(detail_payload(), unicode=False, width=width, text_encoding="utf-8")
     assert "결론: 모두 닫힘" in kept and "─" not in kept and "·" not in kept and "●" not in kept  # A5: text stays
+    # the same layout line for line once the text has the same widths (without an encoding, Korean becomes `?`)
+    assert len(kept.splitlines()) == len(expand(detail_payload(), width=width).splitlines())
+    assert heads(kept) == ORDER
     painted = expand(detail_payload(), unicode=False, color=True, width=width)
     assert strip(painted).splitlines()[1:] == lines[1:] and strip(painted).isascii()
 
@@ -545,7 +559,8 @@ def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
 
 def test_a_bounded_height_shows_the_quota_first():
     lines = expand(detail_payload(), height=24).splitlines()
-    assert len(lines) == 23 and heads("\n".join(lines))[0] == "POOLS"
+    # 22 lines of the 23: the RUNNING head would be the last line before the hint, and a head never stands alone
+    assert len(lines) == 22 and heads("\n".join(lines)) == ["POOLS", "ALERTS"]
     assert lines[3].startswith("── POOLS 11 ─") and sum(bool(re.match(r"^ +(\S+ |└─ )[0-9A-Z]+-\d+[HD] ", line)) for line in lines) >= 11
     assert lines[-1].startswith("Coverage: ") and "--expand | more" in lines[-2]
 
@@ -553,6 +568,26 @@ def test_a_bounded_height_shows_the_quota_first():
 def test_the_narrow_hint_keeps_the_count_and_the_command():
     lines = expand(detail_payload(), width=40, height=12).splitlines()
     assert len(lines) <= 11 and any(re.match(r"^\+\d+ ", line) and "--expand | more" in line for line in lines)
+
+
+# ---- the documents say what --expand is --------------------------------------------------------------------------------
+def test_the_lesson_the_readme_and_the_changelog_describe_the_expand_frame():
+    from peerhub.cli.lessons import lesson_by_id, render_lessons_reference
+
+    root = Path(__file__).resolve().parents[3]
+    sections = "ALERTS, RUNNING, LEADS, QUOTA, PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT"
+    fix = lesson_by_id("monitor-view")[0]["fix"]
+    assert "--expand in the rich view is the compact top plus the detail sections" in fix
+    assert sections in fix and "RECENT last" in fix and "FORECAST" in fix and "every pool" in fix
+    assert "gets only the pill" not in fix
+    assert (root / "docs" / "lessons.md").read_text(encoding="utf-8") == render_lessons_reference()
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert sections in readme and "RECENT last" in readme and "FORECAST" in readme
+    assert "no new bars or glyphs" not in readme and "`--expand` has its bars in both views" not in readme
+    probes = (root / "docs" / "implementation" / "OBSERVATION_PROBES.md").read_text(encoding="utf-8")
+    assert sections in probes and "FORECAST" in probes
+    unreleased = (root / "CHANGELOG.md").read_text(encoding="utf-8").split("## [Unreleased]")[1].split("\n## [")[0]
+    assert "### Changed" in unreleased and "`--expand`" in unreleased and sections in unreleased
 
 
 # ---- the plain view and the payload are untouched ---------------------------------------------------------------------
