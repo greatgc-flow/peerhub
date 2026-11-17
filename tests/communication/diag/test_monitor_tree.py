@@ -418,10 +418,12 @@ def test_tree_height_sweep_keeps_bounds_and_never_shows_child_without_parent(exp
 
 
 @EXPAND_ONLY
-def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool) -> None:
+def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-7D", "C-5H"]})
     observations = frame["groups"]["capacity"]["data"]["observations"]
     original = next(item for item in observations if item["pool_ref"].endswith("C-7D"))
+    original["measurements"]["remaining_fraction"] = .05
     observations.append({**deepcopy(original), "pool_ref": "other:cc:C-7D",
                          "measurements": {"remaining_fraction": .87, "reset_in_seconds": 3000}})
     # Skipped probe rows must not shift the source association of table rows.
@@ -431,10 +433,17 @@ def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool) -> N
     rows = pool_lines(screen)
     assert len(rows) == 3
     assert all("`-" not in row and "|-" not in row for row in rows)
-    assert "20%" in rows[1] and "87%" in rows[2]
+    assert "5%" in rows[1] and "87%" in rows[2]
     assert frame == before
     compact = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180)  # each keeps its own value
-    assert "20%" in compact and "87%" in compact and "10%" in compact
+    assert "5%" in compact and "87%" in compact and "10%" in compact
+    rich = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
+    quota_rows = [row for row in detail_lines(rich) if "C-7D" in row]
+    assert len(quota_rows) == 2
+    for row, state, left, colour in zip(quota_rows, ("▼ low", "● ok"), ("5%", "87%"), ("bad", "ok")):
+        assert re.search(rf"{state}.*{left}", mv._ANSI.sub("", row))
+        assert f"\x1b[{mv.RICH_SGR[colour]}m{state}\x1b[0m" in row
+    assert frame == before
 
 
 def test_compact_pools_have_no_blank_lines_between_peers() -> None:

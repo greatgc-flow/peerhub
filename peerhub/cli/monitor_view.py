@@ -334,7 +334,7 @@ def _quota_color(state: str, remaining: float | None = None, *, aged: bool = Fal
 
 
 def _quota_cell(text: str, column: str, code: str | None) -> str:
-    if column in {"STATE", "BAR", "[BAR]"}:
+    if column == "STATE":
         return _paint(text, code)
     if column == "PACE" and text[:1] in {"▲", "▼", "^", "v"}:
         return _paint(text[0], code) + text[1:]
@@ -416,9 +416,9 @@ def _rule(title: str, rest: str, width: int, unicode: bool, paint: bool) -> str:
     return f"{line(2)} {_paint(title, RICH_SGR['title']) if paint else title}{rest}{tail}"
 
 
-def _section_rule(label: str, width: int, unicode: bool, color: bool = False) -> str:
+def _section_rule(label: str, width: int, unicode: bool) -> str:
     label = _fit_fields(label, max(0, width - 4), unicode)
-    return _fit(_rule(label, "", width, unicode, color), width, unicode, painted=True)
+    return _fit(_rule(label, "", width, unicode, False), width, unicode)
 
 
 _FRONT_GROUPS = ("alerts", "activity")  # --expand: every alert, then the activity section, then today's groups
@@ -1360,7 +1360,7 @@ def _fallback_rows(data: dict[str, Any], prefix: str = "", depth: int = 0) -> li
     return [row for row in rows if not row.startswith("Coverage:")] or ["No data"]
 
 
-def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
+def _render_unbounded_frame(payload: dict[str, Any], *, view: str,
                             unicode: bool, width: int, expand: bool = False, keep: str | None = None) -> str:
     """Keep the append-only pipe/plain layout stable; it is not a TTY viewport."""
     target_width = max(0, width - 1)
@@ -1400,14 +1400,14 @@ def _render_unbounded_frame(payload: dict[str, Any], *, view: str, color: bool,
         status = _clean(group.get("status") or "UNKNOWN").upper()
         label = _group_label(group_id, group, status, read_at, elapsed_seconds)
 
-        rule = _section_rule(label, target_width, unicode, color)
+        rule = _section_rule(label, target_width, unicode)
         lines.append(rule)
 
         group_data, _ = _group_lines(group_id, group, width=target_width, unicode=unicode,
-                                  elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, color=color, keep=keep)
+                                  elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, keep=keep)
         for content in group_data:
             if group_id == "capacity":
-                lines.append(_fit(content, target_width, unicode, painted=color, indent=True))
+                lines.append(_fit(content, target_width, unicode, indent=True))
             else:
                 lines.append(_fit("  " + content, target_width, unicode))
 
@@ -2613,13 +2613,12 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     if rich:
         return _rich_expanded_frame(payload, display, store_lines, footer, color=color, unicode=unicode, width=width,
                                     height=height, expand=expand, keep=keep)
-    color = False  # the plain view is never painted
     payload = _with_min_quota(payload, _frame_pools(payload, {})[2])
     verdict = verdict_line(payload, max(1, width - 1), unicode, keep)
     # #374: the verdict is line 1; the grouped frame below it is laid out for one terminal line less.
     inner_height = None if height is None else height - 1
     overhead = 1 + len(store_lines)
-    rendered = _render_grouped_frame(display, view=view, color=color, unicode=unicode, width=width,
+    rendered = _render_grouped_frame(display, view=view, unicode=unicode, width=width,
                                      height=inner_height, expand=expand, reserved_lines=overhead, keep=keep)
     if (height is not None and height <= 1) or width <= 1:
         return ""
@@ -2772,7 +2771,8 @@ def _rich_expanded_frame(payload: dict[str, Any], display: dict[str, Any], store
     now = None if read_at is None else read_at + elapsed
     pool_rows: dict[tuple[str, str], dict[str, Any]] = {}
     for row in _frame_pools(payload, {})[2]:  # the rows POOLS drew: the QUOTA details show the same state
-        pool_rows.setdefault((str(row["peer"]), str(row["pool"])), row)
+        key = (str(row["peer"]), str(row["pool"]))
+        pool_rows[key] = {} if key in pool_rows else row  # duplicate names use each observation's own source
     recent: list[str] = []
     for group_id in [*(gid for gid in _RICH_ORDER if gid in selected), *(gid for gid in selected if gid not in _RICH_ORDER)]:
         group = _obj(groups.get(group_id))
@@ -2807,7 +2807,6 @@ def _rich_expanded_frame(payload: dict[str, Any], display: dict[str, Any], store
         return "\n".join([*lines, footer]) + "\n"
     for tail in ([footer], []):  # the coverage line gives way before a line of the frame's top does
         kept = limit - len(tail) - 1
-        hint: list[str] = []
         while kept >= 1:
             while kept > 1 and _is_head(lines[kept - 1]):  # never a head without a row before the hint
                 kept -= 1
@@ -2819,12 +2818,12 @@ def _rich_expanded_frame(payload: dict[str, Any], display: dict[str, Any], store
     return "\n".join([lines[0], short][:limit]) + "\n"
 
 
-def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
+def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich",
                          unicode: bool = True, width: int = 100, height: int | None = None,
                          expand: bool = False, reserved_lines: int = 0, keep: str | None = None) -> str:
     """Render a cached schema-2 frame; height enables bounded interactive layout."""
     if height is None:
-        return _render_unbounded_frame(payload, view=view, color=color, unicode=unicode, width=width, expand=expand,
+        return _render_unbounded_frame(payload, view=view, unicode=unicode, width=width, expand=expand,
                                        keep=keep)
     width = max(1, width)
     height = max(1, height)
@@ -2905,9 +2904,9 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         grp = _obj(groups.get(gid))
         st = _clean(grp.get("status") or "UNKNOWN").upper()
         lbl = _group_label(gid, grp, st, read_at, elapsed_seconds)
-        rule = _section_rule(lbl, target_width, unicode, color)
+        rule = _section_rule(lbl, target_width, unicode)
         data_rows, table_size = _group_lines(gid, grp, width=target_width, unicode=unicode,
-                                 elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, color=color, bounded=True,
+                                 elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, bounded=True,
                                  keep=keep)
         if st in {"ERROR", "FAILED"}:
             data_rows.insert(0, _group_error(payload, gid))
@@ -2915,7 +2914,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
         content_lines: list[str] = []
         for r in data_rows:
             if gid == "capacity":
-                content_lines.append(_fit_fields(r, target_width, unicode, painted=color, indent=True))
+                content_lines.append(_fit_fields(r, target_width, unicode, indent=True))
             else:
                 content_lines.append(_fit_fields("  " + r, target_width, unicode))
         blocks.append((gid, _priority(grp), rule, content_lines))
@@ -2923,7 +2922,7 @@ def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color:
             if table_size < len(content_lines):
                 blocks[-1] = (gid, _priority(grp), rule, content_lines[:table_size])
                 blocks.append(("capacity_details", _priority(grp),
-                               _section_rule(f"QUOTA [{st}] notes / ACCOUNTS", target_width, unicode, color),
+                               _section_rule(f"QUOTA [{st}] notes / ACCOUNTS", target_width, unicode),
                                content_lines[table_size:]))
 
     peer_count = len(_items(_obj(_obj(groups.get("peers")).get("data")).get("peers")))
