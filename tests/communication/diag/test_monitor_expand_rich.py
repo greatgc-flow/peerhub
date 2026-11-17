@@ -333,7 +333,7 @@ def test_stale_duplicate_pool_names_keep_each_human_observations_state(unicode):
 
 @pytest.mark.parametrize("elapsed", [0, 2])
 def test_quota_remaining_matches_pools_after_reset_passes(elapsed):
-    payload = _payload([], [pool("cc", "C-7D", .10, reset=-1 if elapsed == 0 else 1)],
+    payload = _payload([], [pool("cc", "C-7D", .10, fast=True, pace=31.0, reset=-1 if elapsed == 0 else 1)],
                        display_elapsed_seconds=elapsed)
     screen = expand(payload, width=160)
     pool_cells = block(screen, "POOLS")[1].split()
@@ -341,6 +341,7 @@ def test_quota_remaining_matches_pools_after_reset_passes(elapsed):
     assert pool_cells[2:4] == quota_cells[:2] == [U["aged"], "reset"]
     assert pool_cells[5] == "-"
     assert quota_cells[3] == pool_cells[5]
+    assert quota_cells[5] == pool_cells[7] == "-"  # PACE too: no old pace after the reset time
 
 
 def test_the_forecast_legend_replaces_the_state_legend_and_the_even_burn_sentence_goes():

@@ -972,6 +972,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     glyphs = RICH_GLYPHS[unicode]
                     cells["STATE"] = f"{glyphs.get(str(summary['state']), glyphs['aged'])} {summary['state']}"
                     cells["REM"] = summary["left"]
+                    if summary["pace"] == "-":  # no pace after the reset time, as in POOLS
+                        cells["PACE"] = "-"
                 cells["PEER"], cells["POOL"] = row["display_peer"], row["display_pool"]
             table = [row["cells"] for row in layout]
             natural = bounded or rich  # a column is as wide as its widest cell; the unbounded plain table has minimums
