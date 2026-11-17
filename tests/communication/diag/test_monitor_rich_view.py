@@ -135,7 +135,8 @@ def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
     assert line.index("LEFT") + len("LEFT") == rows[0].index("42%") + len("42%")  # titles sit over their columns
 
 
-@pytest.mark.parametrize("head", ["RUNNING 4 · ag 1 cc 2 cx 1", "LEADS 4 · partial (1 unreadable, 2 not read)", "RECENT 4"])
+@pytest.mark.parametrize("head", ["RUNNING 4 · ag 1 cc 2 cx 1",
+                                  "LEADS 4 entries · partial (1 unreadable, 2 not read) · 3 sessions found", "RECENT 4"])
 def test_the_other_rules_keep_their_head_content(head):
     line = row_of(strip(rich(full_payload())), head.split(" · ")[0])
     assert line.startswith(f"── {head} ─") and _width(line) == 99

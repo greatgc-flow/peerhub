@@ -1,9 +1,11 @@
-"""P21 C3: the plain compact frame of 0.24.18 is the 0.24.17 text with its sections in the new order.
+"""The plain compact frame retains the 0.24.17 text outside intentional section/lead-header changes.
 
 The goldens in `tests/communication/fixtures/monitor/plain_v0_24_17.json` were captured from the `v0.24.17` tag: every
 case of `golden_cases()` rendered by that tag's `peerhub/cli/monitor_view.py` (widths, heights and output encodings).
 The new order is verdict, header, POOLS, the suggestion, RUNNING, LEADS, RECENT; 0.24.17 printed verdict, header,
 RUNNING, LEADS, RECENT, the suggestion, POOLS.
+0.24.22 labels LEADS entries and found sessions separately. The frozen tag fixtures stay unchanged; the
+expected text below replaces only their lead headers with explicit new labels before the byte comparison.
 """
 from __future__ import annotations
 
@@ -130,15 +132,33 @@ def in_order(screen: str, order: tuple[str, ...]) -> str:
 GOLDENS: dict[str, str] = json.loads(GOLDEN.read_text(encoding="utf-8")) if GOLDEN.exists() else {}
 
 
+def with_lead_count_labels(screen: str, width: int) -> str:
+    """The only new text in these historical payloads: known entry/session counts, ASCII-fitted to width - 1.
+
+    The full payload has four entries, three sessions and a partial read. The empty-quota payload has one
+    caller entry, no session and a complete session read. Neither the renderer nor its helpers provide this oracle.
+    """
+    labels = {
+        "1": "LEADS 1 entry | 0 sessions found",
+        "4": "LEADS 4 entries | partial (1 unreadable, 2 not read) | 3 sessions found",
+    }
+    lines = screen.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("LEADS "):
+            label = labels[line.split()[1]]
+            lines[index] = label if len(label) < width else label[:width - 2] + "~"
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
 def test_the_goldens_cover_every_case():
     assert sorted(GOLDENS) == sorted(case for case, _, _ in golden_cases())
     assert len(GOLDENS) == 100
 
 
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in golden_cases()])
-def test_plain_frame_is_the_0_24_17_text_with_its_sections_permuted(case, payload, kwargs):
+def test_plain_frame_preserves_0_24_17_text_except_section_order_and_lead_labels(case, payload, kwargs):
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
-    assert in_order(screen, OLD_ORDER) == GOLDENS[case]  # byte for byte, once the sections are back in the old order
+    assert in_order(screen, OLD_ORDER) == with_lead_count_labels(GOLDENS[case], kwargs["width"])
     assert in_order(screen, NEW_ORDER) == screen  # and the new frame prints them in the new order
     assert "\x1b" not in screen
 

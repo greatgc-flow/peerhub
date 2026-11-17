@@ -18,6 +18,7 @@ they do not claim new validation or publication evidence.
 ### Changed
 
 - Quota notes such as `not reported by plan pro` and `disabled by provider` are hidden by default in compact and expanded output. The `n/a` state and family stay visible. Add `--show-quota-notes` to display those explanations; this does not hide actionable dependency blocks or collection errors.
+- The `LEADS` header names its list entries and found sessions separately, for example `LEADS 2 entries | 1 session found`. Expanded output retains earlier caller entries with no session; compact output retains entries with a session or running ask. The first-line lead count still means distinct callers attached to open asks. A found session is not necessarily confirmed alive. Collection, stored data and JSON counts are unchanged.
 
 ### Added
 

@@ -1280,7 +1280,7 @@ def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep:
     for row, context in ended:
         rows.extend(_ask_rows(row, width, unicode, keep, context))
     leads = _items(data.get("leads"))
-    rows.append(_leads_header(data, len(leads)))
+    rows.append(_leads_header(data, leads))
     for lead in leads:
         rows.extend(_lead_rows(lead, now, width, unicode, keep))
     rows.extend(_activity_notes(data, width))
@@ -2115,16 +2115,26 @@ def _activity_sections(groups: dict[str, Any], width: int, unicode: bool, keep: 
     return [head_line(head), *rows], total, recent
 
 
-def _leads_header(data: dict[str, Any], count: int) -> str:
-    """`LEADS n`, with `| partial (...)` or `| read failed` when the lead sessions were not read completely (#376 3.4);
-    the count is `?` when such a read leaves nothing to count."""
+def _leads_header(data: dict[str, Any], leads: list[dict[str, Any]]) -> str:
+    """Count the displayed entries and matched sessions separately; a found session need not be confirmed alive.
+
+    Keep read warnings before the session statistic so they survive a narrow frame. With no rows after an incomplete
+    read the entry count stays `?`; an older payload with no read evidence must not claim zero sessions were found.
+    """
+    count = len(leads)
     read = _obj(data.get("leads_read"))
     state = read.get("state")
     notes = [f"{_count(read.get(key))} {words}" for key, words in (("unreadable", "unreadable"), ("not_read", "not read"))
              if (_number(read.get(key)) or 0) > 0]
     note = (" | partial" + (f" ({', '.join(notes)})" if notes else "") if state == "partial"
             else " | read failed" if state == "error" else "")
-    return f"LEADS {'?' if note and count == 0 else count}{note}"
+    if note and count == 0:
+        return f"LEADS ?{note}"
+    header = f"LEADS {count} {'entry' if count == 1 else 'entries'}{note}"
+    sessions = sum(bool(_obj(lead.get("session"))) for lead in leads)
+    if sessions or state in {"read", "partial", "error"}:
+        header += f" | {sessions} {'session' if sessions == 1 else 'sessions'} found"
+    return header
 
 
 def _ctx_cell(item: dict[str, Any]) -> str:
@@ -2170,8 +2180,8 @@ def _leads_section(groups: dict[str, Any], now: float, width: int, unicode: bool
     as a rule and the context as a meter, unless the meter would cost a column."""
     data = _obj(_obj(groups.get("activity")).get("data"))
     leads = [lead for lead in _items(data.get("leads")) if lead.get("session") or (_number(lead.get("running")) or 0) > 0]
-    header = _leads_header(data, len(leads))
-    if not leads and header == "LEADS 0":
+    header = _leads_header(data, leads)
+    if not leads and _obj(data.get("leads_read")).get("state") not in {"partial", "error"}:
         return None, 0
     table = [_lead_cells(lead, now, unicode, keep) for lead in leads[:LEADS_CAP]]
     titled = any(row[-1] for row in table)
@@ -2805,7 +2815,7 @@ def _rich_activity(group: dict[str, Any], payload: dict[str, Any], now: float | 
     for lead in leads:  # a lead has no mark: its label starts the entry
         rows.extend(_rich_entry("", _lead_rows(lead, now, max(1, width - 3), unicode, keep, sep=sep, meter=True,
                                                paint=paint)))
-    front.extend(_rich_section(_leads_header(data, len(leads)), rows, width, unicode, paint))
+    front.extend(_rich_section(_leads_header(data, leads), rows, width, unicode, paint))
     head, ended = _recent_asks(data, now)
     rows = []
     for row, context in ended:
