@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import sys
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -31,6 +32,14 @@ MONITOR_LEGEND = (
     "CTX est: estimated context of a cc session at the end of its last ask (percent of the model's maximum input, with"
     " its age); not a live measurement",
 )
+# The legend line of the FORECAST column in the QUOTA details of the rich --expand frame (P23).
+FORECAST_LEGEND = "FORECAST: insuff=insufficient projection data; threat=exhausts before reset"
+
+
+def _rich_legend(sep: str) -> list[str]:
+    """MONITOR_LEGEND for the rich --expand frame: the view's separator, and no even-burn tick sentence (that frame
+    draws the POOLS bar, which has no tick; the 8-cell bar with the tick is the plain view's)."""
+    return [("BAR=remaining" if text.startswith("BAR=") else text).replace(" | ", sep) for text in MONITOR_LEGEND]
 
 
 def _obj(value: object) -> dict[str, Any]:
@@ -162,14 +171,13 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool) -> tuple[list[dict[
     return result, notes
 
 
-def _quota_suffix(line: str, suffix: str, width: int, unicode: bool, color: bool) -> list[str]:
-    """Keep folded names even when the trailing columns were dropped."""
+def _quota_suffix(line: str, suffix: str, width: int, unicode: bool, code: str | None) -> list[str]:
+    """Keep folded names even when the trailing columns were dropped. `code` paints them (None: no colour)."""
     if not suffix:
         return [line]
-    note = _paint(suffix, "2") if color else suffix
     if _width(line + " " + suffix) <= width:
-        return [line + " " + note]
-    return [line, *[_paint(part, "2") if color else part for part in _compact_wrap(suffix, width)]]
+        return [line + " " + _paint(suffix, code)]
+    return [line, *[_paint(part, code) for part in _compact_wrap(suffix, width)]]
 
 
 def _fit_fields(text: str, width: int, unicode: bool, painted: bool = False, *, inline_note: bool = True,
@@ -504,8 +512,12 @@ def _session_contexts(groups: dict[str, Any]) -> dict[tuple[str, str], dict[str,
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
                  elapsed_seconds: float = 0.0, read_at: float | None = None,
                  expand: bool = False, color: bool = False, bounded: bool = False,
-                 keep: str | None = None) -> tuple[list[str], int]:
-    """Return rendered data rows and the length of the QUOTA table prefix."""
+                 keep: str | None = None, rich: bool = False) -> tuple[list[str], int]:
+    """Return rendered data rows and the length of the QUOTA table prefix.
+
+    `rich` (the rich --expand frame, P23): a row joins its fields with the view's separator, never ` | `; the QUOTA
+    table has the compact STATE cell and a FORECAST column instead of the 8-cell bar, with its own legend line; and
+    `color` paints with the palette of the compact frame. Without `rich` the rows are the plain view's, unpainted."""
     data = _obj(group.get("data"))
     if data == {} and group.get("data") is None:
         return ["data unavailable"], 0
@@ -513,6 +525,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     table_size = 0
     sep = " · " if unicode else " | "
     dot = "·" if unicode else "|"
+    bar = sep if rich else " | "  # joins the fields of a row that the plain view joins with a pipe in both glyph sets
     now = None if read_at is None else read_at + elapsed_seconds  # the time of this frame, for the age of an estimate
 
     if group_id == "overview":
@@ -649,8 +662,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 rows.append(f"{prefix}-> latest session: {s_wide}{' -> context: ' + c_wide if c_wide != 'unknown' else ''}")
 
         if narrow_peers:  # one field set for all peers: drop trailing fields whole, never cut one with `~`
-            shown = _visible_fields(narrow_peers, " | ", width - 2, keep=1)
-            rows.extend(" | ".join(field for field in fields[:shown] if field) for fields in narrow_peers)
+            shown = _visible_fields(narrow_peers, bar, width - 2, keep=1)
+            rows.extend(bar.join(field for field in fields[:shown] if field) for fields in narrow_peers)
             if shown < 4:
                 rows.extend(_omitted_rows([name for name, i in (("profile", 1), ("session", 2), ("ctx", 3))
                                            if i >= shown and any(fields[i] for fields in narrow_peers)], width - 2))
@@ -679,9 +692,10 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
         footer = (
             f"Model facts: {rev_str}{sep}{obs_str}{sep}"
-            "sources: codex debug models | agy models | claude: known ids"
+            f"sources: codex debug models{bar}agy models{bar}claude: known ids"
         )
-        rows.append(_fit(footer, max(0, width - 1), unicode))
+        # The rich --expand frame wraps a long line (nothing is cut); the plain view fits it to one line.
+        rows.extend(_compact_wrap(footer, max(1, width)) if rich else [_fit(footer, max(0, width - 1), unicode)])
 
         facts_rep: object = data.get("facts_report")
         if isinstance(facts_rep, dict):
@@ -708,7 +722,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 facts_line = "Facts: unverified"
             else:
                 facts_line = f"Facts: {status}" if status else "Facts: unknown"
-            rows.append(_fit(facts_line, max(0, width - 1), unicode))
+            rows.extend(_compact_wrap(facts_line, max(1, width)) if rich
+                        else [_fit(facts_line, max(0, width - 1), unicode)])
 
     elif group_id == "execution":
         scopes = _items(data.get("scopes"))
@@ -841,9 +856,13 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             sorted_obs = sorted(observations, key=_quota_sort_key)
             probe_notes: dict[str, set[str]] = {}
             na_notes: list[str] = []
+            evidence_notes: list[str] = []  # rich: the evidence state that the compact STATE cell does not name
             # Columns are listed by priority (left first); a too-wide table drops whole columns from the right.
             column_widths = {"PEER": 4, "POOL": 8, "STATE": 12, "REM": 5, "RESET-IN": 9, "PACE": 9,
                              "[BAR]": 10, "EXHAUST-IN": 13, "AGE": 5, "PROFILES (configured)": 24}
+            if rich:  # P23: STATE is the POOLS cell (glyph and word), the forecast has its own column, no 8-cell bar
+                column_widths = dict.fromkeys(("PEER", "POOL", "STATE", "FORECAST", "REM", "RESET-IN", "PACE",
+                                               "EXHAUST-IN", "AGE", "PROFILES (configured)"), 0)
             table: list[dict[str, str]] = []
             sources: list[dict[str, Any]] = []
 
@@ -872,7 +891,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     sources.append(item)
                     table.append({
                         "PEER": peer, "POOL": pool_id, "REM": "n/a" if fresh else "-",
-                        "[BAR]": _bar_quota(None), "RESET-IN": "-", "EXHAUST-IN": "-", "PACE": "-",
+                        "[BAR]": _bar_quota(None), "RESET-IN": "-", "EXHAUST-IN": "-", "PACE": "-", "FORECAST": "-",
                         "STATE": "n/a" if fresh else "?", "AGE": "-" if item.get("display_retired") else age_str,
                         "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
                     continue
@@ -917,6 +936,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
 
                     proj_state = _clean(projection.get("state") or "").upper()
                     state_str = "INSUFF" if proj_state == "INSUFFICIENT" else proj_state or "MEASURED"
+                    forecast = "insuff" if proj_state == "INSUFFICIENT" else proj_state.lower() or "-"
                 else:
                     # STALE/UNKNOWN rows keep identity+reason, no usable capacity shown
                     rem_str = "-"
@@ -925,11 +945,15 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     exhaust_str = "-"
                     pace_str = "-"
                     state_str = "STALE:window" if state == "STALE" else state
+                    forecast = "-"
+                    if state != "STALE":  # a stale window has its `STALE:window` note below
+                        evidence_notes.append(f"{peer} {pool_id} evidence {state}; "
+                                              f"next: peerhub observation refresh --peers {peer}")
 
                 sources.append(item)
                 table.append({"PEER": peer, "POOL": pool_id, "REM": rem_str,
                               "[BAR]": bar_str, "RESET-IN": reset_str,
-                              "EXHAUST-IN": exhaust_str, "PACE": pace_str,
+                              "EXHAUST-IN": exhaust_str, "PACE": pace_str, "FORECAST": forecast,
                               "STATE": state_str, "AGE": age_str,
                               "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
 
@@ -938,13 +962,21 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                  "profiles": cells["PROFILES (configured)"], "cells": cells, "source": item,
                  "retired": item.get("display_retired"), "display_plan": item.get("display_plan")}
                 for cells, item in zip(table, sources)], unicode)
+            pool_rows = cast(dict[tuple[str, str], dict[str, Any]], data.get("_pool_rows") or {})
             for row in layout:
                 cells = row["cells"]
+                if rich:  # the row POOLS draws for this pool (the frame's rows), so both show one glyph and word
+                    summary = pool_rows.get((str(row["peer"]), str(row["pool"]))) or _compact_pool(
+                        row["source"], read_at or 0, elapsed_seconds, {})
+                    row["summary"] = summary
+                    glyphs = RICH_GLYPHS[unicode]
+                    cells["STATE"] = f"{glyphs.get(str(summary['state']), glyphs['aged'])} {summary['state']}"
                 cells["PEER"], cells["POOL"] = row["display_peer"], row["display_pool"]
             table = [row["cells"] for row in layout]
+            natural = bounded or rich  # a column is as wide as its widest cell; the unbounded plain table has minimums
             # One column set for the whole table; PEER and POOL always stay, and no cell is cut.
-            sizes = {c: max(_width(c) if bounded else w, *(_width(cells[c]) for cells in table))
-                     if table else (_width(c) if bounded else w) for c, w in column_widths.items()}
+            sizes = {c: max(_width(c) if natural else w, *(_width(cells[c]) for cells in table))
+                     if table else (_width(c) if natural else w) for c, w in column_widths.items()}
             sizes["POOL"] = max(_width("POOL"), *(_width(cells["POOL"]) for cells in table)) if table else 4
             suffix_width = max((_width(str(row["suffix"])) + 1 for row in layout if row["suffix"]), default=0)
             columns = list(column_widths)
@@ -957,26 +989,33 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                                  else shown[c] + " " * (sizes[c] - _width(cells[c])) for c in columns).rstrip()
 
             rows.append(table_line({c: c for c in column_widths}))
+            # Only the rich view paints (P23): a row takes the one colour of its POOLS row (`_pool_colour`) on the
+            # STATE cell and the pace arrow; an n/a row and a note are dim.
+            dim = RICH_SGR["dim"] if rich and color else None
             previous_peer = ""
             for row in layout:
-                if previous_peer and previous_peer != row["peer"]:
+                if previous_peer and previous_peer != row["peer"] and not rich:
                     rows.append("")
                 previous_peer = row["peer"]
-                item = row["source"]
-                summary = _compact_pool(item, read_at or 0, elapsed_seconds, {})
-                invalid = (item.get("state") == "STALE" or bool(summary["aged"])
-                           or summary["state"] in {"reset", "?", "n/a"})
-                code = _quota_color(row["cells"]["STATE"], _number(summary["remaining"]), aged=invalid) if color else None
-                line = (_paint(table_line(row["cells"]), "2") if color and row["state"] == "n/a"
-                        else table_line(row["cells"], code))
-                rows.extend(_quota_suffix(line, str(row["suffix"]), width, unicode, color))
+                colour = _pool_colour(row["summary"]) if rich and color else None
+                line = (_paint(table_line(row["cells"]), dim) if row["state"] == "n/a"
+                        else table_line(row["cells"], RICH_SGR[colour] if colour else None))
+                rows.extend(_quota_suffix(line, str(row["suffix"]), width, unicode, dim))
             table_size = len(rows)
+
+            def note_rows(text: str) -> list[str]:  # the rich view wraps a note; the plain view fits it to one line
+                return _compact_wrap(text, max(1, width)) if rich else [_fit(text, width, unicode)]
+
             # Keep reasons for folded pools; retired pools already have a combined note.
-            rows.extend(_paint(_fit(note, width, unicode), "2") if color else _fit(note, width, unicode)
-                        for note in [*retired_notes, *na_notes])
-            rows.extend(_fit(f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}", width, unicode) for peer, codes in probe_notes.items())
+            rows.extend(_paint(part, dim) for note in [*retired_notes, *na_notes] for part in note_rows(note))
+            if rich:
+                rows.extend(part for note in evidence_notes for part in note_rows(note))
+            rows.extend(part for peer, codes in probe_notes.items() for part in note_rows(
+                f"{peer} {' '.join(sorted(codes))}; next: peerhub observation refresh --peers {peer}"))
             if len(columns) < len(column_widths):
                 rows.extend(_omitted_rows(["bar" if c == "[BAR]" else c.lower() for c in list(column_widths)[len(columns):]], width))
+            if rich and layout and "FORECAST" in columns:
+                rows.extend(_paint(part, dim) for part in _compact_wrap(FORECAST_LEGEND, max(1, width)))
 
         else:
             rows.append("Quota capacity: no observations")
@@ -987,10 +1026,10 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             left = None if expires is None or read_at is None else expires - read_at - elapsed_seconds
             expiry = "-" if expires is None else f"in {_format_duration(left)}" if left and left > 0 else datetime.fromtimestamp(expires, timezone.utc).strftime("%Y-%m-%d %H:%MZ")
             state = _clean(credit.get("state") or "UNKNOWN")
-            rows.append(f"{_peer(credit)} reset credits: {count} | soonest {expiry} [{state}]")
+            rows.append(f"{_peer(credit)} reset credits: {count}{bar}soonest {expiry} [{state}]")
         account_items = _items(data.get("accounts"))
         if account_items:
-            rows.extend(_account_rows(account_items, elapsed_seconds))
+            rows.extend(_account_rows(account_items, elapsed_seconds, bar, max(1, width) if rich else None))
         note = _coverage(data, unicode)
         if note:
             rows.append(f"Coverage: {note}")
@@ -1020,7 +1059,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
         rows.append(f"Schema {_count(data.get('schema_version'))}{sep}database {_size(data.get('database_size_bytes'))}")
 
     elif group_id == "alerts":
-        rows.extend(_alert_row(alert, unicode, keep) for alert in _items(data.get("alerts")))
+        rows.extend(_alert_row(alert, unicode, keep, bar) for alert in _items(data.get("alerts")))
         rows.extend(_cell(row, unicode, "-", keep) for row in cast(list[object], data.get("unread") or []))  # A7
         if not rows:
             rows.append("none")
@@ -1036,11 +1075,11 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
     return [row for row in rows if not row.startswith("Coverage:")] or ["No data"], table_size
 
 
-def _alert_row(alert: dict[str, Any], unicode: bool = True, keep: str | None = None) -> str:
+def _alert_row(alert: dict[str, Any], unicode: bool = True, keep: str | None = None, sep: str = " | ") -> str:
     age = _number(alert.get("age_s"))
-    return (f"{_cell(alert.get('kind'), unicode, '?', keep)}: {_cell(alert.get('subject'), unicode, '?', keep)} | "
-            f"age {'-' if age is None else _compact_age(age)} | {_cell(alert.get('severity'), unicode, '?', keep)} | "
-            f"{_cell(alert.get('code'), unicode, '?', keep)}")
+    return sep.join((f"{_cell(alert.get('kind'), unicode, '?', keep)}: {_cell(alert.get('subject'), unicode, '?', keep)}",
+                     f"age {'-' if age is None else _compact_age(age)}", _cell(alert.get("severity"), unicode, "?", keep),
+                     _cell(alert.get("code"), unicode, "?", keep)))
 
 
 def _stamp(value: object) -> str:
@@ -1048,13 +1087,13 @@ def _stamp(value: object) -> str:
     return "?" if number is None else _utc_text(number, "%Y-%m-%d %H:%M:%SZ") or "?"
 
 
-def _pack(fields: Sequence[str], width: int) -> list[str]:
-    """Whole fields joined by ' | ' and carried to the next line; only a field wider than a line wraps by words."""
+def _pack(fields: Sequence[str], width: int, sep: str = " | ") -> list[str]:
+    """Whole fields joined by `sep` and carried to the next line; only a field wider than a line wraps by words."""
     lines: list[str] = []
     line = ""
     for item in fields:
-        if line and _width(line + " | " + item) <= width:
-            line += " | " + item
+        if line and _width(line + sep + item) <= width:
+            line += sep + item
             continue
         if line:
             lines.append(line)
@@ -1113,13 +1152,21 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
     return fields
 
 
-def _ask_rows(row: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None,
-              context: str | None = None) -> list[str]:
-    lines = _pack(_ask_fields(row, unicode, keep, context), max(1, width - 2))
-    lines[0] = "- " + lines[0]  # marks where each ask starts; continuation lines carry no mark
+def _ask_lines(row: dict[str, Any], fields_width: int, text_width: int, unicode: bool = True, keep: str | None = None,
+               context: str | None = None, sep: str = " | ") -> list[str]:
+    """One ask without a mark: its fields packed to `fields_width`, then its reply (an ended ask) and its ask text
+    wrapped to `text_width`."""
+    lines = _pack(_ask_fields(row, unicode, keep, context), max(1, fields_width), sep)
     texts = [] if _is_open(row) else [("reply", row.get("reply_line_long"))]
     for label, text in [*texts, ("ask", row.get("ask_line_long"))]:
-        lines.extend(_compact_wrap(f"{label}: {_cell(text, unicode, '-', keep)}", width))
+        lines.extend(_compact_wrap(f"{label}: {_cell(text, unicode, '-', keep)}", max(1, text_width)))
+    return lines
+
+
+def _ask_rows(row: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None,
+              context: str | None = None) -> list[str]:
+    lines = _ask_lines(row, width - 2, width, unicode, keep, context)
+    lines[0] = "- " + lines[0]  # marks where each ask starts; continuation lines carry no mark
     return lines
 
 
@@ -1129,9 +1176,11 @@ def _clock(value: object, fmt: str) -> str:
 
 
 def _lead_rows(lead: dict[str, Any], now: float | None, width: int, unicode: bool = True,
-               keep: str | None = None) -> list[str]:
+               keep: str | None = None, *, sep: str = " | ", meter: bool = False, paint: bool = False) -> list[str]:
     """Every field of one lead (#376 3.4): its session (the lead and process, then model, context and asks, then name
-    and cwd, then title, prompt and said), or why it has none."""
+    and cwd, then title, prompt and said), or why it has none. `meter` (the rich --expand frame, P23) puts the
+    compact frame's context meter before the context numbers and its `!` at 80% or more; `paint` colours the meter
+    as the compact frame does (bad from 80%, dim without a percent)."""
 
     def txt(value: object) -> str:
         return _cell(value, unicode, "?", keep)
@@ -1143,11 +1192,15 @@ def _lead_rows(lead: dict[str, Any], now: float | None, width: int, unicode: boo
     if not item:
         why = ("no session (not a Claude Code lead)" if lead.get("tool") != "cc"
                else "no session found (ended, or its Claude folder is not in PEERHUB_LEAD_DIRS)")
-        return _pack([*head, why, *asks], width)
+        return _pack([*head, why, *asks], width, sep)
     active, tokens = _number(item.get("active_at")), _number(item.get("context_tokens"))
     window, pct = _number(item.get("context_window")), _number(item.get("context_pct"))
-    ctx = ("ctx ?" if tokens is None else f"ctx {_count(tokens)} of {_count(window)} model max ({int(pct)}%)"
+    shown_pct = pct if tokens is not None and window is not None else None  # the percent the text names
+    mark = "!" if meter and shown_pct is not None and shown_pct >= _LEAD_MARK_PCT else ""
+    ctx = ("ctx ?" if tokens is None else f"ctx {_count(tokens)} of {_count(window)} model max ({int(pct)}%{mark})"
            if window is not None and pct is not None else f"ctx {_count(tokens)} (window unknown)")
+    if meter:
+        ctx = _ctx_meter(ctx, shown_pct, unicode)
     first = [*head, f"{txt(item.get('state'))} since {_stamp(item.get('state_since'))}",  # A-4: with the date
              "active ?" if active is None or now is None else f"active {_compact_age(now - active)} ago",
              "alive" if item.get("alive") is True else "alive ?", f"pid {txt(item.get('pid'))}",
@@ -1156,7 +1209,17 @@ def _lead_rows(lead: dict[str, Any], now: float | None, width: int, unicode: boo
     second = [f"model {txt(item.get('model'))}", ctx + ("" if tokens is None else f" at {_stamp(item.get('context_at'))}"),
               *asks]
     third = [*([f"name {txt(item['name'])}"] if item.get("name") else []), f"cwd {txt(item.get('cwd'))}"]
-    rows = [line for part in (first, second, third) for line in _pack(part, width)]
+    packed = [_pack(part, width, sep) for part in (first, second, third)]
+    code = (None if not (meter and paint) else RICH_SGR["dim"] if shown_pct is None
+            else RICH_SGR["bad"] if shown_pct >= _LEAD_MARK_PCT else None)
+    if code:  # painted after packing, so the colour never changes a width; a meter cut off its `ctx` stays plain
+        cells = ctx.split(" ")[1]
+        for index, line in enumerate(packed[1]):
+            at = line.find(f"ctx {cells} ")
+            if at >= 0:
+                packed[1][index] = line[:at + 4] + _paint(cells, code) + line[at + 4 + len(cells):]
+                break
+    rows = [line for part in packed for line in part]
     for label, key in (("title", "title"), ("prompt", "prompt_line"), ("said", "said_line")):
         if item.get(key):
             rows.extend(_compact_wrap(f"{label}: {txt(item[key])}", width))

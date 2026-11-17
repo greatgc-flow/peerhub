@@ -236,6 +236,7 @@ def test_monitor_reset_credits_from_wire_are_read_only(tmp_path, monkeypatch, va
     before = db.read_bytes()
     frame = render_monitor_frame(str(db), ["capacity"], read_at=credits[0].captured_at)
     frame["selected_groups"] = ["capacity"]
-    for view in ("plain", "rich"):
-        assert re.search(expected, render_grouped_frame(frame, view=view, width=120, height=30, expand=True))
+    for view in ("plain", "rich"):  # the rich view joins the fields of a row with its own separator
+        pattern = expected if view == "plain" else expected.replace(r"\|", "·")
+        assert re.search(pattern, render_grouped_frame(frame, view=view, width=120, height=30, expand=True))
     assert db.read_bytes() == before

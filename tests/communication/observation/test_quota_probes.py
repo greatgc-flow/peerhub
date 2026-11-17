@@ -129,8 +129,10 @@ def test_monitor_keeps_last_good_cc_pools_after_usage_timeout(tmp_path, monkeypa
         # #374: the AGE column and 5-hour rows that do not bind are --expand only
         text = render_grouped_frame(frame, view=view, width=120, height=30, expand=True)
         assert "AGE" in text
+        lines = text.splitlines()
+        table = next(i for i, line in enumerate(lines) if "QUOTA [" in line)  # the details table (rich: below POOLS)
         for pool, percent in (("C-5H", "75%"), ("C-7D", "60%")):
-            line = next(line for line in text.splitlines()[1:] if pool in line and percent in line)  # after the verdict (#374); tree rows show the peer label on their first row only
+            line = next(line for line in lines[table:] if pool in line and percent in line)  # tree rows show the peer label on their first row only
             assert percent in line and "30s" in line
 
 
