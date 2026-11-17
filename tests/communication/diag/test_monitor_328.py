@@ -221,7 +221,7 @@ def test_disabled_bucket_is_na_with_no_capacity_or_reset_in_compact_expanded_and
     compact = snapshot(store, capsys)
     # #374: a 5-hour pool shows in the compact frame only when it binds; a disabled (n/a) one never does.
     assert "3P-5H" not in compact and "100%" not in compact and "out" in row_with(compact, "3P-7D").split()
-    expanded = snapshot(store, capsys, "--expand")
+    expanded = snapshot(store, capsys, "--expand", "--show-quota-notes")
     line = next(line for line in expanded.splitlines() if "3P-7D" in line and "(3P-5H n/a)" in line)
     assert "(3P-5H n/a)" in line and "100%" not in line and "STALE" not in line
     assert "ag 3P-5H n/a disabled by provider:" in expanded

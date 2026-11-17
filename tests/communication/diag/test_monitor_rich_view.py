@@ -360,18 +360,18 @@ def test_the_bar_shrinks_then_goes_before_any_data_column_drops():
     observations[:] = [item for item in observations if not item["pool_ref"].endswith(("A-7D", "G-5H", "G-7D"))]
     cells: dict[int, int] = {}
     for width in range(100, 19, -1):
-        old = row_of(plain(payload, width=width), "POOLS ")
-        new = row_of(strip(rich(payload, width=width)), "POOLS ")
+        old = row_of(plain(payload, width=width, show_quota_notes=True), "POOLS ")
+        new = row_of(strip(rich(payload, width=width, show_quota_notes=True)), "POOLS ")
         titles = [word for word in old.split()[2:]]
         assert [word for word in new.split() if word.isalpha() and word != "POOLS"] == titles, width
-        row = row_of(strip(rich(payload, width=width)), "X-7D")
+        row = row_of(strip(rich(payload, width=width, show_quota_notes=True)), "X-7D")
         bar = re.search(r"[█░]+", row)
         cells[width] = len(bar[0]) if bar else 0
         if titles != ["STATE", "LEFT", "RESET", "PACE", "FAMILY"]:
             assert cells[width] == 0, width  # a column dropped: the bar went before it
         if cells[width]:  # the bar takes only what is left over: no cell is cut beside it
-            assert "…" not in strip(rich(payload, width=width)).split("suggest:")[0].split("POOLS", 1)[1], width
-            assert row_of(strip(rich(payload, width=width)), "X-30D").endswith("codex; not reported by plan prolite")
+            assert "…" not in strip(rich(payload, width=width, show_quota_notes=True)).split("suggest:")[0].split("POOLS", 1)[1], width
+            assert row_of(strip(rich(payload, width=width, show_quota_notes=True)), "X-30D").endswith("codex; not reported by plan prolite")
     sizes = [cells[width] for width in range(100, 19, -1)]
     assert sizes[0] == 20 and sizes == sorted(sizes, reverse=True) and 0 in sizes
     assert all(size == 0 or size >= mv.BAR_MIN for size in sizes) and len(set(sizes)) > 3

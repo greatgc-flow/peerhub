@@ -133,7 +133,7 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`, and the API pee
 `--writable` is off by default. It maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` (default `-s read-only`), and ag `--mode accept-edits`. Because the `agy` CLI does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution fails closed pre-spawn unless `--writable` is explicitly passed (`#140`). cx resume passes `-c sandbox_mode="workspace-write"` (default `read-only`) because resume does not accept `-s`; writable mode is therefore part of the session binding, and changing it starts a fresh generation.
 
 Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
-`--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`); to inspect expanded per-peer quota/profile/session chains, every pool with its forecast and `EXHAUST-IN`, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
+`--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its forecast and `EXHAUST-IN`, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
 
 `diag --live` repeatedly reads committed snapshots only and keeps its `--cycles 0` default (until interrupted, including non-TTY stdout). `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
@@ -218,6 +218,10 @@ changes the default selection. `monitor --snapshot` renders one read-only
 dashboard without refreshing providers. In a terminal, `--snapshot --expand`
 fits the screen; piping shows all rows, for example
 `peerhub monitor --snapshot --group all --expand | more`.
+Quota windows omitted by a plan or disabled by a provider keep their `n/a` state and family name; their explanatory notes are hidden by default. Use `peerhub monitor --compact --show-quota-notes` or `peerhub monitor --expand --show-quota-notes` to show them (also with `--snapshot`). This does not hide collection errors or dependency blocks. The layout options `--compact` and `--expand` are mutually exclusive; they and `--show-quota-notes` apply to human output, so cannot be combined with `--json`.
+
+Configured weekly dependencies appear together in POOLS: for example, `cc F-7D` is a child of `cc C-7D`. A fresh exhausted C-7D makes a usable F-7D row say `blocked` and name C-7D, while the F-7D remainder still shows its own measured value (for example 26%). Stale, unknown, reset or ambiguous parent evidence is not treated as a current block. The rich expanded QUOTA table shows the same state. Each live frame anchors its rows to screen positions so wrapping from unexpectedly wide glyphs does not accumulate and scroll the first verdict line away; `--view plain` remains the option for terminals with incompatible glyph widths.
+
 For automation, `--json` emits schema
 2.0 NDJSON frames for watch and one JSON object for snapshot. The frozen 0.16.1
 machine contract remains available as `--json --schema-version 1.1`; the hidden

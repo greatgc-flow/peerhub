@@ -457,7 +457,7 @@ def test_a_long_na_note_is_cut_instead_of_dropping_the_family_column(frame):
               reason="not reported by provider; plan=" + "enterprise-" * 8)
     observations = frame["groups"]["capacity"]["data"]["observations"]
     observations[:] = [o for o in observations if o["peer_id"] != "cc"] + [na]  # 7 rows: within the cap of 8
-    lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=80))
+    lines = lines_of(render_grouped_frame(frame, show_quota_notes=True, view="plain", unicode=False, width=80))
     pools = section(lines, "POOLS")
     assert pools[0].split()[-1] == "FAMILY"
     row = next(line for line in pools if "X-30D" in line)

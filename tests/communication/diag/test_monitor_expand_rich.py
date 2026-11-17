@@ -152,7 +152,7 @@ def test_expand_uses_the_terminal_width_and_the_compact_frame_stays_at_100_colum
 
 def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
-    small, big = compact(payload).splitlines(), expand(payload).splitlines()
+    small, big = compact(payload).splitlines(), expand(payload, show_quota_notes=True).splitlines()
     assert small[3].startswith("── POOLS 9 ─") and "+1 pools (--expand)" in small
     assert big[3].startswith("── POOLS 11 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
     rows = block("\n".join(big), "POOLS")[1:]
@@ -358,7 +358,7 @@ def test_the_forecast_legend_replaces_the_state_legend_and_the_even_burn_sentenc
 
 
 def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns():
-    screen = expand(detail_payload(), width=140)
+    screen = expand(detail_payload(), show_quota_notes=True, width=140)
     quota = block(screen, "QUOTA")
     for row in (" cx X-30D n/a not reported (plan prolite)", " ag STALE:window; next: peerhub observation refresh --peers ag",
                 " cc F-7D evidence UNKNOWN; next: peerhub observation refresh --peers cc",
@@ -366,7 +366,7 @@ def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns(
                 " ACCOUNTS (plan is display data; the expiry is the login token's, not billing)"):
         assert row in quota, row
     assert "Columns omitted" not in screen and "cc.effort" in next(line for line in quota if " C-7D " in line)
-    narrow = block(expand(detail_payload(), width=60), "QUOTA")
+    narrow = block(expand(detail_payload(), show_quota_notes=True, width=60), "QUOTA")
     assert narrow[1].split()[:4] == ["PEER", "POOL", "STATE", "FORECAST"] and "PROFILES" not in narrow[1]
     omitted = flat(" ".join(line for line in narrow if "omitted" in line.lower() or line.strip() in {
         "profiles", "(configured)", "age", "exhaust-in"}))
@@ -648,10 +648,10 @@ def test_the_plain_expand_goldens_cover_every_case():
 
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in plain_cases()])
 def test_plain_expand_is_byte_identical_to_v0_24_20(case, payload, kwargs):
-    screen = render_grouped_frame(payload, **kwargs)
+    screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
     assert screen == GOLDENS[case]
     assert "\x1b" not in screen and screen.isascii()
-    assert render_grouped_frame(payload, color=True, **kwargs) == screen  # the plain view is never painted
+    assert render_grouped_frame(payload, show_quota_notes=True, color=True, **kwargs) == screen  # the plain view is never painted
 
 
 def test_the_plain_expand_frame_keeps_its_grouped_layout():

@@ -137,7 +137,7 @@ def test_the_goldens_cover_every_case():
 
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in golden_cases()])
 def test_plain_frame_is_the_0_24_17_text_with_its_sections_permuted(case, payload, kwargs):
-    screen = render_grouped_frame(payload, **kwargs)
+    screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
     assert in_order(screen, OLD_ORDER) == GOLDENS[case]  # byte for byte, once the sections are back in the old order
     assert in_order(screen, NEW_ORDER) == screen  # and the new frame prints them in the new order
     assert "\x1b" not in screen

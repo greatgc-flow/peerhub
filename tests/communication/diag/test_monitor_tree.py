@@ -153,11 +153,11 @@ def test_retired_pools_form_one_dim_note_per_peer(expand: bool, monkeypatch: pyt
     for item in frame["groups"]["capacity"]["data"]["observations"]:
         if not item["pool_ref"].endswith("C-7D"):
             item.update(state="ABSENT", reason="not reported by provider", display_retired=True, display_plan="pro")
-    screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
+    screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
     notes = [line for line in detail_lines(screen) if "not reported by plan" in line]
     assert len(notes) == 1 and "C-5H,C-30D" in notes[0]  # one note in the QUOTA details (POOLS has a row per pool)
     assert notes[0].strip().startswith(f"\x1b[{mv.RICH_SGR['dim']}m") and notes[0].endswith("\x1b[0m")
-    plain = mv.render_grouped_frame(frame, view="plain", color=True, unicode=False, width=180, expand=expand)
+    plain = mv.render_grouped_frame(frame, show_quota_notes=True, view="plain", color=True, unicode=False, width=180, expand=expand)
     assert [line for line in plain.splitlines() if "not reported by plan" in line] == [
         "cc C-5H,C-30D n/a (not reported by plan pro)"]
 
@@ -221,7 +221,7 @@ def test_expanded_folded_pool_keeps_identity_and_reason(reason: str, detail: str
     item = next(item for item in frame["groups"]["capacity"]["data"]["observations"]
                 if item["pool_ref"].endswith("F-7D"))
     item.update(state="ABSENT", reason=reason, measurements=None)
-    screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=True)
+    screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="plain", unicode=False, width=180, expand=True)
     assert "(F-7D n/a)" in screen
     assert f"cc F-7D n/a {detail}" in screen
 
@@ -333,7 +333,7 @@ def test_na_root_is_a_dim_full_row(expand: bool, monkeypatch: pytest.MonkeyPatch
     frame = frame_for({"cc.a": ["C-5H"]})
     frame["groups"]["capacity"]["data"]["observations"][0].update(
         state="ABSENT", reason="not reported by provider", measurements=None)
-    screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
+    screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
     # #374: the POOLS row dims its STATE cell, like every other state colour (P21: and its bar)
     row = next(line for line in screen.splitlines() if "C-5H" in line)
     dim = mv.RICH_SGR["dim"]

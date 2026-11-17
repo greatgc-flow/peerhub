@@ -1333,11 +1333,57 @@ def test_monitor_json_privacy_scrubs_sentinel_ids_and_payloads(tmp_path, capsys)
     assert by_kind["quota"]["payload"]["remaining_fraction"] == 0.5
 
 
-def test_monitor_expand_rejects_json(tmp_path):
+@pytest.mark.parametrize("layout", ["--compact", "--expand", "--show-quota-notes"])
+def test_monitor_layout_rejects_json(tmp_path, layout):
     db = _db(tmp_path)
     with pytest.raises(SystemExit) as exc:
-        main(["--db", str(db), "monitor", "--expand", "--json"])
+        main(["--db", str(db), "monitor", layout, "--json"])
     assert exc.value.code == 2
+
+
+def test_monitor_compact_and_expand_are_mutually_exclusive(capsys):
+    with pytest.raises(SystemExit) as exc:
+        main(["monitor", "--compact", "--expand"])
+    assert exc.value.code == 2
+    assert "not allowed with argument --compact" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("mode", ["--snapshot", "--cycles"])
+def test_monitor_explicit_compact_matches_default(tmp_path, monkeypatch, capsys, mode):
+    from peerhub.cli import monitor
+    from tests.communication.diag.test_monitor_plain_golden import full_payload
+
+    db = _db(tmp_path)
+    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: full_payload())
+    monkeypatch.setattr(monitor, "refresh_with_profile_pools",
+                        lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
+    args = ["--db", str(db), "monitor", "--view", "plain", mode, *(["1"] if mode == "--cycles" else [])]
+    assert main(args) == 0
+    default = capsys.readouterr().out
+    assert main([*args, "--compact"]) == 0
+    assert capsys.readouterr().out == default
+
+
+@pytest.mark.parametrize("mode", ["--snapshot", "--cycles"])
+@pytest.mark.parametrize("expand", [False, True])
+def test_monitor_quota_notes_option_reaches_human_renderer(tmp_path, monkeypatch, capsys, mode, expand):
+    from peerhub.cli import monitor
+    from tests.communication.diag.test_monitor_plain_golden import full_payload
+
+    db = _db(tmp_path)
+    monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame", lambda *a, **kw: full_payload())
+    monkeypatch.setattr(monitor, "refresh_with_profile_pools",
+                        lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
+    seen = []
+    monkeypatch.setattr(monitor, "_render_human_frame",
+                        lambda payload, **kw: seen.append(kw["show_quota_notes"]) or "monitor")
+    args = ["--db", str(db), "monitor", mode, *(["1"] if mode == "--cycles" else []),
+            *(["--expand"] if expand else ["--compact"])]
+    assert main(args) == 0
+    assert seen and not any(seen)
+    seen.clear()
+    assert main([*args, "--show-quota-notes"]) == 0
+    assert seen and all(seen)
 
 
 def test_monitor_expand_snapshot_human_renders_all_rows(tmp_path, capsys):
@@ -1381,6 +1427,8 @@ def test_monitor_expand_help_wording(capsys):
         main(["monitor", "--help"])
     out = capsys.readouterr().out
     assert "--expand" in out
+    assert "--compact" in out
+    assert "--show-quota-notes" in out
     clean_out = " ".join(out.split())
     assert "Render detailed grouped sections with bars, pace and forecasts" in clean_out
 

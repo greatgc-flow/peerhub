@@ -8,6 +8,21 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.22] - 2026-11-17
+
+### Fixed
+
+- Live monitor frames anchor each logical line to its screen row. On a terminal that draws rich glyphs wider than expected, wrapping no longer accumulates from one row to the next and pushes the first `ATTN` line off the screen. Shorter redraws still erase old rows. Simulated wide-glyph terminals cover this failure; this is not a measurement of a particular Windows console.
+- The compact and rich expanded `POOLS` views show configured weekly pool dependencies, including `cc F-7D` under `cc C-7D`. A fresh exhausted parent marks a usable child `blocked`, while preserving the child's measured remainder, reset and pace. The parent reason stays visible, and the rich expanded `QUOTA` state agrees with `POOLS`. Stale, unknown, reset or ambiguous parent evidence is not reported as a current block. Quota collection, profile eligibility and JSON evidence are unchanged.
+
+### Changed
+
+- Quota notes such as `not reported by plan pro` and `disabled by provider` are hidden by default in compact and expanded output. The `n/a` state and family stay visible. Add `--show-quota-notes` to display those explanations; this does not hide actionable dependency blocks or collection errors.
+
+### Added
+
+- `peerhub monitor --compact` explicitly selects the existing default layout. It is mutually exclusive with `--expand`. Both layout flags and `--show-quota-notes` apply to human output and reject `--json`.
+
 ## [0.24.21] - 2026-11-17
 
 ### Added

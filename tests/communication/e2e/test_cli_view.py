@@ -172,6 +172,68 @@ def test_resize_relayouts_grouped_frame_and_erases_shrunken_frame(monkeypatch):
     assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
 
 
+@pytest.mark.platform_sensitive
+def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkeypatch):
+    import io
+    from peerhub.cli.view import FrameOutput
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return True
+
+    output = Output()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setenv("TERM", "xterm")
+    sink = FrameOutput(anchor_rows=True)
+    try:
+        # These ambiguous-width rules can occupy two terminal rows in CJK consoles.
+        # Absolute row positions keep a wrapped rule from shifting all later rows.
+        sink.write("ATTN 4\n" + "\n".join(["─" * 79] * 5) + "\nDB:env\n")
+        first = output.getvalue()
+        assert first.startswith("\x1b[?25l\x1b[H\x1b[2J\x1b[1;1HATTN 4")
+        assert "\x1b[7;1HDB:env\x1b[K\x1b[J" in first
+        assert "\r" not in first and "\n" not in first
+        for row in range(2, 7):
+            assert f"\x1b[{row};1H" + "─" * 79 + "\x1b[K" in first
+
+        output.seek(0)
+        output.truncate(0)
+        sink.write("ATTN 1\nshort\n")
+        assert output.getvalue() == "\x1b[H\x1b[1;1HATTN 1\x1b[K\x1b[2;1Hshort\x1b[K\x1b[J"
+    finally:
+        sink.close()
+    assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
+
+
+@pytest.mark.platform_sensitive
+def test_frame_output_default_preserves_scrolling_for_unbounded_diag_frames(monkeypatch):
+    import io
+    from peerhub.cli.view import FrameOutput
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return True
+
+    output = Output()
+    monkeypatch.setattr("sys.stdout", output)
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setenv("TERM", "xterm")
+    # diag --live does not cap its frame to the screen height. It must retain
+    # CRLF/scrollback, rather than clamping all overflowing rows onto the bottom.
+    lines = [f"diagnostic row {row}" for row in range(40)]
+    sink = FrameOutput()
+    try:
+        sink.write("\n".join(lines))
+    finally:
+        sink.close()
+    assert output.getvalue() == (
+        "\x1b[?25l\x1b[H\x1b[2J"
+        + "\x1b[K\r\n".join(lines)
+        + "\x1b[K\x1b[J\x1b[0m\x1b[?25h"
+    )
+
+
 def test_frame_output_uses_stable_geometry_when_stdout_is_not_a_tty(monkeypatch):
     import io
     from peerhub.cli.view import FrameOutput

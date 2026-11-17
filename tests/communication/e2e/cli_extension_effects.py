@@ -405,6 +405,27 @@ def monitor_snapshot_effect(e, option):
     monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True)
 
 
+def monitor_display_effect(e, option):
+    from tests.communication.diag.test_monitor_plain_golden import full_payload
+
+    db = e.fresh()
+    before = db.read_bytes()
+    args = ["monitor", "--snapshot", "--view", "plain"]
+    if option == "--show-quota-notes":
+        args.append("--expand")
+    with patch("peerhub.extensions.monitor_read_model.render_monitor_frame", side_effect=lambda *a, **kw: full_payload()):
+        code, baseline, _ = e.run(db, *args)
+        assert code == 0
+        code, selected, _ = e.run(db, *args, option)
+        assert code == 0
+        if option == "--compact":
+            assert selected == baseline
+            assert e.run(db, *args, "--expand")[1] != selected
+        else:
+            assert "not reported" not in baseline and "not reported" in selected
+    assert db.read_bytes() == before
+
+
 def monitor_repair_effect(e, option):
     args = ["monitor", "repair", "--json"]
     if option == "--chunk-size":
@@ -620,6 +641,8 @@ EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, [
                "monitor --snapshot": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
                "monitor --group": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
                "monitor --expand": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--expand", "--group", "usage", "--view", "plain"], needs_bridge=True),
+               "monitor --compact": lambda e: monitor_display_effect(e, "--compact"),
+               "monitor --show-quota-notes": lambda e: monitor_display_effect(e, "--show-quota-notes"),
                "monitor repair --chunk-size": lambda e: monitor_management_effect(e, ["monitor", "repair", "--chunk-size", "1", "--json"], needs_bridge=True),
                "monitor repair --json": lambda e: monitor_management_effect(e, ["monitor", "repair", "--json"], needs_bridge=True)})
 EFFECT.update({f"profile list {option}": (lambda e, option=option: profile_effect(e, "list", option))
