@@ -95,7 +95,7 @@ RESULT_STATUS_REGISTRY: dict[str, ResultStatusEntry] = {
         exit_code=1,
         guidance_code="ask_denied_empty",
         meaning="Turn ended (certainty TERMINAL) with an empty response after the provider denied tool action(s); not a usable answer and task effects are unverified.",
-        safe_action="Treat the reply as unusable; the denied tool names are in denied_actions. Do not resume the stream: start a new stream with the needed content inlined via --query-file, and verify the workspace.",
+        safe_action="Treat the reply as unusable; for ag, denied_actions names the denied tools, not the path or command (causes: `peerhub explain ag-recipe`). Do not resume the stream: start a new stream with the needed content inlined via --query-file, and verify the workspace.",
     ),
     "failed_not_started": ResultStatusEntry(
         status="failed_not_started",
@@ -398,7 +398,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
     "ask_denied_empty": GuidanceEntry(
         code="ask_denied_empty",
         meaning="The turn ended with an empty response after the provider denied tool action(s); this is not a usable answer.",
-        why="The provider denied tool action(s) (headless cannot prompt), so the turn can end with no reply text; the denied names or commands are in denied_actions. Task effects are unverified.",
+        why="The provider denied tool action(s) (headless cannot prompt), so the turn can end with no reply text. Task effects are unverified. For ag, denied_actions reports only the tool names (for example command or read_file): the path or command of a denied action is intentionally not read, because a command line can hold secrets, so PeerHub cannot show it. For cc, each entry is `Tool: detail`, or just `Tool` when the detail is absent; secrets are redacted before the detail is cut to 120 characters, and `...[truncated]` is appended when it is cut. For ag, find the cause with the order of causes in `peerhub explain ag-recipe`: the files named in the prompt, a -w outside trustedWorkspaces, binary or huge files, allow-list scope, quota.",
         recover=[
             {
                 "argv": ["peerhub", "ask", "PEER_ID", "--query-file", "CONTENT_FILE", "--stream", "NEW_STREAM_ID", "--writable"],

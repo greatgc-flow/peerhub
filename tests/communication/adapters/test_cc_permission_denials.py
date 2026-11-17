@@ -131,3 +131,24 @@ def test_ask_denied_empty_guidance_is_provider_neutral():
     assert "<peer>" not in entry.why
     argv = entry.recover[0]["argv"]
     assert argv[:3] == ["peerhub", "ask", "PEER_ID"] and "ag" not in argv
+
+
+def test_ask_denied_empty_says_what_denied_actions_holds_and_where_the_cause_is(capsys):
+    """#391 P1: ag reports tool names only (the path or command is intentionally not read, #371); cc reports `Tool: detail`."""
+    from peerhub.cli.app import main
+    from peerhub.cli.recovery import REGISTRY, RESULT_STATUS_REGISTRY
+
+    why = REGISTRY["ask_denied_empty"].why
+    assert "names or commands" not in why  # the old text promised commands that ag never reports
+    for needle in ("For ag, denied_actions reports only the tool names",
+                   "the path or command of a denied action is intentionally not read",
+                   "a command line can hold secrets",
+                   "For cc, each entry is `Tool: detail`",
+                   "`peerhub explain ag-recipe`", "allow-list scope"):
+        assert needle in why, needle
+    safe_action = RESULT_STATUS_REGISTRY["denied_empty"].safe_action
+    assert "the denied tool names are in denied_actions" not in safe_action
+    assert "not the path or command" in safe_action and "`peerhub explain ag-recipe`" in safe_action
+    assert main(["explain", "ask_denied_empty"]) == 0
+    out = capsys.readouterr().out
+    assert "reports only the tool names" in out and "intentionally not read" in out and "peerhub explain ag-recipe" in out
