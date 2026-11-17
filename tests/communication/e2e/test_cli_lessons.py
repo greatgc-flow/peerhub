@@ -184,10 +184,10 @@ def test_ag_recipe_holds_the_former_guide_lines():
 
 
 def test_ag_recipe_names_allow_list_scope_and_cx_lesson_holds_the_cx_facts():
-    """#391: a `*` in a prompt path, allow-list scope in the order of causes, inline text for ag; cx facts stay in the cx lesson."""
+    """#391: a `*` in a prompt path (not glob-expanded), allow-list scope in the order of causes, inline text for ag; cx facts stay in the cx lesson."""
     by_id = {lesson["id"]: lesson for lesson in load_lessons()}
     ag = by_id["ag-recipe"]
-    for needle in ("A * in a path inside a prompt is not expanded and triggers a denied read",
+    for needle in ("A path in a prompt is not glob-expanded, and an attempt to read a literal * path can be denied",
                    "allow-list scope (agy's permissions.allow read roots and shell rules",
                    "reads outside the -w root, grep/cat and unlisted CLIs are denied headless",
                    "ag cannot run commands and cannot read outside its workspace",
@@ -205,7 +205,7 @@ def test_ag_recipe_names_allow_list_scope_and_cx_lesson_holds_the_cx_facts():
     for needle in ("cx sandbox lanes cannot open the peerhub store",
                    "reader asks must be launched by the orchestrator",
                    "use checkpoint receipts and a silence timeout",
-                   "runtime_error leaves partial edits"):
+                   "runtime_error can leave partial edits"):
         assert needle in cx["fix"], needle
     assert "#391" in cx["issue"] and {"store", "checkpoint", "runtime_error"} <= set(cx["keywords"])
     assert [lesson["id"] for lesson in lookup_lessons("ag allow-list scope")] == ["ag-recipe"]
