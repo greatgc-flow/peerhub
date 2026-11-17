@@ -40,8 +40,10 @@ def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeyp
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame, _width
 
     monkeypatch.delenv("NO_COLOR", raising=False)
-    rendered = render_grouped_frame(quota_visual_frame, color=color, width=120, height=24)
-    snapshot = Path(__file__).with_name("fixtures") / f"quota_s2_color_{'on' if color else 'off'}.txt"
+    # The grouped layout is the plain view's and is never painted, whatever the colour flag (the rich --expand frame
+    # and its palette are pinned in test_monitor_expand_rich.py).
+    rendered = render_grouped_frame(quota_visual_frame, view="plain", color=color, width=120, height=24)
+    snapshot = Path(__file__).with_name("fixtures") / "quota_s2_color_off.txt"
     assert rendered == snapshot.read_text(encoding="utf-8")
     assert all(_width(line) <= 119 for line in rendered.splitlines())
     assert rendered.count("cc PROBE:") == 1
@@ -49,17 +51,7 @@ def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeyp
     assert "soonest exhaust: ag P-3H 1% in 30m" in rendered
     assert "duplicate" not in rendered
     assert "STATE: INSUFF=insufficient projection data" in rendered
-    if color:
-        for code, state in [("32", "ON_PACE"), ("33", "WATCH"), ("31", "THREAT"), ("1;31", "EXHAUSTED"),
-                            ("1;31", "ERROR"), ("2", "UNKNOWN"), ("2", "STALE:window")]:
-            line = next(line for line in rendered.splitlines() if f"{state}\x1b[0m" in line)
-            assert f"\x1b[{code}m{state}\x1b[0m" in line
-            assert re.search(rf"\x1b\[{re.escape(code)}m\[[^\]]*\]\x1b\[0m", line)  # the bar carries the state colour
-            assert line.count("\x1b[0m") == 2 and not line.startswith("\x1b")
-        assert not any(line.startswith("\x1b") for line in rendered.splitlines() if "PROBE" in line)
-        assert "\x1b[" not in next(line for line in rendered.splitlines() if "INSUFF" in line and "90%" in line)
-    else:
-        assert "\x1b" not in rendered
+    assert "\x1b" not in rendered
 
 
 def test_quota_color_suppression_preserves_identical_text(quota_visual_frame, monkeypatch):
@@ -67,15 +59,18 @@ def test_quota_color_suppression_preserves_identical_text(quota_visual_frame, mo
 
     monkeypatch.delenv("NO_COLOR", raising=False)
     options = {"width": 80, "height": 24, "unicode": False}
-    off = render_grouped_frame(quota_visual_frame, color=False, **options)
-    on = render_grouped_frame(quota_visual_frame, color=True, **options)
-    bare = re.sub(r"\x1b\[[0-9;]*m", "", on)
-    assert bare.splitlines()[1:] == off.splitlines()[1:]
-    assert bare.splitlines()[0] == " OK " and off.splitlines()[0] == "OK"  # P21: line 1 is a pill, with its padding
+    off = render_grouped_frame(quota_visual_frame, view="plain", color=False, **options)
+    assert off.splitlines()[0] == "OK" and "\x1b" not in off
     assert render_grouped_frame(quota_visual_frame, view="plain", color=True, **options) == off
+    # The rich view: colour changes no text but the pill's padding, and NO_COLOR (even empty) removes every SGR code.
+    bare_rich = render_grouped_frame(quota_visual_frame, view="rich", color=False, **options)
+    on = render_grouped_frame(quota_visual_frame, view="rich", color=True, **options)
+    bare = re.sub(r"\x1b\[[0-9;]*m", "", on)
+    assert "\x1b[" in on and bare.splitlines()[1:] == bare_rich.splitlines()[1:]
+    assert bare.splitlines()[0].split() == bare_rich.splitlines()[0].split() == ["OK", "00:16Z"]
+    assert bare.splitlines()[0].startswith(" OK ")  # P21: line 1 is a pill, with its padding
     monkeypatch.setenv("NO_COLOR", "")
-    assert render_grouped_frame(quota_visual_frame, color=True, **options) == off
-    assert "\x1b" not in off
+    assert render_grouped_frame(quota_visual_frame, view="rich", color=True, **options) == bare_rich
 
 
 @pytest.mark.parametrize("unicode_mode", [False, True])
@@ -100,10 +95,12 @@ def test_soonest_exhaustion_ignores_stale_and_counts_down(quota_visual_frame):
     observations[0]["projection"]["exhaustion_at"] = 4600
     observations[6]["projection"]["exhaustion_at"] = 1100
     quota_visual_frame["display_elapsed_seconds"] = 60
-    rendered = render_grouped_frame(quota_visual_frame, width=80, height=12)
+    rendered = render_grouped_frame(quota_visual_frame, view="plain", width=80, height=12)
     assert rendered.splitlines()[0].startswith("OK")  # #374: line 1 is the verdict, then the expand header
     assert rendered.splitlines()[1].startswith("PeerHub Monitor")
-    assert "soonest exhaust: ag P-3H 1% in 29m" in render_grouped_frame(quota_visual_frame, width=120)
+    assert "soonest exhaust: ag P-3H 1% in 29m" in render_grouped_frame(quota_visual_frame, view="plain", width=120)
+    rich = render_grouped_frame(quota_visual_frame, view="rich", width=120)  # the same label in the rich QUOTA rule
+    assert "── QUOTA [OK] · measured remaining · soonest exhaust: ag P-3H 1% in 29m ─" in rich
     assert "STATE:" not in rendered
     assert "P-1H" in rendered and "P-6H" in rendered
     assert "rows hidden" in rendered or "--expand" in rendered
@@ -123,11 +120,12 @@ def test_quota_reset_countdown_plain_and_tty_parity(frame, state, seconds, expec
     frame["display_elapsed_seconds"] = elapsed
     if expected == "4h58m" and elapsed:
         expected = "4h57m"
-    for view, unicode_mode in [("plain", False), ("rich", True)]:
+    for view, unicode_mode in [("plain", False), ("plain", True), ("rich", True)]:
         rendered = render_grouped_frame(frame, view=view, unicode=unicode_mode,
                                         width=120, height=24)
-        header = next(line for line in rendered.splitlines() if "RESET-IN" in line)
-        row = next(line for line in rendered.splitlines() if "5h" in line)
+        lines = rendered.splitlines()
+        at = next(i for i, line in enumerate(lines) if "RESET-IN" in line)  # the QUOTA table (rich: below POOLS)
+        header, row = lines[at], next(line for line in lines[at + 1:] if "5h" in line)
         start = header.index("RESET-IN")
         assert row[start:start + 9].strip() == expected
 
@@ -184,7 +182,8 @@ def test_rich_grouped_view_is_visual_and_never_dumps_json(frame):
     assert "OVERVIEW [" not in rendered
     assert "cx.standard" in rendered
     assert "75%" in rendered
-    assert "SAFE" in rendered and "30s" in rendered
+    assert "safe" in rendered.split("QUOTA [")[1] and "30s" in rendered  # the forecast word and the age, in the details
+    assert "SAFE" not in rendered and "[█" not in rendered  # no upper-case state and no 8-cell bar in the rich view
     assert "█" in rendered and "░" in rendered
     assert "delivery" in rendered.lower() and "terminal" in rendered.lower()
     assert "task success" not in rendered.lower()
@@ -717,8 +716,9 @@ def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
     }
 
     for width, height in [(80, 12), (80, 24), (100, 30), (120, 40)]:
-        for view, unicode_mode in [("rich", True), ("plain", False)]:
+        for view, unicode_mode in [("plain", True), ("plain", False)]:  # the grouped layout is the plain view's
             rendered = render_grouped_frame(fixture, view=view, color=color, unicode=unicode_mode, width=width, height=height)
+            assert "\x1b" not in rendered
             lines = rendered.rstrip("\n").split("\n")
             assert len(lines) <= height - 1, f"Height exceeded: {len(lines)} > {height - 1} at {width}x{height} {view}"
             for line in lines:
@@ -751,13 +751,14 @@ def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
 @pytest.mark.parametrize("width", [1, 2, 10, 19, 20, 50, 60, 80, 100, 120])
 @pytest.mark.parametrize("expand", [False, True])
 @pytest.mark.parametrize("unicode_mode", [False, True])
-def test_append_frame_leaves_terminal_last_column_free(frame, width, expand, unicode_mode):
+@pytest.mark.parametrize("view", ["plain", "rich"])
+def test_append_frame_leaves_terminal_last_column_free(frame, width, expand, unicode_mode, view):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame, _width
 
-    rendered = render_grouped_frame(frame, width=width, unicode=unicode_mode,
+    rendered = render_grouped_frame(frame, view=view, width=width, unicode=unicode_mode,
                                     color=unicode_mode, expand=expand)
     assert all(_width(line) <= width - 1 for line in rendered.splitlines())
-    if 10 <= width < 20:
+    if 10 <= width < 20 and view == "plain":  # the rich frame fits every line instead, as the compact frame does
         assert "narrow" in rendered.lower()
 
 
@@ -770,7 +771,7 @@ def test_narrow_quota_keeps_leftmost_columns_and_names_the_dropped_ones(frame, w
     item = frame["groups"]["capacity"]["data"]["observations"][0]
     item.update(pool_ref="quota:cx:X-7D", projection={"state": "exhausted"})
     item["measurements"]["reset_in_seconds"] = 90000
-    rendered = render_grouped_frame(frame, width=width, height=height, unicode=False)
+    rendered = render_grouped_frame(frame, view="plain", width=width, height=height, unicode=False)
     header = next(line for line in rendered.splitlines() if "PEER" in line)
     for label in ("PEER", "POOL", "STATE", "REM", "RESET-IN"):
         assert label in header
@@ -814,14 +815,24 @@ def test_expand_quota_row_shows_bar_tick_pace_glyph_and_colour_on_state_and_bar_
     assert " +0.0pp" in next(line for line in plain.splitlines() if " 3P-5H " in line)
     unicode_row = next(line for line in render_grouped_frame(frame, view="plain", unicode=True, width=140).splitlines() if " G-5H " in line)
     assert "[████|░░░]" in unicode_row and "▲+12.5pp" in unicode_row
+    assert "\x1b" not in render_grouped_frame(frame, view="plain", color=True, unicode=False, width=140)
+    # The rich view: the QUOTA details row has no 8-cell bar; its state cell is the compact one (glyph and word) in
+    # the row's one palette colour, the forecast is a word of its own, and only the pace arrow is painted besides.
+    from peerhub.cli.monitor_view import RICH_SGR
     colored = render_grouped_frame(frame, view="rich", color=True, unicode=False, width=140)
-    line = next(line for line in colored.splitlines() if " G-5H " in line)
-    assert "\x1b[32mON_PACE\x1b[0m" in line and "\x1b[32m[####|...]\x1b[0m" in line and line.count("\x1b") == 6
-    assert "\x1b[32m^\x1b[0m+12.5pp" in line
+    lines = colored.splitlines()
+    table = next(i for i, text in enumerate(lines) if "FORECAST" in text)
+    assert re.sub(r"\x1b\[[0-9;]*m", "", lines[table]).split()[:7] == [
+        "PEER", "POOL", "STATE", "FORECAST", "REM", "RESET-IN", "PACE"]
+    line = next(text for text in lines[table:] if " G-5H " in text)
+    warn = RICH_SGR["warn"]  # 50% left
+    assert f"\x1b[{warn}m* ok\x1b[0m" in line and f"\x1b[{warn}m^\x1b[0m+12.5pp" in line and line.count("\x1b") == 4
+    assert "on_pace" in line and "ON_PACE" not in colored and "[####" not in colored
     bare = re.sub(r"\x1b\[[0-9;]*m", "", colored).splitlines()
     uncoloured = render_grouped_frame(frame, view="rich", color=False, unicode=False, width=140).splitlines()
-    assert _width(line) == _width(row) and bare[1:] == uncoloured[1:]
-    assert bare[0] == " OK?  (alerts not read)" and uncoloured[0] == "OK? (alerts not read)"  # P21: the pill's padding
+    assert _width(line) == _width(uncoloured[lines.index(line)]) and bare[1:] == uncoloured[1:]
+    assert bare[0].split() == uncoloured[0].split() and uncoloured[0].startswith("OK? (alerts not read)")
+    assert bare[0].startswith(" OK?  (alerts not read)")  # P21: the pill's padding
     monkeypatch.setenv("NO_COLOR", "1")
     assert "\x1b" not in render_grouped_frame(frame, view="rich", color=True, width=140)
 
@@ -835,7 +846,7 @@ def test_bounded_other_details_report_exact_hidden_rows(frame, expand, height, h
         {"peer_id": f"worker{i}", "telemetry": {"normalized": {"provider_total_tokens": i}}}
         for i in range(1, 6)
     ]}
-    rendered = render_grouped_frame(frame, width=100, height=height, unicode=False, expand=expand)
+    rendered = render_grouped_frame(frame, view="plain", width=100, height=height, unicode=False, expand=expand)
     assert f"+{hidden} rows hidden" in rendered
     assert "--expand" in rendered
     assert "worker1" in rendered
@@ -852,7 +863,7 @@ def test_omitted_groups_disclose_loaded_expanded_rows(frame, width):
     frame["groups"]["usage"]["data"] = {"sessions": [
         {"peer_id": f"worker{i}"} for i in range(5)
     ]}
-    rendered = render_grouped_frame(frame, width=width, height=6, unicode=False, expand=True)
+    rendered = render_grouped_frame(frame, view="plain", width=width, height=6, unicode=False, expand=True)
     assert "1 group" in rendered
     assert "rows hidden" in rendered
     assert "--expand" in rendered
@@ -866,7 +877,7 @@ def test_group_summaries_reserve_space_for_hidden_detail_disclosure(frame):
         frame["groups"][group]["data"] = {"sessions": [
             {"peer_id": f"worker{i}"} for i in range(3)
         ]}
-    rendered = render_grouped_frame(frame, width=100, height=7, unicode=False, expand=True)  # #374: +1 for the verdict
+    rendered = render_grouped_frame(frame, view="plain", width=100, height=7, unicode=False, expand=True)  # #374: +1 for the verdict
     assert "worker0" in rendered and "worker1" in rendered
     assert "+1 rows hidden" in rendered or "+1r" in rendered
     assert "CONTEXT [" not in rendered
@@ -898,7 +909,7 @@ def test_elapsed_forecast_is_not_measured_exhaustion(frame, rem, elapsed, expect
     item = frame["groups"]["capacity"]["data"]["observations"][0]
     item["measurements"]["remaining_fraction"] = rem
     item["projection"] = {"state": "threat", "exhaustion_at": 999.0}
-    rendered = render_grouped_frame(frame, width=160, unicode=False)
+    rendered = render_grouped_frame(frame, view="plain", width=160, unicode=False)
     assert expected in next(line for line in rendered.splitlines() if "soonest exhaust:" in line)
     header = next(line for line in rendered.splitlines() if "EXHAUST-IN" in line)
     row = next(line for line in rendered.splitlines()[3:] if "5h" in line)  # after the verdict, the title and the rule
@@ -921,9 +932,13 @@ def _frame(remaining, credits=None):
                                              (0.0, "0%"), (0.01, "1%"), (1.0, "100%")])
 def test_less_than_one_percent_is_never_shown_as_zero(remaining, shown):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
-    rows = [ln for ln in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines() if ln.startswith("ag ")]
+    rows = [ln for ln in render_grouped_frame(_frame(remaining), view="plain", width=100, height=24).splitlines() if ln.startswith("ag ")]
     assert rows[0].split()[3] == shown
-    assert f"ag G-7D {shown} " in render_grouped_frame(_frame(remaining), color=False, width=100, height=24).splitlines()[2]
+    assert f"ag G-7D {shown} " in render_grouped_frame(_frame(remaining), view="plain", width=100, height=24).splitlines()[2]
+    rich = render_grouped_frame(_frame(remaining), view="rich", color=False, width=100, height=24).splitlines()
+    pools, detail = [ln.split() for ln in rich if ln.startswith(" ag ")]  # the POOLS row, then the QUOTA details row
+    assert pools[5] == shown and detail[5] == shown  # ag G-7D <glyph> <state> <bar> LEFT; ag G-7D <glyph> <state> threat REM
+    assert f"ag G-7D {shown} " in next(ln for ln in rich if "soonest exhaust:" in ln)
 
 
 @pytest.mark.parametrize("remaining,shown", [(0.0, "0%"), (0.000001, "<1%"), (0.0049, "<1%"),
@@ -949,8 +964,10 @@ def test_peer_and_capacity_remainders_agree_without_changing_raw_frame(remaining
 def test_reset_credits_line_uses_relative_time():
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
     credit = {"peer_id": "cx", "available_count": 2, "nearest_expires_at": 1000.0 + 8 * 86400 + 22 * 3600, "state": "MEASURED"}
-    out = render_grouped_frame(_frame(0.5, [credit]), color=False, width=100, height=24)
+    out = render_grouped_frame(_frame(0.5, [credit]), view="plain", width=100, height=24)
     assert "cx reset credits: 2 | soonest in 8d22h [MEASURED]" in out
+    rich = render_grouped_frame(_frame(0.5, [credit]), view="rich", color=False, width=100, height=24)
+    assert " cx reset credits: 2 · soonest in 8d22h [MEASURED]" in rich.splitlines()
 
 
 @pytest.mark.parametrize("used,expected_state,alert", [(0.10, "on_pace", False), (0.60, "threat", True),
@@ -969,7 +986,7 @@ def test_exhaustion_alert_requires_within_window_risk(used, expected_state, aler
     item["projection"] = projection
     item["measurements"]["resets_at"] = 1000
     before = copy.deepcopy(frame)
-    rendered = render_grouped_frame(frame, width=160, unicode=False)
+    rendered = render_grouped_frame(frame, view="plain", width=160, unicode=False)
     assert ("soonest exhaust:" in rendered) == alert
     header = next(line for line in rendered.splitlines() if "EXHAUST-IN" in line)
     row = next(line for line in rendered.splitlines() if line.startswith("ag "))
@@ -1004,7 +1021,15 @@ def test_capacity_short_codes_profiles_and_staleness(quota_visual_frame):
         "facts_report": {"status": "needs_recheck", "reasons": ["ag: version_drift", "cc: version_drift", "cx: version_drift"]}}}
     quota_visual_frame["selected_groups"].append("peers")
     quota_visual_frame["groups"]["capacity"]["data"]["observations"][-3]["age_seconds"] = 8 * 86400
-    rendered = render_grouped_frame(quota_visual_frame, width=180)
+    rich = render_grouped_frame(quota_visual_frame, view="rich", width=180)
+    assert " insuff " in rich and "INSUFF" not in rich and "insufficient " not in rich.split("FORECAST:")[0]
+    assert "FORECAST: insuff=insufficient projection data; threat=exhausts before reset" in rich
+    assert "STATE: INSUFF" not in rich and "even-burn" not in rich and "[█" not in rich
+    for code in ("STALE:window", "PROBE:8d", "DRIFT:ag,cc,cx", "peerhub explain <code>", "PROFILES (configured)",
+                 "ag P-5H evidence ERROR; next: peerhub observation refresh --peers ag", "ag P-6H evidence UNKNOWN;"):
+        assert code in rich, code
+    assert lookup_lessons("insuff")
+    rendered = render_grouped_frame(quota_visual_frame, view="plain", width=180)
     assert "INSUFF" in rendered and "INSUFFICIENT" not in rendered
     assert "STALE:window" in rendered
     assert "PROBE:8d" in rendered
@@ -1023,7 +1048,8 @@ def test_drift_footer_includes_unknown_pool_reason(quota_visual_frame):
     quota_visual_frame["groups"]["peers"] = {"data": {"peers": [],
         "facts_report": {"status": "needs_recheck", "reasons": ["ag: unknown_pool"]}}}
     quota_visual_frame["selected_groups"].append("peers")
-    assert "DRIFT:ag" in render_grouped_frame(quota_visual_frame, width=180)
+    for view in ("plain", "rich"):
+        assert "DRIFT:ag" in render_grouped_frame(quota_visual_frame, view=view, width=180).splitlines()[-1]
 
 
 @pytest.mark.parametrize("height", [None, 40])
@@ -1037,10 +1063,9 @@ def test_stored_escape_sequences_never_reach_the_terminal_even_when_colour_is_on
     plain = render_grouped_frame(quota_visual_frame, view="plain", color=True, width=140, height=height)
     assert "\x1b" not in plain and "\x07" not in plain
     colored = render_grouped_frame(quota_visual_frame, view="rich", color=True, width=140, height=height)
-    assert "\x1b[32mON_PACE\x1b[0m" in colored  # the palette still paints the quota cells
     from peerhub.cli.monitor_view import PILL_SGR, RICH_SGR
-    ours = "|".join(re.escape(code) for code in ("1;31", "31", "32", "33", "2", "0", RICH_SGR["dim"], RICH_SGR["title"],
-                                                 *PILL_SGR.values()))  # P21: the pill and the rules join the palette
+    assert f"\x1b[{RICH_SGR['ok']}m● ok\x1b[0m" in colored  # the palette still paints the quota cells
+    ours = "|".join(re.escape(code) for code in ("0", *RICH_SGR.values(), *PILL_SGR.values()))  # one palette (P21)
     assert not re.sub(rf"\x1b\[(?:{ours})m", "", colored).count("\x1b") and "\x1b[1;36m" not in colored
     assert "�[31m�]0;x�" in colored if height is None else True
     assert "\x07" not in colored and "\x1b]" not in colored

@@ -1,5 +1,6 @@
-"""P21: the rich compact monitor frame (pill, rules, bars, glyphs, the 256-colour palette) and the pill and rules of
---expand; P9: line 1 and POOLS of one redraw agree; P6: a store that never had a quota refresh is shown as no evidence."""
+"""P21: the rich compact monitor frame (pill, rules, bars, glyphs, the 256-colour palette; the rich --expand frame is
+pinned in test_monitor_expand_rich.py); P9: line 1 and POOLS of one redraw agree; P6: a store that never had a quota
+refresh is shown as no evidence."""
 from __future__ import annotations
 
 import re
@@ -504,37 +505,16 @@ def test_no_escape_from_a_text_cell_reaches_the_rich_output(where, dirty):
                 assert dirty != "\x1b[38;5;78m" or "be\x1b[38;5;78m" not in screen
 
 
-# ---- --expand: the pill and the rules, its content unchanged (C6) -----------------------------------------------------
+# ---- --expand: the rich frame is pinned in test_monitor_expand_rich.py; the plain one is never painted ---------------
 @pytest.mark.parametrize("build", [full_payload, quiet_payload])
 @pytest.mark.parametrize("height", [None, 30])
-def test_expand_keeps_its_content_and_gets_the_pill_and_the_rules(build, height):
-    kw: dict[str, Any] = {"view": "rich", "unicode": True, "width": 120, "height": height, "expand": True}
-    bare = render_grouped_frame(build(), color=False, **kw)
-    painted = render_grouped_frame(build(), color=True, **kw)
-    bare_lines, lines = bare.splitlines(), painted.splitlines()
-    head = re.match(r"^(OK\??|ATTN \d+\??)", bare_lines[0])
-    assert head
-    key = "ATTN" if head[1].startswith("ATTN") else head[1]
-    assert lines[0].startswith(f"\x1b[{mv.PILL_SGR[key]}m {head[1]} \x1b[0m")
-    assert strip(lines[0]).split() == bare_lines[0].split() and " | " in bare_lines[0]
-    assert [strip(line) for line in lines[1:]] == bare_lines[1:]  # the content is unchanged
-    rules = [line for line in lines if strip(line).startswith("── ")]
-    assert rules and all(line.startswith(f"\x1b[{mv.RICH_SGR['dim']}m──\x1b[0m \x1b[{mv.RICH_SGR['title']}m")
-                         for line in rules)
-    # no new bars, meters or row glyphs in the group lines: the only bar is the [BAR] column the QUOTA table had
-    rest = re.sub(r"\[[█░▏|-]+\]", "", strip(painted))
-    assert not any(glyph in rest for glyph in "█░■□►●○×")
-    assert all(_width(line) <= 119 for line in lines)
+def test_plain_expand_is_never_painted_and_the_rich_one_uses_the_palette_only(build, height):
     plain_expand = render_grouped_frame(build(), view="plain", color=True, unicode=False, width=120, height=height,
                                         expand=True)
-    assert "\x1b" not in plain_expand
-
-
-def test_expand_colours_are_the_existing_ones_plus_the_palette_of_the_pill_and_rules():
-    painted = render_grouped_frame(full_payload(), view="rich", color=True, unicode=True, width=140, expand=True)
-    existing = {"1;31", "31", "32", "33", "2"}
-    used = set(SGR.findall(painted))
-    assert used <= existing | {"0", mv.RICH_SGR["dim"], mv.RICH_SGR["title"], *mv.PILL_SGR.values()}
+    assert "\x1b" not in plain_expand and plain_expand.isascii()
+    painted = render_grouped_frame(build(), view="rich", color=True, unicode=True, width=120, height=height, expand=True)
+    assert set(SGR.findall(painted)) <= OUR_CODES and "\x1b" not in strip(painted)
+    assert all(_width(line) <= 119 for line in painted.splitlines())
 
 
 # ---- P9: line 1 and POOLS of one redraw come from the same rows ------------------------------------------------------
@@ -611,12 +591,14 @@ def test_expand_line_1_takes_min_quota_from_the_aged_rows_as_the_compact_frame_d
                             min_quota={"pool": "ag 3P-7D", "left_pct": 1, "state": "low", "aged": True})
     payload["display_elapsed_seconds"] = elapsed
     before = deepcopy(payload)
+    sep = " | " if view == "plain" else " · "
     for height in (None, 40):
         expanded = render_grouped_frame(payload, view=view, color=False, unicode=view == "rich", width=120, height=height,
                                         expand=True).splitlines()
-        assert expanded[0].endswith("| " + expected), (height, expanded[0])
+        line_1 = re.sub(r" +\d\d:\d\dZ$", "", expanded[0])  # the rich view sets the time at the right edge
+        assert line_1.endswith(sep + expected), (height, expanded[0])
         compact = render_grouped_frame(payload, view="plain", unicode=False, width=120, height=height).splitlines()
-        assert compact[0].split(" | ")[-1] == expanded[0].split(" | ")[-1] == expected  # line 1 agrees in both frames
+        assert compact[0].split(" | ")[-1] == line_1.split(sep)[-1] == expected  # line 1 agrees in both frames
     assert payload == before
 
 

@@ -389,7 +389,10 @@ def test_quota_unknown_on_line_1_and_its_meaning_in_expand(frame, view, unicode_
     compact = render_grouped_frame(deepcopy(frame), view=view, unicode=unicode_mode, width=100)
     assert compact.splitlines()[0].startswith(f"OK? (quota unknown){sep}3 running{sep}2 leads")
     expanded = render_grouped_frame(frame, view=view, unicode=unicode_mode, width=120, expand=True).splitlines()
-    assert expanded[0] == "OK? (quota unknown) | 3 running | 2 leads"
+    # line 1 of --expand is line 1 of the compact frame in both views (the rich view sets the time at the right edge)
+    assert expanded[0].startswith(f"OK? (quota unknown){sep}3 running{sep}2 leads")
+    assert expanded[0].split() == compact.splitlines()[0].split()
+    expanded = [line.strip() for line in expanded]  # the rich view indents a section's rows
     assert "source capacity: unknown (no 7-day pool has a number)" in expanded
     assert not any(line.startswith(("source accounts", "source facts", "source activity")) for line in expanded)
 

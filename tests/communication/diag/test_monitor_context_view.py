@@ -2,6 +2,7 @@
 context and peers sections. Always as an estimate with its age; never on a RUNNING row; nothing in the compact frame."""
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -53,16 +54,19 @@ def expanded(payload: dict[str, Any], *, view: str = "plain", width: int = 140, 
 
 
 def part(lines: list[str], start: str, end: tuple[str, ...]) -> list[str]:
-    first = next(i for i, line in enumerate(lines) if line.startswith(start))
-    last = next((i for i in range(first + 1, len(lines)) if lines[i].startswith(end)), len(lines))
+    """The lines from the head `start` up to a line that starts with one of `end` (the rich view draws a head as a
+    rule: `── RECENT 4 ──`)."""
+    first = next(i for i, line in enumerate(lines) if line.removeprefix("── ").startswith(start))
+    last = next((i for i in range(first + 1, len(lines)) if lines[i].removeprefix("── ").startswith(end)), len(lines))
     return lines[first:last]
 
 
 def asks_of(lines: list[str], head: str, end: tuple[str, ...]) -> list[str]:
-    """Each ask of one activity block (RUNNING or RECENT) as one text; an ask starts with `- `."""
+    """Each ask of one activity block (RUNNING or RECENT) as one text; an ask starts with `- ` (plain) or with its
+    marker in the second cell (rich: ` ● state ok`, continuation lines are indented further)."""
     chunks: list[str] = []
     for line in part(lines, head, end)[1:]:
-        if line.startswith("- "):
+        if line.startswith("- ") or re.match(r" \S ", line):
             chunks.append(line)
         else:
             chunks[-1] += "\n" + line
@@ -70,7 +74,8 @@ def asks_of(lines: list[str], head: str, end: tuple[str, ...]) -> list[str]:
 
 
 def recent(lines: list[str]) -> list[str]:
-    return asks_of(lines, "RECENT ", ("LEADS ",))
+    # plain: RECENT is followed by LEADS; rich: RECENT is the last section, followed by the legend
+    return asks_of(lines, "RECENT ", ("LEADS ", "ok enough "))
 
 
 def running(lines: list[str]) -> list[str]:

@@ -233,7 +233,8 @@ def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unic
     assert "ok enough" not in screen and "PACE=" not in screen
     expanded = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width, expand=True)
     flat = " ".join(expanded.split())
-    assert legend in flat
+    assert (legend if view == "plain" else legend.replace(" | ", " · ")) in flat  # the rich view's separator
+    assert ("BAR=remaining, | marks the even-burn level" in flat) == (view == "plain")  # no 8-cell bar in the rich view
     assert "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable" in flat
     assert "the header time is the snapshot time" in flat
     assert "precedence:" not in screen
@@ -320,9 +321,10 @@ def test_human_render_does_not_mutate_json_and_expand_keeps_details(compact_fram
     screen = render_grouped_frame(compact_frame, width=100)
     assert "fast" in _row(_solo(compact_frame, width=100), "G-5H").split()
     assert "normal=cx.effort|ag.effort" in screen
-    expanded = render_grouped_frame(compact_frame, width=100, expand=True)
-    assert "EXHAUST-IN" in expanded or "Columns omitted" in expanded
-    assert "SESSIONS [" in expanded and "USAGE [" in expanded
+    for view in ("plain", "rich"):
+        expanded = render_grouped_frame(compact_frame, view=view, width=100, expand=True)
+        assert "EXHAUST-IN" in expanded or "Columns omitted" in expanded
+        assert "SESSIONS [" in expanded and "USAGE [" in expanded
     assert json.dumps(compact_frame, ensure_ascii=True, separators=(",", ":")).encode() == before
     assert compact_frame == original
 
