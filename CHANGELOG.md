@@ -8,6 +8,13 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.24] - 2026-11-18
+
+### Changed
+
+- `peerhub monitor` (#394): a section that reads a capped sample says so (`sample N/M` in the head of EXECUTION, SESSIONS, USAGE and CONTEXT; M only when it was counted), EXECUTION labels its certainty counts "sample only" and prints the running asks from the leases, and USAGE and CONTEXT are partial when the sessions they come from are. PEERS lists up to 8 peers (all six built-in peers) and says `showing N of M peers` when capped. QUOTA lists the peers in POOLS' order. The two dates have two labels: `Model facts: profile defaults rev ... (date)` and `Facts: ... (version check <date>)`. The legend says that n/a means the plan no longer reports the window (`diag quota` may keep an older value). The cc Fable window F-7D is limited by C-7D in POOLS, QUOTA, `suggest:`, `diag quota` and `diag readiness`: with both fresh, LEFT is the lower of the two, and when C-7D is lower the reset is the nearer of the two and PACE and state are C-7D's (the worse state; a fresh exhausted C-7D is `blocked`); F-7D's own value stays in the POOLS note. JSON gains only optional fields (`sample_total`, `peers_total`, `sample_size` and `truncated` in usage and context, `effective` in `diag quota`, `limited_by` and `own_remaining` in `diag readiness` pools).
+- `peerhub session list` prints LAST_SEEN as UTC time (`2026-11-18 04:25:31Z`) instead of epoch seconds; `--json` is unchanged.
+
 ## [0.24.23] - 2026-11-17
 
 ### Changed

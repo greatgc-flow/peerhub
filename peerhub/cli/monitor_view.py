@@ -23,7 +23,7 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
          *[chr(code) for code in range(0x2066, 0x206A)]}
 MONITOR_LEGEND = (
-    "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan omits | ? unknown",
+    "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan no longer reports it (diag quota may keep an older value) | ? unknown",
     "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable",
     "BAR=remaining, | marks the even-burn level (^ ahead, v behind)",
     "TIME: the header time is the snapshot time (when the store was read), not the time quota was measured",
@@ -95,12 +95,20 @@ def _pool_order(peer: str, pool: str) -> tuple[str, str, int, str]:
     return (peer, _pool_family(pool), _parse_window(pool)[0], pool)
 
 
-def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes: bool = True
-                  ) -> tuple[list[dict[str, Any]], list[str]]:
-    """Derive a forest from configured consumers, leaving every pool's values intact."""
+def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes: bool = True,
+                  order: dict[tuple[str, str], int] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
+    """Derive a forest from configured consumers, leaving every pool's values intact. `order` (#394) is the position of
+    each (peer, pool) in POOLS: the peers follow it (the peer of the most urgent pool first), so POOLS and QUOTA name the
+    peers in one order. Within a peer the trees keep their family and window order."""
     result: list[dict[str, Any]] = []
     notes: list[str] = []
-    for peer in sorted({str(row["peer"]) for row in rows}):
+    order = order or {}
+
+    def rank(peer: str, name: str) -> int:
+        return order.get((peer, name), len(order))
+
+    for peer in sorted({str(row["peer"]) for row in rows},
+                       key=lambda p: (min(rank(p, str(row["pool"])) for row in rows if row["peer"] == p), p)):
         peer_rows = [dict(row) for row in rows if row["peer"] == peer]
         retired = [row for row in peer_rows if row.get("retired")]
         if retired:
@@ -430,12 +438,25 @@ def _reorder_groups(group_ids: list[str]) -> list[str]:
     return first + [gid for gid in group_ids if gid not in first]
 
 
+def _sample_note(gid: str, data: dict[str, Any]) -> str:
+    """`sample N/M` for a section that read a capped sample (M = the total, when the read model counted it)."""
+    if gid not in {"execution", "sessions", "usage", "context"} or not data.get("truncated"):
+        return ""
+    read = _number(data.get("sample_size"))
+    if read is None:
+        read = next((len(cast(list[object], value)) for value in data.values() if isinstance(value, list)), None)
+    total = _number(data.get("sample_total"))
+    return f"sample {_count(read)}" + (f"/{_count(total)}" if total is not None and total >= (read or 0) else "")
+
+
 def _group_label(gid: str, group: dict[str, Any], status: str, read_at: float | None, elapsed: float) -> str:
     if gid == "capacity":
         return _quota_label(status, group, read_at, elapsed)
     if gid == "alerts":
         return f"ALERTS {len(_items(_obj(group.get('data')).get('alerts')))}"
     label = f"{gid.upper()} [{status}]"
+    note = _sample_note(gid, _obj(group.get("data")))
+    label += f" | {note}" if note else ""
     return label if gid in {str(item["id"]) for item in GROUPS} else label + " [unrecognized group]"
 
 
@@ -672,27 +693,32 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
         if bounded:
             rows = [row for row in rows if "-> latest session:" not in row] + [
                 row for row in rows if "-> latest session:" in row]
+        if data.get("peer_sample_truncated"):  # #394: a capped list says so
+            total = _number(data.get("peers_total"))
+            rows.append(f"showing {len(peer_items)} of {_count(total)} peers" if total is not None
+                        else f"showing {len(peer_items)} peers; more are not shown")
         defaults_rev: object = data.get("defaults_revision")
         observed_at: object = data.get("observed_at")
 
-        rev_str = f"rev {_clean(defaults_rev)}" if defaults_rev else "rev unknown"
+        # One label per date (#394): the packaged defaults revision and its date here; "version check" is the facts report's.
+        rev_str = f"profile defaults rev {_clean(defaults_rev)}" if defaults_rev else "profile defaults rev unknown"
         if observed_at:
             obs_clean = _clean(observed_at)
-            age_str = "(unknown)"
+            age_str = "age unknown"
             if read_at is not None:
                 try:
                     read_date = datetime.fromtimestamp(read_at, timezone.utc).date()
                     obs_date = date.fromisoformat(obs_clean)
                     days = (read_date - obs_date).days
-                    age_str = "(future)" if days < 0 else f"({days}d ago)"
+                    age_str = "future" if days < 0 else f"{days}d ago"
                 except (ValueError, OSError, OverflowError):
                     pass
-            obs_str = f"checked {obs_clean} {age_str}"
+            obs_str = f"({obs_clean}, {age_str})"
         else:
-            obs_str = "checked unknown"
+            obs_str = "(date unknown)"
 
         footer = (
-            f"Model facts: {rev_str}{sep}{obs_str}{sep}"
+            f"Model facts: {rev_str} {obs_str}{sep}"
             f"sources: codex debug models{bar}agy models{bar}claude: known ids"
         )
         # The rich --expand frame wraps a long line (nothing is cut); the plain view fits it to one line.
@@ -714,10 +740,12 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     else:
                         display_reasons.append(r)
                 reason_str = f" ({', '.join(display_reasons)})" if display_reasons else ""
-                facts_line = f"Facts: needs_recheck{reason_str} - refresh-model-profiles"
+                chk_date = _clean(str(rep_dict.get("checked_at") or "")[:10])
+                facts_line = (f"Facts: needs_recheck{reason_str} - refresh-model-profiles"
+                              + (f" (version check {chk_date})" if chk_date else ""))
             elif status == "ok":
                 chk_date = str(rep_dict.get("checked_at") or "")
-                chk_date_str = f" (checked {chk_date[:10]})" if chk_date else ""
+                chk_date_str = f" (version check {chk_date[:10]})" if chk_date else ""
                 facts_line = f"Facts: ok{chk_date_str}"
             elif status == "unverified":
                 facts_line = "Facts: unverified"
@@ -737,8 +765,11 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
             latency_ns += int(_number(latency.get("sum_ns")) or 0)
             latency_count += int(_number(latency.get("count")) or 0)
         if scopes:
-            rows.append("Delivery certainty: " + ", ".join(f"{key.replace('_', ' ')} {_count(value)}"
-                         for key, value in totals.items()))
+            sampled = bool(data.get("truncated"))  # #394: the counts of a sample are not the store's totals
+            rows.append("Delivery certainty" + (" (sample only)" if sampled else "") + ": " + ", ".join(
+                f"{key.replace('_', ' ')} {_count(value)}" for key, value in totals.items()))
+            if sampled and data.get("_running_asks") is not None:  # the leases, which the sample does not decide
+                rows.append(f"Running asks now: {_count(data['_running_asks'])} (leases, not sampled)")
             avg = latency_ns / latency_count / 1_000_000_000 if latency_count else None
             rows.append(f"Measured delivery latency: {avg:.2f}s avg{sep}{latency_count} samples" if avg is not None
                         else "Measured delivery latency: unknown")
@@ -961,17 +992,30 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                               "STATE": state_str, "AGE": age_str,
                               "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
 
+            pool_rows = cast(dict[tuple[str, str], dict[str, Any]], data.get("_pool_rows") or {})
+            # POOLS' order (#394): the position of each pool in the rows POOLS draws.
+            position = {(str(row["peer"]), str(row["pool"])): index
+                        for index, (row, _) in enumerate(_ordered_pools(list(pool_rows.values()), every=True))}
             layout, retired_notes = _quota_layout([
                 {"peer": cells["PEER"], "pool": cells["POOL"], "state": cells["STATE"],
                  "profiles": cells["PROFILES (configured)"], "cells": cells, "source": item,
                  "retired": item.get("display_retired"), "display_plan": item.get("display_plan")}
-                for cells, item in zip(table, sources)], unicode, show_quota_notes=bool(data.get("_show_quota_notes")))
-            pool_rows = cast(dict[tuple[str, str], dict[str, Any]], data.get("_pool_rows") or {})
+                for cells, item in zip(table, sources)], unicode, show_quota_notes=bool(data.get("_show_quota_notes")),
+                order=position)
+            by_pool = {(str(row["peer"]), str(row["pool"])): row for row in layout}
             for row in layout:
                 cells = row["cells"]
-                if rich:  # the row POOLS draws for this pool (the frame's rows), so both show one glyph and word
-                    summary = pool_rows.get((str(row["source"].get("peer_id")), str(row["source"].get("pool_ref")))) or _compact_pool(
-                        row["source"], read_at or 0, elapsed_seconds, {})
+                key = (str(row["source"].get("peer_id")), str(row["source"].get("pool_ref")))
+                summary = pool_rows.get(key) or (_compact_pool(row["source"], read_at or 0, elapsed_seconds, {}) if rich else None)
+                if summary is not None and summary.get("limited"):  # #394: the pool under its parent, as POOLS draws it
+                    if not rich:
+                        cells["STATE"] = str(summary["state"]).upper()
+                    parent = by_pool.get((str(row["peer"]), str(summary["depends_on"])))
+                    if parent is not None and summary.get("own_left"):  # the parent has less left: its values, the nearer reset
+                        for column in ("REM", "PACE", "[BAR]", "EXHAUST-IN", "FORECAST"):
+                            cells[column] = parent["cells"][column]
+                        cells["RESET-IN"] = _format_duration(max(0.0, float(summary["reset_seconds"])))
+                if rich and summary is not None:  # the row POOLS draws for this pool (the frame's rows), so both show one glyph and word
                     row["summary"] = summary
                     glyphs = RICH_GLYPHS[unicode]
                     cells["STATE"] = f"{glyphs.get(str(summary['state']), glyphs['aged'])} {summary['state']}"
@@ -2364,7 +2408,9 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
         name = f"{' ' * _width(peer)} {prefix}{pool}" if depth else f"{peer} {pool}"
         family = str(row["meaning"]) + (f"; {_na_note(row)}" if show_quota_notes and row["state"] == "n/a" else "")
         if row.get("depends_on"):
-            family += f"; {row['depends_on']} out" if row["state"] == "blocked" else f"; needs {row['depends_on']}"
+            own = f" (own {row['own_left']})" if row.get("own_left") else ""  # the pool's own LEFT, when the parent is lower
+            family += (f"; {row['depends_on']} out{own}" if row["state"] == "blocked" else
+                       f"; limited by {row['depends_on']}{own}" if row.get("limited") else f"; needs {row['depends_on']}")
         table.append([" " + name, str(row["state"]), str(row["left"]), str(row["resets"]),
                       _pace_glyph(str(row["pace"]), unicode), _cell(family, unicode, "-", keep)])
     # Whole columns drop from the right (FAMILY first). FAMILY shrinks only down to its widest family name, so a long
@@ -2436,13 +2482,34 @@ def _frame_pools(payload: dict[str, Any], consumers: dict[str, list[str]]
         if parent is None:
             continue
         row["depends_on"] = parent["pool"]
-        # Keep the scoped window's own percent, reset and pace. Only fresh evidence before reset can establish a
-        # current block; an aged/unknown/missing parent never turns the child into an apparently measured block.
-        if (parent["state"] == "out" and not parent["needs_refresh"] and not parent["stale"]
-                and (_number(parent["reset_seconds"]) or 0) > 0 and not row["needs_refresh"] and not row["stale"]
-                and row["state"] in {"ok", "low", "fast"}):
-            row.update(state="blocked", color_state="out")
+        _limit_by_parent(row, parent)
     return observations, quota, rows
+
+
+_SEVERITY = {"ok": 0, "fast": 1, "low": 2, "out": 3}  # of two fresh pools; the worse state wins
+
+
+def _limit_by_parent(row: dict[str, Any], parent: dict[str, Any]) -> None:
+    """#394: a scoped weekly pool (cc F-7D) is limited by its parent (C-7D). With both pools fresh and before their reset:
+    LEFT = the lower of the two (the pool's own value stays as `own_left`); when the parent has less left, the reset is the
+    nearer of the two and PACE is the parent's; the state is the worse of the two (a fresh `out` parent is `blocked`).
+    The same rule as quota_projection.limit_by_parent (this renderer imports no extension code). An aged, unknown, reset
+    or missing parent never limits the child, and the payload is never rewritten (these are display rows)."""
+    def current(item: dict[str, Any]) -> bool:
+        return _has_value(item) and not item["needs_refresh"] and not item["stale"]
+
+    if not (current(row) and current(parent) and (_number(parent["reset_seconds"]) or 0) > 0):
+        return
+    parent_lower = float(parent["remaining"]) < float(row["remaining"])
+    if parent_lower:
+        resets = [value for value in (_number(row["reset_seconds"]), _number(parent["reset_seconds"])) if value is not None]
+        reset = min(resets)
+        row.update(own_left=row["left"], remaining=parent["remaining"], left=parent["left"], pace=parent["pace"],
+                   reset_seconds=reset, resets="passed" if reset <= 0 else _compact_age(reset))
+    worse = _SEVERITY.get(parent["state"], -1) > _SEVERITY.get(row["state"], -1)
+    if worse:
+        row.update(state="blocked" if parent["state"] == "out" else parent["state"], color_state=parent["color_state"])
+    row["limited"] = parent_lower or worse
 
 
 def _with_min_quota(payload: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -2656,10 +2723,20 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
             consumers.setdefault(f"{peer.get('peer_id')}:{pool}", []).append(str(profile.get("name") or profile.get("profile")))
     cap = _obj(groups.get("capacity"))
     data = _obj(cap.get("data"))
+    # Use POOLS' human observations and full identities: distinct pools can share a display name. Both views take their
+    # pool order and each pool's effective values from these rows (#394).
+    pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row
+                 for row in _frame_pools(payload, _frame_consumers(payload))[2]}
     display_groups = {**groups,
         "capacity": {**cap, "data": {**data, "_show_quota_notes": bool(payload.get("_show_quota_notes")),
+                                     "_pool_rows": pool_rows,
                                      "consumers": {key: ",".join(sorted(set(names))) for key, names in consumers.items()}}}}
     activity = _obj(groups.get("activity"))
+    execution = _obj(groups.get("execution"))
+    if isinstance(activity.get("data"), Mapping) and isinstance(execution.get("data"), Mapping):
+        # #394: the leases decide what runs; the sampled certainty counts of EXECUTION do not
+        running_asks = _running_head(_obj(activity.get("data")), _ask_split(_obj(activity.get("data")))[0], True)[1]
+        display_groups["execution"] = {**execution, "data": {**_obj(execution.get("data")), "_running_asks": running_asks}}
     if isinstance(activity.get("data"), Mapping):  # #376 P2: what an ended ask's row is joined to (display data only)
         display_groups["activity"] = {**activity, "data": {**_obj(activity.get("data")),
                                                              "_session_contexts": _session_contexts(groups)}}
@@ -2696,7 +2773,7 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     if rich:
         return _rich_expanded_frame(payload, display, store_lines, footer, color=color, unicode=unicode, width=width,
                                     height=height, expand=expand, keep=keep)
-    payload = _with_min_quota(payload, _frame_pools(payload, {})[2])
+    payload = _with_min_quota(payload, list(pool_rows.values()))
     verdict = verdict_line(payload, max(1, width - 1), unicode, keep)
     # #374: the verdict is line 1; the grouped frame below it is laid out for one terminal line less.
     inner_height = None if height is None else height - 1
@@ -2852,8 +2929,7 @@ def _rich_expanded_frame(payload: dict[str, Any], display: dict[str, Any], store
     read_at = _number(payload.get("read_at"))
     elapsed = _number(payload.get("display_elapsed_seconds")) or 0.0
     now = None if read_at is None else read_at + elapsed
-    # Use POOLS' human observations and full identities: distinct pools can share a display name.
-    pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row
+    pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row  # the rows POOLS draws (see `_render_expanded_frame`)
                  for row in _frame_pools(payload, _frame_consumers(payload))[2]}
     recent: list[str] = []
     for group_id in [*(gid for gid in _RICH_ORDER if gid in selected), *(gid for gid in selected if gid not in _RICH_ORDER)]:
@@ -2884,7 +2960,8 @@ def _rich_expanded_frame(payload: dict[str, Any], display: dict[str, Any], store
     if height is None:
         explanations = _rich_legend(sep)
         if any(row.get("depends_on") for row in pool_rows.values()):
-            explanations.append("blocked=required parent pool is out; LEFT and the bar keep this pool's own remaining quota")
+            explanations.append("blocked=the parent pool is out; a pool under its parent shows the parent's LEFT, PACE and state "
+                                "when the parent has less left, and the nearer of the two resets (own = its own LEFT)")
         legend = [fit(part) for text in explanations for part in _compact_wrap(text, max(1, target))]
         return "\n".join([*lines, *legend, footer]) + "\n"
     limit = height - 1

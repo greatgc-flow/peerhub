@@ -26,6 +26,7 @@ import json
 import os
 import sqlite3
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NoReturn, cast
 
@@ -883,6 +884,8 @@ def _run_session_cli(args: argparse.Namespace) -> int:
                         value = row.get("configured_binding", {}).get(key)
                     else:
                         value = row.get(key)
+                    if key == "last_seen" and isinstance(value, (int, float)):
+                        return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
                     return "-" if value is None or value == "" else str(value)
                 widths = [max(len(key), *(len(cell(row, key)) for row in rows)) for key in keys]
                 print("  ".join(key.upper().ljust(widths[i]) for i, key in enumerate(keys)))

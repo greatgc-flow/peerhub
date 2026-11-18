@@ -31,6 +31,9 @@ from peerhub.extensions.observation_model import (
 from peerhub.extensions.quota_projection import project_exhaustion
 
 
+PEER_CAP = 8  # the six built-in peers (ag, ca, cc, cx, ga, oa) and two more; more is reported as "showing N of M peers"
+
+
 def mapped_quota(configured_pools: list[str], peer_observations: list[dict[str, Any]]) -> dict[str, Any] | None:
     """Peer quota over its profile's configured pools: the freshest row per pool, the most constrained wins.
 
@@ -1071,26 +1074,34 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         conn.set_trace_callback(trace)
         peers: list[dict[str, Any]] = []
         peer_sample_truncated = False
+        peers_total = 0
         try:
-            rows = (conn.execute("SELECT peer_id,display_name,adapter_ref FROM peers ORDER BY peer_id LIMIT 4").fetchall()
+            rows = (conn.execute("SELECT peer_id,display_name,adapter_ref,(SELECT COUNT(*) FROM peers) FROM peers "
+                                 "ORDER BY peer_id LIMIT ?", (PEER_CAP + 1,)).fetchall()  # the peers table is tiny
                     if bool(set(groups) & {"overview", "peers"}) else [])
-            peer_sample_truncated = len(rows) > 3
-            peers = [{"peer_id": str(row[0]), "display_name": row[1], "adapter_ref": row[2]} for row in rows[:3]]
+            peer_sample_truncated = len(rows) > PEER_CAP
+            peers = [{"peer_id": str(row[0]), "display_name": row[1], "adapter_ref": row[2]} for row in rows[:PEER_CAP]]
+            if peer_sample_truncated:  # what "showing N of M peers" needs
+                peers_total = int(rows[0][3])
             if "overview" in groups:
                 output["overview"] = {"status": "OK", "data": {"peers": peers, "sample_size": len(peers),
-                                                                     "truncated": peer_sample_truncated}}
+                                                                     "truncated": peer_sample_truncated,
+                                                                     **({"peers_total": peers_total}
+                                                                        if peer_sample_truncated else {})}}
         except sqlite3.Error as exc:
             errors["overview"] = type(exc).__name__
             if "overview" in groups:
                 output["overview"] = {"status": "ERROR", "data": None}
         sessions: list[dict[str, Any]] = []
         truncated = False
+        sessions_total = 0
         try:
             needs_sessions = bool(set(groups) & {"overview", "sessions", "usage", "context", "runtime", "peers"})
             rows = conn.execute(
                 "SELECT h.session_handle,h.stream_id,h.peer_id,h.session_generation,h.runtime_kind,h.state,h.resumable,"
                 "h.last_seen,h.created_at,h.tombstoned_at,COALESCE(s.binding_json, h.binding) AS binding_json,"
-                "s.latest_telemetry_seq,s.reuse_count,s.fresh_count,e.detail "
+                "s.latest_telemetry_seq,s.reuse_count,s.fresh_count,e.detail,"
+                "(SELECT COUNT(*) FROM bridge_session_history) AS total_sessions "
                 "FROM (SELECT rowid,session_handle,stream_id,peer_id,session_generation,runtime_kind,binding,state,resumable,last_seen,created_at,tombstoned_at "
                 "FROM bridge_session_history ORDER BY rowid DESC LIMIT 101) h "
                 "LEFT JOIN bridge_session_monitor_stats s ON s.session_handle=h.session_handle "
@@ -1098,6 +1109,8 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 "ORDER BY h.rowid DESC"
             ).fetchall() if needs_sessions else []
             truncated = len(rows) > 100
+            if truncated:  # the count that makes the sample marker "sample 100/M"
+                sessions_total = int(rows[0]["total_sessions"])
             for row in rows[:100]:
                 binding = _safe_object(row["binding_json"])
                 telemetry = public_telemetry(row["detail"], handle=str(row["session_handle"]),
@@ -1115,17 +1128,19 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                                  "telemetry": telemetry})
         except sqlite3.Error as exc:
             errors["sessions"] = type(exc).__name__
+        # One session sample feeds sessions, usage and context (#394): they carry the same size, truncation and total.
+        sample = {"sample_size": len(sessions), "truncated": truncated, **({"sample_total": sessions_total} if truncated else {})}
         if "sessions" in groups:
             output["sessions"] = {"status": "ERROR" if "sessions" in errors else "OK",
-                                  "data": {"items": sessions, "sample_size": len(sessions), "truncated": truncated}}
+                                  "data": {"items": sessions, **sample}}
         if "usage" in groups:
             output["usage"] = {"status": "ERROR" if "sessions" in errors else "OK", "data": {"sessions": [{"handle": item["handle"], "peer_id": item["peer_id"],
                                                                             "generation": item["generation"], "telemetry": item["telemetry"]["usage"]}
-                                                                   for item in sessions]}}
+                                                                   for item in sessions], **sample}}
         if "context" in groups:
             output["context"] = {"status": "ERROR" if "sessions" in errors else "OK", "data": {"sessions": [{"handle": item["handle"], "peer_id": item["peer_id"],
                                                                               "generation": item["generation"], "context": item["telemetry"]["context"]}
-                                                                     for item in sessions]}}
+                                                                     for item in sessions], **sample}}
         if "runtime" in groups:
             config_workspace = _monitor_workspace(db_path, workspace)
             current_profiles: dict[str, dict[str, Any]] = {}
@@ -1534,6 +1549,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                     "truncated": truncated or peer_sample_truncated,
                     "session_sample_truncated": truncated,
                     "peer_sample_truncated": peer_sample_truncated,
+                    **({"peers_total": peers_total} if peer_sample_truncated else {}),
                     "defaults_revision": defaults_meta.get("defaults_revision"),
                     "observed_at": defaults_meta.get("observed_at"),
                     "facts_report": latest_facts_report,

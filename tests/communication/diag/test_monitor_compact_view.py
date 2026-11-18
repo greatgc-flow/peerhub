@@ -228,7 +228,7 @@ def test_stale_row_without_number_is_aged_only_for_absent(compact_frame, stored_
 @pytest.mark.parametrize("width", [48, 80, 100])
 def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unicode_mode, width):
     # #374: the legend left the compact frame; --expand prints it whole, wrapped to the width.
-    legend = "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan omits | ? unknown"
+    legend = "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan no longer reports it (diag quota may keep an older value) | ? unknown"
     screen = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width)
     assert "ok enough" not in screen and "PACE=" not in screen
     expanded = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width, expand=True)

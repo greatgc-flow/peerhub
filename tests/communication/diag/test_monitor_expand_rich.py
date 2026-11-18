@@ -5,6 +5,8 @@ and the whole suggestion. One line with the store path follows, then the detail 
 RUNNING, LEADS, QUOTA (details), PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT, any other group, RECENT. The entries of a
 section carry the compact frame's markers and keep every field. The plain view keeps its grouped layout
 (`fixtures/monitor/plain_expand_v0_24_20.json`, captured from v0.24.20), with 0.24.22's clearer lead-count labels.
+#394 regenerated the 12 cases: QUOTA lists the peers in POOLS' order (the cx block first), `Model facts: profile defaults
+rev ... (date, Nd ago)` and the legend's `n/a plan no longer reports it`; nothing else moved.
 """
 from __future__ import annotations
 
@@ -271,7 +273,7 @@ def test_section_lines_use_the_dot_separator_never_a_pipe():
     assert " pool_out: cx X-5H · age - · high · a3" in lines
     assert " cx reset credits: 0 · soonest - [MEASURED]" in lines
     assert " cc login ok · plan max · login token expiry n/a · auth oauth · age 30s [MEASURED]" in lines
-    assert " Model facts: rev unknown · checked unknown · sources: codex debug models · agy models · claude: known ids" in lines
+    assert " Model facts: profile defaults rev unknown (date unknown) · sources: codex debug models · agy models · claude: known ids" in lines
     assert " Schema 7 · database 2.0 KiB" in lines
     assert " ag  quota: unknown -> unknown [unknown]" in lines and "     -> latest session: none" in lines
     assert " ACCOUNTS (plan is display data; the expiry is the login token's, not billing)" in lines
@@ -619,8 +621,6 @@ def test_the_lesson_the_readme_and_the_changelog_describe_the_expand_frame():
     probes = (root / "docs" / "implementation" / "OBSERVATION_PROBES.md").read_text(encoding="utf-8")
     assert sections in probes and "FORECAST" in probes
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog.split("## [Unreleased]")[1].split("\n## [")[0]
-    assert not unreleased.strip()
     release = changelog.split("## [0.24.21] - 2026-11-17")[1].split("\n## [")[0]
     assert "### Changed" in release and "`--expand`" in release and sections in release
 

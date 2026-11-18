@@ -23,6 +23,26 @@ class ExhaustionProjection(TypedDict):
     reason: str | None
 
 
+SCOPED_PARENTS = {"F-7D": "C-7D"}  # cc: the Fable weekly window is also limited by the all-models weekly window (#394)
+
+
+def scoped_parent_ref(pool_ref: str) -> str | None:
+    """The pool a scoped weekly window depends on (`quota:cc:F-7D` -> `quota:cc:C-7D`), or None."""
+    head, sep, name = pool_ref.rpartition(":")
+    parent = SCOPED_PARENTS.get(name)
+    return None if parent is None else head + sep + parent
+
+
+def limit_by_parent(left: float | None, reset: float | None, parent_left: float | None, parent_reset: float | None
+                    ) -> tuple[float | None, float | None, bool]:
+    """(effective left, effective reset, limited): left = min(own, parent); when the parent has less left the reset is
+    the nearer of the two, otherwise the window's own values stay. Every value is of fresh evidence; the caller decides."""
+    if left is None or parent_left is None or parent_left >= left:
+        return left, reset, False
+    resets = [value for value in (reset, parent_reset) if value is not None]
+    return parent_left, min(resets) if resets else None, True
+
+
 def _is_finite_num(val: object) -> TypeGuard[int | float]:
     if not isinstance(val, (int, float)) or isinstance(val, bool):
         return False

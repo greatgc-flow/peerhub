@@ -58,7 +58,7 @@ def test_old_null_pool_drift_does_not_hide_newer_ok_reports(store):
     _capture(store, "cc", "quota:cc:C-5H", 100, OK)
     report, expanded, compact = _facts(store)
     assert report["status"] == "ok"
-    assert "Facts: ok (checked 2026-11-14)" in expanded
+    assert "Facts: ok (version check 2026-11-14)" in expanded
     assert "version_drift" not in expanded
     assert "facts:" not in compact and not compact.startswith("ATTN")
 
