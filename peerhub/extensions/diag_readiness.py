@@ -14,6 +14,7 @@ from peerhub.extensions.adapters.profiles import inspect_model_pools, list_profi
 from peerhub.extensions.adapters.base import classify_refusal_text
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.extensions.observation_model import instant_us
+from peerhub.extensions.quota_projection import limit_by_parent, scoped_parent_ref
 
 
 def readiness_report(db_path: str | Path, *, read_at: float | None = None,
@@ -94,6 +95,19 @@ def compose(profiles: list[dict[str, Any]], observations: list[dict[str, Any]],
                 if _number(reset):
                     view["reset_in"] = max(0, reset - now)
         pools[ref] = view
+    # A scoped weekly pool (cc F-7D) is limited by its parent (C-7D) as the monitor's POOLS shows it: both configured, the
+    # child's profiles a strict subset of the parent's, both MEASURED, the parent with less left (#394).
+    for ref, view in pools.items():
+        parent_ref = scoped_parent_ref(ref)
+        parent = pools.get(parent_ref) if parent_ref else None
+        child_members = {p["id"] for p in profiles if ref in p["pools"]}
+        if (parent_ref is None or parent is None or view["state"] != "MEASURED" or parent["state"] != "MEASURED"
+                or not child_members < {p["id"] for p in profiles if parent_ref in p["pools"]}):
+            continue
+        remaining, reset_in, limited = limit_by_parent(view["remaining"], view["reset_in"], parent["remaining"],
+                                                       parent["reset_in"])
+        if limited:
+            view.update(own_remaining=view["remaining"], remaining=remaining, reset_in=reset_in, limited_by=parent_ref)
     latest: dict[str, dict[str, Any]] = {}
     corrupt = not complete
     for row in deliveries:
@@ -190,7 +204,8 @@ def format_readiness(report: dict[str, Any]) -> str:
         rem = "?" if pool["remaining"] is None else f"{pool['remaining']:.0%}"
         reset = "?" if pool["reset_in"] is None else f"{pool['reset_in']:.0f}s"
         age = "?" if pool["age"] is None else f"{pool['age']:.0f}s"
-        lines.append(f"{aliases[ref]}={ref} REM={rem} reset={reset} age={age} {pool['state']}")
+        limit = f" limited_by={aliases[pool['limited_by']]}" if pool.get("limited_by") in aliases else ""
+        lines.append(f"{aliases[ref]}={ref} REM={rem} reset={reset} age={age} {pool['state']}{limit}")
     if report["error"]:
         lines.append(report["error"])
     return "\n".join(lines)

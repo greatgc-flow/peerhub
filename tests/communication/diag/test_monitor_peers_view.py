@@ -518,8 +518,8 @@ def test_rework_4_peers_discloses_truncation_when_sessions_capped(tmp_path):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     harness = BridgeHarness(tmp_path / "workspace")
-    # Seed 6 peers: 'a', 'p1', 'p2', 'p3', 'p4', 'p5' (>4 peers)
-    bseed(harness, peers=("a", "p1", "p2", "p3", "p4", "p5"), stream="s")
+    # Seed 10 peers: 'a', 'p1' ... 'p9' (more than PEER_CAP = 8, #394)
+    bseed(harness, peers=("a", *(f"p{n}" for n in range(1, 10))), stream="s")
 
     # Insert 105 session rows for peer 'a' (>100 session rows), leaving p1 and p2 with no session in sample
     with sqlite3.connect(harness.db_path) as conn:
@@ -578,7 +578,7 @@ def test_pr2_peers_footer_shows_model_facts_with_revision_and_sources(peers_fram
     rendered = render_grouped_frame(peers_frame, view="plain", width=140)
 
     expected = (
-        "Model facts: rev 2026-10-16.1 · checked 2026-10-16 (0d ago) · "
+        "Model facts: profile defaults rev 2026-10-16.1 (2026-10-16, 0d ago) · "
         "sources: codex debug models | agy models | claude: known ids"
     )
     assert expected in rendered
@@ -592,7 +592,7 @@ def test_pr2_peers_footer_computes_age_with_fixed_clock(peers_frame):
     peers_frame["read_at"] = 1792152000.0 + 86400.0 * 2
     rendered = render_grouped_frame(peers_frame, view="plain", width=140)
 
-    assert "checked 2026-10-16 (2d ago)" in rendered
+    assert "(2026-10-16, 2d ago)" in rendered
 
 
 def test_pr2_peers_footer_clips_within_columns_minus_1(peers_frame):
@@ -629,7 +629,7 @@ def test_pr2_peers_footer_future_observed_at_renders_future(peers_frame):
     peers_frame["groups"]["peers"]["data"]["observed_at"] = "2026-10-16"
     rendered = render_grouped_frame(peers_frame, view="plain", width=140)
 
-    assert "checked 2026-10-16 (future)" in rendered
+    assert "(2026-10-16, future)" in rendered
 
 
 def test_pr2_peers_footer_handles_missing_facts_as_unknown(peers_frame):
@@ -643,7 +643,7 @@ def test_pr2_peers_footer_handles_missing_facts_as_unknown(peers_frame):
     rendered = render_grouped_frame(peers_frame, view="plain", width=140)
 
     assert (
-        "Model facts: rev unknown · checked unknown · "
+        "Model facts: profile defaults rev unknown (date unknown) · "
         "sources: codex debug models | agy models | claude: known ids"
     ) in rendered
 
@@ -956,7 +956,7 @@ def test_peers_view_footer_shows_facts_ok_when_clean(tmp_path):
     assert frame["groups"]["peers"]["data"]["facts_report"]["status"] == "ok"
 
     rendered = render_grouped_frame(frame, view="plain", width=80)
-    assert f"Facts: ok (checked {now_iso[:10]})" in rendered
+    assert f"Facts: ok (version check {now_iso[:10]})" in rendered
 
 
 def test_peers_view_footer_shows_facts_unverified_and_unknown_pools(tmp_path):

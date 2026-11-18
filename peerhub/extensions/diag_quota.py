@@ -15,7 +15,7 @@ from typing import Any, Mapping, cast
 
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
 from peerhub.extensions.observation_model import MEASUREMENT_KEYS
-from peerhub.extensions.quota_projection import ExhaustionProjection, project_exhaustion
+from peerhub.extensions.quota_projection import ExhaustionProjection, limit_by_parent, project_exhaustion, scoped_parent_ref
 
 SCHEMA_VERSION = "1.0"
 QUOTA_KINDS = ("quota", "rate_limit")
@@ -150,6 +150,7 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
                 groups[pid] = [{"subject_ref": None, "resource_pool_ref": pid, "kind": p["kind"].lower(), "state": "UNKNOWN", "age_seconds": None,
                                 "source": None, "measurements": {}, "derived": {},
                                 "projection": project_exhaustion(None, None, None, None, now, evidence_state="UNKNOWN")}]
+    _limit_scoped(groups)
     pools: list[dict[str, Any]] = [{"resource_pool_ref": k, "items": groups[k]} for k in sorted(groups, key=lambda x: (x is None, x or ""))]
     out["pools"] = pools
     out["reset_credits"] = resets
@@ -158,6 +159,29 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
         out["status"] = "PARTIAL"
     out["overall"] = "OK" if any(i["state"] in ("MEASURED", "STALE") for g in pools for i in g["items"]) else "UNKNOWN"
     return out
+
+
+def _num(value: object) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _limit_scoped(groups: dict[str | None, list[dict[str, Any]]]) -> None:
+    """A scoped weekly pool (cc F-7D) is also limited by its parent (C-7D) of the same subject: when both are MEASURED and the
+    parent has less left, the item gets an additive `effective` (left = the parent's, reset = the nearer, `limited_by`).
+    The pool's own `measurements` and `window` stay as measured; nothing is added when the parent is not lower."""
+    for ref, items in groups.items():
+        parent_ref = scoped_parent_ref(ref) if ref else None
+        for item in items:
+            parent = next((p for p in groups.get(parent_ref, []) if p["subject_ref"] == item["subject_ref"]), None)
+            if parent is None or item["state"] != "MEASURED" or parent["state"] != "MEASURED":
+                continue
+            left, reset = _num(item["measurements"].get("remaining_fraction")), _num(item["window"].get("resets_at"))
+            parent_left = _num(parent["measurements"].get("remaining_fraction"))
+            effective_left, effective_reset, limited = limit_by_parent(left, reset, parent_left,
+                                                                       _num(parent["window"].get("resets_at")))
+            if limited:
+                item["effective"] = {"remaining_fraction": effective_left, "resets_at": effective_reset,
+                                     "limited_by": parent_ref}
 
 
 def observations_summary(db_path: str | Path, *, read_at: float | None = None) -> dict[str, Any]:
@@ -194,7 +218,9 @@ def format_quota_table(rep: dict[str, Any]) -> str:
             age = "-" if i["age_seconds"] is None else f"{i['age_seconds']:.0f}s"
             meas = " ".join(f"{k}={v}" for k, v in i["measurements"].items()) or "(no measurement)"
             der = " ".join(f"{k}={v:.4g} (derived)" for k, v in i["derived"].items())
-            lines.append(f"  {i['subject_ref'] or '-':<16} {i['kind']:<10} {i['state']:<11} age={age:<8} src={i['source'] or '-'}  {meas} {der}".rstrip())
+            eff = i.get("effective")
+            limit = f" effective={eff['remaining_fraction']:.0%} (limited by {eff['limited_by']})" if eff else ""
+            lines.append(f"  {i['subject_ref'] or '-':<16} {i['kind']:<10} {i['state']:<11} age={age:<8} src={i['source'] or '-'}  {meas} {der}{limit}".rstrip())
     lines.extend(_reset_credit_lines(rep["reset_credits"], "reset credits (read-only; hours computed at read time)", "  "))
     return "\n".join(lines)
 

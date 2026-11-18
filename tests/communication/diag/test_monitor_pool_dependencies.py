@@ -46,13 +46,16 @@ def pool_rows(screen: str, name: str) -> list[str]:
 
 @pytest.mark.parametrize("view,expand", [("plain", False), ("rich", False), ("rich", True)])
 @pytest.mark.parametrize("unicode", [False, True])
-def test_fable_is_nested_and_blocked_by_fresh_common_pool_without_rewriting_26_percent(view, expand, unicode):
+def test_fable_is_nested_and_blocked_by_fresh_common_pool_showing_the_parents_left_not_rewriting_the_payload(
+        view, expand, unicode):
     frame = payload()
     before = deepcopy(frame)
     screen = mv.render_grouped_frame(frame, view=view, expand=expand, unicode=unicode, color=True, width=160)
     rows = pool_rows(screen, "F-7D")
     assert len(rows) == (2 if expand else 1)  # POOLS and QUOTA use the same dependency state
-    assert all("blocked" in row.split() and "26%" in row.split() and "5h28m" in row.split() for row in rows)
+    # #394: effective left = the lower of the two (0% of the parent); the pool's own 26% stays in the POOLS note
+    assert all("blocked" in row.split() and "0%" in row.split() and "5h28m" in row.split() for row in rows)
+    assert "(own 26%)" in rows[0]
     assert all(any(branch in row for branch in ("└─", "├─", "`-", "|-")) for row in rows)
     assert all("0%" in row.split() and "out" in row.split() for row in pool_rows(screen, "C-7D"))
     assert "C-7D out" in rows[0]
