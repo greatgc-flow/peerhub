@@ -32,6 +32,11 @@ class LegacySelectorUnsupported(ValueError):
     code = "legacy_selector_unsupported"
 
 
+class PeerNotFoundError(ValueError):
+    """The target peer is neither registered with an adapter nor a builtin name: a user error (#401)."""
+    code = "peer_not_found"
+
+
 class StreamPeerMismatchError(ValueError):
     """An established ask stream cannot be retargeted to a different peer (#125)."""
     code = "stream_peer_mismatch"
@@ -164,7 +169,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         account_args["account"] = AccountRef(account_binding.slot_id)
     if runtime is None:
         if kind is None:
-            raise ValueError("register this peer with --adapter cx, cc, ag, ca, oa or ga before asking it")
+            raise PeerNotFoundError("register this peer with --adapter cx, cc, ag, ca, oa or ga before asking it")
         options: dict[str, Any] = dict(model=model, effort=effort, profile=profile, silence_timeout_s=silence_timeout_s,
                                        writable=writable, timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output)
         target = (API_TARGETS[kind](workspace or Path.cwd(), **options) if kind in API_TARGETS

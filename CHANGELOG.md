@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- CLI audit (#401): `peerhub ask` with an unregistered peer is now a user error (`peer_not_found`, exit 1, it was `ask_unexpected_failure` with exit 2); `profile show` errors no longer begin with the Python class name; `monitor defaults show` prints a table (JSON only with `--json`); `account list` with no bindings prints `(no accounts)`; `peer get` and `stream show` print `-` for a missing value (it was `None`); every option has a help text and every `--json` says `Machine-readable JSON output`. JSON output is unchanged.
+
 ## [0.24.25] - 2026-11-18
 
 ### Changed
