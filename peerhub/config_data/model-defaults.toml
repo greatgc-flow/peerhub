@@ -39,7 +39,7 @@ pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "implementation and diff review under an enforced sandbox"
 avoid_for = "machine-observing checks, git commit/push, network"
-traits = ["sandbox hides other processes", "sandbox network fails; no commit", "ping ok 2026-11-18; hard bench pending"]
+traits = ["sandbox hides other processes", "sandbox network fails; no commit", "hard 2026-11-18: 2 of 6 valid, #398"]
 evidence = ["cx-sandbox-and-prompt-hygiene", "docs/peer-limits.md"]
 card_checked = "2026-11-18"
 
@@ -53,7 +53,7 @@ pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "deliberate escalation: hard review and debugging"
 avoid_for = "quick questions (slow: 40-48s on benchmark)"
-traits = ["6.1-sol: 45/45, 40-48s", "ping ok 2026-11-18; hard bench pending"]
+traits = ["6.1-sol: 45/45, 40-48s", "hard 2026-11-18: 2 of 6 valid, #398"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "docs/model-profiles/model-profiles.json"]
 card_checked = "2026-11-18"
 
@@ -68,7 +68,7 @@ pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
 use_for = "opt-in top tier for the hardest cx tasks"
 avoid_for = "routine work; ultra effort adds latency only"
-traits = ["6-astra: 45/45; ultra slower", "ping ok 2026-11-18; hard bench pending"]
+traits = ["6-astra: 45/45; ultra slower", "hard 2026-11-18: 2 of 6 valid, #398"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md"]
 card_checked = "2026-11-18"
 
