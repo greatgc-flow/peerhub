@@ -20,3 +20,9 @@ ag-hydrogen-high 102s SCORE 100/100
 ag-hydrogen-xhigh 196s SCORE 100/100
 ag-orchestrator 241s SCORE 100/100
 ag-argon-medium 26s SCORE 98/100
+cx-sol62-high 67s SCORE 100/100
+cx-sol62-high-r2 64s SCORE 0/100 (reply corrupted by "[REDACTED]", #398)
+cx-sol62-xhigh 74s SCORE 14/100 (reply corrupted by "[REDACTED]", #398)
+cx-sol62-xhigh-r2 98s SCORE 7/100 (reply corrupted by "[REDACTED]", #398)
+cx-astra62-high 47s SCORE 4/100 (reply corrupted by "[REDACTED]", #398)
+cx-astra62-high-r2 46s SCORE 100/100
