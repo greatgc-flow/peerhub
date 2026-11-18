@@ -34,9 +34,9 @@ def test_tool_writes_the_section_as_lf_bytes_on_every_platform():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.24.24"
-    assert "#394" in body and "sample N/M" in body and "limited by C-7D" in body
-    assert "#391" not in body and "allow-list scope" not in body  # no adjacent history (0.24.23)
+    assert __version__ == "0.24.25"
+    assert "gpt-6.2-sol" in body and "hydrogen" in body
+    assert "#394" not in body and "sample N/M" not in body  # no adjacent history (0.24.24)
     assert "--show-quota-notes" not in body and "LEADS 2 entries" not in body  # no adjacent history (0.24.22)
     assert "#388" not in body and "#386" not in body  # no adjacent history (0.24.21)
     assert "#384" not in body and "Your prepayment credits are depleted" not in body  # no adjacent history (0.24.20)

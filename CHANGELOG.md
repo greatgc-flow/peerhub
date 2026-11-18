@@ -8,6 +8,13 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.25] - 2026-11-18
+
+### Changed
+
+- Model facts re-observed on 2026-11-18 for codex-cli 0.170.0 (`codex debug models`), agy 1.5.11 and Claude Code 2.1.327 (`defaults_revision` 2026-11-18.1, #396). `cx.effort` and `cx.deepthink` now use `gpt-6.2-sol` (high and xhigh) and `cx.astra` uses `gpt-6.2-astra` (high); `cx.standard` is unchanged (`gpt-6-luna`, low). The ag and cc profile models are unchanged and `ag.deepthink` stays `claude-sonnet-5-5-high`. The tier rule for ag deepthink now says it stays until a Gemini pro model with a proven quota pool exists. Ping results (`python -m tools.model_ping`, 2026-11-18): all 13 PASS, so every CLI profile `checked` date is advanced; for cx the ping proved model and effort, for cc and ag the model only.
+- Benchmark evidence (hard task, one run each, 2026-11-18): `gemini-4-hydrogen` and `gemini-pro-orchestrator-g1-pro` scored 100/100, which is single-run noise territory. Their pools stay `unverified` (`gemini-pro-orchestrator-g1-pro` is new in `exact_model_pools`, A-7D; the four `gemini-4-hydrogen-*` entries got `checked` 2026-11-18), so no profile uses them yet. The hard benchmark for `gpt-6.2-sol` and `gpt-6.2-astra` is pending after the cx reset; their cards say so.
+
 ## [0.24.24] - 2026-11-18
 
 ### Changed
