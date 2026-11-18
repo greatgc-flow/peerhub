@@ -15,3 +15,8 @@ cc.effort r4 29s SCORE 100/100
 cc.standard r4 66s SCORE 100/100
 cc.fable r1 58s SCORE 100/100
 cc.fable52 r1 75s SCORE 100/100
+ag-hydrogen-medium 58s SCORE 98/100
+ag-hydrogen-high 102s SCORE 100/100
+ag-hydrogen-xhigh 196s SCORE 100/100
+ag-orchestrator 241s SCORE 100/100
+ag-argon-medium 26s SCORE 98/100
