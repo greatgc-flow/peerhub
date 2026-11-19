@@ -8,6 +8,12 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.27] - 2026-11-19
+
+### Changed
+
+- The `ag` recipe (`peerhub explain ag-recipe`) now says never to mention a shell fallback in an ag prompt: headless mode denies `command`, and a prompt that permits the fallback can end the turn with an empty reply (#406). Say "use only your file read tool; if a file cannot be read, say so".
+
 ## [0.24.26] - 2026-11-19
 
 ### Fixed

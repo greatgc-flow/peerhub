@@ -34,8 +34,9 @@ def test_tool_writes_the_section_as_lf_bytes_on_every_platform():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.24.26"
-    assert "#398" in body and "#400" in body and "#401" in body
+    assert __version__ == "0.24.27"
+    assert "#406" in body and "shell fallback" in body
+    assert "#398" not in body and "#400" not in body and "#401" not in body  # no adjacent history (0.24.26)
     assert "gpt-6.2-sol" not in body and "hydrogen" not in body  # no adjacent history (0.24.25)
     assert "#394" not in body and "sample N/M" not in body  # no adjacent history (0.24.24)
     assert "LEADS 2 entries" not in body  # no adjacent history (0.24.22)
