@@ -700,9 +700,9 @@ def test_a_lone_surrogate_escape_in_stored_json_keeps_the_group_ok(db, where):
 
 
 def test_secret_on_the_shown_line_is_redacted(db):
-    row = text_row(db, prompt="use key sk-abcdefghijklmnop now", reply="token=supersecretvalue done")
+    row = text_row(db, prompt="use key sk-abcdefghijklmnop now", reply="token=supersecret42value done")
     assert "abcdefghijklmnop" not in json.dumps(row) and "[REDACTED]" in row["ask_line"]
-    assert "supersecretvalue" not in json.dumps(row)
+    assert "supersecret42value" not in json.dumps(row)
 
 
 @pytest.mark.parametrize("broken", ["sk-abcd\u200befghijklmnop", "sk-abcd\x00efghijklmnop", "sk-abcd\u2060efgh\u00adijklmnop",

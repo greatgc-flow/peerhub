@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- The reply sanitizer no longer turns `token = ...`, `password: ...` and similar assignments in a model's code into `[REDACTED]` (#398). An assignment to `api_key`, `token`, `secret`, `password` or `passwd` is redacted only when the value looks like a credential: a quoted value of 6 or more characters without spaces, or an unquoted run of 6 or more characters with a digit that is not followed by `(`, `{` or `[`. Residual risk: unquoted all-letter values, quoted values with spaces and short values are not redacted, and a digit-bearing identifier such as `value2` can be. It is not a secret scanner (see [accounts](docs/accounts.md)).
+
 ### Changed
 
 - `peerhub monitor` (#400): a pool whose state is `n/a` (the plan does not report the window, or the provider disabled it) is never a row in POOLS or QUOTA, compact or `--expand`, plain or rich; the POOLS count is the rows drawn, QUOTA names each hidden pool after its peer's row (`(C-5H n/a)`, `(X-30D n/a)`), and `--show-quota-notes`, the suggestion line, PEERS, `diag quota` and JSON are unchanged. Aged, unknown and reset pools stay visible.

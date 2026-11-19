@@ -13,7 +13,14 @@ _TOKENS = [
     re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}"),
     re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}"),
 ]
-_ASSIGN = re.compile(r"(?i)\b((?:api[_-]?key|token|secret|password|passwd)\"?\s*[=:]\s*\"?)[^\s\"',;]{4,}")
+# `name = value` is redacted only when the value looks like a credential, not for code that merely names one (#398):
+# a quoted value of 6+ characters without spaces, or an unquoted run of 6+ characters that has a digit and is not
+# followed by `(`, `{` or `[` (a call or an index). Residual risk: unquoted all-letter values, quoted values with
+# spaces and short values are not redacted; an identifier with a digit (value2) can be. Not a secret scanner.
+_ASSIGN = re.compile(
+    r"""(?i)(?<![A-Za-z0-9])((?:api[_-]?key|token|secret|password|passwd)["']?\s*[=:]\s*)"""
+    r"""(?:"[^"\s]{6,}"|'[^'\s]{6,}'|(?=[A-Za-z0-9_+/=.-]*\d)[A-Za-z0-9_+/=.-]{6,}(?![A-Za-z0-9_+/=.-]|[({]|\s*\[))"""
+)
 MIN_SECRET_LEN = 6
 
 
