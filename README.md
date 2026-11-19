@@ -216,7 +216,7 @@ The bare `monitor` command shows the compact human dashboard (with `PACE`), redr
 `--view plain` selects ASCII-safe output: the frame's own lines and marks are ASCII, while request, reply, lead and alert text keeps every character the output encoding can show (Korean, Kana and CJK stay readable; ambiguous-width characters become `?`; the cut mark is `~`). Add repeatable `--group` options to
 watch one or more groups, or `--group all` to include all eleven. `monitor groups`
 lists group IDs and meanings; `monitor defaults show|set|reset` inspects and
-changes the default selection. `monitor --snapshot` renders one read-only
+changes the default selection (`show` prints a table; `--json` gives JSON). `monitor --snapshot` renders one read-only
 dashboard without refreshing providers. In a terminal, `--snapshot --expand`
 fits the screen; piping shows all rows, for example
 `peerhub monitor --snapshot --group all --expand | more`.

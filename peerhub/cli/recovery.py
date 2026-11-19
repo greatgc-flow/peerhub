@@ -440,7 +440,7 @@ REGISTRY: dict[str, GuidanceEntry] = {
         docs="docs/remote-ask.md",
         exits=[
             {"code": 1, "context": "Unhandled exception or unexpected runtime error during ask dispatch."},
-            {"code": 2, "context": "Invalid CLI arguments or unrecognized ask options (ValueError other than selector/session errors)."},
+            {"code": 2, "context": "Invalid CLI arguments or unrecognized ask options (ValueError other than selector/session errors and an unregistered peer)."},
         ],
     ),
     # API peers ca, oa and ga (#378, #381): one API call per ask, no tools, no session.
@@ -503,7 +503,7 @@ REGISTRY["store_missing"] = GuidanceEntry(
 # Shared CLI errors; ask-specific guidance retains its more precise recovery policy.
 for _code, _exit, _meaning, _argv in (
     ("invalid_arguments", 2, "The command arguments were rejected before dispatch.", ["peerhub", "guide"]),
-    ("peer_not_found", 1, "The selected peer does not exist in this store.", ["peerhub", "peer", "list"]),
+    ("peer_not_found", 1, "The selected peer does not exist in this store, or ask was given a peer with no adapter (register it with --adapter).", ["peerhub", "peer", "list"]),
     ("stream_not_found", 1, "The selected stream does not exist in this store.", ["peerhub", "stream", "list"]),
     ("session_not_found", 1, "The selected retained session does not exist.", ["peerhub", "session", "list"]),
     ("diag_unavailable", 5, "Diagnostic evidence is unavailable or incomplete.", ["peerhub", "diag", "health"]),
@@ -611,7 +611,7 @@ def select_guidance_code(
             ConflictingSessionFlagsError,
             InvalidSessionHandleSyntaxError,
         )
-        from peerhub.extensions.ask import LegacySelectorUnsupported, StreamPeerMismatchError
+        from peerhub.extensions.ask import LegacySelectorUnsupported, PeerNotFoundError, StreamPeerMismatchError
         from peerhub.core.schema_version import SchemaVersionError
         from peerhub.core.store import CasMismatchError, IdempotencyConflictError, StorageReadOnlyError, StorageFullError, StorageCorruptError
 
@@ -625,6 +625,8 @@ def select_guidance_code(
             return "ask_claim_held"
         if isinstance(exception, StreamPeerMismatchError):
             return "ask_stream_peer_mismatch"
+        if isinstance(exception, PeerNotFoundError):
+            return "peer_not_found"  # a user error (#401): the shared entry, as for `peer get`
         if isinstance(exception, (SessionBridgeError, LegacySelectorUnsupported, ConflictingSessionFlagsError, InvalidSessionHandleSyntaxError)):
             return "ask_selector_error"
         if isinstance(exception, PrespawnError):

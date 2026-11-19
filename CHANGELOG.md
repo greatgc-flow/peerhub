@@ -11,6 +11,7 @@ they do not claim new validation or publication evidence.
 ### Changed
 
 - `peerhub monitor` (#400): a pool whose state is `n/a` (the plan does not report the window, or the provider disabled it) is never a row in POOLS or QUOTA, compact or `--expand`, plain or rich; the POOLS count is the rows drawn, QUOTA names each hidden pool after its peer's row (`(C-5H n/a)`, `(X-30D n/a)`), and `--show-quota-notes`, the suggestion line, PEERS, `diag quota` and JSON are unchanged. Aged, unknown and reset pools stay visible.
+- CLI audit (#401): `peerhub ask` with an unregistered peer is now a user error (`peer_not_found`, exit 1, it was `ask_unexpected_failure` with exit 2); `profile show` errors no longer begin with the Python class name; `monitor defaults show` prints a table (JSON only with `--json`); `account list` with no bindings prints `(no accounts)`; `peer get` and `stream show` print `-` for a missing value (it was `None`); every option has a help text and every `--json` says `Machine-readable JSON output`. JSON output is unchanged.
 
 ## [0.24.25] - 2026-11-18
 
