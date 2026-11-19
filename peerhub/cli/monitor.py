@@ -269,7 +269,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         else:
             width, height = output.geometry() if output.live else (output.width(), 24)
             output.write(_render_human_frame(payload, view=effective_view, width=width,
-                                             height=height if output.live else None, color=color,
+                                             height=_live_rows(height) if output.live else None, color=color,
                                              expand=expand, show_quota_notes=show_quota_notes))
         if _read_failed(payload):
             error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
@@ -289,7 +289,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         if next_in is not None:
             display["next_refresh_in"] = next_in
         width, height = output.geometry()
-        output.write(_render_human_frame(display, view=effective_view, width=width, height=height, color=color,
+        output.write(_render_human_frame(display, view=effective_view, width=width, height=_live_rows(height), color=color,
                                          expand=expand, show_quota_notes=show_quota_notes))
 
     try:
@@ -407,6 +407,14 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     return 0
 
 
+LIVE_ROW_MARGIN = 2  # the command line stays on screen above the frame; terminals report one row more than they show
+
+
+def _live_rows(height: int) -> int:
+    """Rows the frame may use: the terminal height minus a margin, so the first line (ATTN) never scrolls off."""
+    return max(8, height - LIVE_ROW_MARGIN)
+
+
 def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = False,
                             show_quota_notes: bool = False) -> None:
     """Render a human dashboard from one schema 2.0 snapshot."""
@@ -418,7 +426,7 @@ def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = F
         color = effective_view == "rich" and use_color(output.vt, os.environ)
         bounded = tty and (expand or output.vt)
         width, height = output.geometry() if bounded else (output.width(), 24)
-        effective_height = height if bounded else None
+        effective_height = _live_rows(height) if bounded else None
         frame = _render_human_frame(payload, view=effective_view, width=width,
                                     height=effective_height, color=color, expand=expand,
                                     show_quota_notes=show_quota_notes)
