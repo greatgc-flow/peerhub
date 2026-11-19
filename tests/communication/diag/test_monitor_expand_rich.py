@@ -7,6 +7,7 @@ section carry the compact frame's markers and keep every field. The plain view k
 (`fixtures/monitor/plain_expand_v0_24_20.json`, captured from v0.24.20), with 0.24.22's clearer lead-count labels.
 #394 regenerated the 12 cases: QUOTA lists the peers in POOLS' order (the cx block first), `Model facts: profile defaults
 rev ... (date, Nd ago)` and the legend's `n/a plan no longer reports it`; nothing else moved.
+#400 regenerated all 12 again: the QUOTA table has no n/a row; `(X-30D n/a)` follows the cx row.
 """
 from __future__ import annotations
 
@@ -155,18 +156,18 @@ def test_expand_uses_the_terminal_width_and_the_compact_frame_stays_at_100_colum
 def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
     small, big = compact(payload).splitlines(), expand(payload, show_quota_notes=True).splitlines()
-    assert small[3].startswith("── POOLS 9 ─") and "+1 pools (--expand)" in small
-    assert big[3].startswith("── POOLS 11 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
+    assert small[3].startswith("── POOLS 8 ─") and not any(re.match(r"^\+\d+ pools", line) for line in small)
+    assert big[3].startswith("── POOLS 10 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
     rows = block("\n".join(big), "POOLS")[1:]
     names = [" ".join(row.replace("└─ ", "").split()[:2]) for row in rows]
-    assert len(rows) == 11 and len(set(names)) == 11  # every observation of the payload has its row
+    assert len(rows) == 10 and len(set(names)) == 10  # every observation of the payload but the n/a one (#400) has its row
     # 5-hour rows that do not bind are listed under their 7-day pool, after the compact frame's order
     assert [row.split()[1] for row in rows if "└─" in row] == ["X-5H", "3P-5H", "C-5H", "G-5H"]
     assert rows[rows.index(next(row for row in rows if "ag 3P-7D" in row)) + 1].split()[:2] == ["└─", "3P-5H"]
     compact_rows = [" ".join(row.split()[:3]) for row in block("\n".join(small), "POOLS")[1:]]
     order = [" ".join(row.split()[:3]) for row in rows]
     assert [row for row in order if row in compact_rows] == compact_rows  # the same order, with the hidden rows added
-    assert any("cx X-30D" in row and "not reported by plan prolite" in row for row in rows)
+    assert not any("X-30D" in row for row in rows)  # #400: the n/a pool is named in the QUOTA details only
 
 
 def test_the_suggestion_wraps_without_a_cap():
@@ -303,14 +304,14 @@ def test_quota_details_have_the_compact_state_and_a_forecast_column_and_no_bar()
         at = next(i for i, cell in enumerate(cells[:2]) if re.fullmatch(r"[0-9A-Z]+-\d+[HD]", cell))
         pools[cells[at]] = cells[at + 1:at + 3]
     rows = quota_rows(screen)
-    assert set(rows) == set(pools) and len(rows) == 11
+    assert set(rows) == set(pools) and len(rows) == 10  # #400: no row for the n/a X-30D, in either block
     for name, state in pools.items():  # the same glyph and word as the POOLS row
         assert rows[name][:2] == state, name
     assert {name: cells[2] for name, cells in rows.items()} == {
         "3P-7D": "insuff", "3P-5H": "insuff", "A-7D": "-", "G-7D": "insuff", "G-5H": "insuff", "C-7D": "insuff",
-        "C-5H": "insuff", "F-7D": "-", "X-7D": "threat", "X-5H": "insuff", "X-30D": "-"}
+        "C-5H": "insuff", "F-7D": "-", "X-7D": "threat", "X-5H": "insuff"}
     assert rows["X-7D"][:2] == [U["fast"], "fast"] and rows["X-5H"][:2] == [U["out"], "out"]
-    assert rows["A-7D"][:2] == [U["aged"], "aged"] and rows["X-30D"][:2] == [U["aged"], "n/a"]
+    assert rows["A-7D"][:2] == [U["aged"], "aged"]
     assert rows["X-7D"][3] == "42%" and rows["X-7D"][5] == f"{U['up']}+31.0pp"  # REM and PACE stay
 
 
@@ -371,7 +372,7 @@ def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns(
     narrow = block(expand(detail_payload(), show_quota_notes=True, width=60), "QUOTA")
     assert narrow[1].split()[:4] == ["PEER", "POOL", "STATE", "FORECAST"] and "PROFILES" not in narrow[1]
     omitted = flat(" ".join(line for line in narrow if "omitted" in line.lower() or line.strip() in {
-        "profiles", "(configured)", "age", "exhaust-in"}))
+        "profiles", "(configured)", "profiles (configured)", "age", "exhaust-in"}))
     assert omitted.startswith("Columns omitted:") and omitted.endswith("profiles (configured)") and "bar" not in omitted
 
 
@@ -381,7 +382,7 @@ def test_quota_details_take_their_colour_from_the_pool_colour():
     start = next(i for i, line in enumerate(lines) if "QUOTA [" in line)
     first = next(i for i, line in enumerate(lines) if strip(line).startswith("── POOLS "))
     pools = lines[first + 1:next(i for i, line in enumerate(lines) if strip(line).startswith("suggest:"))]
-    assert len(pools) == 11
+    assert len(pools) == 10
     details = [line for line in lines[start:] if re.search(r"-\d+[HD] ", strip(line)) and "FORECAST" not in line]
 
     def state_code(line: str) -> tuple[str, str]:
@@ -393,9 +394,6 @@ def test_quota_details_take_their_colour_from_the_pool_colour():
     for line in details:
         name = re.search(r"[0-9A-Z]+-\d+[HD]", strip(line))
         if name is None or "next:" in line or "n/a not" in strip(line):
-            continue
-        if strip(line).split()[-1] != "-" and f"{U['aged']} n/a" in strip(line):  # an n/a row is one dim span
-            assert line.startswith(f" \x1b[{mv.RICH_SGR['dim']}m") and line.count("\x1b[") == 2
             continue
         assert state_code(line) == top[name[0]], line
     assert state_code(next(line for line in details if " X-7D " in strip(line))) == (f"{U['fast']} fast", mv.RICH_SGR["bad"])
@@ -531,7 +529,7 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     assert heads(screen) == ORDER
     lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m")
-    assert any(line.startswith("-- POOLS 11 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
+    assert any(line.startswith("-- POOLS 10 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
     assert [row.split()[0] for row in entries(block(screen, "RUNNING"))] == [A["run"], A["gone"], "?", "!"]
     assert all(row.startswith(f" {A['dot']} state ") for row in entries(block(screen, "RECENT")))
     if width == 100:
@@ -593,9 +591,9 @@ def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
 
 def test_a_bounded_height_shows_the_quota_first():
     lines = expand(detail_payload(), height=24).splitlines()
-    # 22 lines of the 23: the RUNNING head would be the last line before the hint, and a head never stands alone
-    assert len(lines) == 22 and heads("\n".join(lines)) == ["POOLS", "ALERTS"]
-    assert lines[3].startswith("── POOLS 11 ─") and sum(bool(re.match(r"^ +(\S+ |└─ )[0-9A-Z]+-\d+[HD] ", line)) for line in lines) >= 11
+    # 23 lines of the 23: the n/a pool is no row (#400), so the RUNNING head and its first row fit before the hint
+    assert len(lines) == 23 and heads("\n".join(lines)) == ["POOLS", "ALERTS", "RUNNING"]
+    assert lines[3].startswith("── POOLS 10 ─") and sum(bool(re.match(r"^ +(\S+ |└─ )[0-9A-Z]+-\d+[HD] ", line)) for line in lines) >= 10
     assert lines[-1].startswith("Coverage: ") and "--expand | more" in lines[-2]
 
 

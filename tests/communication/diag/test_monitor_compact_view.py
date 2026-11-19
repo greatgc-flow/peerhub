@@ -108,13 +108,9 @@ def test_compact_pace_cells_keep_signed_measurement_for_aged_rows(
 
 
 @pytest.mark.parametrize("width", [80, 100])
-@pytest.mark.parametrize("unusable", ["n/a", "?", "reset", "missing", "nan", "inf", "bool", "invalid"])
+@pytest.mark.parametrize("unusable", ["?", "reset", "missing", "nan", "inf", "bool", "invalid"])
 def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unusable):
-    rows = compact_frame["groups"]["capacity"]["data"]["observations"]
-    row = rows[6] if unusable == "n/a" else rows[3]
-    if unusable == "n/a":
-        # Keep this n/a pool a root so its unavailable PACE cell is displayed.
-        compact_frame["groups"]["capacity"]["data"]["observations"] = [row]
+    row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row["projection"] = {"pace_pt": 46}
     if unusable == "?": row.update(state="UNKNOWN")
     if unusable == "reset": row.update(resets_at=NOW - 1)
@@ -126,7 +122,7 @@ def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unus
     screen = _solo(compact_frame, width=width, view="plain")
     header = _header(screen)
     pool = row["pool_ref"].split(":")[-1]
-    line = next(line for line in screen.splitlines() if f" {pool} " in line)  # an n/a row names its plan
+    line = next(line for line in screen.splitlines() if f" {pool} " in line)
     assert line[header.index("PACE"):header.index("FAMILY")].strip() == "-"
 
 
@@ -304,10 +300,9 @@ def test_unknown_and_all_absent_are_never_zero_or_unlimited(compact_frame):
     rows = compact_frame["groups"]["capacity"]["data"]["observations"]
     compact_frame["groups"]["capacity"]["data"]["observations"] = [rows[6]]
     screen = render_grouped_frame(compact_frame, show_quota_notes=True, width=100)
-    # #374: the PEERS summaries moved to --expand; the n/a row names the plan in its FAMILY cell.
-    row = next(line for line in screen.splitlines() if "X-5H" in line)
-    assert "n/a" in row.split() and "not reported by plan prolite" in row
-    assert "100%" not in screen and "%" not in row
+    # #400: an n/a pool is never a POOLS row, so nothing is drawn for it and no number stands in its place.
+    assert "X-5H" not in screen and "POOLS 0" in screen
+    assert "100%" not in screen and "%" not in screen
 
 
 def test_human_render_does_not_mutate_json_and_expand_keeps_details(compact_frame):

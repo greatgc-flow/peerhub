@@ -6,6 +6,8 @@ The new order is verdict, header, POOLS, the suggestion, RUNNING, LEADS, RECENT;
 RUNNING, LEADS, RECENT, the suggestion, POOLS.
 0.24.22 labels LEADS entries and found sessions separately. The frozen tag fixtures stay unchanged; the
 expected text below replaces only their lead headers with explicit new labels before the byte comparison.
+#400 regenerated the 57 cases whose frame shows the n/a pool (cx X-30D): no POOLS row, no count, and the room it
+leaves goes to the other rows. The lead headers of those goldens stay the frozen ones.
 """
 from __future__ import annotations
 

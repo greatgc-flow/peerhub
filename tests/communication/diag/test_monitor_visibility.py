@@ -146,9 +146,12 @@ def test_d5_successful_probe_retires_omitted_window_at_read_time(frame: dict[str
     frame["configured_profiles"] = [p for p in frame["configured_profiles"] if p["profile"].startswith("cx.")]
     before = deepcopy(frame)
     screen = render_grouped_frame(frame, show_quota_notes=True, width=120, height=40, view=_view(expand), expand=expand, unicode=False)
-    row = next(line for line in screen.splitlines() if "X-30D" in line)
-    assert "n/a" in row and "93%" not in row and "23195s" not in row
-    assert "not reported by plan pro" in screen
+    if expand:  # #400: never a row; the QUOTA details keep the one note of a retired pool
+        row = next(line for line in screen.splitlines() if "X-30D" in line)
+        assert "n/a" in row and "93%" not in row and "23195s" not in row
+        assert "not reported by plan pro" in screen
+    else:
+        assert "X-30D" not in screen
     assert "next:" not in screen and "6h" not in screen
     if not expand:
         assert "quota age 8s" in screen
@@ -270,14 +273,14 @@ def test_peer_separators_at_100x40_and_data_priority_at_80x24(
         for peer in ("cc", "cx"):
             first_pool = next(i for i, line in enumerate(lines) if re.match(rf"^{peer} +\S+-\d+[HD] ", line))
             assert lines[first_pool - 1] != "", spacious  # expanded sessions exceed this viewport; spacing yields
-        for pool in ("3P-5H", "3P-7D", "A-7D", "G-5H", "G-7D", "C-5H", "C-7D", "F-7D", "X-30D", "X-7D"):
+        for pool in ("3P-5H", "3P-7D", "A-7D", "G-5H", "G-7D", "C-5H", "C-7D", "F-7D", "X-7D"):
             assert pool in tight
-        assert "(X-5H n/a)" in tight
+        assert re.search(r"\(.*X-5H.* n/a\)", tight) and re.search(r"\(.*X-30D.* n/a\)", tight)  # #400: n/a pools are named, not rows
     else:  # #374 F5: no blank lines between peers; 5-hour rows that do not bind stay in --expand
         assert "\n\n" not in spacious
-        for pool in ("3P-7D", "A-7D", "G-7D", "C-7D", "F-7D", "X-30D", "X-7D"):
+        for pool in ("3P-7D", "A-7D", "G-7D", "C-7D", "F-7D", "X-7D"):
             assert pool in tight
-        assert "3P-5H" not in tight and "X-5H" not in tight
+        assert "3P-5H" not in tight and "X-5H" not in tight and "X-30D" not in tight
     assert len(lines) < 40 and all(_width(line) < 100 for line in lines)
     assert len(tight.splitlines()) < 24 and all(_width(line) < 80 for line in tight.splitlines())
     assert round2_frame == before
@@ -569,8 +572,8 @@ def test_compact_frame_at_80x24_discloses_line_2_cuts_and_keeps_every_pool(round
     assert lines[2] == "Fields hidden | --expand"  # line 2 lost DB and quota age at 80 columns
     pools = next(i for i, line in enumerate(lines) if line.startswith("POOLS "))
     # every 7-day pool; no cut, no overflow line (P21: the suggestion follows the rows)
-    assert lines[pools].split()[1] == "7" and all(line.startswith(" ") for line in lines[pools + 1:pools + 8])
-    assert lines[pools + 8].startswith("suggest:") and not any(line.startswith("+") for line in lines)
+    assert lines[pools].split()[1] == "6" and all(line.startswith(" ") for line in lines[pools + 1:pools + 7])  # #400: X-30D is n/a
+    assert lines[pools + 7].startswith("suggest:") and not any(line.startswith("+") for line in lines)
     assert "Legend:" not in screen and "PEERS" not in screen and "rows hidden" not in screen
 
 
