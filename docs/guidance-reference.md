@@ -59,7 +59,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 | `incomplete` | 1 | The reply of an API peer (ca, oa, ga) ended for a reason other than the token limit; the ask is not delivered. | `peerhub ask PEER_ID --query-file CONTENT_FILE --stream NEW_STREAM_ID --profile PROFILE` (Read the reason, then rephrase or use another profile or peer on a new stream) | Do not count the partial text as a reply (for example as a vote), and do not ask again on the same stream. |
 | `invalid_arguments` | 1 or 2 (context-dependent) | The command arguments were rejected before dispatch. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `invalid_manifest` | 1 | Batch validation failed before any worker was launched. | `peerhub batch run tasks.json --batch-id BATCH_ID --max-parallel 1 --dry-run` (Correct the reported validation error and validate the manifest) | Do not change the batch identifier to bypass an uncertain earlier execution. |
-| `peer_not_found` | 1 | The selected peer does not exist in this store. | `peerhub peer list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
+| `peer_not_found` | 1 | The selected peer does not exist in this store, or ask was given a peer with no adapter (register it with --adapter). | `peerhub peer list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `request_rejected` | 2 | An ask to an API peer (ca, oa, ga) was refused before anything was stored or sent. | `peerhub explain PROFILE` (Correct the command named in the message: a ca/oa/ga profile or a valid --model, no --effort, no --writable, a new stream for a new ask) | Do not retry the same command unchanged; nothing was sent, so no provider work needs recovery. |
 | `schema_version_error` | 6 | The selected store uses an unsupported schema version. | `peerhub guide` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
 | `session_not_found` | 1 | The selected retained session does not exist. | `peerhub session list` (Inspect the reported state and correct the command or store selection) | Do not blindly replay provider work whose execution may already have begun. |
@@ -220,7 +220,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 
 - **Exit Codes** (context-dependent):
   - `1`: Unhandled exception or unexpected runtime error during ask dispatch.
-  - `2`: Invalid CLI arguments or unrecognized ask options (ValueError other than selector/session errors).
+  - `2`: Invalid CLI arguments or unrecognized ask options (ValueError other than selector/session errors and an unregistered peer).
 - **Meaning**: An unclassified or unexpected error occurred during ask dispatch.
 - **Why**: An unhandled exception or internal error interrupted the ask command.
 - **Safe Recovery Actions**:
@@ -305,7 +305,7 @@ The table below is generated from the PeerHub guidance registry (`peerhub/cli/re
 #### `peer_not_found`
 
 - **Exit Code**: 1
-- **Meaning**: The selected peer does not exist in this store.
+- **Meaning**: The selected peer does not exist in this store, or ask was given a peer with no adapter (register it with --adapter).
 - **Why**: The selected store, command arguments or persisted state did not satisfy the operation's requirements.
 - **Safe Recovery Actions**:
   1. `peerhub peer list`: Inspect the reported state and correct the command or store selection (Prerequisites: Use the intended store and inspect uncertain effects before retrying.)

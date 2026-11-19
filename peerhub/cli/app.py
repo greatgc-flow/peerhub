@@ -133,16 +133,16 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     peer_sub = peer_parser.add_subparsers(dest="action", required=True)
     
     p_reg = peer_sub.add_parser("register", help="Register a peer")
-    p_reg.add_argument("--peer", required=True, dest="peer_id")
-    p_reg.add_argument("--name", dest="display_name")
-    p_reg.add_argument("--adapter", dest="adapter_ref")
+    p_reg.add_argument("--peer", required=True, dest="peer_id", help="Peer ID to register")
+    p_reg.add_argument("--name", dest="display_name", help="Display name for the peer")
+    p_reg.add_argument("--adapter", dest="adapter_ref", help="Adapter the peer runs on: cx, cc, ag, ca, oa or ga")
 
     p_get = peer_sub.add_parser("get", help="Get a peer")
-    p_get.add_argument("--peer", required=True, dest="peer_id")
+    p_get.add_argument("--peer", required=True, dest="peer_id", help="Peer ID")
 
     p_list = peer_sub.add_parser("list", help="List peers (read-only, bounded)")
-    p_list.add_argument("--limit", type=_page_limit, default=50)
-    p_list.add_argument("--cursor")
+    p_list.add_argument("--limit", type=_page_limit, default=50, help="Maximum peers per page (default 50)")
+    p_list.add_argument("--cursor", help="Continue after the next_cursor of the previous page")
     p_list.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
 
     # stream
@@ -150,16 +150,16 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     st_sub = stream_parser.add_subparsers(dest="action", required=True)
     
     s_create = st_sub.add_parser("create", help="Create a stream")
-    s_create.add_argument("--stream", required=True, dest="stream_id")
-    s_create.add_argument("--title")
-    s_create.add_argument("--members", nargs="*", default=[])
+    s_create.add_argument("--stream", required=True, dest="stream_id", help="Stream ID to create")
+    s_create.add_argument("--title", help="Stream title")
+    s_create.add_argument("--members", nargs="*", default=[], help="Peer IDs that are members of the stream")
 
     s_show = st_sub.add_parser("show", help="Show stream details")
-    s_show.add_argument("--stream", required=True, dest="stream_id")
+    s_show.add_argument("--stream", required=True, dest="stream_id", help="Stream ID")
 
     s_list = st_sub.add_parser("list", help="List streams (read-only, bounded)")
-    s_list.add_argument("--limit", type=_page_limit, default=50)
-    s_list.add_argument("--cursor")
+    s_list.add_argument("--limit", type=_page_limit, default=50, help="Maximum streams per page (default 50)")
+    s_list.add_argument("--cursor", help="Continue after the next_cursor of the previous page")
     s_list.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
 
     # record
@@ -167,32 +167,32 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     rec_sub = record_parser.add_subparsers(dest="action", required=True)
 
     r_append = rec_sub.add_parser("append", help="Append a record")
-    r_append.add_argument("--stream", required=True, dest="stream_id")
-    r_append.add_argument("--author-peer", required=True, dest="author_peer_id")
-    r_append.add_argument("--kind", required=True)
+    r_append.add_argument("--stream", required=True, dest="stream_id", help="Stream ID to append to")
+    r_append.add_argument("--author-peer", required=True, dest="author_peer_id", help="Peer ID of the record author")
+    r_append.add_argument("--kind", required=True, help="Record kind")
     r_append.add_argument("--body", required=True, help="JSON body string")
-    r_append.add_argument("--idempotency-key", required=True, dest="idemp_key")
+    r_append.add_argument("--idempotency-key", required=True, dest="idemp_key", help="Key that makes a retry of this append safe")
     r_append.add_argument("--created-at", default=None, help="RFC3339; pass the same value on retries (part of the idempotency digest)")
-    r_append.add_argument("--targets", nargs="*", default=[])
+    r_append.add_argument("--targets", nargs="*", default=[], help="Peer IDs the record is addressed to")
 
     r_read = rec_sub.add_parser("read", help="Read records from stream")
-    r_read.add_argument("--stream", required=True, dest="stream_id")
-    r_read.add_argument("--after", type=int, default=0)
-    r_read.add_argument("--limit", type=int, default=50)
+    r_read.add_argument("--stream", required=True, dest="stream_id", help="Stream ID to read")
+    r_read.add_argument("--after", type=int, default=0, help="Read records after this position (default 0)")
+    r_read.add_argument("--limit", type=int, default=50, help="Maximum records to read (default 50)")
 
     # offset
     offset_parser = subparsers.add_parser("offset", help="Offset commands")
     off_sub = offset_parser.add_subparsers(dest="action", required=True)
 
     o_get = off_sub.add_parser("get", help="Get peer offset")
-    o_get.add_argument("--peer", required=True, dest="peer_id")
-    o_get.add_argument("--stream", required=True, dest="stream_id")
+    o_get.add_argument("--peer", required=True, dest="peer_id", help="Peer ID")
+    o_get.add_argument("--stream", required=True, dest="stream_id", help="Stream ID")
 
     o_adv = off_sub.add_parser("advance", help="Advance peer offset with CAS")
-    o_adv.add_argument("--peer", required=True, dest="peer_id")
-    o_adv.add_argument("--stream", required=True, dest="stream_id")
-    o_adv.add_argument("--position", required=True, type=int, dest="new_position")
-    o_adv.add_argument("--revision", required=True, type=int, dest="expected_revision")
+    o_adv.add_argument("--peer", required=True, dest="peer_id", help="Peer ID")
+    o_adv.add_argument("--stream", required=True, dest="stream_id", help="Stream ID")
+    o_adv.add_argument("--position", required=True, type=int, dest="new_position", help="New offset position")
+    o_adv.add_argument("--revision", required=True, type=int, dest="expected_revision", help="Offset revision this update expects (from offset get)")
 
     ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge",
                                      description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Select --fresh or an exact --session HANDLE. Results include a session handle and mode.")
@@ -205,30 +205,30 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser.add_argument("--session", metavar="HANDLE", help="Reuse this exact retained handle; incompatible sessions are rejected")
     ask_parser.add_argument("--author-peer", dest="author", default="user", help="Peer ID recorded as the prompt author (auto-registered)")
     ask_parser.add_argument("-w", "--workspace", help="Provider working directory; default: current directory")
-    ask_parser.add_argument("--model")
-    ask_parser.add_argument("--effort")
+    ask_parser.add_argument("--model", help="Model to run; overrides the profile model")
+    ask_parser.add_argument("--effort", help="Reasoning effort; overrides the profile effort")
     ask_parser.add_argument("-p", "--profile", help="Explicit Runtime Target profile; model/effort override its defaults")
     ask_parser.add_argument("--writable", action="store_true", help="Let the peer write files in the workspace (default: read-only)")
     ask_parser.add_argument("--timeout-seconds", type=float, default=600,
                             help="Abort after this many seconds (default 600); long asks: 1800-3600, ag up to 7200")
     ask_parser.add_argument("--silence-timeout-seconds", type=float, default=None,
                             help="Abort after this many seconds without stdout/stderr; execution remains uncertain")
-    ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
+    ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000, help="Stop collecting reply output after this many bytes (default 1000000)")
     ask_parser.add_argument("--json", action="store_true")
 
     account_parser = subparsers.add_parser("account", help="Immutable cc/cx account roots; peer register overwrite refuses later asks",
                                           description="Bind a new peer and root for each account. No rebind/unbind. Overwriting a bound peer with peer register makes ask refuse; recover with a new peer and root.")
     account_sub = account_parser.add_subparsers(dest="action", required=True)
     account_bind = account_sub.add_parser("bind", help="Bind a new peer to a cc/cx account root")
-    account_bind.add_argument("--peer", required=True)
-    account_bind.add_argument("--provider", required=True)
-    account_bind.add_argument("--alias", required=True)
-    account_bind.add_argument("--root", required=True)
+    account_bind.add_argument("--peer", required=True, help="New peer ID to bind")
+    account_bind.add_argument("--provider", required=True, help="Provider of the account: cc or cx")
+    account_bind.add_argument("--alias", required=True, help="Short name of the account")
+    account_bind.add_argument("--root", required=True, help="Provider configuration root of the account")
     account_bind.add_argument("--json", action="store_true")
     for action in ("list", "show"):
         account_read = account_sub.add_parser(action, help=f"{action.title()} account bindings (read-only)")
         if action == "show":
-            account_read.add_argument("--peer", required=True)
+            account_read.add_argument("--peer", required=True, help="Bound peer ID")
         account_read.add_argument("--json", action="store_true")
         account_read.add_argument("--show-root", action="store_true", help="Include stored configuration root paths")
 
@@ -236,29 +236,29 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     batch_sub = batch_parser.add_subparsers(dest="action", required=True)
     batch_run = batch_sub.add_parser("run", help="Run a validated task manifest")
     batch_run.add_argument("manifest")
-    batch_run.add_argument("--batch-id", required=True)
-    batch_run.add_argument("--max-parallel", required=True, type=int)
-    batch_run.add_argument("--dry-run", action="store_true")
+    batch_run.add_argument("--batch-id", required=True, help="Batch ID; stream and request IDs derive from it")
+    batch_run.add_argument("--max-parallel", required=True, type=int, help="Maximum tasks to run at the same time")
+    batch_run.add_argument("--dry-run", action="store_true", help="Validate the manifest and list the tasks without running them")
     batch_run.add_argument("--json", action="store_true")
     batch_run.add_argument("--responses", action="store_true", help="Include each completed task's reply text in the report")
 
     profile_parser = subparsers.add_parser("profile", help="Inspect effective local model profiles (read-only)")
     profile_sub = profile_parser.add_subparsers(dest="action", required=True)
     profile_list = profile_sub.add_parser("list", help="List configured profiles")
-    profile_list.add_argument("--workspace", type=Path, default=None)
+    profile_list.add_argument("--workspace", type=Path, default=None, help="Workspace whose profile files apply (default: current directory)")
     profile_list.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
     profile_show = profile_sub.add_parser("show", help="Show effective profile values and source layers")
     profile_show.add_argument("profile")
-    profile_show.add_argument("--workspace", type=Path, default=None)
+    profile_show.add_argument("--workspace", type=Path, default=None, help="Workspace whose profile files apply (default: current directory)")
     profile_show.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
 
     session_parser = subparsers.add_parser("session", help="Inspect retained sessions (read-only)")
     session_sub = session_parser.add_subparsers(dest="action", required=True)
     session_list = session_sub.add_parser("list", help="List retained sessions")
-    session_list.add_argument("--stream")
-    session_list.add_argument("--peer")
-    session_list.add_argument("--limit", type=_session_page_limit, default=20)
-    session_list.add_argument("--cursor")
+    session_list.add_argument("--stream", help="Only sessions of this stream")
+    session_list.add_argument("--peer", help="Only sessions of this peer")
+    session_list.add_argument("--limit", type=_session_page_limit, default=20, help="Maximum sessions per page (default 20)")
+    session_list.add_argument("--cursor", help="Continue after the next_cursor of the previous page")
     session_list.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
     session_show = session_sub.add_parser("show", help="Show a retained session by PeerHub handle")
     session_show.add_argument("handle")
@@ -267,16 +267,16 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     observation_parser = subparsers.add_parser("observation", help="Explicit observation collection (mutating)")
     observation_sub = observation_parser.add_subparsers(dest="action", required=True)
     refresh = observation_sub.add_parser("refresh", help="Collect provider quota and account evidence into append-only Observations")
-    refresh.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"])
+    refresh.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"], help="Peers to collect quota evidence for (default: cx cc ag)")
     refresh.add_argument("--system-dir", dest="sys_dir", type=Path, help="Explicit portable provider installation directory")
-    refresh.add_argument("--timeout-seconds", type=float, default=15)
+    refresh.add_argument("--timeout-seconds", type=float, default=15, help="Probe timeout in seconds (default 15)")
 
     from peerhub.cli.monitor import register_monitor_parser
     register_monitor_parser(subparsers)
 
     # diag
     diag_parser = subparsers.add_parser("diag", help="Readonly diagnostics")
-    diag_parser.add_argument("--json", action="store_true", help="Emit the read-only dashboard as JSON")
+    diag_parser.add_argument("--json", action="store_true")
     diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence")
     diag_parser.add_argument("--interval-seconds", type=float, default=2, help="Live snapshot interval (positive seconds)")
     diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain", help="Dashboard style: plain (ASCII), rich (bars, pace and alerts). With --live, snapshots every N s: TTY with VT overwrites in place; non-TTY or no VT appends without escapes. Monitor countdown redraw is at most 1 Hz")
@@ -302,11 +302,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                          help="Read observations from this OTHER PeerHub workspace database (opened read-only, never created); default: the --db database")
     d_quota.add_argument("--peer", default=None, help="Only this subject_ref (exact match)")
     d_quota.add_argument("--pool", default=None, help="Only this resource_pool_ref (exact match)")
-    d_quota.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Machine-readable output (schema_version 1.0) instead of the table")
+    d_quota.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --observation-db other_ws.db"
     d_readiness = diag_sub.add_parser("readiness", help="Cached profile readiness (read-only; never probes)")
-    d_readiness.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
-                             help="Machine-readable cached readiness (schema_version 1.0)")
+    d_readiness.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     d_readiness.epilog = "examples: peerhub diag readiness | peerhub --db ws.db diag readiness --json"
 
     d_running = diag_sub.add_parser("running", help="Lease-active asks (read-only; a lease is not proof a process is alive)",
@@ -316,7 +315,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                                                 "elapsed time comes from recorded start evidence and is null without it. "
                                                 "Claims are matched to the workspace.generation file beside the database; without that file all generations match. "
                                                 "Query cost grows with the delivery history of the live streams themselves (observed: about 45k SQLite VM steps at 9,000 rows in one stream). At most 20 rows, oldest first. Exit: 0 ok, 4 storage fault, 5 database unavailable, 6 schema version.")
-    d_running.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="Machine-readable output (schema_version 1.0)")
+    d_running.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     d_running.epilog = "examples: peerhub diag running | peerhub --db ws.db diag running --json"
 
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
@@ -324,16 +323,16 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     explain_parser = subparsers.add_parser("explain", help="Explain outcome codes or look up operational lessons")
     explain_parser.add_argument("code", nargs="+", help="Guidance code or free words to look up")
-    explain_parser.add_argument("--json", action="store_true", default=False, help="Machine-readable guidance output")
+    explain_parser.add_argument("--json", action="store_true", default=False)
 
     guide_parser = subparsers.add_parser("guide", help="Quick reference, profile tables, and best practices")
     guide_parser.description = "Print the quick reference guide, model profile table, and operational best practices."
 
     def add_json(node: argparse.ArgumentParser) -> None:
         if "--json" not in node._option_string_actions:
-            node.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
-                              help="Machine-readable JSON output")
+            node.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
         node._option_string_actions["--json"].default = argparse.SUPPRESS
+        node._option_string_actions["--json"].help = "Machine-readable JSON output"  # one text for every --json (#401)
         for action in node._actions:
             choices = cast(object, action.choices)
             if isinstance(choices, dict):
@@ -352,7 +351,8 @@ def _emit(payload: Any, json_output: bool) -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=True))
     elif isinstance(payload, dict):
         for key, value in cast(dict[str, object], payload).items():
-            print(f"{key}: {json.dumps(value, ensure_ascii=True) if isinstance(value, (dict, list)) else value}")
+            shown = json.dumps(value, ensure_ascii=True) if isinstance(value, (dict, list)) else "-" if value is None else value
+            print(f"{key}: {shown}")
     elif isinstance(payload, list):
         for item in cast(list[object], payload):
             _emit(item, False)
@@ -815,7 +815,7 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
         error = {"schema_version": "1.0", "status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
-        _error_line("invalid_arguments", str(error["error"]))
+        _error_line("invalid_arguments", str(exc))  # the message only: no Python class name (#401)
         return 1
     use_json = args.format == "json"
     if use_json:
@@ -1050,6 +1050,9 @@ def _run_account_cli(args: argparse.Namespace) -> int:
         if args.json:
             print(json.dumps(output if args.action == "list" else output[0], indent=2, ensure_ascii=True))
         else:
+            if not output:
+                print("(no accounts)")
+                return 0
             print("PEER PROVIDER ALIAS SLOT_ID" + (" ROOT" if getattr(args, "show_root", False) else ""))
             for item in output:
                 print(" ".join(str(item[key]) for key in ("peer_id", "provider", "alias", "slot_id"))
@@ -1299,7 +1302,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
         return 3
     except ValueError as e:
         error_output(getattr(e, "code", "invalid_arguments"), f"ERROR: {e}", exception=e)
-        return 2 if args.subcommand == "ask" and getattr(e, "code", None) != "session_lost" else 1
+        return 2 if args.subcommand == "ask" and getattr(e, "code", None) not in ("session_lost", "peer_not_found") else 1
     except SystemExit as e:
         if args.subcommand == "ask" and args.json and e.code == 2:
             error_output("invalid_arguments", "Invalid ask arguments.", exception=e)

@@ -39,8 +39,7 @@ def register_monitor_parser(subparsers: Any) -> None:
                    help="Peers to refresh quota for")
     p.add_argument("--timeout-seconds", dest="timeout", type=float, default=15.0,
                    help="Probe timeout")
-    p.add_argument("--json", action="store_true",
-                   help="Emit machine-readable JSON (NDJSON for watch; one object for --snapshot)")
+    p.add_argument("--json", action="store_true")
     p.add_argument("--schema-version", choices=("1.1", "2.0"), default=None,
                    help="JSON contract version (requires --json; default: 2.0)")
     if _legacy_alias_available():
@@ -65,21 +64,21 @@ def register_monitor_parser(subparsers: Any) -> None:
 
     actions = p.add_subparsers(dest="monitor_action")
     groups = actions.add_parser("groups", help="List monitor groups and default selection")
-    groups.add_argument("--json", action="store_true", help="Emit JSON")
+    groups.add_argument("--json", action="store_true")
     defaults = actions.add_parser("defaults", help="Inspect or change monitor display defaults")
     default_actions = defaults.add_subparsers(dest="defaults_action", required=True)
     show = default_actions.add_parser("show", help="Show effective monitor defaults")
-    show.add_argument("--json", action="store_true", help="Emit JSON")
+    show.add_argument("--json", action="store_true")
     for action_name in ("set", "reset"):
         action = default_actions.add_parser(action_name, help=f"{action_name.capitalize()} monitor defaults")
         action.add_argument("--global", dest="global_preferences", action="store_true",
                             help="Select the global configuration layer")
         if action_name == "set":
-            action.add_argument("--group", choices=GROUP_IDS, nargs="+", required=True)
-        action.add_argument("--json", action="store_true", help="Emit JSON")
+            action.add_argument("--group", choices=GROUP_IDS, nargs="+", required=True, help="Monitor groups to show by default")
+        action.add_argument("--json", action="store_true")
     repair = actions.add_parser("repair", help="Rebuild monitor projections from durable PeerHub evidence")
     repair.add_argument("--chunk-size", type=int, default=500, help="Bounded delivery read chunk (1-5000)")
-    repair.add_argument("--json", action="store_true", help="Emit JSON")
+    repair.add_argument("--json", action="store_true")
 
 
 def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
