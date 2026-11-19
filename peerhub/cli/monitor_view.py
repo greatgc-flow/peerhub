@@ -102,6 +102,8 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
     peers in one order. Within a peer the trees keep their family and window order."""
     result: list[dict[str, Any]] = []
     notes: list[str] = []
+    hidden: dict[str, list[str]] = {}  # the n/a pools that have no parent row to carry their name
+    noted: set[str] = set()  # peers whose retired pools already have their note
     order = order or {}
 
     def rank(peer: str, name: str) -> int:
@@ -111,10 +113,12 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
                        key=lambda p: (min(rank(p, str(row["pool"])) for row in rows if row["peer"] == p), p)):
         peer_rows = [dict(row) for row in rows if row["peer"] == peer]
         retired = [row for row in peer_rows if row.get("retired")]
-        if retired:
-            names = ",".join(str(row["pool"]) for row in retired)
-            plans = ",".join(sorted({str(row.get("display_plan") or "unknown") for row in retired}))
-            notes.append(f"{peer} {names} n/a" + (f" (not reported by plan {plans})" if show_quota_notes else ""))
+        if retired:  # #400: named after the peer's first row; --show-quota-notes adds the plan reason as a note
+            hidden.setdefault(peer, []).extend(str(row["pool"]) for row in retired)
+            if show_quota_notes:
+                plans = ",".join(sorted({str(row.get("display_plan") or "unknown") for row in retired}))
+                notes.append(f"{peer} {','.join(str(row['pool']) for row in retired)} n/a (not reported by plan {plans})")
+                noted.add(peer)
         active = [row for row in peer_rows if not row.get("retired")]
         first_peer_row = True
 
@@ -128,7 +132,10 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
         # in the flat fallback, including duplicate names with different values.
         if len({row["pool"] for row in active}) != len(active):
             for row in active:
-                append_row(row, str(row["pool"]))
+                if row["state"].lower() == "n/a":
+                    hidden.setdefault(peer, []).append(str(row["pool"]))
+                else:
+                    append_row(row, str(row["pool"]))
             continue
         by_name = {str(row["pool"]): row for row in active}
         windows = {name: _parse_window(name)[0] for name in by_name}
@@ -152,6 +159,9 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
                 parents[child] = candidates[0]
         if flat:
             parents = dict.fromkeys(by_name)
+        for name, row in by_name.items():  # #400: an n/a pool is never a row; its children go to its own parent
+            if row["state"].lower() == "n/a":
+                parents.update({child: parents[name] for child, parent in parents.items() if parent == name})
         children: dict[str, list[str]] = {name: [] for name in by_name}
         for child, parent in parents.items():
             if parent is not None:
@@ -162,11 +172,8 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
         def visit(name: str, prefix: str, continuation: str) -> None:
             row = by_name[name]
             append_row(row, prefix + name)
-            # A folded parent cannot carry a displayed dependency. Keep such n/a
-            # nodes as full rows so descendants still have their actual parent.
-            folded = [child for child in children[name] if by_name[child]["state"].lower() == "n/a" and not children[child]]
-            if folded:
-                row["suffix"] = "(" + ",".join(folded) + " n/a)"
+            folded = [child for child in children[name] if by_name[child]["state"].lower() == "n/a"]
+            row["folded"] = folded
             visible = [child for child in children[name] if child not in folded]
             for i, child in enumerate(visible):
                 last = i == len(visible) - 1
@@ -176,7 +183,15 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
 
         for name in sorted((name for name in by_name if parents[name] is None),
                            key=lambda name: (_pool_family(name), windows[name], name)):
-            visit(name, "", "")
+            if by_name[name]["state"].lower() == "n/a":
+                hidden.setdefault(peer, []).append(name)
+            else:
+                visit(name, "", "")
+    for row in result:  # an n/a pool with no parent row is named after its peer's first row
+        names = [*row.pop("folded", []), *(hidden.pop(row["peer"], []) if row["display_peer"] else [])]
+        if names:
+            row["suffix"] = "(" + ",".join(names) + " n/a)"
+    notes.extend(f"{peer} {','.join(names)} n/a" for peer, names in hidden.items() if peer not in noted)  # no row left
     return result, notes
 
 
@@ -1049,8 +1064,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     rows.append("")
                 previous_peer = row["peer"]
                 colour = _pool_colour(row["summary"]) if rich and color else None
-                line = (_paint(table_line(row["cells"]), dim) if row["state"] == "n/a"
-                        else table_line(row["cells"], RICH_SGR[colour] if colour else None))
+                line = table_line(row["cells"], RICH_SGR[colour] if colour else None)
                 rows.extend(_quota_suffix(line, str(row["suffix"]), width, unicode, dim))
             table_size = len(rows)
 
@@ -2272,15 +2286,6 @@ def _binds(child: dict[str, Any], parent: dict[str, Any]) -> bool:
             and float(child["remaining"]) < float(parent["remaining"]))
 
 
-def _na_note(row: dict[str, Any]) -> str:
-    reason = str(row["reason"])
-    if reason.startswith(_DISABLED):
-        return "disabled by provider"
-    match = re.search(r"(?:^|;)\s*plan=([^;]+)", reason)
-    plan = _clean(row["display_plan"]) if row.get("display_plan") else (match[1] if match else None)
-    return f"not reported by plan {plan}" if plan else "not reported"
-
-
 def _scoped_weekly_parents(rows: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
     """Fable's scoped weekly window depends on the all-models window when configured consumers confirm it.
 
@@ -2382,16 +2387,16 @@ def _pool_bar(row: dict[str, Any], cells: int, unicode: bool) -> str:
 
 
 def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
-                  rich: bool = False, paint: bool = False, every: bool = False,
-                  show_quota_notes: bool = False) -> tuple[list[str], int]:
+                  rich: bool = False, paint: bool = False, every: bool = False) -> tuple[list[str], int]:
     """`POOLS n` with the column titles, then at most eight rows: POOL STATE LEFT RESET PACE FAMILY. `every` (the
-    rich --expand frame, P23): every pool, the 5-hour rows that do not bind included, and no cap.
+    rich --expand frame, P23): every pool, the 5-hour rows that do not bind included, and no cap. An n/a pool (#400) is
+    never a row and is not counted; the QUOTA details name it.
 
     The rich view (P21) draws the head as a rule, puts a state glyph before the state word and a bar of what is left
     after it (POOL STATE bar LEFT ...). A decoration never costs a data column: the glyph stays only when the table
     shows the columns of the plain view, and the bar takes the cells left over when every cell is whole (at most
     BAR_CELLS; fewer than BAR_MIN: no bar), so it shrinks and goes before a column drops or the FAMILY note is cut."""
-    ordered = _ordered_pools(rows, every=every)
+    ordered = _ordered_pools([row for row in rows if row["state"] != "n/a"], every=every)
     shown = ordered if every else ordered[:POOLS_CAP]
     glyphs = RICH_GLYPHS[unicode]
     head = f"POOLS {len(ordered)}"
@@ -2406,7 +2411,7 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
             else:
                 prefix += ("│  " if unicode else "|  ") if sibling else "   "
         name = f"{' ' * _width(peer)} {prefix}{pool}" if depth else f"{peer} {pool}"
-        family = str(row["meaning"]) + (f"; {_na_note(row)}" if show_quota_notes and row["state"] == "n/a" else "")
+        family = str(row["meaning"])
         if row.get("depends_on"):
             own = f" (own {row['own_left']})" if row.get("own_left") else ""  # the pool's own LEFT, when the parent is lower
             family += (f"; {row['depends_on']} out{own}" if row["state"] == "blocked" else
@@ -2414,7 +2419,7 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
         table.append([" " + name, str(row["state"]), str(row["left"]), str(row["resets"]),
                       _pace_glyph(str(row["pace"]), unicode), _cell(family, unicode, "-", keep)])
     # Whole columns drop from the right (FAMILY first). FAMILY shrinks only down to its widest family name, so a long
-    # n/a note is cut (with the cut mark) rather than taking the whole column away; no other cell is ever cut.
+    # dependency note is cut (with the cut mark) rather than taking the whole column away; no other cell is ever cut.
     floor = max([_width("FAMILY"), *(_width(_cell(row["meaning"], unicode, "-", keep)) for row, _ in shown)])
     if not rich:
         return _table(table, width, unicode, right=(2, 4), elastic=5, floor=floor), len(ordered)
@@ -2609,7 +2614,7 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
         frame.suggest = _compact_wrap(suggestion, width) if expand else _suggest_lines(suggestion, width, unicode)
         if rows:
             frame.pools, frame.pools_total = _pool_section(rows, width, unicode, keep, rich=rich, paint=paint,
-                                                           every=expand, show_quota_notes=bool(payload.get("_show_quota_notes")))
+                                                           every=expand)
         else:
             notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None
                      else _compact_wrap("no quota evidence; next: peerhub observation refresh", width))

@@ -451,20 +451,6 @@ def test_a_seven_day_pool_takes_the_most_severe_class_of_its_shown_five_hour_row
     assert [re.search(r"\b((?:3P|[A-Z])-\d+[HD])\b", line)[1] for line in pools[1:]] == ["G-7D", "G-5H", "C-7D"]
 
 
-def test_a_long_na_note_is_cut_instead_of_dropping_the_family_column(frame):
-    na = pool("cx", "X-30D", None)
-    na.update(state="ABSENT", stored_state="ABSENT", measurements=None, last_measurements=None,
-              reason="not reported by provider; plan=" + "enterprise-" * 8)
-    observations = frame["groups"]["capacity"]["data"]["observations"]
-    observations[:] = [o for o in observations if o["peer_id"] != "cc"] + [na]  # 7 rows: within the cap of 8
-    lines = lines_of(render_grouped_frame(frame, show_quota_notes=True, view="plain", unicode=False, width=80))
-    pools = section(lines, "POOLS")
-    assert pools[0].split()[-1] == "FAMILY"
-    row = next(line for line in pools if "X-30D" in line)
-    assert "codex; not reported by plan enter" in row and row.endswith("~") and _width(row) <= 79
-    assert next(line for line in pools if "3P-7D" in line).endswith("claude-via-ag")  # short cells stay whole
-
-
 def test_pools_cap_at_eight_rows_with_an_overflow_line(frame):
     observations = frame["groups"]["capacity"]["data"]["observations"]
     observations.extend(pool("zz", f"F-{i}D", .5) for i in (1, 2, 3))

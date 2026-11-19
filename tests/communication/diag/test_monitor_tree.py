@@ -328,22 +328,21 @@ def test_passed_measurement_reset_colour_matches_between_views(
 
 
 @pytest.mark.parametrize("expand", [False, True])
-def test_na_root_is_a_dim_full_row(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_na_root_is_never_a_row_and_its_peer_gets_one_dim_note(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-5H"]})
     frame["groups"]["capacity"]["data"]["observations"][0].update(
         state="ABSENT", reason="not reported by provider", measurements=None)
     screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
-    # #374: the POOLS row dims its STATE cell, like every other state colour (P21: and its bar)
-    row = next(line for line in screen.splitlines() if "C-5H" in line)
+    # #400: no POOLS row and no QUOTA row for an n/a pool; the peer has no row left, so one dim note names the pool
+    assert "POOLS 0" in mv._ANSI.sub("", screen)
     dim = mv.RICH_SGR["dim"]
-    assert f"\x1b[{dim}m○ n/a\x1b[0m" in row and "not reported" in row and f"\x1b[{dim}m{'─' * 20}\x1b[0m" in row
-    assert set(re.findall(r"\x1b\[([0-9;]*)m", row)) == {dim, "0"}
+    assert not any("○ n/a" in line for line in screen.splitlines())
     if not expand:
+        assert "C-5H" not in screen
         return
     row = next(line for line in detail_lines(screen) if "C-5H" in line and "not reported" not in line)
-    assert row.startswith(f" \x1b[{dim}mcc ") and row.endswith("\x1b[0m") and row.count("\x1b[") == 2  # one dim row
-    assert mv._ANSI.sub("", row).split()[:4] == ["cc", "C-5H", "○", "n/a"]
+    assert row == f" \x1b[{dim}mcc C-5H n/a\x1b[0m"
 
 
 @pytest.mark.parametrize("expand", [False, True])

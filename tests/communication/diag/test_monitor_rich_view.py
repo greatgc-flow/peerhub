@@ -93,7 +93,7 @@ def test_the_fit_order_is_unchanged_quota_rows_go_after_recent_leads_and_running
         screen = plain(full_payload(), height=height) if view == "plain" else strip(rich(full_payload(), height=height))
         assert len(screen.splitlines()) <= height - 1
         seen.append(row_counts(screen.splitlines()))
-    assert seen[0] == {"POOLS": 8, "RUNNING": 4, "LEADS": 1, "RECENT": 1}  # 24 lines: RECENT and LEADS gave rows first
+    assert seen[0] == {"POOLS": 8, "RUNNING": 4, "LEADS": 2, "RECENT": 1}  # 24 lines: RECENT and LEADS gave rows first (#400: the n/a row is gone, LEADS keeps a second one)
     for before, after in zip(seen, seen[1:]):
         assert all(after.get(key, 0) <= count for key, count in before.items())
     first_cut = next(counts for counts in seen if counts.get("POOLS", 0) < 8)
@@ -127,8 +127,8 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
 
 
 def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
-    line = row_of(strip(rich(full_payload())), "POOLS 9")
-    assert line.startswith("── POOLS 9 ─") and line.endswith("─") and _width(line) == 99
+    line = row_of(strip(rich(full_payload())), "POOLS 8")  # #400: 9 pools, one n/a (cx X-30D) is not drawn or counted
+    assert line.startswith("── POOLS 8 ─") and line.endswith("─") and _width(line) == 99
     titles = [word for word in line.split() if word.isalpha() and word != "POOLS"]
     assert titles == ["STATE", "LEFT", "RESET", "PACE", "FAMILY"]
     rows = [text for text in strip(rich(full_payload())).splitlines() if "X-7D" in text]
@@ -203,7 +203,7 @@ def test_no_color_keeps_the_rich_layout_with_unicode_and_no_sgr(monkeypatch):
     monkeypatch.setenv("NO_COLOR", "1")
     screen = rich(full_payload(), color=True)
     assert "\x1b" not in screen and screen == bare
-    assert "── POOLS 9 ─" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
+    assert "── POOLS 8 ─" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
     assert screen.splitlines()[0].startswith("ATTN 2 · gone: cc.fable activity-view 5m · pool_out: cx X-5H")
 
 
@@ -328,18 +328,15 @@ def test_a_threat_forecast_is_red_whatever_is_left():
 
 
 @pytest.mark.parametrize("state,glyph", [("ok", "ok"), ("fast", "fast"), ("low", "low"), ("out", "out"), ("aged", "aged"),
-                                         ("?", "aged"), ("reset", "aged"), ("n/a", "aged")])
+                                         ("?", "aged"), ("reset", "aged")])  # n/a is never a row (#400)
 def test_every_pool_state_has_its_glyph_beside_the_state_word(state, glyph):
     row = {"ok": pool("cc", "C-7D", .9), "fast": pool("cc", "C-7D", .8, fast=True), "low": pool("cc", "C-7D", .05),
            "out": pool("cc", "C-7D", 0.0), "aged": pool("cc", "C-7D", .9), "?": pool("cc", "C-7D", None),
-           "reset": pool("cc", "C-7D", .9, reset=-1), "n/a": pool("cc", "C-7D", None)}[state]
+           "reset": pool("cc", "C-7D", .9, reset=-1)}[state]
     if state == "aged":
         row.update(state="STALE", age_seconds=999, measurements=None)
     if state == "?":
         row.update(state="UNKNOWN", stored_state="UNKNOWN", measurements=None, last_measurements=None)
-    if state == "n/a":
-        row.update(state="ABSENT", stored_state="ABSENT", measurements=None, last_measurements=None,
-                   reason="not reported by provider; plan=prolite")
     payload = pools_payload(row)
     assert f" {state} " in row_of(plain(payload), "C-7D") + " "
     assert f"  {U[glyph]} {state}  " in row_of(strip(rich(payload)), "C-7D")
@@ -372,7 +369,6 @@ def test_the_bar_shrinks_then_goes_before_any_data_column_drops():
             assert cells[width] == 0, width  # a column dropped: the bar went before it
         if cells[width]:  # the bar takes only what is left over: no cell is cut beside it
             assert "…" not in strip(rich(payload, width=width, show_quota_notes=True)).split("suggest:")[0].split("POOLS", 1)[1], width
-            assert row_of(strip(rich(payload, width=width, show_quota_notes=True)), "X-30D").endswith("codex; not reported by plan prolite")
     sizes = [cells[width] for width in range(100, 19, -1)]
     assert sizes[0] == 20 and sizes == sorted(sizes, reverse=True) and 0 in sizes
     assert all(size == 0 or size >= mv.BAR_MIN for size in sizes) and len(set(sizes)) > 3

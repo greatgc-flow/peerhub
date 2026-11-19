@@ -125,7 +125,6 @@ def test_dependency_is_recomputed_as_each_redraw_ages_or_resets_the_parent(elaps
 def test_quota_notes_are_opt_in_without_hiding_na_state_or_blocked_dependency(view, expand, reason, expected):
     frame = payload()
     frame["_human_observations"][2]["reason"] = reason
-    # Compact only lists a 5H row when it binds, so use an independent omitted monthly window too.
     omitted = deepcopy(frame["_human_observations"][2])
     omitted.update(pool_ref="quota:cc:C-30D")
     frame["_human_observations"].append(omitted)
@@ -133,8 +132,9 @@ def test_quota_notes_are_opt_in_without_hiding_na_state_or_blocked_dependency(vi
     hidden = mv.render_grouped_frame(frame, view=view, expand=expand, width=180)
     shown = mv.render_grouped_frame(frame, view=view, expand=expand, width=180, show_quota_notes=True)
     assert "not reported" not in hidden and "disabled by provider" not in hidden
-    assert expected in shown
-    assert "n/a" in hidden and "C-30D" in hidden
+    # #400: an n/a pool is never a row; only the --expand QUOTA names it (with its reason under --show-quota-notes)
+    assert (expected in shown) == expand
+    assert ("n/a" in hidden and "C-30D" in hidden) == expand
     if view == "rich" or not expand:
         assert "C-7D out" in hidden and "blocked" in pool_rows(hidden, "F-7D")[0]
     assert frame == before
@@ -189,6 +189,6 @@ def test_scoped_weekly_group_does_not_drop_an_observed_short_window_of_its_own()
     frame["_human_observations"].append(pool("ag", "A-7D", .2))
     screen = mv.render_grouped_frame(frame, view="rich", expand=True, width=160)
     top = "\n".join(screen.split("DB:env (")[0].splitlines()[2:])
-    assert "F-5H" in top and "│  └─ F-5H" in top
+    assert "F-5H" in top and "└─ F-5H" in top  # #400: the n/a C-5H is no sibling row, so F-7D is its parent's last child
     assert top.index("cc C-7D") < top.index("F-5H") < top.index("ag A-7D")
     assert "5%" in next(line for line in top.splitlines() if "F-5H" in line)

@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- `peerhub monitor` (#400): a pool whose state is `n/a` (the plan does not report the window, or the provider disabled it) is never a row in POOLS or QUOTA, compact or `--expand`, plain or rich; the POOLS count is the rows drawn, QUOTA names each hidden pool after its peer's row (`(C-5H n/a)`, `(X-30D n/a)`), and `--show-quota-notes`, the suggestion line, PEERS, `diag quota` and JSON are unchanged. Aged, unknown and reset pools stay visible.
+
 ## [0.24.25] - 2026-11-18
 
 ### Changed
