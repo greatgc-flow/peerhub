@@ -119,7 +119,16 @@ def run_preferences(args: Any) -> int:
                    "selected_groups": preference.get("selected_groups"),
                    "selection_scope": "grouped_views",
                    "preference": {key: preference[key] for key in ("status", "source", "reason")}}
-        _emit(payload, args.json)
+        if args.json:
+            _emit(payload, True)
+        else:
+            print("ID         DEFAULT")
+            for group in GROUP_IDS:
+                selected = "unknown" if preference["status"] != "OK" else "yes" if group in preference["selected_groups"] else "no"
+                print(f"{group:<10} {selected}")
+            print(f"Defaults: {preference['source']} ({preference['status']})")
+            if preference.get("reason"):
+                print(f"Reason: {preference['reason']}")
         return int(preference["status"] != "OK")
     workspace, global_path = _preference_paths(cwd, env)
     target = global_path if args.global_preferences else workspace

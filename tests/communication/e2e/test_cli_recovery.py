@@ -38,7 +38,7 @@ from peerhub.extensions.bridge import (
     SessionUnavailableError,
     SessionWorkspaceMismatchError,
 )
-from peerhub.extensions.ask import LegacySelectorUnsupported, StreamPeerMismatchError
+from peerhub.extensions.ask import LegacySelectorUnsupported, PeerNotFoundError, StreamPeerMismatchError
 from peerhub.core.store import (
     CasMismatchError,
     IdempotencyConflictError,
@@ -343,6 +343,9 @@ EXCEPTION_SCENARIOS: dict[str, list[tuple[Exception, str]]] = {
     ],
     "RequestRejected": [
         (RequestRejected("ca takes no effort"), "request_rejected"),
+    ],
+    "PeerNotFoundError": [
+        (PeerNotFoundError("register this peer with --adapter cx before asking it"), "peer_not_found"),  # #401
     ],
     "LegacySelectorUnsupported": [
         (LegacySelectorUnsupported("legacy selector unsupported"), "ask_selector_error"),
