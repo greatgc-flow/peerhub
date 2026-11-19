@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- The reply sanitizer no longer turns `token = ...`, `password: ...` and similar assignments in a model's code into `[REDACTED]` (#398). An assignment to `api_key`, `token`, `secret`, `password` or `passwd` is redacted only when the value looks like a credential: a quoted value of 6 or more characters without spaces, or an unquoted run of 6 or more characters with a digit that is not followed by `(`, `{` or `[`. Residual risk: unquoted all-letter values, quoted values with spaces and short values are not redacted, and a digit-bearing identifier such as `value2` can be. It is not a secret scanner (see [accounts](docs/accounts.md)).
+
 ### Changed
 
 - CLI audit (#401): `peerhub ask` with an unregistered peer is now a user error (`peer_not_found`, exit 1, it was `ask_unexpected_failure` with exit 2); `profile show` errors no longer begin with the Python class name; `monitor defaults show` prints a table (JSON only with `--json`); `account list` with no bindings prints `(no accounts)`; `peer get` and `stream show` print `-` for a missing value (it was `None`); every option has a help text and every `--json` says `Machine-readable JSON output`. JSON output is unchanged.
