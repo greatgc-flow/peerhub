@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.26] - 2026-11-19
+
 ### Fixed
 
 - The reply sanitizer no longer turns `token = ...`, `password: ...` and similar assignments in a model's code into `[REDACTED]` (#398). An assignment to `api_key`, `token`, `secret`, `password` or `passwd` is redacted only when the value looks like a credential: a quoted value of 6 or more characters without spaces, or an unquoted run of 6 or more characters with a digit that is not followed by `(`, `{` or `[`. Residual risk: unquoted all-letter values, quoted values with spaces and short values are not redacted, and a digit-bearing identifier such as `value2` can be. It is not a secret scanner (see [accounts](docs/accounts.md)).
