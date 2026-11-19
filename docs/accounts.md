@@ -38,6 +38,15 @@ and receipts retain removed variable names in `env_scrubbed` for success, refusa
 errors, timeouts and replay, without values.
 Parent credentials and the root path (including JSON-escaped, slash and case
 variants) are redacted from adapter evidence.
+The reply sanitizer redacts known token shapes (`sk-...`, `Bearer ...`, JWTs) and
+the value of `api_key`, `token`, `secret`, `password` or `passwd` assigned with `=`
+or `:` only when the value looks like a credential (#398): a quoted value of 6 or
+more characters without spaces, or an unquoted run of 6 or more characters that
+contains a digit and is not followed by `(`, `{` or `[`. Code that merely names a
+credential (`token = next_token(x)`, `token = parse_token`) is left alone. Residual
+risk: unquoted all-letter values, quoted values with spaces and short values are
+not redacted, and an identifier that contains a digit (`value2`) can be. It is not
+a secret scanner; do not rely on it to keep secrets out of prompts or replies.
 Parent process variables and unbound peer behavior remain unchanged.
 
 Account identity participates in session and request binding. Sessions cannot
