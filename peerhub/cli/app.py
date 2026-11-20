@@ -16,6 +16,7 @@ Commands (canonical inventory: docs/implementation/command_inventory.json, deriv
   monitor             (dashboard with opt-in quota collection)
   diag                (read-only dashboard, optionally live)
   diag health / quota / integrity (read-only; integrity is explicit)
+  update --check / --plan (read-only upgrade checks and instructions)
 Exit codes: 0 ok, 1 error, 2 idempotency conflict, 3 CAS lost, 4 storage fault, 5 diag unavailable, 6 schema version.
 """
 
@@ -331,6 +332,15 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
     d_integrity.epilog = "example: peerhub diag integrity"
+
+    update_parser = subparsers.add_parser(
+        "update", help="Check versions or print an upgrade plan (read-only)",
+        description="Check local versions, the bundled Codex catalog and public release metadata, or print a plan for the selected store. "
+                    "Exit 1 if asks are running, 4 or 5 if the store cannot be read, and 6 for an unsupported store schema.",
+    )
+    update_mode = update_parser.add_mutually_exclusive_group(required=True)
+    update_mode.add_argument("--check", dest="update_check", action="store_true", help="Check versions and packaged model defaults")
+    update_mode.add_argument("--plan", action="store_true", help="Show blocking processes, upgrade commands and resume hints")
 
     explain_parser = subparsers.add_parser("explain", help="Explain outcome codes or look up operational lessons")
     explain_parser.add_argument("code", nargs="+", help="Guidance code or free words to look up")
@@ -1273,6 +1283,9 @@ def _dispatch_command(args: argparse.Namespace, parser: argparse.ArgumentParser)
             return _run_light_command(args, parser)
         case "diag":  # optional first-party extension: Core must work without it (E2E-009)
             return _run_diag_cli(args, parser)
+        case "update":
+            from peerhub.cli.update import run_update
+            return run_update(args)
         case "explain":
             from peerhub.cli.recovery import run_explain_cli
             return run_explain_cli(" ".join(args.code), json_output=bool(getattr(args, "json", False)))
@@ -1352,7 +1365,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             normalize_session_selector(fresh=args.fresh, session=args.session)
             if (args.prompt is None) == (args.query_file is None):
                 parser.error("ask requires exactly one of prompt or --query-file")
-        if hasattr(args, "db") and args.db:
+        if hasattr(args, "db") and args.db and not getattr(args, "update_check", False):
             workspace = Path(args.workspace) if args.subcommand in ("ask", "profile") and getattr(args, "workspace", None) else None
             selection = _select_db(args.db, discover=not explicit_db, workspace_root=workspace)
             args.db, args.db_source = selection.path, selection.source

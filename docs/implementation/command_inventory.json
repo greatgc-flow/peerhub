@@ -1351,6 +1351,41 @@
           "takes_value": true
         }
       ]
+    },
+    {
+      "command": "update",
+      "options": [
+        {
+          "default": false,
+          "dest": "update_check",
+          "flags": [
+            "--check"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": false,
+          "dest": "plan",
+          "flags": [
+            "--plan"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
     }
   ],
   "global_options": [
