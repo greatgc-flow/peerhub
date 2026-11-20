@@ -16,7 +16,10 @@ from peerhub.extensions.diag import DiagnosticReport
 @pytest.mark.parametrize("options", [[], ["--json"], ["--json", "--schema-version", "1.1"]])
 def test_watch_requires_probe_opt_in(monkeypatch, capsys, options):
     calls = []
+    import peerhub.cli.monitor_schema11  # import first: a lazy import under the patch would keep the fake name for good
+
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
+    monkeypatch.setattr("peerhub.cli.monitor_schema11.report_missing_store", lambda *a, **kw: False)
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame",
                         lambda *a, **kw: {"schema_version": "2.0", "status": "OK", "groups": {}})
     monkeypatch.setattr("peerhub.extensions.diag.ReadonlyDiag.render",

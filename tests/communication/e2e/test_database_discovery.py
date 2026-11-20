@@ -206,9 +206,7 @@ def test_schema_11_explicit_default_path_with_legacy_store_emits_no_hint(pollute
     monkeypatch.chdir(ws)
     monkeypatch.delenv("PEERHUB_DB", raising=False)
 
-    print("DBG-before", sorted(str(x.relative_to(ws)) for x in ws.rglob("*")))
     code = main(["--db", str(DEFAULT_DB_PATH), "monitor", "--json", "--schema-version", "1.1"])
-    print("DBG-after", code, sorted(str(x.relative_to(ws)) for x in ws.rglob("*")))
     assert code == 5
     out, err = capsys.readouterr()
     payload = json.loads(out)
