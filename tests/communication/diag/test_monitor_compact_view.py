@@ -728,8 +728,13 @@ def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_fram
                                 ("G-5H", "▲ fast", "bad"), ("X-7D", "● ok", "ok")):
         line = _row(colored, pool)
         assert f"\x1b[{RICH_SGR[colour]}m{state}\x1b[0m" in line
-        assert re.search(r"\x1b\[" + RICH_SGR[colour] + r"m[█░]{20}\x1b\[0m", line)
-        assert {code for code in re.findall(r"\x1b\[([0-9;]*)m", line)} == {RICH_SGR[colour], RICH_SGR["dim"], "0"}
+        if pool.startswith("3P-5H"):  # a child pool (#414): filled in the row's colour, empty in SGR dim
+            assert re.search(r"\x1b\[" + RICH_SGR[colour] + r"m▬+\x1b\[0m\x1b\[2m╌+\x1b\[0m", line) or re.search(
+                r"\x1b\[2m╌{20}\x1b\[0m", line), line
+            assert {code for code in re.findall(r"\x1b\[([0-9;]*)m", line)} == {RICH_SGR[colour], RICH_SGR["dim"], "2", "0"}
+        else:
+            assert re.search(r"\x1b\[" + RICH_SGR[colour] + r"m[█░]{20}\x1b\[0m", line)
+            assert {code for code in re.findall(r"\x1b\[([0-9;]*)m", line)} == {RICH_SGR[colour], RICH_SGR["dim"], "0"}
         assert not line.startswith("\x1b")
         assert _width(line) <= 99
     assert "\x1b" not in _solo(compact_frame, view="plain", color=True, width=100)

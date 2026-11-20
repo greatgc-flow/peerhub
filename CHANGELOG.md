@@ -8,6 +8,11 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- `peerhub monitor` (#414): a child pool in POOLS (`└─ F-7D`, `└─ 3P-5H`, `└─ G-5H`) has its own bar, so it no longer looks like its parent: filled `▬` in the state colour and empty `╌` in dim, 20 cells with the same shrink rule (to 4 cells, then hidden); the ASCII form is `=` filled and `-` empty. A parent keeps `█░` (`#.`). The plain `--expand` QUOTA `[BAR]` column draws a child row the same way. An empty cell is never a space, so 0% still shows.
+- `peerhub monitor`: one `Guide` link (OSC 8) at the right end of line 2, in the compact and the `--expand` frame, in the rich view on a terminal only. It points at `docs/monitor.md` of the running version (`https://github.com/greatgc-flow/peerhub/blob/v<version>/docs/monitor.md`) and is left out of a development build (no tag to point at) and with `PEERHUB_NO_LINKS=1`. It is the first thing dropped on a narrow terminal, before any data, and is never cut. The width helpers (`visible_len` and the monitor's width functions) ignore OSC 8. The plain view has no link bytes; its `--expand` frame, printed whole (not height-bounded), ends with a plain `Guide: <url>` line. New page `docs/monitor.md` explains the whole screen; the README and `peerhub explain monitor-view` point at it.
+
 ## [0.24.29] - 2026-11-20
 
 ### Changed

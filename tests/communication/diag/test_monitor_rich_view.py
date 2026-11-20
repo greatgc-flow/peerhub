@@ -18,7 +18,7 @@ from tests.communication.diag.test_monitor_plain_golden import (NEW_ORDER, block
                                                                  quiet_payload)
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
-OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values()}
+OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values(), mv.CHILD_EMPTY_SGR}  # #414: a child bar's empty cells
 U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
 
 
@@ -230,7 +230,7 @@ def test_the_palette_is_256_colour_with_semicolon_forms_whatever_colorterm_says(
     assert screen == reference  # C6: no truecolor branch
     codes = set(SGR.findall(screen))
     assert codes <= OUR_CODES and ":" not in "".join(codes)
-    for code in codes - {"0", "1"}:
+    for code in codes - {"0", "1", mv.CHILD_EMPTY_SGR}:  # SGR 2 dims a child bar's empty cells (#414)
         assert re.fullmatch(r"(?:1;)?38;5;\d{1,3}(?:;48;5;\d{1,3})?", code), code
         assert "38;2" not in code and "48;2" not in code
     assert not re.search(r"\x1b\[[0-9;:]*[^0-9;m]", screen) and "\x1b]" not in screen

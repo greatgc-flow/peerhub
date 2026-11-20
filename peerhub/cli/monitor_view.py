@@ -19,7 +19,7 @@ _DISABLED = "disabled by provider"  # mirrors observation_model.DISABLED_REASON:
 _NA_REASONS = (_NOT_REPORTED, _DISABLED)
 _LEAD_MARK_PCT = 80  # mirrors monitor_read_model.LEAD_CONTEXT_MARK_PCT: the `!` of a lead's ctx cell
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
-_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+_ANSI = re.compile(r"\x1b\[[0-9;]*m|\x1b\]8;[^\x07\x1b]*(?:\x1b\\|\x07)")  # SGR, and OSC 8 (a hyperlink's open and close)
 _BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
          *[chr(code) for code in range(0x2066, 0x206A)]}
 MONITOR_LEGEND = (
@@ -1018,6 +1018,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                     cells["REM"] = summary["left"]
                     if summary["pace"] == "-":  # no pace after the reset time, as in POOLS
                         cells["PACE"] = "-"
+                if row["display_pool"] != row["pool"]:  # a child row: its 8-cell bar has the child glyphs, as in POOLS
+                    cells["[BAR]"] = cells["[BAR]"].translate(_CHILD_BAR[unicode])
                 cells["PEER"], cells["POOL"] = row["display_peer"], row["display_pool"]
             table = [row["cells"] for row in layout]
             natural = bounded or rich  # a column is as wide as its widest cell; the unbounded plain table has minimums
@@ -1785,11 +1787,19 @@ PILL_SGR = {"OK": "1;38;5;16;48;5;78", "OK?": "1;38;5;16;48;5;221", "ATTN": "1;3
 # Every glyph is one cell wide (as `_width` counts it) and has an ASCII form for a stream that cannot show it; a
 # terminal that draws these as two cells uses the plain view. `none` is a bar or meter without a value.
 RICH_GLYPHS = {
-    True: {"rule": "─", "sep": "·", "full": "█", "empty": "░", "none": "─", "on": "■", "off": "□", "ok": "●", "fast": "▲",
-           "low": "▼", "out": "×", "blocked": "×", "aged": "○", "run": "►", "gone": "×", "dot": "●", "up": "▲", "down": "▼"},
-    False: {"rule": "-", "sep": "|", "full": "#", "empty": ".", "none": "-", "on": "#", "off": ".", "ok": "*", "fast": "^",
-            "low": "v", "out": "x", "blocked": "x", "aged": "o", "run": ">", "gone": "x", "dot": "*", "up": "^", "down": "v"},
+    True: {"rule": "─", "sep": "·", "full": "█", "empty": "░", "cfull": "▬", "cempty": "╌", "none": "─", "on": "■",
+           "off": "□", "ok": "●", "fast": "▲", "low": "▼", "out": "×", "blocked": "×", "aged": "○", "run": "►",
+           "gone": "×", "dot": "●", "up": "▲", "down": "▼"},
+    False: {"rule": "-", "sep": "|", "full": "#", "empty": ".", "cfull": "=", "cempty": "-", "none": "-", "on": "#",
+            "off": ".", "ok": "*", "fast": "^", "low": "v", "out": "x", "blocked": "x", "aged": "o", "run": ">",
+            "gone": "x", "dot": "*", "up": "^", "down": "v"},
 }
+# `cfull` and `cempty` draw the bar of a child pool (`└─ F-7D`), so a child never reads as its parent: filled in the
+# state colour, empty in SGR dim (`\x1b[2m`), and never a space, so 0% still shows.
+CHILD_EMPTY_SGR = "2"
+_CHILD_BAR = {unicode: str.maketrans({RICH_GLYPHS[unicode]["full"]: RICH_GLYPHS[unicode]["cfull"],
+                                      RICH_GLYPHS[unicode]["empty"]: RICH_GLYPHS[unicode]["cempty"]})
+              for unicode in (True, False)}  # the plain QUOTA table's `[BAR]` of a child row (`_bar_quota` draws `█░` / `#.`)
 BAR_CELLS = 20  # the quota bar of a POOLS row; it shrinks to BAR_MIN cells, then goes, before a data column drops
 BAR_MIN = 4
 METER_CELLS = 5  # the context meter of a LEADS row
@@ -2442,14 +2452,16 @@ def _pool_colour(row: dict[str, Any]) -> str | None:
     return max(state, left, key=order.index)
 
 
-def _pool_bar(row: dict[str, Any], cells: int, unicode: bool) -> str:
-    """What is left as a bar; a non-zero remainder shows at least one cell, and a row without a value shows none."""
+def _pool_bar(row: dict[str, Any], cells: int, unicode: bool, child: bool = False) -> str:
+    """What is left as a bar; a non-zero remainder shows at least one cell, and a row without a value shows none. A child
+    pool's bar has its own glyphs (`▬╌`, `=-`), a parent's stays `█░` (`#.`)."""
     glyphs = RICH_GLYPHS[unicode]
     if not _has_value(row):
         return glyphs["none"] * cells
     remaining = float(row["remaining"])
     filled = max(int(remaining * cells + 0.5), 1 if remaining > 0 else 0)
-    return glyphs["full"] * filled + glyphs["empty"] * (cells - filled)
+    full, empty = (glyphs["cfull"], glyphs["cempty"]) if child else (glyphs["full"], glyphs["empty"])
+    return full * filled + empty * (cells - filled)
 
 
 def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
@@ -2498,11 +2510,12 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
     right, elastic = (2, 4), 5
     room = width - sum(max(_width(cells[i]) for cells in chosen) for i in range(6)) - 2 * 6
     if chosen is not table and min(BAR_CELLS, room) >= BAR_MIN:
-        bars = ["", *(_pool_bar(row, min(BAR_CELLS, room), unicode) for row, _ in shown)]
+        bars = ["", *(_pool_bar(row, min(BAR_CELLS, room), unicode, child=depth > 0) for row, depth in shown)]
         chosen = [[*cells[:2], bar, *cells[2:]] for bar, cells in zip(bars, chosen)]
         names.insert(2, "BAR")
         right, elastic = (3, 5), 6
     colours = [None, *(_pool_colour(row) for row, _ in shown)]
+    kids = [False, *(depth > 0 and _has_value(row) for row, depth in shown)]  # a child bar with a value: two spans
 
     def painter(index: int, col: int, text: str) -> str:
         colour = colours[index]
@@ -2510,6 +2523,10 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
             return text
         if names[col] == "FAMILY":
             return _paint(text, RICH_SGR["dim"])
+        if names[col] == "BAR" and kids[index]:  # filled in the state colour, empty in SGR dim
+            filled = len(text) - len(text.lstrip(glyphs["cfull"]))
+            return "".join(_paint(part, code) for part, code in ((text[:filled], RICH_SGR[colour] if colour else None),
+                                                                 (text[filled:], CHILD_EMPTY_SGR)) if part)
         if colour and names[col] in {"STATE", "BAR"}:
             return _paint(text, RICH_SGR[colour])
         if colour and names[col] == "PACE" and text[0] in {glyphs["up"], glyphs["down"]}:
@@ -2751,18 +2768,76 @@ def _display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
         **({"_human_observations": replace(observations)} if "_human_observations" in payload else {})}
 
 
+GUIDE_TEXT = "Guide"  # the one link of the rich view: the right end of line 2 (#414)
+GUIDE_DOC = "docs/monitor.md"
+_GUIDE_BLOB = "https://github.com/greatgc-flow/peerhub/blob/"
+
+
+def _guide_override(env: Mapping[str, str]) -> str | None:
+    """PEERHUB_GUIDE_URL (tests and mirrors): an http(s) URL without a space or a control character, else ignored."""
+    url = env.get("PEERHUB_GUIDE_URL", "")
+    return url if url.isascii() and url.isprintable() and " " not in url and url.startswith(("https://", "http://")) else None
+
+
+def _guide_released(version: str | None) -> str | None:
+    """The tag URL of a released version; None for a dev or local build (`.dev`, `-dev`, `+local`), which has no tag."""
+    if version is None:
+        from peerhub._version import __version__
+        version = __version__
+    if any(marker in version.lower() for marker in ("dev", "+", "local")):
+        return None
+    return f"{_GUIDE_BLOB}v{version}/{GUIDE_DOC}"
+
+
+def guide_link_url(env: Mapping[str, str], version: str | None = None) -> str | None:
+    """The target of the Guide link, or None when the link is not drawn: PEERHUB_NO_LINKS set (not empty or 0), or a dev
+    build without a tag (PEERHUB_GUIDE_URL overrides that for tests)."""
+    if env.get("PEERHUB_NO_LINKS", "").strip().lower() not in {"", "0", "false", "no", "off"}:
+        return None
+    return _guide_override(env) or _guide_released(version)
+
+
+def guide_text_url(env: Mapping[str, str], version: str | None = None) -> str:
+    """The URL of the plain `Guide:` line: the tag of this version, the main branch for a build without a tag."""
+    return _guide_override(env) or _guide_released(version) or f"{_GUIDE_BLOB}main/{GUIDE_DOC}"
+
+
+def _with_guide_link(screen: str, width: int, url: str | None, paint: bool) -> str:
+    """The Guide link at the right end of line 2, right-aligned to `width` (the columns the frame uses). It is added to the
+    finished frame, so no data is ever dropped for it; it is simply not drawn when line 2 leaves no room (one blank at
+    least), and never cut: it is whole, opened and closed (OSC 8), or absent. Layout and truncation ignore its bytes."""
+    lines = screen.split("\n")
+    if url is None or len(lines) < 2 or not _ANSI.sub("", lines[1]).startswith("PeerHub Monitor"):
+        return screen
+    gap = width - _width(lines[1]) - len(GUIDE_TEXT)
+    if gap < 1:
+        return screen
+    link = f"\x1b]8;;{url}\x1b\\{GUIDE_TEXT}\x1b]8;;\x1b\\"
+    lines[1] += " " * gap + (_paint(link, RICH_SGR["dim"]) if paint else link)
+    return "\n".join(lines)
+
+
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
-                         expand: bool = False, text_encoding: str | None = None, show_quota_notes: bool = False) -> str:
+                         expand: bool = False, text_encoding: str | None = None, show_quota_notes: bool = False,
+                         links: bool = False) -> str:
     """Compact human default; the established renderer supplies expanded detail.
 
-    `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5)."""
+    `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5). `links` (the
+    rich view on a terminal only; the caller decides) adds the Guide link (OSC 8) to line 2."""
     payload = {**_display_plan_omissions(payload), "_show_quota_notes": show_quota_notes}
     if expand:
-        return _render_expanded_frame(payload, view=view, color=color, unicode=unicode,
-                                      width=width, height=height, expand=True, keep=text_encoding)
-    return _render_compact_frame(payload, view=view, color=color, unicode=unicode,
-                                 width=width, height=height, keep=text_encoding)
+        screen = _render_expanded_frame(payload, view=view, color=color, unicode=unicode,
+                                        width=width, height=height, expand=True, keep=text_encoding)
+        columns = max(0, width - 1)
+    else:
+        screen = _render_compact_frame(payload, view=view, color=color, unicode=unicode,
+                                       width=width, height=height, keep=text_encoding)
+        columns = max(1, min(100, width) - 1)
+    if links and view == "rich":
+        return _with_guide_link(screen, columns, guide_link_url(os.environ),
+                                color and "NO_COLOR" not in os.environ)
+    return screen
 
 
 def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
@@ -3044,13 +3119,17 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
 
     rest = [fit(line) for line in lines]  # the top was fitted by its owner
     footer = fit(footer)
+    # The plain view's `Guide: <url>` line (VS Code makes it a link): in the unbounded frame only, which has room for it,
+    # never cut and never wider than the frame. A bounded frame keeps every row for the data.
+    guide = f"Guide: {guide_text_url(os.environ)}" if not rich and height is None else ""
+    foot = [footer, guide] if guide and _width(guide) <= target else [footer]
     if height is None:
         explanations: list[str] = _rich_legend(sep) if rich else list(MONITOR_LEGEND)
         if rich and any(row.get("depends_on") for row in pool_rows.values()):
             explanations.append("blocked=the parent pool is out; a pool under its parent shows the parent's LEFT, PACE and state "
                                 "when the parent has less left, and the nearer of the two resets (own = its own LEFT)")
         legend = [fit(part) for text in explanations for part in _compact_wrap(text, max(1, target))]
-        return "\n".join([*top, *rest, *legend, footer]) + "\n"
+        return "\n".join([*top, *rest, *legend, *foot]) + "\n"
     limit = height - 1
 
     def bounded(head: list[str], floor: int | None = None) -> str | None:

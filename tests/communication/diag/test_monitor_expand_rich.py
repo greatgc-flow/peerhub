@@ -10,6 +10,7 @@ its name).
 rev ... (date, Nd ago)` and the legend's `n/a plan no longer reports it`; nothing else moved.
 #400 regenerated all 12 again: the QUOTA table has no n/a row; `(X-30D n/a)` follows the cx row.
 #412 regenerated all 12: ACTIVITY lists RECENT (two lines per ask, the newest 8) before RUNNING.
+#414 regenerated the 4 frames wide enough for the plain `Guide: <url>` line that ends them (the URL is pinned here).
 """
 from __future__ import annotations
 
@@ -28,7 +29,8 @@ from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload, quiet_payload
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
-OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values()}
+OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values(), mv.CHILD_EMPTY_SGR}  # #414: a child bar's empty cells
+GUIDE_URL = "https://github.com/greatgc-flow/peerhub/blob/main/docs/monitor.md"  # pinned: the plain frame's `Guide:` line
 U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_expand_v0_24_20.json"
 ORDER = ["POOLS", "RECENT", "RUNNING", "ALERTS", "LEADS", "QUOTA", "PEERS", "EXECUTION", "SESSIONS", "USAGE", "CONTEXT",
@@ -40,6 +42,7 @@ DB_LINE = "DB:env (/w/.peerhub/core.db)"
 def _colour_env(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.delenv("COLORTERM", raising=False)
+    monkeypatch.setenv("PEERHUB_GUIDE_URL", GUIDE_URL)  # the goldens must not move with the release number
 
 
 def strip(text: str) -> str:
@@ -408,7 +411,8 @@ def test_quota_details_take_their_colour_from_the_pool_colour():
         assert state_code(line) == top[name[0]], line
     assert state_code(next(line for line in details if " X-7D " in strip(line))) == (f"{U['fast']} fast", mv.RICH_SGR["bad"])
     assert state_code(next(line for line in details if " C-7D " in strip(line))) == (f"{U['ok']} ok", mv.RICH_SGR["ok"])
-    assert set(SGR.findall(screen)) <= OUR_CODES and not {"32", "33", "31", "1;31", "2"} & set(SGR.findall(screen))
+    assert set(SGR.findall(screen)) <= OUR_CODES and not {"32", "33", "31", "1;31"} & set(SGR.findall(screen))
+    assert all(chunk.startswith(U["cempty"]) for chunk in screen.split("\x1b[2m")[1:])  # SGR 2 only dims a child bar's empty cells
     x7d = next(line for line in details if " X-7D " in strip(line))
     assert f"\x1b[{mv.RICH_SGR['bad']}m{U['up']}\x1b[0m+31.0pp" in x7d and span(x7d, "threat") is None
 

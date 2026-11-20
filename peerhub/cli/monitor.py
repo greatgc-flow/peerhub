@@ -146,7 +146,8 @@ def _profile_fingerprints(workspace: Path) -> tuple[tuple[str, int, int], ...]:
 
 
 def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
-                        height: int | None, color: bool, expand: bool = False, show_quota_notes: bool = False) -> str:
+                        height: int | None, color: bool, expand: bool = False, show_quota_notes: bool = False,
+                        links: bool = False) -> str:
     from peerhub.cli.monitor_view import render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
@@ -166,7 +167,8 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                "_store_note": env_override_note(str(store_path), selection.get("source"))}
     return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
                                 color=color, unicode=unicode_ok, width=width, height=height,
-                                expand=expand, text_encoding=text_encoding, show_quota_notes=show_quota_notes)
+                                expand=expand, text_encoding=text_encoding, show_quota_notes=show_quota_notes,
+                                links=links)
 
 
 def _read_failed(payload: dict[str, Any]) -> bool:
@@ -237,6 +239,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     output = FrameOutput(interactive=not args.json, anchor_rows=True)
     effective_view = ("rich" if output.live else "plain") if args.view == "auto" else args.view
     color = effective_view == "rich" and use_color(output.live, os.environ)
+    links = effective_view == "rich" and output.live  # the Guide link (OSC 8): the rich view on a VT terminal only
     expand = bool(getattr(args, "expand", False))
     show_quota_notes = bool(getattr(args, "show_quota_notes", False))
     last_payload: dict[str, Any] | None = None
@@ -270,7 +273,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
             width, height = output.geometry() if output.live else (output.width(), 24)
             output.write(_render_human_frame(payload, view=effective_view, width=width,
                                              height=_live_rows(height) if output.live else None, color=color,
-                                             expand=expand, show_quota_notes=show_quota_notes))
+                                             expand=expand, show_quota_notes=show_quota_notes, links=links))
         if _read_failed(payload):
             error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
             return 4
@@ -290,7 +293,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
             display["next_refresh_in"] = next_in
         width, height = output.geometry()
         output.write(_render_human_frame(display, view=effective_view, width=width, height=_live_rows(height), color=color,
-                                         expand=expand, show_quota_notes=show_quota_notes))
+                                         expand=expand, show_quota_notes=show_quota_notes, links=links))
 
     try:
         if args.json or sys.stdout.isatty():
@@ -424,12 +427,13 @@ def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = F
     try:
         effective_view = ("rich" if output.vt else "plain") if view == "auto" else view
         color = effective_view == "rich" and use_color(output.vt, os.environ)
+        links = effective_view == "rich" and output.vt  # the Guide link (OSC 8): the rich view on a VT terminal only
         bounded = tty and (expand or output.vt)
         width, height = output.geometry() if bounded else (output.width(), 24)
         effective_height = _live_rows(height) if bounded else None
         frame = _render_human_frame(payload, view=effective_view, width=width,
                                     height=effective_height, color=color, expand=expand,
-                                    show_quota_notes=show_quota_notes)
+                                    show_quota_notes=show_quota_notes, links=links)
         sys.stdout.write(frame)
         sys.stdout.flush()
     finally:

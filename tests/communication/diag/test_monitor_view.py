@@ -1016,7 +1016,9 @@ def test_drift_footer_includes_unknown_pool_reason(quota_visual_frame):
         "facts_report": {"status": "needs_recheck", "reasons": ["ag: unknown_pool"]}}}
     quota_visual_frame["selected_groups"].append("peers")
     for view in ("plain", "rich"):
-        assert "DRIFT:ag" in render_grouped_frame(quota_visual_frame, view=view, width=180).splitlines()[-1]
+        lines = render_grouped_frame(quota_visual_frame, view=view, width=180).splitlines()
+        footer = [line for line in lines if line.startswith("Coverage:")]
+        assert len(footer) == 1 and "DRIFT:ag" in footer[0]  # the plain frame's `Guide:` line (#414) follows it
 
 
 @pytest.mark.parametrize("height", [None, 40])

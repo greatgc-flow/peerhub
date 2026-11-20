@@ -17,7 +17,7 @@ from peerhub.extensions.diag import DiagnosticReport, Section
 from peerhub.extensions.diag_quota import projection
 
 RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
-_ANSI = re.compile(r"\033\[[0-9;]*m")
+_ANSI = re.compile(r"\033\[[0-9;]*m|\033\]8;[^\a\033]*(?:\033\\|\a)")  # SGR, and OSC 8 (a hyperlink's open and close)
 Obj = Mapping[str, object]
 
 
