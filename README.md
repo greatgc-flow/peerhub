@@ -64,7 +64,7 @@ Keep the same body, timestamp, and idempotency key when retrying an append.
 
 ## Quick reference & guide
 
-Run `peerhub guide` (or bare `peerhub` with no arguments) for a concise, offline reference covering profile tables (by tier), two-asks session reuse, delivery safety, discovery commands, and drift recovery. Run `peerhub explain <CODE>` for detailed recovery guidance on any ask outcome code:
+Run `peerhub guide` (or bare `peerhub` with no arguments) for the decisions in at most 1600 bytes, offline: which peer, which tier, when to reuse a stream, fresh votes (one reviewer for a routine check, three independent peers for a consequential one, reply `VERDICT / BLOCKERS / NITS`), the batch cap, the timeout and what to do when a result is uncertain. Models and tiers: `peerhub profile list`. The rare hazards, the store and upgrade steps, the load limits and the discovery commands are topics of `peerhub explain <topic>` (`peerhub explain lessons` lists them). Run `peerhub explain <CODE>` for detailed recovery guidance on any ask outcome code:
 
 ```powershell
 peerhub guide
@@ -77,7 +77,7 @@ CLI output defaults to compact human text, including when redirected. Use `--jso
 
 [Account-bound peers](docs/accounts.md) isolate cc/cx vendor roots behind immutable peer identities; `peerhub account list` inspects bindings.
 
-[Batch runs](docs/batch.md): `peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run` validates a flat batch before execution.
+[Batch runs](docs/batch.md): `peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run` validates a flat batch before execution.
 
 ```powershell
 # Persist the prompt, execute one provider, and persist its response.
@@ -279,7 +279,7 @@ What they can and cannot do:
 - One ask per stream. An ask on a stream that already has any record (another ask, delivered, failed, uncertain or still running, or a record put there some other way) is refused: `ca is stateless; use a new stream`. Only the same ask may come again: the same request-id and the same author (`--author-peer`) replay the stored result; another author with that request-id is refused the same way. Without `--stream`, every ask gets its own stream, `peer:<peer>:<request-id>` (PeerHub generates the request id when none is given), and the text output prints it before the `session:` line, for example `stream: peer:ca:<request-id>`; `--json` has it in `stream_id`. Other peers keep the default `peer:<peer>:chat`.
 - Refused before anything is stored or sent, with `request_rejected` and exit status 2: no `--profile` and no `--model`, a model that does not match, `--effort`, and `--writable`. See `peerhub explain request_rejected`.
 - The `@` rule: `ant` replaces a string that starts with `@` by the content of the file it names. The text that PeerHub sends to `ant` always starts with the fixed line `PeerHub ask (text only, no tools, no files).`, so a prompt that starts with `@<path>` is sent as that literal text, and no file is read.
-- Limits: replies up to 16,000 output tokens for `ca` and `oa` and up to 32,000 for `ga`; prompts up to 1,000,000 bytes; `peerhub guide` advises at most 3 asks at once per API peer (nothing enforces it). The limit of `ga` is higher because a Gemini model counts its thinking against the output limit: in a real call with a limit of 20 tokens the thinking used them all, and the reply came back cut and without text.
+- Limits: replies up to 16,000 output tokens for `ca` and `oa` and up to 32,000 for `ga`; prompts up to 1,000,000 bytes; `peerhub explain batch-and-load` advises at most 3 asks at once per API peer (nothing enforces it). The limit of `ga` is higher because a Gemini model counts its thinking against the output limit: in a real call with a limit of 20 tokens the thinking used them all, and the reply came back cut and without text.
 - `oa` always calls `https://api.openai.com/v1/responses`, and `ga` always calls `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent`. `OPENAI_BASE_URL` and the proxy variables are ignored, redirects are not followed and TLS is always verified. A network that needs a proxy is not supported. For `oa` and `ga`, `--timeout-seconds` is a total over the whole call (connecting, the headers and the body): when it passes, the ask ends `uncertain`. `--silence-timeout-seconds`, when given, limits one network operation.
 
 Outcomes:

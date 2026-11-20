@@ -793,9 +793,25 @@ def _use_for_cell(card: dict[str, Any] | None, width: int = 44) -> str:
 
 
 def _card_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
     if isinstance(value, list):
         return "; ".join(str(item) for item in cast("list[object]", value)) or "(unset)"
     return str(value or "(unset)")
+
+
+def _profile_notes(fields: dict[str, Any]) -> str:
+    """`profile list` NOTES: a deprecated alias, a profile that is not suggested, an unmeasured model id; `-` when none."""
+    notes: list[str] = []
+    alias = fields["alias_of"]["value"]
+    if alias:
+        override = fields["effort_override"]["value"]
+        notes.append(f"alias of {alias} ({override})" if override else f"alias of {alias}")
+    if fields["suggest"]["value"] is False:
+        notes.append("not suggested")
+    if fields["measurement"]["value"] == "unmeasured":
+        notes.append("unmeasured")
+    return "; ".join(notes) or "-"
 
 
 def _run_profile_cli(args: argparse.Namespace) -> int:
@@ -804,11 +820,11 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
     workspace = args.workspace or Path.cwd()
     try:
         if args.action == "list":
-            profiles = list_profiles(workspace)
+            profiles = list_profiles(workspace, include_meta=True)
             payload: dict[str, Any] = {"schema_version": "1.0", "workspace": str(workspace), "profiles": profiles,
                                        "known_models": known_model_pools(workspace)}
         else:
-            profile = inspect_profile(args.profile, workspace)
+            profile = inspect_profile(args.profile, workspace, include_meta=True)
             payload = {"schema_version": "1.0", "workspace": str(workspace), **profile}
     except (OSError, ValueError) as exc:
         use_json = args.format == "json"
@@ -824,8 +840,9 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
     if args.action == "list":
         rows = [[profile["profile"], str(profile["fields"]["model"]["value"] or "CLI default"),
                  str(profile["fields"]["effort"]["value"] or "provider default"),
+                 _profile_notes(profile["fields"]),
                  _use_for_cell(profile.get("card"))] for profile in payload["profiles"]]
-        columns = ["PROFILE", "MODEL", "EFFORT", "USE FOR (profile show ID)"]
+        columns = ["PROFILE", "MODEL", "EFFORT", "NOTES", "USE FOR (profile show ID)"]
     else:
         card: dict[str, Any] = payload.get("card") or {}
         items = list(payload["fields"].items()) + list(card.items())

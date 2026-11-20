@@ -47,6 +47,10 @@ column, and `--format json` carries the full `card`. The loader checks card form
 test suite checks that packaged evidence paths and lesson ids exist (issue refs: format only) and that
 `card_checked` is not older than the profile's `checked` date.
 
+Four more optional profile keys (0.25.0): `alias_of`, `effort_override`, `suggest` and `measurement`
+(see [model profiles](model-profiles/README.md)). They merge by field like the others and are not binding keys,
+so setting them does not drop the card.
+
 See the [model profile manifest](model-profiles/model-profiles.json) for
 profile IDs, models, efforts, and the refresh procedure, and
 [profiles.py](../peerhub/extensions/adapters/profiles.py) for the loader.

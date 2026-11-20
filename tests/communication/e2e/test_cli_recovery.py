@@ -1008,7 +1008,7 @@ def test_bare_peerhub_prints_guide_and_missing_store_guidance(tmp_path, capsys):
 
     assert main([]) == 0
     out = capsys.readouterr().out
-    assert "PeerHub Quick Reference & Best Practices" in out
+    assert out.startswith("PeerHub guide (decisions only)")
 
     missing_db = tmp_path / "dir with spaces" / "missing.db"
     assert main(["--db", str(missing_db), "peer", "list"]) == 5

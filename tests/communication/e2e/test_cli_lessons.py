@@ -166,7 +166,8 @@ def test_new_and_moved_lesson_content():
                    "plan_changed: true", "at least five minutes old"):
         assert needle in by_id["monitor-accounts"]["fix"], needle
     votes = by_id["independent-peer-votes"]["fix"]
-    for needle in ("--max-parallel 3 --responses", "not writable", "private empty directory", "inline", "11 s"):
+    for needle in ("--max-parallel 3 --responses", "not writable", "private empty directory", "inline", "11 s",
+                   "routine check = ONE reviewer, FRESH", "3 independent peers, unanimity", "VERDICT / BLOCKERS / NITS"):
         assert needle in votes, needle
     timeouts = by_id["ask-timeouts"]["fix"]
     assert "defaults to 600" in timeouts and "1800-3600" in timeouts and "7200" in timeouts
@@ -327,7 +328,7 @@ def test_guidance_code_beats_lesson_id_and_keywords_still_work(capsys):
 
 def test_catalog_and_rendering():
     lessons = load_lessons()
-    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 31
+    assert len(lessons) == len({lesson["id"] for lesson in lessons}) == 37  # 31 + the six topics the 0.25.0 guide moved out (D5)
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & {lesson["id"] for lesson in lessons}
     for lesson in lessons:
         assert all(lesson.values())

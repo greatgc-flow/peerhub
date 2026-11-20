@@ -92,7 +92,8 @@ Shared contract:
 - Profiles: `ca.standard`, `ca.effort`, `ca.deepthink`, `oa.standard`,
   `oa.effort`, `oa.deepthink`, `ga.standard`, `ga.effort` in the packaged
   `model-defaults.toml`, without pools; `peerhub explain <profile>` shows each
-  card. `ga` has no deep profile: a stronger model is used with `--model <id>`
+  card. Every `ca`, `oa` and `ga` profile is tagged `measurement = "unmeasured"` (no recorded
+  measurement of its model id; `peerhub profile list` shows it in `NOTES`). `ga` has no deep profile: a stronger model is used with `--model <id>`
   when the key has quota for it. The class attribute `profile_tiers` names the
   packaged tiers of a peer for the refusal message.
 - The credit balance is not shown: no API gives it to the login or key that

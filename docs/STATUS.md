@@ -15,7 +15,7 @@ Slices S1-S4 of the [issue resolution note](design/issue-resolution-2026-10-18.m
 | Track | Status | Design SSOT |
 |---|---|---|
 | Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, arbitrary-model monitor/readiness integration (`ag.argon` profile and exact registry delivered in #194), TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #145, #194 |
-| Open | #406 (ag: return the partial text when only `command` was denied) waits for a decision; v0.24.29 puts RECENT directly under POOLS in the monitor (#412). |
+| Open | #406 (ag: return the partial text when only `command` was denied) waits for a decision; v0.24.29 puts RECENT directly under POOLS in the monitor (#412). **Freeze rule (0.25.0 plan D12):** no further monitor cosmetics and no top-tier benchmark reruns until the 0.25.0 telemetry data exists (D1-D3); plan: [0.25.0](design/plan-0.25.0-2026-11-20.md). |
 
 ### Deferred backlog (start triggers)
 

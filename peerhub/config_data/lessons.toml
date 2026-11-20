@@ -106,10 +106,10 @@ issue = "2026-11-10 quota diet"
 [[lessons]]
 id = "independent-peer-votes"
 title = "Independent review votes"
-keywords = ["peer", "vote", "votes", "author", "independent", "unanimity", "review", "self-vote", "batch", "responses"]
-symptom = "A document author votes AGREE on their own work and the result is treated as unanimous approval, or votes are collected one ask at a time."
-fix = "Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity. Votes and reviews in one command: peerhub batch run votes.json --batch-id ID --max-parallel 3 --responses (the report then includes each reply). cc and cx tasks use workspace = the repository, not writable; the ag task uses a private empty directory as workspace (ag tasks are always writable; the empty directory satisfies the overlapping-writers check); prompts carry all facts inline. Measured 2026-11-14: three peers answered in 11 s."
-issue = "#297, #366"
+keywords = ["peer", "vote", "votes", "author", "independent", "unanimity", "review", "self-vote", "batch", "responses", "verdict", "fresh", "consequential"]
+symptom = "A document author votes AGREE on their own work and the result is treated as unanimous approval, votes are collected one ask at a time, or a routine check is sent to three peers or to a named stream."
+fix = "Vote policy: routine check = ONE reviewer, FRESH; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. Routine checks and all three consequential votes always run FRESH, even when a stream name is given: a named stream is for review rounds on one diff only. Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity. There is no `vote` command: votes and reviews run in one command, peerhub batch run votes.json --batch-id ID --max-parallel 3 --responses (the report then includes each reply). cc and cx tasks use workspace = the repository, not writable; the ag task uses a private empty directory as workspace (ag tasks are always writable; the empty directory satisfies the overlapping-writers check); prompts carry all facts inline. Verdict template for every voter, one reply of <= 300 tokens: VERDICT / BLOCKERS / NITS (VERDICT: AGREE or DISAGREE; BLOCKERS: each with file:line and the exact fix, or none; NITS: optional, one line each). Measured 2026-11-14: three peers answered in 11 s."
+issue = "#297, #366, 0.25.0 plan D6"
 
 [[lessons]]
 id = "batch-review-and-verify"
@@ -246,3 +246,53 @@ keywords = ["setup", "install", "installation", "prerequisites", "requirements",
 symptom = "An ask ends failed_not_started with 'claude executable not found' (or codex, agy, ant), with 'set OPENAI_API_KEY' or with 'set GEMINI_API_KEY'; or PeerHub is installed and it is not clear what a peer needs before the first ask."
 fix = "PeerHub installs none of this: it never downloads or runs an installer (a vendor's installer is a script from the network that differs per system and changes over time). Install only what the peers you use need, from the official page, and sign in as that page describes. One row per peer: cc: the claude CLI, signed in; check: claude --version; page: https://code.claude.com/docs/en/setup | cx: the codex CLI, signed in; check: codex --version; page: https://developers.openai.com/codex/cli | ag: the agy CLI, signed in; check: agy --version; page: https://antigravity.google/docs/cli/install | ca: the ant CLI, signed in with ant auth login; check: ant --version; page: https://platform.claude.com/docs/en/cli-sdks-libraries/cli/quickstart and Windows binaries: https://github.com/anthropics/anthropic-cli/releases | oa: the environment variable OPENAI_API_KEY; a key is made at https://platform.openai.com/api-keys | ga: the environment variable GEMINI_API_KEY; a key is made at https://aistudio.google.com/apikey | Check for a key: the variable is set in the environment of the process that runs PeerHub, never on a command line or in a file for PeerHub. A tool must be on the PATH of that process. --version shows that a tool is installed, not that it is signed in: for cc, cx and ag the ACCOUNTS rows of peerhub monitor --expand show the login state (peerhub explain monitor-accounts). A missing tool or key ends the ask failed_not_started (nothing ran): fix it and ask again."
 issue = "#385"
+
+# The six topics below hold what the 0.25.0 `peerhub guide` no longer prints (plan D5). Every earlier guide fact is here
+# or in an older topic (ag-recipe, api-peers, store-missing, monitor-states, peer-subagents, setup, ask-timeouts).
+[[lessons]]
+id = "ask-basics"
+title = "Ask basics: stream reuse, long asks, tiers, transport"
+keywords = ["ask", "basics", "example", "request-id", "foreground", "tiers", "transport", "blocks"]
+symptom = "A caller needs the reuse pattern, the tier choice, the long-ask behaviour or the transport options that the short guide states only as decisions."
+fix = "Two-asks session reuse example: peerhub ask cc \"Explain the architecture\" --profile cc.standard --stream arch-review --request-id req-001, then peerhub ask cc \"Now drill into data flow\" --profile cc.standard --stream arch-review --request-id req-002 (a distinct request-id per ask). Reuse: a --stream resumes (same store/binding, 1 peer); reuse per task; new task = new stream; votes one-shot (peerhub explain stream-reuse-cost). Profiles: lowest tier for task: bulk=standard, code=effort, review/design=deepthink (docs/batch.md); cx.deepthink is a deprecated alias of cx.effort at xhigh. Transport: --query-file and --json select transport/format (no token saving). Long asks: 'peerhub ask' blocks until the peer finishes, then prints reply + 'session:'; run foreground/background-with-exit-notification and wait, never detach/poll. Timeouts: implementer/review asks: --timeout-seconds 1800-3600 (default 600); ag prints nothing until done: up to --timeout-seconds 7200, --silence-timeout-seconds unset or >= it (peerhub explain ask-timeouts)."
+issue = "0.25.0 plan D5"
+
+[[lessons]]
+id = "writes-and-uncertain"
+title = "Writes, uncertain results and secrets"
+keywords = ["writes", "uncertain", "pending_earlier_record", "secrets", "blind-retry", "partial", "edits", "claims"]
+symptom = "A result is uncertain, a pending_earlier_record blocks a retry, or it is unclear which peers enforce read-only and what PeerHub stores."
+fix = "ag recipe: 'peerhub explain ag-recipe' (--query-file + \"no tools\", one task per ask, --writable even to read, trusted -w, stdin prompts up to 1,000,000 bytes, never resume after an empty reply). Writes: cx sandbox enforced; cc enforced; ag NOT enforced (issue #140); when edits are intended, pass --writable on every turn, including resumed turns. pending_earlier_record: inspect processed_status; delivered => retry same request-id/prompt/binding/selector; uncertain => stop. Uncertain: stop that stream (timeouts too), check the working tree for partial edits, 'peerhub diag health' (skipped oversized line: cc ok if an intact result follows (#325), cx needs answer+turn.completed); never blind-retry original prompt under a new request-id, with --fresh, or delete claims; continue genuinely new work on a new stream with a summary; 'peerhub explain <code>'. Secrets: prompts/streams persist in local store; no tokens/passwords."
+issue = "0.25.0 plan D5; #140, #325"
+
+[[lessons]]
+id = "store-and-upgrade"
+title = "Store selection, upgrade and restore hazards"
+keywords = ["store", "upgrade", "backup", "core.db", "schema", "restore", "dev-builds", "fenced"]
+symptom = "Which database an ask uses, what to do before a PeerHub upgrade or restore, and why an old version cannot open a new store."
+fix = "Store hazards: --db > PEERHUB_DB > nearest upward .peerhub/core.db (miss: peerhub explain store-missing); back up core.db before upgrading; new schema not openable by old versions; stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor (locks peerhub.exe on Windows; also wait for running asks (diag running), else broken install: reinstall, check results before resend); don't run dev builds on the real store; after restore, reopen stores (old instances fenced)."
+issue = "0.25.0 plan D5; #123"
+
+[[lessons]]
+id = "batch-and-load"
+title = "Batch runs, load and cost side effects"
+keywords = ["batch", "load", "concurrency", "balance", "cancel", "manifest", "cost", "side-effects"]
+symptom = "How many asks to run at once, what a batch spends, how suggest: and PACE guide the choice of a peer, and which quota and account side effects exist."
+fix = "Batch: executes asks (spends quota); ag tasks always writable; overlapping writers rejected; cancel: Windows tree kill, POSIX best-effort; inspect UNCERTAIN; keep manifest + batch-id. Example: peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run (3 is the recommended cap; the option stays required, 1..16). Load: 4 active asks (max 6; cc 3/cx 3/ag 1/ca 3/oa 3/ga 3). Balance: suggest: is advisory (rule H); reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer; compare 7D PACE (5H only gates); PACE (pp, used%-elapsed%) needs a fresh quota age; + = ahead of even burn. Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only); uncertain streams may stay quota-blocked after reset. Aged quota is last-known; refresh first. Accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots."
+issue = "0.25.0 plan D5; docs/batch.md"
+
+[[lessons]]
+id = "discovery-commands"
+title = "Discovery and inspection commands"
+keywords = ["discovery", "inspection", "commands", "diag", "models", "slugs", "sessions", "facts", "needs_recheck"]
+symptom = "Which read-only commands show quota, pools, sessions, accounts and models, and how the line-1 facts alert clears."
+fix = "peerhub explain lessons: lesson index (id: title); then peerhub explain <id> or free words. peerhub explain setup: what each peer needs. peerhub monitor --group capacity: AI sessions: verdict line + pools; suggest a|b = best + alternative peer; peerhub explain monitor-states. peerhub monitor --expand: everything: alerts, asks, leads, pools, peers, accounts, sessions, usage (or --snapshot). peerhub diag: read-only diagnostics. peerhub diag --plan: per-pool spend/hold/rest until reset, from stored quota. Models: peerhub profile list; slugs: agy models; --model <slug>. peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run: validate a batch. peerhub session list: retained sessions; accounts: peerhub account list. peerhub observation refresh: re-probe provider quota. peerhub explain peer-subagents: sub-agents inside one ask (same peer quota). Model facts: the line-1 'facts:' alert (needs_recheck) clears via refresh-model-profiles skill or release upgrade."
+issue = "0.25.0 plan D5"
+
+[[lessons]]
+id = "report-issues"
+title = "Report an issue"
+keywords = ["report", "issue", "issues", "github", "bug"]
+symptom = "Something behaves wrongly and the problem should be filed without leaking secrets."
+fix = "File at github.com/greatgc-flow/peerhub/issues after checking 'gh issue list -R greatgc-flow/peerhub --search KEYWORD'. Include peerhub --version, OS, exact command, status/exit code, and workaround (no secrets/private paths)."
+issue = "0.25.0 plan D5"

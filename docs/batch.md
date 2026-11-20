@@ -3,14 +3,15 @@
 Validate a flat manifest before executing asks (execution spends provider quota):
 
 ```powershell
-peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run --json
-peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --json
+peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run --json
+peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --json
 ```
 
 Use global `--db PATH` before `batch` to select a store. The parent resolves one
 absolute store path for every worker, including tasks with different workspaces.
 Dry runs validate without spawning workers or creating the store.
-`--batch-id` and `--max-parallel` are required; parallelism is 1..16.
+`--batch-id` and `--max-parallel` are required; parallelism is 1..16. The guide and every example
+recommend 3 (`RECOMMENDED_MAX_PARALLEL` in `peerhub/extensions/batch.py`, the one constant).
 
 The UTF-8 JSON manifest contains only `tasks` (1..256 entries):
 
@@ -101,7 +102,7 @@ While 3P is low, explicitly use `ag.argon` only for tasks its measured capabilit
 
 | Limit | Value |
 | --- | --- |
-| Active asks, default | 4 (`--max-parallel 4`; the option stays required) |
+| Active asks, default | 4 (a batch takes `--max-parallel 3`, one slot stays free for a manual ask; the option stays required) |
 | Active asks, ceiling | 6 |
 | Per peer | cc 3, cx 3, ag 1 (use 2 for ag only after seeing no G-5H spike) |
 | pytest | one run at a time, never alongside more than 3 asks |

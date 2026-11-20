@@ -44,12 +44,26 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Use ca (Claude API through the ant CLI; sign in once with ant auth login), oa (OpenAI Responses API; the key only in the environment variable OPENAI_API_KEY) or ga (Gemini API; the key only in the environment variable GEMINI_API_KEY) instead of cc/cx/ag when the whole task is text that fits in the prompt: votes, text reviews, documentation checks. Never put a key on a command line or in a file. They spend API credits, not a subscription pool (no POOLS row, never in suggest:). PeerHub shows no credit balance: none of the three APIs gives it to the login or key that PeerHub uses; read it in the Claude Console, the OpenAI Platform or Google AI Studio. Use cc/cx/ag when the task needs tools, files, the workspace, edits or several turns. Inline the text (--query-file): ca, oa and ga read no file and have no tools and no session. One ask per stream: any other record on the stream refuses the ask (request_rejected: ca is stateless; use a new stream). Without --stream every ask gets its own stream peer:<peer>:<request-id> (printed as a stream: line before session:), so leave --stream out or give every vote its own; only the same request-id with the same author (--author-peer) replays the stored result, and repeating it after an interrupted truncated or incomplete ask returns that saved status. A reply of the wrong shape ends uncertain. Not signed in: failed_not_started with 'ant is not signed in or its login expired (run: ant auth login)'; run ant auth login and repeat the command. The @ rule: ant inlines the file named by a string that starts with @; PeerHub puts the fixed line 'PeerHub ask (text only, no tools, no files).' before the prompt, so a leading @path is sent as literal text and no file is read. Also refused: --writable, --effort, no --profile and no --model, a --model that does not match ^claude-[a-z0-9.-]{1,64}$ (ca), ^gpt-[a-z0-9.-]{1,64}$ (oa) or ^gemini-[a-z0-9.-]{1,64}$ (ga). ga has two profiles and no deep one: ga.standard (gemini-3.5-flash-lite) and ga.effort (gemini-3.6-flash, chosen because it answered 4 of 4 measured calls while gemini-3.8-flash answered 1 of 10; one key, 2026-11-16; no benchmark through the API, so no claim about which model is better); another model goes by --model <id>, for example --model gemini-3.8-flash, when the key has quota for it. Replies stop at 16,000 output tokens for ca and oa and at 32,000 for ga, where thinking counts against the limit: truncated (cut at the limit) and incomplete (ended for another reason, for example a refusal or, for ga, a blocked prompt) are not replies; the text is in partial_response; ask again on a new stream with a narrower question (peerhub explain truncated, peerhub explain incomplete). Used-up credits end not_executed (quota_exhausted, no reset time); for ga, HTTP 402 or 429 with RESOURCE_EXHAUSTED is a provider limit (a rate limit, missing quota or a depleted prepay balance): wait and ask again on a new stream, or check the plan and billing of the key. oa and ga ignore the proxy variables (oa also OPENAI_BASE_URL): a network that needs a proxy is not supported. Timeouts: for oa and ga, --timeout-seconds is a total over the whole call (connecting, headers and body; when it passes the ask ends uncertain), and --silence-timeout-seconds, when given, limits one network operation; for ca both bound the ant process as for the other CLI peers. An API key in the environment is visible to every peer process that PeerHub starts (an account-bound cc or cx peer gets no OPENAI_* variable): set the keys only where the API peers are used.
 - Issue: #378, #381, #384
 
+## Ask basics: stream reuse, long asks, tiers, transport (`ask-basics`)
+
+- Keywords: ask, basics, example, request-id, foreground, tiers, transport, blocks
+- Symptom: A caller needs the reuse pattern, the tier choice, the long-ask behaviour or the transport options that the short guide states only as decisions.
+- Fix: Two-asks session reuse example: peerhub ask cc "Explain the architecture" --profile cc.standard --stream arch-review --request-id req-001, then peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002 (a distinct request-id per ask). Reuse: a --stream resumes (same store/binding, 1 peer); reuse per task; new task = new stream; votes one-shot (peerhub explain stream-reuse-cost). Profiles: lowest tier for task: bulk=standard, code=effort, review/design=deepthink (docs/batch.md); cx.deepthink is a deprecated alias of cx.effort at xhigh. Transport: --query-file and --json select transport/format (no token saving). Long asks: 'peerhub ask' blocks until the peer finishes, then prints reply + 'session:'; run foreground/background-with-exit-notification and wait, never detach/poll. Timeouts: implementer/review asks: --timeout-seconds 1800-3600 (default 600); ag prints nothing until done: up to --timeout-seconds 7200, --silence-timeout-seconds unset or >= it (peerhub explain ask-timeouts).
+- Issue: 0.25.0 plan D5
+
 ## Explicit timeouts for implementer and review asks (`ask-timeouts`)
 
 - Keywords: timeout, timeout-seconds, 600, implementer, review, writer, ask_uncertain, runtime_timeout, cc, cx
 - Symptom: A long implementer or review ask ends as ask_uncertain (evidence runtime_timeout) with partial edits in the workspace.
 - Fix: --timeout-seconds defaults to 600 (as batch). Long implementer or review asks still need a larger value (cc/cx 1800-3600; ag up to 7200 with --silence-timeout-seconds unset or >= it). After a timeout or uncertain result never retry on the same stream: check the working tree for partial edits, then continue on a new stream.
 - Issue: #350
+
+## Batch runs, load and cost side effects (`batch-and-load`)
+
+- Keywords: batch, load, concurrency, balance, cancel, manifest, cost, side-effects
+- Symptom: How many asks to run at once, what a batch spends, how suggest: and PACE guide the choice of a peer, and which quota and account side effects exist.
+- Fix: Batch: executes asks (spends quota); ag tasks always writable; overlapping writers rejected; cancel: Windows tree kill, POSIX best-effort; inspect UNCERTAIN; keep manifest + batch-id. Example: peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run (3 is the recommended cap; the option stays required, 1..16). Load: 4 active asks (max 6; cc 3/cx 3/ag 1/ca 3/oa 3/ga 3). Balance: suggest: is advisory (rule H); reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer; compare 7D PACE (5H only gates); PACE (pp, used%-elapsed%) needs a fresh quota age; + = ahead of even burn. Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only); uncertain streams may stay quota-blocked after reset. Aged quota is last-known; refresh first. Accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots.
+- Issue: 0.25.0 plan D5; docs/batch.md
 
 ## Batch review findings and verify drafts (`batch-review-and-verify`)
 
@@ -93,12 +107,19 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: In the observed setup cx ran in the Windows unelevated sandbox: it cannot enumerate processes or scheduled tasks and writes only inside its roots, so run machine-observing checks in the owner's shell. In the cx Windows sandbox, tests that use tmp_path cannot run (pytest creates owner-only temp directories, also with --basetemp; measured 2026-11-14 on Python 3.15): run the other targeted tests, report tmp_path tests as NOT RUN for the lead to run, and never add shims or temp folders to the repo. A global rule file (CODEX_HOME/AGENTS.md, ~/.gemini/GEMINI.md for ag) is honored; verify with a unique marker line. Do not put human-directed 'how to send' text in a query file; start implementer prompts with 'you are the implementer; do not run peerhub, do not forward, do not check quota'. cx sandbox lanes cannot open the peerhub store, so reader asks must be launched by the orchestrator, not from inside a cx lane. For long cx asks use checkpoint receipts and a silence timeout (--silence-timeout-seconds), because runtime_error can leave partial edits: check the working tree before continuing.
 - Issue: #285, #286, #288, #391
 
+## Discovery and inspection commands (`discovery-commands`)
+
+- Keywords: discovery, inspection, commands, diag, models, slugs, sessions, facts, needs_recheck
+- Symptom: Which read-only commands show quota, pools, sessions, accounts and models, and how the line-1 facts alert clears.
+- Fix: peerhub explain lessons: lesson index (id: title); then peerhub explain <id> or free words. peerhub explain setup: what each peer needs. peerhub monitor --group capacity: AI sessions: verdict line + pools; suggest a|b = best + alternative peer; peerhub explain monitor-states. peerhub monitor --expand: everything: alerts, asks, leads, pools, peers, accounts, sessions, usage (or --snapshot). peerhub diag: read-only diagnostics. peerhub diag --plan: per-pool spend/hold/rest until reset, from stored quota. Models: peerhub profile list; slugs: agy models; --model <slug>. peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run: validate a batch. peerhub session list: retained sessions; accounts: peerhub account list. peerhub observation refresh: re-probe provider quota. peerhub explain peer-subagents: sub-agents inside one ask (same peer quota). Model facts: the line-1 'facts:' alert (needs_recheck) clears via refresh-model-profiles skill or release upgrade.
+- Issue: 0.25.0 plan D5
+
 ## Independent review votes (`independent-peer-votes`)
 
-- Keywords: peer, vote, votes, author, independent, unanimity, review, self-vote, batch, responses
-- Symptom: A document author votes AGREE on their own work and the result is treated as unanimous approval, or votes are collected one ask at a time.
-- Fix: Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity. Votes and reviews in one command: peerhub batch run votes.json --batch-id ID --max-parallel 3 --responses (the report then includes each reply). cc and cx tasks use workspace = the repository, not writable; the ag task uses a private empty directory as workspace (ag tasks are always writable; the empty directory satisfies the overlapping-writers check); prompts carry all facts inline. Measured 2026-11-14: three peers answered in 11 s.
-- Issue: #297, #366
+- Keywords: peer, vote, votes, author, independent, unanimity, review, self-vote, batch, responses, verdict, fresh, consequential
+- Symptom: A document author votes AGREE on their own work and the result is treated as unanimous approval, votes are collected one ask at a time, or a routine check is sent to three peers or to a named stream.
+- Fix: Vote policy: routine check = ONE reviewer, FRESH; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. Routine checks and all three consequential votes always run FRESH, even when a stream name is given: a named stream is for review rounds on one diff only. Require votes on a document from peers who did not author it; an author's AGREE does not count toward unanimity. There is no `vote` command: votes and reviews run in one command, peerhub batch run votes.json --batch-id ID --max-parallel 3 --responses (the report then includes each reply). cc and cx tasks use workspace = the repository, not writable; the ag task uses a private empty directory as workspace (ag tasks are always writable; the empty directory satisfies the overlapping-writers check); prompts carry all facts inline. Verdict template for every voter, one reply of <= 300 tokens: VERDICT / BLOCKERS / NITS (VERDICT: AGREE or DISAGREE; BLOCKERS: each with file:line and the exact fix, or none; NITS: optional, one line each). Measured 2026-11-14: three peers answered in 11 s.
+- Issue: #297, #366, 0.25.0 plan D6
 
 ## Installed vs checkout mismatch (`installed-vs-checkout`)
 
@@ -198,6 +219,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Check capacity and reset times before work; rotate pools early, reserve scarce capacity for final review, and limit parallel workers to fit the reset window. After a quota failure, continue on a new stream when capacity is available; do not blindly retry an uncertain ask.
 - Issue: #297, #298, #299
 
+## Report an issue (`report-issues`)
+
+- Keywords: report, issue, issues, github, bug
+- Symptom: Something behaves wrongly and the problem should be filed without leaking secrets.
+- Fix: File at github.com/greatgc-flow/peerhub/issues after checking 'gh issue list -R greatgc-flow/peerhub --search KEYWORD'. Include peerhub --version, OS, exact command, status/exit code, and workaround (no secrets/private paths).
+- Issue: 0.25.0 plan D5
+
 ## Review recipe: scores that converge on 100 (`review-recipe`)
 
 - Keywords: review, review-loop, review-scores-to-100, loop, score, 100, round, brief, materiality, contract, narrow, defects, deduction, unverified, suite, targeted, ports, WinError, worktree, cross-family, final, tag, gitlink
@@ -212,6 +240,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: PeerHub installs none of this: it never downloads or runs an installer (a vendor's installer is a script from the network that differs per system and changes over time). Install only what the peers you use need, from the official page, and sign in as that page describes. One row per peer: cc: the claude CLI, signed in; check: claude --version; page: https://code.claude.com/docs/en/setup | cx: the codex CLI, signed in; check: codex --version; page: https://developers.openai.com/codex/cli | ag: the agy CLI, signed in; check: agy --version; page: https://antigravity.google/docs/cli/install | ca: the ant CLI, signed in with ant auth login; check: ant --version; page: https://platform.claude.com/docs/en/cli-sdks-libraries/cli/quickstart and Windows binaries: https://github.com/anthropics/anthropic-cli/releases | oa: the environment variable OPENAI_API_KEY; a key is made at https://platform.openai.com/api-keys | ga: the environment variable GEMINI_API_KEY; a key is made at https://aistudio.google.com/apikey | Check for a key: the variable is set in the environment of the process that runs PeerHub, never on a command line or in a file for PeerHub. A tool must be on the PATH of that process. --version shows that a tool is installed, not that it is signed in: for cc, cx and ag the ACCOUNTS rows of peerhub monitor --expand show the login state (peerhub explain monitor-accounts). A missing tool or key ends the ask failed_not_started (nothing ran): fix it and ask again.
 - Issue: #385
 
+## Store selection, upgrade and restore hazards (`store-and-upgrade`)
+
+- Keywords: store, upgrade, backup, core.db, schema, restore, dev-builds, fenced
+- Symptom: Which database an ask uses, what to do before a PeerHub upgrade or restore, and why an old version cannot open a new store.
+- Fix: Store hazards: --db > PEERHUB_DB > nearest upward .peerhub/core.db (miss: peerhub explain store-missing); back up core.db before upgrading; new schema not openable by old versions; stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor (locks peerhub.exe on Windows; also wait for running asks (diag running), else broken install: reinstall, check results before resend); don't run dev builds on the real store; after restore, reopen stores (old instances fenced).
+- Issue: 0.25.0 plan D5; #123
+
 ## store_missing database selection (`store-missing`)
 
 - Keywords: store_missing
@@ -225,3 +260,10 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Symptom: Quota drains fast although prompts are short: a long-lived --stream is reused across many tasks, so every ask re-sends the whole earlier conversation (on every model turn).
 - Fix: Reuse a stream only within one task (follow-ups and review rounds on the same diff); start a new stream for a new task or after about four rounds with a 3-5 line summary inline; send votes and confirmations as fresh one-shot asks with the facts inline. Measured 2026-11-10: a cx stream reused for 19 asks cost 23.6M input tokens (1.2M per ask) while fresh one-shot votes cost about 0.1M (cx) and 8k (ag); a cc implementer stream reused for 14 tasks cost 115M.
 - Issue: 2026-11-10 quota diet
+
+## Writes, uncertain results and secrets (`writes-and-uncertain`)
+
+- Keywords: writes, uncertain, pending_earlier_record, secrets, blind-retry, partial, edits, claims
+- Symptom: A result is uncertain, a pending_earlier_record blocks a retry, or it is unclear which peers enforce read-only and what PeerHub stores.
+- Fix: ag recipe: 'peerhub explain ag-recipe' (--query-file + "no tools", one task per ask, --writable even to read, trusted -w, stdin prompts up to 1,000,000 bytes, never resume after an empty reply). Writes: cx sandbox enforced; cc enforced; ag NOT enforced (issue #140); when edits are intended, pass --writable on every turn, including resumed turns. pending_earlier_record: inspect processed_status; delivered => retry same request-id/prompt/binding/selector; uncertain => stop. Uncertain: stop that stream (timeouts too), check the working tree for partial edits, 'peerhub diag health' (skipped oversized line: cc ok if an intact result follows (#325), cx needs answer+turn.completed); never blind-retry original prompt under a new request-id, with --fresh, or delete claims; continue genuinely new work on a new stream with a summary; 'peerhub explain <code>'. Secrets: prompts/streams persist in local store; no tokens/passwords.
+- Issue: 0.25.0 plan D5; #140, #325

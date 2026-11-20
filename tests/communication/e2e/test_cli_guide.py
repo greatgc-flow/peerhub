@@ -1,367 +1,319 @@
-"""Unit and E2E tests for Slice 5: peerhub guide subcommand.
+"""`peerhub guide` (0.25.0 plan D5/D6/A5): decisions only, <= 1600 bytes; the rest moved to `peerhub explain <topic>`.
 
 Tests:
-- Line and size caps (<=60 lines, <=5600 B LF-normalized)
-- Every example `peerhub ...` parses via real argparse
-- Printed profile IDs exist and .standard is listed first
-- Required guidance: two-asks reuse, no blind retry, discovery cmds, single recovery step
-- Works without store or providers
-- Pointers present in --help and README.md
+- size cap, one pointer line, every pointer topic resolves
+- max-parallel 3 from ONE constant (no stale literal anywhere)
+- the vote policy and the verdict template (D6/A5)
+- every fact of the former guide is still reachable through `explain`
+- works without store or providers; pointers in --help and README.md
 """
 from __future__ import annotations
 
 import re
 import shlex
-import tomllib
-from importlib import resources
 from pathlib import Path
 
 import pytest
 
 from peerhub.cli.app import build_parser, main
-
-PACKAGED = tomllib.loads(resources.files("peerhub.config_data").joinpath("model-defaults.toml").read_text(encoding="utf-8"))
+from peerhub.cli.lessons import lesson_by_id, load_lessons
 
 pytestmark = [pytest.mark.unit]
 
+GUIDE_CAP = 1600
+REPO = Path(__file__).resolve().parents[3]
+TOPICS = ("ask-basics", "writes-and-uncertain", "store-and-upgrade", "batch-and-load", "discovery-commands", "report-issues")
 
-def test_guide_profile_rows_are_capped_however_many_profiles_exist(capsys, monkeypatch, tmp_path):
+
+def _guide(capsys, monkeypatch=None, tmp_path=None) -> str:
+    if monkeypatch is not None:
+        monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
+    assert main(["guide"]) == 0
+    return capsys.readouterr().out.replace("\r\n", "\n")
+
+
+def _explained(topic: str) -> str:
+    """The whole text of one topic (title, symptom, fix) with whitespace folded."""
+    (lesson,) = lesson_by_id(topic)
+    return " ".join(" ".join([lesson["title"], lesson["symptom"], lesson["fix"]]).split())
+
+
+def _topics_named_by(guide: str) -> list[str]:
+    named = re.findall(r"peerhub explain ([a-z][a-z0-9-]+)", guide)
+    listed = re.search(r"peerhub explain <topic> for: ([a-z0-9, -]+?);", guide)
+    assert listed, "the guide has one pointer line: 'peerhub explain <topic> for: a, b, c; ...'"
+    return [*named, *listed.group(1).split(", ")]
+
+
+# ---- size and shape ---------------------------------------------------------------------------------------------
+
+def test_guide_is_at_most_1600_bytes_of_lf_text(capsys, monkeypatch, tmp_path):
+    out = _guide(capsys, monkeypatch, tmp_path)
+    assert len(out.encode("utf-8")) <= GUIDE_CAP, f"{len(out.encode('utf-8'))} bytes"
+    assert "\r" not in out and out.isascii()
+    assert len(out.splitlines()) <= 14
+
+
+def test_guide_does_not_read_profiles_and_ignores_a_hostile_overlay(capsys, monkeypatch, tmp_path):
+    """The profile table moved to `peerhub profile list`: a broken or hostile overlay cannot change the guide."""
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
+    baseline = _guide(capsys)
     home = tmp_path / "cfg"
     home.mkdir()
-    extras = "".join(f'[profiles."cx.extra{i}"]\nselection_mode = "pinned"\nmodel = "m{i}"\npools = ["X-5H"]\n' for i in range(5))
-    (home / "models.toml").write_text("schema_version = 1\n" + extras, encoding="utf-8")
+    (home / "models.toml").write_text('schema_version = 1\n[profiles."cx.standard"]\nselection_mode = "pinned"\n'
+                                      'model = "X\\u001b[2JINJECTED"\n', encoding="utf-8")
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(home))
-    assert main(["guide"]) == 0
-    out = capsys.readouterr().out
-    assert len(out.splitlines()) <= 60 and "more profiles: peerhub profile list" in out
-    assert all(pid in out for pid in ("cx.standard", "cx.effort"))
-
-
-def test_guide_line_and_token_cap(capsys, monkeypatch, tmp_path):
-    """Policy 5/13: peerhub guide stays within <=60 lines and <=5600 UTF-8 bytes (LF-normalized)."""
-    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
-    code = main(["guide"])
-    assert code == 0
-    out = capsys.readouterr().out
-    assert "peerhub explain lessons" in out
-    assert "peerhub diag --plan" in out
-    assert "peerhub explain peer-subagents" in out
-    assert "peerhub monitor --group capacity  # AI sessions:" in out  # #374: the guide recommends the capacity group
-    assert "suggest a|b = best + alternative peer; peerhub explain monitor-states" in out
-    assert "Balance: suggest: is advisory (rule H)" in out
-    assert "compare 7D PACE (5H only gates)" in out
-    shown = [pid for pid in PACKAGED["profiles"] if pid in out]
-    assert len(shown) == len(PACKAGED["profiles"]) or "more profiles: peerhub profile list" in out
-    assert "models: peerhub profile list; slugs: agy models; --model <slug>" in out
-    lines = out.splitlines()
-    assert len(lines) <= 60, f"Guide has {len(lines)} lines, exceeding cap of 60"
-    size_bytes = len(out.replace("\r\n", "\n").encode("utf-8"))
-    assert size_bytes <= 5600, f"Guide has {size_bytes} LF-normalized UTF-8 bytes, exceeding cap of 5600"
-
-
-def test_guide_lines_point_to_lessons_with_exact_ids(capsys, monkeypatch, tmp_path):
-    """#366 A6: the ag recipe is one pointer line (with the #359 --writable fact); every `explain <id>` pointer resolves."""
-    from peerhub.cli.lessons import load_lessons
-    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
-    assert main(["guide"]) == 0
-    out = capsys.readouterr().out.replace("\r\n", "\n")
-    # Restructured baseline + the API peers line (#378) + one more profile row, so that ga.standard does not push
-    # cx.effort out of the table (#381) + the setup pointer (#385); headroom under the 60-line cap.
-    assert len(out.splitlines()) == 58
-    assert "  peerhub explain setup " in out and "setup" in {lesson["id"] for lesson in load_lessons()}
-    assert all(pid in out for pid in ("ag.standard", "ca.standard", "cc.standard", "cx.standard", "ga.standard", "oa.standard",
-                                      "ag.effort", "ca.effort", "cc.effort", "cx.effort"))
-    assert "--writable even to read" in out
-    ids = {lesson["id"] for lesson in load_lessons()}
-    pointers = set(re.findall(r"peerhub explain ([a-z][a-z0-9-]*-[a-z0-9-]+)", out))
-    assert {"ag-recipe", "monitor-states", "peer-subagents", "store-missing"} <= pointers <= ids
-
-
-def test_guide_example_commands_parse_via_real_argparse(capsys):
-    """Policy 13: Every example command 'peerhub ...' in the guide parses via real argparse."""
-    code = main(["guide"])
-    assert code == 0
-    out = capsys.readouterr().out
-
-    parser = build_parser()
-    found_examples = 0
-
-    # Parse full command lines starting with 'peerhub '
-    for line in out.splitlines():
-        line_clean = line.strip()
-        if line_clean.startswith("peerhub "):
-            cmd_part = line_clean.split("#", 1)[0].strip()
-            tokens = shlex.split(cmd_part)
-            args = tokens[1:]  # strip 'peerhub'
-            try:
-                parsed = parser.parse_args(args)
-                assert parsed is not None
-                found_examples += 1
-            except SystemExit as exc:
-                pytest.fail(f"Example command failed to parse: {cmd_part!r} ({exc})")
-
-    assert found_examples >= 6, f"Found only {found_examples} examples"
-
-
-def test_guide_generated_data_parity(capsys, monkeypatch, tmp_path):
-    """Policy 13: Generated profile table exhibits 1:1 parity with packaged profile registry."""
-    from peerhub.extensions.adapters.profiles import list_profiles
-
-    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
-    code = main(["guide"])
-    assert code == 0
-    out = capsys.readouterr().out
-
-    profs = list_profiles(".")
-    assert profs, "No profiles found in registry"
-    shown = [p["profile"] for p in profs if p["profile"] in out]
-    assert len(shown) == len(profs) or "more profiles: peerhub profile list" in out
-
-    # Verify .standard ordering before higher effort tiers
-    std_pos = [out.find(f"{peer}.standard") for peer in ("ag", "cc", "cx")]
-    effort_pos = [out.find(f"{peer}.effort") for peer in ("ag", "cc", "cx")]
-    for s, e in zip(std_pos, effort_pos):
-        assert s != -1 and e != -1 and s < e, ".standard profile must appear before .effort"
-
-
-def test_guide_safety_scenarios_and_behaviour(capsys):
-    """Policy 13: Safety guidance parsed into semantic rules with meaning-level assertions."""
-    code = main(["guide"])
-    assert code == 0
-    out = capsys.readouterr().out
-
-    parser = build_parser()
-
-    # Scenario 1: Per-peer write boundary enforcement
-    # CLI ask requires explicit --writable; default is safe read-only (writable=False)
-    ro_args = parser.parse_args(["ask", "cx", "test"])
-    assert ro_args.writable is False
-    rw_args = parser.parse_args(["ask", "cx", "test", "--writable"])
-    assert rw_args.writable is True
-
-    # Parse Safety section into semantic rules dict: {"Writes": "...", "Uncertain / pending_earlier_record": "...", ...}
-    assert "Safety:\n" in out
-    assert "stop that stream (timeouts too), check the working tree for partial edits" in out
-    assert "implementer/review asks: --timeout-seconds 1800-3600" in out
-    safety_block = out.split("Safety:\n", 1)[1].split("\n\n", 1)[0]
-    rules: dict[str, str] = {}
-    current_rule: str | None = None
-    for line in safety_block.splitlines():
-        if not line.strip():
-            continue
-        m = re.match(r"^\s{2}([A-Za-z0-9_/ ]+):\s*(.*)$", line)
-        if m:
-            current_rule = m.group(1).strip()
-            rules[current_rule] = m.group(2).strip()
-        elif current_rule:
-            rules[current_rule] += " " + line.strip()
-
-    assert "Writes" in rules
-    assert "Uncertain" in rules
-    assert "pending_earlier_record" in rules
-    assert "Store hazards" in rules
-    assert "Cost side effects" in rules
-    assert "Secrets" in rules
-
-    # Meaning-level check 1: Writes enforcement table per peer
-    # cx: sandbox enforced; cc: enforced; ag: NOT enforced
-    writes_text = rules["Writes"]
-    assert re.search(r"\bcx\s+(?:sandbox\s+)?enforced\b", writes_text, re.IGNORECASE), "cx must be stated as enforced"
-    assert not re.search(r"\bcx\s+not\s+enforced\b", writes_text, re.IGNORECASE), "cx must not be stated as not enforced"
-    assert re.search(r"\bcc\s+enforced\b", writes_text, re.IGNORECASE), "cc must be stated as enforced"
-    assert not re.search(r"\bcc\s+not\s+enforced\b", writes_text, re.IGNORECASE), "cc must not be stated as not enforced"
-    assert re.search(r"\bag\s+not\s+enforced\b", writes_text, re.IGNORECASE), "ag must be stated as NOT enforced"
-    ag_stripped = re.sub(r"\bag\s+not\s+enforced\b", "", writes_text, flags=re.IGNORECASE)
-    assert not re.search(r"\bag\s+enforced\b", ag_stripped, re.IGNORECASE), "ag must not be stated as enforced"
-    assert "issue #140" in writes_text
-    assert re.search(r"when edits are intended,\s*pass --writable on every turn,\s*including resumed turns", writes_text)
-
-    # Meaning-level check 2: Uncertain / pending_earlier_record rule
-    unc_text = rules["Uncertain"]
-    assert re.search(r"\bstop that stream\b", unc_text, re.IGNORECASE)
-    # Recovery command in text must extract and parse cleanly
-    diag_cmd_match = re.search(r"'peerhub\s+([a-z0-9 _-]+)'", unc_text)
-    assert diag_cmd_match, "Recovery command 'peerhub ...' not found in uncertain rule"
-    diag_cmd = diag_cmd_match.group(1)
-    rec_args = parser.parse_args(shlex.split(diag_cmd))
-    assert rec_args.subcommand == "diag"
-    assert getattr(rec_args, "action", None) == "health"
-
-    # Forbids retry-with-new-id of the original prompt (deleting 'never' fails)
-    assert re.search(r"\bnever\s+blind[- ]retry\s+original\s+prompt\s+under\s+a\s+new\s+request[- ]id\b", unc_text, re.IGNORECASE)
-    assert not re.search(r"\b(?:can|should|may|must)\s+blind[- ]retry\b", unc_text, re.IGNORECASE)
-    assert re.search(r"--fresh", unc_text)
-    assert re.search(r"delete claims", unc_text)
-    # Distinguishes genuinely new work on a new stream
-    assert re.search(r"\bcontinue genuinely new work on a new stream with a summary\b", unc_text, re.IGNORECASE)
-    assert re.search(r"peerhub explain <code>", unc_text)
-    pending_text = rules["pending_earlier_record"]
-    assert "processed_status" in pending_text
-    assert "delivered" in pending_text and "same request-id" in pending_text
-    assert "uncertain" in pending_text
-
-    # Meaning-level check 3: Store hazards
-    store_text = rules["Store hazards"]
-    assert re.search(r"\bback up core\.db before upgrading\b", store_text, re.IGNORECASE)
-    assert re.search(r"\bnew schema not openable by old versions\b", store_text, re.IGNORECASE)
-    assert re.search(r"\bdon't run dev builds on the real store\b", store_text, re.IGNORECASE)
-
-    # Meaning-level check 4: Cost side effects
-    cost_text = rules["Cost side effects"]
-    assert re.search(r"\b(?:monitor watch|observation refresh)\s+may spend quota\b", cost_text, re.IGNORECASE)
-    assert re.search(r"\b(?:snapshot/diag|diag)\s+read-only\b", cost_text, re.IGNORECASE)
-
-    # Meaning-level check 5: Secrets persistence
-    sec_text = rules["Secrets"]
-    assert re.search(r"\bprompts/streams persist in local store\b", sec_text, re.IGNORECASE)
-    assert re.search(r"\bno tokens/passwords\b", sec_text, re.IGNORECASE)
-
-
-def test_guide_ag_gate_distinct_from_agy_permissions(capsys):
-    """An ag read task needs PeerHub approval as well as agy's tool permissions."""
-    parser = build_parser()
-    for flags in ([], ["--writable"]):
-        args = parser.parse_args(["ask", "ag", "Read README.md", *flags])
-        assert args.writable is bool(flags)
-
-    assert main(["guide"]) == 0
-    safety = capsys.readouterr().out.split("Safety:\n", 1)[1].split("Discovery", 1)[0]
-    assert "--writable even to read" in safety  # details (accept-edits, -w, auto-deny): lesson ag-recipe
-    assert "pass --writable on every turn, including resumed turns" in safety
-    assert "trusted -w" in safety
-
-
-def test_guide_ag_recipe_comes_first_and_forbids_resume_after_empty(capsys):
-    """ag usability A1 / #366 A6: one recipe line leads the ag guidance and points to the ag-recipe lesson."""
-    assert main(["guide"]) == 0
-    safety = capsys.readouterr().out.split("Safety:\n", 1)[1].split("Discovery", 1)[0]
-    lines = safety.splitlines()
-    assert lines[0].startswith("  ag recipe")
-    assert lines[1].startswith("  Writes:")
-    recipe = lines[0]
-    assert "'peerhub explain ag-recipe'" in recipe
-    assert "--query-file" in recipe and '"no tools"' in recipe
-    assert "one task per ask" in recipe and "never resume after an empty reply" in recipe
-
-
-def test_guide_documents_db_precedence(capsys):
-    assert main(["guide"]) == 0
-    out = capsys.readouterr().out
-    assert "--db > PEERHUB_DB > nearest upward .peerhub/core.db" in out
-
-
-def test_guide_efficiency_guidance_and_transport(capsys):
-    """Policy 13: Efficiency guidance <=3 lines (excluding heading); transport options parse via CLI."""
-    code = main(["guide"])
-    assert code == 0
-    out = capsys.readouterr().out
-
-    assert "Efficiency:\n" in out
-    eff_block = out.split("Efficiency:\n", 1)[1].split("\n\n", 1)[0]
-    # Exclude heading or title line
-    eff_lines = [line.strip() for line in eff_block.splitlines() if line.strip() and not line.strip().startswith("Efficiency")]
-    assert len(eff_lines) <= 3, f"Efficiency section has {len(eff_lines)} lines, exceeding limit of 3"
-
-    # Concrete transport mechanism verification: --query-file and --json parse
-    parser = build_parser()
-    qf_args = parser.parse_args(["ask", "cc", "prompt", "--query-file", "input.txt", "--json"])
-    assert qf_args.query_file == "input.txt"
-    assert qf_args.json is True
-
-
-def test_guide_report_issues_section(capsys):
-    """Policy 13: Report issues section <=3 lines; covers repository, search, diagnostics, and privacy."""
-    code = main(["guide"])
-    assert code == 0
-    out = capsys.readouterr().out
-
-    assert "Report Issues:\n" in out
-    rep_block = out.split("Report Issues:\n", 1)[1].split("\n\n", 1)[0]
-    rep_lines = [line.strip() for line in rep_block.splitlines() if line.strip() and not line.strip().startswith("Report Issues")]
-    assert len(rep_lines) <= 3, f"Report Issues section has {len(rep_lines)} lines, exceeding limit of 3"
-
-    rep_text = " ".join(rep_lines)
-    assert "github.com/greatgc-flow/peerhub" in rep_text
-    assert "gh issue list -R greatgc-flow/peerhub --search KEYWORD" in rep_text
-    assert "peerhub --version" in rep_text
-    assert "status/exit code" in rep_text
-    assert "workaround" in rep_text
-    assert "no secrets/private paths" in rep_text
-
-
-def test_guide_contains_required_sections_and_guidance(capsys):
-    """S5: Contains two-asks reuse, discovery cmds, long asks, and single recovery step."""
-    code = main(["guide"])
-    assert code == 0
-    out = capsys.readouterr().out
-
-    # Two-asks reuse example with distinct request-id
-    assert "ask" in out and "--stream" in out
-    assert "--request-id req-001" in out and "--request-id req-002" in out
-    # Long asks section guidance
-    assert "long asks" in out.lower()
-    assert "blocks until the peer finishes" in out
-    assert "session:" in out
-    assert "--timeout-seconds" in out and "--silence-timeout-seconds" in out
-    assert "foreground/background-with-exit-notification" in out
-    assert "ag prints nothing until done" in out
-    assert "--timeout-seconds 7200" in out
-    # Discovery commands
-    assert "peerhub monitor" in out
-    assert "peerhub monitor --expand" in out
-    assert "peerhub diag" in out
-    assert "session list" in out
-    assert "context usage" not in out
-    # Layer column label accurate
-    assert "Layer" in out
-    # Single recovery step without saying repo skill
-    assert "repo skill" not in out.lower()
-    assert "refresh-model-profiles" in out
-    # Upgrade monitor lock guidance (#123)
-    assert "stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor" in out
-    assert "locks peerhub.exe on Windows" in out
-    assert "also wait for running asks" in out
-
-
-def test_guide_shows_error_line_if_profiles_fail(monkeypatch, capsys):
-    """S5/CC review: No silent except Exception empty table; error line is displayed."""
-    from peerhub.cli.app import main
-    import peerhub.extensions.adapters.profiles as prof_mod
-
-    def _fail_list(ws):
-        raise RuntimeError("disk unreadable")
-
-    monkeypatch.setattr(prof_mod, "list_profiles", _fail_list)
-    code = main(["guide"])
-    assert code == 0
-    out = capsys.readouterr().out
-    assert "error loading profiles: RuntimeError: disk unreadable" in out
+    assert _guide(capsys) == baseline
+    (home / "models.toml").write_text("[not toml", encoding="utf-8")
+    assert _guide(capsys) == baseline
 
 
 def test_guide_works_without_store_or_providers(tmp_path, monkeypatch, capsys):
-    """S5: Works in an isolated directory without store, config, or provider access."""
     empty_dir = tmp_path / "empty_workspace"
     empty_dir.mkdir()
     monkeypatch.chdir(empty_dir)
     monkeypatch.delenv("PEERHUB_DB", raising=False)
     monkeypatch.delenv("PEERHUB_CONFIG_HOME", raising=False)
-
-    code = main(["guide"])
-    assert code == 0
-    out = capsys.readouterr().out
-    assert "PeerHub Quick Reference" in out
+    assert main(["guide"]) == 0
+    assert "PeerHub guide" in capsys.readouterr().out
     assert not (empty_dir / ".peerhub").exists()
 
 
+def test_guide_json_carries_the_same_text(capsys):
+    import json
+
+    assert main(["guide"]) == 0
+    text = capsys.readouterr().out
+    assert main(["guide", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["guide"].strip() == text.strip()
+
+
+# ---- the decisions ----------------------------------------------------------------------------------------------
+
+def test_guide_states_the_decisions(capsys, monkeypatch, tmp_path):
+    out = _guide(capsys, monkeypatch, tmp_path)
+    flat = " ".join(out.split())
+    assert re.search(r"(?m)^Peer: ", out) and "cc/cx" in out and "ag" in out and "ca/oa/ga" in out  # peer choice
+    assert "standard" in out and "effort" in out and "deepthink" in out  # tiers
+    assert re.search(r"(?m)^Stream: ", out) and "new task = new stream" in out  # stream reuse rule
+    assert re.search(r"(?m)^Votes: ", out) and "FRESH" in out  # fresh votes
+    assert re.search(r"(?m)^Batch: ", out) and "peerhub batch run" in out
+    assert re.search(r"(?m)^Timeout: ", out) and "--timeout-seconds 1800-3600" in out and "7200" in out
+    assert re.search(r"(?m)^Uncertain", out) and "never blind-retry" in flat and "new stream" in flat  # uncertain handling
+    assert re.search(r"(?m)^More: .*peerhub profile list", out) and "peerhub explain <topic>" in out  # the pointer line
+    assert "peerhub explain lessons" in out
+
+
+def test_guide_vote_policy_and_verdict_template(capsys, monkeypatch, tmp_path):
+    """D6/A5: routine = ONE fresh reviewer; consequential = 3 independent peers, unanimity; always FRESH; template."""
+    out = _guide(capsys, monkeypatch, tmp_path)
+    votes = next(line for line in out.splitlines() if line.startswith("Votes: "))
+    flat = " ".join(votes.split())
+    assert "routine check = ONE reviewer" in flat
+    assert "consequential (release, schema, deletion, public API) = 3 independent peers, unanimity" in flat
+    assert "FRESH" in flat and "even if a stream name is given" in flat
+    assert "VERDICT / BLOCKERS / NITS" in flat and "<= 300 tokens" in flat
+    assert "peerhub explain independent-peer-votes" in flat or "peerhub explain independent-peer-votes" in out
+
+
+def test_guide_has_no_vote_command_and_no_new_cli_surface():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["vote"])
+    subparsers = next(action for action in parser._actions if action.dest == "subcommand")  # pyright: ignore[reportPrivateUsage]
+    assert "vote" not in subparsers.choices
+
+
+def test_guide_example_commands_parse_via_real_argparse(capsys):
+    out = _guide(capsys)
+    parser = build_parser()
+    found = 0
+    for match in re.finditer(r"(?m)^[A-Za-z]+: (peerhub batch run [^\n]*?)(?: \(|$)", out):
+        parser.parse_args(shlex.split(match.group(1))[1:])
+        found += 1
+    assert found == 1
+    for command in ("peerhub profile list", "peerhub explain lessons"):
+        assert command in out
+        parser.parse_args(shlex.split(command)[1:])
+
+
+# ---- pointers ---------------------------------------------------------------------------------------------------
+
+def test_every_pointer_topic_resolves_to_its_own_lesson(capsys):
+    out = _guide(capsys)
+    topics = _topics_named_by(out)
+    assert set(TOPICS) <= set(topics)
+    ids = {lesson["id"] for lesson in load_lessons()}
+    for topic in dict.fromkeys(topics):
+        assert topic in ids or topic == "lessons", topic
+        assert main(["explain", topic]) == 0, topic
+        printed = capsys.readouterr().out
+        assert topic == "lessons" or printed.splitlines()[0].startswith(f"{topic}:"), topic
+
+
+def test_topic_ids_do_not_shadow_guidance_codes_or_profile_ids():
+    from peerhub.cli.recovery import REGISTRY
+
+    assert not set(TOPICS) & set(REGISTRY)
+    assert all("." not in topic for topic in TOPICS)
+
+
+def test_every_topic_is_one_short_explain_entry(capsys):
+    from peerhub.cli.lessons import render_lesson
+
+    for topic in TOPICS:
+        (lesson,) = lesson_by_id(topic)
+        assert len(render_lesson(lesson).splitlines()) <= 5 and lesson["keywords"] and lesson["issue"], topic
+
+
+# ---- max-parallel: one constant ----------------------------------------------------------------------------------
+
+def test_max_parallel_three_comes_from_one_constant(capsys):
+    from peerhub.extensions import batch
+
+    assert batch.RECOMMENDED_MAX_PARALLEL == 3 and 1 <= batch.RECOMMENDED_MAX_PARALLEL <= batch.MAX_PARALLEL
+    out = _guide(capsys)
+    assert f"--max-parallel {batch.RECOMMENDED_MAX_PARALLEL} --dry-run" in out
+    source = (REPO / "peerhub" / "cli" / "guide.py").read_text(encoding="utf-8")
+    assert "RECOMMENDED_MAX_PARALLEL" in source and not re.search(r"--max-parallel \d", source)
+
+
+def test_no_stale_max_parallel_literal_in_guide_docs_or_lessons(capsys):
+    from peerhub.extensions import batch
+
+    out = _guide(capsys)
+    assert "--max-parallel 2" not in out
+    texts = {"guide": out}
+    for rel in ("README.md", "docs/batch.md", "peerhub/config_data/lessons.toml", "docs/lessons.md"):
+        texts[rel] = (REPO / rel).read_text(encoding="utf-8")
+    for name, text in texts.items():
+        assert "--max-parallel 2" not in text, name
+        for value in re.findall(r"--max-parallel (\d+)", text):
+            assert int(value) == batch.RECOMMENDED_MAX_PARALLEL, (name, value)
+    assert "--max-parallel 3" in texts["README.md"] and "--max-parallel 3" in texts["docs/batch.md"]
+
+
+# ---- the former guide: every fact is still reachable --------------------------------------------------------------
+
+FORMER_GUIDE_FACTS: dict[str, tuple[str, ...]] = {
+    "ask-basics": (
+        'peerhub ask cc "Explain the architecture" --profile cc.standard --stream arch-review --request-id req-001',
+        'peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002',
+        "a --stream resumes (same store/binding, 1 peer)", "new task = new stream", "votes one-shot",
+        "bulk=standard, code=effort, review/design=deepthink (docs/batch.md)",
+        "--query-file and --json select transport/format (no token saving)",
+        "blocks until the peer finishes, then prints reply + 'session:'",
+        "foreground/background-with-exit-notification", "never detach/poll",
+        "--timeout-seconds 1800-3600", "ag prints nothing until done", "--timeout-seconds 7200",
+        "--silence-timeout-seconds unset or >= it",
+    ),
+    "writes-and-uncertain": (
+        "ag recipe: 'peerhub explain ag-recipe'", "cx sandbox enforced; cc enforced; ag NOT enforced (issue #140)",
+        "when edits are intended, pass --writable on every turn, including resumed turns",
+        "pending_earlier_record: inspect processed_status; delivered => retry same request-id/prompt/binding/selector; uncertain => stop",
+        "stop that stream (timeouts too), check the working tree for partial edits, 'peerhub diag health'",
+        "skipped oversized line: cc ok if an intact result follows (#325), cx needs answer+turn.completed",
+        "never blind-retry original prompt under a new request-id, with --fresh, or delete claims",
+        "continue genuinely new work on a new stream with a summary", "'peerhub explain <code>'",
+        "prompts/streams persist in local store; no tokens/passwords",
+    ),
+    "store-and-upgrade": (
+        "--db > PEERHUB_DB > nearest upward .peerhub/core.db", "peerhub explain store-missing",
+        "back up core.db before upgrading", "new schema not openable by old versions",
+        "stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor", "locks peerhub.exe on Windows",
+        "also wait for running asks (diag running)", "reinstall, check results before resend",
+        "don't run dev builds on the real store", "after restore, reopen stores (old instances fenced)",
+    ),
+    "batch-and-load": (
+        "executes asks (spends quota)", "ag tasks always writable", "overlapping writers rejected",
+        "cancel: Windows tree kill, POSIX best-effort", "inspect UNCERTAIN", "keep manifest + batch-id",
+        "4 active asks (max 6; cc 3/cx 3/ag 1/ca 3/oa 3/ga 3)", "suggest: is advisory (rule H)",
+        "reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer",
+        "compare 7D PACE (5H only gates)", "PACE (pp, used%-elapsed%) needs a fresh quota age",
+        "+ = ahead of even burn", "peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run",
+        "cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only)",
+        "uncertain streams may stay quota-blocked after reset", "aged quota is last-known; refresh first",
+        "accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots",
+    ),
+    "discovery-commands": (
+        "peerhub explain lessons", "peerhub explain setup", "peerhub monitor --group capacity",
+        "suggest a|b = best + alternative peer; peerhub explain monitor-states", "peerhub monitor --expand",
+        "peerhub diag --plan", "per-pool spend/hold/rest until reset", "peerhub profile list; slugs: agy models; --model <slug>",
+        "peerhub session list", "peerhub account list", "peerhub observation refresh", "peerhub explain peer-subagents",
+        "the line-1 'facts:' alert (needs_recheck) clears via refresh-model-profiles skill or release upgrade",
+    ),
+    "report-issues": (
+        "github.com/greatgc-flow/peerhub/issues", "gh issue list -R greatgc-flow/peerhub --search KEYWORD",
+        "peerhub --version, OS, exact command, status/exit code, and workaround (no secrets/private paths)",
+    ),
+    "api-peers": (
+        "ca (Claude API through the ant CLI", "oa (OpenAI Responses API", "ga (Gemini API",
+        "spend API credits, not a subscription pool", "ca, oa and ga read no file", "One ask per stream",
+        "Also refused: --writable",
+    ),
+}
+
+
+@pytest.mark.parametrize("topic", sorted(FORMER_GUIDE_FACTS))
+def test_former_guide_facts_are_reachable_through_explain(topic, capsys):
+    text = _explained(topic).replace("’", "'")
+    missing = [fact for fact in FORMER_GUIDE_FACTS[topic] if " ".join(fact.split()).casefold() not in text.casefold()]
+    assert not missing, missing
+    assert main(["explain", topic]) == 0
+    assert capsys.readouterr().out.splitlines()[0].startswith(f"{topic}:")
+
+
+def test_old_ag_recipe_and_store_missing_pointers_still_resolve(capsys):
+    for topic in ("ag-recipe", "store-missing", "monitor-states", "peer-subagents", "setup", "ask-timeouts", "stream-reuse-cost"):
+        assert main(["explain", topic]) == 0
+        assert capsys.readouterr().out.splitlines()[0].startswith(f"{topic}:")
+
+
+# ---- D6 text in the existing explain topic -----------------------------------------------------------------------
+
+def test_independent_peer_votes_is_extended_not_duplicated():
+    ids = [lesson["id"] for lesson in load_lessons()]
+    assert ids.count("independent-peer-votes") == 1 and not [i for i in ids if "vote" in i and i != "independent-peer-votes"]
+    text = _explained("independent-peer-votes")
+    for needle in ("routine check = ONE reviewer, FRESH", "consequential (release, schema, deletion, public API)",
+                   "3 independent peers, unanimity", "even when a stream name is given",
+                   "a named stream is for review rounds on one diff only", "VERDICT / BLOCKERS / NITS", "<= 300 tokens",
+                   "no `vote` command", "--max-parallel 3 --responses",
+                   # the earlier facts stay
+                   "did not author it", "not writable", "private empty directory", "11 s"):
+        assert needle in text, needle
+
+
+# ---- freeze rule (D12) --------------------------------------------------------------------------------------------
+
+def test_freeze_rule_is_recorded_in_status_and_changelog():
+    status = (REPO / "docs" / "STATUS.md").read_text(encoding="utf-8")
+    open_row = next(line for line in status.splitlines() if line.startswith("| Open |"))
+    changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+    unreleased = changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+    for name, text in (("STATUS Open row", open_row), ("CHANGELOG Unreleased", unreleased)):
+        flat = " ".join(text.split())
+        assert "no further monitor cosmetics" in flat, name
+        assert "no top-tier benchmark reruns" in flat, name
+        assert "0.25.0 telemetry data exists" in flat, name
+
+
+def test_changelog_unreleased_names_each_m1_change():
+    unreleased = (REPO / "CHANGELOG.md").read_text(encoding="utf-8").split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+    changed = unreleased.split("### Changed", 1)[1].split("\n### ", 1)[0]
+    flat = " ".join(changed.split())
+    for needle in ("`peerhub guide`", "1600 bytes", "--max-parallel 3", "VERDICT / BLOCKERS / NITS", "`alias_of`",
+                   "`effort_override`", "`suggest`", "`measurement`", "`cx.deepthink`", "unmeasured", "0.25.0 plan"):
+        assert needle in flat, needle
+    assert "## [Unreleased]" in (REPO / "CHANGELOG.md").read_text(encoding="utf-8") and "\r" not in changed
+
+
+# ---- pointers elsewhere -------------------------------------------------------------------------------------------
+
 def test_guide_pointers_in_help_and_readme(capsys):
-    """S5: Pointers to 'peerhub guide' exist in --help and README.md."""
-    # Check --help
     with pytest.raises(SystemExit):
         main(["--help"])
-    help_out = capsys.readouterr().out
-    assert "guide" in help_out
-
-    # Check README.md
+    assert "guide" in capsys.readouterr().out
     readme_path = Path("README.md")
     assert readme_path.is_file()
     assert "peerhub guide" in readme_path.read_text(encoding="utf-8")
@@ -389,8 +341,6 @@ def test_readme_upgrade_guidance():
 
 def test_contributing_release_steps_cover_the_matrix_time_limit_the_full_commit_id_and_the_exe_lock():
     """#390: a full-matrix job cancelled at its time limit fails `ci-pass`; the step names the rerun command."""
-    import re
-
     steps = Path("CONTRIBUTING.md").read_text(encoding="utf-8").split("\n## Releasing\n", 1)[1].split("\n### Release lessons\n", 1)[0]
     steps = " ".join(steps.split())
     workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
@@ -401,6 +351,3 @@ def test_contributing_release_steps_cover_the_matrix_time_limit_the_full_commit_
     assert "fails `ci-pass`" in steps and "`gh run rerun <RUN-ID> --failed`" in steps
     assert "the 40-character commit id" in steps and "`git rev-parse HEAD`" in steps
     assert "locks `peerhub.exe` on Windows" in steps
-
-
-

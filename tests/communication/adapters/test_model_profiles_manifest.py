@@ -44,7 +44,13 @@ def test_every_profile_id_names_a_peer_and_has_required_fields():
     assert set(packaged_profiles(PEERS + API_PEERS)) == set(TOML["profiles"])  # no profile of an unknown peer
     for pid, p in packaged_profiles(PEERS + API_PEERS).items():
         assert re.fullmatch(r"(ag|cc|cx|ca|oa|ga)\.[a-z0-9-]+", pid), pid
-        assert p["selection_mode"] == "pinned" and p["model"], pid
+        if "alias_of" in p:  # 0.25.0 D11: an alias takes its binding from the target profile
+            target = p["alias_of"]
+            assert target in TOML["profiles"] and target != pid and "alias_of" not in TOML["profiles"][target], pid
+            assert target.split(".", 1)[0] == pid.split(".", 1)[0] and not {"model", "selection_mode"} & set(p), pid
+            assert p["effort_override"], pid
+        else:
+            assert p["selection_mode"] == "pinned" and p["model"], pid
         assert DATE.match(p["checked"]), pid
         assert p["source"], pid
     for pid, p in packaged_profiles().items():
@@ -90,8 +96,9 @@ def test_exact_model_pools_resolve_through_the_resolver(tmp_path):
 
 def test_packaged_profiles_have_no_stale_models():
     for name, p in packaged_profiles().items():
-        assert "gemini-3.1-pro" not in p["model"], f"{name} contains gemini-3.1-pro"
-        assert "haiku-4-5" not in p["model"], f"{name} contains haiku-4-5"
+        model = p.get("model", "")  # an alias (0.25.0 D11) has no model of its own
+        assert "gemini-3.1-pro" not in model, f"{name} contains gemini-3.1-pro"
+        assert "haiku-4-5" not in model, f"{name} contains haiku-4-5"
 
 
 @pytest.mark.parametrize("kind,pid", [(kind, pid) for kind in PEERS for pid in (f"{kind}.pro", "pro")])

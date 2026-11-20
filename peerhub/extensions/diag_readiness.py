@@ -184,7 +184,7 @@ def compose(profiles: list[dict[str, Any]], observations: list[dict[str, Any]],
             "pools": pools, "profiles": profiles, "error": None}
 
 
-READINESS_ROWS = 12  # every packaged profile fits (9 tiers + 3 tops); more only via --json
+READINESS_ROWS = 13  # every packaged profile fits (9 tiers + 4 tops); more only via --json
 
 
 def format_readiness(report: dict[str, Any]) -> str:
