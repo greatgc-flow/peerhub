@@ -15,6 +15,119 @@ def _child_env(tmp_path, **extra):
     return lead_isolated_env(tmp_path, dict(os.environ, **extra))
 
 
+def test_query_file_links_from_a_separate_monitor_process(tmp_path, monkeypatch, capsys):
+    import sqlite3
+    import subprocess
+    import sys
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import closing
+    from pathlib import Path
+    from threading import Event
+
+    from tests.communication.fakes import FakeRuntimeTarget
+
+    workspace = tmp_path / "execution"
+    workspace.mkdir()
+    cwd = workspace / "caller"
+    cwd.mkdir()
+    query = cwd / "review 한 글.txt"
+    query.write_text("same prompt", encoding="utf-8")
+    alias = cwd / "replay.txt"
+    alias.write_text("same prompt", encoding="utf-8")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("same prompt", encoding="utf-8")
+    (workspace / "review").touch()  # a matching stream ID still has no backing file
+    db = str(tmp_path / "test.db")
+    root = Path(__file__).resolve().parents[3]
+    env = _child_env(tmp_path, TERM="xterm", PYTHONIOENCODING="utf-8", PYTHONUTF8="1", COLUMNS="120", LINES="60")
+    for key in ("NO_COLOR", "PEERHUB_NO_LINKS", "PEERHUB_MONITOR_TEXT"):
+        env.pop(key, None)
+    monkeypatch.chdir(cwd)
+    monkeypatch.setattr("peerhub.cli.support.refresh_dispatch_quota", lambda *_: None)
+    entered, finish = Event(), Event()
+
+    def wait_for_monitor():
+        entered.set()
+        assert finish.wait(20)
+
+    target = FakeRuntimeTarget().script_deliver(("started", "execution"), ("call", wait_for_monitor),
+                                                 ("terminal", {"response": "done"}))
+    monkeypatch.setattr("peerhub.extensions.ask.CliRuntimeTarget", lambda *_a, **_kw: target)
+    base_ask = ["--db", db, "ask", "cx", "--workspace", str(workspace), "--json"]
+    ask_args = [*base_ask, "--stream", "review", "--request-id", "q1"]
+
+    def monitor(*options, tty=True, vt=True, watch=False):
+        stub = ("import sys; from peerhub.cli.app import main; from peerhub.cli import view; "
+                f"sys.stdout.isatty = lambda: {tty!r}; view.enable_vt = lambda: {vt!r}; "
+                "raise SystemExit(main())")
+        mode = ["--cycles", "1"] if watch else ["--snapshot"]
+        return subprocess.run([sys.executable, "-c", stub, "--db", db, "monitor", *mode,
+                               "--group", "activity", "--view", "rich", *options],
+                              cwd=root, env=env, capture_output=True, encoding="utf-8", check=True, timeout=10).stdout
+
+    file_link = f"\x1b]8;;{query.resolve().as_uri()}\x1b\\"
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        pending = executor.submit(main, [*ask_args, "--query-file", query.name])
+        try:
+            assert entered.wait(10)
+            running = monitor("--expand")
+            assert file_link in running and "RUNNING 1" in running and "lease confirmed" in running
+            running_json = json.loads(monitor("--json"))
+            assert running_json["groups"]["activity"]["data"]["asks"][0]["state"] == "run"
+        finally:
+            finish.set()
+        assert pending.result(timeout=10) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert file_link in monitor(watch=True)
+    recent = monitor("--expand")
+    assert file_link in recent and "RECENT 1" in recent
+    assert f"peerhub outcome {result['requested_record_id']}" in recent
+    assert "accepted|rejected|retried" in recent
+    for tty, vt in ((False, True), (True, False)):
+        assert "file://" not in monitor(tty=tty, vt=vt)
+    assert "file://" not in monitor("--view", "plain")
+    env["PEERHUB_MONITOR_TEXT"] = "off"
+    assert "file://" not in monitor() and "same prompt" not in monitor("--expand")
+    del env["PEERHUB_MONITOR_TEXT"]
+    assert main([*ask_args, "--query-file", alias.name]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "recovered_terminal"
+    assert target.count("deliver") == 1
+    assert file_link in monitor()
+    with closing(sqlite3.connect(db)) as conn:
+        ((raw,),) = conn.execute("SELECT detail FROM bridge_evidence WHERE kind='caller'").fetchall()
+        facts = json.loads(raw)
+    assert facts["query_file"] == str(query.resolve())
+    assert facts["workspace"] == str(workspace.resolve())
+    assert facts["cwd"] == str(cwd) and facts["stream_file"] is None
+    public = monitor("--json")
+    ended_json = json.loads(public)["groups"]["activity"]["data"]["asks"][0]
+    assert ended_json["state"] == "ok"
+    assert set(ended_json) == set(running_json["groups"]["activity"]["data"]["asks"][0]) == {
+        "state", "superseded", "alive", "alive_reason", "peer", "profile", "model", "effort", "stream", "name", "lead",
+        "started_at", "elapsed_s", "ended_at", "ended_exact", "age_s", "lease_left_s", "tokens", "ask_line", "reply_line",
+        "ask_line_long", "reply_line_long", "note", "reasons", "session",
+    }
+    assert query.name not in public and all(key not in public for key in ("query_file", "stream_file", "caller_file"))
+
+    query.unlink()
+    assert "file://" not in monitor()
+    for metadata in ({}, {"workspace": facts["workspace"], "query_file": None, "stream_file": None},
+                     {"workspace": facts["workspace"], "query_file": str(outside)}):
+        legacy = {key: value for key, value in facts.items() if key not in ("workspace", "query_file", "stream_file")}
+        with closing(sqlite3.connect(db)) as conn, conn:
+            conn.execute("INSERT INTO bridge_evidence (delivery_id, stream_id, peer_id, kind, certainty, detail) "
+                         "SELECT delivery_id, stream_id, peer_id, kind, certainty, ? FROM bridge_evidence "
+                         "WHERE kind='caller' AND stream_id='review' LIMIT 1", (json.dumps(legacy | metadata),))
+        assert "file://" not in monitor()
+    assert main([*base_ask, "--stream", "inline", "--request-id", "q2", "inline prompt"]) == 0
+    assert main([*base_ask, "--stream", "outside", "--request-id", "q3", "--query-file", str(outside)]) == 0
+    with closing(sqlite3.connect(db)) as conn:
+        rows = conn.execute("SELECT stream_id, detail FROM bridge_evidence WHERE kind='caller' AND stream_id != 'review'").fetchall()
+    assert {stream for stream, _ in rows} == {"inline", "outside"}
+    assert all(json.loads(raw)["query_file"] is None for _, raw in rows)
+    assert "file://" not in monitor()
+
+
 def test_child_peerhub_environments_read_no_real_claude_folder(tmp_path, monkeypatch):
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "real-claude"))
     monkeypatch.setenv("PEERHUB_LEAD_DIRS", str(tmp_path / "registered"))

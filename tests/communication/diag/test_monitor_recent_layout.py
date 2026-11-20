@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import re
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from peerhub.cli.monitor_view import render_grouped_frame, _width
+from peerhub.extensions.caller import host_id
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame  # noqa: F401
 
 
@@ -42,6 +44,38 @@ def build(rows: list[dict[str, Any]], base: dict[str, Any]) -> dict[str, Any]:
     base = deepcopy(base)
     base["groups"]["activity"]["data"] = activity_data(rows)
     return base
+
+
+@pytest.mark.parametrize("expand", [False, True])
+def test_query_file_osc_is_gated_and_closed_at_narrow_widths(frame, monkeypatch, expand):
+    query = Path(__file__).resolve()
+    facts = {"query_file": str(query), "workspace": str(query.parent), "host": host_id()}
+    running = ask(name="running-file")
+    recent = ended("finished-file", 10)
+    running["_caller_file"] = recent["_caller_file"] = facts
+    payload = build([running, recent], frame)
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("PEERHUB_NO_LINKS", raising=False)
+    monkeypatch.delenv("PEERHUB_MONITOR_TEXT", raising=False)
+    open_file = f"\x1b]8;;{query.as_uri()}\x1b\\"
+    close = "\x1b]8;;\x1b\\"
+    file_osc = re.compile(r"\x1b\]8;;file:[^\x1b]*\x1b\\([^\x1b]+)\x1b\]8;;\x1b\\")
+    screen = render_grouped_frame(payload, expand=expand, color=True, links=True, width=100)
+    assert screen.count(open_file) == 2
+    for width in range(16, 60):
+        screen = render_grouped_frame(payload, expand=expand, color=True, links=True, width=width)
+        assert all(_width(line) <= width - 1 for line in screen.splitlines())
+        assert screen.count(open_file) == len(file_osc.findall(screen))
+        assert screen.count("\x1b]8;;") == 2 * screen.count(close)
+    for kwargs in ({"links": False}, {"color": False}, {"view": "plain"}):
+        assert open_file not in render_grouped_frame(payload, expand=expand, **({"color": True, "links": True} | kwargs))
+    for name in ("NO_COLOR", "PEERHUB_NO_LINKS", "PEERHUB_MONITOR_TEXT"):
+        with monkeypatch.context() as m:
+            m.setenv(name, "off" if name == "PEERHUB_MONITOR_TEXT" else "1")
+            assert open_file not in render_grouped_frame(payload, expand=expand, color=True, links=True)
+    facts = payload["groups"]["activity"]["data"]["asks"][0]["_caller_file"]
+    facts["host"] = "other-host"
+    assert open_file not in render_grouped_frame(payload, expand=expand, color=True, links=True)
 
 
 @pytest.fixture
