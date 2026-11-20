@@ -1091,7 +1091,7 @@ class CliRuntimeTarget:
                  command: Sequence[str] | None = None, timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
                  env_extra: Mapping[str, str] | None = None, extra_secrets: Iterable[str] = (),
                  on_output: Callable[[str], None] | None = None,
-                 account: AccountRef | None = None, env_unset: Iterable[str] = ()) -> None:
+                 account: AccountRef | None = None, env_unset: Iterable[str] = (), notice_alias: bool = False) -> None:
         if kind not in SPECS:
             raise ValueError(f"unknown provider kind {kind!r}")
         if account is not None and kind not in ("cc", "cx"):
@@ -1101,7 +1101,7 @@ class CliRuntimeTarget:
         if profile is not None:
             from peerhub.extensions.adapters.profiles import qualified_profile, resolve_profile
             profile = qualified_profile(kind, profile)
-            profile_model, profile_effort = resolve_profile(kind, profile, workspace)
+            profile_model, profile_effort = resolve_profile(kind, profile, workspace, notice_alias=notice_alias)
             model = model if model is not None else profile_model
             effort = effort if effort is not None else profile_effort
         for v in (model, effort):
@@ -1366,7 +1366,7 @@ class CliRuntimeTarget:
         self._note("terminated", pid=proc.pid, termination_confirmed=True)
 
     @staticmethod
-    def _prompt(record: Any, catch_up: list[Any]) -> str:
+    def _prompt(record: Any, catch_up: list[Any], *, limit: int | None = None) -> str:
         def txt(r: Any) -> str:
             b = getattr(r, "body", None)
             return b if isinstance(b, str) else json.dumps(b, ensure_ascii=False, sort_keys=True)
@@ -1381,14 +1381,18 @@ class CliRuntimeTarget:
         for r in catch_up:
             parts.append(f"[{getattr(r, 'position', '?')} {getattr(r, 'record_id', '?')} "
                          f"{getattr(r, 'author_peer_id', '?')} {getattr(r, 'kind', '?')}] {txt(r)}")
-        if parts:
-            parts.insert(0, "PeerHub stream context follows. Use the earlier records as context for the final request.")
+        has_context = bool(parts)
         parts.append(txt(record))
-        return "\n\n".join(parts)
+        prompt = "\n\n".join(parts)
+        if has_context:
+            preamble = "PeerHub stream context follows. Use the earlier records as context for the final request.\n\n"
+            if limit is not None and limit - len(preamble) < len(prompt.encode("utf-8")) <= limit:
+                return prompt
+            return preamble + prompt
+        return prompt
 
     def deliver(self, external_session_id: str, record: Any, catch_up: list[Any]) -> Iterable[RuntimeEvent]:
         prompt = self._prompt(record, catch_up)
-        san = self._san.with_prompt(prompt)
         # ---- genuine pre-spawn failures: nothing was created
         self.validate_execution_policy()
         stream = False
@@ -1398,13 +1402,17 @@ class CliRuntimeTarget:
                 raise PrespawnError(f"prompt contains a lone surrogate at index {surrogate}")
             decision, self._ag_transport = self._ag_transport or self._ag_transport_decision(), None
             if decision.transport not in ("stream", "argv"):
-                raise PrespawnError(san.clean(decision.error or "cannot determine agy stdin support", EXCERPT_CHARS))
+                raise PrespawnError(self._san.with_prompt(prompt).clean(decision.error or "cannot determine agy stdin support", EXCERPT_CHARS))
             stream = decision.transport == "stream"
         n_bytes = len(prompt.encode("utf-8"))
         limit = MAX_PROMPT_BYTES if stream else min(MAX_PROMPT_BYTES, self._spec.max_prompt_bytes)
         if n_bytes > limit:
+            prompt = self._prompt(record, catch_up, limit=limit)
+            n_bytes = len(prompt.encode("utf-8"))
+        if n_bytes > limit:
             raise PrespawnError(f"prompt is {n_bytes} bytes, exceeding the {self.runtime_kind} inline limit of {limit} bytes "
                                 f"(catch-up history is never truncated silently; lower the catch-up budget)")
+        san = self._san.with_prompt(prompt)
         if not Path(self._workspace).is_dir():
             raise PrespawnError("workspace is not a directory")
         base = self._base()

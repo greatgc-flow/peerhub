@@ -50,6 +50,8 @@ test suite checks that packaged evidence paths and lesson ids exist (issue refs:
 Four more optional profile keys (0.25.0): `alias_of`, `effort_override`, `suggest` and `measurement`
 (see [model profiles](model-profiles/README.md)). They merge by field like the others and are not binding keys,
 so setting them does not drop the card.
+An alias resolves effort in layer order across its `effort_override`, its `reasoning_effort`, and the
+target profile's `reasoning_effort`. Within one layer, those keys win in that order.
 
 See the [model profile manifest](model-profiles/model-profiles.json) for
 profile IDs, models, efforts, and the refresh procedure, and
@@ -94,15 +96,17 @@ PeerHub prefers a weekly pool when more than one pool qualifies. A reset, uncert
 overlap, or missing pool evidence leaves that interval's delta unknown.
 
 A profile is stale when the effective model or effort differs from its latest measured
-binding. `profile check` flags profiles without a current measurement in 30 days and
+binding. `profile list` still shows the catalog when telemetry cannot be read. It displays
+`unavailable` for stats and uses `null` for `stats.n` and `stats.stale` in JSON.
+`profile check` flags profiles without a current measurement in 30 days and
 models missing from available `codex debug models` or `agy.exe models` output. It skips
 unavailable catalogs. Stats read `docs/benchmarks/suite-v1/results*.jsonl` from the
 workspace when available. A result line uses `profile`, `finished_at` (RFC 3339),
 and the effective `model` and `effort` (`null` for provider defaults).
 
-On an interactive terminal, `ask` prints a receipt on stderr after a call with the same
-per-ask token counts and cache-read percentage.
-Set `PEERHUB_NO_RECEIPT=1` to silence it. JSON and redirected stdout suppress receipts.
+When stderr is a terminal and text output is selected, `ask` prints a receipt with the
+per-ask token counts and cache-read percentage. Alias notices use the same conditions.
+Set `PEERHUB_NO_RECEIPT=1` to silence both.
 Inlined query files over 64 KB produce one warning and are passed in full.
 
 Set these keys in `models.toml` at the same workspace or global scope as profiles.

@@ -20,9 +20,9 @@ API_KINDS = ("ca", "oa", "ga")
 
 
 @pytest.fixture(autouse=True)
-def _fresh_notices(tmp_path, monkeypatch):
+def _fresh_notices(monkeypatch):
     """Isolated global config and a clean once-per-process notice set."""
-    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", "unused-profile-dir")
     profiles.reset_deprecation_notices()
     yield
     profiles.reset_deprecation_notices()
@@ -96,7 +96,24 @@ def test_alias_inspection_reports_resolved_fields_and_the_alias(tmp_path):
 def test_alias_follows_the_target_profile_of_every_layer(tmp_path, monkeypatch):
     ws = _overlay(tmp_path, monkeypatch, '[profiles."cx.effort"]\nmodel = "gpt-x-new"\nreasoning_effort = "low"\n')
     assert resolve_profile("cx", "cx.effort", ws) == ("gpt-x-new", "low")
-    assert resolve_profile("cx", "cx.deepthink", ws) == ("gpt-x-new", "xhigh")
+    assert resolve_profile("cx", "cx.deepthink", ws) == ("gpt-x-new", "low")
+
+
+@pytest.mark.parametrize("local_table, local_key", [
+    ("cx.effort", "reasoning_effort"), ("cx.deepthink", "reasoning_effort"),
+    ("cx.deepthink", "effort_override"),
+])
+def test_workspace_alias_effort_wins_over_lower_layers(monkeypatch, local_table, local_key):
+    packaged = {"profiles": {
+        "cx.effort": {"selection_mode": "pinned", "model": "gpt-test", "reasoning_effort": "high"},
+        "cx.deepthink": {"alias_of": "cx.effort", "effort_override": "xhigh"},
+    }}
+    global_layer = {"profiles": {"cx.deepthink": {"effort_override": "low"}}}
+    workspace = {"profiles": {local_table: {local_key: "medium"}}}
+    layers = [("packaged", packaged), ("global", global_layer), ("workspace", workspace)]
+    monkeypatch.setattr(profiles, "_load_layers", lambda ws: layers)
+    assert resolve_profile("cx", "cx.deepthink", Path.cwd()) == ("gpt-test", "medium")
+    assert inspect_profile("cx.deepthink", Path.cwd())["fields"]["effort"] == {"value": "medium", "source": "workspace"}
 
 
 def test_an_overlay_can_change_the_override(tmp_path, monkeypatch):
@@ -128,7 +145,7 @@ def test_explicit_effort_still_wins_at_ask_time(tmp_path):
 # ---- deprecation line -------------------------------------------------------------------------------------------
 
 def test_using_the_alias_prints_one_stderr_line(tmp_path, capsys):
-    resolve_profile("cx", "cx.deepthink", tmp_path)
+    resolve_profile("cx", "cx.deepthink", tmp_path, notice_alias=True)
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ("peerhub: profile cx.deepthink is deprecated: an alias of cx.effort with effort xhigh; "
@@ -137,17 +154,17 @@ def test_using_the_alias_prints_one_stderr_line(tmp_path, capsys):
 
 def test_the_line_is_printed_once_per_process_and_alias(tmp_path, capsys):
     for _ in range(3):
-        resolve_profile("cx", "cx.deepthink", tmp_path)
+        resolve_profile("cx", "cx.deepthink", tmp_path, notice_alias=True)
     assert capsys.readouterr().err.count("deprecated") == 1
     profiles.reset_deprecation_notices()
-    resolve_profile("cx", "cx.deepthink", tmp_path)
+    resolve_profile("cx", "cx.deepthink", tmp_path, notice_alias=True)
     assert capsys.readouterr().err.count("deprecated") == 1
 
 
 def test_the_ask_target_resolves_through_the_same_line(tmp_path, capsys):
     from peerhub.extensions.adapters.base import CliRuntimeTarget
 
-    CliRuntimeTarget("cx", tmp_path, profile="cx.deepthink")
+    CliRuntimeTarget("cx", tmp_path, profile="cx.deepthink", notice_alias=True)
     assert capsys.readouterr().err.count("cx.deepthink is deprecated") == 1
 
 

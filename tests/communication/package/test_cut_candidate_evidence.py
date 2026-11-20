@@ -27,6 +27,27 @@ TTL = json.loads(RELEASE_POLICY.read_text(encoding="utf-8"))["policy_ttl_seconds
 VERSION = ev.source_version(REPO)
 
 
+@pytest.mark.parametrize("problem", [None, "missing", "mismatched", "stale"])
+def test_candidate_ci_preflight_requires_every_current_exact_sha_report(monkeypatch, capsys, problem):
+    paths = ev.matrix_junit_paths(Path("ci-junit"))
+    changed = paths[-1]
+    monkeypatch.setattr(Path, "is_file", lambda self: self != changed or problem != "missing")
+    monkeypatch.setattr(ev, "_now", lambda: NOW)
+
+    def properties(path):
+        sha = "b" * 40 if path == changed and problem == "mismatched" else SHA
+        time = NOW - timedelta(seconds=TTL + 1) if path == changed and problem == "stale" else NOW
+        return {"gate": "G2", "source_revision": sha, "stamped_at": time.isoformat(),
+                "id": ev.candidate_id({"source_revision": sha})}
+
+    monkeypatch.setattr(ev, "_bound_props", properties)
+    args = ["--verify-ci-junit", "ci-junit", "--commit", SHA, "--release-policy", str(RELEASE_POLICY)]
+    assert ev.main(args) == (0 if problem is None else 1)
+    if problem:
+        err = capsys.readouterr().err
+        assert changed.name in err and problem in err
+
+
 def make_dist(path, payload=b"wheel-bytes"):
     path.mkdir(exist_ok=True)
     (path / f"peerhub-{VERSION}-py3-none-any.whl").write_bytes(payload)
@@ -360,11 +381,18 @@ def workflow_problems(wf):
             bad.append("matrix job must fail closed")
         if "matrix" not in wf["jobs"]["release-evidence"]["needs"] or "junit/g4-matrix-" not in ev_run:
             bad.append("release-evidence must need the matrix job and read its per-cell JUnit files")
-    evj = wf["jobs"]["release-evidence"]
-    ci_steps = [st for st in evj["steps"] if st.get("id") == "candidate-ci"
-                or st.get("with", {}).get("pattern") == "junit-g2-rc-matrix-*"]
-    if (len(ci_steps) != 2 or any(st.get("if") or st.get("continue-on-error") for st in ci_steps)
+    ci = wf["jobs"].get("candidate-ci", {})
+    ci_steps = [st for st in ci.get("steps", []) if st.get("id") == "candidate-ci"
+                or st.get("with", {}).get("pattern") == "junit-g2-rc-matrix-*"
+                or "--verify-ci-junit" in st.get("run", "")]
+    if (len(ci_steps) != 3 or any(st.get("if") or st.get("continue-on-error") for st in ci_steps)
             or ci_steps[1].get("with", {}).get("run-id") != "${{ steps.candidate-ci.outputs.run-id }}"
+            or "--verify-ci-junit" not in ci_steps[2].get("run", "")
+            or "candidate-ci" not in wf["jobs"]["live-validation"]["needs"]):
+        bad.append("live validation must wait for the exact candidate CI run and verified G2 reports")
+    evj = wf["jobs"]["release-evidence"]
+    ci_download = [st for st in evj["steps"] if st.get("with", {}).get("name") == "candidate-ci-junit"]
+    if (len(ci_download) != 1 or any(st.get("if") or st.get("continue-on-error") for st in ci_download)
             or '--ci-junit-dir ci-junit --ci-run-url "$CI_RUN_URL"' not in ev_run):
         bad.append("release evidence must require every G2 report from the validated CI run")
     pub = wf["jobs"]["publish"]
@@ -453,16 +481,18 @@ def _mutate(kind):
     elif kind == "evidence-skips-ci-reports":
         ev_step["run"] = ev_step["run"].replace('--ci-junit-dir ci-junit --ci-run-url "$CI_RUN_URL"', "")
     elif kind in {"ci-fetch-wrong-run", "ci-fetch-continue-on-error"}:
-        st = next(st for st in wf["jobs"]["release-evidence"]["steps"] if "run-id" in st.get("with", {}))
+        st = next(st for st in wf["jobs"]["candidate-ci"]["steps"] if "run-id" in st.get("with", {}))
         if kind == "ci-fetch-wrong-run":
             st["with"]["run-id"] = "${{ github.run_id }}"
         else:
             st["continue-on-error"] = True
+    elif kind == "live-skips-ci-preflight":
+        wf["jobs"]["live-validation"]["needs"].remove("candidate-ci")
     return wf
 
 
 @pytest.mark.parametrize("kind", ["no-release-policy", "g3-self-hosted", "g3-no-presence-check", "g3-fetch-missing-file", "g3-upload-before-fetch",
-                                  "evidence-skips-ci-reports", "ci-fetch-wrong-run", "ci-fetch-continue-on-error",
+                                  "evidence-skips-ci-reports", "ci-fetch-wrong-run", "ci-fetch-continue-on-error", "live-skips-ci-preflight",
                                   "g3-continue-on-error", "stamp-not-always", "g4-stamp-before-build",
                                   "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow", "no-gate-arg",
                                   "publish-always", "publish-no-release-event",

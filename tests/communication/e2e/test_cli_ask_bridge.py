@@ -1,5 +1,6 @@
 """Public ask exercises real Bridge claims/certainty, never the v0 dispatcher."""
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -34,6 +35,50 @@ def test_response_retry_is_idempotent_and_claim_is_released(tmp_path, usage):
         ask(db, "cx", "changed", request_id="req", runtime=other)
     # Immediate next call succeeds: the preceding claim was explicitly released.
     assert ask(db, "cx", "next", runtime=FakeRuntimeTarget())["status"] == "delivered"
+
+
+def test_settled_ask_replays_after_packaged_cx_binding_changes(tmp_path, monkeypatch):
+    from peerhub.extensions.adapters.base import CliRuntimeTarget
+    from peerhub.extensions.adapters import profiles
+
+    db = tmp_path / "core.db"
+    settings = {"selection_mode": "pinned", "model": "gpt-6.1-sol", "reasoning_effort": "high"}
+    local: dict = {}
+    monkeypatch.setattr(profiles, "_load_layers", lambda ws: [
+        ("packaged", {"profiles": {"cx.effort": settings, "cx.standard": settings}}), ("workspace", local),
+    ])
+    previous = CliRuntimeTarget("cx", tmp_path, profile="cx.effort")
+    runtime = FakeRuntimeTarget(fingerprint=previous.fingerprint(), binding=previous.binding())
+    runtime.runtime_kind = "cx"
+    runtime.script_deliver(("started", "exec-1"), ("terminal", {"response": "original answer"}))
+    first = ask(db, "cx", "question", request_id="req", runtime=runtime)
+    runtime.script_deliver(("started", "exec-2"), ("timeout", 1))
+    assert ask(db, "cx", "uncertain", request_id="pending", runtime=runtime)["status"] == "uncertain"
+
+    settings["model"] = "gpt-6.2-sol"
+
+    def no_delivery(*args, **kwargs):
+        pytest.fail("replay must not run the provider")
+
+    monkeypatch.setattr(CliRuntimeTarget, "create_session", no_delivery)
+    monkeypatch.setattr(CliRuntimeTarget, "deliver", no_delivery)
+    options = dict(request_id="req", profile="cx.effort", workspace=tmp_path)
+    replay = ask(db, "cx", "question", **options)
+    assert replay["status"] == "recovered_terminal"
+    for field in ("response", "requested_record_id", "response_record_id", "session"):
+        assert replay[field] == first[field]
+
+    for changed in (dict(fresh=True), dict(model="other"), dict(effort="low"),
+                    dict(writable=True), dict(profile="cx.standard"), dict(workspace=Path(tmp_path).parent)):
+        with pytest.raises(IdempotencyConflictError):
+            ask(db, "cx", "question", **(options | changed))
+    with pytest.raises(IdempotencyConflictError):
+        ask(db, "cx", "different question", **options)
+    with pytest.raises(IdempotencyConflictError):
+        ask(db, "cx", "uncertain", **(options | {"request_id": "pending"}))
+    local["profiles"] = {"cx.effort": {"model": "gpt-local"}}
+    with pytest.raises(IdempotencyConflictError):
+        ask(db, "cx", "question", **options)
 
 
 def test_uncertain_retry_never_spawns_again(tmp_path):

@@ -371,9 +371,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--release-policy", type=Path, default=None, help="repo-owned release policy with policy_ttl_seconds (required with --candidate)")
     ap.add_argument("--ci-junit-dir", type=Path, help="download directory for the ten candidate CI artifacts")
     ap.add_argument("--ci-run-url", help="URL of the validated candidate CI run")
+    ap.add_argument("--verify-ci-junit", type=Path, help="verify the ten downloaded candidate CI reports and exit")
     ap.add_argument("--stamp-junit", type=Path, action="append", default=None,
                     help="bind this JUnit file to the candidate inputs (needs --commit; repeatable) and exit; a missing file is skipped with a warning")
     a = ap.parse_args(argv)
+    if a.verify_ci_junit is not None:
+        if not a.commit or not re.fullmatch(r"[0-9a-f]{40}", a.commit) or a.release_policy is None:
+            ap.error("--verify-ci-junit requires a full --commit SHA and --release-policy")
+        try:
+            bindings = assess_evidence(matrix_junit_paths(a.verify_ci_junit),
+                                       candidate_fields(commit=a.commit, package_sha256=[]),
+                                       *load_release_policy(a.release_policy), _now())
+        except (ValueError, OSError, ET.ParseError) as e:
+            ap.error(str(e))
+        invalid = [b for b in bindings if b["status"] != "accepted" or b["scope"] != "source"]
+        for b in invalid:
+            print(f"{b['file']}: {b['status']} ({b['scope']}): {b['reason']}", file=sys.stderr)
+        return 1 if invalid else 0
     if a.stamp_junit is not None:
         if not a.commit or not a.gate:
             ap.error("--stamp-junit requires --commit and --gate")

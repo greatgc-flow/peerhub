@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.extensions.adapters import api
-from peerhub.extensions.adapters.base import CliRuntimeTarget, ProcessResult
+from peerhub.extensions.adapters.base import MAX_PROMPT_BYTES, CliRuntimeTarget, CxSpec, PrespawnError, ProcessResult
 from peerhub.extensions.catchup import ProjectedRecords
 from peerhub.extensions.mcp import MCPServer
 
@@ -34,6 +34,25 @@ def test_catch_up_prompt_preamble(history, truncated):
         (4, "r4", "user", "first record", "first request"),
         (8, "r8", "other", "second record", "second request"),
     )
+
+
+@pytest.mark.parametrize("extra_bytes", [0, 1])
+def test_catch_up_preamble_is_optional_at_the_transport_limit(monkeypatch, extra_bytes):
+    target = CliRuntimeTarget("cx", Path.cwd())
+    history = [SimpleNamespace(position=1, record_id="r1", author_peer_id="user", kind="prompt", body="first")]
+    prefix = "[1 r1 user prompt] first\n\n"
+    # A multibyte final request pins the limit in bytes, independent of character count.
+    current = "é" + "x" * (MAX_PROMPT_BYTES - len(prefix) - 2 + extra_bytes)
+
+    def capture_argv(self, model, effort, prompt, writable, session):
+        assert prompt == prefix + current
+        raise PrespawnError("captured transport prompt")
+
+    monkeypatch.setattr(target, "_base", lambda: ["unused"])
+    monkeypatch.setattr(CxSpec, "argv", capture_argv)
+    expected = "captured transport prompt" if not extra_bytes else f"exceeding the cx inline limit of {MAX_PROMPT_BYTES} bytes"
+    with pytest.raises(PrespawnError, match=expected):
+        list(target.deliver("session", SimpleNamespace(body=current), history))
 
 
 def test_mcp_agent_context_prompt_preamble():

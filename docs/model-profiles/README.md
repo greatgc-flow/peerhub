@@ -24,8 +24,8 @@ All four are optional; the loader checks their format in every layer (an invalid
 
 | Key | Values | Default | Meaning |
 |---|---|---|---|
-| `alias_of` | `<peer>.<name>` of a profile of the same peer | unset | The profile is a deprecated alias: it takes the binding (`selection_mode`, `model`, `reasoning_effort`, `pools`) of that profile, one level, no chains; its own keys override. Using it prints one stderr line per process. The card is the alias's own. |
-| `effort_override` | nonempty string | unset | The effort of an alias (needs `alias_of`). |
+| `alias_of` | `<peer>.<name>` of a profile of the same peer | unset | The profile takes its target's binding (`selection_mode`, `model`, `reasoning_effort`, `pools`) as defaults. Aliases resolve one level. The card is the alias's own. A text `ask` on a stderr terminal prints one notice per alias and process unless `PEERHUB_NO_RECEIPT=1`. |
+| `effort_override` | nonempty string | unset | Effort for an alias. Higher layers win across this key and `reasoning_effort`. |
 | `suggest` | `true` / `false` | `true` | `false` = never recommended automatically (explicit use still works). |
 | `measurement` | `measured` / `unmeasured` | `measured` | `unmeasured` = no recorded measurement for the model id (the API peers `ca`, `oa` and `ga` until each has one). |
 

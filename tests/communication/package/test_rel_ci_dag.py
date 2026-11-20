@@ -262,9 +262,9 @@ def test_rel_006_every_blocking_gate_in_release_gates_json_maps_to_a_job_in_publ
     for job in clo:  # no bypass anywhere in the closure or on publish itself
         assert not _bypass(wf["jobs"][job]), f"{job}: continue-on-error/always() bypass"
     assert not _bypass(wf["jobs"]["publish"])
-    assert closure(wf, "publish") == {"verify", "live-validation", "build", "matrix", "release-evidence"}
+    assert closure(wf, "publish") == {"verify", "candidate-ci", "live-validation", "build", "matrix", "release-evidence"}
     assert _needs(wf["jobs"]["verify"]) == []
-    assert _needs(wf["jobs"]["live-validation"]) == ["verify"]
+    assert set(_needs(wf["jobs"]["live-validation"])) == {"verify", "candidate-ci"}
     assert _needs(wf["jobs"]["build"]) == ["verify"]
     # G0/G1/G2/G7 now share a job; their success jointly gates downstream evidence.
     for g in ("G3", "G4", "G5"):
@@ -332,7 +332,7 @@ def test_rel_006_publish_evidence_job_runs_the_release_evidence_tool_over_every_
 
 def test_rel_006_verify_runs_the_same_gate_selections_sequentially_without_providers():
     wf = _wf("publish.yml")
-    assert set(wf["jobs"]) == {"verify", "live-validation", "build", "matrix", "release-evidence", "publish"}
+    assert set(wf["jobs"]) == {"verify", "candidate-ci", "live-validation", "build", "matrix", "release-evidence", "publish"}
     verify = wf["jobs"]["verify"]
     assert _needs(verify) == []
     runs = [step["run"] for step in verify["steps"] if "run" in step]
