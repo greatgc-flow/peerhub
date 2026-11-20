@@ -8,6 +8,12 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.28] - 2026-11-20
+
+### Fixed
+
+- `peerhub monitor` now draws on the terminal's alternate screen (like `top`) and restores the screen on exit. In the VS Code terminal the pinned command line (sticky scroll) covered the first line (`ATTN`) of the live frame; there is no command line on the alternate screen (#410).
+
 ## [0.24.27] - 2026-11-19
 
 ### Fixed

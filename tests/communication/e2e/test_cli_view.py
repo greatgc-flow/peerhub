@@ -191,7 +191,8 @@ def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkey
         # Absolute row positions keep a wrapped rule from shifting all later rows.
         sink.write("ATTN 4\n" + "\n".join(["─" * 79] * 5) + "\nDB:env\n")
         first = output.getvalue()
-        assert first.startswith("\x1b[?25l\x1b[H\x1b[2J\x1b[1;1HATTN 4")
+        # The alternate screen: no command line above the frame, so a pinned command cannot cover ATTN.
+        assert first.startswith("\x1b[?1049h\x1b[?25l\x1b[H\x1b[2J\x1b[1;1HATTN 4")
         assert "\x1b[7;1HDB:env\x1b[K\x1b[J" in first
         assert "\r" not in first and "\n" not in first
         for row in range(2, 7):
@@ -413,3 +414,24 @@ def test_header_korean_filename_does_not_split():
     assert header[-1].endswith("(explicit)")
     assert any("D:/workspace/한국어.db" in line for line in header)
     assert all(visible_len(line) <= 45 for line in header)
+
+
+def test_frame_output_leaves_the_alternate_screen_on_close_only_for_anchored_frames(monkeypatch):
+    import io
+    from peerhub.cli.view import FrameOutput
+
+    class Output(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setenv("TERM", "xterm")
+    for anchored in (True, False):
+        output = Output()
+        monkeypatch.setattr("sys.stdout", output)
+        sink = FrameOutput(anchor_rows=anchored)
+        sink.write("ATTN 1\n")
+        sink.close()
+        text = output.getvalue()
+        assert ("\x1b[?1049h" in text) is anchored and ("\x1b[?1049l" in text) is anchored
+        assert text.endswith("\x1b[0m\x1b[?25h")
