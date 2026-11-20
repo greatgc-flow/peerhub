@@ -123,6 +123,7 @@ peerhub monitor defaults reset   # saved before 0.24.16? reset to get the new `a
 peerhub ask cc "Explain the Core Peer, Stream, Record and Offset flow" --stream learning --request-id learning-001 --profile cc.standard --json
 
 # Inspect stored profile measurements and installed model catalogs.
+peerhub profile stats
 peerhub profile stats --json
 peerhub profile check
 

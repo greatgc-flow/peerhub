@@ -18,7 +18,7 @@ from peerhub.core.schema_version import SchemaVersionError
 from peerhub.core.store import storage_errors
 from peerhub.extensions.quota_probes import real_command, resolve_sys_dir
 from peerhub.extensions.schema_guard import refuse_future_schema
-from peerhub.extensions.session_receipts import ASK_RECORD, ask_tokens, install_ask_metrics, json_object
+from peerhub.extensions.session_receipts import ASK_RECORD, ask_delivery_tokens, install_ask_metrics, json_object
 
 
 OUTCOMES = ("accepted", "rejected", "retried")
@@ -58,6 +58,7 @@ def _ask_rows(conn: sqlite3.Connection, ask_id: str | None) -> Iterable[sqlite3.
     if columns:
         joins.append("LEFT JOIN bridge_deliveries d ON d.delivery_id=(SELECT delivery_id FROM bridge_deliveries "
                      "WHERE record_id=r.record_id AND peer_id=json_extract(r.targets_json,'$[0]') ORDER BY attempt DESC LIMIT 1)")
+    fields.append("d.delivery_id AS delivery_id" if "session_handle" in columns else "NULL AS delivery_id")
     fields.append("d.session_snapshot_json AS session" if "session_snapshot_json" in columns else "NULL AS session")
     fields.append("d.terminal_at AS terminal_at" if columns else "NULL AS terminal_at")
     if columns and "bridge_evidence" in tables:
@@ -109,7 +110,7 @@ def ask_measurements(db: str, ask_id: str | None = None) -> Iterable[dict[str, A
             profile, model, effort = _binding(row["binding"])
             session = json_object(row["session"])
             telemetry = json_object(row["telemetry"])
-            tokens = ask_tokens(telemetry)
+            tokens = ask_delivery_tokens(conn, row["delivery_id"], telemetry)
             elapsed = json_object(row["terminal"]).get("peerhub_timing", {}).get("elapsed_ns")
             stamp = (_timestamp(row["terminal_at"]) or _timestamp(telemetry.get("observed_at"))
                      or _timestamp(row["created_at"]))
@@ -125,9 +126,11 @@ def aggregate_profile(rows: list[dict[str, Any]]) -> dict[str, Any]:
     accepted = outcome_counts["accepted"]
     cache_rows = [r for r in rows if r.get("cache_read_pct") is not None]
     deltas = observed["pool_delta_pp"]
+    tokens_measured = sum(row.get("input_tokens") is not None and row.get("output_tokens") is not None for row in rows)
     return {
         "n": len(rows),
         "coverage_pct": {metric: 100 * len(values) / len(rows) if rows else None for metric, values in observed.items()},
+        "token_coverage_pct": 100 * tokens_measured / len(rows) if rows else None,
         "p50_wall_seconds": median(observed["wall_seconds"]) if observed["wall_seconds"] else None,
         "cache_read_pct": cache_share(sum(r["cache_read_tokens"] for r in cache_rows), sum(r["prompt_tokens"] for r in cache_rows)),
         "tokens_per_ask": {m: sum(observed[m]) / len(observed[m]) if observed[m] else None for m in TOKEN_METRICS},
@@ -244,23 +247,52 @@ def metric_cell(value: int | float | None, suffix: str = "") -> str:
     return f"{value:.3f}".rstrip("0").rstrip(".") + suffix
 
 
+def _duration_cell(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+    minutes, remaining_seconds = divmod(round(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    if minutes:
+        return f"{minutes}m{remaining_seconds:02d}s"
+    return f"{remaining_seconds}s"
+
+
+def _tokens_cell(tokens: float | None) -> str:
+    if tokens is None:
+        return "-"
+    if round(tokens / 1000) >= 1000:
+        return f"{round(tokens / 1_000_000)}M"
+    if round(tokens) >= 1000:
+        return f"{round(tokens / 1000)}k"
+    return str(round(tokens))
+
+
+def _percent_cell(value: float | None) -> str:
+    return "-" if value is None else f"{round(value)}%"
+
+
 def render_profile_stats(stats: list[dict[str, Any]]) -> str:
-    lines: list[str] = []
+    from peerhub.cli.view import format_text_cell, visible_len
+
+    if not stats:
+        return "(no profiles)"
+    rows = [("PROFILE", "N", "P50", "CACHE%", "IN/ASK", "OUT/ASK", "POOL/ACC", "BENCH", "STALE", "TOK%")]
     for row in stats:
-        wall = metric_cell(row["p50_wall_seconds"], "s")
-        cache = metric_cell(row["cache_read_pct"], "%")
-        tokens = "/".join(metric_cell(row["tokens_per_ask"][key]) for key in TOKEN_METRICS)
-        pool = metric_cell(row["pool_pct_per_accepted_answer"], "pp")
-        state = " stale" if row["stale"] else ""
-        if row["measurement"] == "unmeasured":
-            state += " unmeasured"
-        lines.append(f"{row['profile']} | n={row['n']}{state} | p50 {wall} | cache read {cache} | "
-                     f"tokens in/out/read/write/prompt {tokens} | pool/accepted {pool} | benchmark {row['last_benchmark_run'] or '-'}")
-        if row["n"]:
-            coverage = " ".join(f"{key.removesuffix('_tokens')}={metric_cell(value, '%')}"
-                                for key, value in row["coverage_pct"].items())
-            lines.append(f"  Coverage {coverage}")
-    return "\n".join(lines) or "(no profiles)"
+        tokens = row["tokens_per_ask"]
+        rows.append((row["profile"], str(row["n"]), _duration_cell(row["p50_wall_seconds"]),
+                     _percent_cell(row["cache_read_pct"]), _tokens_cell(tokens["input_tokens"]),
+                     _tokens_cell(tokens["output_tokens"]), metric_cell(row["pool_pct_per_accepted_answer"], "pp"),
+                     (row["last_benchmark_run"] or "-")[:10], "yes" if row["stale"] else "-",
+                     _percent_cell(row["token_coverage_pct"])))
+    widths = [max(map(visible_len, column)) for column in zip(*rows)]
+    profile_width = min(widths[0], 119 - sum(widths[1:]) - 2 * (len(widths) - 1))
+    return "\n".join(
+        "  ".join([format_text_cell(name, profile_width),
+                   *(cell.rjust(width) for cell, width in zip(cells, widths[1:]))])
+        for name, *cells in rows
+    )
 
 
 def ask_receipt(args: argparse.Namespace, result: Mapping[str, Any]) -> str:

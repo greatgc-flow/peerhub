@@ -1,4 +1,5 @@
 """M2 ask metrics exercised with SQLite and scripted provider evidence."""
+from argparse import Namespace
 import json
 import sqlite3
 from contextlib import closing
@@ -13,7 +14,7 @@ from tests.communication.fakes import FakeRuntimeTarget
 
 
 def test_reported_zero_is_different_from_absent_usage():
-    args = {"provider_kind": "cc", "usage": {"coverage": {"state": "MEASURED"}, "normalized": {
+    args = {"provider_kind": "cc", "usage": {"scope": "delivery", "coverage": {"state": "MEASURED"}, "normalized": {
         "uncached_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 0}}}
     assert session_receipts.ask_tokens(args) == {
         "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
@@ -70,6 +71,135 @@ def old_bridge():
                      "VALUES ('ask-id','s',1,'user','prompt','[\"cx\"]',?, 'ask:request','digest','1970-01-01T00:00:19Z','1970-01-01T00:00:19Z')",
                      (json.dumps({"runtime_kind": "cx", "binding": "cx.standard/gpt-6-luna/low"}),))
         yield conn
+
+
+@pytest.fixture
+def recorded_usage(old_bridge, monkeypatch):
+    from peerhub.cli import profile_stats
+    from peerhub.extensions.usage_normalization import normalize_provider_usage
+
+    conn = old_bridge
+    # A return to an older retained handle must use its own previous delivery.
+    for position, handle, scope, counters in (
+        (1, "original", "session_cumulative", (100_000, 1000, 20_000)),
+        (2, "original", "session_cumulative", (130_000, 1500, 29_000)),
+        (3, "other", "session_cumulative", (80_000, 200, 10_000)),
+        (4, "original", "session_cumulative", (160_000, 2000, 38_000)),
+        (5, "original", "session_cumulative", (10_000, 50, 1000)),
+        (6, "original", "session_cumulative", (210_000, 100, 1000)),
+        (7, "original", "session_cumulative", None),
+        (8, "original", "session_cumulative", (240_000, 200, 2000)),
+        (9, "api", "delivery", (4_000, 0, None)),
+        (10, "original", "session_cumulative", None),
+        (11, "api", "delivery", None),
+    ):
+        ask_id = "ask-id" if position == 1 else f"ask-{position}"
+        if scope == "delivery":
+            provider, binding = "oa", "oa.standard/api-model/default"
+        else:
+            provider, binding = "cx", "cx.standard/gpt-6-luna/low"
+        if position > 1:
+            conn.execute(
+                "INSERT INTO records (record_id,stream_id,position,author_peer_id,kind,targets_json,metadata_json,"
+                "idempotency_key,payload_digest,created_at,appended_at) "
+                "VALUES (?,'s',?,'user','prompt',?,?,?,'digest','2026-11-20T00:00:00Z','2026-11-20T00:00:00Z')",
+                (ask_id, position, json.dumps([provider]), json.dumps({"runtime_kind": provider, "binding": binding}), f"ask:{position}"),
+            )
+        delivery_id = f"d{position}"
+        conn.execute(
+            "INSERT INTO bridge_deliveries(delivery_id,seq,stream_id,peer_id,record_id,record_position,attempt,certainty,"
+            "claim_generation,session_handle,session_snapshot_json) VALUES (?,?,'s',?,?,?,1,'NOT_STARTED',1,?,?)",
+            (delivery_id, position, provider, ask_id, position, handle, json.dumps({"mode": "resumed"})),
+        )
+        if position < 10:
+            conn.execute("UPDATE bridge_deliveries SET certainty='STARTED' WHERE delivery_id=?", (delivery_id,))
+            conn.execute("UPDATE bridge_deliveries SET certainty='TERMINAL' WHERE delivery_id=?", (delivery_id,))
+        if counters is not None:
+            reported = {key: value for key, value in zip(("input_tokens", "output_tokens", "cached_input_tokens"), counters)
+                        if value is not None}
+            detail = {"provider_kind": provider, "usage": {"scope": scope, "coverage": {"state": "MEASURED"},
+                                                          "normalized": normalize_provider_usage(provider, reported)}}
+            conn.execute("INSERT INTO bridge_evidence(delivery_id,stream_id,peer_id,kind,certainty,detail) "
+                         "VALUES (?,'s',?,'session_telemetry','TERMINAL',?)", (delivery_id, provider, json.dumps(detail)))
+    conn.commit()
+
+    def read_copy(path, *, readonly):
+        copy = sqlite3.connect(":memory:")
+        conn.backup(copy)
+        return copy
+
+    monkeypatch.setattr(profile_stats, "create_connection", read_copy)
+    monkeypatch.setattr(profile_stats, "refuse_future_schema", lambda path: None)
+    return conn
+
+
+def test_stats_and_receipts_use_per_ask_token_deltas(recorded_usage, capsys):
+    from peerhub.cli.profile_stats import ask_measurements, ask_receipt
+
+    rows = {row["ask_id"]: row for row in ask_measurements(__file__)}
+    assert [(rows[ask_id]["input_tokens"], rows[ask_id]["output_tokens"], rows[ask_id]["cache_read_pct"])
+            for ask_id in ("ask-id", "ask-2", "ask-3", "ask-4", "ask-5", "ask-6", "ask-8", "ask-9")] == [
+        (None, None, None), (30_000, 500, 30), (None, None, None), (30_000, 500, 30),
+        (None, None, None), (200_000, 50, 0), (None, None, None), (4000, 0, None),
+    ]
+    args = Namespace(db=__file__, profile=None)
+    assert "tokens 30000/500/30%" in ask_receipt(args, {"requested_record_id": "ask-4"})
+    for ask_id in ("ask-id", "ask-5"):
+        assert "tokens -/-/-" in ask_receipt(args, {"requested_record_id": ask_id})
+    assert "tokens 4000/0/-" in ask_receipt(args, {"requested_record_id": "ask-9"})
+    assert main(["--db", __file__, "profile", "stats", "--json"]) == 0
+    stats = {row["profile"]: row for row in json.loads(capsys.readouterr().out)["profiles"]}
+    assert stats["cx.standard"]["tokens_per_ask"]["input_tokens"] == pytest.approx(260_000 / 3)
+    assert stats["cx.standard"]["coverage_pct"]["input_tokens"] == pytest.approx(100 / 3)
+    assert stats["cx.standard"]["token_coverage_pct"] == pytest.approx(100 / 3)
+    assert stats["oa.standard"]["tokens_per_ask"]["output_tokens"] == 0
+
+
+def test_resumed_budget_uses_selected_session_per_ask_prompt(recorded_usage):
+    for delivery, expected in (("d2", False), ("d4", False), ("d5", False), ("d6", False),
+                               ("d7", True), ("d10", False), ("d11", True)):
+        limit = {"d2": 90_000, "d11": 4000}.get(delivery, 128_000)
+        assert session_receipts.resumed_ask_budget(recorded_usage, delivery, (limit, 12)) is expected, delivery
+    recorded_usage.execute("INSERT INTO bridge_session_monitor_stats(session_handle,reuse_count,counts_complete,binding_json) "
+                           "VALUES ('original',12,1,'{}')")
+    assert session_receipts.resumed_ask_budget(recorded_usage, "d2", (128_000, 12))
+    assert not session_receipts.resumed_ask_budget(recorded_usage, "d5", (128_000, 12))
+
+
+def test_profile_stats_text_is_a_compact_table(monkeypatch, capsys):
+    from peerhub.cli import profile_stats
+    from peerhub.cli.view import visible_len
+
+    def profile(name, n, wall, cache, tokens_in, tokens_out, pool, bench, stale, coverage):
+        return dict(profile=name, n=n, p50_wall_seconds=wall, cache_read_pct=cache,
+                    tokens_per_ask=dict.fromkeys(profile_stats.TOKEN_METRICS) | {
+                        "input_tokens": tokens_in, "output_tokens": tokens_out},
+                    pool_pct_per_accepted_answer=pool, last_benchmark_run=bench, stale=stale,
+                    coverage_pct={"input_tokens": 100 if n else None, "output_tokens": coverage}, measurement="measured",
+                    token_coverage_pct=coverage)
+
+    rows = [
+        profile("cx.astra", 3, 10.6, 89.8, 30_120.7, 500.7, 0.25, "2026-11-20T00:00:00Z", False, 200 / 3),
+        profile("cx.deepthink", 2, 189.7, None, 1_800_000.5, None, None, None, True, 0),
+        profile("oa.standard", 0, None, None, None, None, None, None, False, None),
+    ]
+    monkeypatch.setattr(profile_stats, "read_profile_stats", lambda db, workspace, profiles: rows)
+    assert main(["profile", "stats"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert max(map(len, lines)) < 120
+    assert [line.split() for line in lines] == [
+        ["PROFILE", "N", "P50", "CACHE%", "IN/ASK", "OUT/ASK", "POOL/ACC", "BENCH", "STALE", "TOK%"],
+        ["cx.astra", "3", "11s", "90%", "30k", "501", "0.25pp", "2026-11-20", "-", "67%"],
+        ["cx.deepthink", "2", "3m10s", "-", "2M", "-", "-", "-", "yes", "0%"],
+        ["oa.standard", "0", "-", "-", "-", "-", "-", "-", "-", "-"],
+    ]
+    assert main(["profile", "stats", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["profiles"] == rows
+    rows[0]["profile"] = "cx." + "測" * 70
+    assert main(["profile", "stats"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 4
+    assert max(map(visible_len, lines)) < 120
 
 
 def test_old_bridge_read_and_additive_outcome_migration(old_bridge):
@@ -178,11 +308,17 @@ def test_stream_budget_warning_precedes_only_a_resumed_invocation(tmp_path, monk
                    on_stream_budget=lambda: events.append("warning"))
     assert ask(prompt="first", **options)["session"]["mode"] == "fresh"
     assert events == []
-    runtime.script_deliver(("call", lambda: events.append("invoked")), ("started", "second"), ("terminal", {"response": "ok"}))
+    usage = parse_provider_usage("cx", '{"type":"turn.completed","usage":{"input_tokens":256000,"cached_input_tokens":0}}')
+    runtime.script_deliver(("call", lambda: events.append("invoked")), ("started", "second"), ("terminal", {
+        "response": "ok", "provider_telemetry": usage,
+    }))
     assert ask(prompt="second", **options)["session"]["mode"] == "resumed"
-    assert events == ["warning", "invoked"]
-    assert ask(prompt="third", fresh=True, **options)["session"]["mode"] == "fresh"
-    assert events == ["warning", "invoked"]
+    assert events == ["invoked"]
+    runtime.script_deliver(("call", lambda: events.append("invoked")), ("started", "third"), ("terminal", {"response": "ok"}))
+    assert ask(prompt="third", **options)["session"]["mode"] == "resumed"
+    assert events == ["invoked", "warning", "invoked"]
+    assert ask(prompt="fourth", fresh=True, **options)["session"]["mode"] == "fresh"
+    assert events == ["invoked", "warning", "invoked"]
 
 
 def test_profile_check_uses_catalog_evidence_and_measurement_age(monkeypatch, capsys):

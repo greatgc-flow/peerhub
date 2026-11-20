@@ -133,11 +133,11 @@ def json_object(raw: str | None) -> dict[str, Any]:
     return cast(dict[str, Any], value) if isinstance(value, dict) else {}
 
 
-def ask_tokens(telemetry: Mapping[str, Any]) -> dict[str, int | None]:
+def _token_counts(telemetry: Mapping[str, Any]) -> dict[str, int | None]:
     usage = telemetry.get("usage", {})
     normalized: dict[str, int] = usage.get("normalized", {}) if usage.get("coverage", {}).get("state") == "MEASURED" else {}
     cc = telemetry.get("provider_kind") == "cc"
-    return {
+    counts = {
         "input_tokens": normalized.get("uncached_input_tokens" if cc else "provider_input_tokens"),
         "output_tokens": normalized.get("output_tokens"),
         "cache_read_tokens": normalized.get("cache_read_input_tokens" if cc else "cached_input_tokens"),
@@ -146,6 +146,58 @@ def ask_tokens(telemetry: Mapping[str, Any]) -> dict[str, int | None]:
         # input already includes cached input, so adding it again would double count.
         "prompt_tokens": normalized.get("provider_input_tokens"),
     }
+    return {key: value if type(value) is int and value >= 0 else None for key, value in counts.items()}
+
+
+def ask_tokens(
+    telemetry: Mapping[str, Any], previous: Mapping[str, Any] | None = None,
+) -> dict[str, int | None]:
+    """Convert measured delivery evidence into counters attributable to one ask."""
+    scope = telemetry.get("usage", {}).get("scope")
+    counts = _token_counts(telemetry)
+    if scope == "delivery":
+        return counts
+    if (scope != "session_cumulative" or previous is None
+            or previous.get("usage", {}).get("scope") != scope
+            or previous.get("provider_kind") != telemetry.get("provider_kind")):
+        return dict.fromkeys(counts)
+    baseline = _token_counts(previous)
+    deltas: dict[str, int | None] = {}
+    for key, value in counts.items():
+        prior = baseline[key]
+        deltas[key] = value - prior if value is not None and prior is not None and value >= prior else None
+    if telemetry.get("provider_kind") == "cc":
+        # A reset in a component can be masked by growth in the total prompt counter.
+        if any(deltas[key] is None for key in ("input_tokens", "cache_read_tokens", "cache_write_tokens")):
+            deltas["prompt_tokens"] = None
+    return deltas
+
+
+def _previous_session_delivery(conn: sqlite3.Connection, delivery_id: str) -> str | None:
+    row = conn.execute(
+        "SELECT p.delivery_id FROM bridge_deliveries d JOIN bridge_deliveries p "
+        "ON p.session_handle=d.session_handle AND p.stream_id=d.stream_id AND p.peer_id=d.peer_id AND p.seq<d.seq "
+        "WHERE d.delivery_id=? ORDER BY p.seq DESC LIMIT 1",
+        (delivery_id,)).fetchone()
+    return row[0] if row else None
+
+
+def _delivery_telemetry(conn: sqlite3.Connection, delivery_id: str | None) -> dict[str, Any]:
+    if delivery_id is None:
+        return {}
+    row = conn.execute(
+        "SELECT detail FROM bridge_evidence WHERE delivery_id=? AND kind='session_telemetry' ORDER BY seq DESC LIMIT 1",
+        (delivery_id,)).fetchone()
+    return json_object(row[0] if row else None)
+
+
+def ask_delivery_tokens(
+    conn: sqlite3.Connection, delivery_id: str | None, telemetry: Mapping[str, Any],
+) -> dict[str, int | None]:
+    previous = None
+    if delivery_id is not None and telemetry.get("usage", {}).get("scope") == "session_cumulative":
+        previous = _delivery_telemetry(conn, _previous_session_delivery(conn, delivery_id))
+    return ask_tokens(telemetry, previous)
 
 
 def stream_budget_exceeded(prompt_tokens: int | None, turns: int | None, limits: tuple[int, int]) -> bool:
@@ -155,18 +207,13 @@ def stream_budget_exceeded(prompt_tokens: int | None, turns: int | None, limits:
 
 def resumed_ask_budget(conn: sqlite3.Connection, delivery_id: str, limits: tuple[int, int]) -> bool:
     row = conn.execute(
-        "SELECT d.record_position,d.stream_id,d.peer_id,d.session_snapshot_json,s.reuse_count "
+        "SELECT d.session_snapshot_json,s.reuse_count "
         "FROM bridge_deliveries d LEFT JOIN bridge_session_monitor_stats s ON s.session_handle=d.session_handle "
         "WHERE d.delivery_id=?", (delivery_id,)).fetchone()
     if row is None or json_object(row["session_snapshot_json"]).get("mode") != "resumed":
         return False
-    previous = conn.execute(
-        "SELECT e.detail FROM records r LEFT JOIN bridge_deliveries d ON d.delivery_id=("
-        "SELECT delivery_id FROM bridge_deliveries WHERE record_id=r.record_id AND peer_id=? ORDER BY attempt DESC LIMIT 1) "
-        "LEFT JOIN bridge_evidence e ON e.delivery_id=d.delivery_id AND e.kind='session_telemetry' "
-        f"WHERE r.stream_id=? AND r.position<? AND {ASK_RECORD} ORDER BY r.position DESC LIMIT 1",
-        (row["peer_id"], row["stream_id"], row["record_position"])).fetchone()
-    prompt_tokens = ask_tokens(json_object(previous[0] if previous is not None else None))["prompt_tokens"]
+    previous = _previous_session_delivery(conn, delivery_id)
+    prompt_tokens = ask_delivery_tokens(conn, previous, _delivery_telemetry(conn, previous))["prompt_tokens"]
     return stream_budget_exceeded(prompt_tokens, row["reuse_count"], limits)
 
 

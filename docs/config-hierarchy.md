@@ -62,18 +62,26 @@ Keep credentials with the vendor CLI's authentication mechanism.
 ask prompt with a named profile counts once, including asks without a measurement.
 The latest delivery attempt supplies the measurement. Model and effort come from the
 stored binding, session mode from the accepted session, and wall time from the fenced
-start and terminal timing. Token counters come from each delivery's provider report.
+start and terminal timing. Token counters come from each delivery's provider telemetry.
 The existing `bridge_session_history.usage_json` stores the session's latest usage.
 `bridge_session_usage_coverage_*` and `bridge_session_latency_daily` roll up monitor
 metrics by stream and peer. Profile stats use the underlying delivery evidence, and
 quota readings come from the existing `observations` table. The additive migration
 installs only the outcome history and attributable quota deltas.
-Some CLI reports have session scope and can include earlier work. The stats average the
-reported counters over asks that reported each metric. Missing values are `null` in JSON
-and `-` in text. Reported zero counts toward coverage. Cache-read percentage divides the
-sum of cache reads by total prompt tokens over asks with both counters and a positive
-prompt total. Claude reports fresh input separately from its cache counters. The p50
-uses measured wall times.
+Delivery-scoped counters apply directly to the ask. For session-cumulative counters,
+PeerHub subtracts the previous delivery's values for the same stream, peer, and session
+handle. A counter is unknown when either value is missing or the current value is lower,
+as can happen after compaction. Stats average each metric over asks with an attributable
+value. Zero counts toward coverage. Cache-read percentage divides the sum of per-ask
+cache reads by total prompt tokens over asks with both counters and a positive prompt
+total. Claude reports fresh input separately from its cache counters. The p50 uses
+measured wall times.
+
+The text table shows one row per profile, with compact durations, rounded input and output
+averages (using `k` and `M`), and the latest benchmark date. `TOK%` is the share of asks
+with both input and output counts. Missing values appear as `-`. JSON retains the
+per-metric coverage and full measurement values, with `null` for unknowns and
+`token_coverage_pct` for the table's token coverage.
 
 Outcomes start as `unknown`. `peerhub outcome <ask-id> accepted|rejected|retried`
 appends a correction. The ask ID is `requested_record_id` in `ask --json` and the
@@ -92,7 +100,8 @@ unavailable catalogs. Stats read `docs/benchmarks/suite-v1/results*.jsonl` from 
 workspace when available. A result line uses `profile`, `finished_at` (RFC 3339),
 and the effective `model` and `effort` (`null` for provider defaults).
 
-On an interactive terminal, `ask` prints a receipt on stderr after a call.
+On an interactive terminal, `ask` prints a receipt on stderr after a call with the same
+per-ask token counts and cache-read percentage.
 Set `PEERHUB_NO_RECEIPT=1` to silence it. JSON and redirected stdout suppress receipts.
 Inlined query files over 64 KB produce one warning and are passed in full.
 
@@ -105,8 +114,9 @@ prompt_tokens = 128000
 resumed_turns = 12
 ```
 
-Before a resumed ask, PeerHub checks the stream's previous ask for total prompt tokens
-(fresh input, cache reads, and cache writes). If that total is unreported, PeerHub checks
-how many resumed calls the selected session has already had. Reaching either applicable
+Before a resumed ask, PeerHub checks the previous delivery in the selected session for
+per-ask prompt tokens (fresh input, cache reads, and cache writes), using the same
+scope and delta rules as stats. If the previous ask's prompt total is unknown, PeerHub
+checks how many resumed calls the selected session has already had. Reaching either applicable
 threshold prints one warning with a fresh-stream command and a handoff checklist. The
 ask proceeds with the selected session.

@@ -8,6 +8,11 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- Profile stats, terminal ask receipts, and stream budget warnings use per-ask token counts. Session-cumulative counters contribute deltas from the previous delivery of the same session. A missing baseline or a counter reset leaves that metric unknown.
+- `peerhub profile stats` prints a compact table with token coverage and rounded token counts. `--json` retains the full measurements and per-metric coverage.
+
 ### Added
 
 - `peerhub outcome <ask-id> accepted|rejected|retried` appends an outcome correction in the selected SQLite store. `peerhub profile stats [--json]` reports ask counts, per-metric coverage, reported usage, wall time, quota deltas per accepted answer, and measurement freshness. `peerhub profile check` checks model IDs against installed Codex and agy catalogs when available and flags profiles without a current measurement in 30 days.

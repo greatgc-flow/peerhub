@@ -200,6 +200,11 @@ def _pad(text: str, width: int) -> str:
     return text + " " * max(0, width - visible_len(text))
 
 
+def format_text_cell(text: str, width: int) -> str:
+    """Fit a data label to a fixed number of terminal columns."""
+    return _pad(_ellipsis(_safe_text(text), width, unicode=False), width)
+
+
 def human_duration(seconds: float | None) -> str:
     """Round to minutes from two minutes onward; missing values stay explicit."""
     if seconds is None or seconds < 0:
