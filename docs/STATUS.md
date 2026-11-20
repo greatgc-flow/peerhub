@@ -4,7 +4,7 @@
 
 Dates are UTC.
 
-## Current source: v0.24.28
+## Current source: v0.24.29
 
 From v0.24.13 each published release carries the G3 JUnit files (`g3.xml`, `g3-slow.xml`, `g3-e2e.xml`) and the live-evidence JSON as assets; the release record is [CHANGELOG](../CHANGELOG.md) plus the GitHub releases. The release PR sets the heading above; no per-release paragraph or follow-up docs PR is kept here.
 
@@ -15,7 +15,7 @@ Slices S1-S4 of the [issue resolution note](design/issue-resolution-2026-10-18.m
 | Track | Status | Design SSOT |
 |---|---|---|
 | Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, arbitrary-model monitor/readiness integration (`ag.argon` profile and exact registry delivered in #194), TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #145, #194 |
-| Open | #406 (ag: return the partial text when only `command` was denied) waits for a decision; v0.24.28 draws the monitor on the alternate screen (#410). |
+| Open | #406 (ag: return the partial text when only `command` was denied) waits for a decision; v0.24.29 puts RECENT directly under POOLS in the monitor (#412). |
 
 ### Deferred backlog (start triggers)
 
