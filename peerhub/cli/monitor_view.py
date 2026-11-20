@@ -13,6 +13,8 @@ from typing import Any, cast
 
 from peerhub.cli.monitor_preferences import GROUPS
 from peerhub.extensions.caller import host_id, local_workspace_file
+from peerhub.extensions.diag_quota import quota_stale_line
+from peerhub.extensions.observation_model import QUOTA_FALLBACK_SECONDS, quota_probe_timed_out
 
 # Mirrors peerhub.extensions.observation_model.NOT_REPORTED_REASON (the human renderer imports no extension code).
 _NOT_REPORTED = "not reported by provider"
@@ -1013,6 +1015,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                         for column in ("REM", "PACE", "[BAR]", "EXHAUST-IN", "FORECAST"):
                             cells[column] = parent["cells"][column]
                         cells["RESET-IN"] = _format_duration(max(0.0, float(summary["reset_seconds"])))
+                if not rich and summary is not None and row["source"].get("_retained_quota"):
+                    cells["STATE"] = str(summary["state"]).upper()
                 if rich and summary is not None:  # the row POOLS draws for this pool (the frame's rows), so both show one glyph and word
                     row["summary"] = summary
                     glyphs = RICH_GLYPHS[unicode]
@@ -2680,8 +2684,16 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
         title = _fit_fields(title, width, unicode, inline_note=False)
     title = title.replace(" | ", sep)  # the rich view's separator; line 2 is structure, so its colour is dim
     # Fields dropped from line 2 are disclosed on a line of their own, so a narrow terminal keeps the timestamp.
-    header = [_paint(title, RICH_SGR["dim"]) if paint else title,
-              *([f"Fields hidden{sep}--expand"] if cut and not expand else [])]
+    header = [_paint(title, RICH_SGR["dim"]) if paint else title]
+    if selected_ids & {"capacity", "peers"} or "_quota_age_seconds" in payload:
+        oldest = _number(payload.get("_quota_age_seconds"))
+        age = oldest + elapsed if oldest is not None else max(known_ages, default=None)
+        if notice := quota_stale_line(age):
+            header.extend(_compact_wrap(notice, width))
+    header.extend(part for note in cast(list[str], payload.get("_quota_probe_notes", []))
+                  for part in _compact_wrap(note, width))
+    if cut and not expand:
+        header.append(f"Fields hidden{sep}--expand")
     errors = _obj(payload.get("errors"))
     nearest = payload.get("_nearest_store_path")
     same_store = bool(nearest and store.get("path") and os.path.normcase(os.path.abspath(str(nearest))) == os.path.normcase(os.path.abspath(str(store["path"]))))
@@ -2881,7 +2893,8 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     rich view on a VT terminal only; the caller decides) enables Guide and query file links (OSC 8)."""
     file_links = (links and view == "rich" and color and "NO_COLOR" not in os.environ and _links_enabled(os.environ)
                   and os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off")
-    payload = {**_display_plan_omissions(payload), "_show_quota_notes": show_quota_notes, "_file_links": file_links}
+    payload = {**_with_retained_quota(_display_plan_omissions(payload)),
+               "_show_quota_notes": show_quota_notes, "_file_links": file_links}
     if expand:
         screen = _render_expanded_frame(payload, view=view, color=color, unicode=unicode,
                                         width=width, height=height, expand=True, keep=text_encoding)
@@ -2895,6 +2908,62 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         if expand or len(linked.encode("utf-8")) <= COMPACT_MAX_BYTES:
             return linked
     return screen
+
+
+def _with_retained_quota(payload: dict[str, Any]) -> dict[str, Any]:
+    """Show one recent successful reading after a newer error; keep the public snapshot intact."""
+    groups = _obj(payload.get("groups"))
+    capacity = _obj(groups.get("capacity"))
+    data = _obj(capacity.get("data"))
+    observations = _items(payload.get("_human_observations", data.get("observations")))
+    elapsed = _number(payload.get("display_elapsed_seconds")) or 0
+    now = _number(payload.get("read_at")) or 0
+    by_peer: dict[str, list[dict[str, Any]]] = {}
+    for item in observations:
+        if item.get("kind", "quota") == "quota" and _number(item.get("age_seconds")) is not None:
+            by_peer.setdefault(str(item.get("peer_id") or "?"), []).append(item)
+
+    notes: list[str] = []
+    replacements: dict[int, dict[str, Any] | None] = {}
+    for peer, items in sorted(by_peer.items()):
+        latest = min(items, key=lambda item: (float(item["age_seconds"]), -float(item.get("_capture_seq", 0))))
+        if latest.get("state") != "ERROR":
+            continue
+        candidates = [(item, item) for item in items if item.get("pool_ref") and not item.get("display_retired")
+                      and item.get("stored_state", item.get("state")) == "MEASURED"]
+        if latest.get("pool_ref") and (prior := _obj(latest.get("_prior_measurement"))):
+            candidates.append((latest, {**latest, "age_seconds": latest.get("_prior_age"), "last_measurements": prior,
+                                         "resets_at": prior.get("resets_at"), "projection": {}, "projection_samples": 0,
+                                         "reason": None}))
+        ages: list[float] = []
+        for original, item in candidates:
+            age = _number(item.get("age_seconds"))
+            raw = _obj(item.get("last_measurements")) or _obj(item.get("measurements"))
+            remaining = _number(raw.get("remaining_fraction"))
+            reset = _number(item.get("resets_at"))
+            if (age is not None and 0 <= age + elapsed < QUOTA_FALLBACK_SECONDS and remaining is not None and 0 <= remaining <= 1
+                    and (reset is None or reset > now + elapsed)):
+                ages.append(age + elapsed)
+                replacements[id(original)] = {**item, "state": "MEASURED", "stored_state": "MEASURED",
+                                               "measurements": raw, "_retained_quota": True,
+                                               "reset_in_seconds": reset - now if reset is not None else item.get("reset_in_seconds")}
+        if ages:
+            if not latest.get("pool_ref"):
+                replacements[id(latest)] = None
+            failure = "timeout" if quota_probe_timed_out(latest.get("reason")) else "error"
+            notes.append(f"{_clean(peer)} probe {failure} (value {int(min(ages) // 60)}m old)")
+
+    if not notes:
+        return payload
+    shown = [item for original in observations if (item := replacements.get(id(original), original)) is not None]
+    by_id = {item["observation_id"]: replacements[id(item)] for item in observations
+             if id(item) in replacements and "observation_id" in item}
+    details = ([item for original in _items(data.get("observations"))
+                if (item := by_id.get(original.get("observation_id"), original)) is not None]
+               if "_human_observations" in payload else shown)
+    return {**payload, "_quota_probe_notes": notes,
+            **({"_human_observations": shown} if "_human_observations" in payload else {}),
+            "groups": {**groups, "capacity": {**capacity, "data": {**data, "observations": details}}}}
 
 
 def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,

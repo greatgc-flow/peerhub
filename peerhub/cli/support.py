@@ -1,14 +1,21 @@
 """Shared CLI entry points for reading and collecting quota evidence."""
 from __future__ import annotations
 
+import argparse
+import os
 import sqlite3
 import sys
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Sequence, cast
+from time import monotonic, sleep
+from typing import Any, BinaryIO, Callable, Generator, Sequence, cast
 
 
 _PEER_ALIASES = {"cx": {"cx", "codex"}, "cc": {"cc", "claude"}, "ag": {"ag", "agy"}}
 QUOTA_MAX_AGE_SECONDS = 15 * 60
+MONITOR_QUOTA_MAX_AGE_SECONDS = 5 * 60
+QUOTA_LOCK_WAIT_SECONDS = 3.0
+QUOTA_REFRESH_COOLDOWN_SECONDS = 60
 
 
 def quota_workspace(db_path: str | Path) -> Path:
@@ -53,12 +60,98 @@ def quota_expired(item: dict[str, Any]) -> bool:
     return age is None or age > QUOTA_MAX_AGE_SECONDS
 
 
+def _try_file_lock(file: BinaryIO) -> bool:
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            file.seek(4096)  # Lock a byte beyond the PID so the owner can still be read on Windows.
+            msvcrt.locking(file.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+@contextmanager
+def quota_refresh_lock(db_path: str | Path) -> Generator[bool, None, None]:
+    """Hold a PID lock until the refresh finishes or its process exits."""
+    import psutil
+    from peerhub.extensions.batch import store_scratch_dir
+
+    scratch = store_scratch_dir(db_path)
+    scratch.mkdir(parents=True, exist_ok=True)
+    deadline = monotonic() + QUOTA_LOCK_WAIT_SECONDS
+    # Keep a stable file identity so two contenders cannot lock different files during dead-owner recovery.
+    with (scratch / "quota-refresh.lock").open("a+b") as file:
+        while not _try_file_lock(file):
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                yield False
+                return
+            sleep(min(.05, remaining))
+        file.seek(0)
+        raw = file.read(32).strip()
+        owner = int(raw) if raw.isdigit() else 0
+        while 0 < owner <= 0x7fffffff and psutil.pid_exists(owner):
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                yield False
+                return
+            sleep(min(.05, remaining))
+        file.seek(0)
+        file.truncate()
+        file.write(str(os.getpid()).encode("ascii"))
+        file.flush()
+        try:
+            yield True
+        finally:
+            file.seek(0)
+            file.truncate()  # Closing releases the OS lock. An interrupted owner leaves its PID for the next caller.
+
+
+def _recent_quota_peers(db_path: str | Path, max_age: float) -> set[str]:
+    return {item["subject_ref"] for item in quota_items(db_path)
+            if item["subject_ref"] is not None and item["age_seconds"] is not None and item["age_seconds"] <= max_age}
+
+
 def try_quota_refresh(db_path: str | Path, peers: Sequence[str]) -> None:
     """A failed collection leaves quota unknown; ask delivery still has its own result."""
     try:
-        refresh_with_profile_pools(db_path, peers)
+        with quota_refresh_lock(db_path) as acquired:
+            if acquired:
+                recent = _recent_quota_peers(db_path, QUOTA_REFRESH_COOLDOWN_SECONDS)
+                due = [peer for peer in peers if peer not in recent]
+                if due:
+                    refresh_with_profile_pools(db_path, due)
     except (OSError, sqlite3.Error):
         pass
+
+
+def monitor_auto_probe(args: argparse.Namespace) -> bool:
+    return (not args.probe and not args.no_probe and sys.stdout.isatty()
+            and os.environ.get("PEERHUB_MONITOR_PROBE", "").strip().lower() not in {"off", "0", "false", "no"})
+
+
+def refresh_monitor_quota(args: argparse.Namespace, before_probe: Callable[[], None] | None = None) -> dict[str, Any] | None:
+    """Start one automatic cycle only when the newest reading for the selected peers is old."""
+    peers = set(args.peers)
+    for kind, aliases in _PEER_ALIASES.items():
+        if peers & aliases:
+            peers.add(kind)
+    try:
+        if peers & _recent_quota_peers(args.db, MONITOR_QUOTA_MAX_AGE_SECONDS):
+            return None
+        with quota_refresh_lock(args.db) as acquired:
+            if not acquired or peers & _recent_quota_peers(args.db, MONITOR_QUOTA_MAX_AGE_SECONDS):
+                return None
+            if before_probe is not None:
+                before_probe()
+            return refresh_with_profile_pools(args.db, args.peers, sys_dir=args.sys_dir,
+                                              deadline_sec=args.timeout, retry_timeouts=True)
+    except (OSError, sqlite3.Error):
+        return None
 
 
 def refresh_dispatch_quota(db_path: Path, peer: str) -> None:

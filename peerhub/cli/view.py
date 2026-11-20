@@ -14,7 +14,7 @@ from datetime import datetime, tzinfo
 from typing import cast
 
 from peerhub.extensions.diag import DiagnosticReport, Section
-from peerhub.extensions.diag_quota import projection
+from peerhub.extensions.diag_quota import oldest_quota_age, projection, quota_stale_line
 
 RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
 _ANSI = re.compile(r"\033\[[0-9;]*m|\033\]8;[^\a\033]*(?:\033\\|\a)")  # SGR, and OSC 8 (a hyperlink's open and close)
@@ -719,7 +719,8 @@ def advance_report(report: DiagnosticReport, now: float) -> DiagnosticReport:
 def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = False, unicode: bool = True,
                 db_name: str = "", cycle: int | None = None, refresh: Obj | None = None, next_refresh_in: float | None = None,
                 interval: float | None = None, refresh_every: int | None = None, top_streams: int = 3, recent_asks: int = 3,
-                tz: tzinfo | None = None, store_path: str = "", store_source: str = "", store_note: str = "") -> str:
+                tz: tzinfo | None = None, store_path: str = "", store_source: str = "", store_note: str = "",
+                show_quota_age: bool = False) -> str:
     """A-G frame; caller supplies terminal capabilities. No collection or cursor controls.
 
     Plain and rich share decisions. Width/clock changes only affect layout,
@@ -767,6 +768,8 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
     if credit_alerts:
         alert += "; credit expiry<72h " + ", ".join(credit_alerts)
     lines = [_paint(line, CYAN, color) for line in _wrap(header, width)]
+    if show_quota_age and (notice := quota_stale_line(oldest_quota_age(items))):
+        lines.extend(_wrap(notice, width))
     lines += [_paint(line, YELLOW, color) for line in _wrap(_safe_text(store_note), width)] if store_note else []
     lines += [_paint(line, RED if threats or exhausted else YELLOW if credit_alerts else '', color) for line in _wrap(alert, width)]
     # Wrap before adding colour so no escape sequence can be split.
@@ -791,12 +794,12 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
 def format_frame(report: DiagnosticReport, view: str, *, color: bool = False, unicode: bool = True, width: int = 100,
                  db_name: str = "", cycle: int | None = None, refresh: Obj | None = None, next_refresh_in: float | None = None,
                  interval: float | None = None, refresh_every: int | None = None,
-                 store_path: str = "", store_source: str = "", store_note: str = "") -> str:
+                 store_path: str = "", store_source: str = "", store_note: str = "", show_quota_age: bool = False) -> str:
     """Both styles use A-G; plain always emits ASCII with zero escapes."""
     return render_view(report, width=width, color=color if view == "rich" else False,
                        unicode=unicode if view == "rich" else False, db_name=db_name, cycle=cycle, refresh=refresh,
                        next_refresh_in=next_refresh_in, interval=interval, refresh_every=refresh_every,
-                       store_path=store_path, store_source=store_source, store_note=store_note)
+                       store_path=store_path, store_source=store_source, store_note=store_note, show_quota_age=show_quota_age)
 
 
 def use_color(stream_is_tty: bool, env: Mapping[str, str]) -> bool:

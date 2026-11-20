@@ -704,7 +704,7 @@ def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch, prob
     refreshes = []
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: refreshes.append(1) or {"status": "OK"})
-    options = ["--probe"] if probe else []
+    options = ["--probe"] if probe else ["--no-probe"]
     assert _run(_db(tmp_path), "--json", "--schema-version", "1.1", "--cycles", "3", "--collect-every", "2", *options) == 0
     lines = output.getvalue().splitlines()
     frames = [json.loads(line) for line in lines]

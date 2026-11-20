@@ -963,7 +963,8 @@ def poll_codex_usage(
         proc.stdin.flush()
 
         if _wait_for_id(0) is None:
-            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
+            extra = {"reason": "codex_usage_timeout"} if time.monotonic() >= deadline else None
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx", extra=extra),)
 
         proc.stdin.write(json.dumps({"method": "initialized"}) + "\n")
         proc.stdin.write(json.dumps({
@@ -973,7 +974,8 @@ def poll_codex_usage(
 
         rate_limits_envelope = _wait_for_id(1)
         if rate_limits_envelope is None:
-            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
+            extra = {"reason": "codex_usage_timeout"} if time.monotonic() >= deadline else None
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx", extra=extra),)
 
         # account/rateLimits/read nests primary/secondary one level under
         # "rateLimits" (plus a duplicate under "rateLimitsByLimitId"); this
@@ -1166,6 +1168,7 @@ def poll_agy_usage(
     evidence_observed_at = observed_at_now
     source_tag = "agy_cli_usage"
     evidence_ref = EvidenceRef("probe:ag:usage")
+    timed_out = False
 
     if log_path is None and "PEERHUB_AG_STATUSLINE_LOG" not in os.environ:
         agy_cmd = _real_command("ag", resolved_sys)
@@ -1205,12 +1208,17 @@ def poll_agy_usage(
                     if parsed:
                         quota_dict_typed = parsed
                         report_clean = _agy_report_is_clean(completed.stdout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
             except (OSError, subprocess.SubprocessError, ValueError):
                 pass
     if quota_dict_typed is None:
         configured_log = log_path if log_path is not None else os.environ.get("PEERHUB_AG_STATUSLINE_LOG")
         if configured_log is None and sys_dir is not None:
             configured_log = resolved_sys / "data" / "temp" / "ag_statusline_stdin.log"
+        if timed_out and (configured_log is None or not Path(configured_log).is_file()):
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at_now, freshness_ttl,
+                                 peer="ag", evidence_ref_override="probe:ag:usage", extra={"reason": "agy_usage_timeout"}),)
         if configured_log is None:
             return (_fail_closed(ids, instance_id, profile_id, EvidenceState.UNKNOWN, observed_at_now, freshness_ttl, peer="ag"),)
         path = Path(configured_log)

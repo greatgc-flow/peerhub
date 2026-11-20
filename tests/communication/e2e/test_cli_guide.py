@@ -231,7 +231,7 @@ FORMER_GUIDE_FACTS: dict[str, tuple[str, ...]] = {
         "reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer",
         "compare 7D PACE (5H only gates)", "PACE (pp, used%-elapsed%) needs a fresh quota age",
         "+ = ahead of even burn", "peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run",
-        "cost side effects: monitor --probe and observation refresh may spend quota",
+        "TTY monitor watch refreshes quota when due", "--no-probe", "diag read committed evidence",
         "uncertain streams may stay quota-blocked after reset", "aged quota is last-known; refresh first",
         "accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots",
     ),

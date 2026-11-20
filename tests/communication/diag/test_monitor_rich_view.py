@@ -644,7 +644,8 @@ def test_a_never_refreshed_store_shows_the_no_evidence_wording_not_a_read_error(
     before = deepcopy(payload)
     lines = plain(payload).splitlines()
     assert lines[0] == "OK? (quota, accounts, facts not read) | 1 running | 1 lead"
-    assert lines[2:5] == ["POOLS 0", "no quota evidence; next: peerhub observation refresh",
+    assert lines[2:6] == ["quota: no reading -> peerhub observation refresh", "POOLS 0",
+                          "no quota evidence; next: peerhub observation refresh",
                           "suggest: no eligible profiles; next: peerhub observation refresh"]
     assert not any(line.startswith("DB:") for line in lines)  # the store path is printed for a read error only
     assert payload == before

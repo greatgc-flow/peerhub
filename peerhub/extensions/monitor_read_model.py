@@ -20,6 +20,7 @@ from peerhub.extensions.observation_model import (
     MEASUREMENT_KEYS,
     ABSENT_FACT_REASONS,
     NOT_REPORTED_REASON,
+    QUOTA_FALLBACK_SECONDS,
     FreshnessPolicy,
     account_text as _account_text,  # stored account strings are display data: re-sanitized when read back
     changed_account_plan,
@@ -1676,24 +1677,51 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 "reason": "query_error" if group_status == "ERROR" else "sample_cap" if is_truncated else None,
             }
         human_observations: list[dict[str, Any]] = []
+        quota_age: dict[str, float | None] = {}
+        if human and not set(groups) & {"capacity", "peers"}:
+            try:
+                row = conn.execute("SELECT MIN(o.effective_at_us) " + _ROW_JOINS +
+                                   "WHERE r.kind='quota' AND o.resource_pool_ref IS NOT NULL AND o.effective_at_us<=?",
+                                   (round(now * 1_000_000),)).fetchone()
+                quota_age["_quota_age_seconds"] = None if row[0] is None else now - row[0] / 1_000_000
+            except sqlite3.Error as exc:
+                if _no_observation_tables(conn, exc):
+                    quota_age["_quota_age_seconds"] = None
         if human and observations:
             # One batch within this read snapshot; redraws reuse these immutable facts.
             ids = [item["observation_id"] for item in observations]
             evidence = conn.execute(
-                "SELECT o.observation_id, o.payload_json, (SELECT COUNT(*) FROM "
+                "SELECT o.observation_id, o.capture_seq, o.payload_json, m.payload_json AS prior_payload, "
+                "m.effective_at_us AS prior_at_us, (SELECT COUNT(*) FROM "
                 "(SELECT DISTINCT s.effective_at_us FROM observations s "
                 "WHERE s.subject_ref=o.subject_ref AND s.resource_pool_ref IS o.resource_pool_ref "
                 "AND s.kind='quota' AND s.state='MEASURED' "
                 "AND " + _payload_resets("s") + " IS " + _payload_resets("o") + " "  # guarded: a malformed sample never aborts
                 "ORDER BY s.effective_at_us DESC LIMIT 2)) AS samples "
-                "FROM observations o WHERE o.observation_id IN (" + ",".join("?" for _ in ids) + ")", ids,
+                "FROM observations o LEFT JOIN observations m ON m.capture_seq=(SELECT s.capture_seq FROM observations s "
+                "WHERE o.state='ERROR' AND o.kind='quota' AND o.resource_pool_ref IS NOT NULL "
+                "AND s.subject_ref=o.subject_ref AND s.resource_pool_ref=o.resource_pool_ref AND s.kind='quota' "
+                "AND s.state='MEASURED' AND json_valid(s.payload_json) "
+                "AND s.effective_at_us>? "
+                "AND (s.effective_at_us,s.capture_seq)<(o.effective_at_us,o.capture_seq) "
+                "ORDER BY s.effective_at_us DESC,s.capture_seq DESC LIMIT 1) "
+                "WHERE o.observation_id IN (" + ",".join("?" for _ in ids) + ")",
+                [round((now - QUOTA_FALLBACK_SECONDS) * 1_000_000), *ids],
             ).fetchall()
             by_id = {row["observation_id"]: row for row in evidence}
             for item in observations:
                 row = by_id.get(item["observation_id"])
                 raw: dict[str, Any] = json.loads(row["payload_json"]) if row is not None else {}
-                human_observations.append({**item, "last_measurements": raw,
-                    "resets_at": raw.get("resets_at"), "projection_samples": row["samples"] if row else 0})
+                display = {**item, "last_measurements": raw, "resets_at": raw.get("resets_at"),
+                           "projection_samples": row["samples"] if row else 0}
+                if row is not None:
+                    display["_capture_seq"] = row["capture_seq"]
+                    if row["prior_at_us"] is not None:
+                        prior: object = json.loads(row["prior_payload"])
+                        if isinstance(prior, dict):
+                            display["_prior_measurement"] = prior
+                            display["_prior_age"] = now - row["prior_at_us"] / 1_000_000
+                human_observations.append(display)
         conn.execute("ROLLBACK")
         if activity_data is not None:  # only when `activity` was read; after the read transaction (#376 3.3)
             from peerhub.extensions.adapters.sanitize import env_secrets
@@ -1734,7 +1762,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         return {"schema_version": "2.0", "status": "PARTIAL" if errors else "OK", "read_at": now,
                 "groups": output, "errors": errors, "alert_sources": alert_sources, "alerts": alerts,
                 "min_quota": min_quota(pools) if pools is not None else None, "query_families": select_count,
-                **({"_human_observations": human_observations} if human else {})}
+                **({"_human_observations": human_observations, **quota_age} if human else {})}
     finally:
         if conn.in_transaction:
             conn.execute("ROLLBACK")

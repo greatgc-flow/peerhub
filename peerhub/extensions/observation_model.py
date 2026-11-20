@@ -124,6 +124,11 @@ class SourceReading:
 
 
 ACCOUNT_TTL_SECONDS = 6 * 3600.0
+QUOTA_FALLBACK_SECONDS = 15 * 60
+
+
+def quota_probe_timed_out(reason: object) -> bool:
+    return isinstance(reason, str) and (reason == "timeout" or reason.endswith("_timeout"))
 
 
 MAX_EPOCH_SECONDS = 253402300799  # 9999-12-31T23:59:59Z: the last instant every datetime/strftime path can represent
