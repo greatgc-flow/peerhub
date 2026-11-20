@@ -9,6 +9,7 @@ Implements Core Invariant 12:
 
 from __future__ import annotations
 
+import atexit
 import dataclasses
 import datetime
 import copy
@@ -21,6 +22,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+from pathlib import Path
 from typing import Any, Callable, Sequence, cast
 
 
@@ -367,18 +369,22 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
     parameters validated against the declared schema first. There is no way to submit an arbitrary command line (Invariant 12).
     A job's stdout must be one JSON object (bounded); anything else fails the job. The registered argv is trusted, like the
     loopback handlers; this is failure isolation and cancellation, not a security sandbox.
+    An explicit scratch_dir is created on first launch. By default spools use the system temporary directory.
     """
 
     hard_cancel = True  # declares the capability the orchestration runner requires: cancel() kills and CONFIRMS the whole tree
 
-    def __init__(self, *, max_output_bytes: int = 1_000_000, cancel_wait_seconds: float = 10.0) -> None:
+    def __init__(self, *, max_output_bytes: int = 1_000_000, cancel_wait_seconds: float = 10.0,
+                 scratch_dir: str | os.PathLike[str] | None = None) -> None:
         super().__init__()
         if type(max_output_bytes) is not int or max_output_bytes < 1:
             raise ValueError("max_output_bytes must be a positive integer.")
         self._max_output = max_output_bytes
         self._cancel_wait = cancel_wait_seconds
+        self._scratch_dir = Path(os.path.abspath(scratch_dir)) if scratch_dir is not None else None
         self._argv: dict[str, tuple[str, ...]] = {}
         self._procs: dict[str, tuple[subprocess.Popen[bytes], str]] = {}
+        self._pending_unlinks: set[str] = set()
 
     def register_command(self, capability: RuntimeCapability, argv: Sequence[str]) -> None:
         template = tuple(argv)
@@ -408,8 +414,12 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
             self._jobs[job_id] = job
             return copy.deepcopy(job)
         argv = [template[0]] + [str(params[m.group(1)]) if (m := _PLACEHOLDER_WHOLE.match(p)) else p for p in template[1:]]
-        handle, out_path = tempfile.mkstemp(prefix="peerhub-job-", suffix=".out")
+        if self._scratch_dir is not None:
+            self._scratch_dir.mkdir(parents=True, exist_ok=True)
+        handle, out_path = tempfile.mkstemp(prefix="peerhub-job-", suffix=".out", dir=self._scratch_dir)
         os.close(handle)
+        if not self._procs and not self._pending_unlinks:
+            atexit.register(self.close)
         kwargs: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "shell": False}
         if os.name == "nt":
             kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -419,7 +429,7 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
             with open(out_path, "wb") as sink:
                 proc = cast("subprocess.Popen[bytes]", subprocess.Popen(argv, stdout=sink, **kwargs))
         except OSError as exc:
-            os.unlink(out_path)
+            self._unlink_output(out_path)
             job = InvocationJob(job_id, capability_id, params, "FAILED", error=f"start failed: {type(exc).__name__}",
                                 created_at=now, completed_at=now)
             self._jobs[job_id] = job
@@ -428,6 +438,28 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
         job = InvocationJob(job_id, capability_id, params, "RUNNING", created_at=now)
         self._jobs[job_id] = job
         return copy.deepcopy(job)
+
+    def _unlink_output(self, out_path: str) -> None:
+        self._pending_unlinks.discard(out_path)
+        try:
+            os.unlink(out_path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            self._pending_unlinks.add(out_path)
+        if not self._procs and not self._pending_unlinks:
+            atexit.unregister(self.close)
+
+    def close(self) -> None:
+        """Settle finished jobs, cancel running jobs and retry removal of their spools."""
+        for job_id in tuple(self._procs):
+            try:
+                self.cancel(job_id)
+            except RuntimeCancellationError:
+                # Keep the process and its spool for a later attempt.
+                pass
+        for out_path in tuple(self._pending_unlinks):
+            self._unlink_output(out_path)
 
     def _settle(self, job_id: str) -> InvocationJob:
         job = self._jobs[job_id]
@@ -461,10 +493,7 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
             except (ValueError, UnicodeDecodeError):
                 error = "output is not valid JSON"
         self._procs.pop(job_id, None)
-        try:
-            os.unlink(out_path)
-        except OSError:
-            pass
+        self._unlink_output(out_path)
         settled = InvocationJob(job.job_id, job.capability_id, job.params, "COMPLETED" if error is None else "FAILED",
                                 output=output, error=error, created_at=job.created_at, completed_at=done_at)
         self._jobs[job_id] = settled
@@ -499,10 +528,7 @@ class ProcessRuntimeAdapter(LoopbackRuntimeAdapter):
         except (subprocess.TimeoutExpired, OSError) as exc:
             raise RuntimeCancellationError(f"Job '{job_id}' could not be confirmed dead: {type(exc).__name__}") from exc
         self._procs.pop(job_id, None)
-        try:
-            os.unlink(out_path)
-        except OSError:
-            pass
+        self._unlink_output(out_path)
         cancelled = InvocationJob(job.job_id, job.capability_id, job.params, "CANCELLED", error="Job cancelled; process tree killed",
                                   created_at=job.created_at, completed_at=datetime.datetime.now(datetime.timezone.utc).isoformat())
         self._jobs[job_id] = cancelled

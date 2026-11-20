@@ -415,7 +415,10 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
                        "elapsed_s": round(time.monotonic() - started, 3)}
             rows[t.task_id] = row
 
-    with tempfile.TemporaryDirectory(prefix="peerhub-batch-") as d:
+    store_dir = Path(os.path.abspath(db)).parent
+    scratch = (store_dir if store_dir.name == ".peerhub" else store_dir / ".peerhub") / "tmp"
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="peerhub-batch-", dir=scratch) as d:
         threads = [threading.Thread(target=supervisor, args=(Path(d),), daemon=True) for _ in range(min(max_parallel, len(tasks)))]
         for th in threads:
             th.start()
