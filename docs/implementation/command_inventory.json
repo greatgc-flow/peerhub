@@ -1316,6 +1316,41 @@
           "takes_value": true
         }
       ]
+    },
+    {
+      "command": "suggest",
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "task",
+          "flags": [
+            "--task"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "tier",
+          "flags": [
+            "--tier"
+          ],
+          "positional": false,
+          "required": true,
+          "takes_value": true
+        }
+      ]
     }
   ],
   "global_options": [
@@ -1540,6 +1575,16 @@
           "positional": false,
           "required": false,
           "takes_value": true
+        },
+        {
+          "default": false,
+          "dest": "probe",
+          "flags": [
+            "--probe"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
         },
         {
           "default": null,

@@ -1381,6 +1381,8 @@ class CliRuntimeTarget:
         for r in catch_up:
             parts.append(f"[{getattr(r, 'position', '?')} {getattr(r, 'record_id', '?')} "
                          f"{getattr(r, 'author_peer_id', '?')} {getattr(r, 'kind', '?')}] {txt(r)}")
+        if parts:
+            parts.insert(0, "PeerHub stream context follows. Use the earlier records as context for the final request.")
         parts.append(txt(record))
         return "\n\n".join(parts)
 

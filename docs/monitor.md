@@ -4,6 +4,12 @@ This page is the target of the `Guide` link at the top right of `peerhub monitor
 `Guide:` line that ends `peerhub monitor --view plain --expand`. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
 
+Watch reads committed evidence by default. Pass `--probe` to collect quota
+during watch. Probes may spend provider quota. With `--probe`, `--collect-every K`
+sets the collection cadence. `--snapshot` reads one frame and rejects `--probe`.
+For a command you can run, use `peerhub suggest --tier standard` and see
+`peerhub explain suggest` for its quota rules.
+
 ## The top lines
 
 ```
@@ -24,7 +30,7 @@ narrow terminal; the rich view puts the snapshot time at the right edge when it 
 **Line 2 (the title)** is `PeerHub Monitor <UTC time> · DB:<source> · quota age <age>`:
 
 - The time is when the store was read (the snapshot), not when the quota was measured.
-- A live monitor puts its refresh state and a countdown before them: `REFRESHING`, `REFRESH OK`, `REFRESH WARN`
+- With `--probe`, a live monitor puts its refresh state and a countdown before them: `REFRESHING`, `REFRESH OK`, `REFRESH WARN`
   (`· n warnings`), `STOPPED · AGY TOKEN USE`, and `refresh in 42s`. A redraw between two reads shows the same snapshot
   aged by the time since its read.
 - `DB:<source>` names where the store came from (`env` for `PEERHUB_DB`, `discovered`, `explicit` for `--db`, ...). With

@@ -122,7 +122,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         max_bytes: int = 1_000_000, runtime: RuntimeTarget | None = None,
         fresh: bool = False, session: str | None = None,
         on_output: Callable[[str], None] | None = None,
-        on_stream_budget: Callable[[], None] | None = None) -> dict[str, Any]:
+        on_stream_budget: Callable[[], None] | None = None,
+        before_dispatch: Callable[[Path, str], None] | None = None) -> dict[str, Any]:
     selector = normalize_session_selector(fresh=fresh, session=session)
     if not prompt.strip():
         raise ValueError("prompt must not be empty")
@@ -308,6 +309,9 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                                        session_generation=refused["session_generation"],
                                        detail=bridge.delivery_details(refused["delivery_id"])))
         else:
+            if (before_dispatch is not None and runtime is None and account_binding is None
+                    and kind in ("ag", "cc", "cx") and ALIASES.get(peer_id) == kind):
+                before_dispatch(db, kind)
             result = asdict(bridge.run_cycle(token, target))
         if result.get("delivery_id") is not None:
             with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as conn:

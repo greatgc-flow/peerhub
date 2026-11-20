@@ -83,6 +83,9 @@ CLI output defaults to compact human text, including when redirected. Use `--jso
 # Persist the prompt, execute one provider, and persist its response.
 peerhub ask cx "Summarize this repository" --stream review --request-id review-001
 
+# Recommend a peer and print an ask command that reads review.txt.
+peerhub suggest --tier effort --task review
+
 # Explicit collection may contact provider CLIs.
 peerhub observation refresh --peers cx cc ag
 peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory
@@ -103,10 +106,11 @@ peerhub monitor --snapshot
 peerhub monitor --snapshot --group sessions --group execution
 
 # Watch the nine default groups: overview, activity, peers, execution, sessions,
-# usage, context, capacity, and coverage. Collection may call provider CLIs
-# (including agy /usage and /credits) and consume provider quota.
+# usage, context, capacity, and coverage. Watch reads committed evidence.
 peerhub monitor --interval-seconds 60
 peerhub monitor --view plain --cycles 1
+# Opt in to collecting quota from providers during watch.
+peerhub monitor --probe --interval-seconds 60
 
 # For an AI session: line 1 (the verdict), the suggestion and the pools only; no text of other sessions.
 peerhub monitor --snapshot --group capacity
@@ -145,6 +149,23 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`, and the API pee
 `--writable` is off by default. It maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` (default `-s read-only`), and ag `--mode accept-edits`. Because the `agy` CLI does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution fails closed pre-spawn unless `--writable` is explicitly passed (`#140`). cx resume passes `-c sandbox_mode="workspace-write"` (default `read-only`) because resume does not accept `-s`; writable mode is therefore part of the session binding, and changing it starts a fresh generation.
 
 Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
+
+`peerhub suggest --tier standard|effort|deepthink [--task review|code|read]`
+prints an ask command and one reason line. Put the task and supporting material
+in `prompt.txt` or, with `--task`, in `review.txt`, `code.txt`, or `read.txt`.
+The generated command selects the store and profile, requests a fresh session,
+and passes `--writable` for ag and for CLI peers selected for a code task.
+`--json` also returns the command as an `argv` array.
+
+Suggestions use profiles with `suggest = true` in the requested tier. A usable
+5-hour reading must show under 90% usage. The lowest 7-day PACE wins, with ties
+in ag, cx, cc order. A missing or over-15-minute snapshot gets one refresh
+attempt, which may spend quota. Candidates with unusable data rank last with
+`quota unknown`. If no candidate has usable data for both windows, the
+command exits nonzero with one reason on stderr. CLI dispatch for ag, cx and
+cc default accounts also attempts a refresh only when quota is missing or
+older than 15 minutes. Run `peerhub explain suggest` for details.
+
 `--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its forecast and `EXHAUST-IN`, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
 
 `diag --live` repeatedly reads committed snapshots only and keeps its `--cycles 0` default (until interrupted, including non-TTY stdout). `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
@@ -253,11 +274,13 @@ least 105% is a threat. Below the support gates the screen says “not enough
 data”. Inferred anchors remain conditional and predictive accuracy is not
 established.
 
-Monitor runs collection cycles every N seconds (`--interval-seconds`), collecting
-initially and then every Kth cycle (`--collect-every`). With `--cycles` omitted,
+Monitor reads committed evidence every N seconds (`--interval-seconds`).
+With `--probe`, it also collects initially and then every Kth cycle
+(`--collect-every`). Collection may spend quota through provider calls such as
+agy `/usage` and `/credits`. With `--cycles` omitted,
 stdout on a TTY watches until interrupted; non-TTY stdout runs one cycle.
 Explicit `--cycles 0` watches until interrupted everywhere; positive values
-bound collection cycles. The legacy dashboard and
+bound watch cycles. The legacy dashboard and
 live diagnostics update countdowns at most 1 Hz; PACE and forecast ETA remain
 anchored to the measurement. Non-TTY human watch prints one completed frame
 per cycle without escapes (skipping the initial pre-refresh frame), while unavailable VT on a TTY appends without escapes; schema 2.0 JSON watch emits one `initial` frame plus

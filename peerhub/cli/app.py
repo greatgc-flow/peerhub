@@ -9,10 +9,11 @@ Commands (canonical inventory: docs/implementation/command_inventory.json, deriv
   session list / show   (read-only, bounded and redacted)
   ask                 (provider execution and durable delivery)
   outcome             (append a correction to an ask's outcome)
+  suggest             (recommend an ask from profiles and quota)
   batch run           (flat bounded-parallel asks)
   account bind / list / show (immutable account-bound peers)
   observation refresh (provider probes and persisted evidence)
-  monitor             (collection plus dashboard)
+  monitor             (dashboard with opt-in quota collection)
   diag                (read-only dashboard, optionally live)
   diag health / quota / integrity (read-only; integrity is explicit)
 Exit codes: 0 ok, 1 error, 2 idempotency conflict, 3 CAS lost, 4 storage fault, 5 diag unavailable, 6 schema version.
@@ -217,6 +218,9 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000, help="Stop collecting reply output after this many bytes (default 1000000)")
     ask_parser.add_argument("--json", action="store_true")
 
+    from peerhub.cli.suggest import register_suggest_parser
+    register_suggest_parser(subparsers)
+
     account_parser = subparsers.add_parser("account", help="Immutable cc/cx account roots; peer register overwrite refuses later asks",
                                           description="Bind a new peer and root for each account. No rebind/unbind. Overwriting a bound peer with peer register makes ask refuse; recover with a new peer and root.")
     account_sub = account_parser.add_subparsers(dest="action", required=True)
@@ -394,6 +398,7 @@ def _session_trailer(session: dict[str, Any]) -> str:
 
 
 def _run_ask_cli(args: argparse.Namespace) -> int:
+    from peerhub.cli.support import refresh_dispatch_quota
     from peerhub.extensions.ask import ask
     if args.query_file:
         query = Path(args.query_file).read_bytes()
@@ -427,7 +432,7 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
                      profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
                      fresh=args.fresh, session=args.session,
-                     on_output=None if args.json else show_output, on_stream_budget=show_budget_warning)
+                     on_output=None if args.json else show_output, on_stream_budget=show_budget_warning, before_dispatch=refresh_dispatch_quota)
     except Exception:
         if has_streamed and not args.json and not output_has_newline:
             print()
@@ -1315,6 +1320,9 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
         if args.subcommand == "ask":
             return _run_ask_cli(args)
+        if args.subcommand == "suggest":
+            from peerhub.cli.suggest import run_suggest
+            return run_suggest(args)
         if args.subcommand == "account":
             return _run_account_cli(args)
         if args.subcommand == "batch":

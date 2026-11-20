@@ -21,6 +21,14 @@ they do not claim new validation or publication evidence.
 ### Changed
 
 - `peerhub profile list` shows ask counts and stale measurements in `STATS`. Profile measurements reuse the existing Bridge evidence. SQLite adds outcome corrections and quota deltas with links to the source readings. Quota intervals require a single observed in-flight ask on the pool and comparable readings from the same reset window.
+### Added
+
+- `peerhub suggest --tier standard|effort|deepthink [--task review|code|read]` prints an ask command and a reason, with structured output via `--json`. It applies the 5H usage gate and ranks eligible profiles by 7D PACE.
+
+### Changed
+
+- PeerHub prompt templates put the full fixed instructions before task and stream facts. Cache savings remain unproven until 0.25.0 telemetry shows them.
+- Monitor watch reads committed quota by default. Pass `--probe` to collect during watch. CLI dispatch for subscription peers on default accounts and `suggest` attempt a quota refresh only when the snapshot is missing or older than 15 minutes.
 - `peerhub monitor` (#414): a child pool in POOLS (`└─ F-7D`, `└─ 3P-5H`, `└─ G-5H`) has its own bar, so it no longer looks like its parent: filled `▬` in the state colour and empty `╌` in dim, 20 cells with the same shrink rule (to 4 cells, then hidden); the ASCII form is `=` filled and `-` empty. A parent keeps `█░` (`#.`). The plain `--expand` QUOTA `[BAR]` column draws a child row the same way. An empty cell is never a space, so 0% still shows.
 - `peerhub monitor`: one `Guide` link (OSC 8) at the right end of line 2, in the compact and the `--expand` frame, in the rich view on a terminal only. It points at `docs/monitor.md` of the running version (`https://github.com/greatgc-flow/peerhub/blob/v<version>/docs/monitor.md`) and is left out of a development build (no tag to point at) and with `PEERHUB_NO_LINKS=1`. It is the first thing dropped on a narrow terminal, before any data, and is never cut. The width helpers (`visible_len` and the monitor's width functions) ignore OSC 8. The plain view has no link bytes; its `--expand` frame, printed whole (not height-bounded), ends with a plain `Guide: <url>` line. New page `docs/monitor.md` explains the whole screen; the README and `peerhub explain monitor-view` point at it.
 - Model refresh 2026-11-20 for claude 2.1.329, codex 0.171.0 and agy 1.5.13: observed versions and profile sources updated; one profile added. agy lists the new `gemini-4-neon-{low,medium,high,xhigh}` and `gemini-pro-orchestrator-neon`; their pools (G-5H, G-7D) are recorded as unverified in `[exact_model_pools]`, new profile `ag.neon` (gemini-4-neon-high). Hard benchmark (one run each): neon medium 98, high 100, xhigh 100 (383 s); `cx.effort` (sol 6.2 high) 100 in 48 s and `cx.astra` 100 in 37 s after the #398 fix.

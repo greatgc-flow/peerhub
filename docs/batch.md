@@ -62,6 +62,54 @@ Without the flag the output is unchanged; read a reply with
 - Replies are in the report (before 0.24.13: `peerhub record read --stream <stream> --json`).
 - Measured 2026-11-14: three peers answered in 11 s.
 
+Use the following as prompt files for `prompt_file` in a batch manifest or
+`--query-file` in an ask. Replace `<facts>` with the task and its supporting
+material. Keep repository paths, excerpts, decisions and other task facts after
+the fixed instructions.
+
+### Inline ag recipe prompt
+
+```text
+Use only the inline facts below. Do not use tools. Complete the requested task and return the result.
+
+<facts>
+```
+
+### ag file-read recipe prompt
+
+```text
+Use only your file read tool. If a file cannot be read, say so. Complete the task below.
+
+<facts>
+```
+
+### Fresh-stream handoff prompt
+
+```text
+Continue the work using the decisions, open work, and file references below.
+
+<facts>
+```
+
+### Batch task prompt
+
+```text
+Complete the task below. Report the result and any blockers.
+
+<facts>
+```
+
+### Batch vote prompt
+
+```text
+Review the proposal and evidence below. Reply in at most 300 tokens.
+VERDICT: AGREE or DISAGREE
+BLOCKERS: file:line and the exact fix for each, or none
+NITS: optional, one line each
+
+<facts>
+```
+
 Ctrl+C, SIGTERM, or Windows Ctrl+Break stops launches and terminates worker trees.
 Windows tree termination is guaranteed when confirmed; unconfirmed termination
 reports `UNCERTAIN` with `kill_unconfirmed`. POSIX termination is best-effort;

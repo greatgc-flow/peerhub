@@ -231,7 +231,7 @@ FORMER_GUIDE_FACTS: dict[str, tuple[str, ...]] = {
         "reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer",
         "compare 7D PACE (5H only gates)", "PACE (pp, used%-elapsed%) needs a fresh quota age",
         "+ = ahead of even burn", "peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run",
-        "cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only)",
+        "cost side effects: monitor --probe and observation refresh may spend quota",
         "uncertain streams may stay quota-blocked after reset", "aged quota is last-known; refresh first",
         "accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots",
     ),
@@ -264,7 +264,7 @@ def test_former_guide_facts_are_reachable_through_explain(topic, capsys):
 
 
 def test_old_ag_recipe_and_store_missing_pointers_still_resolve(capsys):
-    for topic in ("ag-recipe", "store-missing", "monitor-states", "peer-subagents", "setup", "ask-timeouts", "stream-reuse-cost"):
+    for topic in ("ag-recipe", "store-missing", "monitor-states", "peer-subagents", "setup", "ask-timeouts", "stream-reuse-cost", "suggest"):
         assert main(["explain", topic]) == 0
         assert capsys.readouterr().out.splitlines()[0].startswith(f"{topic}:")
 

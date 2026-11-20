@@ -494,9 +494,10 @@ class MCPServer:
             role = self._string(args, "role")
             task = self._string(args, "task")
             text = (
-                f"You are operating as {role} within PeerHub.\n"
-                f"Current task: {task}\n"
-                "Invariant: maintain Core imports Extension = 0 and route mutations through public ports."
+                "You are operating within PeerHub.\n"
+                "Invariant: maintain Core imports Extension = 0 and route mutations through public ports.\n\n"
+                f"Role: {role}\n"
+                f"Current task: {task}"
             )
             return {
                 "messages": [
