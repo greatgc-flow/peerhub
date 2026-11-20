@@ -188,7 +188,7 @@ def test_scoped_weekly_group_does_not_drop_an_observed_short_window_of_its_own()
     frame["_human_observations"].append(pool("cc", "F-5H", .05))
     frame["_human_observations"].append(pool("ag", "A-7D", .2))
     screen = mv.render_grouped_frame(frame, view="rich", expand=True, width=160)
-    top = "\n".join(screen.split("DB:env (")[0].splitlines()[2:])
+    top = "\n".join(screen.split("suggest:")[0].splitlines()[3:])  # the POOLS rows: after line 1, the title and the DB line
     assert "F-5H" in top and "└─ F-5H" in top  # #400: the n/a C-5H is no sibling row, so F-7D is its parent's last child
     assert top.index("cc C-7D") < top.index("F-5H") < top.index("ag A-7D")
     assert "5%" in next(line for line in top.splitlines() if "F-5H" in line)

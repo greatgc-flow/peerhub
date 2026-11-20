@@ -443,7 +443,13 @@ _ACTIVITY_SQL = (
     # Superseded rows rank apart, so they never take the "20 newest ended" text ranks of real ended rows.
     "rk AS (SELECT op.*,ROW_NUMBER() OVER (PARTITION BY op.is_open,op.sup ORDER BY op.end_bound DESC,op.seq DESC) AS end_rank FROM op), "
     "tx AS (SELECT rk.*,CASE WHEN :text_on=1 AND (rk.is_open=1 OR (rk.sup=0 AND rk.end_bound>=:window_start) OR rk.end_rank<=:newest) "
-    "THEN 1 ELSE 0 END AS want_text FROM rk) "
+    "THEN 1 ELSE 0 END AS want_text,"
+    # RECENT's rows (the newest ended rows, as for the text) are joined to the newest session of their stream (#412).
+    "CASE WHEN rk.is_open=0 AND rk.sup=0 AND rk.end_rank<=:newest THEN 1 ELSE 0 END AS want_join FROM rk), "
+    "se AS (SELECT h.stream_id,h.peer_id,h.session_handle,h.session_generation,h.runtime_kind,h.state,h.tombstoned_at,"
+    "ROW_NUMBER() OVER (PARTITION BY h.stream_id,h.peer_id ORDER BY h.session_generation DESC) AS srn "
+    "FROM bridge_session_history h WHERE EXISTS (SELECT 1 FROM tx WHERE tx.want_join=1 AND tx.stream_id=h.stream_id "
+    "AND tx.peer_id=h.peer_id)) "
     "SELECT tx.stream_id,tx.peer_id,tx.c_generation,tx.expires_at,tx.lease_sec,"
     "CASE WHEN :wsgen IS NULL THEN 1 WHEN tx.c_wsgen=:wsgen THEN 1 ELSE 0 END AS wsgen_match,"
     "tx.scope_total,tx.sup_total,tx.seq,tx.certainty,tx.claim_generation,tx.terminal_at,tx.sup,tx.last_kind,tx.start_detail,"
@@ -464,6 +470,13 @@ _ACTIVITY_SQL = (
     "THEN json_extract(" + _R + ",'$.usage.input_tokens') END END AS usage_in,"
     "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.usage.output_tokens')='integer' "
     "THEN json_extract(" + _R + ",'$.usage.output_tokens') END END AS usage_out,"
+    "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.usage.cached_input_tokens')='integer' "
+    "THEN json_extract(" + _R + ",'$.usage.cached_input_tokens') END END AS usage_cache_read,"
+    "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.usage.cache_write_tokens')='integer' "
+    "THEN json_extract(" + _R + ",'$.usage.cache_write_tokens') END END AS usage_cache_write,"
+    "se.session_generation AS ses_generation,se.runtime_kind AS ses_provider,se.session_handle AS ses_handle,"
+    "se.state AS ses_state,se.tombstoned_at AS ses_tombstoned_at,ms.reuse_count AS ses_reuse,ms.fresh_count AS ses_fresh,"
+    "te.detail AS ses_detail,"
     "r.record_id IS NOT NULL AS has_record,"
     + _guarded("r.metadata_json", "$.binding",
                "CASE WHEN json_type({c},'{p}')='text' THEN substr(json_extract({c},'{p}'),1,512) END") + " AS binding,"
@@ -473,7 +486,20 @@ _ACTIVITY_SQL = (
         "THEN json_extract({c},'{p}') END END") + " END AS ask_text,"
     "CASE WHEN tx.want_text=1 AND tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' THEN CASE WHEN "
     "length(json_extract(" + _R + ",'$.response'))<=:max_text THEN json_extract(" + _R + ",'$.response') END END END AS reply_text "
-    "FROM tx LEFT JOIN records r ON r.record_id=tx.record_id ORDER BY tx.sup,tx.seq DESC"
+    "FROM tx LEFT JOIN records r ON r.record_id=tx.record_id "
+    "LEFT JOIN se ON tx.want_join=1 AND se.stream_id=tx.stream_id AND se.peer_id=tx.peer_id AND se.srn=1 "
+    "LEFT JOIN bridge_session_monitor_stats ms ON ms.session_handle=se.session_handle "
+    "LEFT JOIN bridge_evidence te ON te.seq=ms.latest_telemetry_seq AND te.kind='session_telemetry' "
+    "ORDER BY tx.sup,tx.seq DESC"
+)
+# The same statement for a store without the session tables: no join, every session column NULL.
+_ACTIVITY_SQL_NO_SESSIONS = (
+    _ACTIVITY_SQL.replace(_ACTIVITY_SQL[_ACTIVITY_SQL.index("se AS (SELECT h.stream_id"):_ACTIVITY_SQL.index("SELECT tx.stream_id")],
+                          "se AS (SELECT NULL AS stream_id,NULL AS peer_id,NULL AS session_handle,NULL AS session_generation,"
+                          "NULL AS runtime_kind,NULL AS state,NULL AS tombstoned_at,NULL AS srn WHERE 0) ")
+    .replace("LEFT JOIN bridge_session_monitor_stats ms ON ms.session_handle=se.session_handle ",
+             "LEFT JOIN (SELECT NULL AS session_handle,NULL AS reuse_count,NULL AS fresh_count,NULL AS latest_telemetry_seq "
+             "WHERE 0) ms ON ms.session_handle=se.session_handle ")
 )
 
 
@@ -762,7 +788,8 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, text_on: boo
             lines["reply_line"] = lines["reply_line_long"] = LONG_TEXT
         elif isinstance(r["reply_text"], str):
             lines["reply_line"], lines["reply_line_long"] = activity_lines(r["reply_text"], last=True, secrets=secrets)
-    tokens = ({"input": r["usage_in"], "output": r["usage_out"]}
+    tokens = ({"input": r["usage_in"], "output": r["usage_out"], "cache_read": r["usage_cache_read"],
+               "cache_write": r["usage_cache_write"]}
               if r["usage_in"] is not None or r["usage_out"] is not None else None)
     return {
         "state": state, "superseded": superseded, "alive": alive, "alive_reason": alive_reason,
@@ -772,8 +799,28 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, text_on: boo
         "lease_left_s": round(expires_at - now, 3) if open_row else None, "tokens": tokens,
         "ask_line": lines["ask_line"], "reply_line": lines["reply_line"],
         "ask_line_long": lines["ask_line_long"], "reply_line_long": lines["reply_line_long"],
-        "note": note, "reasons": reasons,
+        "note": note, "reasons": reasons, "session": _ask_session(r),
     }
+
+
+def _ask_session(r: sqlite3.Row) -> dict[str, Any] | None:
+    """The newest session of the ask's stream and peer, as it is now (#412): its generation, its mode (`reused` when it was
+    reused at least once, else `fresh`), `uses` (reused and fresh calls), and the context estimate of its latest receipt.
+    None for an ask without a joined session (a stream that never had one, or not among the newest ended asks) and for a
+    tombstoned one."""
+    if "ses_generation" not in r.keys() or r["ses_generation"] is None:
+        return None
+    if r["ses_tombstoned_at"] is not None or r["ses_state"] == "TOMBSTONED":
+        return None
+    generation, provider = int(r["ses_generation"]), str(r["ses_provider"])
+    context = public_telemetry(r["ses_detail"], handle=str(r["ses_handle"]), generation=generation,
+                               provider=provider)["context"]
+    reuse, fresh = r["ses_reuse"], r["ses_fresh"]
+    return {"generation": generation, "provider": provider,
+            "execution_mode": "reused" if reuse and reuse > 0 else "fresh" if fresh and fresh > 0 else None,
+            "uses": None if reuse is None or fresh is None else int(reuse) + int(fresh),
+            "context": {key: context.get(key) for key in ("state", "percent", "occupancy_tokens", "window_tokens",
+                                                          "observed_at")}}
 
 
 def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | None, text_on: bool,
@@ -1561,7 +1608,13 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             generation, generation_reason = _workspace_generation(db_path)
             try:
                 try:
-                    activity_rows = conn.execute(_ACTIVITY_SQL, _activity_params(now, generation, text_on)).fetchall()
+                    try:
+                        activity_rows = conn.execute(_ACTIVITY_SQL, _activity_params(now, generation, text_on)).fetchall()
+                    except sqlite3.OperationalError as exc:
+                        if not str(exc).startswith("no such table: bridge_session"):
+                            raise  # a store without the session tables (#412) reads the asks without the join
+                        activity_rows = conn.execute(_ACTIVITY_SQL_NO_SESSIONS,
+                                                     _activity_params(now, generation, text_on)).fetchall()
                 except sqlite3.OperationalError as exc:
                     if "no such table: bridge_claims" not in str(exc):
                         raise

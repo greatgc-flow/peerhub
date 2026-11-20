@@ -55,11 +55,11 @@ def leads_block(lines: list[str]) -> list[str]:
 
 
 # 14. the compact LEADS block ----------------------------------------------------------------------------------------
-def test_leads_sit_between_running_and_recent_with_the_column_order(frame):
+def test_leads_come_after_recent_and_running_with_the_column_order(frame):
     with_leads(frame, [lead("docs-site", session=sess())])
     lines = screen(frame)
     heads = [line.split()[0] for line in lines if re.match(r"^(RUNNING|LEADS|RECENT|POOLS|suggest:)", line)]
-    assert heads == ["POOLS", "suggest:", "RUNNING", "LEADS", "RECENT"]  # P21: the quota first, then the activity
+    assert heads == ["POOLS", "suggest:", "RECENT", "RUNNING", "LEADS"]  # #412: the quota first, then the activity
     block = leads_block(lines)
     assert block[0] == "LEADS 1 entry | 1 session found"
     assert block[1].split() == ["docs-site", "busy", "12s", "ctx", "10%", "0", "run", "fable-5-2", *TITLE.split()]
@@ -97,6 +97,7 @@ def test_an_unknown_activity_time_is_a_dash(frame):
 def test_three_rows_then_the_overflow_line_in_read_model_order(frame):
     leads = [lead(f"lead-{i}", lead_id=f"0000000{i}", session=sess(active_at=NOW - 60 * i)) for i in range(5)]
     with_leads(frame, leads)
+    frame["selected_groups"] = ["activity"]  # the 24-line frame has room for three rows without POOLS and its suggestion
     block = leads_block(screen(frame))
     assert block[0] == "LEADS 5 entries | 5 sessions found" and [row.split()[0] for row in block[1:4]] == ["lead-0", "lead-1", "lead-2"]
     assert block[4] == "+2 leads (--expand)" and len(block) == 5
@@ -206,12 +207,15 @@ def fitted(height: int | None, max_lines: int = 24, **over: Any) -> list[str]:
 
 
 def test_the_unbounded_frame_with_leads_keeps_24_lines():
-    lines = fitted(None)  # 29 lines before fitting: RECENT goes to one row, LEADS to one row, RUNNING to three
+    lines = fitted(None)  # 29 lines before fitting: LEADS goes to one row, RUNNING to three, POOLS to seven rows
     assert len(lines) == 24
     i = lines.index("LEADS 5")
     assert lines[i - 1] == "+6 more (--expand)" and lines[i + 1].startswith(" lead-0") and lines[i + 2] == "+4 leads (--expand)"
-    assert lines[i + 3] == "RECENT 4" and lines[i + 4].endswith("done-a") and len(lines) == i + 5  # RECENT is last
-    assert lines[lines.index("RUNNING 9 | cc 9") - 1].startswith("  quality")  # P21: the suggestion precedes RUNNING
+    assert len(lines) == i + 3  # LEADS is last (#412)
+    assert lines[lines.index("RECENT 4") - 1].startswith("  quality")  # the suggestion precedes RECENT
+    assert lines.index("RECENT 4") < lines.index("RUNNING 9 | cc 9") < i
+    assert lines.count("+3 pools (--expand)") == 1 and sum(line.startswith(" cc P") for line in lines) == 7
+    assert sum("done-" in line for line in lines) == 2  # RECENT keeps both rows
 
 
 def test_each_step_removes_in_the_one_order_with_leads():
@@ -230,13 +234,14 @@ def test_each_step_removes_in_the_one_order_with_leads():
         previous = state
         seen.append(state)
     rows = [s[:5] for s in seen]
-    # RECENT rows down to one, then LEADS rows down to one, then RUNNING rows after the third, then POOLS after the fourth
-    assert (1, 3, 5, 8, 2) in rows and (1, 1, 5, 8, 2) in rows and (1, 1, 3, 8, 2) in rows and (1, 1, 3, 4, 2) in rows
-    assert (1, 1, 3, 4, 1) in rows and (1, 1, 0, 4, 1) in rows and (1, 1, 0, 0, 1) in rows
-    # the RECENT header goes before the LEADS header, and the LEADS header before the first suggestion line
-    assert (0, 1, 0, 0, 1) in rows and (0, 0, 0, 0, 1) in rows and (0, 0, 0, 0, 0) in rows
-    heads = [s[5:] for s in seen]
-    assert (0, 1, 1, 1) in heads and (0, 0, 1, 1) in heads
+    # LEADS rows down to one, then RUNNING rows after the third, POOLS after the fourth, the second suggestion line, RUNNING
+    # down to one row, RECENT down to one row, POOLS down to one row (#412: rows first, from the bottom up)
+    assert (2, 3, 5, 8, 2) in rows and (2, 1, 5, 8, 2) in rows and (2, 1, 3, 8, 2) in rows and (2, 1, 3, 4, 2) in rows
+    assert (2, 1, 3, 4, 1) in rows and (2, 1, 1, 4, 1) in rows and (1, 1, 1, 4, 1) in rows and (1, 1, 1, 1, 1) in rows
+    # then the LEADS header, the RUNNING rows and its header, the suggestion; RECENT and POOLS stay to the end
+    assert (1, 0, 1, 1, 1) in rows and (1, 0, 0, 1, 1) in rows and (1, 0, 0, 1, 0) in rows and (0, 0, 0, 0, 0) in rows
+    heads = [s[5:] for s in seen]  # RECENT, LEADS, POOLS, RUNNING
+    assert (1, 1, 1, 1) in heads and (1, 0, 1, 1) in heads and (1, 0, 1, 0) in heads and (0, 0, 1, 0) in heads
 
 
 def test_the_removal_that_creates_the_leads_overflow_line_removes_two_rows():
@@ -326,8 +331,8 @@ def test_small_heights_drop_leads_before_the_suggestion(frame, height):
     def has(head: str) -> int:
         return int(any(line.startswith(head) for line in lines))
 
-    # RECENT goes before LEADS, and LEADS before the first suggestion line
-    assert has("RECENT") <= has("LEADS") <= has("suggest:")
+    # LEADS goes before the first suggestion line, and the suggestion before RECENT (#412: RECENT is a protected section)
+    assert has("LEADS") <= has("suggest:") <= has("RECENT")
 
 
 # 16. --expand -------------------------------------------------------------------------------------------------------

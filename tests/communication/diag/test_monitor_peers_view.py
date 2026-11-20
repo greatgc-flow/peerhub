@@ -348,30 +348,21 @@ def test_narrow_peer_lines_drop_trailing_fields_whole(peers_frame):
     assert "Columns omitted: " in rendered
 
 
-def test_7_height_limited_tty_keeps_severity_based_omission(peers_frame):
-    """7. Height-limited TTY keeps severity-based omission for 'peers' group."""
+def test_7_height_limited_tty_cuts_from_the_bottom_and_names_the_count(peers_frame):
+    """7. A height-limited TTY cuts the sections from the bottom up (#412; the severity allocation is gone): an error
+    in a group does not move it above the others, a tall frame shows the group and its error."""
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
-    # When peers group is ERROR, it must be prioritized over OK groups in tight viewport
     peers_frame["selected_groups"] = ["overview", "peers", "execution"]
     peers_frame["groups"]["overview"]["status"] = "OK"
     peers_frame["groups"]["execution"]["status"] = "OK"
     peers_frame["groups"]["peers"]["status"] = "ERROR"
 
-    rendered_err = render_grouped_frame(peers_frame, view="plain", width=80, height=7)  # #374: +1 for the verdict line
-    assert rendered_err.startswith("OK")
-    assert "PEERS [ERROR]" in rendered_err
-    assert "[unrecognized group]" not in rendered_err
-    assert "rows hidden (1 group)" in rendered_err
-
-    # When peers group is OK and another group is ERROR, the ERROR group is prioritized and peers omitted
-    peers_frame["groups"]["peers"]["status"] = "OK"
-    peers_frame["groups"]["overview"]["status"] = "ERROR"
-    rendered_ok = render_grouped_frame(peers_frame, view="plain", width=80, height=6)
-    assert "OVERVIEW [ERROR]" not in rendered_ok
-    assert rendered_ok.count("Coverage:") == 1
-    assert "PEERS [" not in rendered_ok
-    assert "[unrecognized group]" not in rendered_ok
+    tall = render_grouped_frame(peers_frame, view="plain", width=80, height=80)
+    assert tall.startswith("OK") and "PEERS [ERROR]" in tall and "[unrecognized group]" not in tall
+    short = render_grouped_frame(peers_frame, view="plain", width=80, height=7)
+    assert short.startswith("OK") and len(short.splitlines()) <= 6 and "rows hidden" in short
+    assert "[unrecognized group]" not in short and short.count("Coverage:") <= 1
 
 
 def test_8_group_peers_selects_only_it_and_redirected_snapshot_prints_all_peers(peers_frame):

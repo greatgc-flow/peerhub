@@ -30,9 +30,9 @@ def fitted(height: int | None, width: int = 100, **over: Any) -> list[str]:
 def test_unbounded_frame_keeps_every_section_within_24_lines():
     lines = fitted(None)
     assert len(lines) == 24
-    assert lines[11] == "+2 pools (--expand)" and lines[20] == "+4 more (--expand)"  # P21: POOLS first, RECENT last
+    assert lines[11] == "+2 pools (--expand)" and lines[23] == "+4 more (--expand)"  # #412: POOLS, RECENT, then RUNNING
     assert [line.split()[0] for line in lines if not line.startswith((" ", "+"))][2:] == [
-        "POOLS", "suggest:", "RUNNING", "RECENT"]
+        "POOLS", "suggest:", "RECENT", "RUNNING"]
     assert lines.count("RECENT 4") == 1 and len([line for line in lines if line.startswith(" ok ")]) == 2
 
 
@@ -40,11 +40,14 @@ def test_unbounded_frame_keeps_every_section_within_24_lines():
     (0, []), (1, []),
     (2, ["OK | 9 running | 1 lead"]),
     (3, ["OK | 9 running | 1 lead", "PeerHub Monitor"]),
-    (4, ["OK | 9 running | 1 lead", "PeerHub Monitor", "RUNNING 9"]),
-    (5, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10", "RUNNING 9"]),
-    (6, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10", "suggest:", "RUNNING 9"]),
+    (4, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10"]),
+    (5, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10"]),  # RECENT's header and a row need two lines
+    (6, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10", "RECENT 4", " ok"]),
+    (7, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10", "RECENT 4", " ok"]),
+    (8, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10", " cc P0", "+9 pools", "RECENT 4", " ok"]),
 ])
 def test_small_heights_follow_the_removal_order_to_the_end(height, expected):
+    """The ATTN line, the title, the POOLS header and RECENT's header with one row are the last to go (#412)."""
     lines = fitted(height)
     assert len(lines) == len(expected)
     assert all(line.startswith(prefix) for line, prefix in zip(lines, expected)), lines
@@ -71,10 +74,12 @@ def test_each_step_removes_in_the_single_order():
         if previous is not None:
             assert all(now <= before for now, before in zip(state, previous)), (height, lines)
         previous = state
-    # recent rows go first (down to its last row), then running rows after the third, then pools rows after the fourth
+    # running rows go first (after the third), then pools rows after the fourth, the second suggestion line, the running
+    # rows again, RECENT down to its last row, the pools rows, and only then the lower sections and the suggestion
     order = [s[:4] for s in seen]
-    assert (1, 5, 8, 2) in order and (1, 3, 8, 2) in order and (1, 3, 4, 2) in order and (1, 3, 4, 1) in order
-    assert (1, 0, 4, 1) in order and (1, 0, 0, 1) in order and (0, 0, 0, 1) in order and (0, 0, 0, 0) in order
+    assert (2, 5, 8, 2) in order and (2, 3, 8, 2) in order and (2, 3, 4, 2) in order and (2, 3, 4, 1) in order
+    assert (2, 1, 4, 1) in order and (1, 1, 4, 1) in order and (1, 1, 1, 1) in order
+    assert (1, 0, 1, 1) in order and (1, 0, 1, 0) in order and (1, 0, 0, 0) in order and (0, 0, 0, 0) in order
 
 
 def test_first_removal_that_creates_an_overflow_line_removes_two_rows():
@@ -153,10 +158,10 @@ def test_rendered_frame_with_10_pools_and_9_running_asks_at_small_heights(frame,
         + [ask("ok", name="done", age=60, exact=True, reply_line="fine")])
     screen = render_grouped_frame(frame, view="plain", unicode=True, width=100, height=height)
     lines = screen.splitlines()
-    assert len(lines) == max(0, height - 1)
-    expected = ["OK | 9 running", "PeerHub Monitor", "RUNNING 9", "POOLS", "suggest:"]
-    order = {2: expected[:1], 3: expected[:2], 4: expected[:3], 5: [*expected[:2], "POOLS", "RUNNING 9"],
-             6: [*expected[:2], "POOLS", "suggest:", "RUNNING 9"]}.get(height, [])  # the same lines, P21's order
+    head = ["OK | 9 running", "PeerHub Monitor", "POOLS"]
+    order = {2: head[:1], 3: head[:2], 4: head, 5: head,  # RECENT's header and its row need two lines
+             6: [*head, "RECENT 1 (9 running)", " ok"]}.get(height, [])  # the same lines, #412's order
+    assert len(lines) == len(order) <= max(0, height - 1)
     assert [next(p for p in order if line.startswith(p)) for line in lines] == order[:len(lines)]
 
 

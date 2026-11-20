@@ -1,5 +1,17 @@
 OK
-PeerHub Monitor | OK | 00:16:40Z
+PeerHub Monitor 1970-01-01 00:16Z | DB:unknown | quota age 30s
+cc probe error (?)
+next: peerhub observation refresh
+POOLS 8   STATE  LEFT  RESET  PACE  FAMILY
+ ag P-4H  out      0%  2h00m     -  ?
+ ag P-3H  low      1%  2h00m     -  ?
+ ag P-1H  ok     100%  2h00m     -  ?
+ ag P-2H  ok      50%  2h00m     -  ?
+ ag P-5H  ?         -  -         -  ?
+ ag P-6H  ?         -  -         -  ?
+ ag P-7H  aged    80%  2h00m     -  ?
+ ag P-8H  ok      90%  2h00m     -  ?
+suggest: no eligible profiles; next: peerhub observation refresh
 ── QUOTA [OK] | measured remaining | soonest exhaust: ag P-3H 1% in 30m ───────────────────────────────────────────────
 PEER  POOL  STATE          REM  RESET-IN  PACE  [BAR]       EXHAUST-IN  AGE  PROFILES (configured)
 ag    P-1H  ON_PACE       100%  2h00m     -     [████████]  -           30s  unmapped

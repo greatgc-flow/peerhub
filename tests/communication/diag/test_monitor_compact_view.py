@@ -622,9 +622,11 @@ def test_compact_frame_has_no_footer_counts(compact_frame):
 
 
 def _pool_order(screen):
+    """The pools of the QUOTA details of an --expand frame (below the compact POOLS block, #412), in their order."""
     order = []
     peer = ""
-    for line in screen.splitlines():
+    lines = screen.splitlines()
+    for line in lines[next((i for i, text in enumerate(lines) if "QUOTA [" in text), 0):]:
         if re.match(r"^(ag|cc|cx) \S+ (n/a|\?) ", line):
             continue  # reason notes have single-spaced peer/pool/state prefixes
         match = re.match(r"^(?:(ag|cc|cx)\s+|\s+)(?:[|`]-\s+)?((?:3P|[ACGFX])-\d+[HD])\s", line)

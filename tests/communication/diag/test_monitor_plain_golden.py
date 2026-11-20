@@ -1,13 +1,10 @@
-"""The plain compact frame retains the 0.24.17 text outside intentional section/lead-header changes.
+"""The plain compact frame, pinned byte for byte over every width, height and output encoding of `golden_cases()`.
 
-The goldens in `tests/communication/fixtures/monitor/plain_v0_24_17.json` were captured from the `v0.24.17` tag: every
-case of `golden_cases()` rendered by that tag's `peerhub/cli/monitor_view.py` (widths, heights and output encodings).
-The new order is verdict, header, POOLS, the suggestion, RUNNING, LEADS, RECENT; 0.24.17 printed verdict, header,
-RUNNING, LEADS, RECENT, the suggestion, POOLS.
-0.24.22 labels LEADS entries and found sessions separately. The frozen tag fixtures stay unchanged; the
-expected text below replaces only their lead headers with explicit new labels before the byte comparison.
-#400 regenerated the 57 cases whose frame shows the n/a pool (cx X-30D): no POOLS row, no count, and the room it
-leaves goes to the other rows. The lead headers of those goldens stay the frozen ones.
+The goldens in `tests/communication/fixtures/monitor/plain_v0_24_17.json` began as the `v0.24.17` tag's frames (the file
+keeps its name); #400 regenerated the cases that show the n/a pool, and #412 regenerated all 100 for the order
+verdict, header, POOLS, the suggestion, RECENT, RUNNING, LEADS (0.24.17 printed RUNNING, LEADS, RECENT, the suggestion,
+POOLS) and RECENT's new rows (newest first, five at most, with the session and cache columns). Only what #412
+changed moved: every case still renders the same pools, suggestion, RUNNING rows, LEADS rows and line 1.
 """
 from __future__ import annotations
 
@@ -25,7 +22,7 @@ from tests.communication.diag.test_monitor_leads_view import lead, sess
 
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_v0_24_17.json"
 OLD_ORDER = ("RUNNING", "LEADS", "RECENT", "suggest:", "POOLS")
-NEW_ORDER = ("POOLS", "suggest:", "RUNNING", "LEADS", "RECENT")
+NEW_ORDER = ("POOLS", "suggest:", "RECENT", "RUNNING", "LEADS")
 _HEAD = re.compile(r"^(RUNNING|LEADS|RECENT|POOLS) |^(suggest:)")
 PROFILES = [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
     ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]), ("ag.deepthink", ["3P-5H", "3P-7D"]),
@@ -158,16 +155,16 @@ def test_the_goldens_cover_every_case():
 
 
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in golden_cases()])
-def test_plain_frame_preserves_0_24_17_text_except_section_order_and_lead_labels(case, payload, kwargs):
+def test_plain_frame_matches_its_golden(case, payload, kwargs):
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
-    assert in_order(screen, OLD_ORDER) == with_lead_count_labels(GOLDENS[case], kwargs["width"])
-    assert in_order(screen, NEW_ORDER) == screen  # and the new frame prints them in the new order
+    assert screen == GOLDENS[case]
+    assert in_order(screen, NEW_ORDER) == screen  # the sections print in the one order
     assert "\x1b" not in screen
 
 
 @pytest.mark.parametrize("name", list(PAYLOADS))
 def test_the_golden_payloads_show_what_they_claim(name):
     heads = [key for key in blocks(GOLDENS[f"{name}-w100-hNone-None"]) if key != "top"]
-    expected = {"full": list(OLD_ORDER), "quiet": ["RUNNING", "suggest:", "POOLS"],
-                "empty": list(OLD_ORDER)}[name]
+    expected = {"full": list(NEW_ORDER), "quiet": ["POOLS", "suggest:", "RUNNING"],
+                "empty": list(NEW_ORDER)}[name]
     assert heads == expected
