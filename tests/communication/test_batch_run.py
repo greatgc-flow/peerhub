@@ -251,6 +251,32 @@ def test_all_completed_exit_zero_and_report_shape(tmp_path):
     assert [r["task_id"] for r in report["tasks"]] == ["a", "b"]  # manifest order, not completion order
 
 
+@pytest.mark.parametrize("db_dir,scratch", [(".peerhub", ".peerhub/tmp"), ("custom", "custom/.peerhub/tmp")])
+def test_concurrent_batches_use_independent_store_scratch(tmp_path, db_dir, scratch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    ready = threading.Barrier(2, timeout=10)
+    queries = []
+
+    def build(t, *, query_file, **kwargs):
+        queries.append(query_file)
+        slot = ready.wait()
+        assert query_file.read_text(encoding="utf-8") == t.prompt
+        return [sys.executable, FAKE, str(query_file), str(tmp_path), f"worker-{slot}"]
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        runs = [
+            pool.submit(batch.run_batch, [task()], batch_id="b1", max_parallel=1,
+                        db=str(tmp_path / db_dir / "core.db"), argv_builder=build)
+            for _ in range(2)
+        ]
+        for run in runs:
+            assert run.result()["tasks"][0]["status"] == "COMPLETED"
+    assert len(queries) == 2 and queries[0].parent != queries[1].parent
+    assert all(query.parent.parent == tmp_path / scratch for query in queries)
+    assert list((tmp_path / scratch).iterdir()) == []
+
+
 @pytest.mark.parametrize("fault,reason", [
     ("write", "query_write_failed:OSError"),
     ("argv", "worker_setup_error:ValueError"),
@@ -300,6 +326,7 @@ def test_setup_failure_emits_complete_json_and_continues(tmp_path, monkeypatch, 
         assert (row["stream"], row["request_id"]) == batch.derive_ids("b1", row["task_id"])
         assert "elapsed_s" in row
     assert batch.exit_code(report) == 1
+    assert list((tmp_path / ".peerhub" / "tmp").iterdir()) == []
 
 
 def test_exception_after_launch_cleans_up_and_continues(tmp_path, monkeypatch):
@@ -395,6 +422,7 @@ def test_cancel_kills_started_and_blocks_unlaunched(tmp_path):
     assert batch.exit_code(box["r"]) == 1
     for pid_file in list(tmp_path.glob("gc-*.pid")) + list(tmp_path.glob("w-*.pid")):  # whole tree is gone, grandchildren too
         assert not alive(int(pid_file.read_text()))
+    assert list((tmp_path / ".peerhub" / "tmp").iterdir()) == []
 
 
 def test_kill_unconfirmed_is_reported(tmp_path, monkeypatch):
@@ -419,9 +447,10 @@ def test_argv_builder_receives_derived_ids_and_prompt_file(tmp_path):
         seen.append((t.task_id, stream, request_id, db, Path(query_file).read_text(encoding="utf-8")))
         return [sys.executable, FAKE, str(query_file), str(tmp_path), t.task_id]
 
-    batch.run_batch([task("a")], batch_id="b1", max_parallel=1, db="D:/some/abs.db", argv_builder=build)
+    database = str(tmp_path / "abs.db")
+    batch.run_batch([task("a")], batch_id="b1", max_parallel=1, db=database, argv_builder=build)
     tid, stream, rid, db, text = seen[0]
-    assert (stream, rid) == batch.derive_ids("b1", tid) and db == "D:/some/abs.db" and text == "mode:ok\n"
+    assert (stream, rid) == batch.derive_ids("b1", tid) and db == database and text == "mode:ok\n"
 
 
 def test_default_argv_passes_absolute_db_and_ask_flags(tmp_path):

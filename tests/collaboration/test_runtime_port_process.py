@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
+import tempfile
 import textwrap
 import time
 from pathlib import Path
@@ -92,6 +94,92 @@ def test_oversized_output_is_bounded():
     assert job.status == "FAILED" and "max_output_bytes" in (job.error or "")
 
 
+def test_default_spool_stays_in_system_temp():
+    a = ProcessRuntimeAdapter()
+    a.register_command(cap("quick"), [PY, "-c", "print('{}')"])
+    job = a.submit("quick", {})
+    spool = Path(a._procs[job.job_id][1])
+    assert spool.parent == Path(tempfile.gettempdir())
+    assert wait_done(a, job.job_id).status == "COMPLETED"
+    assert not spool.exists()
+
+
+def test_explicit_scratch_is_lazy_and_independent_until_settle_and_cancel(tmp_path):
+    scratch = tmp_path / "nested scratch" / "tmp"
+    a = ProcessRuntimeAdapter(scratch_dir=scratch)
+    a.register_command(cap("quick"), [PY, "-c", "print('{}')"])
+    a.register_command(cap("sleepy"), [PY, "-c", "import time; time.sleep(60)"])
+    assert not scratch.exists()
+    sleepy = a.submit("sleepy", {})
+    try:
+        (sleepy_spool,) = scratch.iterdir()
+        quick = a.submit("quick", {})
+        assert len(list(scratch.iterdir())) == 2
+        assert wait_done(a, quick.job_id).status == "COMPLETED"
+        assert list(scratch.iterdir()) == [sleepy_spool]
+    finally:
+        assert a.cancel(sleepy.job_id).status == "CANCELLED"
+    assert list(scratch.iterdir()) == []
+
+
+def test_spawn_failure_removes_spool(tmp_path):
+    scratch = tmp_path / "scratch"
+    a = ProcessRuntimeAdapter(scratch_dir=str(scratch))
+    a.register_command(cap("missing"), [str(tmp_path / "missing-executable")])
+    job = a.submit("missing", {})
+    assert job.status == "FAILED" and job.error == "start failed: FileNotFoundError"
+    assert list(scratch.iterdir()) == []
+
+
+@pytest.mark.parametrize("running,interrupt", [(False, False), (True, False), (True, True)])
+def test_orderly_exit_cleans_uncollected_job(running, interrupt):
+    owner = textwrap.dedent("""
+        import json, sys
+        from peerhub.extensions.runtime_port import ProcessRuntimeAdapter, RuntimeCapability
+
+        # This fixture launches one process with no descendants.
+        class LeafRuntime(ProcessRuntimeAdapter):
+            @staticmethod
+            def _kill_tree(proc):
+                proc.kill()
+
+        adapter = LeafRuntime()
+        adapter.register_command(RuntimeCapability("sleepy", "sleepy", "test"),
+                                 [sys.executable, "-c", sys.argv[1]])
+        job = adapter.submit("sleepy", {})
+        proc, spool = adapter._procs[job.job_id]
+        if sys.argv[1] == "print('{}')":
+            proc.wait(timeout=10)
+        print(json.dumps([proc.pid, spool]), flush=True)
+        if sys.argv[2] == "True":
+            raise KeyboardInterrupt
+    """)
+    code = "import time; time.sleep(60)" if running else "print('{}')"
+    result = subprocess.run([PY, "-c", owner, code, str(interrupt)], capture_output=True, timeout=30)
+    assert (result.returncode != 0) == interrupt, result.stderr.decode()
+    pid, spool = json.loads(result.stdout)
+    assert gone(pid)
+    assert not Path(spool).exists()
+
+
+def test_close_retries_owned_unlink_failure(monkeypatch):
+    a = ProcessRuntimeAdapter()
+    a.register_command(cap("quick"), [PY, "-c", "print('{}')"])
+    job = a.submit("quick", {})
+    spool = Path(a._procs[job.job_id][1])
+    with monkeypatch.context() as patch:
+        def locked(path):
+            assert Path(path) == spool
+            raise PermissionError("injected sharing violation")
+
+        from peerhub.extensions import runtime_port
+        patch.setattr(runtime_port.os, "unlink", locked)
+        assert wait_done(a, job.job_id).status == "COMPLETED"
+        assert spool.is_file()
+    a.close()
+    assert not spool.exists()
+
+
 def test_registration_refuses_unsafe_command_shapes_and_no_raw_shell_exists():
     a = ProcessRuntimeAdapter()
     for argv in ([], ["{prog}", "x"], [PY, "prefix-{word}"], [PY, "{undeclared}"], [PY, ""], ["definitely-not-an-installed-binary-xyz"]):
@@ -138,12 +226,15 @@ def test_an_unconfirmed_kill_is_never_reported_as_cancelled(monkeypatch):
     a = ProcessRuntimeAdapter(cancel_wait_seconds=0.3)
     a.register_command(cap("sleepy"), [PY, "-c", "import time; time.sleep(60)"])
     job = a.submit("sleepy", {})
+    spool = Path(a._procs[job.job_id][1])
     monkeypatch.setattr(ProcessRuntimeAdapter, "_kill_tree", staticmethod(lambda proc: None))  # the OS "fails" to kill
     with pytest.raises(RuntimeCancellationError):
         a.cancel(job.job_id)
     assert a.get(job.job_id).status == "RUNNING"  # truthful: its effects may still be happening
+    assert spool.is_file()
     monkeypatch.undo()
     assert a.cancel(job.job_id).status == "CANCELLED"  # a real kill later still works
+    assert not spool.exists()
 
 
 @pytest.mark.catalog_id("RUN-013")

@@ -106,6 +106,7 @@ def test_registered_peer_readonly_lookup(tmp_path, capsys, adapter):
     else:
         assert code == 1 and result["error"]["code"] == "invalid_manifest"
     assert db.read_bytes() == before
+    assert not (db.parent / ".peerhub").exists()
 
 
 def test_missing_peers_table(tmp_path, capsys):
