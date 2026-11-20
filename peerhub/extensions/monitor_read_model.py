@@ -216,7 +216,7 @@ def _quota_age_observations(conn: sqlite3.Connection, now: float) -> Iterator[di
         except ObservationCorruptError:
             continue
         freshness = evaluate_observation(observation, capture_seq, read_us, policy)
-        yield {"kind": observation.kind, "resource_pool_ref": observation.resource_pool_ref,
+        yield {"kind": observation.kind, "subject_ref": observation.subject_ref, "resource_pool_ref": observation.resource_pool_ref,
                "state": freshness.state.value, "age_seconds": freshness.age_seconds, "payload": observation.payload}
 
 

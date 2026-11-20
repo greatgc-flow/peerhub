@@ -8,6 +8,12 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-11-21
+
+### Fixed
+
+- The monitor title and stale-quota line no longer show a days-old age (for example cx X-30D 8d) after a successful refresh: a STALE pool of a peer that has a fresh reading is one the provider stopped reporting and no longer ages the peer (#426).
+
 ## [0.26.0] - 2026-11-21
 
 ### Added
