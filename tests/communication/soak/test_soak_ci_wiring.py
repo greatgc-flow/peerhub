@@ -36,7 +36,7 @@ def test_soak_is_g6_non_blocking_and_publish_does_not_depend_on_it():
     publish = load("publish.yml")["jobs"]
     assert "verify" in publish and not publish["verify"].get("needs")
     assert set(publish["publish"]["needs"]) == {
-        "verify", "live-validation", "build", "matrix", "release-matrix", "release-evidence",
+        "verify", "live-validation", "build", "matrix", "release-evidence",
     }
     for name in ("ci.yml", "publish.yml"):
         for job in load(name)["jobs"].values():

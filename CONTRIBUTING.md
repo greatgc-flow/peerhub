@@ -140,14 +140,18 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    `CHANGELOG.md` section. Wait for CI to be green: `gh pr checks`
    must show zero pending or failed checks before merging. Never merge before
    checks finish.
-   For a topic branch before opening its PR, the same hosted matrix can be
+   For a topic branch before opening its PR, ordinary hosted CI can be
    started directly with `gh workflow run ci.yml --ref <branch>`; ordinary
    branch pushes do not trigger `ci.yml`.
    A full-matrix job (seen on Windows with Python 3.11) can reach the
    60 minute limit of `full-matrix`; it is cancelled, which fails `ci-pass`.
    This is not a test failure: run `gh run rerun <RUN-ID> --failed`, which
    repeats only the failed and cancelled jobs, and wait for `ci-pass` again.
-2. From a **clean checkout of the merged main commit**, run
+2. Dispatch `gh workflow run ci.yml --ref <candidate-ref> -f full_matrix=true`
+   on a ref pinned to the merged release commit. Wait for `ci-pass` and all ten
+   `full-matrix` cells to pass on that SHA before publishing the draft. The G2
+   reports must still be available and current when G5 runs.
+   From a **clean checkout of the same merged commit**, run
    `python -m tools.live_gate --yes`. This spends provider quota, refuses CI,
    and requires `agy`, `claude` and `codex` on PATH and logged in. It writes
    `g3.xml`, `g3-slow.xml` and `g3-e2e.xml` under `.peerhub/work/live-gate/`,
@@ -220,15 +224,18 @@ G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. `build` and
 sdist, while live-validation fetches the three G3 JUnit assets (the evidence JSON is a fourth, informational asset). After build, the
 10-cell matrix tests the built distributions on Ubuntu/Windows with Python
 3.11–3.15. `release-evidence` waits for verify, build, live-validation and the
-matrix. `publish` uses PyPI OIDC and runs only for a published release.
+matrix, then validates and downloads the ten G2 reports from the successful CI
+dispatch on the candidate SHA. The evidence bundle records `ci_run_url`.
+`publish` uses PyPI OIDC and runs only for a published release.
 
-To exercise the workflow without publishing:
+To exercise the workflow without publishing, first run full-matrix CI on the
+same pinned candidate ref:
 
 ```bash
-gh workflow run publish.yml --ref <branch> -f evidence_tag=<tag>
+gh workflow run publish.yml --ref <candidate-ref> -f evidence_tag=<tag>
 ```
 
-When the tag's live evidence is bound to a different commit from `<branch>`,
+When the tag's live evidence is bound to a different commit from `<candidate-ref>`,
 expect `release-evidence` to HOLD on G3. A manual dispatch never publishes to
 PyPI; matching evidence still has to meet the freshness and PASS requirements.
 
@@ -247,7 +254,7 @@ gh auth refresh -h github.com -s workflow
 - The live gate writes `.peerhub/work/live-gate/<date>-v<version>.json` (dates UTC, git-ignored); attach it to the GitHub release instead of committing it. Evidence files committed up to 0.24.12 stay in `docs/implementation/live_evidence/` as history. Before a repeated run for the same date and version, rename the earlier file to `-attemptN`.
 - Never type a SHA by hand; derive it from Git.
 - Delete a blocked or aborted release and its tag before retrying.
-- The `publish.yml` Windows release-matrix `rel_005` sandbox has no Git or provider CLIs, and its oracle forbids skips. Mark tests that need a real Git binary as E2E (the v0.24.1 first attempt failed on this; PR #306 moved real-Git discovery tests to E2E).
+- The Windows `rel_005` sandbox has no Git or provider CLIs, and its oracle forbids skips. Mark tests that need a real Git binary as E2E (the v0.24.1 first attempt failed on this; PR #306 moved real-Git discovery tests to E2E).
 
 ## Release evidence
 

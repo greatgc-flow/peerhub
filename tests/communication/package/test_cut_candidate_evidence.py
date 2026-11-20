@@ -8,6 +8,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 import yaml
@@ -276,11 +277,6 @@ GATE_JOBS = (("verify", "G0", ["g0"]), ("verify", "G1", ["g1"]), ("verify", "G2"
 G3_FILES = ("g3", "g3-slow", "g3-e2e")  # produced and stamped locally by `python -m tools.live_gate`, fetched from the Release assets
 
 
-def _rc_cells(wf):
-    m = wf["jobs"]["release-matrix"]["strategy"]["matrix"]
-    return len(m["os"]) * len(m["python-version"])
-
-
 def workflow_problems(wf):
     """Structural contract of publish.yml for candidate evidence; returns human-readable problems (empty = ok)."""
     bad = []
@@ -364,20 +360,22 @@ def workflow_problems(wf):
             bad.append("matrix job must fail closed")
         if "matrix" not in wf["jobs"]["release-evidence"]["needs"] or "junit/g4-matrix-" not in ev_run:
             bad.append("release-evidence must need the matrix job and read its per-cell JUnit files")
-    if ("release-matrix" not in wf["jobs"]["release-evidence"].get("needs", [])
-            or "release-matrix" not in wf["jobs"]["publish"].get("needs", [])
-            or f"${{#rc_junits[@]}} -ne {_rc_cells(wf)} ]]" not in ev_run or "g2-rc-matrix-" not in ev_run):
-        bad.append("release evidence and publish must require all release-candidate matrix cells")
+    evj = wf["jobs"]["release-evidence"]
+    ci_steps = [st for st in evj["steps"] if st.get("id") == "candidate-ci"
+                or st.get("with", {}).get("pattern") == "junit-g2-rc-matrix-*"]
+    if (len(ci_steps) != 2 or any(st.get("if") or st.get("continue-on-error") for st in ci_steps)
+            or ci_steps[1].get("with", {}).get("run-id") != "${{ steps.candidate-ci.outputs.run-id }}"
+            or '--ci-junit-dir ci-junit --ci-run-url "$CI_RUN_URL"' not in ev_run):
+        bad.append("release evidence must require every G2 report from the validated CI run")
     pub = wf["jobs"]["publish"]
     cond = str(pub.get("if", ""))
     if "github.event_name == 'release'" not in cond:
         bad.append("publish must require a release event")
     if any(f in cond for f in ("always()", "failure()", "cancelled()", "!cancelled()")):
         bad.append("publish must not override the implicit success() of its needs")
-    if ("release-evidence" not in pub["needs"] or "release-matrix" not in pub["needs"]
+    if ("release-evidence" not in pub["needs"]
             or not set(j for j, _, _ in GATE_JOBS) | {"verify"} <= set(pub["needs"])):
         bad.append("publish must need every gate job and release-evidence")
-    evj = wf["jobs"]["release-evidence"]
     if evj.get("continue-on-error"):
         bad.append("release-evidence must fail when the manifest is not ready")
     if any(st.get("continue-on-error") for st in evj["steps"] if "release_evidence" in st.get("run", "")):
@@ -452,10 +450,19 @@ def _mutate(kind):
         ev_step["run"] = ev_step["run"].replace("junit/g4-matrix-", "junit/other-")
     elif kind == "evidence-skips-g3-slow":
         ev_step["run"] = ev_step["run"].replace("--junit junit/g3-slow.xml", "")
+    elif kind == "evidence-skips-ci-reports":
+        ev_step["run"] = ev_step["run"].replace('--ci-junit-dir ci-junit --ci-run-url "$CI_RUN_URL"', "")
+    elif kind in {"ci-fetch-wrong-run", "ci-fetch-continue-on-error"}:
+        st = next(st for st in wf["jobs"]["release-evidence"]["steps"] if "run-id" in st.get("with", {}))
+        if kind == "ci-fetch-wrong-run":
+            st["with"]["run-id"] = "${{ github.run_id }}"
+        else:
+            st["continue-on-error"] = True
     return wf
 
 
 @pytest.mark.parametrize("kind", ["no-release-policy", "g3-self-hosted", "g3-no-presence-check", "g3-fetch-missing-file", "g3-upload-before-fetch",
+                                  "evidence-skips-ci-reports", "ci-fetch-wrong-run", "ci-fetch-continue-on-error",
                                   "g3-continue-on-error", "stamp-not-always", "g4-stamp-before-build",
                                   "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow", "no-gate-arg",
                                   "publish-always", "publish-no-release-event",
@@ -521,6 +528,42 @@ def test_cut_027_missing_junit_file_is_a_hold_not_a_crash(env, tmp_path):
     m = env.manifest([env.evidence(age=5), tmp_path / "g3.xml"])
     assert [b["status"] for b in m["evidence_bindings"]] == ["accepted", "missing"] and "g3.xml is missing" in holds(m)
     assert m["release_ready"] is False
+
+
+@pytest.mark.parametrize("expected", ["accepted", "missing", "stale", "mismatched"])
+def test_ci_reports_are_individually_checked_and_the_ci_run_is_recorded(monkeypatch, expected):
+    local = Path("junit/g2.xml")
+    ci_dir = Path("ci-junit")
+    report_name = "g2-rc-matrix-windows-latest-py3.15"
+    cell = ci_dir / f"junit-{report_name}" / f"{report_name}.xml"
+    head = "b" * 40 if expected == "mismatched" else SHA
+    at = NOW - timedelta(seconds=TTL + 1) if expected == "stale" else NOW
+    props = {"id": ev.candidate_id({"source_revision": head}), "source_revision": head,
+             "gate": "G2", "stamped_at": at.isoformat()}
+    suite = ET.Element("testsuite")
+    holder = ET.SubElement(suite, "properties")
+    for name, value in props.items():
+        ET.SubElement(holder, "property", name=f"candidate.{name}", value=value)
+    monkeypatch.setattr(Path, "is_file", lambda path: path == cell and expected != "missing")
+    monkeypatch.setattr(ev.ET, "parse", lambda path: ET.ElementTree(suite))
+    monkeypatch.setattr(ev, "_sha", lambda path: "0" * 64)
+    monkeypatch.setattr(ev, "_now", lambda: NOW)
+    captured = {}
+
+    def capture(out, manifest, paths, dist):
+        captured.update(manifest=manifest, paths=paths)
+
+    monkeypatch.setattr(ev, "write_bundle", capture)
+    url = "https://github.com/greatgc-flow/peerhub/actions/runs/42"
+    assert ev.main(["--junit", str(local), "--dist", "dist", "--out", "evidence", "--commit", SHA,
+                    "--candidate", "--release-policy", str(RELEASE_POLICY),
+                    "--ci-junit-dir", str(ci_dir), "--ci-run-url", url]) == 1  # other reports are missing
+    manifest = captured["manifest"]
+    assert manifest["ci_run_url"] == url
+    assert captured["paths"][0] == local and len(captured["paths"]) == 11
+    verdict = next(b for b in manifest["evidence_bindings"] if b["file"] == cell.name)
+    assert verdict["status"] == expected
+    assert any(cell.name in reason for reason in manifest["hold_reasons"]) == (expected != "accepted")
 
 
 GATE_OF = {e["test_id"]: e["primary_gate"] for e in json.loads(
