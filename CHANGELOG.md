@@ -8,9 +8,17 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.24.29] - 2026-11-20
+
 ### Changed
 
 - `peerhub monitor` re-layout (#412), compact and `--expand`, plain and rich: the order is line 1 (`ATTN`), the title line (it carries `DB:<source>`; `--expand` prints the full path as one line near the end), `POOLS` with the `suggest:` line as its footer, `RECENT`, `RUNNING`, `ALERTS`, `LEADS`, `QUOTA`, `PEERS`, `EXECUTION`, `SESSIONS`, `USAGE`, the `CONTEXT` note; the compact frame stops after `LEADS`. `RECENT 130 (2 running)` lists finished asks only, newest first (a running ask stays in `RUNNING` and is only counted in the head). A compact row is `ok 3m cc.effort lead7 s-ab12 R u3 62k/6% c91% "reply"`: state, age since the end, profile, lead, name, `R` resume or `F` fresh, `u<uses>`, context, cache-read share and reply; a narrow terminal drops the cache share, then the lead, then the mode and uses, then the context (the name and the reply stay; text is cut by cell width). `--expand` shows the newest 8 as two lines: `ok 14:02-14:05 (3m12s) cc/opus-4 [high] lead7 s-ab12 gen2 R u3 ctx 62k/1M 6% now` and `in 41k out 2k cache r38k w3k 91% | ask "..." -> reply "..."`. The session values (mode, uses, generation, context) are those of the stream's newest session now; fresh, tombstoned and missing sessions show `-`, never 0, and `cx` and `ag` show `-` for the context. The read model joins them in the activity statement, so they do not depend on the `SESSIONS` sample and the query count is unchanged. The height bound still applies (two rows less than the terminal). Compact: rows shrink first, from the bottom up, then the lower sections go; the ATTN line, the title, the `POOLS` header and `RECENT`'s header with one row go last. `--expand`: RECENT is allocated before the sections below it (8 entries of two lines when the top with them fits, e.g. 37 rows at 118 columns; else one-line rows, then fewer rows, two at least), and those sections take what is left and go from the bottom up, with `+N rows hidden`; the ATTN line, the title, `POOLS`, the suggestion and RECENT's header with two rows are never dropped (from a height of about 20). The plain `--expand` frame no longer starts with ALERTS and a grouped ACTIVITY section: it has the rich frame's top, order and ladder (ASCII, no colour, QUOTA with the 8-cell bar), and its per-section allocation by severity is gone (the sections are cut from the bottom). JSON: ask rows gain `session` (`generation`, `execution_mode`, `uses`, `provider`, `context`; null when there is no joined session) and `tokens.cache_read` / `tokens.cache_write`; no field is removed. The old RECENT context estimate that the view joined from the `SESSIONS` sample (`ctx 2% est, 3m ago` on a row) is gone; the SESSIONS, CONTEXT and PEERS sections keep it.
+
+## [0.24.28] - 2026-11-20
+
+### Fixed
+
+- `peerhub monitor` now draws on the terminal's alternate screen (like `top`) and restores the screen on exit. In the VS Code terminal the pinned command line (sticky scroll) covered the first line (`ATTN`) of the live frame; there is no command line on the alternate screen (#410).
 
 ## [0.24.27] - 2026-11-19
 
