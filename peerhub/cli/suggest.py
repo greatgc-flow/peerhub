@@ -73,7 +73,7 @@ def run_suggest(args: argparse.Namespace) -> int:
     for profile in list_profiles(workspace, include_meta=True):
         name = str(profile["profile"])
         peer, _, tier = name.partition(".")
-        if tier == args.tier and profile["fields"]["suggest"]["value"]:
+        if tier == args.tier and peer in TIE_ORDER and profile["fields"]["suggest"]["value"]:  # API peers cost credits: never suggested
             pools = cast(list[str], profile["fields"]["pools"]["value"] or [])
             candidates.append((name, peer, [pool for pool in pools if pool.endswith("-5H")],
                                [pool for pool in pools if pool.endswith("-7D")]))
@@ -94,13 +94,17 @@ def run_suggest(args: argparse.Namespace) -> int:
         paces = [_number(item["projection"]["pace_pt"]) if _usable(item) else None for item in weekly_items]
         max_used = max((value for value in used if value is not None), default=None)
         max_pace = max((value for value in paces if value is not None), default=None)
-        known = (max_used is not None and max_pace is not None and None not in used and None not in paces)
+        # A 5H pool the provider does not expose (monitor shows n/a) is no gate; the 7D PACE is required.
+        known = max_pace is not None and None not in paces
         usable = usable or known
         if max_used is not None and max_used >= .90:
             continue
+        if any(_usable(item) and _number(item["measurements"].get("remaining_fraction")) == 0 for item in weekly_items):
+            continue  # an exhausted 7D pool cannot serve the ask
         priority = TIE_ORDER.get(peer, len(TIE_ORDER))
-        if known and max_used is not None and max_pace is not None:
-            reason = f"5H usage {max_used:.1%}, 7D PACE {max_pace:+.1f} pp"
+        if known and max_pace is not None:
+            five = f"5H usage {max_used:.1%}" if max_used is not None else "5H n/a"
+            reason = f"{five}, 7D PACE {max_pace:+.1f} pp"
             ranked.append((max_pace, priority, name, peer, reason))
         else:
             ranked.append((math.inf, priority, name, peer, "quota unknown"))
@@ -108,7 +112,7 @@ def run_suggest(args: argparse.Namespace) -> int:
     if not usable:
         return _unavailable("no peer has usable 5H and 7D quota readings", json_output=args.json)
     if not ranked:
-        return _unavailable("all candidates reached 90% 5H usage", json_output=args.json)
+        return _unavailable("every candidate is at 90% 5H usage or has an exhausted 7D pool", json_output=args.json)
 
     _, _, name, peer, reason = min(ranked)
     query_file = f"{args.task}.txt" if args.task else "prompt.txt"

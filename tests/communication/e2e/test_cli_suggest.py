@@ -132,7 +132,7 @@ def test_unknown_is_eligible_after_the_5h_gate(quota, capsys):
 @pytest.mark.parametrize("json_option", [[], ["--json"]])
 def test_no_peer_has_both_usable_windows(quota, capsys, json_option):
     items, _, calls = quota
-    items.extend(readings("cx", used_7d=None) + readings("cc", used_5h=None))
+    items.extend(readings("cx", used_7d=None) + readings("cc", used_7d=None))  # 7D is required; an unexposed 5H is no gate
     assert suggest("--tier", "standard", *json_option) != 0
     out = capsys.readouterr()
     assert "no peer" in out.err and len(out.err.splitlines()) == 1
@@ -169,3 +169,18 @@ def suggest_effect(e, option):
             assert "--writable" not in e.j(db, "suggest", "--tier", "effort", "--task", "read")["argv"]
         else:
             assert e.j(db, "suggest", "--tier", "effort")["profile"] == "cx.effort"
+
+
+def test_unexposed_5h_is_no_gate(quota, capsys):
+    items, _, _ = quota
+    items.extend(readings("cx", used_5h=None, used_7d=.10) + readings("cc", used_5h=None, used_7d=.50))
+    assert suggest("--tier", "effort", "--json") == 0
+    value = json.loads(capsys.readouterr().out)
+    assert value["profile"] == "cx.effort" and "5H n/a" in value["reason"]
+
+
+def test_exhausted_weekly_pool_is_not_suggested(quota, capsys):
+    items, _, _ = quota
+    items.extend(readings("ag", used_7d=1.0, deep=True))
+    assert suggest("--tier", "deepthink", "--json") != 0
+    assert "exhausted" in capsys.readouterr().err
