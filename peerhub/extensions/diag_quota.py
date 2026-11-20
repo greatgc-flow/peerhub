@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
-from peerhub.extensions.observation_model import MEASUREMENT_KEYS
+from peerhub.extensions.observation_model import FreshnessPolicy, MEASUREMENT_KEYS
 from peerhub.extensions.quota_projection import ExhaustionProjection, limit_by_parent, project_exhaustion, scoped_parent_ref
 
 SCHEMA_VERSION = "1.0"
@@ -108,7 +108,8 @@ def _reset_credit_view(it: dict[str, Any], now: float) -> dict[str, Any]:
             "warn": left_n is not None and left_n < RESET_CREDIT_WARN_SECONDS, "credits": credits}
 
 
-def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | None = None, read_at: float | None = None) -> dict[str, Any]:
+def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | None = None,
+                 read_at: float | None = None, policy: FreshnessPolicy | None = None) -> dict[str, Any]:
     now = time.time() if read_at is None else read_at
     db = str(db_path)
     out: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "status": "OK", "source_db": db, "read_at": now,
@@ -116,7 +117,7 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
     if not Path(db).is_file():  # never open (and thereby never create) a missing database
         out.update(status="UNAVAILABLE", error=f"database not found: {db}")
         return out
-    rep = ReadonlyDiag(db).render(["resource_pools", "observations"], read_at=now)
+    rep = ReadonlyDiag(db, policy=policy).render(["resource_pools", "observations"], read_at=now)
     status, err = _classify(rep, db)
     if status != "OK":
         out.update(status=status, error=err)

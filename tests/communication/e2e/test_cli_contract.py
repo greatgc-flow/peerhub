@@ -20,7 +20,7 @@ def test_inventory_file_equals_the_real_parser():
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
         "account bind", "account list", "account show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor defaults reset", "monitor defaults set", "monitor defaults show", "monitor groups", "monitor repair", "observation refresh", "offset advance", "offset get", "peer get", "peer list", "peer register",
-        "profile list", "profile show", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
+        "profile list", "profile show", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show", "suggest"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
 def test_inventory_detects_divergence_positive_control(monkeypatch):
@@ -432,8 +432,9 @@ def test_leaf_help_exit_zero_lists_every_option_and_unknown_option_exits_2(leaf,
         assert o["flags"][0] in out, (leaf["command"], o)
     if argv[0] == "diag":
         assert "example" in out.lower()  # public diag leaves carry copyable examples
+    sample_values = {"group": "usage", "tier": "standard", "new_position": "1", "expected_revision": "1", "max_parallel": "1"}
     req = [x for o in leaf["options"] if o["required"] for x in
-           (("x",) if o["positional"] else (o["flags"][0], "usage" if o["dest"] == "group" else "1" if o["dest"] in ("new_position", "expected_revision", "max_parallel") else "x"))]
+           (("x",) if o["positional"] else (o["flags"][0], sample_values.get(o["dest"], "x")))]
     code, out, err = run(capsys, "unused.db", *argv, *req, "--definitely-unknown")
     assert code == 2 and "Traceback" not in err and "unrecognized arguments: --definitely-unknown" in err
 

@@ -48,7 +48,7 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
         while True:
             if report_missing_store(args.db, json_output=True, selected=is_explicit):
                 return 5
-            if done % args.collect_every == 0:
+            if args.probe and done % args.collect_every == 0:
                 result = refresh_with_profile_pools(args.db, args.peers, sys_dir=getattr(args, "sys_dir", None),
                                                     deadline_sec=args.timeout)
                 last_refresh_status_code = 1 if result["status"] != "OK" else 0

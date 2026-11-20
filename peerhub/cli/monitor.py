@@ -29,14 +29,15 @@ def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 def register_monitor_parser(subparsers: Any) -> None:
     from peerhub.cli.monitor_view import MONITOR_LEGEND
 
-    p = subparsers.add_parser("monitor", help="Watch quota evidence and diagnostic dashboard",
+    p = subparsers.add_parser("monitor", help="Watch committed quota evidence and diagnostics",
                              epilog="\n".join(MONITOR_LEGEND), formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--interval-seconds", dest="interval", type=float, default=60.0,
-                   help="Collection cycles every N s (positive float); supported TTY countdown redraw at most 1 Hz")
+                   help="Watch cycles every N s (positive float); supported TTY countdown redraw at most 1 Hz")
     p.add_argument("--cycles", type=int, default=None,
                    help="Number of cycles (default: 1 when stdout is not a TTY, until interrupted on a TTY; 0 = until interrupted everywhere)")
     p.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"],
-                   help="Peers to refresh quota for")
+                   help="Peers to refresh quota for with --probe")
+    p.add_argument("--probe", action="store_true", help="Refresh provider quota during watch (may spend quota)")
     p.add_argument("--timeout-seconds", dest="timeout", type=float, default=15.0,
                    help="Probe timeout")
     p.add_argument("--json", action="store_true")
@@ -50,7 +51,7 @@ def register_monitor_parser(subparsers: Any) -> None:
                    default=os.environ.get("PEERHUB_MONITOR_VIEW") or "auto",
                    help="Dashboard style: auto (rich on a TTY), rich (colour), plain (ASCII override for ambiguous-width box glyphs, ▲▼ and █ in Korean/East-Asian locales). Set PEERHUB_MONITOR_VIEW=plain for a lasting ASCII fix (auto|rich|plain; explicit --view wins). Both show PACE; VT TTY redraws at most 1 Hz; non-TTY appends completed frames; TTY without VT appends without escapes")
     p.add_argument("--collect-every", type=int, default=1,
-                   help="Collect only every Kth cycle (K>=1)")
+                   help="With --probe, collect only every Kth cycle (K>=1)")
     p.add_argument("--system-dir", dest="sys_dir", type=Path,
                    help="Explicit portable provider installation directory")
     p.add_argument("--group", action="append", choices=(*GROUP_IDS, "all"), default=None,
@@ -108,6 +109,8 @@ def validate_monitor_args(parser: argparse.ArgumentParser, args: argparse.Namesp
         parser.error("schema 1.1 cannot represent --group; use schema 2.0")
     if args.json and effective_schema == "1.1" and args.snapshot:
         parser.error("schema 1.1 cannot represent --snapshot; use schema 2.0")
+    if args.snapshot and args.probe:
+        parser.error("--snapshot cannot be combined with --probe")
 
 
 def _legacy_alias_available(version: str | None = None) -> bool:
@@ -281,13 +284,14 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         errors = cast(dict[str, Any], errors_obj) if isinstance(errors_obj, dict) else {}
         return 6 if "schema" in errors else 0
 
-    def redraw(state: str, next_in: float | None = None) -> None:
+    def redraw(state: str | None = None, next_in: float | None = None) -> None:
         """Draw the last payload again between two reads. Every such frame is that one payload aged by the time since
         its read, so line 1 and POOLS always show the same moment (P9)."""
         if last_payload is None:
             return
         display = dict(last_payload)
-        display["refresh_state"] = state
+        if state is not None:
+            display["refresh_state"] = state
         display["display_elapsed_seconds"] = max(0.0, monotonic() - last_frame_monotonic)
         if next_in is not None:
             display["next_refresh_in"] = next_in
@@ -307,7 +311,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
             if report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
                 return 5
             refresh: dict[str, Any]
-            if done % args.collect_every == 0:
+            if args.probe and done % args.collect_every == 0:
                 if output.live:
                     redraw("REFRESHING", 0)
                 result = refresh_with_profile_pools(args.db, args.peers, sys_dir=getattr(args, "sys_dir", None),
@@ -340,7 +344,10 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                     sleep(min(1.0, remaining))
                     remaining = next_deadline - monotonic()
                     if remaining > 0:
-                        redraw("REFRESH OK" if last_refresh_code == 0 else "REFRESH WARN", remaining)
+                        if args.probe:
+                            redraw("REFRESH OK" if last_refresh_code == 0 else "REFRESH WARN", remaining)
+                        else:
+                            redraw()
             elif remaining > 0:
                 sleep(remaining)
             now = monotonic()
