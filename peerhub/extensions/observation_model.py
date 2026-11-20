@@ -131,17 +131,9 @@ def quota_probe_timed_out(reason: object) -> bool:
     return isinstance(reason, str) and (reason == "timeout" or reason.endswith("_timeout"))
 
 
-def _quota_peer(item: Mapping[str, Any]) -> str:
-    """The peer a pool reading belongs to (`quota:<peer>:<pool>`), else its subject."""
-    ref = str(item.get("resource_pool_ref") or item.get("pool_ref") or "")
-    parts = ref.split(":")
-    return parts[1] if len(parts) >= 3 and parts[0] == "quota" else str(item.get("subject_ref") or "")
-
-
 def oldest_measured_quota_age(items: Iterable[Mapping[str, Any]]) -> float | None:
-    """Age of the stalest peer's quota: per peer the NEWEST pool reading with a usable remaining fraction (a pool the
-    provider stopped reporting must not make the peer look old), then the oldest of those peers."""
-    newest: dict[str, float] = {}
+    """Age of the oldest pool quota reading with a usable remaining fraction, including stale readings."""
+    oldest = None
     for item in items:
         if (item.get("kind", "quota") != "quota" or not (item.get("resource_pool_ref") or item.get("pool_ref"))
                 or item.get("state") not in ("MEASURED", "STALE") or item.get("display_retired")):
@@ -153,9 +145,8 @@ def oldest_measured_quota_age(items: Iterable[Mapping[str, Any]]) -> float | Non
         age: object = item.get("age_seconds")
         if (isinstance(remaining, (int, float)) and not isinstance(remaining, bool) and 0 <= remaining <= 1
                 and isinstance(age, (int, float)) and not isinstance(age, bool) and 0 <= age < math.inf):
-            peer = _quota_peer(item)
-            newest[peer] = age if peer not in newest else min(newest[peer], age)
-    return max(newest.values()) if newest else None
+            oldest = age if oldest is None else max(oldest, age)
+    return oldest
 
 
 MAX_EPOCH_SECONDS = 253402300799  # 9999-12-31T23:59:59Z: the last instant every datetime/strftime path can represent
