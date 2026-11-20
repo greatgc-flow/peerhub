@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- Benchmark suite v1 (0.25.0 plan D10/A8) adds six fixed Python tasks and an offline runner for grading saved replies against hidden cases. The runner verifies all references and records versioned JSONL measurements with the effective profile settings for `peerhub profile stats`. [Benchmark instructions](docs/benchmarks/suite-v1/README.md)
+
 ### Changed
 
 - `peerhub monitor` (#414): a child pool in POOLS (`└─ F-7D`, `└─ 3P-5H`, `└─ G-5H`) has its own bar, so it no longer looks like its parent: filled `▬` in the state colour and empty `╌` in dim, 20 cells with the same shrink rule (to 4 cells, then hidden); the ASCII form is `=` filled and `-` empty. A parent keeps `█░` (`#.`). The plain `--expand` QUOTA `[BAR]` column draws a child row the same way. An empty cell is never a space, so 0% still shows.
