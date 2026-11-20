@@ -1,0 +1,2 @@
+cx-sol62-high-r3 48s SCORE 100/100
+cx-astra62-high-r3 37s SCORE 100/100

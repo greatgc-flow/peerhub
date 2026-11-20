@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Model refresh 2026-11-20 for claude 2.1.329, codex 0.171.0 and agy 1.5.13: observed versions and profile sources updated; one profile added. agy lists the new `gemini-4-neon-{low,medium,high,xhigh}` and `gemini-pro-orchestrator-neon`; their pools (G-5H, G-7D) are recorded as unverified in `[exact_model_pools]`, new profile `ag.neon` (gemini-4-neon-high). Hard benchmark (one run each): neon medium 98, high 100, xhigh 100 (383 s); `cx.effort` (sol 6.2 high) 100 in 48 s and `cx.astra` 100 in 37 s after the #398 fix.
+
 ## [0.24.29] - 2026-11-20
 
 ### Changed
