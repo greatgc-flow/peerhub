@@ -65,7 +65,7 @@ def test_unbound_binding_and_fingerprint_golden(tmp_path, kind, writable):
 @pytest.mark.parametrize("kind", ["cc", "cx"])
 @pytest.mark.parametrize("writable", [False, True])
 def test_account_scope_hash_and_readiness_format(tmp_path, monkeypatch, kind, writable):
-    monkeypatch.setattr("peerhub.extensions.adapters.profiles.resolve_profile", lambda *args: ("m-test", "low"))
+    monkeypatch.setattr("peerhub.extensions.adapters.profiles.resolve_profile", lambda *args, **kwargs: ("m-test", "low"))
     profile = f"{kind}.standard"
     options = dict(model="m-test", effort="low", profile=profile, writable=writable)
     plain = CliRuntimeTarget(kind, tmp_path, **options)

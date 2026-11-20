@@ -417,6 +417,7 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
             print("Warning: inlined query file exceeds 64 KB. Consider paths or a diff.", file=sys.stderr)
     else:
         prompt = args.prompt
+    terminal_notices = not args.json and sys.stderr.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1"
     has_streamed = False
     output_has_newline = False
     def show_output(text: str) -> None:
@@ -432,7 +433,7 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
               "--query-file HANDOFF.md` with a handoff covering decisions, open work, and file refs.", file=sys.stderr)
 
     def show_receipt(result: dict[str, Any]) -> None:
-        if not args.json and sys.stdout.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1":
+        if terminal_notices:
             from peerhub.cli.profile_stats import ask_receipt
             print(ask_receipt(args, result), file=sys.stderr)
 
@@ -442,7 +443,8 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
                      profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
                      fresh=args.fresh, session=args.session, query_file=args.query_file,
-                     on_output=None if args.json else show_output, on_stream_budget=show_budget_warning, before_dispatch=refresh_dispatch_quota)
+                     on_output=None if args.json else show_output, on_stream_budget=show_budget_warning,
+                     before_dispatch=refresh_dispatch_quota, notice_alias=terminal_notices)
     except Exception:
         if has_streamed and not args.json and not output_has_newline:
             print()
@@ -873,7 +875,12 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
         else:
             from peerhub.cli.profile_stats import check_profiles, read_profile_stats, render_profile_stats
             profiles = list_profiles(workspace, include_meta=True)
-            stats = read_profile_stats(args.db, workspace, profiles)
+            try:
+                stats = read_profile_stats(args.db, workspace, profiles)
+            except (sqlite3.Error, SchemaVersionError, OSError, ValueError):
+                if args.action != "list":
+                    raise
+                stats = [{"n": None, "stale": None} for _ in profiles]
             if args.action == "stats":
                 payload = {"schema_version": "1.0", "workspace": str(workspace), "profiles": stats}
                 _emit(payload, True) if use_json else print(render_profile_stats(stats))
@@ -904,6 +911,7 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
         rows = [[profile["profile"], str(profile["fields"]["model"]["value"] or "CLI default"),
                  str(profile["fields"]["effort"]["value"] or "provider default"),
                  _profile_notes(profile["fields"]),
+                 "unavailable" if profile["stats"]["n"] is None else
                  str(profile["stats"]["n"]) + (" stale" if profile["stats"]["stale"] else ""),
                  _use_for_cell(profile.get("card"))] for profile in payload["profiles"]]
         columns = ["PROFILE", "MODEL", "EFFORT", "NOTES", "STATS", "USE FOR (profile show ID)"]

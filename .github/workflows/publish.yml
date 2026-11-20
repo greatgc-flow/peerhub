@@ -71,6 +71,56 @@ jobs:
       - name: Invariant scan
         run: python -u -m pytest -q tests/communication/architecture tests/communication/meta
 
+  candidate-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      run-url: ${{ steps.candidate-ci.outputs.run-url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.12"
+      - name: Select the exact candidate CI run
+        id: candidate-ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          candidate_sha="$(git rev-parse HEAD)"
+          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
+            tag_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+            test "$tag_sha" = "$candidate_sha" || {
+              echo "::error::Release tag $RELEASE_TAG differs from the checkout"
+              exit 1
+            }
+          fi
+          test "$candidate_sha" = "$GITHUB_SHA" || {
+            echo "::error::Candidate checkout differs from the event SHA"
+            exit 1
+          }
+          python -m tools.release_ci --repo "$GITHUB_REPOSITORY" --commit "$candidate_sha" >> "$GITHUB_OUTPUT"
+      - name: Download candidate CI reports
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.candidate-ci.outputs.run-id }}
+          pattern: junit-g2-rc-matrix-*
+          path: ci-junit/
+      - name: Verify candidate CI reports before live validation
+        run: python -m tools.release_evidence --verify-ci-junit ci-junit --commit "$GITHUB_SHA" --release-policy docs/m1_impl/release-policy.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: candidate-ci-junit
+          path: ci-junit/
+          if-no-files-found: error
+
   # Provider CLIs are logged in only on the maintainer's machine, so the live gate never runs on a remote runner.
   # `python -m tools.live_gate --yes` (clean checkout of the release commit) writes g3.xml / g3-slow.xml / g3-e2e.xml bound to that
   # commit; the maintainer attaches them to the GitHub Release (`gh release upload <tag> .peerhub/work/live-gate/g3*.xml`). This job only
@@ -78,7 +128,7 @@ jobs:
   # release-evidence job below still verifies candidate binding, freshness and PASS of every live catalog test.
   live-validation:
     # G3 (release-gates.json): LIVE-CC-001, LIVE-CX-001, LIVE-AG-001, LIVE-004, LIVE-005, LIVE-006, LIVE-007, LIVE-008 come from the local evidence.
-    needs: [verify]
+    needs: [verify, candidate-ci]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -206,12 +256,9 @@ jobs:
 
   release-evidence:
     # G5 evidence index + hashes: fails (exit 1) unless every blocking catalog test passed and every requirement is covered.
-    needs: [verify, live-validation, build, matrix]
+    needs: [verify, candidate-ci, live-validation, build, matrix]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: read
-      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -220,31 +267,9 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.12"
-      - name: Select the exact candidate CI run
-        id: candidate-ci
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          candidate_sha="$(git rev-parse HEAD)"
-          if [[ "$GITHUB_EVENT_NAME" == release ]]; then
-            tag_sha="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
-            test "$tag_sha" = "$candidate_sha" || {
-              echo "::error::Release tag $RELEASE_TAG differs from the checkout"
-              exit 1
-            }
-          fi
-          test "$candidate_sha" = "$GITHUB_SHA" || {
-            echo "::error::Candidate checkout differs from the event SHA"
-            exit 1
-          }
-          python -m tools.release_ci --repo "$GITHUB_REPOSITORY" --commit "$candidate_sha" >> "$GITHUB_OUTPUT"
-      - name: Download candidate CI reports
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          github-token: ${{ github.token }}
-          run-id: ${{ steps.candidate-ci.outputs.run-id }}
-          pattern: junit-g2-rc-matrix-*
+          name: candidate-ci-junit
           path: ci-junit/
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
@@ -257,7 +282,7 @@ jobs:
           merge-multiple: true
       - name: Generate release evidence bundle
         env:
-          CI_RUN_URL: ${{ steps.candidate-ci.outputs.run-url }}
+          CI_RUN_URL: ${{ needs.candidate-ci.outputs.run-url }}
         run: |
           junit_args=(--junit junit/g0.xml --junit junit/g1.xml --junit junit/g2.xml --junit junit/g3.xml --junit junit/g3-slow.xml --junit junit/g3-e2e.xml --junit junit/g4.xml)
           for f in junit/g4-matrix-*.xml; do test ! -e "$f" || junit_args+=(--junit "$f"); done

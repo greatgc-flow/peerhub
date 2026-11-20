@@ -47,8 +47,8 @@ def _topics_named_by(guide: str) -> list[str]:
 
 # ---- size and shape ---------------------------------------------------------------------------------------------
 
-def test_guide_is_at_most_1600_bytes_of_lf_text(capsys, monkeypatch, tmp_path):
-    out = _guide(capsys, monkeypatch, tmp_path)
+def test_guide_is_at_most_1600_bytes_of_lf_text(capsys):
+    out = _guide(capsys)
     assert len(out.encode("utf-8")) <= GUIDE_CAP, f"{len(out.encode('utf-8'))} bytes"
     assert "\r" not in out and out.isascii()
     assert len(out.splitlines()) <= 14
@@ -142,7 +142,7 @@ def test_guide_example_commands_parse_via_real_argparse(capsys):
 def test_every_pointer_topic_resolves_to_its_own_lesson(capsys):
     out = _guide(capsys)
     topics = _topics_named_by(out)
-    assert set(TOPICS) <= set(topics)
+    assert {*TOPICS, "setup"} <= set(topics)
     ids = {lesson["id"] for lesson in load_lessons()}
     for topic in dict.fromkeys(topics):
         assert topic in ids or topic == "lessons", topic
@@ -167,6 +167,12 @@ def test_every_topic_is_one_short_explain_entry(capsys):
 
 
 # ---- max-parallel: one constant ----------------------------------------------------------------------------------
+
+def test_guide_separates_batch_validation_from_quota_spend(capsys):
+    batch = next(line for line in _guide(capsys).splitlines() if line.startswith("Batch: "))
+    assert "--dry-run (validates only)" in batch
+    assert "execution spends quota" in batch
+
 
 def test_max_parallel_three_comes_from_one_constant(capsys):
     from peerhub.extensions import batch

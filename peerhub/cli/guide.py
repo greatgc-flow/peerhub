@@ -22,8 +22,8 @@ def render_guide(workspace: Path | None = None) -> str:
         "Tier: lowest that fits: standard = bulk, effort = code and routine review, deepthink = design and final check.",
         "Stream: one task = one --stream; reuse only for follow-ups and review rounds on ONE diff; new task = new stream.",
         "Votes: routine check = ONE reviewer; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. All run FRESH, even if a stream name is given; facts inline. Reply VERDICT / BLOCKERS / NITS, <= 300 tokens (peerhub explain independent-peer-votes).",
-        f"Batch: peerhub batch run tasks.json --batch-id review-001 --max-parallel {RECOMMENDED_MAX_PARALLEL} --dry-run (spends quota; at most {RECOMMENDED_MAX_PARALLEL} at once).",
+        f"Batch: peerhub batch run tasks.json --batch-id review-001 --max-parallel {RECOMMENDED_MAX_PARALLEL} --dry-run (validates only); execution spends quota, at most {RECOMMENDED_MAX_PARALLEL} at once.",
         "Timeout: --timeout-seconds 1800-3600 for implementer/review asks (default 600); ag up to 7200.",
         "Uncertain (timeout, empty reply, pending_earlier_record): stop that stream, check the working tree, never blind-retry; new work goes on a new stream.",
-        "More: peerhub profile list (models, tiers); peerhub explain <topic> for: ask-basics, writes-and-uncertain, store-and-upgrade, batch-and-load, discovery-commands, report-issues, ag-recipe, api-peers; all topics: peerhub explain lessons.",
+        "More: peerhub profile list (models, tiers); peerhub explain <topic> for: setup, ask-basics, writes-and-uncertain, store-and-upgrade, batch-and-load, discovery-commands, report-issues, ag-recipe, api-peers; all topics: peerhub explain lessons.",
     ])

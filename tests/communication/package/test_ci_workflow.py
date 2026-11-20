@@ -153,29 +153,31 @@ def test_windows_inventory_guard_rejects_skips_and_missing_modules(tmp_path):
         ci_platform.verify_junit(junit, manifest)
 
 
-def test_release_workflow_requires_exact_candidate_ci_before_pypi_publish():
+def test_release_workflow_requires_exact_candidate_ci_before_live_validation():
     release_text = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
     wf = yaml.safe_load(release_text)
     jobs = wf["jobs"]
     assert "release-matrix" not in jobs
     assert "release-evidence" in jobs["publish"]["needs"]
     assert "matrix" in jobs["release-evidence"]["needs"]
-    for job_name in ("verify", "build", "matrix", "release-evidence"):
+    assert "candidate-ci" in jobs["live-validation"]["needs"]
+    assert "candidate-ci" in jobs["release-evidence"]["needs"]
+    for job_name in ("verify", "build", "matrix", "release-evidence", "candidate-ci"):
         checkout_refs = [step.get("with", {}).get("ref") for step in jobs[job_name]["steps"]
                          if step.get("uses", "").startswith("actions/checkout@")]
         if checkout_refs:
             assert all(ref == "${{ github.sha }}" for ref in checkout_refs)
-    evidence = jobs["release-evidence"]
-    assert evidence["permissions"] == {"contents": "read", "actions": "read"}
-    checkout = evidence["steps"][0]
+    candidate = jobs["candidate-ci"]
+    assert candidate["permissions"] == {"contents": "read", "actions": "read"}
+    checkout = candidate["steps"][0]
     assert checkout["with"]["fetch-depth"] == 0
-    select = next(step for step in evidence["steps"] if step.get("id") == "candidate-ci")
+    select = next(step for step in candidate["steps"] if step.get("id") == "candidate-ci")
     assert 'git rev-parse HEAD' in select["run"]
     assert 'git rev-parse "refs/tags/$RELEASE_TAG^{commit}"' in select["run"]
     assert '"$GITHUB_SHA"' in select["run"]
     assert 'tools.release_ci --repo "$GITHUB_REPOSITORY" --commit "$candidate_sha"' in select["run"]
     assert select["env"]["RELEASE_TAG"] == "${{ github.event.release.tag_name }}"
-    download = next(step for step in evidence["steps"] if "run-id" in step.get("with", {}))
+    download = next(step for step in candidate["steps"] if "run-id" in step.get("with", {}))
     assert download["uses"].startswith("actions/download-artifact@")
     assert download["with"] == {
         "github-token": "${{ github.token }}",
@@ -183,10 +185,20 @@ def test_release_workflow_requires_exact_candidate_ci_before_pypi_publish():
         "pattern": "junit-g2-rc-matrix-*",
         "path": "ci-junit/",
     }
+    verify = next(step for step in candidate["steps"] if "--verify-ci-junit ci-junit" in step.get("run", ""))
+    assert '--commit "$GITHUB_SHA"' in verify["run"]
+    upload = next(step for step in candidate["steps"] if step.get("uses", "").startswith("actions/upload-artifact@"))
+    assert upload["with"]["name"] == "candidate-ci-junit" and upload["with"]["path"] == "ci-junit/"
+    assert candidate["steps"].index(select) < candidate["steps"].index(download) < candidate["steps"].index(verify) < candidate["steps"].index(upload)
+    assert all(not step.get("if") and not step.get("continue-on-error") for step in (select, download, verify, upload))
+    assert candidate["outputs"]["run-url"] == "${{ steps.candidate-ci.outputs.run-url }}"
+    evidence = jobs["release-evidence"]
+    archived = next(step for step in evidence["steps"] if step.get("with", {}).get("name") == "candidate-ci-junit")
+    assert archived["with"]["path"] == "ci-junit/"
     generate = next(step for step in evidence["steps"] if "tools.release_evidence" in step.get("run", ""))
     assert '--ci-junit-dir ci-junit --ci-run-url "$CI_RUN_URL"' in generate["run"]
-    assert generate["env"]["CI_RUN_URL"] == "${{ steps.candidate-ci.outputs.run-url }}"
-    assert evidence["steps"].index(select) < evidence["steps"].index(download) < evidence["steps"].index(generate)
+    assert generate["env"]["CI_RUN_URL"] == "${{ needs.candidate-ci.outputs.run-url }}"
+    assert evidence["steps"].index(archived) < evidence["steps"].index(generate)
 
 
 def test_ci_dispatch_stamps_and_uploads_source_reports_for_every_candidate_cell():

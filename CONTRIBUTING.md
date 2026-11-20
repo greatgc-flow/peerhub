@@ -151,6 +151,9 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    on a ref pinned to the merged release commit. Wait for `ci-pass` and all ten
    `full-matrix` cells to pass on that SHA before publishing the draft. The G2
    reports must still be available and current when G5 runs.
+   To verify the reports before spending quota, download them with
+   `gh run download <RUN-ID> --pattern "junit-g2-rc-matrix-*" --dir <REPORT-DIR>`
+   and run `python -m tools.release_evidence --verify-ci-junit <REPORT-DIR> --commit <HEAD-SHA> --release-policy docs/m1_impl/release-policy.json`.
    From a **clean checkout of the same merged commit**, run
    `python -m tools.live_gate --yes`. This spends provider quota, refuses CI,
    and requires `agy`, `claude` and `codex` on PATH and logged in. It writes
@@ -226,13 +229,14 @@ contradictions, stale text and layout glitches before publishing, and record wha
 Every monitor change must look and behave the same in compact and expand.
 
 Publishing the draft triggers `.github/workflows/publish.yml`: `verify` runs
-G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. `build` and
-`live-validation` then run in parallel: build produces and tests the wheel and
-sdist, while live-validation fetches the three G3 JUnit assets (the evidence JSON is a fourth, informational asset). After build, the
+G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. The
+`candidate-ci` job selects the successful dispatch on the candidate SHA and
+verifies all ten G2 reports before `live-validation` fetches the three G3 JUnit
+assets. The local evidence JSON is a fourth, informational asset. `build`
+produces and tests the wheel and sdist. After build, the
 10-cell matrix tests the built distributions on Ubuntu/Windows with Python
-3.11–3.15. `release-evidence` waits for verify, build, live-validation and the
-matrix, then validates and downloads the ten G2 reports from the successful CI
-dispatch on the candidate SHA. The evidence bundle records `ci_run_url`.
+3.11–3.15. `release-evidence` includes the verified CI reports and records
+`ci_run_url` in the evidence bundle.
 `publish` uses PyPI OIDC and runs only for a published release.
 
 To exercise the workflow without publishing, first run full-matrix CI on the

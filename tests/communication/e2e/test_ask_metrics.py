@@ -355,6 +355,29 @@ def test_stats_marks_changed_bindings_and_reads_latest_benchmark(monkeypatch):
     assert row["last_benchmark_run"] == "2026-11-18T00:00:00Z"
 
 
+@pytest.mark.parametrize("json_mode", [False, True])
+def test_profile_list_keeps_catalog_when_telemetry_fails(monkeypatch, capsys, json_mode):
+    from peerhub.cli import profile_stats
+    from peerhub.core.store import StorageCorruptError
+
+    def unreadable(db):
+        raise StorageCorruptError("unreadable telemetry")
+
+    monkeypatch.setattr(profile_stats, "ask_measurements", unreadable)
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", "unused-profile-dir")
+    flags = ["--json"] if json_mode else []
+    assert main(["profile", "list", *flags]) == 0
+    output = capsys.readouterr()
+    if json_mode:
+        catalog = json.loads(output.out)
+        assert catalog["known_models"] and catalog["profiles"]
+        assert all(p["stats"] == {"n": None, "stale": None} for p in catalog["profiles"])
+    else:
+        assert "cx.deepthink" in output.out and "unavailable" in output.out
+    assert main(["profile", "stats", *flags]) == 4
+    assert "unreadable telemetry" in capsys.readouterr().err
+
+
 def test_receipt_and_query_file_warning(monkeypatch, capsys):
     from pathlib import Path
     from peerhub.cli import profile_stats
@@ -362,7 +385,8 @@ def test_receipt_and_query_file_warning(monkeypatch, capsys):
 
     query = b"a" * (64 * 1024 + 1)
     monkeypatch.setattr(Path, "read_bytes", lambda self: query)
-    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: False)
+    monkeypatch.setattr("sys.stderr.isatty", lambda: True)
     monkeypatch.delenv("PEERHUB_NO_RECEIPT", raising=False)
 
     def fake_ask(db, peer, prompt, **options):
@@ -380,13 +404,35 @@ def test_receipt_and_query_file_warning(monkeypatch, capsys):
     assert stderr[1].startswith("ask-id - cx.standard - 0") and "tokens 0/-/-" in stderr[1]
     assert main(argv + ["--json"]) == 0
     assert len(capsys.readouterr().err.splitlines()) == 1
-    monkeypatch.setattr("sys.stdout.isatty", lambda: False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr("sys.stderr.isatty", lambda: False)
     assert main(argv) == 0
     assert len(capsys.readouterr().err.splitlines()) == 1
-    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr("sys.stderr.isatty", lambda: True)
     monkeypatch.setenv("PEERHUB_NO_RECEIPT", "1")
     assert main(argv) == 0
     assert len(capsys.readouterr().err.splitlines()) == 1
+
+
+@pytest.mark.parametrize(("tty", "json_mode", "quiet", "expected"), [
+    (True, False, False, True), (False, False, False, False),
+    (True, True, False, False), (True, False, True, False),
+])
+def test_ask_alias_notice_uses_receipt_policy(monkeypatch, capsys, tty, json_mode, quiet, expected):
+    from peerhub.extensions.adapters.base import CliRuntimeTarget, PrespawnError
+    from peerhub.extensions.adapters.profiles import reset_deprecation_notices
+
+    def fail_policy(self):
+        raise PrespawnError("offline policy stop")
+
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", "unused-profile-dir")
+    monkeypatch.setenv("PEERHUB_NO_RECEIPT", "1" if quiet else "0")
+    monkeypatch.setattr("sys.stderr.isatty", lambda: tty)
+    monkeypatch.setattr(CliRuntimeTarget, "validate_execution_policy", fail_policy)
+    reset_deprecation_notices()
+    argv = ["--db", "unused.db", "ask", "cx", "question", "--profile", "cx.deepthink"]
+    assert main(argv + (["--json"] if json_mode else [])) == 1
+    assert ("cx.deepthink is deprecated" in capsys.readouterr().err) is expected
 
 
 @pytest.mark.parametrize(("prompt_tokens", "turns", "warn"), [
