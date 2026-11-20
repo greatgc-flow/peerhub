@@ -132,8 +132,11 @@ def quota_probe_timed_out(reason: object) -> bool:
 
 
 def oldest_measured_quota_age(items: Iterable[Mapping[str, Any]]) -> float | None:
-    """Age of the oldest pool quota reading with a usable remaining fraction, including stale readings."""
-    oldest = None
+    """Age of the oldest pool quota reading with a usable remaining fraction, including stale readings.
+
+    A STALE pool of a peer that has a fresh (MEASURED) reading is one the provider stopped reporting
+    (the peer's last probe succeeded), so it does not age the peer."""
+    ages: list[tuple[object, float, bool]] = []
     for item in items:
         if (item.get("kind", "quota") != "quota" or not (item.get("resource_pool_ref") or item.get("pool_ref"))
                 or item.get("state") not in ("MEASURED", "STALE") or item.get("display_retired")):
@@ -145,8 +148,10 @@ def oldest_measured_quota_age(items: Iterable[Mapping[str, Any]]) -> float | Non
         age: object = item.get("age_seconds")
         if (isinstance(remaining, (int, float)) and not isinstance(remaining, bool) and 0 <= remaining <= 1
                 and isinstance(age, (int, float)) and not isinstance(age, bool) and 0 <= age < math.inf):
-            oldest = age if oldest is None else max(oldest, age)
-    return oldest
+            ages.append((item.get("subject_ref") or item.get("peer"), float(age), item.get("state") == "STALE"))
+    fresh_peers = {peer for peer, _age, stale in ages if not stale}
+    kept = [age for peer, age, stale in ages if not (stale and peer is not None and peer in fresh_peers)]
+    return max(kept) if kept else None
 
 
 MAX_EPOCH_SECONDS = 253402300799  # 9999-12-31T23:59:59Z: the last instant every datetime/strftime path can represent
