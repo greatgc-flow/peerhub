@@ -431,7 +431,7 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
                      author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
                      profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
-                     fresh=args.fresh, session=args.session,
+                     fresh=args.fresh, session=args.session, query_file=args.query_file,
                      on_output=None if args.json else show_output, on_stream_budget=show_budget_warning, before_dispatch=refresh_dispatch_quota)
     except Exception:
         if has_streamed and not args.json and not output_has_newline:

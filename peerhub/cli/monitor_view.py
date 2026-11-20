@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, cast
 
 from peerhub.cli.monitor_preferences import GROUPS
+from peerhub.extensions.caller import host_id, local_workspace_file
 
 # Mirrors peerhub.extensions.observation_model.NOT_REPORTED_REASON (the human renderer imports no extension code).
 _NOT_REPORTED = "not reported by provider"
@@ -20,6 +21,7 @@ _NA_REASONS = (_NOT_REPORTED, _DISABLED)
 _LEAD_MARK_PCT = 80  # mirrors monitor_read_model.LEAD_CONTEXT_MARK_PCT: the `!` of a lead's ctx cell
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m|\x1b\]8;[^\x07\x1b]*(?:\x1b\\|\x07)")  # SGR, and OSC 8 (a hyperlink's open and close)
+_FILE_OSC = re.compile(r"\x1b\]8;;file://[^\x1b]*\x1b\\([^\x1b]*)\x1b\]8;;\x1b\\")
 _BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
          *[chr(code) for code in range(0x2066, 0x206A)]}
 MONITOR_LEGEND = (
@@ -1170,6 +1172,9 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
         fields += [f"elapsed {_compact_age(_number(row.get('elapsed_s')))}", f"started {_stamp(row.get('started_at'))}",
                    "lease ?" if left is None else f"lease left {_compact_age(left)}" if left >= 0
                    else f"lease expired {_compact_age(-left)} ago"]
+        if "_lease_age_s" in row:
+            age = _number(row["_lease_age_s"])
+            fields.append("lease confirmed -" if age is None else f"lease confirmed {_compact_age(age)} ago")
     else:
         exact = row.get("ended_exact")
         ended = _stamp(row.get("ended_at")) + ("" if row.get("ended_at") is None
@@ -1193,13 +1198,16 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
 
 
 def _ask_lines(row: dict[str, Any], fields_width: int, text_width: int, unicode: bool = True, keep: str | None = None,
-               sep: str = " | ") -> list[str]:
+               sep: str = " | ", *, links: bool = False) -> list[str]:
     """One ask without a mark: its fields packed to `fields_width`, then its reply (an ended ask) and its ask text
     wrapped to `text_width`."""
     lines = _pack(_ask_fields(row, unicode, keep), max(1, fields_width), sep)
     texts = [] if _is_open(row) else [("reply", row.get("reply_line_long"))]
     for label, text in [*texts, ("ask", row.get("ask_line_long"))]:
-        lines.extend(_compact_wrap(f"{label}: {_cell(text, unicode, '-', keep)}", max(1, text_width)))
+        wrapped = _compact_wrap(f"{label}: {_cell(text, unicode, '-', keep)}", max(1, text_width))
+        if links and label == "ask" and wrapped[0].startswith("ask:"):
+            wrapped[0] = _query_link(row, "ask") + wrapped[0][3:]
+        lines.extend(wrapped)
     return lines
 
 
@@ -1327,7 +1335,7 @@ _RECENT_DROPS = (("cache",), ("lead",), ("mode", "uses"), ("ctx",))  # the order
 
 
 def _recent_compact(ended: list[dict[str, Any]], width: int, unicode: bool, keep: str | None, *, rich: bool = False,
-                    paint: bool = False, limit: int | None = None) -> list[str]:
+                    paint: bool = False, links: bool = False, limit: int | None = None) -> list[str]:
     """The compact RECENT rows (the first `limit`, RECENT_CAP by default, of `ended`):
     `ok 3m cc.effort lead7 s-ab12 R u3 62k/6% c91% "reply snippet"`: state, age since the end, profile, lead, name,
     R resume | F fresh, `u<uses>`, context, cache-read share, the reply. A narrow width drops the cache share, then the
@@ -1394,6 +1402,8 @@ def _recent_compact(ended: list[dict[str, Any]], width: int, unicode: bool, keep
         cells.append([*row, reply])
     colours = [_RECENT_COLOURS.get(str(row.get("state")), "bad") for row in shown]
     painter = _column_painter(0, colours) if dotted and paint else None
+    if links:
+        painter = _query_painter(shown, columns.index("name"), painter)
     return [" " + line for line in _table(cells, width - 1, unicode, right=(1,), elastic=len(columns), paint=painter)]
 
 
@@ -1412,7 +1422,8 @@ def _duration(seconds: object) -> str:
     return f"{total // 86400}d{total % 86400 // 3600:02d}h"
 
 
-def _recent_entry(row: dict[str, Any], width: int, unicode: bool, keep: str | None, sep: str = " | ") -> list[str]:
+def _recent_entry(row: dict[str, Any], width: int, unicode: bool, keep: str | None, sep: str = " | ", *,
+                  links: bool = False) -> list[str]:
     """One RECENT entry of --expand, two lines (each at most `width` cells; the session values are those of now):
     `ok 14:02-14:05 (3m12s) cc/opus-4 [high] lead7 s-ab12 gen2 R u3 ctx 62k/1M 6% now` and
     `in 41k out 2k cache r38k w3k 91% | ask "..." -> reply "..."`. `sep` is the view's separator (the rich view's
@@ -1456,22 +1467,27 @@ def _recent_entry(row: dict[str, Any], width: int, unicode: bool, keep: str | No
         else:
             texts = [_fit(texts[0], max(1, half), unicode), _fit(texts[1], max(1, room - half), unicode)]
     quote = [f'"{text}"' if value else text for text, value in zip(texts, (ask, said))]
-    second = f"{prefix}ask {quote[0]} -> reply {quote[1]}"
-    return [_fit(first, width, unicode), _fit(second, width, unicode)]
+    second = _fit(f"{prefix}ask {quote[0]} -> reply {quote[1]}", width, unicode)
+    if links and second.startswith(prefix + "ask "):
+        second = prefix + _query_link(row, "ask") + second[len(prefix) + 3:]
+    return [_fit(first, width, unicode), second]
 
 
 def _recent_expand_lines(ended: list[dict[str, Any]], width: int, unicode: bool, keep: str | None, *, rich: bool = False,
-                         paint: bool = False) -> list[str]:
-    """The RECENT entries of the --expand frame (RECENT_EXPAND at most), two lines each, one cell in: the first line
-    starts with the state dot (the second is three cells in), as the entries of RUNNING do."""
+                         paint: bool = False, links: bool = False) -> list[str]:
+    """Expanded RECENT entries, with the outcome command below the ask and reply."""
     glyphs = RICH_GLYPHS[unicode]
     lines: list[str] = []
     for row in ended[:RECENT_EXPAND]:
-        first, second = _recent_entry(row, max(1, width - 3), unicode, keep, f" {glyphs['sep']} " if rich else " | ")
+        inner = max(1, width - 3)
+        first, second = _recent_entry(row, inner, unicode, keep, f" {glyphs['sep']} " if rich else " | ", links=links)
         mark = glyphs["dot"] if rich else ""
         if mark and paint:
             mark = _paint(mark, RICH_SGR[_RECENT_COLOURS.get(str(row.get("state")), "bad")])
         lines.extend([" " + (f"{mark} " if mark else "") + first, "   " + second])
+        if row.get("_ask_id"):
+            lines.extend("   " + part for part in _compact_wrap(
+                f"peerhub outcome {row['_ask_id']} <accepted|rejected|retried>", inner))
     return lines
 
 
@@ -2096,8 +2112,12 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
     ]
     while True:
         lines = assemble()
-        if len(lines) <= limit and sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
-            break
+        if len(lines) <= limit:
+            if sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
+                break
+            lines = [_FILE_OSC.sub(r"\1", line) for line in lines]
+            if sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
+                break
         if not any(step() for step in steps):
             lines = [_fit_bytes(verdict, max_bytes - 1, unicode)]
             break
@@ -2208,7 +2228,7 @@ def _column_painter(column: int, colours: Sequence[str | None]) -> Callable[[int
 
 
 def _activity_sections(groups: dict[str, Any], width: int, unicode: bool, keep: str | None = None, *,
-                       rich: bool = False, paint: bool = False) -> tuple[list[str], int, list[str] | None]:
+                       rich: bool = False, paint: bool = False, links: bool = False) -> tuple[list[str], int, list[str] | None]:
     """RUNNING (header and at most five rows, the total before the cap) and RECENT (`_recent_compact`: at most RECENT_CAP
     finished asks, newest first, or None). The rich view (P21) draws each head as a rule, starts a RUNNING row with its
     state glyph (and the word of a flag) and a RECENT row with a state dot; such a cell is used only when it costs no
@@ -2243,11 +2263,14 @@ def _activity_sections(groups: dict[str, Any], width: int, unicode: bool, keep: 
         if _columns(marked, width - 1, 4)[0] - 1 >= _columns(table, width - 1, first + 3)[0] - first:
             table, first = marked, 1
             painter = _column_painter(0, [colour for _, _, colour in marks]) if paint else None
+    if links:
+        painter = _query_painter(shown, first + 3, painter)
     rows = [" " + line for line in _table(table, width - 1, unicode, right=(first,), elastic=first + 3, paint=painter)]
     recent: list[str] | None = None
     ended = _recent_ended(data)
     if ended:
-        recent = [head_line(_recent_head(data, ended)), *_recent_compact(ended, width, unicode, keep, rich=rich, paint=paint)]
+        recent = [head_line(_recent_head(data, ended)),
+                  *_recent_compact(ended, width, unicode, keep, rich=rich, paint=paint, links=links)]
     return [head_line(head), *rows], total, recent
 
 
@@ -2690,9 +2713,10 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
     else:
         verdict = verdict_line(payload, width, unicode, keep)
     frame = CompactFrame(verdict=verdict, header=header)
+    links = bool(payload.get("_file_links"))
     if "activity" in selected_ids and not expand:
         frame.running, frame.running_total, frame.recent = _activity_sections(groups, width, unicode, keep,
-                                                                               rich=rich, paint=paint)
+                                                                               rich=rich, paint=paint, links=links)
         frame.leads, frame.leads_total = _leads_section(groups, now + elapsed, width, unicode, keep, rich=rich, paint=paint)
     elif "activity" in selected_ids and isinstance(_obj(groups.get("activity")).get("data"), Mapping):
         data = _obj(_obj(groups.get("activity")).get("data"))  # --expand: RECENT is in the top, RUNNING and LEADS follow it
@@ -2700,8 +2724,9 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
         if ended:
             frame.recent = [_head_rule(_recent_head(data, ended, superseded=True), width, unicode, paint) if rich
                             else _recent_head(data, ended, superseded=True),
-                            *_recent_expand_lines(ended, width, unicode, keep, rich=rich, paint=paint)]
-            frame.recent_short = _recent_compact(ended, width, unicode, keep, rich=rich, paint=paint, limit=RECENT_EXPAND)
+                            *_recent_expand_lines(ended, width, unicode, keep, rich=rich, paint=paint, links=links)]
+            frame.recent_short = _recent_compact(ended, width, unicode, keep, rich=rich, paint=paint, links=links,
+                                                limit=RECENT_EXPAND)
     if "capacity" in selected_ids:
         suggestion = _compact_suggestions(configured_profiles, rows)
         frame.suggest = _compact_wrap(suggestion, width) if expand else _suggest_lines(suggestion, width, unicode)
@@ -2770,7 +2795,7 @@ def _display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
         **({"_human_observations": replace(observations)} if "_human_observations" in payload else {})}
 
 
-GUIDE_TEXT = "Guide"  # the one link of the rich view: the right end of line 2 (#414)
+GUIDE_TEXT = "Guide"  # the rich view's link at the right end of line 2 (#414)
 GUIDE_DOC = "docs/monitor.md"
 _GUIDE_BLOB = "https://github.com/greatgc-flow/peerhub/blob/"
 
@@ -2794,7 +2819,7 @@ def _guide_released(version: str | None) -> str | None:
 def guide_link_url(env: Mapping[str, str], version: str | None = None) -> str | None:
     """The target of the Guide link, or None when the link is not drawn: PEERHUB_NO_LINKS set (not empty or 0), or a dev
     build without a tag (PEERHUB_GUIDE_URL overrides that for tests)."""
-    if env.get("PEERHUB_NO_LINKS", "").strip().lower() not in {"", "0", "false", "no", "off"}:
+    if not _links_enabled(env):
         return None
     return _guide_override(env) or _guide_released(version)
 
@@ -2802,6 +2827,33 @@ def guide_link_url(env: Mapping[str, str], version: str | None = None) -> str | 
 def guide_text_url(env: Mapping[str, str], version: str | None = None) -> str:
     """The URL of the plain `Guide:` line: the tag of this version, the main branch for a build without a tag."""
     return _guide_override(env) or _guide_released(version) or f"{_GUIDE_BLOB}main/{GUIDE_DOC}"
+
+
+def _links_enabled(env: Mapping[str, str]) -> bool:
+    return env.get("PEERHUB_NO_LINKS", "").strip().lower() in {"", "0", "false", "no", "off"}
+
+
+def _osc_link(url: str, label: str) -> str:
+    return f"\x1b]8;;{url}\x1b\\{label}\x1b]8;;\x1b\\"
+
+
+def _query_link(row: dict[str, Any], label: str) -> str:
+    facts = _obj(row.get("_caller_file"))
+    if facts and isinstance(facts.get("host"), str) and facts["host"] == host_id():
+        file = local_workspace_file(facts.get("query_file"), facts.get("workspace"))
+        if file is not None:
+            return _osc_link(file[0].as_uri(), label)
+    return label
+
+
+def _query_painter(rows: list[dict[str, Any]], column: int,
+                   paint: Callable[[int, int, str], str] | None) -> Callable[[int, int, str], str]:
+    def decorate(index: int, cell_column: int, text: str) -> str:
+        if cell_column == column:
+            text = _query_link(rows[index], text)
+        return paint(index, cell_column, text) if paint is not None else text
+
+    return decorate
 
 
 def _with_guide_link(screen: str, width: int, url: str | None, paint: bool) -> str:
@@ -2814,7 +2866,7 @@ def _with_guide_link(screen: str, width: int, url: str | None, paint: bool) -> s
     gap = width - _width(lines[1]) - len(GUIDE_TEXT)
     if gap < 1:
         return screen
-    link = f"\x1b]8;;{url}\x1b\\{GUIDE_TEXT}\x1b]8;;\x1b\\"
+    link = _osc_link(url, GUIDE_TEXT)
     lines[1] += " " * gap + (_paint(link, RICH_SGR["dim"]) if paint else link)
     return "\n".join(lines)
 
@@ -2826,8 +2878,10 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
     """Compact human default; the established renderer supplies expanded detail.
 
     `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5). `links` (the
-    rich view on a terminal only; the caller decides) adds the Guide link (OSC 8) to line 2."""
-    payload = {**_display_plan_omissions(payload), "_show_quota_notes": show_quota_notes}
+    rich view on a VT terminal only; the caller decides) enables Guide and query file links (OSC 8)."""
+    file_links = (links and view == "rich" and color and "NO_COLOR" not in os.environ and _links_enabled(os.environ)
+                  and os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off")
+    payload = {**_display_plan_omissions(payload), "_show_quota_notes": show_quota_notes, "_file_links": file_links}
     if expand:
         screen = _render_expanded_frame(payload, view=view, color=color, unicode=unicode,
                                         width=width, height=height, expand=True, keep=text_encoding)
@@ -2837,8 +2891,9 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
                                        width=width, height=height, keep=text_encoding)
         columns = max(1, min(100, width) - 1)
     if links and view == "rich":
-        return _with_guide_link(screen, columns, guide_link_url(os.environ),
-                                color and "NO_COLOR" not in os.environ)
+        linked = _with_guide_link(screen, columns, guide_link_url(os.environ), color and "NO_COLOR" not in os.environ)
+        if expand or len(linked.encode("utf-8")) <= COMPACT_MAX_BYTES:
+            return linked
     return screen
 
 
@@ -3002,7 +3057,7 @@ def _rich_activity(group: dict[str, Any], payload: dict[str, Any], now: float | 
     for row in running:
         glyph, word, colour = _RUN_MARKS[_flag(row)]
         rows.extend(marked(glyphs.get(glyph) or word.strip()[:1], colour,
-                           _ask_lines(row, inner, inner, unicode, keep, sep)))
+                           _ask_lines(row, inner, inner, unicode, keep, sep, links=bool(payload.get("_file_links")))))
     front = _rich_section(_running_head(data, running, unicode, keep)[0], rows, width, unicode, paint)
     leads = _items(data.get("leads"))
     rows = []
@@ -3153,7 +3208,7 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
         return None
 
     # RECENT is allocated before the sections below it: the richest form whose top still fits with the hint (entries of
-    # two lines, then rows of one line, then fewer rows); those sections get the lines that are left, from the top down.
+    # multiple lines, then rows of one line, then fewer rows); those sections get the lines that are left, from the top down.
     smallest, head = frame, top
     result = bounded(head)
     if result is not None:
@@ -3177,7 +3232,7 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
 
 
 def _recent_ladder(frame: CompactFrame) -> Iterator[CompactFrame]:
-    """The top of the --expand frame with RECENT smaller each time (#412): the entries of two lines become rows of one
+    """The top of the --expand frame with RECENT smaller each time (#412): the expanded entries become rows of one
     line (the compact frame's row), then fewer rows, two at least (or the one there is)."""
     if not frame.recent or not frame.recent_short:
         return

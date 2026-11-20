@@ -453,7 +453,7 @@ _ACTIVITY_SQL = (
     "SELECT tx.stream_id,tx.peer_id,tx.c_generation,tx.expires_at,tx.lease_sec,"
     "CASE WHEN :wsgen IS NULL THEN 1 WHEN tx.c_wsgen=:wsgen THEN 1 ELSE 0 END AS wsgen_match,"
     "tx.scope_total,tx.sup_total,tx.seq,tx.certainty,tx.claim_generation,tx.terminal_at,tx.sup,tx.last_kind,tx.start_detail,"
-    "tx.caller_detail,tx.result_ok,tx.want_text,"
+    "tx.caller_detail,tx.result_ok,tx.want_text,r.record_id,"
     "CASE WHEN tx.result_ok=1 THEN json_type(" + _R + ",'$.response') END AS response_type,"
     "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' "
     "THEN length(json_extract(" + _R + ",'$.response')) END END AS reply_len,"
@@ -686,7 +686,7 @@ def _liveness_of(caller: dict[str, Any], liveness: Callable[..., object] | None,
     return None, "pid reused or clock stepped" if _number(found) is not None else "not accessible"
 
 
-def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, text_on: bool, secrets: list[str],
+def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool, text_on: bool, secrets: list[str],
              liveness: Callable[..., object] | None, probe: Callable[[int], object]) -> dict[str, Any]:
     from peerhub.extensions.diag_running import _started_at  # pyright: ignore[reportPrivateUsage]
     reasons: list[str] = []
@@ -791,7 +791,7 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, text_on: boo
     tokens = ({"input": r["usage_in"], "output": r["usage_out"], "cache_read": r["usage_cache_read"],
                "cache_write": r["usage_cache_write"]}
               if r["usage_in"] is not None or r["usage_out"] is not None else None)
-    return {
+    row: dict[str, Any] = {
         "state": state, "superseded": superseded, "alive": alive, "alive_reason": alive_reason,
         "peer": _display(r["peer_id"], 64, secrets) or "?", "profile": profile, "model": model, "effort": effort,
         "stream": stream, "name": name, "lead": _lead(caller, secrets) if caller is not None else None,
@@ -801,6 +801,18 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, text_on: boo
         "ask_line_long": lines["ask_line_long"], "reply_line_long": lines["reply_line_long"],
         "note": note, "reasons": reasons, "session": _ask_session(r),
     }
+    if human:
+        if text_on and r["want_text"] and caller is not None and isinstance(caller.get("query_file"), str):
+            row["_caller_file"] = {key: caller.get(key) for key in ("query_file", "workspace", "host")}
+        if open_row:
+            lease = _number(r["lease_sec"])
+            row["_lease_age_s"] = (max(0.0, now - (expires_at - lease))
+                                   if state == "run" and lease is not None and lease > 0 else None)
+        else:
+            ask_id = r["record_id"]
+            if isinstance(ask_id, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", ask_id):
+                row["_ask_id"] = ask_id
+    return row
 
 
 def _ask_session(r: sqlite3.Row) -> dict[str, Any] | None:
@@ -823,13 +835,14 @@ def _ask_session(r: sqlite3.Row) -> dict[str, Any] | None:
                                                           "observed_at")}}
 
 
-def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | None, text_on: bool,
+def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | None, human: bool, text_on: bool,
                    liveness: Callable[..., object] | None, probe: Callable[[int], object]) -> dict[str, Any]:
     """Rows of the activity group. Lead `asks_24h` counts the streams (scopes) of that lead with an ask in the last 24 hours,
     one per stream and peer, not every ask: older asks of a stream are replaced by its newest one (superseded rows excluded)."""
     from peerhub.extensions.adapters.sanitize import env_secrets
     secrets = env_secrets()
-    built = [_ask_row(r, now, gen_reason=gen_reason, text_on=text_on, secrets=secrets, liveness=liveness, probe=probe) for r in rows]
+    built = [_ask_row(r, now, gen_reason=gen_reason, human=human, text_on=text_on, secrets=secrets,
+                      liveness=liveness, probe=probe) for r in rows]
     main = [a for a in built if not a["superseded"]]
     running = [a for a in main if a["state"] == "run" or (a["state"] == "overdue" and a["ended_at"] is None)]
     ended = [a for a in main if not (a["state"] == "run" or (a["state"] == "overdue" and a["ended_at"] is None))]
@@ -1625,7 +1638,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         liveness = ask_alive
                     except ImportError:
                         liveness = None
-                activity_data = _activity_data(activity_rows, now, gen_reason=generation_reason, text_on=text_on,
+                activity_data = _activity_data(activity_rows, now, gen_reason=generation_reason, human=human, text_on=text_on,
                                                liveness=liveness, probe=process_probe or _process_created)
                 output["activity"] = {"status": "OK", "data": activity_data}
             except sqlite3.Error as exc:

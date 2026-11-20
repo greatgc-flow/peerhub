@@ -123,7 +123,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         fresh: bool = False, session: str | None = None,
         on_output: Callable[[str], None] | None = None,
         on_stream_budget: Callable[[], None] | None = None,
-        before_dispatch: Callable[[Path, str], None] | None = None) -> dict[str, Any]:
+        before_dispatch: Callable[[Path, str], None] | None = None,
+        query_file: str | Path | None = None) -> dict[str, Any]:
     selector = normalize_session_selector(fresh=fresh, session=session)
     if not prompt.strip():
         raise ValueError("prompt must not be empty")
@@ -163,6 +164,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                 raise StorageCorruptError("database does not contain the communication Core schema; v0 support is archived on branch legacy/v0-main-final")
     kind = peer_kind(adapter_ref, peer_id)
     target: RuntimeTarget
+    execution_workspace: str | Path | None = None
     account_args: dict[str, Any] = {}
     if account_binding is not None:
         from peerhub.extensions.accounts import AccountRef
@@ -172,10 +174,11 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     if runtime is None:
         if kind is None:
             raise PeerNotFoundError("register this peer with --adapter cx, cc, ag, ca, oa or ga before asking it")
+        execution_workspace = workspace or Path.cwd()
         options: dict[str, Any] = dict(model=model, effort=effort, profile=profile, silence_timeout_s=silence_timeout_s,
                                        writable=writable, timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output)
-        target = (API_TARGETS[kind](workspace or Path.cwd(), **options) if kind in API_TARGETS
-                  else CliRuntimeTarget(kind, workspace or Path.cwd(), **options, **account_args))
+        target = (API_TARGETS[kind](execution_workspace, **options) if kind in API_TARGETS
+                  else CliRuntimeTarget(kind, execution_workspace, **options, **account_args))
     else:
         target = runtime
     rid = request_id or uuid.uuid4().hex
@@ -241,7 +244,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     claims = ClaimStore(db_path, generation=lineage.generation)
     # Runtime events may be silent until completion; keep the claim alive for the bounded run.
     lease_sec = timeout_s + 60
-    bridge = Bridge(store, claims, owner_id=f"ask-{uuid.uuid4().hex}", lease_sec=lease_sec, caller=detect_caller(),
+    caller = detect_caller(query_file=query_file, workspace=execution_workspace)
+    bridge = Bridge(store, claims, owner_id=f"ask-{uuid.uuid4().hex}", lease_sec=lease_sec, caller=caller,
                     stream_budget=limits, on_stream_budget=on_stream_budget)
     token = claims.acquire(peer_id, sid, bridge.owner_id, lease_sec)
     started_at = time.monotonic()
