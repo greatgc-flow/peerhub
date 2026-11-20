@@ -117,8 +117,8 @@ def test_compact_frame_order_and_width_with_korean_text(frame, width, unicode_mo
     assert lines[0] == "OK | 3 running | 2 leads | min quota 1% ag 3P-7D low"
     assert lines[1] == "PeerHub Monitor 2026-11-14 23:46Z | DB:env | quota age 10s"
     heads = [line.split()[0] for line in lines if re.match(r"^(RUNNING|RECENT|POOLS|suggest:)", line)]
-    assert heads == ["POOLS", "suggest:", "RECENT", "RUNNING"]  # #412: the quota first, then what ended, then what runs
-    assert lines[2].startswith("POOLS 8 ") and "RUNNING 3 | cc 2 cx 1" in lines
+    assert heads == ["RUNNING", "POOLS", "suggest:", "RECENT"]
+    assert any(line.startswith("POOLS 8 ") for line in lines) and "RUNNING 3 | cc 2 cx 1" in lines
     assert all(_width(line) <= width - 1 for line in lines), screen
     korean = next(line for line in lines if "activity-374-cc" in line or "평가" in line or "?? ??" in line)
     assert korean.startswith(" ") and "cc.fable" in korean
@@ -320,7 +320,7 @@ def test_agy_token_stop_is_one_more_alert_before_the_low_ones(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     assert lines[0].startswith("ATTN 2 | agy stop: next: --allow-agy-token-use to continue | token_expiring: cc")
     assert "STOPPED" in lines[1]
-    assert sum("--allow-agy-token-use" in line for line in lines) == 1
+    assert sum("--allow-agy-token-use" in line for line in lines[1:]) == 1
 
 
 @pytest.mark.parametrize("sources,expected", [
@@ -367,7 +367,7 @@ def test_attn_carries_a_question_mark_when_a_source_was_not_read(frame, sources,
     assert lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))[0].startswith(head)
     expanded = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=120, expand=True))
     alerts = expanded[next(i for i, line in enumerate(expanded) if "ALERTS 1" in line):]
-    alerts = alerts[1:next(i for i, line in enumerate(alerts) if i and line.startswith(("-- ", "LEADS ")))]  # #412: LEADS follows
+    alerts = alerts[1:next(i for i, line in enumerate(alerts) if i and line.startswith(("-- ", "RUNNING ")))]
     reasons = {"not_selected": "not selected", "stale": "stale", "error": "read failed",
                "unknown": "unknown (no 7-day pool has a number)"}
     assert alerts[0].startswith("pool_out: cx X-5H")
@@ -505,9 +505,8 @@ def test_expand_lists_every_field_of_asks_leads_and_alerts(frame):
     lines = lines_of(screen)
     assert lines[0].startswith("ATTN 2 | empty: ag.standard denied-postinstall 3m | facts: ag: version_drift")
     assert lines[1].startswith("PeerHub Monitor")
-    # #412: POOLS, RECENT, RUNNING, ALERTS, LEADS, QUOTA (the plain frame has no ACTIVITY section any more)
     order = [next(i for i, line in enumerate(lines) if line.startswith(marker))
-             for marker in ("POOLS ", "suggest:", "RECENT ", "RUNNING ", "-- ALERTS", "LEADS ", "-- QUOTA [")]
+             for marker in ("-- ALERTS", "RUNNING ", "POOLS ", "suggest:", "RECENT ", "LEADS ", "-- QUOTA [")]
     assert order == sorted(order) and "ACTIVITY [" not in screen
     for text in ("empty: ag.standard denied-postinstall | age 3m | high | a1", "facts: ag: version_drift | age - | low | a6",
                  "flag ? (other host)", "state run", "elapsed 16m", "started 2026-11-14 23:30:40Z", "lease left 10m",

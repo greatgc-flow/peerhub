@@ -204,7 +204,7 @@ def test_frame_output_anchors_rows_so_terminal_wrapping_cannot_accumulate(monkey
         assert output.getvalue() == "\x1b[H\x1b[1;1HATTN 1\x1b[K\x1b[2;1Hshort\x1b[K\x1b[J"
     finally:
         sink.close()
-    assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
+    assert output.getvalue().endswith("\x1b[0m\x1b[?25hATTN 1\nshort\n")
 
 
 @pytest.mark.platform_sensitive
@@ -434,4 +434,4 @@ def test_frame_output_leaves_the_alternate_screen_on_close_only_for_anchored_fra
         sink.close()
         text = output.getvalue()
         assert ("\x1b[?1049h" in text) is anchored and ("\x1b[?1049l" in text) is anchored
-        assert text.endswith("\x1b[0m\x1b[?25h")
+        assert text.endswith("\x1b[0m\x1b[?25h" + ("ATTN 1\n" if anchored else ""))

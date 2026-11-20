@@ -1,5 +1,6 @@
 """Offline recommendation cases using the shipped profiles and quota projection."""
 import json
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
@@ -53,6 +54,7 @@ def quota_world(monkeypatch):
 
     monkeypatch.setattr("peerhub.extensions.diag_quota.quota_report", report)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
+    monkeypatch.setattr("peerhub.cli.support.quota_refresh_lock", lambda db: nullcontext(True))
     return items, refreshed, calls
 
 
@@ -125,22 +127,18 @@ def test_unknown_is_eligible_after_the_5h_gate(quota, capsys):
     items.extend(readings("ag", state="ERROR"))
     assert suggest("--tier", "standard", "--json") == 0
     value = json.loads(capsys.readouterr().out)
-    assert value["profile"] == "ag.standard" and value["reason"] == "quota unknown"
+    assert value["profile"] == "ag.standard" and value["reason"] == "quota unknown (5H unknown)"
     assert not calls
 
 
-@pytest.mark.parametrize("json_option", [[], ["--json"]])
-def test_no_peer_has_both_usable_windows(quota, capsys, json_option):
+def test_quota_unknown_when_no_peer_has_measured_weekly_quota(quota, capsys):
     items, _, calls = quota
-    items.extend(readings("cx", used_7d=None) + readings("cc", used_7d=None))  # 7D is required; an unexposed 5H is no gate
-    assert suggest("--tier", "standard", *json_option) != 0
+    items.extend(readings("cx", used_7d=None) + readings("cc", used_7d=None))
+    assert suggest("--tier", "effort", "--json") == 0
     out = capsys.readouterr()
-    assert "no peer" in out.err and len(out.err.splitlines()) == 1
-    if json_option:
-        assert json.loads(out.out)["status"] == "unavailable"
-    else:
-        assert out.out == ""
-    assert len(calls) == 1
+    value = json.loads(out.out)
+    assert value["profile"] == "cx.effort" and value["reason"] == "quota unknown"
+    assert not out.err and not calls
 
 
 @pytest.mark.parametrize("tier,expected", [("effort", "cx.effort"), ("deepthink", "ag.deepthink")])
@@ -173,10 +171,29 @@ def suggest_effect(e, option):
 
 def test_unexposed_5h_is_no_gate(quota, capsys):
     items, _, _ = quota
-    items.extend(readings("cx", used_5h=None, used_7d=.10) + readings("cc", used_5h=None, used_7d=.50))
+    absent, = readings("cx", used_7d=None, state="ABSENT")
+    absent["measurements"] = {}
+    items.extend([absent, *readings("cx", used_5h=None, used_7d=.10), *readings("cc", used_7d=.50)])
     assert suggest("--tier", "effort", "--json") == 0
     value = json.loads(capsys.readouterr().out)
     assert value["profile"] == "cx.effort" and "5H n/a" in value["reason"]
+
+
+@pytest.mark.parametrize("short_state,age", [(None, 0), ("UNKNOWN", 0), ("MEASURED", 901), ("ABSENT", 901)])
+def test_unknown_5h_ranks_after_measured_and_can_be_a_fallback(quota, capsys, short_state, age):
+    items, _, _ = quota
+    if short_state is not None:
+        items.extend(readings("cx", used_7d=None, state=short_state, age=age))
+    items.extend(readings("cx", used_5h=None, used_7d=.10))
+    weekly_only = items.copy()
+    items.extend(readings("cc", used_7d=.50))
+    assert suggest("--tier", "effort", "--json") == 0
+    assert json.loads(capsys.readouterr().out)["profile"] == "cc.effort"
+
+    items[:] = weekly_only + readings("cc", used_7d=1.0)
+    assert suggest("--tier", "effort", "--json") == 0
+    value = json.loads(capsys.readouterr().out)
+    assert value["profile"] == "cx.effort" and value["reason"] == "quota unknown (5H unknown)"
 
 
 def test_exhausted_weekly_pool_is_not_suggested(quota, capsys):

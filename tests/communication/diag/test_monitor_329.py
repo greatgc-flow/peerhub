@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import pytest
 
 from peerhub.cli.app import main
+from peerhub.cli.monitor_view import QUOTA_NA
 from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation_model import EvidenceState, Observation
 from tests.communication.diag.test_monitor_328 import Store, iso
@@ -317,16 +318,16 @@ def test_5h_na_notes_use_the_fresh_account_plan_when_the_quota_probe_reports_non
     cc_without_5h(store)
     account(store, "cc", age=30, plan="pro", plan_status="reported")
     compact, expanded = snapshot(store, capsys), snapshot(store, capsys, "--expand", "--show-quota-notes")
-    item = next(o for o in json.loads(snapshot(store, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
-                if o["pool_ref"] == "quota:cc:C-5H")
+    observations = json.loads(snapshot(store, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
+    item = next(o for o in observations if o["pool_ref"] == "quota:cc:C-5H")
     assert item["reason"] == NOT_REPORTED + "unknown"  # the stored fact is not rewritten
     assert item["display_plan"] == "pro" and item["plan_source"] == "account"
-    other = next(o for o in json.loads(snapshot(store, capsys, "--json"))["groups"]["capacity"]["data"]["observations"]
-                 if o["pool_ref"] == "quota:cc:C-7D")
+    other = next(o for o in observations if o["pool_ref"] == "quota:cc:C-7D")
     assert "display_plan" not in other and "plan_source" not in other  # only the notes that needed it carry the fields
-    assert "C-5H" not in compact and "plan unknown" not in compact  # #374: an n/a 5-hour pool never binds
-    assert "(C-5H n/a)" in expanded and "plan unknown" not in expanded
-    assert "plan pro: no 5h window" in expanded and "plan unknown: no 5h window" not in expanded
+    for output in (compact, expanded):
+        pools = output.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
+        assert f"(C-5H {QUOTA_NA})" in pools and "plan unknown" not in output
+    assert "plan pro: no 5h window" in expanded
 
 
 def test_unknown_plan_stays_unknown_without_a_fresh_account_plan(store, capsys):

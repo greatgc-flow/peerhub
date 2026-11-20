@@ -61,9 +61,9 @@ def test_ci_has_fast_gates_smoke_and_explicit_weekly_candidate_matrix():
     for job_name in ("ubuntu-full", "windows-platform", "full-matrix"):
         checkout = next(step for step in jobs[job_name]["steps"] if step.get("uses", "").startswith("actions/checkout@"))
         assert checkout["with"].get("fetch-depth") == 0
-        uploads = [step for step in jobs[job_name]["steps"] if step.get("uses", "").startswith("actions/upload-artifact@")]
+        uploads = [step for step in jobs[job_name]["steps"]
+                   if step.get("uses", "").startswith("actions/upload-artifact@") and step.get("if") == "failure()"]
         assert len(uploads) == 1
-        assert uploads[0]["if"] == "failure()"
         assert uploads[0]["with"]["retention-days"] == 7
         assert uploads[0]["with"]["overwrite"] is True
     text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8").lower()
@@ -153,22 +153,70 @@ def test_windows_inventory_guard_rejects_skips_and_missing_modules(tmp_path):
         ci_platform.verify_junit(junit, manifest)
 
 
-def test_release_workflow_runs_full_matrix_before_pyPI_publish():
+def test_release_workflow_requires_exact_candidate_ci_before_live_validation():
     release_text = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
     wf = yaml.safe_load(release_text)
     jobs = wf["jobs"]
-    assert "release-matrix" in jobs
-    assert "release-matrix" in jobs["release-evidence"]["needs"]
-    assert "release-matrix" in jobs["publish"]["needs"]
-    for job_name in ("verify", "build", "matrix", "release-matrix", "release-evidence"):
+    assert "release-matrix" not in jobs
+    assert "release-evidence" in jobs["publish"]["needs"]
+    assert "matrix" in jobs["release-evidence"]["needs"]
+    assert "candidate-ci" in jobs["live-validation"]["needs"]
+    assert "candidate-ci" in jobs["release-evidence"]["needs"]
+    for job_name in ("verify", "build", "matrix", "release-evidence", "candidate-ci"):
         checkout_refs = [step.get("with", {}).get("ref") for step in jobs[job_name]["steps"]
                          if step.get("uses", "").startswith("actions/checkout@")]
         if checkout_refs:
             assert all(ref == "${{ github.sha }}" for ref in checkout_refs)
-    rc = jobs["release-matrix"]["strategy"]["matrix"]
-    cells = len(rc["os"]) * len(rc["python-version"])  # the gate must count exactly the declared cells (v0.22.1: 8 vs 10, #254)
-    assert f"${{#rc_junits[@]}} -ne {cells} ]]" in release_text
-    assert 'TAG_SHA="$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"' in release_text
-    for job_name in ("build", "release-matrix"):
-        checkout = next(step for step in jobs[job_name]["steps"] if step.get("uses", "").startswith("actions/checkout@"))
-        assert checkout["with"].get("fetch-depth") == 0
+    candidate = jobs["candidate-ci"]
+    assert candidate["permissions"] == {"contents": "read", "actions": "read"}
+    checkout = candidate["steps"][0]
+    assert checkout["with"]["fetch-depth"] == 0
+    select = next(step for step in candidate["steps"] if step.get("id") == "candidate-ci")
+    assert 'git rev-parse HEAD' in select["run"]
+    assert 'git rev-parse "refs/tags/$RELEASE_TAG^{commit}"' in select["run"]
+    assert '"$GITHUB_SHA"' in select["run"]
+    assert 'tools.release_ci --repo "$GITHUB_REPOSITORY" --commit "$candidate_sha"' in select["run"]
+    assert select["env"]["RELEASE_TAG"] == "${{ github.event.release.tag_name }}"
+    download = next(step for step in candidate["steps"] if "run-id" in step.get("with", {}))
+    assert download["uses"].startswith("actions/download-artifact@")
+    assert download["with"] == {
+        "github-token": "${{ github.token }}",
+        "run-id": "${{ steps.candidate-ci.outputs.run-id }}",
+        "pattern": "junit-g2-rc-matrix-*",
+        "path": "ci-junit/",
+    }
+    verify = next(step for step in candidate["steps"] if "--verify-ci-junit ci-junit" in step.get("run", ""))
+    assert '--commit "$GITHUB_SHA"' in verify["run"]
+    upload = next(step for step in candidate["steps"] if step.get("uses", "").startswith("actions/upload-artifact@"))
+    assert upload["with"]["name"] == "candidate-ci-junit" and upload["with"]["path"] == "ci-junit/"
+    assert candidate["steps"].index(select) < candidate["steps"].index(download) < candidate["steps"].index(verify) < candidate["steps"].index(upload)
+    assert all(not step.get("if") and not step.get("continue-on-error") for step in (select, download, verify, upload))
+    assert candidate["outputs"]["run-url"] == "${{ steps.candidate-ci.outputs.run-url }}"
+    evidence = jobs["release-evidence"]
+    archived = next(step for step in evidence["steps"] if step.get("with", {}).get("name") == "candidate-ci-junit")
+    assert archived["with"]["path"] == "ci-junit/"
+    generate = next(step for step in evidence["steps"] if "tools.release_evidence" in step.get("run", ""))
+    assert '--ci-junit-dir ci-junit --ci-run-url "$CI_RUN_URL"' in generate["run"]
+    assert generate["env"]["CI_RUN_URL"] == "${{ needs.candidate-ci.outputs.run-url }}"
+    assert evidence["steps"].index(archived) < evidence["steps"].index(generate)
+
+
+def test_ci_dispatch_stamps_and_uploads_source_reports_for_every_candidate_cell():
+    wf = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    matrix = wf["jobs"]["full-matrix"]
+    assert matrix["name"] == "full-matrix (${{ matrix.os }}, ${{ matrix.python-version }})"
+    steps = matrix["steps"]
+    name = "g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}"
+    report = f"junit/{name}.xml"
+    suite = next(step for step in steps if "pytest -q" in step.get("run", ""))
+    assert f'--junitxml="{report}"' in suite["run"]
+    stamp = next(step for step in steps if "--stamp-junit" in step.get("run", ""))
+    dispatch = "github.event_name == 'workflow_dispatch' && inputs.full_matrix"
+    assert stamp["if"] == dispatch
+    assert f'--stamp-junit "{report}" --gate G2 --commit "$(git rev-parse HEAD)"' in stamp["run"]
+    upload = next(step for step in steps if step.get("with", {}).get("name") == f"junit-{name}")
+    assert upload["if"] == dispatch
+    assert upload["with"]["path"] == report
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert upload["with"]["overwrite"] is True
+    assert steps.index(suite) < steps.index(stamp) < steps.index(upload)

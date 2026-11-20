@@ -115,6 +115,30 @@ def default_stream(peer_id: str, request_id: str | None, *, stateless: bool) -> 
     return f"peer:{peer_id}:{request_id}" if request_id else None
 
 
+def _packaged_cx_binding_change(saved: object, current: str, workspace: str | Path,
+                                model: str | None, effort: str | None) -> bool:
+    """The saved binding contains effective values. Use the current layers to identify packaged drift."""
+    if not isinstance(saved, str):
+        return False
+    old_binding, _, old_scope = saved.partition("#")
+    new_binding, _, new_scope = current.partition("#")
+    old_parts, new_parts = old_binding.split("/"), new_binding.split("/")
+    if not new_scope or old_scope != new_scope or len(old_parts) != 3 or len(new_parts) != 3:
+        return False
+    profile, new_model, new_effort = new_parts
+    old_profile, old_model, old_effort = old_parts
+    if profile != old_profile:
+        return False
+    from peerhub.extensions.adapters.profiles import inspect_profile
+
+    fields = inspect_profile(profile, workspace, include_meta=True)["fields"]
+    if fields["alias_of"]["source"] not in ("packaged", "default"):
+        return False
+    return all(old == new or (explicit is None and fields[key]["source"] == "packaged"
+                              and new == (fields[key]["value"] or "default"))
+               for key, old, new, explicit in (("model", old_model, new_model, model), ("effort", old_effort, new_effort, effort)))
+
+
 def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None = None,
         request_id: str | None = None, author: str = "user", workspace: str | Path | None = None,
         model: str | None = None, effort: str | None = None, timeout_s: float = 60,
@@ -123,7 +147,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         fresh: bool = False, session: str | None = None,
         on_output: Callable[[str], None] | None = None,
         on_stream_budget: Callable[[], None] | None = None,
-        before_dispatch: Callable[[Path, str], None] | None = None) -> dict[str, Any]:
+        before_dispatch: Callable[[Path, str], None] | None = None,
+        query_file: str | Path | None = None, notice_alias: bool = False) -> dict[str, Any]:
     selector = normalize_session_selector(fresh=fresh, session=session)
     if not prompt.strip():
         raise ValueError("prompt must not be empty")
@@ -163,6 +188,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                 raise StorageCorruptError("database does not contain the communication Core schema; v0 support is archived on branch legacy/v0-main-final")
     kind = peer_kind(adapter_ref, peer_id)
     target: RuntimeTarget
+    execution_workspace: str | Path | None = None
     account_args: dict[str, Any] = {}
     if account_binding is not None:
         from peerhub.extensions.accounts import AccountRef
@@ -172,10 +198,12 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     if runtime is None:
         if kind is None:
             raise PeerNotFoundError("register this peer with --adapter cx, cc, ag, ca, oa or ga before asking it")
+        execution_workspace = workspace or Path.cwd()
         options: dict[str, Any] = dict(model=model, effort=effort, profile=profile, silence_timeout_s=silence_timeout_s,
-                                       writable=writable, timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output)
-        target = (API_TARGETS[kind](workspace or Path.cwd(), **options) if kind in API_TARGETS
-                  else CliRuntimeTarget(kind, workspace or Path.cwd(), **options, **account_args))
+                                       writable=writable, timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output,
+                                       notice_alias=notice_alias)
+        target = (API_TARGETS[kind](execution_workspace, **options) if kind in API_TARGETS
+                  else CliRuntimeTarget(kind, execution_workspace, **options, **account_args))
     else:
         target = runtime
     rid = request_id or uuid.uuid4().hex
@@ -195,7 +223,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
             if previous is not None:
                 previous_metadata = json.loads(previous["metadata_json"])
                 base_metadata = {k: v for k, v in previous_metadata.items() if k not in ("session_selector", *identity_metadata)}
-                expected_base = {k: v for k, v in prompt_metadata.items() if k != "session_selector"}
+                stored_binding = base_metadata.pop("binding", None)
+                expected_base = {"runtime_kind": target.runtime_kind}
                 if previous["kind"] != "prompt" or json.loads(previous["body_json"]) != prompt or json.loads(previous["targets_json"]) != [peer_id] or base_metadata != expected_base:
                     raise IdempotencyConflictError(f"request {rid!r} conflicts with its stored identity")
                 stored_selector = previous_metadata.get("session_selector")
@@ -210,10 +239,18 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                 if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bridge_deliveries'").fetchone():
                     settled = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND record_id=? AND acked=1 AND result_json IS NOT NULL ORDER BY attempt DESC LIMIT 1",
                                            (sid, peer_id, previous["record_id"])).fetchone()
-                    if settled is not None:
-                        replay = _read_delivery_result(conn, settled, peer_id)
-                        replay.update(request_id=rid, stream_id=sid, peer_id=peer_id, requested_record_id=previous["record_id"])
-                        return replay
+                else:
+                    settled = None
+                current_binding = prompt_metadata["binding"]
+                if stored_binding != current_binding and not (
+                    settled is not None and runtime is None and kind == "cx" and execution_workspace is not None
+                    and _packaged_cx_binding_change(stored_binding, current_binding, execution_workspace, model, effort)
+                ):
+                    raise IdempotencyConflictError(f"request {rid!r} conflicts with its stored identity")
+                if settled is not None:
+                    replay = _read_delivery_result(conn, settled, peer_id)
+                    replay.update(request_id=rid, stream_id=sid, peer_id=peer_id, requested_record_id=previous["record_id"])
+                    return replay
     validate_policy: Callable[[], None] | None = getattr(target, "validate_execution_policy", None)
     if callable(validate_policy):
         validate_policy()
@@ -241,7 +278,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     claims = ClaimStore(db_path, generation=lineage.generation)
     # Runtime events may be silent until completion; keep the claim alive for the bounded run.
     lease_sec = timeout_s + 60
-    bridge = Bridge(store, claims, owner_id=f"ask-{uuid.uuid4().hex}", lease_sec=lease_sec, caller=detect_caller(),
+    caller = detect_caller(query_file=query_file, workspace=execution_workspace)
+    bridge = Bridge(store, claims, owner_id=f"ask-{uuid.uuid4().hex}", lease_sec=lease_sec, caller=caller,
                     stream_budget=limits, on_stream_budget=on_stream_budget)
     token = claims.acquire(peer_id, sid, bridge.owner_id, lease_sec)
     started_at = time.monotonic()
@@ -311,7 +349,10 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         else:
             if (before_dispatch is not None and runtime is None and account_binding is None
                     and kind in ("ag", "cc", "cx") and ALIASES.get(peer_id) == kind):
-                before_dispatch(db, kind)
+                try:
+                    before_dispatch(db, kind)
+                except Exception:
+                    pass  # Advisory collection must not strand the persisted prompt.
             result = asdict(bridge.run_cycle(token, target))
         if result.get("delivery_id") is not None:
             with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as conn:

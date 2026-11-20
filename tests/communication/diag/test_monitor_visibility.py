@@ -150,8 +150,7 @@ def test_d5_successful_probe_retires_omitted_window_at_read_time(frame: dict[str
         row = next(line for line in screen.splitlines() if "X-30D" in line)
         assert "n/a" in row and "93%" not in row and "23195s" not in row
         assert "not reported by plan pro" in screen
-    else:
-        assert "X-30D" not in screen
+    assert "(X-30D n/a)" in screen
     assert "next:" not in screen and "6h" not in screen
     if not expand:
         assert "quota age 8s" in screen
@@ -277,7 +276,7 @@ def test_peer_separators_at_100x40_and_data_priority_at_80x24(
         assert "\n\n" not in spacious
         for pool in ("3P-7D", "A-7D", "G-7D", "C-7D", "F-7D", "X-7D"):
             assert pool in tight
-        assert "3P-5H" not in tight and "X-5H" not in tight and "X-30D" not in tight
+        assert "3P-5H" not in tight and "(X-5H" in tight and "X-30D" in tight
     assert len(lines) < 40 and all(_width(line) < 100 for line in lines)
     assert len(tight.splitlines()) < 24 and all(_width(line) < 80 for line in tight.splitlines())
     assert round2_frame == before
@@ -539,7 +538,7 @@ def test_compact_small_heights_follow_the_single_removal_order(frame: dict[str, 
     assert full[10].startswith("suggest:") and pools == 2 and len(full) == 11  # verdict, line 2, POOLS, 7 rows, suggestion
     rows = full[pools + 1:10]
     shown = {12: 7, 11: 5, 10: 4, 9: 3, 8: 2, 7: 1, 6: 1, 5: 0, 4: 0, 3: 0}.get(height, 7)
-    expected = [*full[:2], *(full[2:3] if height >= 4 else []), *rows[:shown]]
+    expected = [*full[:2], *(full[2:3] if height >= 6 else []), *rows[:shown]]
     if 0 < shown < 7:
         expected.append(f"+{7 - shown} pools (--expand)")
     expected.extend(full[10:] if height >= 7 else [])
@@ -554,7 +553,7 @@ def test_compact_frame_at_80x24_discloses_line_2_cuts_and_keeps_every_pool(round
     assert lines[2] == "Fields hidden | --expand"  # line 2 lost DB and quota age at 80 columns
     pools = next(i for i, line in enumerate(lines) if line.startswith("POOLS "))
     # every 7-day pool; no cut, no overflow line (P21: the suggestion follows the rows)
-    assert lines[pools].split()[1] == "6" and all(line.startswith(" ") for line in lines[pools + 1:pools + 7])  # #400: X-30D is n/a
+    assert lines[pools].split()[1] == "9" and all(line.startswith(" ") for line in lines[pools + 1:pools + 7])  # #400: X-30D is n/a
     assert lines[pools + 7].startswith("suggest:") and not any(line.startswith("+") for line in lines)
     assert "Legend:" not in screen and "PEERS" not in screen and "rows hidden" not in screen
 

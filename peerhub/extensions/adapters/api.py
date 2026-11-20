@@ -179,14 +179,14 @@ class ApiRuntimeTarget:
     def __init__(self, workspace: str | Path, *, model: str | None = None, effort: str | None = None,
                  profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False,
                  timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES,
-                 on_output: Callable[[str], None] | None = None) -> None:
+                 on_output: Callable[[str], None] | None = None, notice_alias: bool = False) -> None:
         del on_output  # one reply arrives at once; the caller prints the stored response
         kind = self.runtime_kind
         if writable:
             raise RequestRejected(f"{kind} has no workspace access; --writable is refused")
         if profile is not None:
             profile = qualified_profile(kind, profile)
-            profile_model, profile_effort = resolve_profile(kind, profile, workspace)
+            profile_model, profile_effort = resolve_profile(kind, profile, workspace, notice_alias=notice_alias)
             model = model if model is not None else profile_model
             effort = effort if effort is not None else profile_effort
         if effort is not None:

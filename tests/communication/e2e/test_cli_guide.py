@@ -17,6 +17,7 @@ import pytest
 
 from peerhub.cli.app import build_parser, main
 from peerhub.cli.lessons import lesson_by_id, load_lessons
+from tools.release_notes import release_notes
 
 pytestmark = [pytest.mark.unit]
 
@@ -47,8 +48,8 @@ def _topics_named_by(guide: str) -> list[str]:
 
 # ---- size and shape ---------------------------------------------------------------------------------------------
 
-def test_guide_is_at_most_1600_bytes_of_lf_text(capsys, monkeypatch, tmp_path):
-    out = _guide(capsys, monkeypatch, tmp_path)
+def test_guide_is_at_most_1600_bytes_of_lf_text(capsys):
+    out = _guide(capsys)
     assert len(out.encode("utf-8")) <= GUIDE_CAP, f"{len(out.encode('utf-8'))} bytes"
     assert "\r" not in out and out.isascii()
     assert len(out.splitlines()) <= 14
@@ -142,13 +143,26 @@ def test_guide_example_commands_parse_via_real_argparse(capsys):
 def test_every_pointer_topic_resolves_to_its_own_lesson(capsys):
     out = _guide(capsys)
     topics = _topics_named_by(out)
-    assert set(TOPICS) <= set(topics)
+    assert {*TOPICS, "setup"} <= set(topics)
     ids = {lesson["id"] for lesson in load_lessons()}
     for topic in dict.fromkeys(topics):
         assert topic in ids or topic == "lessons", topic
         assert main(["explain", topic]) == 0, topic
         printed = capsys.readouterr().out
         assert topic == "lessons" or printed.splitlines()[0].startswith(f"{topic}:"), topic
+
+
+@pytest.mark.parametrize("topic", ["ask-basics", "independent-peer-votes"])
+def test_guide_pointer_uses_the_registered_lesson_id(capsys, monkeypatch, topic):
+    from peerhub.cli import lessons
+
+    catalog = load_lessons()
+    for lesson in catalog:
+        if lesson["id"] == topic:
+            lesson["id"] = f"renamed-{topic}"
+    monkeypatch.setattr(lessons, "load_lessons", lambda: catalog)
+    topics = _topics_named_by(_guide(capsys))
+    assert f"renamed-{topic}" in topics and topic not in topics
 
 
 def test_topic_ids_do_not_shadow_guidance_codes_or_profile_ids():
@@ -167,6 +181,12 @@ def test_every_topic_is_one_short_explain_entry(capsys):
 
 
 # ---- max-parallel: one constant ----------------------------------------------------------------------------------
+
+def test_guide_separates_batch_validation_from_quota_spend(capsys):
+    batch = next(line for line in _guide(capsys).splitlines() if line.startswith("Batch: "))
+    assert "--dry-run (validates only)" in batch
+    assert "execution spends quota" in batch
+
 
 def test_max_parallel_three_comes_from_one_constant(capsys):
     from peerhub.extensions import batch
@@ -231,7 +251,7 @@ FORMER_GUIDE_FACTS: dict[str, tuple[str, ...]] = {
         "reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer",
         "compare 7D PACE (5H only gates)", "PACE (pp, used%-elapsed%) needs a fresh quota age",
         "+ = ahead of even burn", "peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run",
-        "cost side effects: monitor --probe and observation refresh may spend quota",
+        "TTY monitor watch refreshes quota when due", "--no-probe", "diag read committed evidence",
         "uncertain streams may stay quota-blocked after reset", "aged quota is last-known; refresh first",
         "accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots",
     ),
@@ -286,26 +306,22 @@ def test_independent_peer_votes_is_extended_not_duplicated():
 
 # ---- freeze rule (D12) --------------------------------------------------------------------------------------------
 
-def test_freeze_rule_is_recorded_in_status_and_changelog():
-    status = (REPO / "docs" / "STATUS.md").read_text(encoding="utf-8")
-    open_row = next(line for line in status.splitlines() if line.startswith("| Open |"))
+def test_0_25_0_changelog_records_the_freeze_rule():
     changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog.split("## [0.24.29]", 1)[0]  # the 0.25.0 section and anything above it
-    for name, text in (("STATUS Open row", open_row), ("CHANGELOG Unreleased", unreleased)):
-        flat = " ".join(text.split())
-        assert "no further monitor cosmetics" in flat, name
-        assert "no top-tier benchmark reruns" in flat, name
-        assert "0.25.0 telemetry data exists" in flat, name
+    body = release_notes(changelog, "0.25.0")
+    assert "no further monitor cosmetics" in body
+    assert "no top-tier benchmark reruns" in body
+    assert "0.25.0 telemetry data exists" in body
 
 
-def test_changelog_unreleased_names_each_m1_change():
-    unreleased = (REPO / "CHANGELOG.md").read_text(encoding="utf-8").split("## [0.24.29]", 1)[0]
-    changed = unreleased.split("### Changed", 1)[1].split("\n### ", 1)[0]
+def test_0_25_0_changelog_names_each_m1_change():
+    changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+    changed = release_notes(changelog, "0.25.0").split("### Changed", 1)[1].split("\n### ", 1)[0]
     flat = " ".join(changed.split())
     for needle in ("`peerhub guide`", "1600 bytes", "--max-parallel 3", "VERDICT / BLOCKERS / NITS", "`alias_of`",
                    "`effort_override`", "`suggest`", "`measurement`", "`cx.deepthink`", "unmeasured", "0.25.0 plan"):
         assert needle in flat, needle
-    assert "## [Unreleased]" in (REPO / "CHANGELOG.md").read_text(encoding="utf-8") and "\r" not in changed
+    assert "## [Unreleased]" in changelog and "\r" not in changed
 
 
 # ---- pointers elsewhere -------------------------------------------------------------------------------------------

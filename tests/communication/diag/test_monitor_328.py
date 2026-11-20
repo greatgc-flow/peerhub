@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import pytest
 
 from peerhub.cli.app import main
+from peerhub.cli.monitor_view import QUOTA_NA
 from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool
@@ -219,12 +220,13 @@ def row_with(out, pool):
 def test_disabled_bucket_is_na_with_no_capacity_or_reset_in_compact_expanded_and_json(store, capsys):
     disabled_store(store)
     compact = snapshot(store, capsys)
-    # #374: a 5-hour pool shows in the compact frame only when it binds; a disabled (n/a) one never does.
-    assert "3P-5H" not in compact and "100%" not in compact and "out" in row_with(compact, "3P-7D").split()
     expanded = snapshot(store, capsys, "--expand", "--show-quota-notes")
-    line = next(line for line in expanded.splitlines() if "3P-7D" in line and "(3P-5H n/a)" in line)
-    assert "(3P-5H n/a)" in line and "100%" not in line and "STALE" not in line
-    assert "ag 3P-5H n/a disabled by provider:" in expanded
+    for output in (compact, expanded):
+        pools = output.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
+        line = row_with(pools, "3P-7D")
+        assert "out" in line.split() and f"(3P-5H {QUOTA_NA})" in line
+        assert "100%" not in pools and "3P-5H" not in pools.replace(f"(3P-5H {QUOTA_NA})", "")
+    assert f"ag 3P-5H {QUOTA_NA} disabled by provider:" in expanded
     main(["--db", str(store.db), "monitor", "--snapshot", "--json"])
     items = json.loads(capsys.readouterr().out)["groups"]["capacity"]["data"]["observations"]
     item = next(o for o in items if o["pool_ref"] == "quota:ag:3P-5H")

@@ -74,7 +74,7 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
     assert screen.splitlines()[1] == "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m"
     assert "/work/.peerhub/core.db" not in screen
     assert "next: peerhub observation refresh" in screen
-    assert _header(screen).split() == ["POOLS", "6", "STATE", "LEFT", "RESET", "PACE", "FAMILY"]
+    assert _header(screen).split() == ["POOLS", "7", "STATE", "LEFT", "RESET", "PACE", "FAMILY"]
     for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "out", "0%"),
                                 ("A-7D", "aged", "55%"), ("G-7D", "reset", None), ("F-7D", "?", None),
                                 ("X-7D", "ok", "89%")):
@@ -83,7 +83,7 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
         assert "%" not in row if value is None else value in row
     positions = [screen.index(_row(screen, name)) for name in ("3P-7D", "3P-5H", "A-7D", "G-7D", "F-7D", "X-7D")]
     assert positions == sorted(positions)  # out first with its binding 5-hour row, then the rest by peer and pool
-    assert "G-5H" not in screen and "X-5H" not in screen  # neither has less left than its 7-day pool
+    assert "G-5H" not in screen and "(X-5H n/a)" in screen
     assert "claude-via-ag" in _row(screen, "3P-7D")
     for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:", "ok enough",
                 "PEERS", "facts ok", "sessions >=", "delivery", "telemetry", "unmapped", "deepthink 0%"):
@@ -300,8 +300,7 @@ def test_unknown_and_all_absent_are_never_zero_or_unlimited(compact_frame):
     rows = compact_frame["groups"]["capacity"]["data"]["observations"]
     compact_frame["groups"]["capacity"]["data"]["observations"] = [rows[6]]
     screen = render_grouped_frame(compact_frame, show_quota_notes=True, width=100)
-    # #400: an n/a pool is never a POOLS row, so nothing is drawn for it and no number stands in its place.
-    assert "X-5H" not in screen and "POOLS 0" in screen
+    assert "(X-5H n/a)" in screen and "POOLS 1" in screen
     assert "100%" not in screen and "%" not in screen
 
 
@@ -426,7 +425,7 @@ def test_absent_and_reset_windows_on_one_peer_do_not_hide_each_other(compact_fra
     reset.update(resets_at=NOW - 1, age_seconds=540, state="STALE")
     compact_frame["groups"]["capacity"]["data"]["observations"] = [absent, reset]
     screen = render_grouped_frame(compact_frame, view="plain", width=100)
-    assert "X-5H" not in screen  # #374: an n/a 5-hour pool never binds, so the compact frame leaves it to --expand
+    assert "(X-5H n/a)" in screen
     assert "reset" in _row(screen, "X-7D").split()
     assert "%" not in _row(screen, "X-7D")
     assert "89%" not in screen
@@ -443,7 +442,7 @@ def test_poolless_probe_does_not_poison_quota_age_or_refresh(compact_frame):
     assert len([line for line in screen.splitlines() if line.startswith(" ag ")]) == 1  # #374: one POOLS row, no PEERS line
     rows[1]["age_seconds"] = 30
     screen = render_grouped_frame(compact_frame, view="plain")
-    assert screen.count("probe error (30s)") == 1
+    assert screen.count("probe error (value 1m old)") == 1
     assert "quota age 1m" in screen and "next:" not in screen
 
 
@@ -452,7 +451,8 @@ def test_missing_configured_pool_requests_refresh(compact_frame):
     screen = render_grouped_frame(compact_frame, view="plain")
     assert "POOLS 0" in screen.splitlines() and "no quota evidence; next: peerhub observation refresh" in screen
     rich = render_grouped_frame(compact_frame).splitlines()  # P21: the head is a rule; the notes are the same lines
-    assert rich[2] == "── POOLS 0 " + "─" * 88 and rich[3:] == screen.splitlines()[3:]
+    assert rich[2] == screen.splitlines()[2] == "quota: no reading -> peerhub observation refresh"
+    assert rich[3] == "── POOLS 0 " + "─" * 88 and rich[4:] == screen.splitlines()[4:]
     compact_frame["selected_groups"] = ["peers"]
     assert "next: peerhub observation refresh" in render_grouped_frame(compact_frame)
 
@@ -690,7 +690,7 @@ def test_narrow_pools_table_drops_whole_columns_from_the_right(compact_frame, wi
     assert shown == COMPACT_COLUMNS[:len(shown)] and len(shown) >= 1
     for pool in ("3P-5H", "3P-7D", "X-7D"):  # every row shows the same columns
         row = _row(screen, pool)
-        assert len(row[header.index("STATE"):].split()) == len(shown)
+        assert len(re.sub(r" \([^)]* n/a\)", "", row[header.index("STATE"):]).split()) == len(shown)
 
 
 @pytest.mark.parametrize("width,dropped", [(30, ["RESET", "PACE", "FAMILY"]), (40, ["FAMILY"]), (60, [])])

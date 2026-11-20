@@ -20,7 +20,7 @@ def test_inventory_file_equals_the_real_parser():
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
         "account bind", "account list", "account show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor defaults reset", "monitor defaults set", "monitor defaults show", "monitor groups", "monitor repair", "observation refresh", "offset advance", "offset get", "outcome", "peer get", "peer list", "peer register",
-        "profile check", "profile list", "profile show", "profile stats", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show", "suggest"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
+        "profile check", "profile list", "profile show", "profile stats", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show", "suggest", "update"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
 def test_inventory_detects_divergence_positive_control(monkeypatch):
@@ -283,7 +283,7 @@ def dq_pool(e):
 def dq_json(e):
     q = _quota_world(e)
     assert e.j(q, "diag", "quota", "--json")["schema_version"] == "1.0"
-    assert e.run(q, "diag", "quota")[1].lstrip().startswith("quota/rate-limit evidence")  # not JSON without the flag
+    assert not e.run(q, "diag", "quota")[1].lstrip().startswith("{")  # human text, not JSON, without the flag
 
 
 def version_effect(e, flag):
@@ -291,6 +291,24 @@ def version_effect(e, flag):
     code, out, err = e.run(e.tmp / "unused.db", flag)
     assert code == 0 and out.strip() == f"peerhub {__version__}" and not err
     assert not (e.tmp / "unused.db").exists()
+
+
+def update_effect(e, flag):
+    from peerhub.cli import update
+    from tests.communication.e2e.test_cli_update import fake_check
+
+    with pytest.MonkeyPatch.context() as patch:
+        if flag == "--plan":
+            patch.setattr(update, "_blocking_processes", lambda: [])
+            assert e.j(e.fresh(), "update", flag)["status"] == "READY"
+        else:
+            fake_check(patch, offline=True)
+            db = e.tmp / "unused.db"
+            code, out, err = e.run(db, "update", "--check")
+            assert code == 0 and out.startswith("Packaged defaults ") and not err
+            if flag == "--json":
+                assert e.j(db, "update", "--check")["codex_models"]["source"] == "bundled"
+            assert not db.exists()
 
 
 EFFECT = {
@@ -313,6 +331,9 @@ EFFECT = {
     "offset advance --position": oa_position, "offset advance --revision": oa_revision,
     "diag health --stream": dh_stream, "diag health --observation-db": dh_obsdb,
     "diag quota --observation-db": dq_obsdb, "diag quota --peer": dq_peer, "diag quota --pool": dq_pool, "diag quota --json": dq_json,
+    "update --check": lambda e: update_effect(e, "--check"),
+    "update --plan": lambda e: update_effect(e, "--plan"),
+    "update --json": lambda e: update_effect(e, "--json"),
 }
 
 from tests.communication.e2e.cli_extension_effects import EFFECT as EXTENSION_EFFECT
@@ -462,6 +483,8 @@ def test_leaf_help_exit_zero_lists_every_option_and_unknown_option_exits_2(leaf,
     values = {"group": "usage", "new_position": "1", "expected_revision": "1", "max_parallel": "1", "outcome": "accepted", "tier": "standard"}
     req = [x for o in leaf["options"] if o["required"] for value in [values.get(o["dest"], "x")]
            for x in ((value,) if o["positional"] else (o["flags"][0], value))]
+    if argv == ["update"]:
+        req = ["--check"]  # The mode group is required, so supply a mode to exercise unknown-option handling.
     code, out, err = run(capsys, "unused.db", *argv, *req, "--definitely-unknown")
     assert code == 2 and "Traceback" not in err and "unrecognized arguments: --definitely-unknown" in err
 

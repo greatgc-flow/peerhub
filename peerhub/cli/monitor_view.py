@@ -11,27 +11,24 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, cast
 
-from peerhub.cli.monitor_preferences import GROUPS
+from peerhub.cli.monitor_preferences import GROUPS, MONITOR_LEGEND
+from peerhub.extensions.caller import host_id, local_workspace_file
+from peerhub.extensions.diag_quota import quota_stale_line
+from peerhub.extensions.monitor_read_model import TEXT_NEWEST_ROWS
+from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, oldest_measured_quota_age, quota_probe_timed_out
 
 # Mirrors peerhub.extensions.observation_model.NOT_REPORTED_REASON (the human renderer imports no extension code).
 _NOT_REPORTED = "not reported by provider"
 _DISABLED = "disabled by provider"  # mirrors observation_model.DISABLED_REASON: the window exists but the provider switched it off
 _NA_REASONS = (_NOT_REPORTED, _DISABLED)
+QUOTA_NA = "n/a"
+CONTEXT_ESTIMATE_LABEL = "est"
 _LEAD_MARK_PCT = 80  # mirrors monitor_read_model.LEAD_CONTEXT_MARK_PCT: the `!` of a lead's ctx cell
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _ANSI = re.compile(r"\x1b\[[0-9;]*m|\x1b\]8;[^\x07\x1b]*(?:\x1b\\|\x07)")  # SGR, and OSC 8 (a hyperlink's open and close)
+_FILE_OSC = re.compile(r"\x1b\]8;;file://[^\x1b]*\x1b\\([^\x1b]*)\x1b\]8;;\x1b\\")
 _BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
          *[chr(code) for code in range(0x2066, 0x206A)]}
-MONITOR_LEGEND = (
-    "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan no longer reports it (diag quota may keep an older value) | ? unknown",
-    "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable",
-    "BAR=remaining, | marks the even-burn level (^ ahead, v behind)",
-    "TIME: the header time is the snapshot time (when the store was read), not the time quota was measured",
-    "LEADS: label | state (?busy = alive not confirmed, - = no session) | age of the last activity"
-    " | ctx = context of the model's maximum input (! 80% or more; 106k = window unknown; ? unknown) | running asks | model | title",
-    "CTX est: estimated context of a cc session at the end of its last ask (percent of the model's maximum input, with"
-    " its age); not a live measurement",
-)
 # The legend line of the FORECAST column in the QUOTA details of the rich --expand frame (P23).
 FORECAST_LEGEND = "FORECAST: insuff=insufficient projection data; threat=exhausts before reset"
 
@@ -95,6 +92,10 @@ def _pool_order(peer: str, pool: str) -> tuple[str, str, int, str]:
     return (peer, _pool_family(pool), _parse_window(pool)[0], pool)
 
 
+def _na_suffix(names: Sequence[str]) -> str:
+    return f"({','.join(names)} {QUOTA_NA})"
+
+
 def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes: bool = True,
                   order: dict[tuple[str, str], int] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     """Derive a forest from configured consumers, leaving every pool's values intact. `order` (#394) is the position of
@@ -117,7 +118,7 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
             hidden.setdefault(peer, []).extend(str(row["pool"]) for row in retired)
             if show_quota_notes:
                 plans = ",".join(sorted({str(row.get("display_plan") or "unknown") for row in retired}))
-                notes.append(f"{peer} {','.join(str(row['pool']) for row in retired)} n/a (not reported by plan {plans})")
+                notes.append(f"{peer} {','.join(str(row['pool']) for row in retired)} {QUOTA_NA} (not reported by plan {plans})")
                 noted.add(peer)
         active = [row for row in peer_rows if not row.get("retired")]
         first_peer_row = True
@@ -132,7 +133,7 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
         # in the flat fallback, including duplicate names with different values.
         if len({row["pool"] for row in active}) != len(active):
             for row in active:
-                if row["state"].lower() == "n/a":
+                if row["state"].lower() == QUOTA_NA:
                     hidden.setdefault(peer, []).append(str(row["pool"]))
                 else:
                     append_row(row, str(row["pool"]))
@@ -160,7 +161,7 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
         if flat:
             parents = dict.fromkeys(by_name)
         for name, row in by_name.items():  # #400: an n/a pool is never a row; its children go to its own parent
-            if row["state"].lower() == "n/a":
+            if row["state"].lower() == QUOTA_NA:
                 parents.update({child: parents[name] for child, parent in parents.items() if parent == name})
         children: dict[str, list[str]] = {name: [] for name in by_name}
         for child, parent in parents.items():
@@ -172,7 +173,7 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
         def visit(name: str, prefix: str, continuation: str) -> None:
             row = by_name[name]
             append_row(row, prefix + name)
-            folded = [child for child in children[name] if by_name[child]["state"].lower() == "n/a"]
+            folded = [child for child in children[name] if by_name[child]["state"].lower() == QUOTA_NA]
             row["folded"] = folded
             visible = [child for child in children[name] if child not in folded]
             for i, child in enumerate(visible):
@@ -183,15 +184,15 @@ def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes
 
         for name in sorted((name for name in by_name if parents[name] is None),
                            key=lambda name: (_pool_family(name), windows[name], name)):
-            if by_name[name]["state"].lower() == "n/a":
+            if by_name[name]["state"].lower() == QUOTA_NA:
                 hidden.setdefault(peer, []).append(name)
             else:
                 visit(name, "", "")
     for row in result:  # an n/a pool with no parent row is named after its peer's first row
         names = [*row.pop("folded", []), *(hidden.pop(row["peer"], []) if row["display_peer"] else [])]
         if names:
-            row["suffix"] = "(" + ",".join(names) + " n/a)"
-    notes.extend(f"{peer} {','.join(names)} n/a" for peer, names in hidden.items() if peer not in noted)  # no row left
+            row["suffix"] = _na_suffix(names)
+    notes.extend(f"{peer} {','.join(names)} {QUOTA_NA}" for peer, names in hidden.items() if peer not in noted)  # no row left
     return result, notes
 
 
@@ -524,7 +525,8 @@ def _estimate(context: dict[str, Any], now: float | None) -> str | None:
     if context.get("state") != "ESTIMATED" or percent is None or not 0 <= percent <= 100:
         return None
     at = _number(context.get("observed_at"))
-    return f"{percent:.0f}% est, " + ("age ?" if at is None or now is None else f"{_compact_age(max(0.0, now - at))} ago")
+    return f"{percent:.0f}% {CONTEXT_ESTIMATE_LABEL}, " + (
+        "age ?" if at is None or now is None else f"{_compact_age(max(0.0, now - at))} ago")
 
 
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
@@ -914,16 +916,16 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                         plan = _na_plan(item, reason_text)
                         what = f"(not reported by plan {plan})" if item.get("display_retired") else f"not reported (plan {plan})"
                     if not item.get("display_retired"):
-                        if fresh and data.get("_show_quota_notes"):
-                            na_notes.append(f"{peer} {pool_id} n/a {what}")
+                        if fresh and (expand or data.get("_show_quota_notes")):
+                            na_notes.append(f"{peer} {pool_id} {QUOTA_NA} {what}")
                         elif not fresh:
                             why = f"{what}, " if data.get("_show_quota_notes") else ""
                             na_notes.append(f"{peer} {pool_id} ? {why}aged; next: peerhub observation refresh --peers {peer}")
                     sources.append(item)
                     table.append({
-                        "PEER": peer, "POOL": pool_id, "REM": "n/a" if fresh else "-",
+                        "PEER": peer, "POOL": pool_id, "REM": QUOTA_NA if fresh else "-",
                         "[BAR]": _bar_quota(None), "RESET-IN": "-", "EXHAUST-IN": "-", "PACE": "-", "FORECAST": "-",
-                        "STATE": "n/a" if fresh else "?", "AGE": "-" if item.get("display_retired") else age_str,
+                        "STATE": QUOTA_NA if fresh else "?", "AGE": "-" if item.get("display_retired") else age_str,
                         "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
                     continue
 
@@ -996,7 +998,7 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 {"peer": cells["PEER"], "pool": cells["POOL"], "state": cells["STATE"],
                  "profiles": cells["PROFILES (configured)"], "cells": cells, "source": item,
                  "retired": item.get("display_retired"), "display_plan": item.get("display_plan")}
-                for cells, item in zip(table, sources)], unicode, show_quota_notes=bool(data.get("_show_quota_notes")),
+                for cells, item in zip(table, sources)], unicode, show_quota_notes=expand or bool(data.get("_show_quota_notes")),
                 order=position)
             by_pool = {(str(row["peer"]), str(row["pool"])): row for row in layout}
             for row in layout:
@@ -1011,6 +1013,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                         for column in ("REM", "PACE", "[BAR]", "EXHAUST-IN", "FORECAST"):
                             cells[column] = parent["cells"][column]
                         cells["RESET-IN"] = _format_duration(max(0.0, float(summary["reset_seconds"])))
+                if not rich and summary is not None and row["source"].get("_retained_quota"):
+                    cells["STATE"] = str(summary["state"]).upper()
                 if rich and summary is not None:  # the row POOLS draws for this pool (the frame's rows), so both show one glyph and word
                     row["summary"] = summary
                     glyphs = RICH_GLYPHS[unicode]
@@ -1164,12 +1168,15 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
                   else "lease expired" if flag == "!overdue" else "caller process gone" if flag == "!gone"
                   else txt(row.get("alive_reason"), "liveness unknown") if flag == "?" else "caller alive")
         fields.append(f"flag {flag or 'none'} ({reason})")
-    fields.append(f"state {state}" + (" (superseded)" if row.get("superseded") else ""))
+    fields.append(f"state {state}" + (f" {SUPERSEDED_MARK}" if row.get("superseded") else ""))
     if open_row:
         left = _number(row.get("lease_left_s"))
         fields += [f"elapsed {_compact_age(_number(row.get('elapsed_s')))}", f"started {_stamp(row.get('started_at'))}",
                    "lease ?" if left is None else f"lease left {_compact_age(left)}" if left >= 0
                    else f"lease expired {_compact_age(-left)} ago"]
+        if "_lease_age_s" in row:
+            age = _number(row["_lease_age_s"])
+            fields.append("lease confirmed -" if age is None else f"lease confirmed {_compact_age(age)} ago")
     else:
         exact = row.get("ended_exact")
         ended = _stamp(row.get("ended_at")) + ("" if row.get("ended_at") is None
@@ -1193,13 +1200,16 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
 
 
 def _ask_lines(row: dict[str, Any], fields_width: int, text_width: int, unicode: bool = True, keep: str | None = None,
-               sep: str = " | ") -> list[str]:
+               sep: str = " | ", *, links: bool = False) -> list[str]:
     """One ask without a mark: its fields packed to `fields_width`, then its reply (an ended ask) and its ask text
     wrapped to `text_width`."""
     lines = _pack(_ask_fields(row, unicode, keep), max(1, fields_width), sep)
     texts = [] if _is_open(row) else [("reply", row.get("reply_line_long"))]
     for label, text in [*texts, ("ask", row.get("ask_line_long"))]:
-        lines.extend(_compact_wrap(f"{label}: {_cell(text, unicode, '-', keep)}", max(1, text_width)))
+        wrapped = _compact_wrap(f"{label}: {_cell(text, unicode, '-', keep)}", max(1, text_width))
+        if links and label == "ask" and wrapped[0].startswith("ask:"):
+            wrapped[0] = _query_link(row, "ask") + wrapped[0][3:]
+        lines.extend(wrapped)
     return lines
 
 
@@ -1265,16 +1275,44 @@ def _lead_rows(lead: dict[str, Any], now: float | None, width: int, unicode: boo
     return rows
 
 
-def _recent_ended(data: dict[str, Any]) -> list[dict[str, Any]]:
-    """The finished asks of RECENT, newest first by their end; a running ask and a superseded one are never in it, and an
-    ask without a known end goes last."""
-    return sorted(_ask_split(data)[1],
-                  key=lambda row: (_number(row.get("ended_at")) is None, -(_number(row.get("ended_at")) or 0.0)))
+def _recent_ended(data: dict[str, Any], groups: dict[str, Any]) -> list[dict[str, Any]]:
+    """Finished asks in end order, with live session facts only on the latest ask of each scope."""
+    running, ended, _ = _ask_split(data)
+    ended.sort(key=lambda row: (_number(row.get("ended_at")) is None, -(_number(row.get("ended_at")) or 0.0)))
+    newest: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in sorted([*running, *ended], key=lambda row: _number(row.get("started_at")) or 0, reverse=True):
+        if row.get("stream"):
+            newest.setdefault((str(row["stream"]), str(row.get("peer"))), row)
+
+    samples: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in _items(_obj(_obj(groups.get("sessions")).get("data")).get("items")):
+        key = (str(item.get("stream_id")), str(item.get("peer_id")))
+        if key not in samples or (_number(item.get("generation")) or 0) > (_number(samples[key].get("generation")) or 0):
+            samples[key] = item
+
+    result: list[dict[str, Any]] = []
+    for row in ended:
+        key = (str(row.get("stream")), str(row.get("peer")))
+        if key in newest and newest[key] is not row:
+            result.append({**row, "session": None})
+            continue
+        session = _obj(row.get("session"))
+        sample = samples.get(key, {})
+        context = _obj(_obj(sample.get("telemetry")).get("context"))
+        started, observed = _number(row.get("started_at")), _number(context.get("observed_at"))
+        if (not _recent_context(_obj(session.get("context"))) and _recent_context(context)
+                and (sample.get("provider") or session.get("provider") or row.get("peer")) in {"cx", "ag"}
+                and not sample.get("tombstoned_at") and sample.get("state") != "TOMBSTONED"
+                and (session.get("generation") is None or session.get("generation") == sample.get("generation"))
+                and started is not None and observed is not None and observed >= started):
+            row = {**row, "_context_estimate": context}
+        result.append(row)
+    return result
 
 
 def _recent_head(data: dict[str, Any], ended: list[dict[str, Any]], *, superseded: bool = False) -> str:
     """`RECENT 130 (2 running)`: the finished asks, and how many more run (they are listed under RUNNING). The detail
-    frames add the superseded asks, which the read model counts and does not list."""
+    frames also report the superseded sample."""
     head = f"RECENT {len(ended)} ({_running_head(data, _ask_split(data)[0], True)[1]} running)"
     omitted = _number(data.get("superseded_omitted")) or 0
     replaced = len(_ask_split(data)[2])
@@ -1301,33 +1339,37 @@ def _whole(value: object, high: float | None = None) -> int | None:
     return int(number) if number is not None and number >= 0 and (high is None or number <= high) else None
 
 
+def _recent_context(context: dict[str, Any]) -> bool:
+    return (context.get("state") in {"ESTIMATED", "MEASURED"}
+            and (_whole(context.get("occupancy_tokens")) is not None or _whole(context.get("percent"), 100) is not None))
+
+
 def _recent_facts(row: dict[str, Any]) -> dict[str, Any]:
-    """What a RECENT row shows beyond the ask's own fields (None where it is not known: never 0). The session values are
-    those of the stream's newest session now; the context is the cc adapter's estimate, so cx, ag and every other peer
-    show none (and a lead's context is never used). The cache share is the cache-read tokens of the ask's input."""
+    """The ask's own tokens and any eligible live session or sampled context values."""
     session = _obj(row.get("session"))
     mode_raw = session.get("execution_mode")
-    context = _obj(session.get("context"))
-    provider = session.get("provider") or row.get("peer")  # the runtime of the session; a peer id may be anything
-    usable = provider == "cc" and context.get("state") in {"ESTIMATED", "MEASURED"}
+    estimate = _obj(row.get("_context_estimate"))
+    context = estimate or _obj(session.get("context"))
+    usable = _recent_context(context)
     tokens = _obj(row.get("tokens"))
     read, total = _whole(tokens.get("cache_read")), _whole(tokens.get("input"))
     return {"mode": "R" if mode_raw in {"reused", "reuse", "resume"} else "F" if mode_raw == "fresh" else None,
             "uses": _whole(session.get("uses")), "generation": _whole(session.get("generation")),
             "ctx_tokens": _whole(context.get("occupancy_tokens")) if usable else None,
             "ctx_window": _whole(context.get("window_tokens")) if usable else None,
-            "ctx_pct": _whole(context.get("percent"), 100) if usable else None,
+            "ctx_pct": _whole(context.get("percent"), 100) if usable else None, "ctx_estimate": bool(estimate),
             "input": total, "output": _whole(tokens.get("output")), "cache_read": read,
             "cache_write": _whole(tokens.get("cache_write")),
             "cache_pct": (int(read / total * 100 + 0.5) if read is not None and total and read <= total else None)}
 
 
 NAME_CAP = 24
+SUPERSEDED_MARK = "(superseded)"
 _RECENT_DROPS = (("cache",), ("lead",), ("mode", "uses"), ("ctx",))  # the order narrow widths drop columns in
 
 
 def _recent_compact(ended: list[dict[str, Any]], width: int, unicode: bool, keep: str | None, *, rich: bool = False,
-                    paint: bool = False, limit: int | None = None) -> list[str]:
+                    paint: bool = False, links: bool = False, limit: int | None = None) -> list[str]:
     """The compact RECENT rows (the first `limit`, RECENT_CAP by default, of `ended`):
     `ok 3m cc.effort lead7 s-ab12 R u3 62k/6% c91% "reply snippet"`: state, age since the end, profile, lead, name,
     R resume | F fresh, `u<uses>`, context, cache-read share, the reply. A narrow width drops the cache share, then the
@@ -1344,6 +1386,8 @@ def _recent_compact(ended: list[dict[str, Any]], width: int, unicode: bool, keep
         facts = _recent_facts(row)
         tokens, pct = _kilo(facts["ctx_tokens"]), facts["ctx_pct"]
         ctx = f"{tokens}/{pct}%" if tokens and pct is not None else tokens or (f"{pct}%" if pct is not None else "-")
+        if facts["ctx_estimate"]:
+            ctx += f" {CONTEXT_ESTIMATE_LABEL}"
         table.append({
             "state": cell(row.get("state")),
             "age": _compact_age(_number(row.get("age_s"))) if row.get("ended_exact") else "?",
@@ -1394,6 +1438,8 @@ def _recent_compact(ended: list[dict[str, Any]], width: int, unicode: bool, keep
         cells.append([*row, reply])
     colours = [_RECENT_COLOURS.get(str(row.get("state")), "bad") for row in shown]
     painter = _column_painter(0, colours) if dotted and paint else None
+    if links:
+        painter = _query_painter(shown, columns.index("name"), painter)
     return [" " + line for line in _table(cells, width - 1, unicode, right=(1,), elastic=len(columns), paint=painter)]
 
 
@@ -1412,11 +1458,9 @@ def _duration(seconds: object) -> str:
     return f"{total // 86400}d{total % 86400 // 3600:02d}h"
 
 
-def _recent_entry(row: dict[str, Any], width: int, unicode: bool, keep: str | None, sep: str = " | ") -> list[str]:
-    """One RECENT entry of --expand, two lines (each at most `width` cells; the session values are those of now):
-    `ok 14:02-14:05 (3m12s) cc/opus-4 [high] lead7 s-ab12 gen2 R u3 ctx 62k/1M 6% now` and
-    `in 41k out 2k cache r38k w3k 91% | ask "..." -> reply "..."`. `sep` is the view's separator (the rich view's
-    dot), the one between the tokens and the texts."""
+def _recent_entry(row: dict[str, Any], width: int, unicode: bool, keep: str | None, sep: str = " | ", *,
+                  links: bool = False) -> list[str]:
+    """One expanded ask, with wrapped metadata followed by a token and text line."""
     facts = _recent_facts(row)
 
     def cell(value: object) -> str:
@@ -1429,9 +1473,12 @@ def _recent_entry(row: dict[str, Any], width: int, unicode: bool, keep: str | No
     ctx = "-" if tokens is None and pct is None else " ".join(
         part for part in (f"{tokens}/{window}" if tokens and window else tokens, f"{pct}%" if pct is not None else None)
         if part)
-    joined = any(facts[key] is not None for key in ("mode", "uses", "generation")) or ctx != "-"
+    joined = any(facts[key] is not None for key in ("mode", "uses", "generation")) or (ctx != "-" and not facts["ctx_estimate"])
+    if facts["ctx_estimate"]:
+        ctx += f" {CONTEXT_ESTIMATE_LABEL}"
     first = " ".join([
-        cell(row.get("state")), f"{_clock(row.get('started_at'), '%H:%M')}-{_clock(row.get('ended_at'), '%H:%M')}",
+        cell(row.get("state")), *([SUPERSEDED_MARK] if row.get("superseded") else []),
+        f"{_clock(row.get('started_at'), '%H:%M')}-{_clock(row.get('ended_at'), '%H:%M')}",
         f"({_duration(row.get('elapsed_s'))})", who, cell(_obj(row.get("lead")).get("label")), cell(row.get("name")),
         "gen-" if facts["generation"] is None else f"gen{facts['generation']}", facts["mode"] or "-",
         "u-" if facts["uses"] is None else f"u{facts['uses']}", f"ctx {ctx}", *(["now"] if joined else [])])
@@ -1456,22 +1503,27 @@ def _recent_entry(row: dict[str, Any], width: int, unicode: bool, keep: str | No
         else:
             texts = [_fit(texts[0], max(1, half), unicode), _fit(texts[1], max(1, room - half), unicode)]
     quote = [f'"{text}"' if value else text for text, value in zip(texts, (ask, said))]
-    second = f"{prefix}ask {quote[0]} -> reply {quote[1]}"
-    return [_fit(first, width, unicode), _fit(second, width, unicode)]
+    second = _fit(f"{prefix}ask {quote[0]} -> reply {quote[1]}", width, unicode)
+    if links and second.startswith(prefix + "ask "):
+        second = prefix + _query_link(row, "ask") + second[len(prefix) + 3:]
+    return [*_compact_wrap(first, width), second]
 
 
 def _recent_expand_lines(ended: list[dict[str, Any]], width: int, unicode: bool, keep: str | None, *, rich: bool = False,
-                         paint: bool = False) -> list[str]:
-    """The RECENT entries of the --expand frame (RECENT_EXPAND at most), two lines each, one cell in: the first line
-    starts with the state dot (the second is three cells in), as the entries of RUNNING do."""
+                         paint: bool = False, links: bool = False) -> list[str]:
+    """Expanded RECENT entries, with the outcome command below the ask and reply."""
     glyphs = RICH_GLYPHS[unicode]
     lines: list[str] = []
-    for row in ended[:RECENT_EXPAND]:
-        first, second = _recent_entry(row, max(1, width - 3), unicode, keep, f" {glyphs['sep']} " if rich else " | ")
+    for row in ended:
+        inner = max(1, width - 3)
+        first, *details = _recent_entry(row, inner, unicode, keep, f" {glyphs['sep']} " if rich else " | ", links=links)
         mark = glyphs["dot"] if rich else ""
         if mark and paint:
             mark = _paint(mark, RICH_SGR[_RECENT_COLOURS.get(str(row.get("state")), "bad")])
-        lines.extend([" " + (f"{mark} " if mark else "") + first, "   " + second])
+        lines.extend([" " + (f"{mark} " if mark else "") + first, *("   " + detail for detail in details)])
+        if row.get("_ask_id"):
+            lines.extend("   " + part for part in _compact_wrap(
+                f"peerhub outcome {row['_ask_id']} <accepted|rejected|retried>", inner))
     return lines
 
 
@@ -1626,7 +1678,7 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
     projection = _obj(item.get("projection"))
     samples = _number(item.get("projection_samples")) or 0
     if not_reported:
-        state = "n/a"
+        state = QUOTA_NA
     elif remaining is None:
         state = "aged" if item.get("stored_state") == "ABSENT" and aged else "?"
     elif resets_at is not None and resets_at <= now + elapsed:
@@ -1641,19 +1693,19 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
         state = "fast"
     else:
         state = "aged" if aged else "ok"
-    left = _pct(remaining) if remaining is not None and state not in {"n/a", "?", "reset"} else "-"
-    resets = ("-" if state in {"n/a", "?"} or reset_in is None else
+    left = _pct(remaining) if remaining is not None and state not in {QUOTA_NA, "?", "reset"} else "-"
+    resets = ("-" if state in {QUOTA_NA, "?"} or reset_in is None else
               "passed" if reset_in <= 0 else _compact_age(reset_in))
     pace = _number(projection.get("pace_pt"))
     pace_text = "-"
-    if pace is not None and remaining is not None and state not in {"n/a", "?", "reset"}:
+    if pace is not None and remaining is not None and state not in {QUOTA_NA, "?", "reset"}:
         rounded = round(pace)
         pace_text = f"{rounded:+d}" if rounded else "0"
     return {"peer": peer, "pool": pool, "pool_ref": _clean(item.get("pool_ref") or ""),
             "meaning": meaning, "remaining": remaining, "left": left,
             "resets": resets, "pace": pace_text, "reset_seconds": reset_in, "family": family, "age": _compact_age(age), "state": state, "aged": aged,
             "color_state": "ERROR" if item.get("state") == "ERROR" else
-                           state if state in {"n/a", "?", "reset", "aged"} else _clean(projection.get("state") or state),
+                           state if state in {QUOTA_NA, "?", "reset", "aged"} else _clean(projection.get("state") or state),
             "needs_refresh": aged or age is None or state in {"?", "reset"}, "reason": reason, "display_plan": item.get("display_plan"),
             "retired": bool(item.get("display_retired")), "stale": item.get("state") == "STALE",
             "profiles": ",".join(consumers.get(f"{peer}:{pool}", [])) or "unmapped"}
@@ -1740,7 +1792,7 @@ def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, An
             row = by_pool.get(f"{peer}:{pool}")
             if row is None or row["aged"] or row["state"] in {"?", "reset", "aged"}:
                 break
-            if row["state"] == "n/a":
+            if row["state"] == QUOTA_NA:
                 continue
             remaining = _number(row["remaining"])
             reset = _number(row["reset_seconds"])
@@ -1766,10 +1818,11 @@ def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, An
     return "suggest: " + " ".join(suggestions)
 
 
-# ---- compact frame (#374, P21, #412): line 1 verdict, line 2 header, POOLS, the suggestion, RECENT, RUNNING, LEADS -----
+# ---- compact frame (#374, P21, #412) ---------------------------------------------------------------------------------
 
 COMPACT_MAX_LINES = 24
 COMPACT_MAX_BYTES = 8192
+FRAME_TRAILING_ROWS = 1  # render_grouped_frame's height includes the line after its final newline
 RUNNING_CAP = 5
 LEADS_CAP = 3
 LEAD_LABEL_COLS = 16
@@ -1777,6 +1830,8 @@ RECENT_CAP = 5
 POOLS_CAP = 8
 REQUEST_CAP = 60
 RECENT_EXPAND = 8
+POOLS_TRIM_FLOOR = 4
+SECTION_WITH_DETAIL = 2  # one heading and one detail line
 _WEEK = 7 * 86400
 _ALERT_SOURCES = (("activity", "asks"), ("capacity", "quota"), ("accounts", "accounts"), ("facts", "facts"))
 _SOURCE_PHRASES = {"not_selected": "not read", "error": "read failed", "truncated": "partial", "stale": "stale",
@@ -1963,6 +2018,7 @@ class CompactFrame:
     """The compact frame before the budget: each section as built, with the totals its overflow line discloses."""
     verdict: str
     header: list[str] = field(default_factory=lambda: list[str]())  # line 2, then the lines that belong to it
+    alerts: list[str] | None = None
     running: list[str] | None = None  # [RUNNING header, *rows]; None when `activity` is not selected
     running_total: int = 0
     leads: list[str] | None = None  # [LEADS header, *rows]; None when there is no lead to show and the read was complete
@@ -2003,22 +2059,11 @@ def _fit_bytes(text: str, budget: int, unicode: bool) -> str:
 def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, unicode: bool,
                       max_lines: int = COMPACT_MAX_LINES, max_bytes: int = COMPACT_MAX_BYTES,
                       keep: str | None = None) -> str:
-    """The one owner of the compact frame's size (#374 H2) and of its order: line 1, line 2 with its lines, POOLS,
-    the suggestion, RECENT, RUNNING, LEADS (#412: RECENT sits under the quota; --expand has the same order).
+    """Fit the shared section order to the width, line and byte budgets.
 
-    Every line is fitted to `width`. While the frame is over the height bound (height - 1 lines), `max_lines` or
-    `max_bytes` (the bytes of the lines as given, SGR codes included), lines go in this single order, rows first and from
-    the bottom up, then the lower sections: LEADS rows (down to one), RUNNING rows after the third, RECENT rows after the
-    third, POOLS rows after the fourth, the second suggestion line, RUNNING rows (down to one), RECENT rows (down to one:
-    its floor), POOLS rows (down to one), the LEADS header, the remaining RUNNING rows and its header, the first
-    suggestion line, what hangs on line 2 (the title stays). Only a terminal too small for the top of the frame gets
-    further: the POOLS rows, RECENT, the POOLS header, line 2. Line 1 is the fallback: alone, it is fitted to the byte
-    ceiling; a budget of 0 prints nothing. An overflow line is refitted whenever its
-    count changes; the removal that creates one removes two rows. A row step with a floor of one or more never leaves a
-    header without a row: when those two rows are the last ones, the step does nothing, and the rows leave with their
-    header in its own step (#376 A-3).
-    """
-    limit = max_lines if height is None else min(max_lines, max(0, height - 1))
+    For tight frames, RECENT shrinks before active work. A row removal that introduces an overflow line
+    removes two rows to free space. The last fallback fits the verdict to the byte budget."""
+    limit = max_lines if height is None else min(max_lines, height - FRAME_TRAILING_ROWS)
     if limit <= 0 or width <= 0:
         return ""
 
@@ -2032,8 +2077,8 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
     verdict = fit(frame.verdict)
     header = [fit(line) for line in frame.header]
     suggest = [fit(line) for line in frame.suggest]
-    parts: dict[str, list[str] | None] = {"running": fitted(frame.running), "leads": fitted(frame.leads),
-                                          "recent": fitted(frame.recent), "pools": fitted(frame.pools)}
+    parts = {"alerts": fitted(frame.alerts), "running": fitted(frame.running), "leads": fitted(frame.leads),
+             "recent": fitted(frame.recent), "pools": fitted(frame.pools)}
     totals = {"running": frame.running_total, "leads": frame.leads_total, "pools": frame.pools_total}
     nouns = {"running": "more", "leads": "leads", "pools": "pools"}
 
@@ -2046,7 +2091,8 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
         return [*lines, _overflow(hidden, nouns[key], width, unicode)] if key in totals and hidden > 0 and rows > 0 else lines
 
     def assemble() -> list[str]:
-        return [verdict, *header, *section("pools"), *suggest, *section("recent"), *section("running"), *section("leads")]
+        return [verdict, *header, *section("alerts"), *section("running"), *section("pools"), *suggest,
+                *section("recent"), *section("leads")]
 
     def pop_rows(key: str, floor: int) -> bool:
         lines = parts[key]
@@ -2074,30 +2120,31 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
         lines.pop()
         return True
 
-    steps: list[Callable[[], bool]] = [  # rows shrink first, from the bottom up, then the lower sections go
+    steps: list[Callable[[], bool]] = [
         lambda: pop_rows("leads", 1),
-        lambda: pop_rows("running", 3),
-        lambda: pop_line(parts["recent"], 4),  # the header and three rows
-        lambda: pop_rows("pools", 4),
+        lambda: pop_line(parts["recent"], SECTION_WITH_DETAIL),
+        lambda: pop_rows("pools", POOLS_TRIM_FLOOR),
         lambda: pop_line(suggest, 1),
-        lambda: pop_rows("running", 1),
-        lambda: pop_line(parts["recent"], 2),  # the header and one row: the floor of RECENT
-        lambda: pop_rows("pools", 1),
         lambda: drop("leads"),
-        lambda: pop_rows("running", 0),
-        lambda: drop("running"),
+        lambda: drop("recent"),
+        lambda: pop_rows("pools", 1),
         lambda: pop_line(suggest, 0),
         lambda: pop_line(header, 1),  # what hangs on the title line; the title stays
-        # only a terminal too small for the top of the frame gets to these
-        lambda: pop_rows("pools", 0),
-        lambda: drop("recent"),
         lambda: drop("pools"),
+        lambda: pop_rows("running", 1),
+        lambda: pop_line(parts["alerts"], SECTION_WITH_DETAIL),
+        lambda: drop("running"),
+        lambda: drop("alerts"),
         lambda: pop_line(header, 0),
     ]
     while True:
         lines = assemble()
-        if len(lines) <= limit and sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
-            break
+        if len(lines) <= limit:
+            if sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
+                break
+            lines = [_FILE_OSC.sub(r"\1", line) for line in lines]
+            if sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
+                break
         if not any(step() for step in steps):
             lines = [_fit_bytes(verdict, max_bytes - 1, unicode)]
             break
@@ -2208,7 +2255,7 @@ def _column_painter(column: int, colours: Sequence[str | None]) -> Callable[[int
 
 
 def _activity_sections(groups: dict[str, Any], width: int, unicode: bool, keep: str | None = None, *,
-                       rich: bool = False, paint: bool = False) -> tuple[list[str], int, list[str] | None]:
+                       rich: bool = False, paint: bool = False, links: bool = False) -> tuple[list[str], int, list[str] | None]:
     """RUNNING (header and at most five rows, the total before the cap) and RECENT (`_recent_compact`: at most RECENT_CAP
     finished asks, newest first, or None). The rich view (P21) draws each head as a rule, starts a RUNNING row with its
     state glyph (and the word of a flag) and a RECENT row with a state dot; such a cell is used only when it costs no
@@ -2243,11 +2290,14 @@ def _activity_sections(groups: dict[str, Any], width: int, unicode: bool, keep: 
         if _columns(marked, width - 1, 4)[0] - 1 >= _columns(table, width - 1, first + 3)[0] - first:
             table, first = marked, 1
             painter = _column_painter(0, [colour for _, _, colour in marks]) if paint else None
+    if links:
+        painter = _query_painter(shown, first + 3, painter)
     rows = [" " + line for line in _table(table, width - 1, unicode, right=(first,), elastic=first + 3, paint=painter)]
     recent: list[str] | None = None
-    ended = _recent_ended(data)
+    ended = _recent_ended(data, groups)
     if ended:
-        recent = [head_line(_recent_head(data, ended)), *_recent_compact(ended, width, unicode, keep, rich=rich, paint=paint)]
+        recent = [head_line(_recent_head(data, ended)),
+                  *_recent_compact(ended, width, unicode, keep, rich=rich, paint=paint, links=links)]
     return [head_line(head), *rows], total, recent
 
 
@@ -2342,7 +2392,7 @@ def _leads_section(groups: dict[str, Any], now: float, width: int, unicode: bool
 
 
 def _has_value(row: dict[str, Any]) -> bool:
-    return row["state"] not in {"n/a", "?", "reset"} and _number(row["remaining"]) is not None
+    return row["state"] not in {QUOTA_NA, "?", "reset"} and _number(row["remaining"]) is not None
 
 
 def _min_quota(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -2440,7 +2490,7 @@ def _pool_colour(row: dict[str, Any]) -> str | None:
     unknown, reset or n/a is dim and a threat or an exhausted pool is bad; a valid pool takes the colour of what is
     left (ok above 50%, warn above 25%, hot above 10%, bad at 10% or less), and never a milder one than its state's."""
     remaining = _number(row["remaining"])
-    code = "2" if row["state"] == "n/a" else _quota_color(str(row["color_state"]), remaining,
+    code = "2" if row["state"] == QUOTA_NA else _quota_color(str(row["color_state"]), remaining,
                                                            aged=bool(row["aged"] or row["stale"]))
     if code == "2":
         return "dim"
@@ -2468,19 +2518,35 @@ def _pool_bar(row: dict[str, Any], cells: int, unicode: bool, child: bool = Fals
 
 def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
                   rich: bool = False, paint: bool = False, every: bool = False) -> tuple[list[str], int]:
-    """`POOLS n` with the column titles, then at most eight rows: POOL STATE LEFT RESET PACE FAMILY. `every` (the
-    rich --expand frame, P23): every pool, the 5-hour rows that do not bind included, and no cap. An n/a pool (#400) is
-    never a row and is not counted; the QUOTA details name it.
+    """POOLS rows with inline unavailable windows included in the header count.
 
     The rich view (P21) draws the head as a rule, puts a state glyph before the state word and a bar of what is left
     after it (POOL STATE bar LEFT ...). A decoration never costs a data column: the glyph stays only when the table
     shows the columns of the plain view, and the bar takes the cells left over when every cell is whole (at most
     BAR_CELLS; fewer than BAR_MIN: no bar), so it shrinks and goes before a column drops or the FAMILY note is cut."""
-    ordered = _ordered_pools([row for row in rows if row["state"] != "n/a"], every=every)
+    ordered = _ordered_pools([row for row in rows if row["state"] != QUOTA_NA], every=every)
+    unavailable = [row for row in rows if row["state"] == QUOTA_NA]
+    suffixes: dict[int, list[str]] = {}
+    marker_rows: set[int] = set()
+    for absent in unavailable:
+        peers = [row for row, _ in ordered if row["peer"] == absent["peer"]]
+        parent = next((row for row in peers if row["family"] == absent["family"]), peers[0] if peers else absent)
+        if not peers:
+            ordered.append((parent, 0))
+            marker_rows.add(id(parent))
+        suffixes.setdefault(id(parent), []).append(_cell(absent["pool"], unicode, "-", keep))
     shown = ordered if every else ordered[:POOLS_CAP]
     glyphs = RICH_GLYPHS[unicode]
-    head = f"POOLS {len(ordered)}"
+    head = f"POOLS {len(ordered) + len(unavailable) - len(marker_rows)}"
     table = [[head, "STATE", "LEFT", "RESET", "PACE", "FAMILY"]]
+    markers = [_na_suffix(suffixes[id(row)]) if id(row) in suffixes else "" for row, _ in shown]
+
+    def with_markers(lines: list[str], code: str | None = None) -> tuple[list[str], int]:
+        rendered = [lines[0]]
+        for line, marker in zip(lines[1:], markers):
+            rendered.extend(_quota_suffix(line, marker, width, unicode, code))
+        return rendered, len(rendered) - 1 + len(ordered) - len(shown)
+
     for index, (row, depth) in enumerate(shown):
         peer, pool = _cell(row["peer"], unicode, "-", keep), _cell(row["pool"], unicode, "-", keep)
         prefix = ""
@@ -2491,6 +2557,9 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
             else:
                 prefix += ("│  " if unicode else "|  ") if sibling else "   "
         name = f"{' ' * _width(peer)} {prefix}{pool}" if depth else f"{peer} {pool}"
+        if id(row) in marker_rows:
+            table.append([" " + peer, "", "", "", "", ""])
+            continue
         family = str(row["meaning"])
         if row.get("depends_on"):
             own = f" (own {row['own_left']})" if row.get("own_left") else ""  # the pool's own LEFT, when the parent is lower
@@ -2502,26 +2571,29 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
     # dependency note is cut (with the cut mark) rather than taking the whole column away; no other cell is ever cut.
     floor = max([_width("FAMILY"), *(_width(_cell(row["meaning"], unicode, "-", keep)) for row, _ in shown)])
     if not rich:
-        return _table(table, width, unicode, right=(2, 4), elastic=5, floor=floor), len(ordered)
+        return with_markers(_table(table, width, unicode, right=(2, 4), elastic=5, floor=floor))
     plain_shown = _columns(table, width, 5, floor)[0]
     ruled = [[f"{glyphs['rule'] * 2} {head}", *table[0][1:]], *table[1:]]  # the rule's first cells, so titles stay aligned
     states = [glyphs.get(str(row["state"]), glyphs["aged"]) for row, _ in shown]
-    glyphed = [ruled[0], *([cells[0], f"{glyph} {cells[1]}", *cells[2:]] for glyph, cells in zip(states, ruled[1:]))]
+    glyphed = [ruled[0], *([cells[0], f"{glyph} {cells[1]}" if cells[1] else "", *cells[2:]]
+                          for glyph, cells in zip(states, ruled[1:]))]
     chosen = next((cells for cells in (glyphed, ruled) if _columns(cells, width, 5, floor)[0] >= plain_shown), table)
     names = ["POOL", "STATE", "LEFT", "RESET", "PACE", "FAMILY"]
     right, elastic = (2, 4), 5
     room = width - sum(max(_width(cells[i]) for cells in chosen) for i in range(6)) - 2 * 6
+    room -= max((_width(marker) + 1 for marker in markers if marker), default=0)
     if chosen is not table and min(BAR_CELLS, room) >= BAR_MIN:
-        bars = ["", *(_pool_bar(row, min(BAR_CELLS, room), unicode, child=depth > 0) for row, depth in shown)]
+        bars = ["", *(_pool_bar(row, min(BAR_CELLS, room), unicode, child=depth > 0) if id(row) not in marker_rows else ""
+                      for row, depth in shown)]
         chosen = [[*cells[:2], bar, *cells[2:]] for bar, cells in zip(bars, chosen)]
         names.insert(2, "BAR")
         right, elastic = (3, 5), 6
-    colours = [None, *(_pool_colour(row) for row, _ in shown)]
+    colours = [None, *(_pool_colour(row) if id(row) not in marker_rows else None for row, _ in shown)]
     kids = [False, *(depth > 0 and _has_value(row) for row, depth in shown)]  # a child bar with a value: two spans
 
     def painter(index: int, col: int, text: str) -> str:
         colour = colours[index]
-        if index == 0:
+        if index == 0 or not text:
             return text
         if names[col] == "FAMILY":
             return _paint(text, RICH_SGR["dim"])
@@ -2537,7 +2609,7 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
 
     lines = _table(chosen, width, unicode, right=right, elastic=elastic, floor=floor, paint=painter if paint else None)
     lines[0] = _head_rule(lines[0] if chosen is table else lines[0][3:], width, unicode, paint)
-    return lines, len(ordered)
+    return with_markers(lines, RICH_SGR["dim"] if paint else None)
 
 
 def _suggest_lines(text: str, width: int, unicode: bool) -> list[str]:
@@ -2618,12 +2690,7 @@ def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, un
 
 def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: bool, width: int,
                    height: int | None, keep: str | None = None, expand: bool = False) -> CompactFrame:
-    """The compact frame before the budget, for lines of `width` cells.
-
-    `expand` (P23) builds the top of the rich --expand frame, which starts as the compact frame does: line 1, line 2
-    with its lines, POOLS and the suggestion. There POOLS lists every pool and the suggestion wraps without a cap;
-    line 2 does not say that fields are hidden; and the store path, the --db note and the activity are left to the
-    lines and sections that follow the top."""
+    """Build the sections shared by both layouts before height fitting."""
     rich = view == "rich"  # P21: the rich look; `unicode` picks its glyphs and `paint` adds the colour
     paint = color and rich and "NO_COLOR" not in os.environ
     sep = f" {RICH_GLYPHS[unicode]['sep']} " if rich else " | "
@@ -2643,9 +2710,10 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
         stamp = datetime.fromtimestamp(now + elapsed, timezone.utc).strftime("%Y-%m-%d %H:%MZ") if read_at is not None else "time unknown"
     except (ValueError, OverflowError, OSError):
         stamp = "time unknown"
-    ages = [_number(item.get("age_seconds")) for item in quota if not item.get("display_retired")]
-    known_ages = [age + elapsed for age in ages if age is not None]
-    age_label = _compact_age(max(known_ages) if known_ages else None)
+    oldest = (_number(payload.get("_quota_age_seconds")) if "_quota_age_seconds" in payload
+              else oldest_measured_quota_age(quota))
+    age = oldest + elapsed if oldest is not None else None
+    age_label = _compact_age(age)
     title = f"PeerHub Monitor {stamp} | DB:{source} | quota age {age_label}"
     refresh_state = _clean(payload.get("refresh_state") or "")
     next_refresh = _number(payload.get("next_refresh_in"))
@@ -2657,14 +2725,19 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
         title = _fit_fields(title, width, unicode, inline_note=False)
     title = title.replace(" | ", sep)  # the rich view's separator; line 2 is structure, so its colour is dim
     # Fields dropped from line 2 are disclosed on a line of their own, so a narrow terminal keeps the timestamp.
-    header = [_paint(title, RICH_SGR["dim"]) if paint else title,
-              *([f"Fields hidden{sep}--expand"] if cut and not expand else [])]
+    header = [_paint(title, RICH_SGR["dim"]) if paint else title]
+    if (selected_ids & {"capacity", "peers"} or "_quota_age_seconds" in payload) and (notice := quota_stale_line(age)):
+        header.extend(_compact_wrap(notice, width))
+    header.extend(part for note in cast(list[str], payload.get("_quota_probe_notes", []))
+                  for part in _compact_wrap(note, width))
+    if cut and not expand:
+        header.append(f"Fields hidden{sep}--expand")
     errors = _obj(payload.get("errors"))
     nearest = payload.get("_nearest_store_path")
     same_store = bool(nearest and store.get("path") and os.path.normcase(os.path.abspath(str(nearest))) == os.path.normcase(os.path.abspath(str(store["path"]))))
     read_errors = any(value != "truncated" for value in errors.values())
     if ((not same_store or payload.get("status") in {"FAILED", "ERROR"} or read_errors) and store.get("path")
-            and not expand):  # --expand names the store near the end of the frame (`_expanded_frame`)
+            and not expand):  # expanded frames include the full path in their header
         header.extend(_compact_wrap(f"DB: {_clean(store['path'])}", width))
     if payload.get("_store_note") and not expand:  # #338: --db overrides a PEERHUB_DB that points elsewhere
         header.extend(_compact_wrap(str(payload["_store_note"]), width))
@@ -2690,18 +2763,25 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
     else:
         verdict = verdict_line(payload, width, unicode, keep)
     frame = CompactFrame(verdict=verdict, header=header)
+    frame.alerts = _alert_section(payload, width, unicode, keep, rich=rich, paint=paint, expand=expand)
+    links = bool(payload.get("_file_links"))
     if "activity" in selected_ids and not expand:
         frame.running, frame.running_total, frame.recent = _activity_sections(groups, width, unicode, keep,
-                                                                               rich=rich, paint=paint)
+                                                                               rich=rich, paint=paint, links=links)
         frame.leads, frame.leads_total = _leads_section(groups, now + elapsed, width, unicode, keep, rich=rich, paint=paint)
     elif "activity" in selected_ids and isinstance(_obj(groups.get("activity")).get("data"), Mapping):
-        data = _obj(_obj(groups.get("activity")).get("data"))  # --expand: RECENT is in the top, RUNNING and LEADS follow it
-        ended = _recent_ended(data)
-        if ended:
+        data = _obj(_obj(groups.get("activity")).get("data"))
+        ended = _recent_ended(data, groups)
+        recent = ended[:RECENT_EXPAND if height is not None else TEXT_NEWEST_ROWS]
+        if height is None:
+            recent.extend({**row, "session": None} for row in _ask_split(data)[2])
+        if recent:
             frame.recent = [_head_rule(_recent_head(data, ended, superseded=True), width, unicode, paint) if rich
                             else _recent_head(data, ended, superseded=True),
-                            *_recent_expand_lines(ended, width, unicode, keep, rich=rich, paint=paint)]
-            frame.recent_short = _recent_compact(ended, width, unicode, keep, rich=rich, paint=paint, limit=RECENT_EXPAND)
+                            *_recent_expand_lines(recent, width, unicode, keep, rich=rich, paint=paint, links=links)]
+            if height is not None:
+                frame.recent_short = _recent_compact(recent, width, unicode, keep, rich=rich, paint=paint, links=links,
+                                                    limit=RECENT_EXPAND)
     if "capacity" in selected_ids:
         suggestion = _compact_suggestions(configured_profiles, rows)
         frame.suggest = _compact_wrap(suggestion, width) if expand else _suggest_lines(suggestion, width, unicode)
@@ -2770,7 +2850,7 @@ def _display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
         **({"_human_observations": replace(observations)} if "_human_observations" in payload else {})}
 
 
-GUIDE_TEXT = "Guide"  # the one link of the rich view: the right end of line 2 (#414)
+GUIDE_TEXT = "Guide"  # the rich view's link at the right end of line 2 (#414)
 GUIDE_DOC = "docs/monitor.md"
 _GUIDE_BLOB = "https://github.com/greatgc-flow/peerhub/blob/"
 
@@ -2794,7 +2874,7 @@ def _guide_released(version: str | None) -> str | None:
 def guide_link_url(env: Mapping[str, str], version: str | None = None) -> str | None:
     """The target of the Guide link, or None when the link is not drawn: PEERHUB_NO_LINKS set (not empty or 0), or a dev
     build without a tag (PEERHUB_GUIDE_URL overrides that for tests)."""
-    if env.get("PEERHUB_NO_LINKS", "").strip().lower() not in {"", "0", "false", "no", "off"}:
+    if not _links_enabled(env):
         return None
     return _guide_override(env) or _guide_released(version)
 
@@ -2802,6 +2882,33 @@ def guide_link_url(env: Mapping[str, str], version: str | None = None) -> str | 
 def guide_text_url(env: Mapping[str, str], version: str | None = None) -> str:
     """The URL of the plain `Guide:` line: the tag of this version, the main branch for a build without a tag."""
     return _guide_override(env) or _guide_released(version) or f"{_GUIDE_BLOB}main/{GUIDE_DOC}"
+
+
+def _links_enabled(env: Mapping[str, str]) -> bool:
+    return env.get("PEERHUB_NO_LINKS", "").strip().lower() in {"", "0", "false", "no", "off"}
+
+
+def _osc_link(url: str, label: str) -> str:
+    return f"\x1b]8;;{url}\x1b\\{label}\x1b]8;;\x1b\\"
+
+
+def _query_link(row: dict[str, Any], label: str) -> str:
+    facts = _obj(row.get("_caller_file"))
+    if facts and isinstance(facts.get("host"), str) and facts["host"] == host_id():
+        file = local_workspace_file(facts.get("query_file"), facts.get("workspace"))
+        if file is not None:
+            return _osc_link(file[0].as_uri(), label)
+    return label
+
+
+def _query_painter(rows: list[dict[str, Any]], column: int,
+                   paint: Callable[[int, int, str], str] | None) -> Callable[[int, int, str], str]:
+    def decorate(index: int, cell_column: int, text: str) -> str:
+        if cell_column == column:
+            text = _query_link(rows[index], text)
+        return paint(index, cell_column, text) if paint is not None else text
+
+    return decorate
 
 
 def _with_guide_link(screen: str, width: int, url: str | None, paint: bool) -> str:
@@ -2814,7 +2921,7 @@ def _with_guide_link(screen: str, width: int, url: str | None, paint: bool) -> s
     gap = width - _width(lines[1]) - len(GUIDE_TEXT)
     if gap < 1:
         return screen
-    link = f"\x1b]8;;{url}\x1b\\{GUIDE_TEXT}\x1b]8;;\x1b\\"
+    link = _osc_link(url, GUIDE_TEXT)
     lines[1] += " " * gap + (_paint(link, RICH_SGR["dim"]) if paint else link)
     return "\n".join(lines)
 
@@ -2822,12 +2929,16 @@ def _with_guide_link(screen: str, width: int, url: str | None, paint: bool) -> s
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
                          expand: bool = False, text_encoding: str | None = None, show_quota_notes: bool = False,
-                         links: bool = False) -> str:
+                         links: bool = False, tty: bool = False) -> str:
     """Compact human default; the established renderer supplies expanded detail.
 
     `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5). `links` (the
-    rich view on a terminal only; the caller decides) adds the Guide link (OSC 8) to line 2."""
-    payload = {**_display_plan_omissions(payload), "_show_quota_notes": show_quota_notes}
+    rich view on a VT terminal only; the caller decides) enables Guide and query file links (OSC 8).
+    The plain Guide trailer requires an unbounded TTY."""
+    file_links = (links and view == "rich" and color and "NO_COLOR" not in os.environ and _links_enabled(os.environ)
+                  and os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off")
+    payload = {**_with_retained_quota(_display_plan_omissions(payload)),
+               "_show_quota_notes": show_quota_notes, "_file_links": file_links}
     if expand:
         screen = _render_expanded_frame(payload, view=view, color=color, unicode=unicode,
                                         width=width, height=height, expand=True, keep=text_encoding)
@@ -2837,9 +2948,70 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
                                        width=width, height=height, keep=text_encoding)
         columns = max(1, min(100, width) - 1)
     if links and view == "rich":
-        return _with_guide_link(screen, columns, guide_link_url(os.environ),
-                                color and "NO_COLOR" not in os.environ)
+        linked = _with_guide_link(screen, columns, guide_link_url(os.environ), color and "NO_COLOR" not in os.environ)
+        if expand or len(linked.encode("utf-8")) <= COMPACT_MAX_BYTES:
+            return linked
+    if expand and view == "plain" and height is None and tty and _links_enabled(os.environ):
+        guide = f"{GUIDE_TEXT}: {guide_text_url(os.environ)}"
+        if _width(guide) <= columns:
+            return screen + guide + "\n"
     return screen
+
+
+def _with_retained_quota(payload: dict[str, Any]) -> dict[str, Any]:
+    """Show one recent successful reading after a newer error; keep the public snapshot intact."""
+    groups = _obj(payload.get("groups"))
+    capacity = _obj(groups.get("capacity"))
+    data = _obj(capacity.get("data"))
+    observations = _items(payload.get("_human_observations", data.get("observations")))
+    elapsed = _number(payload.get("display_elapsed_seconds")) or 0
+    now = _number(payload.get("read_at")) or 0
+    by_peer: dict[str, list[dict[str, Any]]] = {}
+    for item in observations:
+        if item.get("kind", "quota") == "quota" and _number(item.get("age_seconds")) is not None:
+            by_peer.setdefault(str(item.get("peer_id") or "?"), []).append(item)
+
+    notes: list[str] = []
+    replacements: dict[int, dict[str, Any] | None] = {}
+    for peer, items in sorted(by_peer.items()):
+        latest = min(items, key=lambda item: (float(item["age_seconds"]), -float(item.get("_capture_seq", 0))))
+        if latest.get("state") != "ERROR":
+            continue
+        candidates = [(item, item) for item in items if item.get("pool_ref") and not item.get("display_retired")
+                      and item.get("stored_state", item.get("state")) == "MEASURED"]
+        if latest.get("pool_ref") and (prior := _obj(latest.get("_prior_measurement"))):
+            candidates.append((latest, {**latest, "age_seconds": latest.get("_prior_age"), "last_measurements": prior,
+                                         "resets_at": prior.get("resets_at"), "projection": {}, "projection_samples": 0,
+                                         "reason": None}))
+        ages: list[float] = []
+        for original, item in candidates:
+            age = _number(item.get("age_seconds"))
+            raw = _obj(item.get("last_measurements")) or _obj(item.get("measurements"))
+            remaining = _number(raw.get("remaining_fraction"))
+            reset = _number(item.get("resets_at"))
+            if (age is not None and 0 <= age + elapsed < QUOTA_MAX_AGE_SECONDS and remaining is not None and 0 <= remaining <= 1
+                    and (reset is None or reset > now + elapsed)):
+                ages.append(age + elapsed)
+                replacements[id(original)] = {**item, "state": "MEASURED", "stored_state": "MEASURED",
+                                               "measurements": raw, "_retained_quota": True,
+                                               "reset_in_seconds": reset - now if reset is not None else item.get("reset_in_seconds")}
+        if ages:
+            if not latest.get("pool_ref"):
+                replacements[id(latest)] = None
+            failure = "timeout" if quota_probe_timed_out(latest.get("reason")) else "error"
+            notes.append(f"{_clean(peer)} probe {failure} (value {int(min(ages) // 60)}m old)")
+
+    if not notes:
+        return payload
+    shown = [item for original in observations if (item := replacements.get(id(original), original)) is not None]
+    by_id = {item["observation_id"]: replacements[id(item)] for item in observations
+             if id(item) in replacements and "observation_id" in item}
+    details = ([item for original in _items(data.get("observations"))
+                if (item := by_id.get(original.get("observation_id"), original)) is not None]
+               if "_human_observations" in payload else shown)
+    return {**payload, "_quota_probe_notes": notes,
+            **({"_human_observations": shown} if "_human_observations" in payload else {}),
+            "groups": {**groups, "capacity": {**capacity, "data": {**data, "observations": details}}}}
 
 
 def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
@@ -2907,11 +3079,6 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     if plan_windows and isinstance(peers_group.get("data"), Mapping):
         display_groups["peers"] = {**peers_group, "data": {**_obj(peers_group.get("data")), "_show_quota_notes": True, "plan_notes": {
             peer: f"plan {plan}: no {', '.join(windows)} window" for peer, (plan, windows) in plan_windows.items()}}}
-    alerts = frame_alerts(payload)
-    unread = unread_sources(payload)
-    if alerts or unread:  # every alert, then every source not read (A7); with neither, no section is printed
-        display_groups["alerts"] = {"status": "OK", "data": {"alerts": alerts, "unread": unread}}
-        selected = ["alerts", *selected]
     display = {**payload, "selected_groups": selected, "groups": display_groups}
     # #338: the store path and the --db/PEERHUB_DB note wrap; a truncated path cannot name the store.
     store_lines = [*(_compact_wrap(db_line, max(1, width - 1)) if db_line else []),
@@ -2941,7 +3108,7 @@ def _group_error(payload: dict[str, Any], group_id: str) -> str:
     return _safe_error_reason(error)
 
 
-_RICH_ORDER = ("alerts", "activity", "capacity", "peers", "execution", "sessions", "usage", "context")
+_DETAIL_ORDER = ("activity", "capacity", "peers", "execution", "sessions", "usage", "context")
 
 
 def _is_head(line: str) -> bool:
@@ -2978,6 +3145,22 @@ def _rich_entry(mark: str, lines: Sequence[str]) -> list[str]:
             for index, line in enumerate(lines)]
 
 
+def _alert_section(payload: dict[str, Any], width: int, unicode: bool, keep: str | None, *,
+                   rich: bool, paint: bool, expand: bool) -> list[str] | None:
+    alerts = frame_alerts(payload)
+    unread = unread_sources(payload) if expand else []
+    if not alerts and not unread:
+        return None
+    group = {"data": {"alerts": alerts, "unread": unread}}
+    head = _group_label("alerts", group, "OK", None, 0)
+    rows, _ = _group_lines("alerts", group, width=width, unicode=unicode, keep=keep, rich=rich)
+    if rich and expand:
+        return _rich_section(head, rows, width, unicode, paint)
+    if rich:
+        return [_head_rule(head, width, unicode, paint), *(" " + row for row in rows)]
+    return [_section_rule(head, width, unicode), *rows]
+
+
 def _rich_activity(group: dict[str, Any], payload: dict[str, Any], now: float | None, width: int, unicode: bool,
                    paint: bool, keep: str | None) -> tuple[list[str], list[str]]:
     """(RUNNING, LEADS) of the rich --expand frame (P23): every running ask and every lead with every field, as the
@@ -3002,7 +3185,7 @@ def _rich_activity(group: dict[str, Any], payload: dict[str, Any], now: float | 
     for row in running:
         glyph, word, colour = _RUN_MARKS[_flag(row)]
         rows.extend(marked(glyphs.get(glyph) or word.strip()[:1], colour,
-                           _ask_lines(row, inner, inner, unicode, keep, sep)))
+                           _ask_lines(row, inner, inner, unicode, keep, sep, links=bool(payload.get("_file_links")))))
     front = _rich_section(_running_head(data, running, unicode, keep)[0], rows, width, unicode, paint)
     leads = _items(data.get("leads"))
     rows = []
@@ -3040,36 +3223,22 @@ _PLAIN_QUOTA_LEGEND = "STATE: INSUFF=insufficient projection data; THREAT=exhaus
 def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: str, store_lines: list[str], *,
                     view: str, color: bool, unicode: bool, width: int, height: int | None, expand: bool,
                     keep: str | None) -> str:
-    """The --expand frame (P23, #412), rich and plain in one order, the compact frame's top first: line 1, the title,
-    POOLS with every pool, the whole suggestion, RECENT (entries of two lines). Then RUNNING, ALERTS, LEADS, QUOTA, PEERS,
-    EXECUTION, SESSIONS, USAGE, CONTEXT, any other group, and the store (`DB:env (<path>)`, wrapped, never cut) near the
-    end. `display` is the payload with the display data of the groups. The rich view draws the heads as rules and
-    marks the entries; the plain view is ASCII, never painted, and keeps its QUOTA table with the 8-cell bar.
-
-    One width rule: every line leaves the terminal's last column free (the compact frame alone stops at 100 columns).
-    A bounded height ends with the count of the lines it hides and the `| more` command (and the coverage line, when
-    there is room). RECENT is allocated before the sections below it: up to 8 entries of two lines when the top with
-    them fits; else its entries become one-line rows, then fewer rows (two at least), the smallest form that fits
-    being the last; the sections below the top take what is left, from the top down, and go from the bottom up. The
-    ATTN line, the title, POOLS, the suggestion and
-    RECENT's header with two rows stay; a terminal too small even for those loses, in this order, the rows of POOLS
-    (down to four), the suggestion and the rest of POOLS (down to one row), and RECENT's second row. The legend prints in
-    the unbounded frame only."""
+    """Build the header and priority sections first, then fit the expanded details."""
     rich = view == "rich"
     target = max(0, width - 1)
-    if target <= 0 or (height is not None and height <= 1):
+    if target <= 0 or (height is not None and height <= FRAME_TRAILING_ROWS):
         return ""
     paint = color and rich and "NO_COLOR" not in os.environ
     sep = f" {RICH_GLYPHS[unicode]['sep']} " if rich else " | "
-    frame = _compact_frame(payload, view=view, color=color, unicode=unicode, width=target, height=None, keep=keep,
+    frame = _compact_frame(payload, view=view, color=color, unicode=unicode, width=target, height=height, keep=keep,
                            expand=True)
+    frame.header[1:1] = store_lines
 
     def top_of(shown: CompactFrame) -> list[str]:
         # The top is the compact frame's, from its one owner, without the budget of a frame that has to fit a screen.
         return fit_compact_frame(shown, width=target, height=None, unicode=unicode, max_lines=sys.maxsize,
                                  max_bytes=sys.maxsize, keep=keep).splitlines()
 
-    top = top_of(frame)
     lines: list[str] = []
     groups = _obj(display.get("groups"))
     selected = cast(list[str], display.get("selected_groups") or [])
@@ -3079,13 +3248,14 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
     pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row  # the rows POOLS draws (see `_render_expanded_frame`)
                  for row in _frame_pools(payload, _frame_consumers(payload))[2]}
     leads: list[str] = []
-    if "activity" in selected:  # RUNNING follows RECENT; LEADS takes the place of the activity group, after ALERTS
+    if "activity" in selected:
         if rich:
             running, leads = _rich_activity(_obj(groups.get("activity")), payload, now, target, unicode, paint, keep)
         else:
             running, leads = _plain_activity(_obj(groups.get("activity")), payload, now, target, unicode, keep)
-        lines.extend(running)
-    for group_id in [*(gid for gid in _RICH_ORDER if gid in selected), *(gid for gid in selected if gid not in _RICH_ORDER)]:
+        frame.running = running
+    top = top_of(frame)
+    for group_id in [*(gid for gid in _DETAIL_ORDER if gid in selected), *(gid for gid in selected if gid not in _DETAIL_ORDER)]:
         group = _obj(groups.get(group_id))
         if group_id == "activity":
             lines.extend(leads)
@@ -3112,7 +3282,6 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
             lines.extend(_fit(row, target, unicode, indent=group_id == "capacity") for row in rows)
         else:
             lines.extend(_fit_fields(row, target, unicode, indent=group_id == "capacity") for row in rows)
-    lines.extend(store_lines)  # #412: the store near the end, never between POOLS and RECENT
 
     def fit(line: str) -> str:  # the one exit of every line: the glyph set of the stream, and never past the width
         if not unicode:  # A5: text the output encoding can show stays; the decoration is ASCII
@@ -3121,39 +3290,35 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
 
     rest = [fit(line) for line in lines]  # the top was fitted by its owner
     footer = fit(footer)
-    # The plain view's `Guide: <url>` line (VS Code makes it a link): in the unbounded frame only, which has room for it,
-    # never cut and never wider than the frame. A bounded frame keeps every row for the data.
-    guide = f"Guide: {guide_text_url(os.environ)}" if not rich and height is None else ""
-    foot = [footer, guide] if guide and _width(guide) <= target else [footer]
     if height is None:
         explanations: list[str] = _rich_legend(sep) if rich else list(MONITOR_LEGEND)
         if rich and any(row.get("depends_on") for row in pool_rows.values()):
             explanations.append("blocked=the parent pool is out; a pool under its parent shows the parent's LEFT, PACE and state "
                                 "when the parent has less left, and the nearer of the two resets (own = its own LEFT)")
         legend = [fit(part) for text in explanations for part in _compact_wrap(text, max(1, target))]
-        return "\n".join([*top, *rest, *legend, *foot]) + "\n"
-    limit = height - 1
+        return "\n".join([*top, *rest, *legend, footer]) + "\n"
+    limit = height - FRAME_TRAILING_ROWS
 
     def bounded(head: list[str], floor: int | None = None) -> str | None:
         """The frame with `head` whole (down to `floor` lines of it, when given) and the sections below it cut to the
         limit; None when it does not fit."""
         every = [*head, *rest]
         keep = len(head) if floor is None else floor
-        if len(every) + 1 <= limit:
+        total = len(top) + len(rest)
+        if total == len(every) and len(every) + 1 <= limit:
             return "\n".join([*every, footer]) + "\n"
         for tail in ([footer], []):  # the coverage line gives way before a line of the frame's top does
-            kept = limit - len(tail) - 1
+            kept = min(len(every), limit - len(tail) - 1)
             while kept >= keep:
                 while kept > max(1, keep) and _is_head(every[kept - 1]):  # never a head without a row before the hint
                     kept -= 1
-                hint = _hidden_lines(len(every) - kept, 0, target, unicode, expand=True)
+                hint = _hidden_lines(total - kept, 0, target, unicode, expand=True)
                 if kept + len(hint) + len(tail) <= limit:
                     return "\n".join([*every[:kept], *(fit(line) for line in hint), *tail]) + "\n"
                 kept -= 1
         return None
 
-    # RECENT is allocated before the sections below it: the richest form whose top still fits with the hint (entries of
-    # two lines, then rows of one line, then fewer rows); those sections get the lines that are left, from the top down.
+    # The top reserves the full alert and running sections before it allocates history.
     smallest, head = frame, top
     result = bounded(head)
     if result is not None:
@@ -3163,7 +3328,7 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
         result = bounded(head)
         if result is not None:
             return result
-    for smaller in _last_resort(smallest, target, unicode):  # a terminal too small for the protected top
+    for smaller in _last_resort(smallest, 1 + len(store_lines)):
         smallest, head = smaller, top_of(smaller)
         result = bounded(head)
         if result is not None:
@@ -3177,47 +3342,48 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
 
 
 def _recent_ladder(frame: CompactFrame) -> Iterator[CompactFrame]:
-    """The top of the --expand frame with RECENT smaller each time (#412): the entries of two lines become rows of one
-    line (the compact frame's row), then fewer rows, two at least (or the one there is)."""
+    """Condense the expanded history to compact rows, then reduce or remove that section."""
     if not frame.recent or not frame.recent_short:
         return
     head, rows = frame.recent[0], frame.recent_short
-    for count in range(len(rows), min(2, len(rows)) - 1, -1):
-        yield replace(frame, recent=[head, *rows[:count]], recent_short=rows[:count])
+    for count in range(len(rows), 0, -1):
+        yield replace(frame, recent=[head, *rows[:count]])
+    yield replace(frame, recent=None)
 
 
-def _last_resort(frame: CompactFrame, width: int, unicode: bool) -> Iterator[CompactFrame]:
-    """What a terminal too small for the protected top gives up, one step at a time: the rows of POOLS down to four, the
-    suggestion down to its first line, the rows of POOLS down to one (a pool row that goes is counted on one line,
-    `+N pools`), the rest of the suggestion, and RECENT's second row. The ATTN line, the title, the POOLS header and
-    RECENT's header with a row stay."""
+def _last_resort(frame: CompactFrame, protected_header: int) -> Iterator[CompactFrame]:
+    """Reduce the optional top sections before trimming running and alert details."""
     pools = len(frame.pools) - 1 if frame.pools else 0
     suggest = len(frame.suggest)
-    rows = (len(frame.recent) - 1) if frame.recent and frame.recent_short else 0
-
-    def variant(p: int, s: int, r: int) -> CompactFrame:
+    def variant(p: int, s: int) -> CompactFrame:
         shrunk = replace(frame, suggest=frame.suggest[:s])
-        if frame.recent and frame.recent_short:
-            shrunk.recent = [frame.recent[0], *frame.recent[1:1 + r]]
         if frame.pools and p < pools:
-            shrunk.pools = [*frame.pools[:p + 1], _fit(f"+{pools - p} pools", width, unicode)]
-            shrunk.pools_total = 0  # the line above is the overflow line: the frame adds none of its own
+            shrunk.pools = frame.pools[:p + 1] if p else None
+            shrunk.pools_total = 0  # the frame's final hidden-row hint reports the cut
         return shrunk
 
-    p, s, r = pools, suggest, rows
-    while p > 4:
+    p, s = pools, suggest
+    while p > POOLS_TRIM_FLOOR:
         p -= 1
-        yield variant(p, s, r)
+        yield variant(p, s)
     while s > 1:
         s -= 1
-        yield variant(p, s, r)
+        yield variant(p, s)
     while p > 1:
         p -= 1
-        yield variant(p, s, r)
+        yield variant(p, s)
     while s > 0:
         s -= 1
-        yield variant(p, s, r)
-    while r > 1:
-        r -= 1
-        yield variant(p, s, r)
+        yield variant(p, s)
+    small = replace(variant(0, 0), pools=None)
+    yield small
+    if len(small.header) > protected_header:
+        small = replace(small, header=small.header[:protected_header])
+        yield small
+    for section in ("running", "alerts"):
+        rows = small.running if section == "running" else small.alerts
+        if rows:
+            for count in range(len(rows) - 1, SECTION_WITH_DETAIL - 1, -1):
+                small = replace(small, **{section: rows[:count]})
+                yield small
 

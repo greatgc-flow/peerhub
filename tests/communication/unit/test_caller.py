@@ -2,6 +2,7 @@
 import os
 import platform
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -9,7 +10,62 @@ from peerhub.extensions import caller
 
 pytestmark = pytest.mark.unit
 
-KEYS = {"v", "tool", "label", "session", "host", "ns", "ask_pid", "ask_created", "cwd", "batch", "task"}
+KEYS = {"v", "tool", "label", "session", "host", "ns", "ask_pid", "ask_created", "cwd", "batch", "task",
+        "workspace", "query_file", "stream_file"}
+
+
+@pytest.mark.parametrize("bad", ["//server/share/query.txt", r"\\?\C:\query.txt", r"\\.\NUL",
+                                 "query\x1b.txt", "query\x85.txt", "query\n.txt", "query\u202e.txt"])
+def test_unsafe_query_paths_are_rejected_before_resolution(bad, monkeypatch):
+    known = Path(__file__).resolve()
+    resolve = Path.resolve
+
+    def fake_resolve(self, *args, **kwargs):
+        return known if self == Path(bad) else resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", fake_resolve)
+    detail = caller.detect_caller({}, query_file=bad, workspace=known.parent)
+    assert set(detail) == KEYS and detail["query_file"] is None and detail["stream_file"] is None
+
+
+def test_relative_query_uses_caller_cwd_and_records_the_larger_execution_workspace(monkeypatch):
+    query = Path(__file__).resolve()
+    workspace = query.parents[1]
+    monkeypatch.chdir(query.parent)
+    detail = caller.detect_caller({}, query_file=query.name, workspace=workspace)
+    assert detail["cwd"] == str(query.parent)
+    assert detail["workspace"] == str(workspace)
+    assert detail["query_file"] == str(query) and detail["stream_file"] is None
+
+
+@pytest.mark.parametrize("outside", ["escape", "control", "directory"])
+def test_query_path_is_checked_after_resolution(outside, monkeypatch):
+    known = Path(__file__).resolve()
+    query = known.parent / "alias.txt"
+    if outside == "escape":
+        target = known.parents[1] / "__init__.py"
+    elif outside == "control":
+        target = known.with_name("control\x1b.txt")
+    else:
+        target = known.parent
+    resolve, is_file = Path.resolve, Path.is_file
+    monkeypatch.setattr(Path, "resolve", lambda self, *a, **kw: target if self == query else resolve(self, *a, **kw))
+    monkeypatch.setattr(Path, "is_file", lambda self: True if self == target and outside == "control" else is_file(self))
+    assert caller.detect_caller({}, query_file=query, workspace=known.parent)["query_file"] is None
+
+
+def test_workspace_symlink_escape_is_rejected_at_write_and_read(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.touch()
+    link = workspace / "alias.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError as exc:
+        pytest.skip(f"symlink creation unavailable: {exc}")
+    assert caller.detect_caller({}, query_file=link, workspace=workspace)["query_file"] is None
+    assert caller.local_workspace_file(str(link), str(workspace)) is None
 
 
 def test_claude_code_with_lead_label(tmp_path, monkeypatch):

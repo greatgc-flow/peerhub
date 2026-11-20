@@ -155,10 +155,15 @@ def _effective(profile: str, layers: list[tuple[str, dict[str, Any]]]) -> tuple[
     effective_sources = {key: target_sources[key] for key in effective}
     effective.update(selected)
     effective_sources.update(sources)
-    override = selected.get("effort_override")
-    if override is not None:
-        effective["reasoning_effort"] = override
-        effective_sources["reasoning_effort"] = sources["effort_override"]
+    # Later layers win across both tables and both keys. On a tie, keep alias precedence.
+    layer_order = {name: index for index, (name, _) in enumerate(layers)}
+    efforts = [(entry[key], entry_sources[key]) for entry, entry_sources, key in (
+        (selected, sources, "effort_override"), (selected, sources, "reasoning_effort"),
+        (target_entry, target_sources, "reasoning_effort"),
+    ) if key in entry]
+    if efforts:
+        effective["reasoning_effort"], effective_sources["reasoning_effort"] = max(
+            efforts, key=lambda effort: layer_order[effort[1]])
     return effective, effective_sources
 
 
@@ -169,7 +174,7 @@ def reset_deprecation_notices() -> None:
 
 def _notice_alias(profile: str, effective: dict[str, Any]) -> None:
     """One stderr line per process and alias when a deprecated alias is resolved for an ask."""
-    target, override = str(effective["alias_of"]), effective.get("effort_override")
+    target, override = str(effective["alias_of"]), effective.get("reasoning_effort")
     key = (profile, target, override)
     if key in _NOTICED:
         return
@@ -179,13 +184,13 @@ def _notice_alias(profile: str, effective: dict[str, Any]) -> None:
     print(f"peerhub: profile {profile} is deprecated: an alias of {target}{effort}; use {use}", file=sys.stderr)
 
 
-def resolve_profile(kind: str, profile: str, workspace: str | Path) -> tuple[str | None, str | None]:
+def resolve_profile(kind: str, profile: str, workspace: str | Path, *, notice_alias: bool = False) -> tuple[str | None, str | None]:
     profile = qualified_profile(kind, profile)
     if not profile.startswith(kind + ".") or not profile[len(kind) + 1:]:
         raise ValueError("profile must be a fully qualified name for the target provider")
     selected, _ = _effective(profile, _load_layers(workspace))
     values = _profile_values(selected)
-    if selected.get("alias_of") is not None:
+    if notice_alias and selected.get("alias_of") is not None:
         _notice_alias(profile, selected)
     return values
 

@@ -209,7 +209,8 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool,
         if height <= len(lines):
             assert "rows hidden" in screen
         kept = [line for line in screen.splitlines() if not line.startswith(("+", "Coverage:"))]
-        assert kept == lines[:len(kept)] or height < 10  # a prefix of the whole frame (what is left is the top)
+        original = iter(lines)
+        assert all(line in original for line in kept if line)  # optional top rows can shrink
 
 
 @pytest.mark.parametrize("reason,detail", [
@@ -328,21 +329,18 @@ def test_passed_measurement_reset_colour_matches_between_views(
 
 
 @pytest.mark.parametrize("expand", [False, True])
-def test_na_root_is_never_a_row_and_its_peer_gets_one_dim_note(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_na_root_is_counted_and_its_peer_gets_a_marker(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-5H"]})
     frame["groups"]["capacity"]["data"]["observations"][0].update(
         state="ABSENT", reason="not reported by provider", measurements=None)
     screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
-    # #400: no POOLS row and no QUOTA row for an n/a pool; the peer has no row left, so one dim note names the pool
-    assert "POOLS 0" in mv._ANSI.sub("", screen)
+    assert "POOLS 1" in mv._ANSI.sub("", screen) and "(C-5H n/a)" in screen
     dim = mv.RICH_SGR["dim"]
     assert not any("○ n/a" in line for line in screen.splitlines())
-    if not expand:
-        assert "C-5H" not in screen
-        return
-    row = next(line for line in detail_lines(screen) if "C-5H" in line and "not reported" not in line)
-    assert row == f" \x1b[{dim}mcc C-5H n/a\x1b[0m"
+    if expand:
+        rows = [line for line in detail_lines(screen) if "C-5H" in line]
+        assert any(line.startswith(f" \x1b[{dim}mcc C-5H n/a") and "not reported" in line for line in rows)
 
 
 @pytest.mark.parametrize("expand", [False, True])

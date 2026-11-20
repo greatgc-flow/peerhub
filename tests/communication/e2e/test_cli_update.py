@@ -1,0 +1,214 @@
+"""Quota-free fixtures for the public update commands."""
+from __future__ import annotations
+
+import io
+import json
+import sqlite3
+import time
+from contextlib import closing
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from peerhub.cli.app import main
+from peerhub.extensions.bridge_claims import _DDL as CLAIMS_DDL
+from peerhub.extensions.bridge_registry import DDL as SESSION_DDL, POINTER_DDL
+from peerhub.extensions.caller import host_id
+
+
+def test_update_requires_exactly_one_mode(capsys):
+    for flags, message in (([], "one of the arguments"), (["--check", "--plan"], "not allowed with argument")):
+        with pytest.raises(SystemExit) as error:
+            main(["update", *flags])
+        assert error.value.code == 2
+        assert message in capsys.readouterr().err
+
+
+def fake_check(monkeypatch, *, offline):
+    from peerhub.cli import update
+
+    calls = []
+    monkeypatch.setattr(update, "real_command", lambda peer: [{"cx": "codex", "cc": "claude", "ag": "agy"}[peer]])
+    monkeypatch.setattr(update.shutil, "which", lambda exe: exe if exe == "ant" else None)
+
+    def run(argv, **kwargs):
+        calls.append(tuple(argv))
+        assert kwargs["stdin"] is None and 0 < kwargs["timeout_s"] <= 5
+        assert 0 < kwargs["max_bytes"] <= 2 * 1024 * 1024
+        output = {
+            ("codex", "--version"): "codex-cli 0.172.0",
+            ("claude", "--version"): "2.1.329 (Claude Code)",
+            ("agy", "--version"): "",
+            ("ant", "--version"): "ant 1.2.3",
+            ("codex", "debug", "models", "--bundled"): '{"models": [{"slug": "gpt-6.2-sol"}]}',
+        }[tuple(argv)]
+        return SimpleNamespace(returncode=0 if output else 1, stdout=output.encode(), stderr=b"",
+                               timed_out=False, output_truncated=False, drain_timed_out=False)
+
+    def fetch(request, *, timeout):
+        assert 0 < timeout <= 3
+        url = request.full_url
+        assert url.startswith("https://") and ("/releases/latest" in url or url == "https://pypi.org/pypi/peerhub/json")
+        if offline:
+            raise TimeoutError("offline")
+        if "pypi.org" in url:
+            payload = {"info": {"version": "9.0.0"}}
+        else:
+            tag = "rust-v0.173.0" if "/openai/codex/" in url else "v1.2.3"
+            payload = {"tag_name": tag}
+        return io.BytesIO(json.dumps(payload).encode())
+
+    monkeypatch.setattr(update, "run_bounded", run)
+    monkeypatch.setattr(update, "urlopen", fetch)
+    return calls
+
+
+@pytest.mark.parametrize("offline", [True, False])
+def test_check_versions_and_bundled_models(monkeypatch, capsys, offline):
+    calls = fake_check(monkeypatch, offline=offline)
+    assert main(["update", "--check", "--json"]) == 0
+    captured = capsys.readouterr()
+    assert not captured.err
+    report = json.loads(captured.out)
+    versions = report["versions"]
+    assert versions["peerhub"]["latest"] == (None if offline else "9.0.0")
+    assert versions["codex"]["latest"] == (None if offline else "0.173.0")
+    assert versions["codex"]["packaged"] == "0.171.0"
+    assert versions["codex"]["installed"] == "0.172.0"
+    assert versions["codex"]["differs_from_packaged"] is True
+    assert versions["codex"]["update_available"] is (None if offline else True)
+    assert versions["agy"]["installed"] is None
+    assert report["codex_models"]["missing"]["cx.standard"] == "gpt-6-luna"
+    assert report["codex_models"]["source"] == "bundled"
+    assert set(calls) == {("codex", "--version"), ("claude", "--version"), ("agy", "--version"), ("ant", "--version"),
+                          ("codex", "debug", "models", "--bundled")}
+
+
+def seed_plan(conn, cwd, *, active):
+    conn.executescript(CLAIMS_DDL + ";" + POINTER_DDL + ";" + SESSION_DDL[0] + ";")
+    conn.executescript("""
+        CREATE TABLE bridge_deliveries (
+            delivery_id TEXT, stream_id TEXT, peer_id TEXT, external_session_id TEXT, session_generation INTEGER
+        );
+        CREATE TABLE bridge_evidence (
+            seq INTEGER PRIMARY KEY, delivery_id TEXT, stream_id TEXT, peer_id TEXT, kind TEXT, detail TEXT
+        );
+    """)
+    now = time.time()
+    for idx, (stream, path, vendor) in enumerate([
+        ("ready-stream", cwd, "vendor-id-1"),
+        ("missing-cwd", None, "vendor-id-2"),
+        ("missing-vendor", cwd, None),
+    ], 1):
+        handle, external = f"ps_{idx}", f"opaque-{idx}"
+        conn.execute("INSERT INTO bridge_sessions VALUES (?, 'cx', ?, 1, ?)", (stream, handle, now))
+        conn.execute(
+            "INSERT INTO bridge_session_history (session_handle, stream_id, peer_id, runtime_kind, external_session_id, "
+            "session_generation, adapter_fingerprint, binding, resumable, state, last_seen, vendor_session_id, "
+            "context_watermark, created_at) VALUES (?, ?, 'cx', 'cx', ?, 1, 'fp', 'binding', 1, 'ACTIVE', ?, ?, 1, ?)",
+            (handle, stream, external, now, vendor, now),
+        )
+        conn.execute("INSERT INTO bridge_deliveries VALUES (?, ?, 'cx', ?, 1)", (str(idx), stream, external))
+        detail = dict(v=1, cwd=path, host=host_id(), tool="cc", session="lead-1", batch="batch-1")
+        conn.execute("INSERT INTO bridge_evidence VALUES (?, ?, ?, 'cx', 'caller', ?)",
+                     (idx, str(idx), stream, json.dumps(detail)))
+    if active:
+        conn.execute("INSERT INTO bridge_claims VALUES ('ready-stream', 'cx', 'owner', 1, ?, 60, 'ws')", (now + 60,))
+    conn.commit()
+
+
+def test_plan_snapshot():
+    from peerhub.cli import update
+
+    db = Path("test-update.db").resolve()
+    with closing(sqlite3.connect(":memory:")) as conn:
+        seed_plan(conn, str(db.parent), active=True)
+        conn.execute("PRAGMA query_only=1")
+        active = update._store_plan(conn, db, "ws")
+        conn.rollback()
+        idle = update._store_plan(conn, db, "replacement")
+        assert not idle[0] and all(hint["kind"] != "stream" for hint in idle[1])
+        conn.rollback()
+        conn.execute("PRAGMA query_only=0")
+        conn.execute("DELETE FROM bridge_claims")
+        conn.commit()
+        before = list(conn.iterdump())
+        conn.execute("PRAGMA query_only=1")
+        idle = update._store_plan(conn, db, None)
+        assert list(conn.iterdump()) == before
+    assert active == ([{"stream": "ready-stream", "peer": "cx"}], [])
+    assert [(hint["kind"], hint["id"]) for hint in idle[1]] == [
+        ("stream", "ready-stream"), ("lead", "lead-1"), ("batch", "batch-1"),
+    ]
+    assert "--session=ps_1" in idle[1][0]["hint"]
+    assert "vendor-id-1" not in idle[1][0]["hint"]
+    assert not db.exists()
+
+
+def test_plan_missing_and_legacy_rows(capsys):
+    from peerhub.cli import update
+
+    db = Path("missing-update-fixture.db").resolve()
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.execute("CREATE TABLE bridge_sessions (stream_id TEXT, external_session_id TEXT)")
+        conn.execute("CREATE TABLE bridge_evidence (seq INTEGER, kind TEXT, detail TEXT)")
+        conn.execute("INSERT INTO bridge_evidence VALUES (1,'caller','{}')")
+        conn.commit()
+        assert update._store_plan(conn, db, None) == ([], [])
+    assert main(["--db", str(db), "update", "--plan", "--json"]) == 5
+    output = capsys.readouterr()
+    assert "[store_missing]" in output.err and not json.loads(output.out)["commands"]
+    assert not db.exists()
+
+
+def test_process_scan_classifies_invocations():
+    from peerhub.cli.update import _process_command
+
+    assert _process_command("python", ["python", "-m", "peerhub.cli", "--json", "--db", "ask", "monitor"]) == "peerhub monitor"
+    assert _process_command("peerhub.exe", ["peerhub.exe", "--db=core.db", "ask", "cc", "private"]) == "peerhub ask"
+    assert _process_command("peerhub.exe", ["peerhub.exe", "update", "--plan"]) is None
+    assert _process_command("peerhub.exe", []) == "peerhub (arguments unavailable)"
+    assert _process_command("node", ["node", "/usr/bin/codex.js", "exec"]) == "codex"
+
+
+@pytest.mark.parametrize("active", [True, False])
+def test_plan_selected_store(tmp_path, monkeypatch, capsys, active):
+    from peerhub.cli import update
+
+    monkeypatch.setattr(update, "_blocking_processes", lambda: [{"pid": 321, "command": "peerhub monitor"}])
+    db = tmp_path / "spaced store.db"
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        seed_plan(conn, str(tmp_path), active=active)
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+
+    code = main(["--db", str(db), "update", "--plan", "--json"])
+    report = json.loads(capsys.readouterr().out)
+    assert report["processes"] == [{"pid": 321, "command": "peerhub monitor"}]
+    if active:
+        assert code == 1 and report["running_asks"] == [{"stream": "ready-stream", "peer": "cx"}]
+        assert report["commands"] == []
+    else:
+        assert code == 0 and report["running_asks"] == []
+        assert ".backup" in report["commands"][0]["command"]
+        assert "upgrade peerhub" in report["commands"][1]["command"]
+        assert "peerhub" in report["commands"][-1]["command"] and "monitor" in report["commands"][-1]["command"]
+        assert [(hint["kind"], hint["id"]) for hint in report["resume"]] == [
+            ("stream", "ready-stream"), ("lead", "lead-1"), ("batch", "batch-1"),
+        ]
+        assert "--session" in report["resume"][0]["hint"]
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
+def test_plan_reads_committed_wal(tmp_path, monkeypatch, capsys):
+    from peerhub.cli import update
+
+    monkeypatch.setattr(update, "_blocking_processes", lambda: [])
+    db = tmp_path / "core.db"
+    with closing(sqlite3.connect(db)) as writer:
+        writer.execute("PRAGMA journal_mode=WAL")
+        seed_plan(writer, str(tmp_path), active=True)
+        assert main(["--db", str(db), "update", "--plan", "--json"]) == 1
+        report = json.loads(capsys.readouterr().out)
+        assert report["running_asks"] == [{"stream": "ready-stream", "peer": "cx"}] and not report["commands"]

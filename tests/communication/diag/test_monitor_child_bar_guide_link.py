@@ -129,7 +129,7 @@ def test_child_bar_shrinks_like_the_parent_bar_20_to_4_to_hidden(unicode: bool) 
     seen: set[int] = set()
     for width in range(22, 110):
         screen = render(tree(), color=True, unicode=unicode, expand=True, width=width)
-        top = "\n".join(screen.splitlines()[:6])
+        top = screen.split("suggest:", 1)[0]
         child, parent = mv._ANSI.sub("", row(top, "C-5H")), mv._ANSI.sub("", row(top, "C-7D"))
         child_bar = re.findall(f"[{re.escape(cfull)}{re.escape(cempty)}]{{4,}}", child)
         parent_bar = re.findall(f"[{re.escape(full)}{re.escape(empty)}]{{4,}}", parent)
@@ -190,24 +190,24 @@ def test_plain_view_has_no_osc_bytes_even_when_asked(monkeypatch: pytest.MonkeyP
 
 def test_plain_expand_ends_with_one_plain_guide_line(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PEERHUB_GUIDE_URL", URL)
-    screen = render(tree(), view="plain", unicode=False, expand=True, width=120)
+    screen = render(tree(), view="plain", unicode=False, expand=True, tty=True, width=120)
     assert screen.splitlines()[-1] == f"Guide: {URL}" and screen.count("Guide:") == 1
-    bounded = render(tree(), view="plain", unicode=False, expand=True, height=60, width=120)  # a bounded frame keeps its rows
+    bounded = render(tree(), view="plain", unicode=False, expand=True, tty=True, height=60, width=120)  # a bounded frame keeps its rows
     assert "Guide:" not in bounded and bounded.splitlines()[-1].startswith("Coverage:")
     assert "Guide:" not in render(tree(), view="plain", unicode=False, width=120)  # the compact frame has none
     assert "Guide:" not in render(tree(), view="rich", expand=True, links=True)  # rich has the link instead
     monkeypatch.delenv("PEERHUB_GUIDE_URL")
     monkeypatch.setattr("peerhub._version.__version__", "0.0.1.dev0")  # no tag: the main branch
-    last = render(tree(), view="plain", unicode=False, expand=True, width=140).splitlines()[-1]
+    last = render(tree(), view="plain", unicode=False, expand=True, tty=True, width=140).splitlines()[-1]
     assert last == "Guide: https://github.com/greatgc-flow/peerhub/blob/main/docs/monitor.md"
     monkeypatch.setattr("peerhub._version.__version__", "0.0.1")
-    last = render(tree(), view="plain", unicode=False, expand=True, width=140).splitlines()[-1]
+    last = render(tree(), view="plain", unicode=False, expand=True, tty=True, width=140).splitlines()[-1]
     assert last == "Guide: https://github.com/greatgc-flow/peerhub/blob/v0.0.1/docs/monitor.md"
 
 
 def test_plain_guide_line_is_never_cut_and_never_wider_than_the_frame(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PEERHUB_GUIDE_URL", URL)
-    narrow = render(tree(), view="plain", unicode=False, expand=True, width=40)
+    narrow = render(tree(), view="plain", unicode=False, expand=True, tty=True, width=40)
     assert "Guide:" not in narrow and all(mv._width(line) <= 39 for line in narrow.splitlines())
 
 
@@ -295,7 +295,7 @@ def test_anchored_frame_output_rows_keep_alignment(monkeypatch: pytest.MonkeyPat
     assert len(link_rows) == 1 and link_rows[0].endswith(CLOSE + "\x1b[0m")
     assert all(view.visible_len(text) <= 99 for _, text in rows)
     assert view.visible_len(link_rows[0]) == 99
-    assert written.count(OPEN) == written.count(CLOSE) == 1
+    assert written.count(OPEN) == written.count(CLOSE) == 2
 
 
 # ---- the doc ---------------------------------------------------------------------------------------------------------

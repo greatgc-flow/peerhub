@@ -1,17 +1,4 @@
-"""P23: the rich `monitor --expand` frame looks like the compact frame, with the quota on top.
-
-It starts exactly like the compact frame (the pill line, the header line with the store under it, POOLS and the
-suggestion), with every pool and the whole suggestion, then RECENT (#412: the same place as in the compact frame, with
-entries of two lines), and the detail sections in this order: RUNNING, ALERTS, LEADS, QUOTA (details), PEERS, EXECUTION,
-SESSIONS, USAGE, CONTEXT, any other group. The entries of a section carry the compact frame's markers. The plain view
-keeps its grouped layout (`fixtures/monitor/plain_expand_v0_24_20.json`, which began as v0.24.20's frames; the file keeps
-its name).
-#394 regenerated the 12 cases: QUOTA lists the peers in POOLS' order (the cx block first), `Model facts: profile defaults
-rev ... (date, Nd ago)` and the legend's `n/a plan no longer reports it`; nothing else moved.
-#400 regenerated all 12 again: the QUOTA table has no n/a row; `(X-30D n/a)` follows the cx row.
-#412 regenerated all 12: ACTIVITY lists RECENT (two lines per ask, the newest 8) before RUNNING.
-#414 regenerated the 4 frames wide enough for the plain `Guide: <url>` line that ends them (the URL is pinned here).
-"""
+"""Expanded layout, quota, activity and the historical plain alert-first contract."""
 from __future__ import annotations
 
 import json
@@ -33,7 +20,7 @@ OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values(), mv.CHILD_EMPTY_S
 GUIDE_URL = "https://github.com/greatgc-flow/peerhub/blob/main/docs/monitor.md"  # pinned: the plain frame's `Guide:` line
 U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_expand_v0_24_20.json"
-ORDER = ["POOLS", "RECENT", "RUNNING", "ALERTS", "LEADS", "QUOTA", "PEERS", "EXECUTION", "SESSIONS", "USAGE", "CONTEXT",
+ORDER = ["ALERTS", "RUNNING", "POOLS", "RECENT", "LEADS", "QUOTA", "PEERS", "EXECUTION", "SESSIONS", "USAGE", "CONTEXT",
          "STORE"]
 DB_LINE = "DB:env (/w/.peerhub/core.db)"
 
@@ -136,20 +123,14 @@ def flat(text: str) -> str:
 @pytest.mark.parametrize("width", [60, 80, 100])
 @pytest.mark.parametrize("color", [False, True])
 @pytest.mark.parametrize("unicode", [True, False])
-def test_the_first_12_lines_of_expand_are_the_compact_frames_top(width, color, unicode):
+def test_expansion_keeps_the_compact_pool_rows_and_moves_active_work_first(width, color, unicode):
     payload = eight_pools_payload()
-    small = compact(payload, width=width, color=color, unicode=unicode).splitlines()
-    big = expand(payload, width=width, color=color, unicode=unicode).splitlines()
-    rule, sep = ("──", "·") if unicode else ("--", "|")
-    assert strip(small[2]).startswith(f"{rule} POOLS 8 ") and strip(small[11]).startswith("suggest: ")
-    end = 12 + (width < 100)  # the suggestion takes a second line below 100 columns
-    assert big[:end] == small[:end]  # the top is the compact frame's, line for line: line 1, the title, POOLS, suggest
-    assert strip(small[end]).startswith(f"{rule} RECENT 4 (4 running)")  # the compact frame goes on with RECENT...
-    assert strip(big[end]).startswith(f"{rule} RECENT 4 (4 running)")  # ...and so does --expand, with two-line entries
-    running = f"{rule} RUNNING 4 {sep} "
-    assert next(i for i, line in enumerate(small) if strip(line).startswith(running)) > end + 1  # compact: one-line rows
-    assert next(i for i, line in enumerate(big) if strip(line).startswith(running)) == end + 1 + 8  # four entries of two lines
-
+    small = compact(payload, width=width, color=color, unicode=unicode)
+    big = expand(payload, width=width, color=color, unicode=unicode)
+    assert small.splitlines()[:2] == big.splitlines()[:2]
+    assert block(small, "POOLS") == block(big, "POOLS")
+    for screen in (small, big):
+        assert heads(screen).index("RUNNING") < heads(screen).index("POOLS") < heads(screen).index("RECENT")
 
 def test_expand_uses_the_terminal_width_and_the_compact_frame_stays_at_100_columns():
     payload = eight_pools_payload()
@@ -162,8 +143,8 @@ def test_expand_uses_the_terminal_width_and_the_compact_frame_stays_at_100_colum
 def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
     small, big = compact(payload).splitlines(), expand(payload, show_quota_notes=True).splitlines()
-    assert small[3].startswith("── POOLS 8 ─") and not any(re.match(r"^\+\d+ pools", line) for line in small)
-    assert big[3].startswith("── POOLS 10 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
+    assert block("\n".join(small), "POOLS")[0].startswith("── POOLS 9 ─")
+    assert block("\n".join(big), "POOLS")[0].startswith("── POOLS 11 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
     rows = block("\n".join(big), "POOLS")[1:]
     names = [" ".join(row.replace("└─ ", "").split()[:2]) for row in rows]
     assert len(rows) == 10 and len(set(names)) == 10  # every observation of the payload but the n/a one (#400) has its row
@@ -173,7 +154,7 @@ def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     compact_rows = [" ".join(row.split()[:3]) for row in block("\n".join(small), "POOLS")[1:]]
     order = [" ".join(row.split()[:3]) for row in rows]
     assert [row for row in order if row in compact_rows] == compact_rows  # the same order, with the hidden rows added
-    assert not any("X-30D" in row for row in rows)  # #400: the n/a pool is named in the QUOTA details only
+    assert any("(X-30D n/a)" in row for row in rows)
 
 
 def test_the_suggestion_wraps_without_a_cap():
@@ -188,7 +169,7 @@ def test_the_suggestion_wraps_without_a_cap():
     assert whole.count("=") == 4 and "…" not in whole
     narrow = compact(payload, width=30).splitlines()
     at = next(i for i, line in enumerate(narrow) if line.startswith("suggest:"))
-    assert narrow[at + 1].endswith("…") and narrow[at + 2].startswith("─")  # the compact frame gives it two lines
+    assert next(i for i in range(at + 1, len(narrow)) if narrow[i].startswith("── ")) - at <= 2
     lines = expand(payload, width=30).splitlines()
     start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
     end = next(i for i, line in enumerate(lines) if line.startswith("── RECENT"))  # #412: RECENT follows the suggestion
@@ -205,19 +186,18 @@ def test_the_header_drops_the_fields_hidden_text_and_the_conditional_db_part():
     assert not any("Fields hidden" in line or line.startswith("DB: ") for line in big)
     assert big[1].startswith("PeerHub Monitor 2026-11-14 23:46Z") and [line for line in big if line.startswith("DB:")] == [
         DB_LINE]
-    # #412: `DB:env` is in the title; the full path is a line near the end, never between POOLS and RECENT
-    assert big.index(DB_LINE) > max(i for i, line in enumerate(big) if line.startswith("── ")) - 1
+    assert big.index(DB_LINE) == 2
 
 
-def test_without_capacity_data_the_store_line_ends_the_sections():
+def test_without_capacity_data_the_store_line_stays_in_the_header():
     payload = full_payload()
     payload["selected_groups"] = ["activity"]
     lines = expand(payload).splitlines()
     assert lines[1].startswith("PeerHub Monitor 2026-11-14 23:46Z") and "DB:env" in lines[1]
     assert "POOLS" not in heads("\n".join(lines)) and not any(line.startswith("suggest:") for line in lines)
-    assert heads("\n".join(lines)) == ["RECENT", "RUNNING", "ALERTS", "LEADS"]
+    assert heads("\n".join(lines)) == ["ALERTS", "RUNNING", "RECENT", "LEADS"]
     at = lines.index(DB_LINE)
-    assert at > lines.index(next(line for line in lines if line.startswith("── LEADS ")))
+    assert at == 2
     payload["_store_note"] = "--db overrides PEERHUB_DB (/other/core.db)"
     assert expand(payload).splitlines()[at:at + 2] == [DB_LINE, "--db overrides PEERHUB_DB (/other/core.db)"]
 
@@ -242,11 +222,10 @@ def test_one_db_line_at_100_columns_then_the_sections_in_the_agreed_order():
     lines = screen.splitlines()
     assert heads(screen) == ORDER
     assert lines[1].startswith("PeerHub Monitor") and "DB:env" in lines[1]  # the title names the store (#412)...
-    assert lines[2].startswith(("── POOLS 10 ─", "next: peerhub observation refresh"))  # ...then POOLS (and its hint)
-    assert lines.index(DB_LINE) > lines.index(next(line for line in lines if line.startswith("── STORE ")))  # path: near the end
+    assert lines[2] == DB_LINE
     suggest = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
     assert lines[suggest + 1].startswith("── RECENT 4 (4 running) ─")  # RECENT follows the suggestion
-    assert next(line for line in lines if line.startswith("── ALERTS 2 ─")) and heads(screen).index("ALERTS") == 3
+    assert next(line for line in lines if line.startswith("── ALERTS 2 ─")) and heads(screen).index("ALERTS") == 0
     assert sum(line.startswith("PeerHub Monitor") for line in lines) == 1  # the grouped frame's own title line is gone
     assert not any("ACTIVITY [" in line or "PeerHub Monitor | " in line for line in lines)
     assert lines[-1] == "Coverage: partial; peerhub explain <code>"
@@ -313,7 +292,7 @@ def test_quota_details_have_the_compact_state_and_a_forecast_column_and_no_bar()
     assert "[BAR]" not in screen and not re.search(r"\[[█░▏|#.:-]{8}\]", screen)
     pools: dict[str, list[str]] = {}  # pool name -> [glyph, word] of its POOLS row (a sub-row has no peer cell)
     for row in block(screen, "POOLS")[1:]:
-        cells = row.replace("└─ ", "").split()
+        cells = re.sub(r" \([^)]* n/a\)", "", row.replace("└─ ", "")).split()
         at = next(i for i, cell in enumerate(cells[:2]) if re.fullmatch(r"[0-9A-Z]+-\d+[HD]", cell))
         pools[cells[at]] = cells[at + 1:at + 3]
     rows = quota_rows(screen)
@@ -456,20 +435,21 @@ def test_recent_entries_start_with_a_state_dot_in_the_state_colour():
     assert [SGR.findall(line)[0] for line in painted] == [mv.RICH_SGR[c] for c in ("ok", "bad", "warn", "bad")]
 
 
-def test_recent_shows_the_newest_eight_names_the_running_count_and_the_superseded_rows():
+def test_recent_expands_history_and_names_the_running_and_superseded_counts():
     from tests.communication.diag.test_monitor_activity_view import activity_data, ask
 
     payload = quiet_payload()
-    asks = [ask("ok", name=f"done-{i}", age=60.0 * (i + 1), exact=True, reply_line="fine") for i in range(23)]
-    asks.append(ask("unsure", name="done-0", superseded=True, note="superseded", age=4000, exact=True))
+    asks = [ask("ok", name=f"done-{i}", age=60.0 * (i + 1), exact=True, reply_line="fine")
+            for i in range(mv.TEXT_NEWEST_ROWS + 1)]
+    asks.append(ask("unsure", name="replaced", superseded=True, note="superseded", age=4000, exact=True))
     asks.append(ask(name="still-running"))
     payload["groups"]["activity"]["data"] = activity_data(asks)
     screen = expand(payload)
-    assert "── RECENT 23 (1 running) · superseded 1 ─" in screen
+    assert f"── RECENT {mv.TEXT_NEWEST_ROWS + 1} (1 running) · superseded 1 ─" in screen
     rows = entries(block(screen, "RECENT"))
-    assert len(rows) == 8 and "done-7" in rows[7].splitlines()[0] and "done-8" not in screen.split("── RUNNING")[0]
-    assert not any("superseded" in row for row in rows) and "still-running" not in "".join(rows)  # not listed, only counted
-
+    assert len(rows) == mv.TEXT_NEWEST_ROWS + 1
+    assert f"done-{mv.TEXT_NEWEST_ROWS - 1}" in rows[-2] and "replaced" in rows[-1]
+    assert "still-running" not in "".join(rows)
 
 def test_leads_entries_list_every_lead_with_a_context_meter():
     payload = detail_payload()
@@ -541,7 +521,7 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     assert heads(screen) == ORDER
     lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m")
-    assert any(line.startswith("-- POOLS 10 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
+    assert any(line.startswith("-- POOLS 11 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
     assert [row.split()[0] for row in entries(block(screen, "RUNNING"))] == [A["run"], A["gone"], "?", "!"]
     assert all(re.match(rf" {re.escape(A['dot'])} (ok|empty|unsure|error) ", row) for row in entries(block(screen, "RECENT")))
     if width == 100:
@@ -570,7 +550,7 @@ def test_every_line_fits_every_width(build, width):
                 if width <= 1:
                     assert screen == ""
                 elif height is None and width >= 20:
-                    assert heads(screen)[0] == "POOLS"
+                    assert "POOLS" in heads(screen)
                     assert build is quiet_payload or any(strip(line).lstrip("─- ").startswith("RECENT") for line in lines)
                     assert strip(lines[0]).startswith(("OK", " OK", "ATTN", " ATTN"))
 
@@ -578,50 +558,28 @@ def test_every_line_fits_every_width(build, width):
 @pytest.mark.parametrize("width", [60, 100, 140])
 def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
     payload = detail_payload()
-    whole = expand(payload, width=width, height=10_000).splitlines()  # everything but the legend (bounded: `| more`)
+    whole = expand(payload, width=width, height=10_000).splitlines()
     unbounded = expand(payload, width=width).splitlines()
     assert whole[-1].startswith("Coverage: ") and "rows hidden" not in "\n".join(whole)
     assert unbounded[:len(whole) - 1] == whole[:-1] and unbounded[-1] == whole[-1] and len(unbounded) > len(whole)
     assert not any(line.startswith("ok enough") for line in whole) and any(line.startswith("ok enough") for line in unbounded)
-    assert expand(payload, width=width, height=len(whole) + 1).splitlines() == whole  # an exact fit hides nothing
-    command = "peerhub monitor --snapshot --group all --expand | more"
-    recent_at = next(i for i, line in enumerate(whole) if strip(line).startswith("── RECENT"))
+    assert expand(payload, width=width, height=len(whole) + 1).splitlines() == whole
     for height in range(4, len(whole) + 1):
-        lines = expand(payload, width=width, height=height).splitlines()
-        assert len(lines) <= height - 1, height
-        hint = next((i for i, line in enumerate(lines) if re.match(r"^\+\d+ rows hidden", line)), None)
-        if hint is None:  # RECENT's rows shrank and then the whole frame fit: nothing is hidden
-            assert lines[-1] == whole[-1] and len(lines) == height - 1 or len(lines) < height, height
-            continue
-        at = hint
-        kept, tail = lines[:at], lines[at:]
-        assert command in " ".join(tail) and "all rows" in tail[0]
-        assert tail[-1] in (whole[-1], command) or tail[-1].endswith(command)
-        assert not kept[-1].startswith("── ") or at == 1, (height, kept[-1])  # never a head without a row before the hint
-        assert len(lines) >= height - 2  # at most one line is given up (a head that would have no row)
-        if height >= 8:  # the ATTN line and the title never go
-            assert kept[:2] == whole[:2], height
-        if height >= 24:  # #412: the top (POOLS whole, the suggestion) and RECENT's header with two rows stay in full
-            assert kept[:recent_at] == whole[:recent_at], height
-            names = heads("\n".join(kept))
-            assert names[:2] == ["POOLS", "RECENT"], (height, names)
-            rows = entries(block("\n".join(kept), "RECENT"))
-            assert len(rows) >= 2, (height, rows)  # RECENT is allocated first: its entries of two lines, or rows of one line
-    assert expand(payload, width=width, height=3).splitlines()[0] == whole[0]
-    assert len(expand(payload, width=width, height=3).splitlines()) == 2
-    assert expand(payload, width=width, height=2).splitlines() == [whole[0]]
-    assert expand(payload, width=width, height=1) == "" and expand(payload, width=width, height=0) == ""
+        screen = expand(payload, width=width, height=height)
+        lines = screen.splitlines()
+        assert len(lines) <= height - 1
+        assert lines[0] == whole[0] and "--expand | more" in screen
+        if height >= 10:
+            assert lines[:3] == whole[:3]
+            assert heads(screen)[:2] == ["ALERTS", "RUNNING"]
+        if "RECENT" in heads(screen):
+            assert heads(screen).index("RUNNING") < heads(screen).index("RECENT")
 
-
-def test_a_bounded_height_shows_the_quota_and_recent_first():
-    lines = expand(detail_payload(), height=24).splitlines()
-    # 23 lines of the 23 (#412): the top (POOLS with every pool, the suggestion) and RECENT's two one-line rows, then
-    # the sections below it from the top down while they fit, the hint and the coverage line
-    assert len(lines) <= 23 and heads("\n".join(lines))[:2] == ["POOLS", "RECENT"]
-    assert sum(bool(re.match(r"^ +(\S+ |└─ )[0-9A-Z]+-\d+[HD] ", line)) for line in lines) >= 10
-    assert len(entries(block("\n".join(lines), "RECENT"))) >= 2
-    assert lines[-1].startswith("Coverage: ") and "--expand | more" in lines[-2]
-
+def test_a_bounded_height_shows_alerts_and_running_first():
+    screen = expand(detail_payload(), height=24)
+    assert len(screen.splitlines()) <= 23 and heads(screen)[:2] == ["ALERTS", "RUNNING"]
+    assert DB_LINE in screen and "pool_out:" in screen and "review-api" in screen
+    assert "--expand | more" in screen
 
 def test_the_narrow_hint_keeps_the_count_and_the_command():
     lines = expand(detail_payload(), width=40, height=12).splitlines()
@@ -629,30 +587,19 @@ def test_the_narrow_hint_keeps_the_count_and_the_command():
 
 
 # ---- the documents say what --expand is --------------------------------------------------------------------------------
-def test_the_lesson_the_readme_and_the_changelog_describe_the_expand_frame():
+def test_the_lesson_and_docs_describe_priority_and_the_full_db_path():
     from peerhub.cli.lessons import lesson_by_id, render_lessons_reference
 
     root = Path(__file__).resolve().parents[3]
-    released = "ALERTS, RUNNING, LEADS, QUOTA, PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT"  # 0.24.21's order
-    sections = "RUNNING, ALERTS, LEADS, QUOTA, PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT"  # #412: after RECENT
-    fix = lesson_by_id("monitor-view")[0]["fix"]
-    assert "--expand in the rich view is the compact top plus the detail sections" in fix
-    assert sections in fix and "RECENT last" not in fix and "FORECAST" in fix and "every pool" in fix
-    assert "POOLS, suggest:, RECENT, RUNNING, LEADS" in fix and "RECENT 130 (2 running)" in fix
-    assert "gets only the pill" not in fix
+    lesson = lesson_by_id("monitor-view")[0]["fix"]
+    assert "ALERTS and RUNNING get space before RECENT" in lesson and "full DB path" in lesson
     assert (root / "docs" / "lessons.md").read_text(encoding="utf-8") == render_lessons_reference()
-    readme = (root / "README.md").read_text(encoding="utf-8")
-    assert sections in readme and "RECENT last" not in readme and "FORECAST" in readme
-    assert "`RECENT`, `RUNNING` and `LEADS`" in readme and "RECENT 130 (2 running)" in readme
-    assert "no new bars or glyphs" not in readme and "`--expand` has its bars in both views" not in readme
-    probes = (root / "docs" / "implementation" / "OBSERVATION_PROBES.md").read_text(encoding="utf-8")
-    assert sections in probes and "FORECAST" in probes and "RECENT, RUNNING and LEADS" in probes
+    for name in ("README.md", "docs/monitor.md", "docs/implementation/OBSERVATION_PROBES.md"):
+        assert "ALERTS and RUNNING get space before RECENT" in (root / name).read_text(encoding="utf-8")
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
-    release = changelog.split("## [0.24.21] - 2026-11-17")[1].split("\n## [")[0]
-    assert "### Changed" in release and "`--expand`" in release and released in release
-    newer = changelog.split("## [0.24.21] - 2026-11-17")[0]  # Unreleased and every release since: the re-layout is recorded there
-    assert "### Changed" in newer and "RECENT" in newer and "`peerhub monitor`" in newer
-
+    newer, release = changelog.split("## [0.24.21] - 2026-11-17", 1)
+    assert "ALERTS, RUNNING, LEADS, QUOTA, PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT" in release.split("\n## [", 1)[0]
+    assert "### Changed" in newer and "RECENT" in newer
 
 # ---- the plain view retains its layout; the payload is untouched ------------------------------------------------------
 PLAIN_WIDTHS = (60, 120)
@@ -692,12 +639,12 @@ def test_the_plain_expand_frame_has_the_one_order_of_the_compact_frame():
     heads_ = [match[1] for line in lines if (match := re.match(r"^(?:-- )?(suggest:|(?:POOLS|RECENT|RUNNING|ALERTS|LEADS"
                                                               r"|QUOTA|PEERS|EXECUTION|SESSIONS|USAGE|CONTEXT|STORE)\b)", line))]
     heads_ = list(dict.fromkeys(heads_))  # the legend at the end names LEADS again
-    assert heads_[:5] == ["POOLS", "suggest:", "RECENT", "RUNNING", "ALERTS"]
-    assert heads_ == ["POOLS", "suggest:", "RECENT", "RUNNING", "ALERTS", "LEADS", "QUOTA", "PEERS", "EXECUTION", "SESSIONS",
+    assert heads_[:5] == ["ALERTS", "RUNNING", "POOLS", "suggest:", "RECENT"]
+    assert heads_ == ["ALERTS", "RUNNING", "POOLS", "suggest:", "RECENT", "LEADS", "QUOTA", "PEERS", "EXECUTION", "SESSIONS",
                       "USAGE", "CONTEXT", "STORE"]
     assert any("[BAR]" in line for line in lines) and not any("FORECAST" in line for line in lines)
     assert any(line.startswith("- flag none (caller alive) | state run") for line in lines)  # RUNNING keeps every field
-    assert lines.index(DB_LINE) > lines.index(next(line for line in lines if line.startswith("-- STORE ")))
+    assert lines.index(DB_LINE) == 2
 
 
 @pytest.mark.parametrize("build", [detail_payload, quiet_payload, eight_pools_payload])

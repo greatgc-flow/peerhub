@@ -16,6 +16,7 @@ Commands (canonical inventory: docs/implementation/command_inventory.json, deriv
   monitor             (dashboard with opt-in quota collection)
   diag                (read-only dashboard, optionally live)
   diag health / quota / integrity (read-only; integrity is explicit)
+  update --check / --plan (read-only upgrade checks and instructions)
 Exit codes: 0 ok, 1 error, 2 idempotency conflict, 3 CAS lost, 4 storage fault, 5 diag unavailable, 6 schema version.
 """
 
@@ -332,6 +333,15 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
     d_integrity.epilog = "example: peerhub diag integrity"
 
+    update_parser = subparsers.add_parser(
+        "update", help="Check versions or print an upgrade plan (read-only)",
+        description="Check local versions, the bundled Codex catalog and public release metadata, or print a plan for the selected store. "
+                    "Exit 1 if asks are running, 4 or 5 if the store cannot be read, and 6 for an unsupported store schema.",
+    )
+    update_mode = update_parser.add_mutually_exclusive_group(required=True)
+    update_mode.add_argument("--check", dest="update_check", action="store_true", help="Check versions and packaged model defaults")
+    update_mode.add_argument("--plan", action="store_true", help="Show blocking processes, upgrade commands and resume hints")
+
     explain_parser = subparsers.add_parser("explain", help="Explain outcome codes or look up operational lessons")
     explain_parser.add_argument("code", nargs="+", help="Guidance code or free words to look up")
     explain_parser.add_argument("--json", action="store_true", default=False)
@@ -407,6 +417,7 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
             print("Warning: inlined query file exceeds 64 KB. Consider paths or a diff.", file=sys.stderr)
     else:
         prompt = args.prompt
+    terminal_notices = not args.json and sys.stderr.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1"
     has_streamed = False
     output_has_newline = False
     def show_output(text: str) -> None:
@@ -422,7 +433,7 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
               "--query-file HANDOFF.md` with a handoff covering decisions, open work, and file refs.", file=sys.stderr)
 
     def show_receipt(result: dict[str, Any]) -> None:
-        if not args.json and sys.stdout.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1":
+        if terminal_notices:
             from peerhub.cli.profile_stats import ask_receipt
             print(ask_receipt(args, result), file=sys.stderr)
 
@@ -431,8 +442,9 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
                      author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
                      profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
-                     fresh=args.fresh, session=args.session,
-                     on_output=None if args.json else show_output, on_stream_budget=show_budget_warning, before_dispatch=refresh_dispatch_quota)
+                     fresh=args.fresh, session=args.session, query_file=args.query_file,
+                     on_output=None if args.json else show_output, on_stream_budget=show_budget_warning,
+                     before_dispatch=refresh_dispatch_quota, notice_alias=terminal_notices)
     except Exception:
         if has_streamed and not args.json and not output_has_newline:
             print()
@@ -460,8 +472,13 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
             result["provider_limit"] = limit
         if guidance_code:
             sid = result.get("stream_id") or getattr(args, "stream_id", None)
-            result["guidance"] = make_guidance_payload(guidance_code, db_path=args.db, stream_id=sid)
-            guidance_entry = get_guidance(guidance_code, db_path=args.db, stream_id=sid)
+            denied = result.get("denied_actions")
+            ag_command_denied = (guidance_code == "ask_denied_empty" and isinstance(denied, list)
+                                 and "command" in denied and _peer_kind(args.db, args.peer) == "ag")
+            result["guidance"] = make_guidance_payload(guidance_code, db_path=args.db, stream_id=sid,
+                                                       ag_command_denied=ag_command_denied)
+            guidance_entry = get_guidance(guidance_code, db_path=args.db, stream_id=sid,
+                                          ag_command_denied=ag_command_denied)
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:
@@ -592,7 +609,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
                 else:
                     output.write(format_frame(rep, args.view, color=use_color(output.vt, os.environ),
                                               width=output.width(), store_path=store["path"],
-                                              store_source=store["source"], store_note=store_note))
+                                              store_source=store["source"], store_note=store_note, show_quota_age=args.live))
                 code = (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
                         else 0 if rep.status == "OK" else 4)
                 if code:
@@ -858,7 +875,12 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
         else:
             from peerhub.cli.profile_stats import check_profiles, read_profile_stats, render_profile_stats
             profiles = list_profiles(workspace, include_meta=True)
-            stats = read_profile_stats(args.db, workspace, profiles)
+            try:
+                stats = read_profile_stats(args.db, workspace, profiles)
+            except (sqlite3.Error, SchemaVersionError, OSError, ValueError):
+                if args.action != "list":
+                    raise
+                stats = [{"n": None, "stale": None} for _ in profiles]
             if args.action == "stats":
                 payload = {"schema_version": "1.0", "workspace": str(workspace), "profiles": stats}
                 _emit(payload, True) if use_json else print(render_profile_stats(stats))
@@ -889,6 +911,7 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
         rows = [[profile["profile"], str(profile["fields"]["model"]["value"] or "CLI default"),
                  str(profile["fields"]["effort"]["value"] or "provider default"),
                  _profile_notes(profile["fields"]),
+                 "unavailable" if profile["stats"]["n"] is None else
                  str(profile["stats"]["n"]) + (" stale" if profile["stats"]["stale"] else ""),
                  _use_for_cell(profile.get("card"))] for profile in payload["profiles"]]
         columns = ["PROFILE", "MODEL", "EFFORT", "NOTES", "STATS", "USE FOR (profile show ID)"]
@@ -1268,6 +1291,9 @@ def _dispatch_command(args: argparse.Namespace, parser: argparse.ArgumentParser)
             return _run_light_command(args, parser)
         case "diag":  # optional first-party extension: Core must work without it (E2E-009)
             return _run_diag_cli(args, parser)
+        case "update":
+            from peerhub.cli.update import run_update
+            return run_update(args)
         case "explain":
             from peerhub.cli.recovery import run_explain_cli
             return run_explain_cli(" ".join(args.code), json_output=bool(getattr(args, "json", False)))
@@ -1347,7 +1373,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             normalize_session_selector(fresh=args.fresh, session=args.session)
             if (args.prompt is None) == (args.query_file is None):
                 parser.error("ask requires exactly one of prompt or --query-file")
-        if hasattr(args, "db") and args.db:
+        if hasattr(args, "db") and args.db and not getattr(args, "update_check", False):
             workspace = Path(args.workspace) if args.subcommand in ("ask", "profile") and getattr(args, "workspace", None) else None
             selection = _select_db(args.db, discover=not explicit_db, workspace_root=workspace)
             args.db, args.db_source = selection.path, selection.source

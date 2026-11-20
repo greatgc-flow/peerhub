@@ -131,10 +131,8 @@ def test_quota_notes_are_opt_in_without_hiding_na_state_or_blocked_dependency(vi
     before = deepcopy(frame)
     hidden = mv.render_grouped_frame(frame, view=view, expand=expand, width=180)
     shown = mv.render_grouped_frame(frame, view=view, expand=expand, width=180, show_quota_notes=True)
-    assert "not reported" not in hidden and "disabled by provider" not in hidden
-    # #400: an n/a pool is never a row; only the --expand QUOTA names it (with its reason under --show-quota-notes)
-    assert (expected in shown) == expand
-    assert ("n/a" in hidden and "C-30D" in hidden) == expand
+    assert (expected in hidden) == expand and (expected in shown) == expand
+    assert "n/a" in hidden and "C-30D" in hidden
     if view == "rich" or not expand:
         assert "C-7D out" in hidden and "blocked" in pool_rows(hidden, "F-7D")[0]
     assert frame == before
@@ -168,7 +166,8 @@ def test_expanded_peer_quota_omission_notes_follow_the_same_opt_in(view, measure
     frame["groups"]["peers"]["data"]["peers"] = [{"peer_id": "cc", "quota": quota}]
     hidden = mv.render_grouped_frame(frame, view=view, expand=True, width=200)
     shown = mv.render_grouped_frame(frame, view=view, expand=True, width=200, show_quota_notes=True)
-    assert "not reported" not in hidden and "no 5h window" not in hidden
+    hidden_peer_notes = hidden.split("PEERS [", 1)[1]
+    assert "not reported" not in hidden_peer_notes and "no 5h window" not in hidden_peer_notes
     assert ("no 5h window" if measured else "not reported") in shown
     assert "80%" in hidden if measured else "unknown" in hidden
 

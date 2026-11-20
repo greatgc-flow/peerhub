@@ -13,16 +13,18 @@ import unicodedata
 from collections import Counter
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Callable, cast
+from typing import Any, Callable, Iterator, cast
 
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.extensions.observation_model import (
     MEASUREMENT_KEYS,
     ABSENT_FACT_REASONS,
     NOT_REPORTED_REASON,
+    QUOTA_MAX_AGE_SECONDS,
     FreshnessPolicy,
     account_text as _account_text,  # stored account strings are display data: re-sanitized when read back
     changed_account_plan,
+    oldest_measured_quota_age,
     valid_epoch_seconds,
     ObservationCorruptError,
     evaluate as evaluate_observation,
@@ -200,6 +202,22 @@ _ROW_COLUMNS = ("o.capture_seq,o.observation_id,o.subject_ref,o.resource_pool_re
                 "o.payload_json,o.observed_at,o.captured_at,o.effective_at_us,p.provider,p.kind AS pool_kind ")
 _ROW_JOINS = ("FROM observation_rollups r JOIN observations o ON o.capture_seq=r.latest_capture_seq "
               "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref ")
+
+
+def _quota_age_observations(conn: sqlite3.Connection, now: float) -> Iterator[dict[str, Any]]:
+    """Supply quota age evidence for human frames without a capacity read."""
+    read_us = round(now * 1_000_000)
+    policy = FreshnessPolicy()
+    for row in conn.execute("SELECT " + _ROW_COLUMNS + _ROW_JOINS +
+                            "WHERE r.kind='quota' AND o.resource_pool_ref IS NOT NULL "
+                            "AND o.state='MEASURED' AND o.effective_at_us<=?", (read_us,)):
+        try:
+            observation, capture_seq = row_to_observation(row)
+        except ObservationCorruptError:
+            continue
+        freshness = evaluate_observation(observation, capture_seq, read_us, policy)
+        yield {"kind": observation.kind, "resource_pool_ref": observation.resource_pool_ref,
+               "state": freshness.state.value, "age_seconds": freshness.age_seconds, "payload": observation.payload}
 
 
 def _guarded(json_column: str, path: str, value: str) -> str:
@@ -453,7 +471,7 @@ _ACTIVITY_SQL = (
     "SELECT tx.stream_id,tx.peer_id,tx.c_generation,tx.expires_at,tx.lease_sec,"
     "CASE WHEN :wsgen IS NULL THEN 1 WHEN tx.c_wsgen=:wsgen THEN 1 ELSE 0 END AS wsgen_match,"
     "tx.scope_total,tx.sup_total,tx.seq,tx.certainty,tx.claim_generation,tx.terminal_at,tx.sup,tx.last_kind,tx.start_detail,"
-    "tx.caller_detail,tx.result_ok,tx.want_text,"
+    "tx.caller_detail,tx.result_ok,tx.want_text,r.record_id,"
     "CASE WHEN tx.result_ok=1 THEN json_type(" + _R + ",'$.response') END AS response_type,"
     "CASE WHEN tx.result_ok=1 THEN CASE WHEN json_type(" + _R + ",'$.response')='text' "
     "THEN length(json_extract(" + _R + ",'$.response')) END END AS reply_len,"
@@ -686,7 +704,7 @@ def _liveness_of(caller: dict[str, Any], liveness: Callable[..., object] | None,
     return None, "pid reused or clock stepped" if _number(found) is not None else "not accessible"
 
 
-def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, text_on: bool, secrets: list[str],
+def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, human: bool, text_on: bool, secrets: list[str],
              liveness: Callable[..., object] | None, probe: Callable[[int], object]) -> dict[str, Any]:
     from peerhub.extensions.diag_running import _started_at  # pyright: ignore[reportPrivateUsage]
     reasons: list[str] = []
@@ -791,7 +809,7 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, text_on: boo
     tokens = ({"input": r["usage_in"], "output": r["usage_out"], "cache_read": r["usage_cache_read"],
                "cache_write": r["usage_cache_write"]}
               if r["usage_in"] is not None or r["usage_out"] is not None else None)
-    return {
+    row: dict[str, Any] = {
         "state": state, "superseded": superseded, "alive": alive, "alive_reason": alive_reason,
         "peer": _display(r["peer_id"], 64, secrets) or "?", "profile": profile, "model": model, "effort": effort,
         "stream": stream, "name": name, "lead": _lead(caller, secrets) if caller is not None else None,
@@ -801,6 +819,18 @@ def _ask_row(r: sqlite3.Row, now: float, *, gen_reason: str | None, text_on: boo
         "ask_line_long": lines["ask_line_long"], "reply_line_long": lines["reply_line_long"],
         "note": note, "reasons": reasons, "session": _ask_session(r),
     }
+    if human:
+        if text_on and r["want_text"] and caller is not None and isinstance(caller.get("query_file"), str):
+            row["_caller_file"] = {key: caller.get(key) for key in ("query_file", "workspace", "host")}
+        if open_row:
+            lease = _number(r["lease_sec"])
+            row["_lease_age_s"] = (max(0.0, now - (expires_at - lease))
+                                   if state == "run" and lease is not None and lease > 0 else None)
+        else:
+            ask_id = r["record_id"]
+            if isinstance(ask_id, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", ask_id):
+                row["_ask_id"] = ask_id
+    return row
 
 
 def _ask_session(r: sqlite3.Row) -> dict[str, Any] | None:
@@ -823,13 +853,14 @@ def _ask_session(r: sqlite3.Row) -> dict[str, Any] | None:
                                                           "observed_at")}}
 
 
-def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | None, text_on: bool,
+def _activity_data(rows: list[sqlite3.Row], now: float, *, gen_reason: str | None, human: bool, text_on: bool,
                    liveness: Callable[..., object] | None, probe: Callable[[int], object]) -> dict[str, Any]:
     """Rows of the activity group. Lead `asks_24h` counts the streams (scopes) of that lead with an ask in the last 24 hours,
     one per stream and peer, not every ask: older asks of a stream are replaced by its newest one (superseded rows excluded)."""
     from peerhub.extensions.adapters.sanitize import env_secrets
     secrets = env_secrets()
-    built = [_ask_row(r, now, gen_reason=gen_reason, text_on=text_on, secrets=secrets, liveness=liveness, probe=probe) for r in rows]
+    built = [_ask_row(r, now, gen_reason=gen_reason, human=human, text_on=text_on, secrets=secrets,
+                      liveness=liveness, probe=probe) for r in rows]
     main = [a for a in built if not a["superseded"]]
     running = [a for a in main if a["state"] == "run" or (a["state"] == "overdue" and a["ended_at"] is None)]
     ended = [a for a in main if not (a["state"] == "run" or (a["state"] == "overdue" and a["ended_at"] is None))]
@@ -1625,7 +1656,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                         liveness = ask_alive
                     except ImportError:
                         liveness = None
-                activity_data = _activity_data(activity_rows, now, gen_reason=generation_reason, text_on=text_on,
+                activity_data = _activity_data(activity_rows, now, gen_reason=generation_reason, human=human, text_on=text_on,
                                                liveness=liveness, probe=process_probe or _process_created)
                 output["activity"] = {"status": "OK", "data": activity_data}
             except sqlite3.Error as exc:
@@ -1663,24 +1694,48 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 "reason": "query_error" if group_status == "ERROR" else "sample_cap" if is_truncated else None,
             }
         human_observations: list[dict[str, Any]] = []
+        quota_age: dict[str, float | None] = {}
+        if human and not set(groups) & {"capacity", "peers"}:
+            try:
+                quota_age["_quota_age_seconds"] = oldest_measured_quota_age(_quota_age_observations(conn, now))
+            except sqlite3.Error as exc:
+                if _no_observation_tables(conn, exc):
+                    quota_age["_quota_age_seconds"] = None
         if human and observations:
             # One batch within this read snapshot; redraws reuse these immutable facts.
             ids = [item["observation_id"] for item in observations]
             evidence = conn.execute(
-                "SELECT o.observation_id, o.payload_json, (SELECT COUNT(*) FROM "
+                "SELECT o.observation_id, o.capture_seq, o.payload_json, m.payload_json AS prior_payload, "
+                "m.effective_at_us AS prior_at_us, (SELECT COUNT(*) FROM "
                 "(SELECT DISTINCT s.effective_at_us FROM observations s "
                 "WHERE s.subject_ref=o.subject_ref AND s.resource_pool_ref IS o.resource_pool_ref "
                 "AND s.kind='quota' AND s.state='MEASURED' "
                 "AND " + _payload_resets("s") + " IS " + _payload_resets("o") + " "  # guarded: a malformed sample never aborts
                 "ORDER BY s.effective_at_us DESC LIMIT 2)) AS samples "
-                "FROM observations o WHERE o.observation_id IN (" + ",".join("?" for _ in ids) + ")", ids,
+                "FROM observations o LEFT JOIN observations m ON m.capture_seq=(SELECT s.capture_seq FROM observations s "
+                "WHERE o.state='ERROR' AND o.kind='quota' AND o.resource_pool_ref IS NOT NULL "
+                "AND s.subject_ref=o.subject_ref AND s.resource_pool_ref=o.resource_pool_ref AND s.kind='quota' "
+                "AND s.state='MEASURED' AND json_valid(s.payload_json) "
+                "AND s.effective_at_us>? "
+                "AND (s.effective_at_us,s.capture_seq)<(o.effective_at_us,o.capture_seq) "
+                "ORDER BY s.effective_at_us DESC,s.capture_seq DESC LIMIT 1) "
+                "WHERE o.observation_id IN (" + ",".join("?" for _ in ids) + ")",
+                [round((now - QUOTA_MAX_AGE_SECONDS) * 1_000_000), *ids],
             ).fetchall()
             by_id = {row["observation_id"]: row for row in evidence}
             for item in observations:
                 row = by_id.get(item["observation_id"])
                 raw: dict[str, Any] = json.loads(row["payload_json"]) if row is not None else {}
-                human_observations.append({**item, "last_measurements": raw,
-                    "resets_at": raw.get("resets_at"), "projection_samples": row["samples"] if row else 0})
+                display = {**item, "last_measurements": raw, "resets_at": raw.get("resets_at"),
+                           "projection_samples": row["samples"] if row else 0}
+                if row is not None:
+                    display["_capture_seq"] = row["capture_seq"]
+                    if row["prior_at_us"] is not None:
+                        prior: object = json.loads(row["prior_payload"])
+                        if isinstance(prior, dict):
+                            display["_prior_measurement"] = prior
+                            display["_prior_age"] = now - row["prior_at_us"] / 1_000_000
+                human_observations.append(display)
         conn.execute("ROLLBACK")
         if activity_data is not None:  # only when `activity` was read; after the read transaction (#376 3.3)
             from peerhub.extensions.adapters.sanitize import env_secrets
@@ -1721,7 +1776,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         return {"schema_version": "2.0", "status": "PARTIAL" if errors else "OK", "read_at": now,
                 "groups": output, "errors": errors, "alert_sources": alert_sources, "alerts": alerts,
                 "min_quota": min_quota(pools) if pools is not None else None, "query_families": select_count,
-                **({"_human_observations": human_observations} if human else {})}
+                **({"_human_observations": human_observations, **quota_age} if human else {})}
     finally:
         if conn.in_transaction:
             conn.execute("ROLLBACK")

@@ -11,7 +11,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from peerhub.cli.support import quota_expired, quota_items, quota_workspace, try_quota_refresh
+
 TIE_ORDER = {"ag": 0, "cx": 1, "cc": 2}
+MAX_5H_USAGE = .90
 
 
 def register_suggest_parser(subparsers: Any) -> None:
@@ -86,33 +88,34 @@ def run_suggest(args: argparse.Namespace) -> int:
         try_quota_refresh(args.db, due)
         readings = _pool_items(args.db)
 
-    usable = False
     ranked: list[tuple[float, int, str, str, str]] = []
     for name, peer, short, weekly in candidates:
-        used = [_short_usage(readings.get((peer, pool), {})) for pool in short]
+        short_items = [readings.get((peer, pool), {}) for pool in short]
+        used = [_short_usage(item) for item in short_items
+                if not (item.get("state") == "ABSENT" and not quota_expired(item))]
         weekly_items = [readings.get((peer, pool), {}) for pool in weekly]
         paces = [_number(item["projection"]["pace_pt"]) if _usable(item) else None for item in weekly_items]
         max_used = max((value for value in used if value is not None), default=None)
         max_pace = max((value for value in paces if value is not None), default=None)
-        # A 5H pool the provider does not expose (monitor shows n/a) is no gate; the 7D PACE is required.
-        known = max_pace is not None and None not in paces
-        usable = usable or known
-        if max_used is not None and max_used >= .90:
+        if max_used is not None and max_used >= MAX_5H_USAGE:
             continue
         if any(_usable(item) and _number(item["measurements"].get("remaining_fraction")) == 0 for item in weekly_items):
             continue  # an exhausted 7D pool cannot serve the ask
-        priority = TIE_ORDER.get(peer, len(TIE_ORDER))
-        if known and max_pace is not None:
+        priority = TIE_ORDER[peer]
+        unknown_5h = not short or None in used
+        if not unknown_5h and max_pace is not None and None not in paces:
             five = f"5H usage {max_used:.1%}" if max_used is not None else "5H n/a"
             reason = f"{five}, 7D PACE {max_pace:+.1f} pp"
             ranked.append((max_pace, priority, name, peer, reason))
         else:
-            ranked.append((math.inf, priority, name, peer, "quota unknown"))
+            reason = "quota unknown (5H unknown)" if unknown_5h else "quota unknown"
+            ranked.append((math.inf, priority, name, peer, reason))
 
-    if not usable:
-        return _unavailable("no peer has usable 5H and 7D quota readings", json_output=args.json)
+    if not candidates:
+        return _unavailable("no enabled suggestion profile for this tier", json_output=args.json)
     if not ranked:
-        return _unavailable("every candidate is at 90% 5H usage or has an exhausted 7D pool", json_output=args.json)
+        return _unavailable(f"every candidate is at {MAX_5H_USAGE:.0%} 5H usage or has an exhausted 7D pool",
+                            json_output=args.json)
 
     _, _, name, peer, reason = min(ranked)
     query_file = f"{args.task}.txt" if args.task else "prompt.txt"

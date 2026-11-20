@@ -4,7 +4,7 @@ from __future__ import annotations
 from importlib.resources import files
 import re
 import tomllib
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
 
 class Lesson(TypedDict):
@@ -14,6 +14,7 @@ class Lesson(TypedDict):
     symptom: str
     fix: str
     issue: str
+    guide_order: NotRequired[int]
 
 
 def load_lessons() -> list[Lesson]:

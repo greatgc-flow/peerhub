@@ -1,12 +1,20 @@
 # Reading the PeerHub monitor
 
-This page is the target of the `Guide` link at the top right of `peerhub monitor` (rich view, on a terminal) and of the
+This page is the target of the `Guide` link at the top right of `peerhub monitor` (rich view, on a terminal) and of the optional
 `Guide:` line that ends `peerhub monitor --view plain --expand`. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
 
-Watch reads committed evidence by default. Pass `--probe` to collect quota
-during watch. Probes may spend provider quota. With `--probe`, `--collect-every K`
-sets the collection cadence. `--snapshot` reads one frame and rejects `--probe`.
+On a TTY, watch automatically refreshes quota when the newest reading for the selected peers is more than five minutes
+old or missing. It probes peers in order, collects a peer's pools together, and retries a timed-out quota probe once.
+If agy reports model-token use, watch stops unless `--allow-agy-token-use` was passed.
+Use `--no-probe` or set `PEERHUB_MONITOR_PROBE=off` to disable automatic refresh. Redirected watch reads committed evidence
+by default. Explicit `--probe` uses the watch cadence on a TTY or with redirected output. `--collect-every K` checks for
+collection every Kth cycle. `--snapshot`, `diag quota`, and `diag --live` read committed evidence. Use `monitor --probe --cycles 1`
+to collect and show one completed cycle.
+
+Automatic watch, suggest, and ask dispatch share the PID lock `quota-refresh.lock` in the store's scratch directory.
+After three seconds of contention they continue with committed evidence. After taking the lock, they recheck the quota
+readings to avoid repeating a refresh from the last minute.
 For a command you can run, use `peerhub suggest --tier standard` and see
 `peerhub explain suggest` for its quota rules.
 
@@ -30,16 +38,21 @@ narrow terminal; the rich view puts the snapshot time at the right edge when it 
 **Line 2 (the title)** is `PeerHub Monitor <UTC time> · DB:<source> · quota age <age>`:
 
 - The time is when the store was read (the snapshot), not when the quota was measured.
-- With `--probe`, a live monitor puts its refresh state and a countdown before them: `REFRESHING`, `REFRESH OK`, `REFRESH WARN`
-  (`· n warnings`), `STOPPED · AGY TOKEN USE`, and `refresh in 42s`. A redraw between two reads shows the same snapshot
-  aged by the time since its read.
+- A live monitor can show `REFRESHING`, `REFRESH OK`, a refresh warning count, or `STOPPED · AGY TOKEN USE`. With `--probe`
+  it also shows the cadence countdown. A redraw between two reads updates the age of the existing snapshot.
 - `DB:<source>` names where the store came from (`env` for `PEERHUB_DB`, `discovered`, `explicit` for `--db`, ...). With
-  `--expand` the full path is one line near the end (`DB:env (<path>)`); the compact frame names it under line 2 only
+  `--expand` the full path is directly below the title (`DB:env (<path>)`); the compact frame names it under line 2 only
   when it is not the nearest store or the read had errors.
 - `quota age` is the age of the oldest quota evidence of a shown pool. It is the first thing to look at when a number
   looks wrong.
 - Fields that do not fit are dropped from the right, and a line `Fields hidden · --expand` says so.
 - The `Guide` link is the right end of this line, rich view on a terminal only (see [The Guide link](#the-guide-link)).
+
+Below the title, both layouts show `quota 5h old -> peerhub observation refresh` when the oldest quota reading is more
+than an hour old. Ages of a day or more use days. Without quota readings, the line says `quota: no reading -> peerhub observation refresh`.
+The per-pool `aged` state keeps its own freshness rule. Human `diag quota` and `diag --live` show the same notice.
+After a timeout, both monitor layouts keep a measured value less than 15 minutes old and show one note per affected peer,
+such as `cc probe timeout (value 3m old)`.
 
 ## POOLS
 
@@ -67,7 +80,7 @@ counted). The compact frame shows at most eight rows, `--expand` shows all of th
 | `blocked` | `×` | a child pool whose parent is out; LEFT shows the parent's 0%, its own value is in FAMILY. |
 | `aged` | `○` | the evidence is older than its time to live. `low` and `fast` win over `aged`. |
 | `reset` | `○` | the reset time has passed, so the number is no longer true; refresh. |
-| `n/a` | | the plan no longer reports this window (or the provider switched it off). It is not a POOLS or QUOTA row; QUOTA names it after its peer, `(C-5H n/a)`. |
+| `n/a` | | the plan no longer reports this window (or the provider switched it off). POOLS includes the window in its count and names it inline. QUOTA also gives the reason. |
 | `?` | `○` | unknown: no number. |
 
 `threat` is a projection, not a POOLS word: it is the FORECAST of the QUOTA details (`threat`, `on_pace`, `safe`,
@@ -112,8 +125,9 @@ with `suggest = false` in the effective profile configuration. Profiles are elig
 
 ## RECENT
 
-`RECENT n (k running)` lists the finished asks, newest first (five in the compact frame, eight entries of two lines in
-`--expand`). A running ask stays in RUNNING.
+`RECENT n (k running)` lists finished asks by end time. Compact shows up to `RECENT_CAP` rows. Bounded `--expand`
+uses `RECENT_EXPAND` before fitting the terminal. Unbounded `--expand` shows up to `TEXT_NEWEST_ROWS` finished asks
+plus the superseded asks in the read model's `SUPERSEDED_CAP` sample. A running ask stays in RUNNING.
 
 ```
  ● ok 3m cc.effort lead7 s-ab12 R u3 62k/6% c91% "reply"
@@ -128,13 +142,13 @@ with `suggest = false` in the effective profile configuration. Profiles are elig
 | stream | the stream's name, `s-ab12`. |
 | `R` / `F` | the ask resumed an existing session (`R`) or started a fresh one (`F`). |
 | `u<n>` | how many times the stream's session has been used. |
-| ctx | context at the end of the ask, `62k/6%` (tokens and share of the model's maximum input). Only `cc` has one; `-` for `cx` and `ag`. |
+| ctx | context at the end of the ask, `62k/6%` (tokens and share of the model's maximum input). For `cx` and `ag`, the `CONTEXT_ESTIMATE_LABEL` (`est`) marks a fallback when the SESSIONS sample provides one. |
 | `c91%` | the cache-read share of the ask's input. |
 | reply | the reply's first words, in quotes. |
 
-The values of the session are those of the stream's newest session now; a stream without one shows `-`, never 0. A
-narrow terminal drops the cache share first, then the lead, then the mode and uses, then the context; the stream name
-and the reply stay.
+The newest ask per stream and peer can show the live session's generation, mode, use count and context. A narrow
+compact row drops the cache share first, then the lead, mode and uses, and context. The stream name and reply get
+the remaining space.
 
 ## RUNNING
 
@@ -187,12 +201,11 @@ is `Coverage: complete|partial; peerhub explain <code>`.
 
 ## Compact and expand
 
-- **Compact** (the default) is at most 24 lines, 99 columns and 8,192 bytes: line 1, line 2, POOLS (eight rows),
-  `suggest:`, RECENT (five rows), RUNNING, LEADS.
-- **`--expand`** is the same top, with every pool and the whole suggestion, RECENT as entries of two lines, then RUNNING,
-  ALERTS, LEADS, QUOTA, PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT, any other group, and the store path. It uses the
-  terminal width less one column. In a terminal it ends with `+N rows hidden · peerhub monitor --snapshot --group all
-  --expand | more` when it does not fit.
+- **Compact** (the default) uses `COMPACT_MAX_LINES` and `COMPACT_MAX_BYTES`. The header is followed by ALERTS,
+  RUNNING, POOLS, the suggestion, RECENT and LEADS. POOLS and RUNNING use `POOLS_CAP` and `RUNNING_CAP`.
+- **`--expand`** adds the full DB path under the title and lists every pool. After LEADS it shows QUOTA, PEERS,
+  EXECUTION, SESSIONS, USAGE, CONTEXT and any other selected group. A clipped frame reports `+N rows hidden`
+  and gives the command to print the full frame.
 - `--view plain` (the default for pipes) is ASCII and never coloured; `--view rich` is the default on a terminal.
   `--snapshot` draws one frame and exits.
 
@@ -202,21 +215,18 @@ is `Coverage: complete|partial; peerhub explain <code>`.
   before it goes). The POOLS bar shrinks from 20 cells to 4 and then goes, before any column drops. A state glyph stays
   only while the columns of the plain table stay. Line 2 drops fields from the right and says `Fields hidden`. The
   `Guide` link is the first thing to go, before any data, and it is never shown when it does not fit.
-- **Height.** The frame never exceeds the terminal. Rows go first, from the bottom up: LEADS to one row, RUNNING to
-  three, RECENT to three, POOLS to four, then RUNNING to one, RECENT to one, POOLS to one, then the lower sections, then
-  the suggestion and what hangs on line 2. Line 1, line 2, the POOLS header and RECENT's header with a row go last.
+- **Height.** ALERTS and RUNNING get space before RECENT. As space runs out, expanded RECENT switches to single-line
+  rows and then gives up rows. The header keeps the full DB path across wrapped lines. The smallest frames reduce
+  POOLS through `POOLS_TRIM_FLOOR` and keep a heading and a detail line for active work where space allows.
 - **Never cut.** A row that does not fit is shortened with `…` (ASCII `~`) or loses whole fields; a link is never cut.
 
 ## The alternate screen and LIVE_ROW_MARGIN
 
-A live monitor draws on the terminal's alternate screen (like `less` or `vim`): the first frame switches to it with
-`ESC [ ? 1049 h` and leaving the monitor switches back, so the command line and the scroll-back stay as they were and
-a pinned command (VS Code's sticky scroll) cannot cover line 1. Every row is written at its own screen position, so a
-glyph that a terminal draws wider than one cell cannot push the later rows down and scroll `ATTN` away.
+A continuous VT watch uses the full alternate screen. Each row has its own screen position, so wide glyphs
+do not push later rows down. On exit the monitor restores the normal screen and prints the final frame there.
 
-The frame has the terminal height less `LIVE_ROW_MARGIN` (2) rows, and at least 8: terminals report one row more than
-they show. A terminal without VT (or `TERM=dumb`) gets the frame appended, without escapes; a pipe gets one completed
-frame per cycle.
+Finite watches use the normal screen. Bounded normal-screen frames reserve `LIVE_ROW_MARGIN` rows.
+A terminal without VT (or `TERM=dumb`) appends each frame. A pipe receives one completed frame per cycle.
 
 ## The Guide link
 
@@ -228,9 +238,8 @@ The word `Guide` at the right end of line 2 is an OSC 8 hyperlink to this page f
 - A development build (a version with `dev` or a `+local` part) has no tag to point at, so the link is not drawn.
 - It is added after the layout: widths and truncation ignore its bytes, it is never cut, and it is dropped before any
   data when line 2 has no room.
-- The plain `--expand` frame ends with a plain line `Guide: <url>` (the `main` branch's page for a build without a tag),
-  which many terminals and editors (VS Code) turn into a link. It is in the frame printed whole (a pipe, `| more`), when
-  it fits the width; a height-bounded frame keeps its rows for data and has no such line.
+- An unbounded plain `--expand` frame can end with `Guide: <url>` when stdout is a terminal, links are enabled and
+  the trailer fits. A development build links to the page on `main`.
 
 ## Environment
 

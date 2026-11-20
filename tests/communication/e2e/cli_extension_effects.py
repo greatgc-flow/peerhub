@@ -194,12 +194,14 @@ def seed_view_pool(db):
 
 
 def assert_view_glyph_effect(rich, plain, *, monitor=False):
-    # Same A-G decisions, visibly different bars even with redirected output
-    # and NO_COLOR. Fail if --view becomes inert or both styles use ASCII.
     assert rich != plain
     if monitor:
-        assert "─" in rich and "─" not in plain
-        plain.encode("ascii")
+        from peerhub.cli.monitor_view import RICH_GLYPHS
+
+        rules = tuple(f"{glyphs['rule'] * 2} POOLS " for glyphs in RICH_GLYPHS.values())
+        assert any(line.startswith(rules) for line in rich.splitlines())
+        assert any(line.startswith("POOLS ") for line in plain.splitlines())
+        assert "\x1b" not in rich and "\x1b" not in plain
         return
     assert "█" in rich and "░" in rich
     assert "█" not in plain and "░" not in plain
@@ -223,14 +225,18 @@ def assert_vt_view_effect(e, db, command):
     for style in ("plain", "rich"):
         for vt in (True, False):
             output = Output()
-            args = (["--cycles", "1"] if command == "monitor" else ["--live", "--cycles", "1"])
+            args = (["--cycles", "1", "--no-probe"] if command == "monitor" else ["--live", "--cycles", "1"])
             with patch("sys.stdout", output), patch("peerhub.cli.view.enable_vt", lambda: vt), \
                     patch.dict("os.environ", {"TERM": "xterm"}):
                 assert e.run(db, command, "--view", style, *args)[0] in (0, 4)
             text = output.getvalue()
             if vt:
                 assert "\x1b[?25l\x1b[H\x1b[2J" in text
-                assert text.endswith("\x1b[0m\x1b[?25h")
+                trailer = "\x1b[0m\x1b[?25h"
+                if command == "monitor":
+                    trailer += "\r\n"
+                    assert "\x1b[?1049h" not in text and "\x1b[?1049l" not in text
+                assert text.endswith(trailer)
             else:
                 assert "\x1b" not in text
             assert " [H" not in text
@@ -270,8 +276,7 @@ def monitor_effect(e, option):
     db = e.fresh()
     if option == "--view":
         seed_view_pool(db)
-        # #374: the compact frame draws no section rules; a binding 5-hour row under its 7-day pool carries the
-        # view's tree glyph (`└─` rich, "`-" plain), so --view stays observable on redirected output.
+        # Seed a binding 5-hour row so both styles have the same POOLS data to render.
         from tests.communication.e2e.test_cli_diag_quota import seed
         seed(db, pools=[("G-7D", "QUOTA"), ("G-5H", "QUOTA")], rows=[
             ("view-peer", "quota", "G-7D", "MEASURED", 6, {"remaining_fraction": 0.9}, "view-fixture"),
@@ -409,15 +414,37 @@ def monitor_snapshot_effect(e, option):
     monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True)
 
 
+def monitor_no_probe_effect(e):
+    db = e.fresh()
+    argv = ["monitor", "--cycles", "1", "--group", "store", "--json"]
+    with patch.dict(os.environ), patch("sys.stdout.isatty", return_value=True), \
+         patch("peerhub.cli.monitor.refresh_monitor_quota", return_value=None) as refresh:
+        os.environ.pop("PEERHUB_MONITOR_PROBE", None)
+        code, baseline, _ = e.run(db, *argv)
+        assert code == 0 and json.loads(baseline.splitlines()[-1])["phase"] == "complete"
+        refresh.assert_called_once()
+        code, selected, _ = e.run(db, *argv, "--no-probe")
+        assert code == 0 and json.loads(selected.splitlines()[-1])["phase"] == "complete"
+        refresh.assert_called_once()
+
+
 def monitor_display_effect(e, option):
     from tests.communication.diag.test_monitor_plain_golden import full_payload
 
     db = e.fresh()
     before = db.read_bytes()
     args = ["monitor", "--snapshot", "--view", "plain"]
+    payload = full_payload()
     if option == "--show-quota-notes":
         args.append("--expand")
-    with patch("peerhub.extensions.monitor_read_model.render_monitor_frame", side_effect=lambda *a, **kw: full_payload()):
+        peers = payload["groups"]["peers"]["data"]["peers"]
+        observations = payload["groups"]["capacity"]["data"]["observations"]
+        weekly = next(item for item in observations if item["pool_ref"] == "quota:cx:X-7D")
+        next(peer for peer in peers if peer["peer_id"] == "cx")["quota"] = {
+            "pool_ref": weekly["pool_ref"], "state": weekly["state"],
+            "remaining_fraction": weekly["measurements"]["remaining_fraction"],
+        }
+    with patch("peerhub.extensions.monitor_read_model.render_monitor_frame", return_value=payload):
         code, baseline, _ = e.run(db, *args)
         assert code == 0
         code, selected, _ = e.run(db, *args, option)
@@ -426,7 +453,9 @@ def monitor_display_effect(e, option):
             assert selected == baseline
             assert e.run(db, *args, "--expand")[1] != selected
         else:
-            assert "not reported" not in baseline and "not reported" in selected
+            # Expanded QUOTA explains unavailable windows by default. The flag adds the PEERS note.
+            note = "plan prolite: no 30d window"
+            assert note not in baseline and note in selected
     assert db.read_bytes() == before
 
 
@@ -645,6 +674,7 @@ EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, [
                "monitor defaults reset --global": lambda e: monitor_management_effect(e, ["monitor", "defaults", "reset", "--global"]),
                "monitor defaults reset --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "reset", "--global", "--json"]),
                "monitor --snapshot": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
+               "monitor --no-probe": monitor_no_probe_effect,
                "monitor --group": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--group", "usage", "--json"], needs_bridge=True),
                "monitor --expand": lambda e: monitor_management_effect(e, ["monitor", "--snapshot", "--expand", "--group", "usage", "--view", "plain"], needs_bridge=True),
                "monitor --compact": lambda e: monitor_display_effect(e, "--compact"),

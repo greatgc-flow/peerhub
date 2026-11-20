@@ -14,13 +14,15 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
-from peerhub.extensions.observation_model import FreshnessPolicy, MEASUREMENT_KEYS
+from peerhub.extensions.observation_model import FreshnessPolicy, MEASUREMENT_KEYS, oldest_measured_quota_age
 from peerhub.extensions.quota_projection import ExhaustionProjection, limit_by_parent, project_exhaustion, scoped_parent_ref
 
 SCHEMA_VERSION = "1.0"
 QUOTA_KINDS = ("quota", "rate_limit")
 RESET_CREDIT_KIND = "reset_credit"
-RESET_CREDIT_WARN_SECONDS = 72 * 3600  # an available credit expiring in strictly less than this is flagged WARN
+_SECONDS_PER_HOUR = 60 * 60
+_SECONDS_PER_DAY = 24 * _SECONDS_PER_HOUR
+RESET_CREDIT_WARN_SECONDS = 72 * _SECONDS_PER_HOUR  # an available credit expiring in strictly less than this is flagged WARN
 POOL_KINDS = ("QUOTA", "RATE_LIMIT")  # registered pools of these kinds without evidence are listed as UNKNOWN
 # status -> public CLI exit code: 4 storage fault, 5 diag unavailable, 6 schema version
 EXIT_BY_STATUS = {"OK": 0, "UNAVAILABLE": 5, "FAILED": 4, "SCHEMA_VERSION": 6}
@@ -97,14 +99,14 @@ def _reset_credit_view(it: dict[str, Any], now: float) -> dict[str, Any]:
             left = exp - now
             credits.append({"id_hash": hashlib.sha256(str(c.get("id_ref")).encode()).hexdigest()[:12], "reset_type": c.get("reset_type"),
                             "status": c.get("status"), "granted_at": c.get("granted_at"), "expires_at": _iso(exp),
-                            "hours_until_expiry": left / 3600, "title": c.get("title"),
+                            "hours_until_expiry": left / _SECONDS_PER_HOUR, "title": c.get("title"),
                             "warn": c.get("status") == "available" and left < RESET_CREDIT_WARN_SECONDS})
     nearest = _ts(p.get("nearest_expires_at")) if shown else None
     left_n = None if nearest is None else nearest - now
     return {"subject_ref": it["subject_ref"], "resource_pool_ref": it["resource_pool_ref"], "state": it["state"], "age_seconds": it["age_seconds"],
             "source": it["source"], "condition": p.get("condition"), "available_count": count if shown else None,
             "nearest_expires_at": None if nearest is None else _iso(nearest),
-            "hours_until_nearest_expiry": None if left_n is None else left_n / 3600,
+            "hours_until_nearest_expiry": None if left_n is None else left_n / _SECONDS_PER_HOUR,
             "warn": left_n is not None and left_n < RESET_CREDIT_WARN_SECONDS, "credits": credits}
 
 
@@ -209,6 +211,9 @@ def observations_summary(db_path: str | Path, *, read_at: float | None = None) -
 
 def format_quota_table(rep: dict[str, Any]) -> str:
     lines = [f"quota/rate-limit evidence (read-only, no refresh) source={rep['source_db']} status={rep['status']} overall={rep['overall']}"]
+    age = oldest_measured_quota_age(i for group in rep["pools"] for i in group["items"])
+    if notice := quota_stale_line(age):
+        lines.insert(0, notice)
     if rep["error"]:
         lines.append(f"  note: {rep['error']}")
     if not rep["pools"]:
@@ -224,6 +229,16 @@ def format_quota_table(rep: dict[str, Any]) -> str:
             lines.append(f"  {i['subject_ref'] or '-':<16} {i['kind']:<10} {i['state']:<11} age={age:<8} src={i['source'] or '-'}  {meas} {der}{limit}".rstrip())
     lines.extend(_reset_credit_lines(rep["reset_credits"], "reset credits (read-only; hours computed at read time)", "  "))
     return "\n".join(lines)
+
+
+def quota_stale_line(age: float | None) -> str:
+    hint = " -> peerhub observation refresh"
+    if age is None:
+        return "quota: no reading" + hint
+    if age <= _SECONDS_PER_HOUR:
+        return ""
+    duration = f"{int(age // _SECONDS_PER_DAY)}d" if age >= _SECONDS_PER_DAY else f"{int(age // _SECONDS_PER_HOUR)}h"
+    return f"quota {duration} old" + hint
 
 
 def _reset_credit_lines(items: list[dict[str, Any]], header: str, indent: str) -> list[str]:

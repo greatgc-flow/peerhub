@@ -8,6 +8,31 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-11-21
+
+### Added
+
+- `peerhub update --check` compares installed versions and packaged model defaults with available release metadata and the local Codex catalog. `peerhub update --plan` checks for running asks and prints blockers, store backup and upgrade commands, and resume hints. Both modes are read-only.
+- Rich terminal monitor frames link eligible `--query-file` inputs in RUNNING and RECENT to existing files inside the ask workspace. Monitor and human `diag quota` and `diag --live` show a refresh hint when quota readings are missing or over an hour old.
+- The [0.26.0 plan](docs/design/plan-0.26.0-2026-11-21.md) and [regression audit](docs/design/audit-0.26.0-regressions.md) document the release decisions and the behavior reviewed.
+
+### Changed
+
+- Terminal monitor watch refreshes quota automatically again when the newest reading for the selected peers is missing or over five minutes old, so an idle watch keeps the readings used by `diag` and `suggest` current. Use `--no-probe` to opt out. Snapshots and diagnostics read committed evidence.
+- Automatic watch, ask dispatch, and `peerhub suggest` share a per-store refresh lock. Ask dispatch waits at most one second for the refresh and proceeds quietly on failure. `suggest` gates on measured 5H usage at 90%, skips that gate for fresh provider-reported absence, and ranks eligible profiles by 7D PACE. Unknown quota ranks last and remains a fallback.
+- Publishing requires green full-matrix CI and verified reports for the exact release commit before live evidence validation. The release keeps its installed-wheel smoke checks and records the CI run URL with the evidence.
+- Batch query files use the selected store’s scratch directory (`.peerhub/tmp`) and are cleaned up when the batch exits. Capability-job spools support an explicit scratch directory and are cleaned up on orderly exit.
+
+### Fixed
+
+- An ag ask that returns `ask_denied_empty` after a `command` denial now tells the caller to request file reads with the read tool only.
+- Monitor watch retries a timed-out quota probe once. Both layouts retain a recent measured value after a timeout and show its age in a probe note.
+- Both monitor layouts give ALERTS and RUNNING space before RECENT and count unavailable pools while naming them inline. Only the newest ask per stream and peer can show live session details, including available context estimates from SESSIONS. Expanded output keeps the full store path in the header, explains unavailable quota windows, and restores the full sampled history when unbounded.
+- Continuous VT watches use the full alternate screen and print the final frame on exit. Finite watches keep their output on the normal screen, and the plain expanded Guide trailer respects terminal and link settings.
+- `peerhub guide` names explain topics and clarifies that batch `--dry-run` only validates. Ask receipts and alias notices require a stderr terminal in text mode and honor `PEERHUB_NO_RECEIPT=1`.
+- Profile aliases honor workspace reasoning effort, and `peerhub profile list` shows the catalog with stats marked unavailable when the store cannot be read.
+- Ask catch-up drops its preamble when that alone would exceed the prompt limit. A settled Codex ask can replay across packaged model or effort changes for the same request, profile, and execution scope.
+
 ## [0.25.0] - 2026-11-20
 
 ### Fixed

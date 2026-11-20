@@ -4,6 +4,7 @@ Provider parsing/transport is owned by quota_probes; no v0 runtime is loaded.
 """
 from __future__ import annotations
 
+import subprocess
 import time
 import uuid
 import math
@@ -12,8 +13,9 @@ from typing import Any, Callable, Sequence, cast
 
 from peerhub.extensions.peer_kinds import ALIASES
 from peerhub.extensions.observation import ObservationStore
-from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool, changed_account_plan, epoch_to_iso
-from peerhub.extensions.quota_types import ResetCreditObserved
+from peerhub.extensions.observation_model import (EvidenceState, Observation, ResourcePool, changed_account_plan,
+                                                  epoch_to_iso, quota_probe_timed_out)
+from peerhub.extensions.quota_types import ResetCreditObserved, UsageObserved
 from peerhub.core.models import utc_now_iso
 
 
@@ -153,12 +155,26 @@ def _read_latest_facts_report(store: ObservationStore) -> dict[str, Any] | None:
     return None
 
 
+def _poll_quota(poll: Callable[..., Any], *, retry_timeouts: bool, **options: Any) -> Sequence[UsageObserved | ResetCreditObserved]:
+    if retry_timeouts:
+        try:
+            readings = poll(**options)
+        except (TimeoutError, subprocess.TimeoutExpired):
+            pass
+        else:
+            if not any(isinstance(r, UsageObserved) and r.evidence.state == EvidenceState.ERROR
+                       and quota_probe_timed_out(r.extra.get("reason")) for r in readings or ()):
+                return readings
+    return poll(**options)
+
+
 def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None = None,
                   deadline_sec: float = 15, pollers: dict[str, Callable[..., Any]] | None = None,
                   version_checker: Callable[[str], str | None] | None = None,
                   cx_pools: Sequence[str] | None = None, cc_pools: Sequence[str] | None = None,
                   ag_pools: Sequence[str] | None = None,
-                  account_pollers: dict[str, Callable[[], Any]] | None = None) -> dict[str, Any]:
+                  account_pollers: dict[str, Callable[[], Any]] | None = None,
+                  retry_timeouts: bool = False) -> dict[str, Any]:
     if not peers or not math.isfinite(deadline_sec) or deadline_sec <= 0:
         raise ValueError("provide peers and a positive probe timeout")
     if not Path(db_path).is_file():
@@ -209,9 +225,9 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     for peer, kind in zip(peers, kinds):
         try:
             injected = {"cx": cx_pools, "cc": cc_pools, "ag": ag_pools}[kind]
-            readings = pollers[kind](ids=_Ids(), instance_id=peer, profile_id="default",
-                                    deadline_sec=deadline_sec, sys_dir=sys_dir,
-                                    **({"configured_pools": injected} if injected is not None else {}))
+            readings = _poll_quota(pollers[kind], retry_timeouts=retry_timeouts, ids=_Ids(), instance_id=peer,
+                                   profile_id="default", deadline_sec=deadline_sec, sys_dir=sys_dir,
+                                   **({"configured_pools": injected} if injected is not None else {}))
             if not readings:
                 raise ValueError("probe returned no evidence")
             if kind == "ag":
@@ -230,9 +246,11 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                     if isinstance(raw_pools, list):
                         ag_unknown_pools.extend(str(p) for p in cast(list[object], raw_pools))
         except Exception as exc:
+            details = {"condition": "probe_failed", "error_type": type(exc).__name__}
+            if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
+                details["reason"] = "quota_probe_timeout"
             pending_obs.append((
-                peer, None, f"quota_probe:{kind}", EvidenceState.ERROR,
-                {"condition": "probe_failed", "error_type": type(exc).__name__},
+                peer, None, f"quota_probe:{kind}", EvidenceState.ERROR, details,
                 utc_now_iso(), utc_now_iso(), "quota",
             ))
             continue
