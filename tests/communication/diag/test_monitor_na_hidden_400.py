@@ -91,7 +91,9 @@ def test_an_na_parent_passes_its_child_to_the_peers_first_row():
     payload["groups"]["capacity"]["data"]["observations"] = [
         pool("cc", "C-5H", .30), absent("cc", "C-7D"), pool("cx", "X-7D", .42), absent("cx", "X-30D")]
     screen = render_grouped_frame(payload, view="plain", unicode=False, width=120, expand=True)
-    rows = [line for line in screen.splitlines() if re.search(r"\bC-\d+[HD]\b", line)]
+    lines = screen.splitlines()
+    rows = [line for line in lines[next(i for i, line in enumerate(lines) if "QUOTA [" in line):]  # the QUOTA details
+            if re.search(r"\bC-\d+[HD]\b", line)]
     assert len(rows) == 1 and rows[0].startswith("cc") and "C-5H" in rows[0] and rows[0].rstrip().endswith("(C-7D n/a)")
 
 

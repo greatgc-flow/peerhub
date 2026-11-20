@@ -27,7 +27,10 @@ def frame_for(members: dict[str, list[str]]) -> dict[str, Any]:
 
 
 def pool_lines(screen: str) -> list[str]:
-    return [line for line in screen.splitlines() if re.search(r"\b(?:C|F|X)-\d+[HD]\b", line)
+    """The pool lines of a frame; in an --expand frame the QUOTA details (below the compact POOLS block, #412)."""
+    lines = screen.splitlines()
+    start = next((i for i, line in enumerate(lines) if "QUOTA [" in line), 0)
+    return [line for line in lines[start:] if re.search(r"\b(?:C|F|X)-\d+[HD]\b", line)
             and not line.lstrip().startswith(("Columns", "STATE", "cc STALE"))]
 
 
@@ -194,22 +197,19 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool,
         frame["selected_groups"].append("peers")
         frame["groups"]["peers"] = {"status": "OK", "data": {"peers": [
             {"peer_id": peer} for peer in ("cc", "cx")]}}
+    # #412: the blank line between peers belongs to the QUOTA details; POOLS (the compact block above) has none, and a
+    # bounded height cuts the frame from the bottom, never a separator out of the middle of a table
     full = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=200, expand=expand)
     lines = full.splitlines()
     cx_index = next(i for i, row in enumerate(lines) if row.startswith("cx "))
-    assert lines[cx_index - 1] == ""
-    tight = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=len(lines) - 1, expand=expand)
-    assert "\n\n" not in tight
-    assert all(pool in tight for pool in ("C-7D", "C-5H", "X-7D", "X-5H"))
-    assert sum(bool(re.match(r"^cc\s+[CFX]-\d+[HD]\b", line)) for line in pool_lines(tight)) == 1
-    for width, height in [(w, h) for w in (81, 82, 83, 84, 100) for h in range(2, len(lines) + 3)]:
-        screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=width, height=height, expand=expand)
+    assert lines[cx_index - 1] == "" and "\n\n" not in "\n".join(lines[:next(i for i, l in enumerate(lines) if "QUOTA [" in l)])
+    for height in range(len(lines) + 2, 3, -1):
+        screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=height, expand=expand)
         assert len(screen.splitlines()) < height
-        if "\n\n" in screen:
-            assert "rows hidden" not in screen
-            assert all(pool in screen for pool in ("C-7D", "C-5H", "X-7D", "X-5H"))
-            if with_peers and expand:
-                assert screen.count("-> latest session:") == 2 and "Model facts:" in screen
+        if height <= len(lines):
+            assert "rows hidden" in screen
+        kept = [line for line in screen.splitlines() if not line.startswith(("+", "Coverage:"))]
+        assert kept == lines[:len(kept)] or height < 10  # a prefix of the whole frame (what is left is the top)
 
 
 @pytest.mark.parametrize("reason,detail", [
@@ -464,7 +464,8 @@ def test_error_evidence_keeps_alarm_colour(expand: bool, monkeypatch: pytest.Mon
     if expand:  # the compact state word hides the evidence state: a note names it
         assert "cc C-5H evidence ERROR; next: peerhub observation refresh --peers cc" in mv._ANSI.sub("", screen)
         plain = mv.render_grouped_frame(frame, view="plain", color=True, unicode=False, width=180, expand=True)
-        assert "\x1b" not in plain and " ERROR " in next(line for line in plain.splitlines() if "C-5H" in line)
+        assert "\x1b" not in plain
+        assert " ERROR " in next(line for line in plain.splitlines() if "C-5H" in line and line.startswith("cc "))
 
 
 def test_fast_and_low_intentionally_share_warning_colour() -> None:
@@ -513,13 +514,11 @@ def test_expanded_separators_show_at_exact_full_fit_and_yield_below_it(width: in
     assert "\n\n" in roomy and "rows hidden" not in roomy
     exact_height = len(roomy.splitlines()) + 1
     exact = mv.render_grouped_frame(frame, view="plain", unicode=unicode, width=width, height=exact_height, expand=True)
-    assert exact == roomy
-    for height in range(exact_height - 2, exact_height + 1):
+    assert exact == roomy  # an exact fit hides nothing
+    for height in range(exact_height - 2, exact_height):  # below it the bottom goes, with a count (#412)
         screen = mv.render_grouped_frame(frame, view="plain", unicode=unicode, width=width, height=height, expand=True)
-        assert len(screen.splitlines()) < height
-        if "\n\n" in screen:
-            assert "rows hidden" not in screen and screen.count("-> latest session:") == 2
-            assert "Model facts:" in screen
+        assert len(screen.splitlines()) < height and "rows hidden" in screen
+        assert "\n\n" in screen  # the separators of the QUOTA details stay
     assert frame == before
 
 

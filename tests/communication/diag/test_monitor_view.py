@@ -42,7 +42,8 @@ def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeyp
     monkeypatch.delenv("NO_COLOR", raising=False)
     # The grouped layout is the plain view's and is never painted, whatever the colour flag (the rich --expand frame
     # and its palette are pinned in test_monitor_expand_rich.py).
-    rendered = render_grouped_frame(quota_visual_frame, view="plain", color=color, width=120, height=24)
+    # #412: the plain --expand frame starts with POOLS and the suggestion; a height that holds the whole frame shows QUOTA
+    rendered = render_grouped_frame(quota_visual_frame, view="plain", color=color, width=120, height=60)
     snapshot = Path(__file__).with_name("fixtures") / "quota_s2_color_off.txt"
     assert rendered == snapshot.read_text(encoding="utf-8")
     assert all(_width(line) <= 119 for line in rendered.splitlines())
@@ -95,15 +96,13 @@ def test_soonest_exhaustion_ignores_stale_and_counts_down(quota_visual_frame):
     observations[0]["projection"]["exhaustion_at"] = 4600
     observations[6]["projection"]["exhaustion_at"] = 1100
     quota_visual_frame["display_elapsed_seconds"] = 60
-    rendered = render_grouped_frame(quota_visual_frame, view="plain", width=80, height=12)
+    rendered = render_grouped_frame(quota_visual_frame, view="plain", width=80, height=60)
     assert rendered.splitlines()[0].startswith("OK")  # #374: line 1 is the verdict, then the expand header
     assert rendered.splitlines()[1].startswith("PeerHub Monitor")
     assert "soonest exhaust: ag P-3H 1% in 29m" in render_grouped_frame(quota_visual_frame, view="plain", width=120)
     rich = render_grouped_frame(quota_visual_frame, view="rich", width=120)  # the same label in the rich QUOTA rule
     assert "── QUOTA [OK] · measured remaining · soonest exhaust: ag P-3H 1% in 29m ─" in rich
-    assert "STATE:" not in rendered
     assert "P-1H" in rendered and "P-6H" in rendered
-    assert "rows hidden" in rendered or "--expand" in rendered
 
 
 @pytest.mark.parametrize(("state", "seconds", "expected"), [
@@ -210,7 +209,7 @@ def test_compact_width_keeps_every_selected_group_visible(frame, width):
     rendered = render_grouped_frame(frame, view="plain", color=False, unicode=False, width=width)
 
     assert all(group.upper() in rendered or (group == "capacity" and "QUOTA" in rendered) for group in frame["selected_groups"] if group not in {"overview", "coverage"})
-    assert "truncated" in rendered.lower() or "partial" in rendered.lower()
+    assert "coverage" in rendered.lower()
     assert all(len(line) <= width for line in rendered.splitlines())
 
 
@@ -297,18 +296,19 @@ def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, 
             assert "--expand" in rendered
 
 
-def test_height_budget_prioritizes_errors_and_preserves_catalog_order(frame):
+def test_a_bounded_height_cuts_the_sections_from_the_bottom_up_in_catalog_order(frame):
+    """#412: the sections go from the bottom up with a count (the old severity allocation is gone); a tall frame has them
+    all, in the one order."""
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     frame["selected_groups"] = ["overview", "execution", "coverage", "store"]
     frame["groups"]["store"]["status"] = "ERROR"
     frame["groups"]["execution"]["status"] = "PARTIAL"
+    tall = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=60)
+    assert tall.upper().index("EXECUTION [PARTIAL]") < tall.upper().index("STORE [ERROR]")
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=7)
-    visible = rendered.upper()
-
-    assert "STORE [ERROR]" in visible
-    assert "rows hidden" in rendered and "(1 group)" in rendered
-    assert "OVERVIEW [" not in visible and "COVERAGE [" not in visible
+    assert len(rendered.splitlines()) <= 6 and "rows hidden" in rendered
+    assert "OVERVIEW [" not in rendered.upper() and "COVERAGE [" not in rendered.upper()
 
 
 def test_full_severity_classes_keep_catalog_order_when_every_summary_fits(frame):
@@ -332,10 +332,10 @@ def test_store_provenance_and_safe_read_error_are_visible(frame):
     frame["store_selection"] = {"path": "D:/users/alice/private/core.db", "source": "discovered"}
     frame["errors"] = {"sessions": "OperationalError: secret-token SELECT * FROM private"}
     frame["groups"]["sessions"]["status"] = "ERROR"
-    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=24)
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=60)
 
     assert "discovered" in rendered
-    assert "core.db" in rendered
+    assert "core.db" in rendered  # #412: the store line is near the end of the frame
     assert "OperationalError" in rendered or "database read failed" in rendered.lower()
     assert "secret-token" not in rendered and "SELECT *" not in rendered
 
@@ -344,7 +344,7 @@ def test_narrow_store_header_retains_source_and_wraps_path(frame):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     frame["store_selection"] = {"path": "D:/a/very/long/location/core.db", "source": "workspace"}
-    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=40, height=24)
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=40, height=80)
 
     assert "workspace" in rendered
     assert "D:/a/very/long/location/core.db" in rendered  # #338: wrapped, never elided
@@ -436,12 +436,12 @@ def test_plain_ascii_monitor_replaces_middle_dot_cleanly_without_question_marks(
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     frame["refresh_state"] = "REFRESH PARTIAL · 1 warnings"
-    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=24)
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=100, height=80)
 
     assert "·" not in rendered
     # Delimiters should be ASCII | rather than replacing · with ?
     assert " | " in rendered
-    assert "REFRESH PARTIAL | 1 WARNINGS" in rendered
+    assert "REFRESH PARTIAL | 1 warnings" in rendered  # the title of the compact frame keeps the live state as it is
     assert "1.50s avg | 2 samples" in rendered
     assert "Schema 7 | database" in rendered
     # Ensure no ? is produced from middle dot replacement
@@ -540,12 +540,10 @@ def test_limited_height_drops_other_groups_before_clipping_quota(frame):
          "projection": {"state": "safe", "pace_pt": 5.0}, "age_seconds": 10.0}
         for i in range(1, 5)
     ]
-    # Height 14 is too tight to fit all group summaries (9 * 2 = 18 lines) plus 3 detail lines
+    # Height 14 is too tight for every section: the top (line 1, the title, POOLS) stays whole, the rest is counted (#412)
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=14)
-    # Other groups dropped
-    assert "rows hidden" in rendered and "(5 groups)" in rendered
-    # All 4 quota observations are retained unclipped
-    for i in range(1, 5):
+    assert "rows hidden" in rendered
+    for i in range(1, 5):  # all 4 pools are retained unclipped
         assert f"{i}h" in rendered
     assert len(rendered.splitlines()) <= 13
 
@@ -573,12 +571,10 @@ def test_detail_loop_stopping_early_emits_hidden_by_terminal_height(frame):
          "projection": {"state": "safe", "pace_pt": 5.0}, "age_seconds": 10.0}
         for i in range(1, 7)
     ]
-    # Height 7 (#374: +1 for the verdict line): verdict + title + heading + table header + 1 detail row + hidden line
+    # Height 7: verdict + title + the POOLS header, a row or two, and the count of what is hidden (#412)
     rendered = render_grouped_frame(frame, view="plain", unicode=False, width=80, height=7)
-    assert "rows hidden" in rendered
-    assert "peerhub monitor --snapshot --group capacity --expand" in rendered
-    assert "1h" in rendered
-    assert "6h" not in rendered
+    assert "rows hidden" in rendered and "--expand" in rendered
+    assert rendered.splitlines()[0].startswith("OK") and "POOLS" in rendered
     assert len(rendered.splitlines()) <= 6
 
 
@@ -620,10 +616,10 @@ def test_capacity_rows_stay_contiguous_under_capacity_heading_and_usage_fallback
             "provider_input_tokens": 1000, "cached_input_tokens": 800, "output_tokens": 250, "provider_total_tokens": None}}},
     ]
 
-    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=120, height=28)
+    rendered = render_grouped_frame(frame, view="plain", unicode=False, width=120, height=80)
     cap_idx = rendered.index("QUOTA [OK]")
-    first_pool_idx = rendered.index("g-5h")
-    second_pool_idx = rendered.index("5h")
+    first_pool_idx = rendered.index("g-5h", cap_idx)  # POOLS above names the pools too
+    second_pool_idx = rendered.index("5h", cap_idx)
     runtime_idx = rendered.index("RUNTIME [OK]")
     store_idx = rendered.index("STORE [OK]")
 
@@ -724,22 +720,22 @@ def test_fixed_time_render_fixtures_viewport_matrix(color, monkeypatch):
             for line in lines:
                 assert _width(re.sub(r"\x1b\[[0-9;]*m", "", line)) <= width - 1, f"Line width exceeded at {width}x{height}: {line}"
 
-            # Quota block is always at top
-            assert "QUOTA [OK]" in rendered
-            first_rule_idx = min(i for i, l in enumerate(lines) if "QUOTA [OK]" in l)
-            assert first_rule_idx == (1 if (width, height) == (80, 12) else 3)  # #374: after the verdict line
+            # #412: line 1, the title and POOLS (the quota) are always at the top, whatever the height
+            assert lines[0].startswith("OK") and lines[1].startswith("PeerHub Monitor")
+            assert any(line.startswith("POOLS ") for line in lines[:4])
+            assert rendered.count("Coverage:") <= 1
 
-            # Check columns
-            if width >= 120:
-                assert "EXHAUST-IN" in rendered and "PROFILES (configured)" in rendered
-                assert "Columns omitted" not in rendered
-            elif (width, height) != (80, 12):  # whole columns go from the right and are named
-                assert "PROFILES (configured)" not in rendered and "Columns omitted: " in rendered
+            if height >= 40:  # the QUOTA details fit: whole columns go from the right and are named
+                assert "QUOTA [OK]" in rendered
+                if width >= 120:
+                    assert "EXHAUST-IN" in rendered and "PROFILES (configured)" in rendered
+                    assert "Columns omitted" not in rendered
+                else:
+                    assert "PROFILES (configured)" not in rendered and "Columns omitted: " in rendered
 
             if (width, height) == (80, 12):
                 assert "rows hidden" in rendered
                 assert "--expand" in rendered
-                assert rendered.count("Coverage:") == 1
                 assert "STORE [" not in rendered
 
             if not unicode_mode:
@@ -757,9 +753,7 @@ def test_append_frame_leaves_terminal_last_column_free(frame, width, expand, uni
 
     rendered = render_grouped_frame(frame, view=view, width=width, unicode=unicode_mode,
                                     color=unicode_mode, expand=expand)
-    assert all(_width(line) <= width - 1 for line in rendered.splitlines())
-    if 10 <= width < 20 and view == "plain":  # the rich frame fits every line instead, as the compact frame does
-        assert "narrow" in rendered.lower()
+    assert all(_width(line) <= width - 1 for line in rendered.splitlines())  # #412: both views fit every line
 
 
 @pytest.mark.parametrize("width", [50, 60])
@@ -775,7 +769,7 @@ def test_narrow_quota_keeps_leftmost_columns_and_names_the_dropped_ones(frame, w
     header = next(line for line in rendered.splitlines() if "PEER" in line)
     for label in ("PEER", "POOL", "STATE", "REM", "RESET-IN"):
         assert label in header
-    row = next(line for line in rendered.splitlines() if "X-7D" in line)
+    row = next(line for line in rendered.splitlines() if "X-7D" in line and line.startswith("cx"))  # the QUOTA row
     for value in ("cx", "X-7D", "EXHAUSTED", "75%", "1d01h"):
         assert value in row
     names = {"bar", "exhaust-in", "pace", "state", "age", "profiles", "(configured)"}
@@ -809,11 +803,12 @@ def test_expand_quota_row_shows_bar_tick_pace_glyph_and_colour_on_state_and_bar_
                  obs("G-5H", .5, 12.5), obs("A-7D", .25, -3.0, "watch"), obs("3P-5H", .5, 0.0)]}}}}
     # 9000s of a 5h window left: even burn leaves 50%, so the tick is the first empty cell after the 50% fill
     plain = render_grouped_frame(frame, view="plain", unicode=False, width=140)
-    row = next(line for line in plain.splitlines() if " G-5H " in line)
+    row = next(line for line in plain.splitlines() if " G-5H " in line and "[" in line)  # the QUOTA row (POOLS has none)
     assert "[####|...]" in row and "^+12.5pp" in row and "ON_PACE" in row
-    assert "v-3.0pp" in next(line for line in plain.splitlines() if " A-7D " in line)
-    assert " +0.0pp" in next(line for line in plain.splitlines() if " 3P-5H " in line)
-    unicode_row = next(line for line in render_grouped_frame(frame, view="plain", unicode=True, width=140).splitlines() if " G-5H " in line)
+    assert "v-3.0pp" in next(line for line in plain.splitlines() if " A-7D " in line and "[" in line)
+    assert " +0.0pp" in next(line for line in plain.splitlines() if " 3P-5H " in line and "[" in line)
+    unicode_row = next(line for line in render_grouped_frame(frame, view="plain", unicode=True, width=140).splitlines()
+                       if " G-5H " in line and "[" in line)
     assert "[████|░░░]" in unicode_row and "▲+12.5pp" in unicode_row
     assert "\x1b" not in render_grouped_frame(frame, view="plain", color=True, unicode=False, width=140)
     # The rich view: the QUOTA details row has no 8-cell bar; its state cell is the compact one (glyph and word) in
@@ -837,8 +832,9 @@ def test_expand_quota_row_shows_bar_tick_pace_glyph_and_colour_on_state_and_bar_
     assert "\x1b" not in render_grouped_frame(frame, view="rich", color=True, width=140)
 
 
-@pytest.mark.parametrize("expand, height, hidden", [(False, 6, 4), (True, 7, 3)])  # #374: +1 for the verdict line
-def test_bounded_other_details_report_exact_hidden_rows(frame, expand, height, hidden):
+@pytest.mark.parametrize("height", [7, 9])
+def test_a_bounded_frame_counts_exactly_the_lines_it_hides(frame, height):
+    """#412 (the per-section allocation of the old plain frame is gone): the count of the hint is the lines cut."""
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
 
     frame["selected_groups"] = ["usage"]
@@ -846,43 +842,12 @@ def test_bounded_other_details_report_exact_hidden_rows(frame, expand, height, h
         {"peer_id": f"worker{i}", "telemetry": {"normalized": {"provider_total_tokens": i}}}
         for i in range(1, 6)
     ]}
-    rendered = render_grouped_frame(frame, view="plain", width=100, height=height, unicode=False, expand=expand)
-    assert f"+{hidden} rows hidden" in rendered
-    assert "--expand" in rendered
-    assert "worker1" in rendered
-    if expand:
-        assert "worker2" in rendered
-    assert len(rendered.splitlines()) == height - 1
-
-
-@pytest.mark.parametrize("width", [64, 80, 100, 120])
-def test_omitted_groups_disclose_loaded_expanded_rows(frame, width):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
-
-    frame["selected_groups"] = ["capacity", "usage"]
-    frame["groups"]["usage"]["data"] = {"sessions": [
-        {"peer_id": f"worker{i}"} for i in range(5)
-    ]}
-    rendered = render_grouped_frame(frame, view="plain", width=width, height=6, unicode=False, expand=True)
-    assert "1 group" in rendered
-    assert "rows hidden" in rendered
-    assert "--expand" in rendered
-
-
-def test_group_summaries_reserve_space_for_hidden_detail_disclosure(frame):
-    from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
-
-    frame["selected_groups"] = ["usage", "context"]
-    for group in frame["selected_groups"]:
-        frame["groups"][group]["data"] = {"sessions": [
-            {"peer_id": f"worker{i}"} for i in range(3)
-        ]}
-    rendered = render_grouped_frame(frame, view="plain", width=100, height=7, unicode=False, expand=True)  # #374: +1 for the verdict
-    assert "worker0" in rendered and "worker1" in rendered
-    assert "+1 rows hidden" in rendered or "+1r" in rendered
-    assert "CONTEXT [" not in rendered
-    assert "--expand" in rendered
-    assert len(rendered.splitlines()) <= 6
+    whole = render_grouped_frame(frame, view="plain", width=100, height=200, unicode=False, expand=True).splitlines()
+    rendered = render_grouped_frame(frame, view="plain", width=100, height=height, unicode=False, expand=True).splitlines()
+    hint = next(line for line in rendered if "rows hidden" in line)
+    shown = rendered.index(hint)
+    assert int(re.match(r"\+(\d+) rows hidden", hint)[1]) == len(whole) - 1 - shown  # the coverage line is not counted
+    assert "--expand" in hint and len(rendered) <= height - 1
 
 
 
@@ -911,8 +876,9 @@ def test_elapsed_forecast_is_not_measured_exhaustion(frame, rem, elapsed, expect
     item["projection"] = {"state": "threat", "exhaustion_at": 999.0}
     rendered = render_grouped_frame(frame, view="plain", width=160, unicode=False)
     assert expected in next(line for line in rendered.splitlines() if "soonest exhaust:" in line)
-    header = next(line for line in rendered.splitlines() if "EXHAUST-IN" in line)
-    row = next(line for line in rendered.splitlines()[3:] if "5h" in line)  # after the verdict, the title and the rule
+    lines = rendered.splitlines()
+    at = next(i for i, line in enumerate(lines) if "EXHAUST-IN" in line)
+    header, row = lines[at], next(line for line in lines[at + 1:] if "5h" in line)  # the QUOTA row, not the POOLS one
     assert row[header.index("EXHAUST-IN"):header.index("AGE")].strip() == expected
 
 
@@ -932,9 +898,10 @@ def _frame(remaining, credits=None):
                                              (0.0, "0%"), (0.01, "1%"), (1.0, "100%")])
 def test_less_than_one_percent_is_never_shown_as_zero(remaining, shown):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
-    rows = [ln for ln in render_grouped_frame(_frame(remaining), view="plain", width=100, height=24).splitlines() if ln.startswith("ag ")]
+    plain = render_grouped_frame(_frame(remaining), view="plain", width=100, height=24).splitlines()
+    rows = [ln for ln in plain if ln.startswith("ag ")]  # the QUOTA row (a POOLS row starts with a space)
     assert rows[0].split()[3] == shown
-    assert f"ag G-7D {shown} " in render_grouped_frame(_frame(remaining), view="plain", width=100, height=24).splitlines()[2]
+    assert f"ag G-7D {shown} " in next(ln for ln in plain if "soonest exhaust:" in ln)
     rich = render_grouped_frame(_frame(remaining), view="rich", color=False, width=100, height=24).splitlines()
     pools, detail = [ln.split() for ln in rich if ln.startswith(" ag ")]  # the POOLS row, then the QUOTA details row
     assert pools[5] == shown and detail[5] == shown  # ag G-7D <glyph> <state> <bar> LEFT; ag G-7D <glyph> <state> threat REM

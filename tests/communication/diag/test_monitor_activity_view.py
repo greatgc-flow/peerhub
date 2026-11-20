@@ -117,7 +117,7 @@ def test_compact_frame_order_and_width_with_korean_text(frame, width, unicode_mo
     assert lines[0] == "OK | 3 running | 2 leads | min quota 1% ag 3P-7D low"
     assert lines[1] == "PeerHub Monitor 2026-11-14 23:46Z | DB:env | quota age 10s"
     heads = [line.split()[0] for line in lines if re.match(r"^(RUNNING|RECENT|POOLS|suggest:)", line)]
-    assert heads == ["POOLS", "suggest:", "RUNNING", "RECENT"]  # P21: the quota comes first
+    assert heads == ["POOLS", "suggest:", "RECENT", "RUNNING"]  # #412: the quota first, then what ended, then what runs
     assert lines[2].startswith("POOLS 8 ") and "RUNNING 3 | cc 2 cx 1" in lines
     assert all(_width(line) <= width - 1 for line in lines), screen
     korean = next(line for line in lines if "activity-374-cc" in line or "평가" in line or "?? ??" in line)
@@ -231,11 +231,12 @@ def test_recent_shows_two_rows_state_age_and_note_without_reply(frame):
     data["asks"][3].update(ended_exact=False, age_s=None)
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     recent = section(lines, "RECENT")
-    assert recent[0] == "RECENT 3"
-    assert len(recent) == 3
-    assert recent[1].split()[:3] == ["empty", "?", "ag.standard"]
-    assert "(denied: command)" in recent[1] and recent[1].endswith("denied-postinstall")
-    assert recent[2].split()[:3] == ["ok", "2m", "ag.effort"] and "VERDICT: ALL CLOSED" in recent[2]
+    assert recent[0] == "RECENT 3 (3 running)"
+    assert len(recent) == 4  # #412: newest first, up to five rows
+    assert recent[1].split()[:3] == ["ok", "2m", "ag.effort"] and '"VERDICT: ALL CLOSED' in recent[1]
+    assert recent[2].split()[:3] == ["empty", "?", "ag.standard"]
+    assert recent[2].endswith("(denied: command)") and "denied-postinstall" in recent[2]
+    assert recent[3].split()[:3] == ["ok", "33m", "cc.fable"]
 
 
 def test_an_overdue_row_past_the_alert_window_is_an_ended_row(frame):
@@ -247,7 +248,7 @@ def test_an_overdue_row_past_the_alert_window_is_an_ended_row(frame):
     frame["groups"]["activity"]["data"]["counts"]["running"] = 3  # what the read model counts
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     assert not any("late-one" in line for line in section(lines, "RUNNING"))
-    assert section(lines, "RECENT")[0] == "RECENT 4"
+    assert section(lines, "RECENT")[0] == "RECENT 4 (3 running)"
 
 
 def test_request_line_is_at_most_60_characters(frame):
@@ -366,7 +367,7 @@ def test_attn_carries_a_question_mark_when_a_source_was_not_read(frame, sources,
     assert lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))[0].startswith(head)
     expanded = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=120, expand=True))
     alerts = expanded[next(i for i, line in enumerate(expanded) if "ALERTS 1" in line):]
-    alerts = alerts[1:next(i for i, line in enumerate(alerts) if i and line.startswith("-- "))]
+    alerts = alerts[1:next(i for i, line in enumerate(alerts) if i and line.startswith(("-- ", "LEADS ")))]  # #412: LEADS follows
     reasons = {"not_selected": "not selected", "stale": "stale", "error": "read failed",
                "unknown": "unknown (no 7-day pool has a number)"}
     assert alerts[0].startswith("pool_out: cx X-5H")
@@ -462,7 +463,7 @@ def test_pools_cap_at_eight_rows_with_an_overflow_line(frame):
 def test_suggestion_belongs_to_capacity_and_wraps_to_two_lines(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=50))
     start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
-    assert lines[start + 2].startswith("RUNNING") and not lines[start + 1].startswith(("RUNNING", "POOLS"))  # two lines
+    assert lines[start + 2].startswith("RECENT") and not lines[start + 1].startswith(("RECENT", "POOLS"))  # two lines
     assert lines[start - 1].startswith((" ", "+"))  # P21: the suggestion follows the POOLS rows
     frame["selected_groups"] = ["activity"]
     assert "suggest:" not in render_grouped_frame(frame, view="plain", unicode=False, width=100)
@@ -504,15 +505,18 @@ def test_expand_lists_every_field_of_asks_leads_and_alerts(frame):
     lines = lines_of(screen)
     assert lines[0].startswith("ATTN 2 | empty: ag.standard denied-postinstall 3m | facts: ag: version_drift")
     assert lines[1].startswith("PeerHub Monitor")
-    order = [next(i for i, line in enumerate(lines) if marker in line) for marker in ("ALERTS", "ACTIVITY [", "QUOTA [")]
-    assert order == sorted(order)
+    # #412: POOLS, RECENT, RUNNING, ALERTS, LEADS, QUOTA (the plain frame has no ACTIVITY section any more)
+    order = [next(i for i, line in enumerate(lines) if line.startswith(marker))
+             for marker in ("POOLS ", "suggest:", "RECENT ", "RUNNING ", "-- ALERTS", "LEADS ", "-- QUOTA [")]
+    assert order == sorted(order) and "ACTIVITY [" not in screen
     for text in ("empty: ag.standard denied-postinstall | age 3m | high | a1", "facts: ag: version_drift | age - | low | a6",
                  "flag ? (other host)", "state run", "elapsed 16m", "started 2026-11-14 23:30:40Z", "lease left 10m",
                  "profile cx.deepthink", "model model-x", "effort high", "lead QA (cc 9f9f9f9f)", "name review-api",
                  "stream peer:cx:review-api", "tokens in 1,200 out 300",
                  "ask: Review phase four of the interface and every pin it moves (long)",
-                 "state empty", "age 3m", "note denied: command", "reasons caller unreadable",
-                 "reply: VERDICT: ALL CLOSED (C1-C5 100) (long)", "superseded", "name old-one",
+                 # #412: an ended ask is two lines (the note stands in for a missing reply); the superseded ones are counted
+                 "(denied: command)", "RECENT 3 (3 running) | superseded 1",
+                 "reply \"VERDICT: ALL CLOSED (C1-C5 100) (long)\"",
                  "LEADS 2", "PACE=used%-elapsed% pp", "header time is the snapshot time"):
         assert text in flat, text
     # #376: the lead line is longer than the width and wraps between whole fields, so compare without separators

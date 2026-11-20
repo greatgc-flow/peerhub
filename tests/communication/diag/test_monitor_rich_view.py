@@ -87,20 +87,25 @@ def row_counts(lines: list[str]) -> dict[str, int]:
 
 
 @pytest.mark.parametrize("view", ["plain", "rich"])
-def test_the_fit_order_is_unchanged_quota_rows_go_after_recent_leads_and_running_rows(view):
+def test_the_fit_order_rows_shrink_from_the_bottom_up_and_recent_and_pools_stay_longest(view):
     seen: list[dict[str, int]] = []
     for height in range(30, 1, -1):
         screen = plain(full_payload(), height=height) if view == "plain" else strip(rich(full_payload(), height=height))
         assert len(screen.splitlines()) <= height - 1
         seen.append(row_counts(screen.splitlines()))
-    assert seen[0] == {"POOLS": 8, "RUNNING": 4, "LEADS": 2, "RECENT": 1}  # 24 lines: RECENT and LEADS gave rows first (#400: the n/a row is gone, LEADS keeps a second one)
+    # 24 lines (#412): LEADS and RUNNING gave rows first (a removal that creates an overflow line takes two rows), RECENT
+    # keeps three of its four (#400: the n/a pool row is gone)
+    assert seen[0] == {"POOLS": 8, "RUNNING": 2, "LEADS": 1, "RECENT": 3}
     for before, after in zip(seen, seen[1:]):
         assert all(after.get(key, 0) <= count for key, count in before.items())
     first_cut = next(counts for counts in seen if counts.get("POOLS", 0) < 8)
-    # POOLS is printed first but still gives rows after RECENT (down to one), LEADS (down to one) and RUNNING (to three)
-    assert first_cut["RECENT"] == 1 and first_cut["LEADS"] == 1 and first_cut["RUNNING"] <= 3 and first_cut["POOLS"] >= 4
-    gone = next(counts for counts in seen if "POOLS" not in counts)
-    assert "RECENT" not in gone and "LEADS" not in gone  # their heads leave before the POOLS head
+    # POOLS is printed first but still gives rows after LEADS (down to one), RUNNING (to three) and RECENT (to three)
+    assert first_cut["LEADS"] == 1 and first_cut["RUNNING"] <= 3 and first_cut["RECENT"] <= 3 and first_cut["POOLS"] >= 4
+    no_leads = next(counts for counts in seen if "LEADS" not in counts)
+    no_recent = next(counts for counts in seen if "RECENT" not in counts)
+    assert "RECENT" in no_leads and "POOLS" in no_recent  # LEADS leaves first, RECENT before the POOLS head
+    assert all(counts.get("RECENT", 1) >= 1 for counts in seen if "POOLS" in counts and counts.get("LEADS", 0) == 0
+               and "RECENT" in counts)  # RECENT keeps its header and a row to the end
 
 
 # ---- C2: a rule replaces its head and never adds a line --------------------------------------------------------------
@@ -136,7 +141,8 @@ def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
 
 
 @pytest.mark.parametrize("head", ["RUNNING 4 · ag 1 cc 2 cx 1",
-                                  "LEADS 4 entries · partial (1 unreadable, 2 not read) · 3 sessions found", "RECENT 4"])
+                                  "LEADS 4 entries · partial (1 unreadable, 2 not read) · 3 sessions found",
+                                  "RECENT 4 (4 running)"])
 def test_the_other_rules_keep_their_head_content(head):
     line = row_of(strip(rich(full_payload())), head.split(" · ")[0])
     assert line.startswith(f"── {head} ─") and _width(line) == 99
@@ -185,7 +191,7 @@ def test_one_sgr_span_per_run_of_one_colour():
     for line in screen.splitlines():
         assert line.count("\x1b[0m") * 2 == line.count("\x1b["), line  # every span is closed, none is nested
         assert len(SGR.findall(line)) <= 12, line  # no per-cell gradient: a row has a handful of spans
-    bar = row_of(screen, "X-7D")
+    bar = next(line for line in screen.splitlines() if re.search(r"[█░]{20}", strip(line)))
     assert re.search(r"\x1b\[[0-9;]+m[█░]{20}\x1b\[0m", bar)  # the whole bar is one span
 
 
@@ -376,7 +382,9 @@ def test_the_bar_shrinks_then_goes_before_any_data_column_drops():
 
 # ---- RUNNING, LEADS and RECENT rows ----------------------------------------------------------------------------------
 def test_running_rows_start_with_their_state_glyph_and_word():
-    screen = rich(full_payload())
+    payload = full_payload()
+    payload["selected_groups"] = ["activity"]  # the 24 lines hold every RUNNING row without POOLS and its suggestion
+    screen = rich(payload)
     lines = strip(screen).splitlines()
     start = next(i for i, line in enumerate(lines) if rule_head(line) == "RUNNING 4")
     rows = lines[start + 1:start + 5]
@@ -388,7 +396,7 @@ def test_running_rows_start_with_their_state_glyph_and_word():
     assert painted[1].startswith(f" \x1b[{mv.RICH_SGR['bad']}m{U['gone']} gone\x1b[0m")
     assert painted[2].startswith(f" \x1b[{mv.RICH_SGR['warn']}m?\x1b[0m")
     assert painted[3].startswith(f" \x1b[{mv.RICH_SGR['warn']}m! overdue\x1b[0m")
-    ascii_rows = strip(rich(full_payload(), unicode=False)).splitlines()[start + 1:start + 5]
+    ascii_rows = strip(rich(payload, unicode=False)).splitlines()[start + 1:start + 5]
     assert [row.split()[0] for row in ascii_rows] == [">", "x", "?", "!"]
 
 
@@ -643,7 +651,7 @@ def test_a_never_refreshed_store_shows_the_no_evidence_wording_not_a_read_error(
     expanded = render_grouped_frame(payload, view="plain", unicode=False, width=120, expand=True)
     assert "source capacity: no quota evidence" in expanded.splitlines()
     assert "-- QUOTA [OK] | measured remaining -" in expanded and "Quota capacity: no observations" in expanded
-    assert "PeerHub Monitor | OK | " in expanded
+    assert "PeerHub Monitor 2026-11-14 23:46Z | DB:env | quota age ?" in expanded  # #412: the compact title
     for height in (30, 60):
         bounded = render_grouped_frame(payload, view="plain", unicode=False, width=120, height=height, expand=True)
         assert "database read failed" not in bounded and "data unavailable" not in bounded

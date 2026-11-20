@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.extensions import bridge, bridge_claims
+from peerhub.extensions import bridge, bridge_claims, bridge_registry, session_receipts
 from peerhub.extensions import monitor_read_model as mrm
 from tests.communication.harness.core import CoreHarness
 
@@ -38,6 +38,8 @@ def db(tmp_path):
             c.execute(stmt)
         c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
         c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_be_session_call_once ON bridge_evidence(delivery_id) WHERE kind='session_call'")
+        for stmt in (*bridge_registry.DDL, *session_receipts.DDL):  # the tables RECENT's session join reads (#412)
+            c.execute(stmt)
         c.commit()
     return h.db_path
 
@@ -159,7 +161,7 @@ def test_ok_row(db):
     row = asks(db)["s-ok"]
     assert row["state"] == "ok" and row["note"] is None
     assert row["ended_at"] == NOW - 100.0 and row["ended_exact"] is True and row["age_s"] == 100.0
-    assert row["reply_line"] == "VERDICT: OK" and row["tokens"] == {"input": 10, "output": 3}
+    assert row["reply_line"] == "VERDICT: OK" and row["tokens"] == {"input": 10, "output": 3, "cache_read": None, "cache_write": None}
     assert row["alive"] is None and row["lease_left_s"] is None
 
 
@@ -829,6 +831,8 @@ def test_scale_one_scope_with_a_long_delivery_history(tmp_path):
             for stmt in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
                 c.execute(stmt)
             c.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
+            for stmt in (*bridge_registry.DDL, *session_receipts.DDL):
+                c.execute(stmt)
             c.commit()
         return path
 

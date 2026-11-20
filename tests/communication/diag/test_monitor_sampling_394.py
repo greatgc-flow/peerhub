@@ -157,8 +157,8 @@ def test_parent_lower_the_child_shows_the_parent_left_the_nearer_reset_and_the_w
     frame = scoped(.08, .26, parent_reset=19680, child_reset=90000)  # C-7D 8% (low) resets first; F-7D 26% (ok) later
     screen = strip(mv.render_grouped_frame(frame, view=view, expand=expand, unicode=False, width=160))
     rows = cells(screen, "F-7D")
-    pools_shown = view == "rich" or not expand  # the plain --expand frame has QUOTA only
-    assert len(rows) == (2 if view == "rich" and expand else 1)
+    pools_shown = True  # #412: --expand (plain too) has POOLS on top of the QUOTA details
+    assert len(rows) == (2 if expand else 1)
     for row in rows:
         assert "8%" in row and "26%" not in row  # effective left = the lower of the two
         assert "5h28m" in row and not {"1d1h", "1d01h"} & set(row)  # the nearer reset: the parent's

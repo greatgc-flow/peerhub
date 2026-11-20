@@ -6,8 +6,8 @@ import os
 import re
 import sys
 import unicodedata
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, cast
 
@@ -445,14 +445,6 @@ def _section_rule(label: str, width: int, unicode: bool) -> str:
     return _fit(_rule(label, "", width, unicode, False), width, unicode)
 
 
-_FRONT_GROUPS = ("alerts", "activity")  # --expand: every alert, then the activity section, then today's groups
-
-
-def _reorder_groups(group_ids: list[str]) -> list[str]:
-    first = [gid for gid in (*_FRONT_GROUPS, "capacity", "peers") if gid in group_ids]
-    return first + [gid for gid in group_ids if gid not in first]
-
-
 def _sample_note(gid: str, data: dict[str, Any]) -> str:
     """`sample N/M` for a section that read a capped sample (M = the total, when the read model counted it)."""
     if gid not in {"execution", "sessions", "usage", "context"} or not data.get("truncated"):
@@ -533,17 +525,6 @@ def _estimate(context: dict[str, Any], now: float | None) -> str | None:
         return None
     at = _number(context.get("observed_at"))
     return f"{percent:.0f}% est, " + ("age ?" if at is None or now is None else f"{_compact_age(max(0.0, now - at))} ago")
-
-
-def _session_contexts(groups: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
-    """The context of the newest session (highest generation) of each stream and peer: what an ended ask of that
-    stream and peer is joined to. Ask rows carry no context of their own."""
-    newest: dict[tuple[str, str], dict[str, Any]] = {}
-    for item in _items(_obj(_obj(groups.get("sessions")).get("data")).get("items")):
-        key = (str(item.get("stream_id")), str(item.get("peer_id")))
-        if key not in newest or (_number(item.get("generation")) or 0) > (_number(newest[key].get("generation")) or 0):
-            newest[key] = item
-    return {key: _obj(_obj(item.get("telemetry")).get("context")) for key, item in newest.items()}
 
 
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
@@ -1129,10 +1110,6 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
         if not rows:
             rows.append("none")
 
-    elif group_id == "activity":
-        rows.extend(_activity_rows(data, max(1, width - 2), unicode, keep,
-                                   None if read_at is None else read_at + elapsed_seconds))
-
     else:
         # Keep future fields visible without exposing a JSON-shaped dump.
         rows.extend(_fallback_rows(data))
@@ -1168,11 +1145,9 @@ def _pack(fields: Sequence[str], width: int, sep: str = " | ") -> list[str]:
     return lines + ([line] if line else [])
 
 
-def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = None,
-                context: str | None = None) -> list[str]:
+def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = None) -> list[str]:
     """Every field of one ask row (#374 C): the expand view hides nothing the read model gives. Text is made plain-view
-    safe here, before packing, so a replaced character can never widen a packed line (A5). `context` is the estimate
-    of the session an ended ask is joined to (`2% est, 3m ago`), after the tokens."""
+    safe here, before packing, so a replaced character can never widen a packed line (A5)."""
 
     def txt(value: object, empty: str = "?") -> str:
         return _cell(value, unicode, empty, keep)
@@ -1207,8 +1182,6 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
                f"lead {txt(lead.get('label'))} ({txt(lead.get('tool'))} {txt(lead.get('id'))})" if lead else "lead none",
                f"name {txt(row.get('name'))}", f"stream {txt(row.get('stream'))}",
                f"tokens in {_count(tokens.get('input'))} out {_count(tokens.get('output'))}" if tokens else "tokens ?"]
-    if context:
-        fields.append(f"ctx {context}")
     if row.get("note"):
         fields.append(f"note {txt(row['note'])}")
     reasons = [txt(reason) for reason in cast(list[object], row.get("reasons") or []) if reason]
@@ -1218,19 +1191,18 @@ def _ask_fields(row: dict[str, Any], unicode: bool = True, keep: str | None = No
 
 
 def _ask_lines(row: dict[str, Any], fields_width: int, text_width: int, unicode: bool = True, keep: str | None = None,
-               context: str | None = None, sep: str = " | ") -> list[str]:
+               sep: str = " | ") -> list[str]:
     """One ask without a mark: its fields packed to `fields_width`, then its reply (an ended ask) and its ask text
     wrapped to `text_width`."""
-    lines = _pack(_ask_fields(row, unicode, keep, context), max(1, fields_width), sep)
+    lines = _pack(_ask_fields(row, unicode, keep), max(1, fields_width), sep)
     texts = [] if _is_open(row) else [("reply", row.get("reply_line_long"))]
     for label, text in [*texts, ("ask", row.get("ask_line_long"))]:
         lines.extend(_compact_wrap(f"{label}: {_cell(text, unicode, '-', keep)}", max(1, text_width)))
     return lines
 
 
-def _ask_rows(row: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None,
-              context: str | None = None) -> list[str]:
-    lines = _ask_lines(row, width - 2, width, unicode, keep, context)
+def _ask_rows(row: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None) -> list[str]:
+    lines = _ask_lines(row, width - 2, width, unicode, keep)
     lines[0] = "- " + lines[0]  # marks where each ask starts; continuation lines carry no mark
     return lines
 
@@ -1291,26 +1263,214 @@ def _lead_rows(lead: dict[str, Any], now: float | None, width: int, unicode: boo
     return rows
 
 
-def _recent_asks(data: dict[str, Any], now: float | None) -> tuple[str, list[tuple[dict[str, Any], str | None]]]:
-    """The RECENT head, and its rows (the 20 newest ended asks, then the superseded ones), each with the estimate it
-    shows. The newest ended ask of a stream and peer shows the estimated context of that stream's and peer's newest
-    session (`_session_contexts`, #376 P2) when that ask produced it: the estimate was read at or after the ask's
-    start (both times come from the one clock of the store's writer). An ask that never started or ended without a
-    reading, an earlier ended ask of the same stream and peer and a superseded ask never show it."""
-    contexts = dict(cast(dict[tuple[str, str], dict[str, Any]], data.get("_session_contexts") or {}))  # used up below
-    _, ended, superseded = _ask_split(data)
-    newest = sorted(ended, key=lambda row: -(_number(row.get("ended_at")) or 0.0))[:RECENT_EXPAND]
-    head = f"RECENT {len(ended)}" + (f" (newest {RECENT_EXPAND} shown)" if len(ended) > RECENT_EXPAND else "")
+def _recent_ended(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """The finished asks of RECENT, newest first by their end; a running ask and a superseded one are never in it, and an
+    ask without a known end goes last."""
+    return sorted(_ask_split(data)[1],
+                  key=lambda row: (_number(row.get("ended_at")) is None, -(_number(row.get("ended_at")) or 0.0)))
+
+
+def _recent_head(data: dict[str, Any], ended: list[dict[str, Any]], *, superseded: bool = False) -> str:
+    """`RECENT 130 (2 running)`: the finished asks, and how many more run (they are listed under RUNNING). The detail
+    frames add the superseded asks, which the read model counts and does not list."""
+    head = f"RECENT {len(ended)} ({_running_head(data, _ask_split(data)[0], True)[1]} running)"
     omitted = _number(data.get("superseded_omitted")) or 0
-    if superseded or omitted:
-        head += f" | superseded {len(superseded)}" + (f" (+{int(omitted)} not read)" if omitted else "")
-    rows: list[tuple[dict[str, Any], str | None]] = []
-    for row in newest:  # newest first, so the first row of a stream and peer is its newest ended ask
-        context = contexts.pop((str(row.get("stream")), str(row.get("peer"))), None) or {}
-        started, read = _number(row.get("started_at")), _number(context.get("observed_at"))
-        own = started is not None and read is not None and read >= started
-        rows.append((row, _estimate(context, now) if own else None))
-    return head, [*rows, *((row, None) for row in superseded)]
+    replaced = len(_ask_split(data)[2])
+    if superseded and (replaced or omitted):
+        head += f" | superseded {replaced}" + (f" (+{int(omitted)} not read)" if omitted else "")
+    return head
+
+
+def _kilo(value: object) -> str | None:
+    """A token count as `850`, `62k`, `1M`, `1.2M`; None when it is not a count."""
+    number = _number(value)
+    if number is None or number < 0:
+        return None
+    count = int(number)
+    if count < 1000:
+        return str(count)
+    if count < 999_500:
+        return f"{round(count / 1000)}k"
+    return f"{count / 1_000_000:.1f}".removesuffix(".0") + "M"
+
+
+def _whole(value: object, high: float | None = None) -> int | None:
+    number = _number(value)
+    return int(number) if number is not None and number >= 0 and (high is None or number <= high) else None
+
+
+def _recent_facts(row: dict[str, Any]) -> dict[str, Any]:
+    """What a RECENT row shows beyond the ask's own fields (None where it is not known: never 0). The session values are
+    those of the stream's newest session now; the context is the cc adapter's estimate, so cx, ag and every other peer
+    show none (and a lead's context is never used). The cache share is the cache-read tokens of the ask's input."""
+    session = _obj(row.get("session"))
+    mode_raw = session.get("execution_mode")
+    context = _obj(session.get("context"))
+    provider = session.get("provider") or row.get("peer")  # the runtime of the session; a peer id may be anything
+    usable = provider == "cc" and context.get("state") in {"ESTIMATED", "MEASURED"}
+    tokens = _obj(row.get("tokens"))
+    read, total = _whole(tokens.get("cache_read")), _whole(tokens.get("input"))
+    return {"mode": "R" if mode_raw in {"reused", "reuse", "resume"} else "F" if mode_raw == "fresh" else None,
+            "uses": _whole(session.get("uses")), "generation": _whole(session.get("generation")),
+            "ctx_tokens": _whole(context.get("occupancy_tokens")) if usable else None,
+            "ctx_window": _whole(context.get("window_tokens")) if usable else None,
+            "ctx_pct": _whole(context.get("percent"), 100) if usable else None,
+            "input": total, "output": _whole(tokens.get("output")), "cache_read": read,
+            "cache_write": _whole(tokens.get("cache_write")),
+            "cache_pct": (int(read / total * 100 + 0.5) if read is not None and total and read <= total else None)}
+
+
+NAME_CAP = 24
+_RECENT_DROPS = (("cache",), ("lead",), ("mode", "uses"), ("ctx",))  # the order narrow widths drop columns in
+
+
+def _recent_compact(ended: list[dict[str, Any]], width: int, unicode: bool, keep: str | None, *, rich: bool = False,
+                    paint: bool = False, limit: int | None = None) -> list[str]:
+    """The compact RECENT rows (the first `limit`, RECENT_CAP by default, of `ended`):
+    `ok 3m cc.effort lead7 s-ab12 R u3 62k/6% c91% "reply snippet"`: state, age since the end, profile, lead, name,
+    R resume | F fresh, `u<uses>`, context, cache-read share, the reply. A narrow width drops the cache share, then the
+    lead, then the mode with the uses, then the context; the name and the reply stay, and the reply is cut by cell width.
+    The rich view puts a state dot before the state when that costs no column."""
+    glyphs = RICH_GLYPHS[unicode]
+
+    def cell(value: object) -> str:
+        return _cell(value, unicode, "-", keep)
+
+    shown = ended[:limit or RECENT_CAP]
+    table: list[dict[str, str]] = []
+    for row in shown:
+        facts = _recent_facts(row)
+        tokens, pct = _kilo(facts["ctx_tokens"]), facts["ctx_pct"]
+        ctx = f"{tokens}/{pct}%" if tokens and pct is not None else tokens or (f"{pct}%" if pct is not None else "-")
+        table.append({
+            "state": cell(row.get("state")),
+            "age": _compact_age(_number(row.get("age_s"))) if row.get("ended_exact") else "?",
+            "profile": cell(row.get("profile") or row.get("peer")),
+            "lead": _short(cell(_obj(row.get("lead")).get("label")), LEAD_LABEL_COLS, unicode),
+            "name": _short(cell(row.get("name")), NAME_CAP, unicode),
+            "mode": facts["mode"] or "-", "uses": "-" if facts["uses"] is None else f"u{facts['uses']}",
+            "ctx": ctx, "cache": "-" if facts["cache_pct"] is None else f"c{facts['cache_pct']}%"})
+    replies = [(_short(cell(_recent_text(row)), REQUEST_CAP, unicode), bool(row.get("reply_line"))) for row in shown]
+    order = ["state", "age", "profile", "lead", "name", "mode", "uses", "ctx", "cache"]
+    floor = min(24, max(_width(text) + (2 if quoted else 0) for text, quoted in replies))  # what the reply is given first
+
+    def room(columns: list[str], dot: int) -> int:
+        fixed = sum(max(_width(cells[name]) for cells in table) + (dot if name == "state" else 0) + 2 for name in columns)
+        return width - 1 - fixed
+
+    def select(dot: int) -> list[str]:
+        gone: set[str] = set()
+        for step in range(len(_RECENT_DROPS) + 1):
+            columns = [name for name in order if name not in gone]
+            if room(columns, dot) >= floor or step == len(_RECENT_DROPS):
+                return columns
+            gone.update(_RECENT_DROPS[step])
+        return order  # pragma: no cover - the loop always returns
+
+    columns = select(0)
+    dotted = rich and len(select(2)) >= len(columns)
+    if dotted:
+        columns = select(2)
+    left = room(columns, 2 if dotted else 0)
+    need = min(10, max(_width(text) + (2 if quoted else 0) for text, quoted in replies))
+    for name in ("name", "profile"):  # nothing is left to drop: the name, then the profile, give up cells to the reply
+        if left >= need:
+            break
+        widest = max(_width(fields[name]) for fields in table)
+        cap = max(8, widest - (need - left))
+        if cap < widest:
+            for fields in table:
+                fields[name] = _fit(fields[name], cap, unicode)
+            left = room(columns, 2 if dotted else 0)
+    left = max(1, left)
+    cells: list[list[str]] = []
+    for fields, (text, quoted) in zip(table, replies):
+        reply = f'"{_fit(text, max(1, left - 2), unicode)}"' if quoted and left >= 3 else _fit(text, left, unicode)
+        row = [fields[name] for name in columns]
+        if dotted:
+            row[0] = f"{glyphs['dot']} {row[0]}"
+        cells.append([*row, reply])
+    colours = [_RECENT_COLOURS.get(str(row.get("state")), "bad") for row in shown]
+    painter = _column_painter(0, colours) if dotted and paint else None
+    return [" " + line for line in _table(cells, width - 1, unicode, right=(1,), elastic=len(columns), paint=painter)]
+
+
+def _duration(seconds: object) -> str:
+    """An elapsed time with its seconds: `45s`, `3m12s`, `1h02m`, `2d03h`; `?` when unknown."""
+    number = _number(seconds)
+    if number is None or number < 0:
+        return "?"
+    total = int(number)
+    if total < 60:
+        return f"{total}s"
+    if total < 3600:
+        return f"{total // 60}m{total % 60:02d}s"
+    if total < 86400:
+        return f"{total // 3600}h{total % 3600 // 60:02d}m"
+    return f"{total // 86400}d{total % 86400 // 3600:02d}h"
+
+
+def _recent_entry(row: dict[str, Any], width: int, unicode: bool, keep: str | None, sep: str = " | ") -> list[str]:
+    """One RECENT entry of --expand, two lines (each at most `width` cells; the session values are those of now):
+    `ok 14:02-14:05 (3m12s) cc/opus-4 [high] lead7 s-ab12 gen2 R u3 ctx 62k/1M 6% now` and
+    `in 41k out 2k cache r38k w3k 91% | ask "..." -> reply "..."`. `sep` is the view's separator (the rich view's
+    dot), the one between the tokens and the texts."""
+    facts = _recent_facts(row)
+
+    def cell(value: object) -> str:
+        return _cell(value, unicode, "-", keep)
+
+    model = re.sub(r"^claude-", "", _clean(row.get("model") or ""))
+    peer = cell(row.get("peer"))
+    who = f"{peer}/{cell(model or None)}" + (f" [{cell(row.get('effort'))}]" if row.get("effort") else "")
+    tokens, window, pct = _kilo(facts["ctx_tokens"]), _kilo(facts["ctx_window"]), facts["ctx_pct"]
+    ctx = "-" if tokens is None and pct is None else " ".join(
+        part for part in (f"{tokens}/{window}" if tokens and window else tokens, f"{pct}%" if pct is not None else None)
+        if part)
+    joined = any(facts[key] is not None for key in ("mode", "uses", "generation")) or ctx != "-"
+    first = " ".join([
+        cell(row.get("state")), f"{_clock(row.get('started_at'), '%H:%M')}-{_clock(row.get('ended_at'), '%H:%M')}",
+        f"({_duration(row.get('elapsed_s'))})", who, cell(_obj(row.get("lead")).get("label")), cell(row.get("name")),
+        "gen-" if facts["generation"] is None else f"gen{facts['generation']}", facts["mode"] or "-",
+        "u-" if facts["uses"] is None else f"u{facts['uses']}", f"ctx {ctx}", *(["now"] if joined else [])])
+    cache = [part for part in (None if facts["cache_read"] is None else f"r{_kilo(facts['cache_read'])}",
+                               None if facts["cache_write"] is None else f"w{_kilo(facts['cache_write'])}",
+                               None if facts["cache_pct"] is None else f"{facts['cache_pct']}%") if part]
+
+    def count(key: str) -> str:
+        return _kilo(facts[key]) or "-"
+
+    prefix = f"in {count('input')} out {count('output')} cache {' '.join(cache) or '-'}{sep}"
+    ask = row.get("ask_line_long") or row.get("ask_line")
+    said = row.get("reply_line_long") or row.get("reply_line")  # a note stands in for a reply that was never written
+    reply = said or (f"({_clean(row['note'])})" if row.get("note") else None)
+    texts = [cell(ask), cell(reply)]
+    room = max(2, width - _width(prefix) - _width('ask "" -> reply ""'))
+    if sum(_width(text) for text in texts) > room:  # the shorter text keeps what it needs; the other takes the rest
+        half = room // 2
+        short, long = sorted(range(2), key=lambda i: _width(texts[i]))
+        if _width(texts[short]) <= half:
+            texts[long] = _fit(texts[long], max(1, room - _width(texts[short])), unicode)
+        else:
+            texts = [_fit(texts[0], max(1, half), unicode), _fit(texts[1], max(1, room - half), unicode)]
+    quote = [f'"{text}"' if value else text for text, value in zip(texts, (ask, said))]
+    second = f"{prefix}ask {quote[0]} -> reply {quote[1]}"
+    return [_fit(first, width, unicode), _fit(second, width, unicode)]
+
+
+def _recent_expand_lines(ended: list[dict[str, Any]], width: int, unicode: bool, keep: str | None, *, rich: bool = False,
+                         paint: bool = False) -> list[str]:
+    """The RECENT entries of the --expand frame (RECENT_EXPAND at most), two lines each, one cell in: the first line
+    starts with the state dot (the second is three cells in), as the entries of RUNNING do."""
+    glyphs = RICH_GLYPHS[unicode]
+    lines: list[str] = []
+    for row in ended[:RECENT_EXPAND]:
+        first, second = _recent_entry(row, max(1, width - 3), unicode, keep, f" {glyphs['sep']} " if rich else " | ")
+        mark = glyphs["dot"] if rich else ""
+        if mark and paint:
+            mark = _paint(mark, RICH_SGR[_RECENT_COLOURS.get(str(row.get("state")), "bad")])
+        lines.extend([" " + (f"{mark} " if mark else "") + first, "   " + second])
+    return lines
 
 
 def _activity_notes(data: dict[str, Any], width: int, sep: str = " | ") -> list[str]:
@@ -1321,27 +1481,6 @@ def _activity_notes(data: dict[str, Any], width: int, sep: str = " | ") -> list[
                            f"superseded not read {_count(data.get('superseded_omitted'))}"], width, sep))
     if data.get("reason"):
         rows.extend(_pack([f"workspace generation: {_clean(data['reason'])}"], width, sep))
-    return rows
-
-
-def _activity_rows(data: dict[str, Any], width: int, unicode: bool = True, keep: str | None = None,
-                   now: float | None = None) -> list[str]:
-    """The plain view's ACTIVITY block: RUNNING (every row), RECENT (`_recent_asks`), LEADS: every field. A running
-    ask never shows an estimated context."""
-    running, _, _ = _ask_split(data)
-    head, _ = _running_head(data, running, unicode, keep)
-    rows = [head]
-    for row in running:
-        rows.extend(_ask_rows(row, width, unicode, keep))
-    recent, ended = _recent_asks(data, now)
-    rows.append(recent)
-    for row, context in ended:
-        rows.extend(_ask_rows(row, width, unicode, keep, context))
-    leads = _items(data.get("leads"))
-    rows.append(_leads_header(data, leads))
-    for lead in leads:
-        rows.extend(_lead_rows(lead, now, width, unicode, keep))
-    rows.extend(_activity_notes(data, width))
     return rows
 
 
@@ -1377,21 +1516,6 @@ def _safe_refresh_warning_labels(value: object) -> list[str]:
     return labels
 
 
-def _priority(group: dict[str, Any]) -> int:
-    status = str(group.get("status") or "UNKNOWN").upper()
-    if status in {"ERROR", "FAILED"}:
-        return 0
-    if status in {"UNAVAILABLE", "NOT_AVAILABLE"}:
-        return 1
-    if status in {"STALE", "PARTIAL", "UNKNOWN"}:
-        return 2
-    if _group_has_uncertain_measurement(_obj(group.get("data")), depth=0):
-        return 2
-    if status == "OK":
-        return 3
-    return 2
-
-
 def _group_has_uncertain_measurement(value: object, *, depth: int) -> bool:
     if depth >= 4:
         return False
@@ -1423,62 +1547,6 @@ def _fallback_rows(data: dict[str, Any], prefix: str = "", depth: int = 0) -> li
         else:
             rows.append(f"{label}: {_clean(value)}")
     return [row for row in rows if not row.startswith("Coverage:")] or ["No data"]
-
-
-def _render_unbounded_frame(payload: dict[str, Any], *, view: str,
-                            unicode: bool, width: int, expand: bool = False, keep: str | None = None) -> str:
-    """Keep the append-only pipe/plain layout stable; it is not a TTY viewport."""
-    target_width = max(0, width - 1)
-    if target_width == 0:
-        return ""
-    if target_width < 19:
-        return _fit("Narrow; use >=20 columns", target_width, unicode) + "\n"
-    selected = payload.get("selected_groups")
-    raw_group_ids = [str(g) for g in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
-    groups = _obj(payload.get("groups"))
-    if not raw_group_ids:
-        raw_group_ids = [str(g) for g in groups.keys()]
-    group_ids = _reorder_groups(raw_group_ids)
-
-    status_label = _clean(payload.get("status") or "UNKNOWN")
-    title = f"PeerHub Monitor | {status_label}"
-    read_at = _number(payload.get("read_at"))
-    next_refresh = _number(payload.get("next_refresh_in"))
-    elapsed_seconds = _number(payload.get("display_elapsed_seconds")) or 0.0
-    refresh_state = _clean(payload.get("refresh_state") or "").upper()
-    if refresh_state:
-        title += f" | {refresh_state}"
-    if next_refresh is not None:
-        title += f" | refresh in {max(0, math.ceil(next_refresh))}s"
-    if target_width < 48:
-        title = f"Monitor {status_label}"
-    elif read_at is not None:
-        try:
-            title += " | " + datetime.fromtimestamp(read_at, timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
-        except (OverflowError, OSError, ValueError):
-            title += " | time unknown"
-
-    lines: list[str] = [_fit(title, target_width, unicode)]
-
-    for group_id in group_ids:
-        group = _obj(groups.get(group_id))
-        status = _clean(group.get("status") or "UNKNOWN").upper()
-        label = _group_label(group_id, group, status, read_at, elapsed_seconds)
-
-        rule = _section_rule(label, target_width, unicode)
-        lines.append(rule)
-
-        group_data, _ = _group_lines(group_id, group, width=target_width, unicode=unicode,
-                                  elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, keep=keep)
-        for content in group_data:
-            if group_id == "capacity":
-                lines.append(_fit(content, target_width, unicode, indent=True))
-            else:
-                lines.append(_fit("  " + content, target_width, unicode))
-
-    if not unicode:  # A5: text the output encoding can show stays; the decoration is ASCII
-        lines = [_ascii(line.replace(" · ", " | ").replace("·", "|"), keep) for line in lines]
-    return "\n".join(lines) + "\n"
 
 
 def _compact_wrap(text: str, width: int) -> list[str]:
@@ -1694,17 +1762,17 @@ def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, An
     return "suggest: " + " ".join(suggestions)
 
 
-# ---- compact frame (#374, P21): line 1 verdict, line 2 header, POOLS, the suggestion, RUNNING, LEADS, RECENT -----------
+# ---- compact frame (#374, P21, #412): line 1 verdict, line 2 header, POOLS, the suggestion, RECENT, RUNNING, LEADS -----
 
 COMPACT_MAX_LINES = 24
 COMPACT_MAX_BYTES = 8192
 RUNNING_CAP = 5
 LEADS_CAP = 3
 LEAD_LABEL_COLS = 16
-RECENT_CAP = 2
+RECENT_CAP = 5
 POOLS_CAP = 8
 REQUEST_CAP = 60
-RECENT_EXPAND = 20
+RECENT_EXPAND = 8
 _WEEK = 7 * 86400
 _ALERT_SOURCES = (("activity", "asks"), ("capacity", "quota"), ("accounts", "accounts"), ("facts", "facts"))
 _SOURCE_PHRASES = {"not_selected": "not read", "error": "read failed", "truncated": "partial", "stale": "stale",
@@ -1888,6 +1956,7 @@ class CompactFrame:
     leads: list[str] | None = None  # [LEADS header, *rows]; None when there is no lead to show and the read was complete
     leads_total: int = 0
     recent: list[str] | None = None  # [RECENT header, *rows]; None when there is no ended ask
+    recent_short: list[str] | None = None  # --expand: the rows of `recent` (entries of two lines) as one line each
     suggest: list[str] = field(default_factory=lambda: list[str]())
     pools: list[str] | None = None  # [POOLS header, *rows]; None when `capacity` is not selected
     pools_total: int = 0
@@ -1923,15 +1992,16 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
                       max_lines: int = COMPACT_MAX_LINES, max_bytes: int = COMPACT_MAX_BYTES,
                       keep: str | None = None) -> str:
     """The one owner of the compact frame's size (#374 H2) and of its order: line 1, line 2 with its lines, POOLS,
-    the suggestion, RUNNING, LEADS, RECENT (P21: the quota comes first; what is cut first is unchanged).
+    the suggestion, RECENT, RUNNING, LEADS (#412: RECENT sits under the quota; --expand has the same order).
 
     Every line is fitted to `width`. While the frame is over the height bound (height - 1 lines), `max_lines` or
-    `max_bytes` (the bytes of the lines as given, SGR codes included), lines go in this single order: RECENT rows from
-    the bottom (down to one), LEADS rows (down to one),
-    RUNNING rows after the third, POOLS rows after the fourth, the second suggestion line, the remaining RUNNING rows,
-    the remaining POOLS rows, the RECENT header with its last row, the LEADS header with its last row, the first
-    suggestion line, the POOLS header, the RUNNING header, line 2 (its attached lines first). Line 1 is the fallback:
-    alone, it is fitted to the byte ceiling; a budget of 0 prints nothing. An overflow line is refitted whenever its
+    `max_bytes` (the bytes of the lines as given, SGR codes included), lines go in this single order, rows first and from
+    the bottom up, then the lower sections: LEADS rows (down to one), RUNNING rows after the third, RECENT rows after the
+    third, POOLS rows after the fourth, the second suggestion line, RUNNING rows (down to one), RECENT rows (down to one:
+    its floor), POOLS rows (down to one), the LEADS header, the remaining RUNNING rows and its header, the first
+    suggestion line, what hangs on line 2 (the title stays). Only a terminal too small for the top of the frame gets
+    further: the POOLS rows, RECENT, the POOLS header, line 2. Line 1 is the fallback: alone, it is fitted to the byte
+    ceiling; a budget of 0 prints nothing. An overflow line is refitted whenever its
     count changes; the removal that creates one removes two rows. A row step with a floor of one or more never leaves a
     header without a row: when those two rows are the last ones, the step does nothing, and the rows leave with their
     header in its own step (#376 A-3).
@@ -1941,7 +2011,8 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
         return ""
 
     def fit(line: str) -> str:
-        return _fit(line if unicode else _ascii(line, keep), width, unicode, painted=True, indent=True)
+        return _fit(line if unicode else _ascii(line.replace(" · ", " | ").replace("·", "|"), keep), width, unicode,
+                    painted=True, indent=True)
 
     def fitted(lines: list[str] | None) -> list[str] | None:
         return None if lines is None else [fit(line) for line in lines]
@@ -1963,7 +2034,7 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
         return [*lines, _overflow(hidden, nouns[key], width, unicode)] if key in totals and hidden > 0 and rows > 0 else lines
 
     def assemble() -> list[str]:
-        return [verdict, *header, *section("pools"), *suggest, *section("running"), *section("leads"), *section("recent")]
+        return [verdict, *header, *section("pools"), *suggest, *section("recent"), *section("running"), *section("leads")]
 
     def pop_rows(key: str, floor: int) -> bool:
         lines = parts[key]
@@ -1991,19 +2062,24 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
         lines.pop()
         return True
 
-    steps: list[Callable[[], bool]] = [
-        lambda: pop_line(parts["recent"], 2),
+    steps: list[Callable[[], bool]] = [  # rows shrink first, from the bottom up, then the lower sections go
         lambda: pop_rows("leads", 1),
         lambda: pop_rows("running", 3),
+        lambda: pop_line(parts["recent"], 4),  # the header and three rows
         lambda: pop_rows("pools", 4),
         lambda: pop_line(suggest, 1),
+        lambda: pop_rows("running", 1),
+        lambda: pop_line(parts["recent"], 2),  # the header and one row: the floor of RECENT
+        lambda: pop_rows("pools", 1),
+        lambda: drop("leads"),
         lambda: pop_rows("running", 0),
+        lambda: drop("running"),
+        lambda: pop_line(suggest, 0),
+        lambda: pop_line(header, 1),  # what hangs on the title line; the title stays
+        # only a terminal too small for the top of the frame gets to these
         lambda: pop_rows("pools", 0),
         lambda: drop("recent"),
-        lambda: drop("leads"),
-        lambda: pop_line(suggest, 0),
         lambda: drop("pools"),
-        lambda: drop("running"),
         lambda: pop_line(header, 0),
     ]
     while True:
@@ -2121,9 +2197,10 @@ def _column_painter(column: int, colours: Sequence[str | None]) -> Callable[[int
 
 def _activity_sections(groups: dict[str, Any], width: int, unicode: bool, keep: str | None = None, *,
                        rich: bool = False, paint: bool = False) -> tuple[list[str], int, list[str] | None]:
-    """RUNNING (header and at most five rows, the total before the cap) and RECENT (at most two rows, or None).
-    The rich view (P21) draws each head as a rule, starts a RUNNING row with its state glyph (and the word of a flag)
-    and a RECENT row with a state dot; such a cell is used only when it costs no column."""
+    """RUNNING (header and at most five rows, the total before the cap) and RECENT (`_recent_compact`: at most RECENT_CAP
+    finished asks, newest first, or None). The rich view (P21) draws each head as a rule, starts a RUNNING row with its
+    state glyph (and the word of a flag) and a RECENT row with a state dot; such a cell is used only when it costs no
+    column."""
     def head_line(head: str) -> str:
         return _head_rule(head, width, unicode, paint) if rich else head
 
@@ -2137,7 +2214,7 @@ def _activity_sections(groups: dict[str, Any], width: int, unicode: bool, keep: 
     def cell(value: object) -> str:  # text cells keep what the plain view's encoding can show (A5)
         return _cell(value, unicode, "-", keep)
 
-    running, ended, _ = _ask_split(data)
+    running = _ask_split(data)[0]
     head, total = _running_head(data, running, unicode, keep)
     shown = running[:RUNNING_CAP]
     flags = [_flag(row) for row in shown]
@@ -2156,20 +2233,9 @@ def _activity_sections(groups: dict[str, Any], width: int, unicode: bool, keep: 
             painter = _column_painter(0, [colour for _, _, colour in marks]) if paint else None
     rows = [" " + line for line in _table(table, width - 1, unicode, right=(first,), elastic=first + 3, paint=painter)]
     recent: list[str] | None = None
+    ended = _recent_ended(data)
     if ended:
-        table = [[cell(row.get("state")),
-                  _compact_age(_number(row.get("age_s"))) if row.get("ended_exact") else "?",
-                  cell(row.get("profile") or row.get("peer")), cell(_obj(row.get("lead")).get("label")),
-                  _short(cell(_recent_text(row)), REQUEST_CAP, unicode), cell(row.get("name"))]
-                 for row in ended[:RECENT_CAP]]
-        colours = [_RECENT_COLOURS.get(str(row.get("state")), "bad") for row in ended[:RECENT_CAP]]
-        if rich:
-            dotted = [[f"{glyphs['dot']} {row[0]}", *row[1:]] for row in table]
-            if _columns(dotted, width - 1, 4)[0] >= _columns(table, width - 1, 4)[0]:
-                table = dotted
-        painter = _column_painter(0, colours) if rich and paint else None
-        recent = [head_line(f"RECENT {len(ended)}"),
-                  *(" " + line for line in _table(table, width - 1, unicode, right=(1,), elastic=4, paint=painter))]
+        recent = [head_line(_recent_head(data, ended)), *_recent_compact(ended, width, unicode, keep, rich=rich, paint=paint)]
     return [head_line(head), *rows], total, recent
 
 
@@ -2579,7 +2645,7 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
     same_store = bool(nearest and store.get("path") and os.path.normcase(os.path.abspath(str(nearest))) == os.path.normcase(os.path.abspath(str(store["path"]))))
     read_errors = any(value != "truncated" for value in errors.values())
     if ((not same_store or payload.get("status") in {"FAILED", "ERROR"} or read_errors) and store.get("path")
-            and not expand):  # --expand always names the store, on the line after the top
+            and not expand):  # --expand names the store near the end of the frame (`_expanded_frame`)
         header.extend(_compact_wrap(f"DB: {_clean(store['path'])}", width))
     if payload.get("_store_note") and not expand:  # #338: --db overrides a PEERHUB_DB that points elsewhere
         header.extend(_compact_wrap(str(payload["_store_note"]), width))
@@ -2609,6 +2675,14 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
         frame.running, frame.running_total, frame.recent = _activity_sections(groups, width, unicode, keep,
                                                                                rich=rich, paint=paint)
         frame.leads, frame.leads_total = _leads_section(groups, now + elapsed, width, unicode, keep, rich=rich, paint=paint)
+    elif "activity" in selected_ids and isinstance(_obj(groups.get("activity")).get("data"), Mapping):
+        data = _obj(_obj(groups.get("activity")).get("data"))  # --expand: RECENT is in the top, RUNNING and LEADS follow it
+        ended = _recent_ended(data)
+        if ended:
+            frame.recent = [_head_rule(_recent_head(data, ended, superseded=True), width, unicode, paint) if rich
+                            else _recent_head(data, ended, superseded=True),
+                            *_recent_expand_lines(ended, width, unicode, keep, rich=rich, paint=paint)]
+            frame.recent_short = _recent_compact(ended, width, unicode, keep, rich=rich, paint=paint, limit=RECENT_EXPAND)
     if "capacity" in selected_ids:
         suggestion = _compact_suggestions(configured_profiles, rows)
         frame.suggest = _compact_wrap(suggestion, width) if expand else _suggest_lines(suggestion, width, unicode)
@@ -2694,9 +2768,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
 def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
                          expand: bool = False, keep: str | None = None) -> str:
-    """The --expand frame. The rich view (P23) starts as the compact frame does and goes on with the detail sections
-    (`_rich_expanded_frame`); the plain view keeps the grouped layout and is never painted."""
-    rich = view == "rich"
+    """The --expand frame (`_expanded_frame`): the compact frame's top and the detail sections, rich or plain."""
     groups = _obj(payload.get("groups"))
     selected_raw = payload.get("selected_groups")
     selected = ([str(g) for g in cast(Sequence[Any], selected_raw)]
@@ -2742,9 +2814,6 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
         # #394: the leases decide what runs; the sampled certainty counts of EXECUTION do not
         running_asks = _running_head(_obj(activity.get("data")), _ask_split(_obj(activity.get("data")))[0], True)[1]
         display_groups["execution"] = {**execution, "data": {**_obj(execution.get("data")), "_running_asks": running_asks}}
-    if isinstance(activity.get("data"), Mapping):  # #376 P2: what an ended ask's row is joined to (display data only)
-        display_groups["activity"] = {**activity, "data": {**_obj(activity.get("data")),
-                                                             "_session_contexts": _session_contexts(groups)}}
     # X5: the plan the provider reports is display text only, shown beside the peer's quota in the PEERS block.
     plan_windows: dict[str, tuple[str, list[str]]] = {}
     for obs in _items(data.get("observations")) if payload.get("_show_quota_notes") else []:
@@ -2775,43 +2844,8 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
     drift_peers = sorted({str(reason).split(":")[0] for reason in cast(list[object], report.get("reasons") or [])})
     if drift_peers:
         footer += "; DRIFT:" + ",".join(drift_peers)
-    if rich:
-        return _rich_expanded_frame(payload, display, store_lines, footer, color=color, unicode=unicode, width=width,
-                                    height=height, expand=expand, keep=keep)
-    payload = _with_min_quota(payload, list(pool_rows.values()))
-    verdict = verdict_line(payload, max(1, width - 1), unicode, keep)
-    # #374: the verdict is line 1; the grouped frame below it is laid out for one terminal line less.
-    inner_height = None if height is None else height - 1
-    overhead = 1 + len(store_lines)
-    rendered = _render_grouped_frame(display, view=view, unicode=unicode, width=width,
-                                     height=inner_height, expand=expand, reserved_lines=overhead, keep=keep)
-    if (height is not None and height <= 1) or width <= 1:
-        return ""
-    if inner_height is not None and inner_height - overhead <= 3:
-        tiny = [verdict, *rendered.splitlines()][:max(0, inner_height)]
-        return "\n".join(tiny) + "\n"
-    lines = rendered.splitlines()
-    start = next((i for i, line in enumerate(lines) if "QUOTA [" in line), None)
-    if start is None:
-        start = 0
-    end = next((i for i in range(start + 1, len(lines))
-                if _ANSI.sub("", lines[i]).startswith(("-- ", "── "))
-                or "rows hidden" in lines[i]
-                or lines[i].startswith(("Warning:", "Next:", "+"))), len(lines))
-    legend = "STATE: INSUFF=insufficient projection data; THREAT=exhausts before reset"
-    if (_width(legend) <= width - 1 and (inner_height is None or len(lines) < inner_height - 1 - overhead)
-            and any("PEER" in line and "POOL" in line for line in lines[start:end])):
-        lines.insert(end, legend)
-    lines[1 if lines else 0:1 if lines else 0] = store_lines
-    lines.insert(0, verdict)
-    # The legend moved here from the compact frame (#374). A bounded (live) view ends with the `| more` command that
-    # prints the whole frame, so the legend prints in the unbounded frame only and never displaces data rows.
-    if height is None:
-        lines.extend(part for text in MONITOR_LEGEND for part in _compact_wrap(text, max(1, width - 1)))
-    lines.append(_fit(footer, max(0, width - 1), unicode))
-    if height is not None:
-        lines = lines[:max(0, height - 1)]
-    return "\n".join(lines) + ("\n" if lines else "")
+    return _expanded_frame(payload, display, footer, store_lines, view=view, color=color, unicode=unicode, width=width,
+                           height=height, expand=expand, keep=keep)
 
 
 _ERROR_SOURCES = {  # the reads a group is made of: a group without an error of its own names the first that failed
@@ -2869,9 +2903,10 @@ def _rich_entry(mark: str, lines: Sequence[str]) -> list[str]:
 
 def _rich_activity(group: dict[str, Any], payload: dict[str, Any], now: float | None, width: int, unicode: bool,
                    paint: bool, keep: str | None) -> tuple[list[str], list[str]]:
-    """(RUNNING and LEADS, RECENT) of the rich --expand frame (P23): every ask and every lead with every field, as the
+    """(RUNNING, LEADS) of the rich --expand frame (P23): every running ask and every lead with every field, as the
     plain view lists them, under the compact frame's rules and with its markers: a RUNNING entry starts with the
-    glyph of its flag (► ! × ?), a RECENT entry with a state dot, and a lead's context has its meter."""
+    glyph of its flag (► ! × ?), and a lead's context has its meter. RECENT is not here: it follows POOLS in the top of
+    the frame (`_compact_frame`, #412). What the activity sample left out ends LEADS."""
     glyphs = RICH_GLYPHS[unicode]
     sep = f" {glyphs['sep']} "
     if not isinstance(group.get("data"), Mapping):
@@ -2890,45 +2925,75 @@ def _rich_activity(group: dict[str, Any], payload: dict[str, Any], now: float | 
     for row in running:
         glyph, word, colour = _RUN_MARKS[_flag(row)]
         rows.extend(marked(glyphs.get(glyph) or word.strip()[:1], colour,
-                           _ask_lines(row, inner, inner, unicode, keep, None, sep)))
+                           _ask_lines(row, inner, inner, unicode, keep, sep)))
     front = _rich_section(_running_head(data, running, unicode, keep)[0], rows, width, unicode, paint)
     leads = _items(data.get("leads"))
     rows = []
     for lead in leads:  # a lead has no mark: its label starts the entry
         rows.extend(_rich_entry("", _lead_rows(lead, now, max(1, width - 3), unicode, keep, sep=sep, meter=True,
                                                paint=paint)))
-    front.extend(_rich_section(_leads_header(data, leads), rows, width, unicode, paint))
-    head, ended = _recent_asks(data, now)
-    rows = []
-    for row, context in ended:
-        rows.extend(marked(glyphs["dot"], _RECENT_COLOURS.get(str(row.get("state")), "bad"),
-                           _ask_lines(row, inner, inner, unicode, keep, context, sep)))
     rows.extend(_activity_notes(data, max(1, width - 1), sep))
-    return front, _rich_section(head, rows, width, unicode, paint)
+    return front, _rich_section(_leads_header(data, leads), rows, width, unicode, paint)
 
 
-def _rich_expanded_frame(payload: dict[str, Any], display: dict[str, Any], store_lines: list[str], footer: str, *,
-                         color: bool, unicode: bool, width: int, height: int | None, expand: bool,
-                         keep: str | None) -> str:
-    """The rich --expand frame (P23): the compact frame's top with every pool and the whole suggestion, the store
-    path, then the detail sections in one order: ALERTS, RUNNING, LEADS, QUOTA, PEERS, EXECUTION, SESSIONS, USAGE,
-    CONTEXT, any other group, RECENT. `display` is the payload with the display data of the groups.
+def _plain_activity(group: dict[str, Any], payload: dict[str, Any], now: float | None, width: int, unicode: bool,
+                    keep: str | None) -> tuple[list[str], list[str]]:
+    """(RUNNING, LEADS) of the plain --expand frame: the heads are the compact frame's words, every running ask and every
+    lead has every field (`- ` starts an ask). RECENT is in the top (`_compact_frame`)."""
+    if not isinstance(group.get("data"), Mapping):
+        failed = _clean(group.get("status") or "").upper() in {"ERROR", "FAILED"}
+        why = _group_error(payload, "activity") if failed else "data unavailable"
+        return [f"RUNNING ? | activity {'read failed' if failed else 'not read'}", why], []
+    data = _obj(group.get("data"))
+    running = _ask_split(data)[0]
+    rows = [_running_head(data, running, unicode, keep)[0]]
+    for row in running:
+        rows.extend(_ask_rows(row, width, unicode, keep))
+    leads = _items(data.get("leads"))
+    lead_rows = [_leads_header(data, leads)]
+    for lead in leads:
+        lead_rows.extend(_lead_rows(lead, now, width, unicode, keep))
+    lead_rows.extend(_activity_notes(data, width))
+    return rows, lead_rows
+
+
+_PLAIN_QUOTA_LEGEND = "STATE: INSUFF=insufficient projection data; THREAT=exhausts before reset"
+
+
+def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: str, store_lines: list[str], *,
+                    view: str, color: bool, unicode: bool, width: int, height: int | None, expand: bool,
+                    keep: str | None) -> str:
+    """The --expand frame (P23, #412), rich and plain in one order, the compact frame's top first: line 1, the title,
+    POOLS with every pool, the whole suggestion, RECENT (entries of two lines). Then RUNNING, ALERTS, LEADS, QUOTA, PEERS,
+    EXECUTION, SESSIONS, USAGE, CONTEXT, any other group, and the store (`DB:env (<path>)`, wrapped, never cut) near the
+    end. `display` is the payload with the display data of the groups. The rich view draws the heads as rules and
+    marks the entries; the plain view is ASCII, never painted, and keeps its QUOTA table with the 8-cell bar.
 
     One width rule: every line leaves the terminal's last column free (the compact frame alone stops at 100 columns).
-    The layout does not depend on colour or on the height: a bounded height keeps the frame's own top and ends with
-    the count of the lines it hides and the `| more` command (and the coverage line, when there is room); the legend
-    prints in the unbounded frame only."""
+    A bounded height ends with the count of the lines it hides and the `| more` command (and the coverage line, when
+    there is room). RECENT is allocated before the sections below it: up to 8 entries of two lines when the top with
+    them fits; else its entries become one-line rows, then fewer rows (two at least), the smallest form that fits
+    being the last; the sections below the top take what is left, from the top down, and go from the bottom up. The
+    ATTN line, the title, POOLS, the suggestion and
+    RECENT's header with two rows stay; a terminal too small even for those loses, in this order, the rows of POOLS
+    (down to four), the suggestion and the rest of POOLS (down to one row), and RECENT's second row. The legend prints in
+    the unbounded frame only."""
+    rich = view == "rich"
     target = max(0, width - 1)
     if target <= 0 or (height is not None and height <= 1):
         return ""
-    paint = color and "NO_COLOR" not in os.environ
-    sep = f" {RICH_GLYPHS[unicode]['sep']} "
-    frame = _compact_frame(payload, view="rich", color=color, unicode=unicode, width=target, height=None, keep=keep,
+    paint = color and rich and "NO_COLOR" not in os.environ
+    sep = f" {RICH_GLYPHS[unicode]['sep']} " if rich else " | "
+    frame = _compact_frame(payload, view=view, color=color, unicode=unicode, width=target, height=None, keep=keep,
                            expand=True)
-    # The top is the compact frame's, from its one owner, without the budget of a frame that has to fit a screen.
-    top = fit_compact_frame(frame, width=target, height=None, unicode=unicode, max_lines=sys.maxsize,
-                            max_bytes=sys.maxsize, keep=keep).splitlines()
-    lines = list(store_lines)
+
+    def top_of(shown: CompactFrame) -> list[str]:
+        # The top is the compact frame's, from its one owner, without the budget of a frame that has to fit a screen.
+        return fit_compact_frame(shown, width=target, height=None, unicode=unicode, max_lines=sys.maxsize,
+                                 max_bytes=sys.maxsize, keep=keep).splitlines()
+
+    top = top_of(frame)
+    lines: list[str] = []
     groups = _obj(display.get("groups"))
     selected = cast(list[str], display.get("selected_groups") or [])
     read_at = _number(payload.get("read_at"))
@@ -2936,320 +3001,142 @@ def _rich_expanded_frame(payload: dict[str, Any], display: dict[str, Any], store
     now = None if read_at is None else read_at + elapsed
     pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row  # the rows POOLS draws (see `_render_expanded_frame`)
                  for row in _frame_pools(payload, _frame_consumers(payload))[2]}
-    recent: list[str] = []
+    leads: list[str] = []
+    if "activity" in selected:  # RUNNING follows RECENT; LEADS takes the place of the activity group, after ALERTS
+        if rich:
+            running, leads = _rich_activity(_obj(groups.get("activity")), payload, now, target, unicode, paint, keep)
+        else:
+            running, leads = _plain_activity(_obj(groups.get("activity")), payload, now, target, unicode, keep)
+        lines.extend(running)
     for group_id in [*(gid for gid in _RICH_ORDER if gid in selected), *(gid for gid in selected if gid not in _RICH_ORDER)]:
         group = _obj(groups.get(group_id))
         if group_id == "activity":
-            front, recent = _rich_activity(group, payload, now, target, unicode, paint, keep)
-            lines.extend(front)
+            lines.extend(leads)
             continue
         status = _clean(group.get("status") or "UNKNOWN").upper()
         if group_id == "capacity":  # a group that was not read has no data: it says so, as every other group does
             read = _obj(_obj(payload.get("groups")).get("capacity"))
             group = read if read.get("data") is None else {**group, "data": {**_obj(group.get("data")),
                                                                               "_pool_rows": pool_rows}}
-        rows, _ = _group_lines(group_id, group, width=max(1, target - 1), unicode=unicode, elapsed_seconds=elapsed,
-                               read_at=read_at, expand=expand, color=paint, keep=keep, rich=True)
+        rows, _ = _group_lines(group_id, group, width=max(1, target - 1) if rich else target, unicode=unicode,
+                               elapsed_seconds=elapsed, read_at=read_at, expand=expand, color=paint, keep=keep, rich=rich,
+                               bounded=height is not None and not rich)  # the plain view's rows for a viewport
         if status in {"ERROR", "FAILED"}:
             rows.insert(0, _group_error(payload, group_id))
-        lines.extend(_rich_section(_group_label(group_id, group, status, read_at, elapsed), rows, target, unicode, paint))
-    lines.extend(recent)
+        label = _group_label(group_id, group, status, read_at, elapsed)
+        if rich:
+            lines.extend(_rich_section(label, rows, target, unicode, paint))
+            continue
+        if group_id == "capacity" and _width(_PLAIN_QUOTA_LEGEND) <= target and any(
+                "PEER" in row and "POOL" in row for row in rows):
+            rows.append(_PLAIN_QUOTA_LEGEND)
+        lines.append(_section_rule(label, target, unicode))
+        if height is None:  # the append-only frame cuts a long row; a viewport drops whole trailing fields and says so
+            lines.extend(_fit(row, target, unicode, indent=group_id == "capacity") for row in rows)
+        else:
+            lines.extend(_fit_fields(row, target, unicode, indent=group_id == "capacity") for row in rows)
+    lines.extend(store_lines)  # #412: the store near the end, never between POOLS and RECENT
 
     def fit(line: str) -> str:  # the one exit of every line: the glyph set of the stream, and never past the width
         if not unicode:  # A5: text the output encoding can show stays; the decoration is ASCII
             line = _ascii(line.replace(" · ", " | ").replace("·", "|"), keep)
         return _fit(line, target, unicode, painted=True, indent=True)
 
-    lines = [*top, *(fit(line) for line in lines)]  # the top was fitted by its owner
+    rest = [fit(line) for line in lines]  # the top was fitted by its owner
     footer = fit(footer)
     if height is None:
-        explanations = _rich_legend(sep)
-        if any(row.get("depends_on") for row in pool_rows.values()):
+        explanations: list[str] = _rich_legend(sep) if rich else list(MONITOR_LEGEND)
+        if rich and any(row.get("depends_on") for row in pool_rows.values()):
             explanations.append("blocked=the parent pool is out; a pool under its parent shows the parent's LEFT, PACE and state "
                                 "when the parent has less left, and the nearer of the two resets (own = its own LEFT)")
         legend = [fit(part) for text in explanations for part in _compact_wrap(text, max(1, target))]
-        return "\n".join([*lines, *legend, footer]) + "\n"
+        return "\n".join([*top, *rest, *legend, footer]) + "\n"
     limit = height - 1
-    if len(lines) + 1 <= limit:
-        return "\n".join([*lines, footer]) + "\n"
-    for tail in ([footer], []):  # the coverage line gives way before a line of the frame's top does
-        kept = limit - len(tail) - 1
-        while kept >= 1:
-            while kept > 1 and _is_head(lines[kept - 1]):  # never a head without a row before the hint
+
+    def bounded(head: list[str], floor: int | None = None) -> str | None:
+        """The frame with `head` whole (down to `floor` lines of it, when given) and the sections below it cut to the
+        limit; None when it does not fit."""
+        every = [*head, *rest]
+        keep = len(head) if floor is None else floor
+        if len(every) + 1 <= limit:
+            return "\n".join([*every, footer]) + "\n"
+        for tail in ([footer], []):  # the coverage line gives way before a line of the frame's top does
+            kept = limit - len(tail) - 1
+            while kept >= keep:
+                while kept > max(1, keep) and _is_head(every[kept - 1]):  # never a head without a row before the hint
+                    kept -= 1
+                hint = _hidden_lines(len(every) - kept, 0, target, unicode, expand=True)
+                if kept + len(hint) + len(tail) <= limit:
+                    return "\n".join([*every[:kept], *(fit(line) for line in hint), *tail]) + "\n"
                 kept -= 1
-            hint = _hidden_lines(len(lines) - kept, 0, target, unicode, expand=True)
-            if kept + len(hint) + len(tail) <= limit:
-                return "\n".join([*lines[:kept], *(fit(line) for line in hint), *tail]) + "\n"
-            kept -= 1
-    short = _fit(f"+{len(lines) - 1} --expand | more", target, unicode)
-    return "\n".join([lines[0], short][:limit]) + "\n"
+        return None
+
+    # RECENT is allocated before the sections below it: the richest form whose top still fits with the hint (entries of
+    # two lines, then rows of one line, then fewer rows); those sections get the lines that are left, from the top down.
+    smallest, head = frame, top
+    result = bounded(head)
+    if result is not None:
+        return result
+    for smaller in _recent_ladder(frame):
+        smallest, head = smaller, top_of(smaller)
+        result = bounded(head)
+        if result is not None:
+            return result
+    for smaller in _last_resort(smallest, target, unicode):  # a terminal too small for the protected top
+        smallest, head = smaller, top_of(smaller)
+        result = bounded(head)
+        if result is not None:
+            return result
+    # even that does not fit: its own lines from the first, cut at the bottom, then the hint
+    result = bounded(head, floor=1)
+    if result is not None:
+        return result
+    short = _fit(f"+{len(top) + len(rest) - 1} --expand | more", target, unicode)
+    return "\n".join([top[0], short][:limit]) + "\n"
 
 
-def _render_grouped_frame(payload: dict[str, Any], *, view: str = "rich",
-                         unicode: bool = True, width: int = 100, height: int | None = None,
-                         expand: bool = False, reserved_lines: int = 0, keep: str | None = None) -> str:
-    """Render a cached schema-2 frame; height enables bounded interactive layout."""
-    if height is None:
-        return _render_unbounded_frame(payload, view=view, unicode=unicode, width=width, expand=expand,
-                                       keep=keep)
-    width = max(1, width)
-    height = max(1, height)
-    target_width = width - 1
-    if target_width <= 0 or height <= 1:
-        return ""
-    tiny_height = height if reserved_lines and height - reserved_lines <= 3 else None
-    height = max(3 if tiny_height is not None else 1, height - reserved_lines)
-    max_lines = height - 1
-    refresh_clean = str(payload.get("refresh_state") or "")
-    warning_labels = _safe_refresh_warning_labels(payload.get("refresh_warnings"))
-    stopped_agy = (refresh_clean == "STOPPED · AGY TOKEN USE")
+def _recent_ladder(frame: CompactFrame) -> Iterator[CompactFrame]:
+    """The top of the --expand frame with RECENT smaller each time (#412): the entries of two lines become rows of one
+    line (the compact frame's row), then fewer rows, two at least (or the one there is)."""
+    if not frame.recent or not frame.recent_short:
+        return
+    head, rows = frame.recent[0], frame.recent_short
+    for count in range(len(rows), min(2, len(rows)) - 1, -1):
+        yield replace(frame, recent=[head, *rows[:count]], recent_short=rows[:count])
 
-    def finish(lines: list[str], *, tail: bool) -> str:
-        # One exit for every return path. tail=True appends the agy-stop hint and warnings (frames that end
-        # the normal way); tail=False is for frames that already end with their own omission notice.
-        # Every path then gets the same height cap and ASCII fold, so the steps cannot drift apart.
-        # Reads from the enclosing frame: max_lines, stopped_agy, warning_labels, target_width, unicode.
-        if tail:
-            if stopped_agy and len(lines) < max_lines:
-                lines.append(_fit("Next: --allow-agy-token-use to continue", target_width, unicode))
-            for warning in warning_labels:
-                if len(lines) < max_lines:
-                    lines.append(_fit(f"Warning: {warning}", target_width, unicode))
-        lines = lines[:max_lines]
-        if not unicode:  # A5: text the output encoding can show stays; the decoration is ASCII
-            lines = [_ascii(line.replace(" · ", " | ").replace("·", "|"), keep) for line in lines]
-        return "\n".join(lines) + "\n"
 
-    selected = payload.get("selected_groups")
-    raw_group_ids = [str(g) for g in cast(Sequence[Any], selected)] if isinstance(selected, Sequence) and not isinstance(selected, str) else []
-    groups = _obj(payload.get("groups"))
-    if not raw_group_ids:
-        raw_group_ids = [str(g) for g in groups.keys()]
-    group_ids = _reorder_groups(raw_group_ids)
+def _last_resort(frame: CompactFrame, width: int, unicode: bool) -> Iterator[CompactFrame]:
+    """What a terminal too small for the protected top gives up, one step at a time: the rows of POOLS down to four, the
+    suggestion down to its first line, the rows of POOLS down to one (a pool row that goes is counted on one line,
+    `+N pools`), the rest of the suggestion, and RECENT's second row. The ATTN line, the title, the POOLS header and
+    RECENT's header with a row stay."""
+    pools = len(frame.pools) - 1 if frame.pools else 0
+    suggest = len(frame.suggest)
+    rows = (len(frame.recent) - 1) if frame.recent and frame.recent_short else 0
 
-    if height == 2:
-        hint = "peerhub monitor --snapshot --group capacity --expand" if width >= 64 else "--expand"
-        return finish([_fit(f"+{len(group_ids)} {hint}", target_width, unicode)], tail=False)
+    def variant(p: int, s: int, r: int) -> CompactFrame:
+        shrunk = replace(frame, suggest=frame.suggest[:s])
+        if frame.recent and frame.recent_short:
+            shrunk.recent = [frame.recent[0], *frame.recent[1:1 + r]]
+        if frame.pools and p < pools:
+            shrunk.pools = [*frame.pools[:p + 1], _fit(f"+{pools - p} pools", width, unicode)]
+            shrunk.pools_total = 0  # the line above is the overflow line: the frame adds none of its own
+        return shrunk
 
-    status_label = _clean(payload.get("status") or "UNKNOWN")
-    statuses = [str(_obj(groups.get(gid)).get("status") or "UNKNOWN").upper() for gid in group_ids]
-    errors = sum(s in {"ERROR", "FAILED"} for s in statuses)
-    partial = sum(s in {"PARTIAL", "STALE", "UNKNOWN", "UNAVAILABLE"} for s in statuses)
-    refresh_state = _clean(payload.get("refresh_state") or "").upper()
-    read_at = _number(payload.get("read_at"))
-    next_refresh = _number(payload.get("next_refresh_in"))
-    elapsed_seconds = _number(payload.get("display_elapsed_seconds")) or 0.0
-
-    title_fields_hidden = False
-    if refresh_state or next_refresh is not None:
-        stamp = _utc_text(read_at + elapsed_seconds, "%Y-%m-%d %H:%MZ") if read_at is not None else None
-        details = [status_label, f"{errors} err / {partial} partial" if errors or partial else ""]
-        fitted_title, dropped = _fit_live_title(refresh_state, next_refresh, stamp or "", details, target_width, unicode)
-        title_fields_hidden = dropped and "fields hidden" not in fitted_title
-    else:
-        title = f"PeerHub Monitor | {status_label}"
-        if errors or partial:
-            title += f" | {errors} err {'·' if unicode else '|'} {partial} partial"
-        if width < 48:
-            title = f"Monitor {status_label}"
-            if errors or partial:
-                title += f" E{errors}/P{partial}"
-        elif read_at is not None:
-            stamp = _utc_text(read_at, "%H:%M:%SZ" if width >= 120 else "%Y-%m-%d %H:%M:%SZ")
-            if stamp:
-                title += " | " + stamp
-        fitted_title = _fit_fields(title, target_width, unicode)
-    lines: list[str] = [fitted_title]
-    if title_fields_hidden:
-        lines.append(_fit("Title fields hidden", target_width, unicode))
-
-    extra_overhead = (1 if stopped_agy else 0) + len(warning_labels)
-
-    # Prepare blocks: list of (gid, priority, heading_rule, [content_lines])
-    blocks: list[tuple[str, int, str, list[str]]] = []
-    for gid in group_ids:
-        grp = _obj(groups.get(gid))
-        st = _clean(grp.get("status") or "UNKNOWN").upper()
-        lbl = _group_label(gid, grp, st, read_at, elapsed_seconds)
-        rule = _section_rule(lbl, target_width, unicode)
-        data_rows, table_size = _group_lines(gid, grp, width=target_width, unicode=unicode,
-                                 elapsed_seconds=elapsed_seconds, read_at=read_at, expand=expand, bounded=True,
-                                 keep=keep)
-        if st in {"ERROR", "FAILED"}:
-            data_rows.insert(0, _group_error(payload, gid))
-
-        content_lines: list[str] = []
-        for r in data_rows:
-            if gid == "capacity":
-                content_lines.append(_fit_fields(r, target_width, unicode, indent=True))
-            else:
-                content_lines.append(_fit_fields("  " + r, target_width, unicode))
-        blocks.append((gid, _priority(grp), rule, content_lines))
-        if gid == "capacity" and "peers" in group_ids and st not in {"ERROR", "FAILED"}:
-            if table_size < len(content_lines):
-                blocks[-1] = (gid, _priority(grp), rule, content_lines[:table_size])
-                blocks.append(("capacity_details", _priority(grp),
-                               _section_rule(f"QUOTA [{st}] notes / ACCOUNTS", target_width, unicode),
-                               content_lines[table_size:]))
-
-    peer_count = len(_items(_obj(_obj(groups.get("peers")).get("data")).get("peers")))
-    peer_priority = any(block[0] == "capacity" for block in blocks) and "peers" in group_ids
-
-    def summary_size(block: tuple[str, int, str, list[str]]) -> int:
-        count = max(1, peer_count) if peer_priority and block[0] == "peers" else 3 if block[0] == "usage" else 1
-        return min(count, len(block[3]))
-
-    def minimum(block: tuple[str, int, str, list[str]]) -> int:
-        return 1 + summary_size(block) + int(len(block[3]) > summary_size(block))
-
-    # Peer spacing yields before any data rows, including section details.
-    required = len(lines) + extra_overhead + sum(1 + len(block[3]) for block in blocks)
-    if required > height - 1:
-        blocks = [(gid, priority, rule, [row for row in content if row]) for gid, priority, rule, content in blocks]
-
-    if tiny_height is not None:
-        hidden = sum(len(block[3]) for block in blocks)
-        if tiny_height >= 3 and width >= 60:
-            title = _fit(f"PeerHub Monitor | +{hidden} rows hidden; all rows:", target_width, unicode)
-            hint = "peerhub monitor --snapshot --group all --expand" + (" | more" if expand else "")
-            return finish([title, hint], tail=False)
-        notice = f"+{hidden} rows hidden | --expand"
-        if _width(notice) > target_width:
-            notice = f"+{hidden} --expand"
-        return finish([_fit(notice, target_width, unicode)], tail=False)
-
-    # Quota-first height allocation
-    omitted_quota = 0
-    cap_block = next((b for b in blocks if b[0] == "capacity"), None)
-    other_blocks = [b for b in blocks if b[0] != "capacity"]
-    if peer_priority:
-        order = {"alerts": -2, "activity": -1, "peers": 0, "capacity_details": 1, "execution": 2, "usage": 3, "sessions": 4}
-        other_blocks.sort(key=lambda block: (order.get(block[0], 5), block[1]))
-    front_blocks = [block for block in other_blocks if block[0] in _FRONT_GROUPS]
-
-    # A complete frame needs no omission notice or allocation reserve. This also
-    # lets the separators fit exactly without ever displacing a detail row.
-    if len(lines) + extra_overhead + sum(1 + len(block[3]) for block in blocks) <= max_lines:
-        for block in front_blocks + ([cap_block] if cap_block is not None else []) + [
-                block for block in other_blocks if block not in front_blocks]:
-            lines.append(block[2])
-            lines.extend(block[3])
-        return finish(lines, tail=True)
-    front_at = len(lines)  # alerts and activity print above the quota table even though quota is allocated first
-
-    extra_overhead += len(_hidden_lines(sum(len(block[3]) for block in blocks), len(blocks),
-                                        target_width, unicode, expand=expand)) - 1
-
-    visible_other: list[tuple[str, int, str, list[str]]] = []
-
-    if cap_block is None and len(other_blocks) == 1 and not extra_overhead:
-        content = other_blocks[0][3]
-        budget = max_lines - len(lines)
-        if 2 <= budget < 1 + len(content):
-            shown = budget - 1  # reclaim the heading; reserve one exact omission line
-            lines.extend(content[:shown])
-            lines.extend(_hidden_lines(len(content) - shown, 0, target_width, unicode, expand=expand))
-            return finish(lines, tail=False)
-
-    def allocate_other(budget: int) -> list[tuple[str, int, str, list[str]]]:
-        if peer_priority:
-            visible: list[tuple[str, int, str, list[str]]] = []
-            for block in other_blocks:
-                if minimum(block) > budget - 1:
-                    if not visible and block[0] == "peers" and budget >= 3:
-                        return [block]
-                    break
-                visible.append(block)
-                budget -= minimum(block)
-            return visible
-        # Even when every summary fits, hidden details need a disclosure row.
-        full_size = sum(1 + max(1, len(block[3])) for block in other_blocks)
-        summary_budget = budget - int(full_size > budget)
-        count = max(0, summary_budget // 2)
-        if count >= len(other_blocks):
-            return list(other_blocks)
-        ranked = sorted(other_blocks, key=lambda block: (block[1], other_blocks.index(block)))
-        return ranked[:count]
-
-    if cap_block is not None:
-        cap_rule = cap_block[2]
-        cap_rows = cap_block[3]
-        budget = max_lines - len(lines) - extra_overhead
-        quota_budget = budget - (1 if other_blocks else 0)
-        show_cap_rule = quota_budget >= 1 + len(cap_rows)
-        if not show_cap_rule:
-            cap_status = _clean(_obj(groups.get("capacity")).get("status") or "UNKNOWN").upper()
-            lines[0] = _fit_fields(f"{fitted_title} | QUOTA [{cap_status}]", target_width, unicode)
-        quota_lines_needed = len(cap_rows) + int(show_cap_rule)
-
-        if quota_budget >= quota_lines_needed:
-            # All quota rows fit!
-            if show_cap_rule:
-                lines.append(cap_rule)
-            lines.extend(cap_rows)
-            # Allocate to other blocks
-            rem_budget = max_lines - len(lines) - extra_overhead
-            visible_other = allocate_other(rem_budget)
-        elif budget >= 2:
-            # Partial quota rows fit; lower sections suppressed
-            lines.append(cap_rows[0] if cap_rows else "")  # table header
-            data_cap_rows = cap_rows[1:]
-            can_show = max(0, budget - 2)  # reserve 1 for omission
-            lines.extend(data_cap_rows[:can_show])
-            omitted_quota = len(data_cap_rows) - can_show
-        else:
-            omitted_quota = len(cap_rows)
-    else:
-        # No capacity group, allocate other blocks by severity
-        budget = max_lines - len(lines) - extra_overhead
-        visible_other = allocate_other(budget)
-
-    # Allocate first, then emit each complete block together with its own cut notice.
-    # Reserving a summary and local notice prevents details leaking beneath a later header.
-    available = max(0, max_lines - len(lines) - extra_overhead)
-    while visible_other and sum(minimum(ob) for ob in visible_other) + 1 > available:
-        if len(visible_other) == 1 and available >= 3:
-            break  # the final group's cut notice can share the global disclosure
-        visible_other.pop()
-    counts = [summary_size(ob) for ob in visible_other]
-    if len(counts) == 1:
-        counts[0] = min(counts[0], max(1, available - 2))
-    allocated = sum(1 + shown + int(len(ob[3]) > shown) for ob, shown in zip(visible_other, counts))
-    share_tail_notice = len(visible_other) == 1 and allocated + 1 > available
-    spare = max(0, available - allocated - 1 + int(share_tail_notice))
-    allocation_order = sorted(range(len(visible_other)), key=lambda i:
-                              (visible_other[i][0] == "peers", i)) if peer_priority else range(len(visible_other))
-    for i in allocation_order:
-        ob = visible_other[i]
-        extra = len(ob[3]) - counts[i]
-        # Finishing a block reclaims its local omission notice.
-        reclaim = int(extra > 0 and not share_tail_notice)
-        take = extra if extra <= spare + reclaim else min(extra, spare)
-        counts[i] += take
-        spare -= max(0, take - (reclaim if take == extra else 0))
-
-    omitted_details = 0
-    for ob, shown in zip(visible_other, counts):
-        chunk = [ob[2], *ob[3][:shown]]
-        hidden = len(ob[3]) - shown
-        omitted_details += hidden
-        if hidden:
-            if len(lines) + len(chunk) < max_lines - extra_overhead - 1:
-                chunk.append(_fit(f"  +{hidden} more", target_width, unicode))
-        if ob[0] in _FRONT_GROUPS:
-            lines[front_at:front_at] = chunk
-            front_at += len(chunk)
-        else:
-            lines.extend(chunk)
-
-    omitted_group_rows = sum(len(ob[3]) for ob in other_blocks if ob not in visible_other)
-    omitted_details += omitted_group_rows
-    omitted_blocks = sum(ob[0] != "capacity_details" for ob in other_blocks if ob not in visible_other)
-
-    if omitted_quota or omitted_blocks or omitted_details:
-        hidden_rows = omitted_quota + omitted_details
-        lines.extend(_hidden_lines(hidden_rows, omitted_blocks, target_width, unicode,
-                                   expand=expand, quota=bool(omitted_quota)))
-
-    return finish(lines, tail=True)
+    p, s, r = pools, suggest, rows
+    while p > 4:
+        p -= 1
+        yield variant(p, s, r)
+    while s > 1:
+        s -= 1
+        yield variant(p, s, r)
+    while p > 1:
+        p -= 1
+        yield variant(p, s, r)
+    while s > 0:
+        s -= 1
+        yield variant(p, s, r)
+    while r > 1:
+        r -= 1
+        yield variant(p, s, r)
 
