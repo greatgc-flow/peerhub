@@ -107,7 +107,8 @@ PEERS, `suggest:` and `peerhub diag quota`.
   should use `--view plain` or `PEERHUB_MONITOR_VIEW=plain`.
 
 `suggest:` (under POOLS) is advisory: `suggest: eco=cc.standard normal=cc.effort|cx.effort ...`. `a|b` is the best
-eligible pick and the best eligible alternative from another peer.
+eligible pick and the best eligible alternative from another peer. Like `peerhub suggest`, this line skips profiles
+with `suggest = false` in the effective profile configuration. Profiles are eligible by default if they meet the quota checks.
 
 ## RECENT
 

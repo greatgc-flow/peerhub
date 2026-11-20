@@ -130,8 +130,15 @@ def _legacy_alias_available(version: str | None = None) -> bool:
 
 @lru_cache(maxsize=32)
 def _cached_profiles(workspace: str, fingerprints: tuple[tuple[str, int, int], ...]) -> list[dict[str, Any]]:
-    from peerhub.extensions.adapters.profiles import list_profiles
-    return list_profiles(Path(workspace))
+    from peerhub.extensions.adapters.profiles import META_KEYS, list_profiles
+
+    profiles = list_profiles(Path(workspace), include_meta=True)
+    for profile in profiles:
+        fields = profile["fields"]
+        profile["suggest"] = fields["suggest"]["value"]
+        for key in META_KEYS:
+            fields.pop(key)
+    return profiles
 
 
 def _profile_fingerprints(workspace: Path) -> tuple[tuple[str, int, int], ...]:

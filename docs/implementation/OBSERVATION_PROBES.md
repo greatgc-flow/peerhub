@@ -41,6 +41,8 @@ peerhub monitor [--interval-seconds SECONDS=60] [--cycles N] [--peers cx cc ag] 
 
 - Omitted `--cycles` defaults to one cycle off-TTY and runs until interrupted on a TTY. `--cycles 0` watches until Ctrl-C everywhere (clean exit 0). `--collect-every K` collects every Kth cycle but redraws every cycle.
 - `--json` prints NDJSON (schema 2.0): `{"schema_version": "2.0", "cycle": n, "phase": "initial"|"complete", "refresh": {...} | {"skipped": true}, "snapshot": <grouped monitor object>}`; one `initial` frame, then one `complete` frame per cycle (so the default off-TTY run prints two lines). `--schema-version 1.1` keeps the legacy diag snapshot.
+  The human renderer receives a `configured_profiles` list with a boolean `suggest` per entry (default `true`).
+  Schemas 1.1 and 2.0 serialize snapshots directly from their read models.
 - Exit codes: 0 normal/interrupted; 1 when the agy token-use guard stopped the loop, or the last collection was not OK when the cycle limit ended the run (including the implicit single cycle off-TTY); 2 usage error (nothing is collected, no database is created).
 - Every cycle costs one `/usage` read per peer (no model turn; see the probe table above). Do not set intervals of a few seconds.
 

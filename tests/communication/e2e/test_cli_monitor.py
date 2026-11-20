@@ -1173,7 +1173,11 @@ def test_monitor_forwards_system_dir(tmp_path):
 @pytest.mark.parametrize("extra", [(), ("--json",), ("--json", "--schema-version", "1.1")])
 def test_monitor_refresh_injects_the_same_profile_pools_as_observation_refresh(tmp_path, extra, capsys):
     """P4: monitor's refresh path declares the cx/cc/ag pools exactly like `observation refresh` (one shared helper)."""
-    def profiles(_root):
+    from peerhub.extensions.adapters.profiles import list_profiles
+
+    def profiles(root, *, include_meta=False):
+        if include_meta:
+            return list_profiles(root, include_meta=True)
         return [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
             ("cx.effort", ["X-5H", "X-7D"]), ("cc.fable", ["F-7D"]), ("cc.standard", ["C-5H", "C-7D"]),
             ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]))]

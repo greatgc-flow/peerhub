@@ -1729,6 +1729,8 @@ def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, An
     choices: dict[str, list[tuple[bool, float, str]]] = {tier: [] for tier in ("eco", "normal", "quality", "top")}
     by_pool = {f"{row['peer']}:{row['pool']}": row for row in rows}
     for profile in profiles:
+        if profile.get("suggest") is False:
+            continue
         name = _clean(profile.get("profile") or "")
         peer, _, suffix = name.partition(".")
         pools = cast(list[str], _obj(_obj(profile.get("fields")).get("pools")).get("value") or [])
