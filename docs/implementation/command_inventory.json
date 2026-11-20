@@ -773,6 +773,41 @@
       ]
     },
     {
+      "command": "outcome",
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "ask_id",
+          "flags": [
+            "ask_id"
+          ],
+          "positional": true,
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "outcome",
+          "flags": [
+            "outcome"
+          ],
+          "positional": true,
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
       "command": "peer get",
       "options": [
         {
@@ -878,6 +913,21 @@
       ]
     },
     {
+      "command": "profile check",
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        }
+      ]
+    },
+    {
       "command": "profile list",
       "options": [
         {
@@ -934,6 +984,21 @@
           "positional": true,
           "required": true,
           "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "profile stats",
+      "options": [
+        {
+          "default": "==SUPPRESS==",
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
         }
       ]
     },

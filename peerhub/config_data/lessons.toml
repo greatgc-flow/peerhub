@@ -296,3 +296,11 @@ keywords = ["report", "issue", "issues", "github", "bug"]
 symptom = "Something behaves wrongly and the problem should be filed without leaking secrets."
 fix = "File at github.com/greatgc-flow/peerhub/issues after checking 'gh issue list -R greatgc-flow/peerhub --search KEYWORD'. Include peerhub --version, OS, exact command, status/exit code, and workaround (no secrets/private paths)."
 issue = "0.25.0 plan D5"
+
+[[lessons]]
+id = "ask-metrics"
+title = "Ask receipts, outcomes, and profile measurements"
+keywords = ["receipt", "outcome", "profile stats", "profile check", "measurement", "coverage", "stream budget", "handoff", "query file"]
+symptom = "You want to compare profiles, mark an answer's outcome, or understand an ask receipt or a stream budget warning."
+fix = "Use peerhub profile stats --json for ask counts, coverage by metric, and reported measurements. Mark an answer with peerhub outcome <ask-id> accepted|rejected|retried. Find the ID at the start of the terminal receipt or in requested_record_id in ask JSON. The latest correction wins. A dash in the receipt means the metric was unreported. Set PEERHUB_NO_RECEIPT=1 to silence the receipt. Run peerhub profile check to find stale measurements and model IDs missing from the available Codex or agy catalog. If the stream budget warning appears, start a fresh stream with a handoff covering decisions, open work, and file references. Configure prompt_tokens and resumed_turns in [stream_budget] in models.toml. For an inlined query file over 64 KB, consider sending paths or a diff."
+issue = "0.25.0 plan M2"

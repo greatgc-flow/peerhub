@@ -15,6 +15,10 @@ ag = "1.5.13"
 cc = "2.1.329"
 cx = "0.171.0"
 
+[stream_budget]
+prompt_tokens = 128000
+resumed_turns = 12
+
 [profiles."cx.standard"]
 selection_mode = "pinned"
 model = "gpt-6-luna"

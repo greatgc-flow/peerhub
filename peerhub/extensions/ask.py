@@ -121,7 +121,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False,
         max_bytes: int = 1_000_000, runtime: RuntimeTarget | None = None,
         fresh: bool = False, session: str | None = None,
-        on_output: Callable[[str], None] | None = None) -> dict[str, Any]:
+        on_output: Callable[[str], None] | None = None,
+        on_stream_budget: Callable[[], None] | None = None) -> dict[str, Any]:
     selector = normalize_session_selector(fresh=fresh, session=session)
     if not prompt.strip():
         raise ValueError("prompt must not be empty")
@@ -215,6 +216,13 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     validate_policy: Callable[[], None] | None = getattr(target, "validate_execution_policy", None)
     if callable(validate_policy):
         validate_policy()
+    limits = None
+    if on_stream_budget is not None and not fresh and not getattr(target, "stateless", False):
+        from peerhub.extensions.adapters.profiles import DEFAULT_STREAM_BUDGET, stream_budget
+        try:
+            limits = stream_budget(workspace or Path.cwd())
+        except (OSError, ValueError):
+            limits = DEFAULT_STREAM_BUDGET  # advisory settings cannot prevent an otherwise valid ask
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     lineage = Workspace(Path(db_path).resolve().parent)
     store = CoreStore(db_path)
@@ -232,7 +240,8 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     claims = ClaimStore(db_path, generation=lineage.generation)
     # Runtime events may be silent until completion; keep the claim alive for the bounded run.
     lease_sec = timeout_s + 60
-    bridge = Bridge(store, claims, owner_id=f"ask-{uuid.uuid4().hex}", lease_sec=lease_sec, caller=detect_caller())
+    bridge = Bridge(store, claims, owner_id=f"ask-{uuid.uuid4().hex}", lease_sec=lease_sec, caller=detect_caller(),
+                    stream_budget=limits, on_stream_budget=on_stream_budget)
     token = claims.acquire(peer_id, sid, bridge.owner_id, lease_sec)
     started_at = time.monotonic()
     try:

@@ -121,10 +121,21 @@ peerhub monitor defaults reset   # saved before 0.24.16? reset to get the new `a
 
 # Review with a second provider using a declared profile.
 peerhub ask cc "Explain the Core Peer, Stream, Record and Offset flow" --stream learning --request-id learning-001 --profile cc.standard --json
+
+# Inspect stored profile measurements and installed model catalogs.
+peerhub profile stats --json
+peerhub profile check
+
+# Replace ASK_ID with requested_record_id from ask JSON or the ID in the terminal receipt.
+peerhub outcome ASK_ID accepted
 ```
 
 The two `ask` examples require the corresponding vendor CLI to be installed and
 authenticated, and spend provider quota. See the [adapter guide](docs/adapters/README.md).
+
+`peerhub profile list` includes ask counts and stale flags. `peerhub explain ask-metrics`
+covers usage coverage, outcome corrections, the terminal receipt, and stream budget warnings.
+See [profile measurements and stream budgets](docs/config-hierarchy.md#profile-measurements-and-stream-budgets).
 
 Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`, and the API peers `ca`, `oa` and `ga` (see [API peers](#api-peers-ca-oa-and-ga)). Custom Peer identities can be registered with `peer register --peer worker --adapter cx`.
 

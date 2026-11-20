@@ -5,9 +5,10 @@ Commands (canonical inventory: docs/implementation/command_inventory.json, deriv
   stream create / show / list
   record append / read
   offset get / advance
-  profile list / show   (read-only effective TOML)
+  profile list / show / stats / check (read-only profile policy and measurements)
   session list / show   (read-only, bounded and redacted)
   ask                 (provider execution and durable delivery)
+  outcome             (append a correction to an ask's outcome)
   batch run           (flat bounded-parallel asks)
   account bind / list / show (immutable account-bound peers)
   observation refresh (provider probes and persisted evidence)
@@ -251,6 +252,12 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     profile_show.add_argument("profile")
     profile_show.add_argument("--workspace", type=Path, default=None, help="Workspace whose profile files apply (default: current directory)")
     profile_show.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
+    profile_sub.add_parser("stats", help="Aggregate stored ask measurements by profile")
+    profile_sub.add_parser("check", help="Check installed model IDs and measurement age")
+
+    outcome = subparsers.add_parser("outcome", help="Append an outcome correction to a stored ask")
+    outcome.add_argument("ask_id", help="Ask ID from the receipt or requested_record_id in ask JSON")
+    outcome.add_argument("outcome", choices=["accepted", "rejected", "retried"])
 
     session_parser = subparsers.add_parser("session", help="Inspect retained sessions (read-only)")
     session_sub = session_parser.add_subparsers(dest="action", required=True)
@@ -388,7 +395,13 @@ def _session_trailer(session: dict[str, Any]) -> str:
 
 def _run_ask_cli(args: argparse.Namespace) -> int:
     from peerhub.extensions.ask import ask
-    prompt = Path(args.query_file).read_text(encoding="utf-8-sig") if args.query_file else args.prompt
+    if args.query_file:
+        query = Path(args.query_file).read_bytes()
+        prompt = query.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+        if len(query) > 64 * 1024:
+            print("Warning: inlined query file exceeds 64 KB. Consider paths or a diff.", file=sys.stderr)
+    else:
+        prompt = args.prompt
     has_streamed = False
     output_has_newline = False
     def show_output(text: str) -> None:
@@ -396,16 +409,29 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
         has_streamed = True
         output_has_newline = text.endswith("\n")
         print(text, end="", flush=True)
+
+    def show_budget_warning() -> None:
+        writable = " --writable" if args.writable else ""
+        profile = f" --profile {args.profile}" if args.profile else ""
+        print(f"Stream budget reached. Use `peerhub ask {args.peer}{profile}{writable} --fresh --stream NEW_STREAM "
+              "--query-file HANDOFF.md` with a handoff covering decisions, open work, and file refs.", file=sys.stderr)
+
+    def show_receipt(result: dict[str, Any]) -> None:
+        if not args.json and sys.stdout.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1":
+            from peerhub.cli.profile_stats import ask_receipt
+            print(ask_receipt(args, result), file=sys.stderr)
+
     try:
         result = ask(args.db, args.peer, prompt, stream_id=args.stream_id, request_id=args.request_id,
                      author=args.author, workspace=args.workspace, model=args.model, effort=args.effort,
                      profile=args.profile, silence_timeout_s=args.silence_timeout_seconds, writable=args.writable,
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
                      fresh=args.fresh, session=args.session,
-                     on_output=None if args.json else show_output)
+                     on_output=None if args.json else show_output, on_stream_budget=show_budget_warning)
     except Exception:
         if has_streamed and not args.json and not output_has_newline:
             print()
+        show_receipt({})
         raise
     from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
     is_success = result.get("status") in ("delivered", "recovered_terminal") and result.get("error") is None
@@ -474,6 +500,7 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
         if args.stream_id is None and result.get("stream_id") not in (None, default_stream(args.peer, None, stateless=False)):
             print(f"stream: {result['stream_id']}")  # ca/oa/ga (#378): the stream this ask got; the next ask needs another
         print(_session_trailer(session))
+    show_receipt(result)
     error: dict[str, Any] | None = result.get("error")
     if error is not None and error.get("code") != "session_lost" and (error.get("code") == "legacy_selector_unsupported" or str(error.get("code", "")).startswith("session_")):
         return 2
@@ -817,23 +844,39 @@ def _profile_notes(fields: dict[str, Any]) -> str:
 def _run_profile_cli(args: argparse.Namespace) -> int:
     from peerhub.extensions.adapters.profiles import inspect_profile, known_model_pools, list_profiles
 
-    workspace = args.workspace or Path.cwd()
+    workspace = getattr(args, "workspace", None) or Path.cwd()
+    use_json = args.json or getattr(args, "format", None) == "json"
     try:
-        if args.action == "list":
-            profiles = list_profiles(workspace, include_meta=True)
-            payload: dict[str, Any] = {"schema_version": "1.0", "workspace": str(workspace), "profiles": profiles,
-                                       "known_models": known_model_pools(workspace)}
-        else:
+        if args.action == "show":
             profile = inspect_profile(args.profile, workspace, include_meta=True)
-            payload = {"schema_version": "1.0", "workspace": str(workspace), **profile}
+            payload: dict[str, Any] = {"schema_version": "1.0", "workspace": str(workspace), **profile}
+        else:
+            from peerhub.cli.profile_stats import check_profiles, read_profile_stats, render_profile_stats
+            profiles = list_profiles(workspace, include_meta=True)
+            stats = read_profile_stats(args.db, workspace, profiles)
+            if args.action == "stats":
+                payload = {"schema_version": "1.0", "workspace": str(workspace), "profiles": stats}
+                _emit(payload, True) if use_json else print(render_profile_stats(stats))
+                return 0
+            if args.action == "check":
+                findings = check_profiles(profiles, stats, workspace)
+                if use_json:
+                    _emit(findings, True)
+                else:
+                    missing = ", ".join(f"{name} ({model})" for name, model in findings["missing_models"].items())
+                    print("Missing from installed model lists | " + (missing or "-"))
+                    print("No current measurement in 30 days | " + (", ".join(findings["measurement_overdue"]) or "-"))
+                return 0
+            for profile, stat in zip(profiles, stats):
+                profile["stats"] = {key: stat[key] for key in ("n", "stale")}
+            payload = {"schema_version": "1.0", "workspace": str(workspace), "profiles": profiles,
+                       "known_models": known_model_pools(workspace)}
     except (OSError, ValueError) as exc:
-        use_json = args.format == "json"
         error = {"schema_version": "1.0", "status": "ERROR", "error": f"{type(exc).__name__}: {exc}"}
         if use_json:
             print(json.dumps(error, ensure_ascii=True, indent=2))
         _error_line("invalid_arguments", str(exc))  # the message only: no Python class name (#401)
         return 1
-    use_json = args.format == "json"
     if use_json:
         print(json.dumps(payload, ensure_ascii=True, indent=2))
         return 0
@@ -841,8 +884,9 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
         rows = [[profile["profile"], str(profile["fields"]["model"]["value"] or "CLI default"),
                  str(profile["fields"]["effort"]["value"] or "provider default"),
                  _profile_notes(profile["fields"]),
+                 str(profile["stats"]["n"]) + (" stale" if profile["stats"]["stale"] else ""),
                  _use_for_cell(profile.get("card"))] for profile in payload["profiles"]]
-        columns = ["PROFILE", "MODEL", "EFFORT", "NOTES", "USE FOR (profile show ID)"]
+        columns = ["PROFILE", "MODEL", "EFFORT", "NOTES", "STATS", "USE FOR (profile show ID)"]
     else:
         card: dict[str, Any] = payload.get("card") or {}
         items = list(payload["fields"].items()) + list(card.items())
@@ -1247,7 +1291,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             if (args.prompt is None) == (args.query_file is None):
                 parser.error("ask requires exactly one of prompt or --query-file")
         if hasattr(args, "db") and args.db:
-            workspace = Path(args.workspace) if args.subcommand == "ask" and args.workspace else None
+            workspace = Path(args.workspace) if args.subcommand in ("ask", "profile") and getattr(args, "workspace", None) else None
             selection = _select_db(args.db, discover=not explicit_db, workspace_root=workspace)
             args.db, args.db_source = selection.path, selection.source
         if getattr(args, "json", False) and hasattr(args, "format"):
@@ -1277,6 +1321,12 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             return _run_batch_cli(args)
         if args.subcommand == "profile":
             return _run_profile_cli(args)
+        if args.subcommand == "outcome":
+            from peerhub.cli.profile_stats import mark_outcome
+            mark_outcome(args.db, args.ask_id, args.outcome)
+            payload = {"ask_id": args.ask_id, "outcome": args.outcome}
+            _emit(payload, True) if args.json else print(f"{args.ask_id} {args.outcome}")
+            return 0
         if args.subcommand == "session":
             return _run_session_cli(args)
         if args.subcommand in ("monitor", "observation"):

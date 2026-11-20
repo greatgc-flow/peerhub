@@ -39,6 +39,25 @@ def _load_layers(workspace: str | Path | None) -> list[tuple[str, dict[str, Any]
     return layers
 
 
+DEFAULT_STREAM_BUDGET: tuple[int, int] = (128_000, 12)
+
+
+def stream_budget(workspace: str | Path) -> tuple[int, int]:
+    values: dict[str, int] = dict(zip(("prompt_tokens", "resumed_turns"), DEFAULT_STREAM_BUDGET))
+    for _, layer in _load_layers(workspace):
+        section: object = layer.get("stream_budget", {})
+        if not isinstance(section, dict):
+            raise ValueError("[stream_budget] must be a table")
+        settings = cast(dict[str, object], section)
+        for key in values:
+            if key in settings:
+                value = settings[key]
+                if type(value) is not int or value <= 0:
+                    raise ValueError(f"stream_budget.{key} must be a positive integer")
+                values[key] = value
+    return values["prompt_tokens"], values["resumed_turns"]
+
+
 BINDING_KEYS = ("selection_mode", "model", "reasoning_effort")
 CARD_KEYS = ("use_for", "avoid_for", "traits", "evidence", "card_checked")
 # 0.25.0 plan D11/A9: optional per-profile fields. They are never inherited from an alias target.

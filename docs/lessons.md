@@ -51,6 +51,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Two-asks session reuse example: peerhub ask cc "Explain the architecture" --profile cc.standard --stream arch-review --request-id req-001, then peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002 (a distinct request-id per ask). Reuse: a --stream resumes (same store/binding, 1 peer); reuse per task; new task = new stream; votes one-shot (peerhub explain stream-reuse-cost). Profiles: lowest tier for task: bulk=standard, code=effort, review/design=deepthink (docs/batch.md); cx.deepthink is a deprecated alias of cx.effort at xhigh. Transport: --query-file and --json select transport/format (no token saving). Long asks: 'peerhub ask' blocks until the peer finishes, then prints reply + 'session:'; run foreground/background-with-exit-notification and wait, never detach/poll. Timeouts: implementer/review asks: --timeout-seconds 1800-3600 (default 600); ag prints nothing until done: up to --timeout-seconds 7200, --silence-timeout-seconds unset or >= it (peerhub explain ask-timeouts).
 - Issue: 0.25.0 plan D5
 
+## Ask receipts, outcomes, and profile measurements (`ask-metrics`)
+
+- Keywords: receipt, outcome, profile stats, profile check, measurement, coverage, stream budget, handoff, query file
+- Symptom: You want to compare profiles, mark an answer's outcome, or understand an ask receipt or a stream budget warning.
+- Fix: Use peerhub profile stats --json for ask counts, coverage by metric, and reported measurements. Mark an answer with peerhub outcome <ask-id> accepted|rejected|retried. Find the ID at the start of the terminal receipt or in requested_record_id in ask JSON. The latest correction wins. A dash in the receipt means the metric was unreported. Set PEERHUB_NO_RECEIPT=1 to silence the receipt. Run peerhub profile check to find stale measurements and model IDs missing from the available Codex or agy catalog. If the stream budget warning appears, start a fresh stream with a handoff covering decisions, open work, and file references. Configure prompt_tokens and resumed_turns in [stream_budget] in models.toml. For an inlined query file over 64 KB, consider sending paths or a diff.
+- Issue: 0.25.0 plan M2
+
 ## Explicit timeouts for implementer and review asks (`ask-timeouts`)
 
 - Keywords: timeout, timeout-seconds, 600, implementer, review, writer, ask_uncertain, runtime_timeout, cc, cx
