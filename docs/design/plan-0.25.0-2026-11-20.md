@@ -38,3 +38,7 @@ A9 (D11/cx) `oa`, `ga` and `ca` profiles are tagged `unmeasured` until each has 
 A10 (D14/cc) The receipt line starts with the ask id: `<ask-id> - <profile> - <wall> - tokens in/out/cache% - pool delta`.
 A11 (release plan) The OWNER ordered ONE release containing everything (finished items + D1-D15). To honour cc's schema argument, that single release is version 0.25.0 (minor bump, additive schema only, no destructive migration). No second release. Gate: full tests, pyright, CI full matrix, live gate, plus the owner's rule (every CLI output incl. guide, explain, help, monitor, profile, suggest, outcome, profile check, receipt and warnings inspected by eye). Live peer pings (quota) run once, after the code is final, for the three peers' token-reporting test and the model refresh; the owner already asked for the model refresh.
 
+
+## Known follow-up (found by the eyeball pass, not in 0.25.0)
+
+The monitor's own `suggest:` line (monitor_view `_compact_suggestions`) does not yet honour the profile `suggest = false` flag (it can still name `cc.deepthink`, `cx.deepthink`, `ag.effort`); `peerhub suggest` does. Fix: give the monitor payload the flag without changing its JSON (private key or a view-side lookup), then drop the three profiles from the line.
