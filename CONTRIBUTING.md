@@ -218,6 +218,13 @@ tags, with administrator bypass disabled. It has no required-reviewer rule.
 The workflow YAML cannot prove PyPI's OIDC trust configuration; that remains a
 release preflight check.
 
+CLI walk-through before every release (owner rule, 2026-11-20): from the installed candidate, run and read by eye
+every public command and subcommand (use the `--help` tree as the checklist), `peerhub guide`, every
+`peerhub explain <topic>` and `peerhub explain lessons`, `profile list/show/stats/check`, `suggest`, `outcome`,
+`update --check/--plan`, and `monitor` in compact and expand, rich and plain, narrow and wide. Fix wording,
+contradictions, stale text and layout glitches before publishing, and record what was checked in the release PR.
+Every monitor change must look and behave the same in compact and expand.
+
 Publishing the draft triggers `.github/workflows/publish.yml`: `verify` runs
 G0/G1/G2/G7 verification, including the M2/M3 catalog tests in G2. `build` and
 `live-validation` then run in parallel: build produces and tests the wheel and
