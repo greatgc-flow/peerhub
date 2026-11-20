@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -573,12 +573,18 @@ def get_guidance(
     *,
     db_path: str | Path | None = None,
     stream_id: str | None = None,
+    ag_command_denied: bool = False,
 ) -> GuidanceEntry | None:
     """Retrieve guidance entry by code or alias, optionally instantiated with execution context."""
     canonical = ALIASES.get(code, code)
     entry = REGISTRY.get(canonical)
     if entry is None:
         return None
+    if ag_command_denied and canonical == "ask_denied_empty":
+        step = entry.recover[0]
+        purpose = (f"{step['purpose']}. If the task needs file reads, omit shell fallbacks and say "
+                   '"use only your file read tool; if a file cannot be read, say so"')
+        entry = replace(entry, recover=[dict(step, purpose=purpose), *entry.recover[1:]])
     return instantiate_entry(entry, db_path=db_path, stream_id=stream_id)
 
 
@@ -681,9 +687,10 @@ def make_guidance_payload(
     *,
     db_path: str | Path | None = None,
     stream_id: str | None = None,
+    ag_command_denied: bool = False,
 ) -> dict[str, Any]:
     """Build additive top-level guidance dict for JSON responses."""
-    entry = get_guidance(code, db_path=db_path, stream_id=stream_id)
+    entry = get_guidance(code, db_path=db_path, stream_id=stream_id, ag_command_denied=ag_command_denied)
     if entry is None:
         return {}
     return {

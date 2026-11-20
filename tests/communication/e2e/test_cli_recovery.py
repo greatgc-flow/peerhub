@@ -1544,22 +1544,30 @@ def test_ag_denied_actions_are_named_in_empty_response_note(tmp_path, monkeypatc
     assert "{'code'" not in err  # detail is the error message, not a dict repr
 
 
-def test_denied_empty_next_hint_is_new_stream_with_inlined_content(tmp_path, monkeypatch, capsys):
-    """ag usability A2: never resume the stream; start a new one with the needed content inlined."""
+@pytest.mark.parametrize("peer, denied, command_hint", [
+    ("ag", ["read_file", "command"], True),
+    ("ag", ["read_file"], False),
+    ("cc", ["command"], False),
+])
+def test_denied_empty_next_hint_is_new_stream_with_inlined_content(monkeypatch, capsys, peer, denied, command_hint):
     from peerhub.cli.app import main
     from peerhub.extensions import ask as ask_mod
 
     monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
         "status": "denied_empty", "certainty": "TERMINAL", "response": "", "stream_id": "s",
-        "empty_response": True, "task_effects": "unverified", "denied_actions": ["read_file"],
-        "error": {"code": "denied_empty", "message": "ag denied tool action(s): read_file; response empty"},
+        "empty_response": True, "task_effects": "unverified", "denied_actions": denied,
+        "error": {"code": "denied_empty", "message": "denied"},
     })
-    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello"]) == 1
+    assert main(["--db", str(Path(__file__).parent), "ask", peer, "hello"]) == 1
     err = capsys.readouterr().err
     assert len(err.splitlines()) == 1
     assert "new stream" in err and "--query-file" in err and "do not resume this stream" in err
     entry = REGISTRY["ask_denied_empty"]
     assert entry.recover[0]["argv"][:3] == ["peerhub", "ask", "PEER_ID"] and "--stream" in entry.recover[0]["argv"]
+    instruction = '"use only your file read tool; if a file cannot be read, say so"'
+    assert (instruction in err) == command_hint
+    assert 'say "no tools"' in entry.recover[0]["purpose"]
+    assert 'say "no tools"' in err
     assert "diag health" not in err
 
 
@@ -1586,19 +1594,29 @@ def test_ask_denied_empty_status_for_empty_response_with_denied_actions(tmp_path
     assert replay["denied_actions"] == ["command"]
 
 
-def test_cli_denied_empty_exits_nonzero_with_json_guidance(tmp_path, monkeypatch, capsys):
+def test_cli_denied_empty_exits_nonzero_with_json_guidance(monkeypatch, capsys):
     from peerhub.cli.app import main
     from peerhub.extensions import ask as ask_mod
 
-    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: {
+    result = {
         "status": "denied_empty", "certainty": "TERMINAL", "response": "", "stream_id": "s",
         "empty_response": True, "task_effects": "unverified", "denied_actions": ["command"],
         "error": {"code": "denied_empty", "message": "denied"},
-    })
-    assert main(["--db", str(tmp_path / "core.db"), "ask", "ag", "hello", "--json"]) == 1
+    }
+    monkeypatch.setattr(ask_mod, "ask", lambda *a, **kw: dict(result))
+    assert main(["--db", str(Path(__file__).parent), "ask", "ag", "hello", "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "denied_empty"
-    assert payload["guidance"]["code"] == "ask_denied_empty"
+    guidance = payload.pop("guidance")
+    assert payload == result
+    generic = make_guidance_payload("ask_denied_empty", db_path=Path(__file__).parent, stream_id="s")
+    assert guidance.keys() == generic.keys()
+    assert (guidance["code"], guidance["explain_cmd"]) == (generic["code"], generic["explain_cmd"])
+    (step,) = guidance["recover"]
+    (generic_step,) = generic["recover"]
+    assert step.keys() == generic_step.keys()
+    assert (step["argv"], step["prereqs"]) == (generic_step["argv"], generic_step["prereqs"])
+    instruction = '"use only your file read tool; if a file cannot be read, say so"'
+    assert instruction in step["purpose"] and instruction in guidance["summary"]
 
 
 def test_batch_classifies_denied_empty_as_unverified():
