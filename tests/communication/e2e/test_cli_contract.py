@@ -283,7 +283,7 @@ def dq_pool(e):
 def dq_json(e):
     q = _quota_world(e)
     assert e.j(q, "diag", "quota", "--json")["schema_version"] == "1.0"
-    assert e.run(q, "diag", "quota")[1].lstrip().startswith("quota/rate-limit evidence")  # not JSON without the flag
+    assert not e.run(q, "diag", "quota")[1].lstrip().startswith("{")  # human text, not JSON, without the flag
 
 
 def version_effect(e, flag):

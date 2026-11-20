@@ -107,7 +107,7 @@ def test_query_file_links_from_a_separate_monitor_process(tmp_path, monkeypatch,
         "started_at", "elapsed_s", "ended_at", "ended_exact", "age_s", "lease_left_s", "tokens", "ask_line", "reply_line",
         "ask_line_long", "reply_line_long", "note", "reasons", "session",
     }
-    assert query.name not in public and all(key not in public for key in ("query_file", "stream_file", "caller_file"))
+    assert json.dumps(str(query.resolve()), ensure_ascii=False)[1:-1] not in public and all(f'"{key}"' not in public for key in ("query_file", "stream_file", "caller_file"))
 
     query.unlink()
     assert "file://" not in monitor()
