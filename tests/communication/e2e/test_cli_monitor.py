@@ -557,7 +557,7 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
     calls = []
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: calls.append("refresh") or {"status": "OK"})
-    code = _run(_db(tmp_path), "--view", view, "--cycles", "2", "--interval-seconds", "2.5")
+    code = _run(_db(tmp_path), "--probe", "--view", view, "--cycles", "2", "--interval-seconds", "2.5")
     if ending == "error":
         assert code == 1
     elif ending == "normal":
@@ -576,7 +576,8 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
     assert out.count("PeerHub") >= ((3 if tty else 2) if ending == "normal" else 1)
 
 
-def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch):
+@pytest.mark.parametrize("probe", [False, True])
+def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch, probe):
     import io
 
     class Output(io.StringIO):
@@ -590,10 +591,11 @@ def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch):
     refreshes = []
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: refreshes.append(1) or {"status": "OK"})
-    assert _run(_db(tmp_path), "--json", "--schema-version", "1.1", "--cycles", "3", "--collect-every", "2") == 0
+    options = ["--probe"] if probe else []
+    assert _run(_db(tmp_path), "--json", "--schema-version", "1.1", "--cycles", "3", "--collect-every", "2", *options) == 0
     lines = output.getvalue().splitlines()
     frames = [json.loads(line) for line in lines]
-    assert len(lines) == 4 and len(refreshes) == 2
+    assert len(lines) == 4 and len(refreshes) == (2 if probe else 0)
     assert all(frame["schema_version"] == "1.1" for frame in frames)
     assert frames[0]["phase"] == "initial" and frames[0]["refresh"]["status"] == "NOT_STARTED"
     assert [frame["cycle"] for frame in frames[1:]] == [0, 1, 2]
@@ -1139,11 +1141,12 @@ def test_snapshot_step_performs_no_writes(tmp_path, capsys):
     def record_hash(*args):
         hashes.append(hashlib.sha256(db_path.read_bytes()).hexdigest())
 
-    with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
+    with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh) as refresh, \
          patch("peerhub.cli.monitor.sleep", record_hash):
-        assert _run(db_path, "--cycles", "3", "--collect-every", "2") in (0, 4)
+        assert _run(db_path, "--probe", "--cycles", "3", "--collect-every", "2") in (0, 4)
 
     # cycle 0 = refresh+snapshot, cycle 1 = snapshot only, cycle 2 = refresh+snapshot: the two sleeps bracket the snapshot-only cycle
+    assert refresh.call_count == 2
     assert len(hashes) == 2
     assert hashes[0] == hashes[1]
 

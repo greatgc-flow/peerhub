@@ -17,19 +17,12 @@ they do not claim new validation or publication evidence.
 
 - `peerhub outcome <ask-id> accepted|rejected|retried` appends an outcome correction in the selected SQLite store. `peerhub profile stats [--json]` reports ask counts, per-metric coverage, reported usage, wall time, quota deltas per accepted answer, and measurement freshness. `peerhub profile check` checks model IDs against installed Codex and agy catalogs when available and flags profiles without a current measurement in 30 days.
 - Asks print a one-line terminal receipt on stderr. `PEERHUB_NO_RECEIPT=1` silences it. Resuming a stream over its configured budget prints a fresh-stream command with a handoff hint. Inlining a query file over 64 KB prints a warning and sends the full query.
-### Added
-
 - Benchmark suite v1 (0.25.0 plan D10/A8) adds six fixed Python tasks and an offline runner for grading saved replies against hidden cases. The runner verifies all references and records versioned JSONL measurements with the effective profile settings for `peerhub profile stats`. [Benchmark instructions](docs/benchmarks/suite-v1/README.md)
-
-### Changed
-
-- `peerhub profile list` shows ask counts and stale measurements in `STATS`. Profile measurements reuse the existing Bridge evidence. SQLite adds outcome corrections and quota deltas with links to the source readings. Quota intervals require a single observed in-flight ask on the pool and comparable readings from the same reset window.
-### Added
-
 - `peerhub suggest --tier standard|effort|deepthink [--task review|code|read]` prints an ask command and a reason, with structured output via `--json`. It applies the 5H usage gate and ranks eligible profiles by 7D PACE.
 
 ### Changed
 
+- `peerhub profile list` shows ask counts and stale measurements in `STATS`. Profile measurements reuse the existing Bridge evidence. SQLite adds outcome corrections and quota deltas with links to the source readings. Quota intervals require a single observed in-flight ask on the pool and comparable readings from the same reset window.
 - PeerHub prompt templates put the full fixed instructions before task and stream facts. Cache savings remain unproven until 0.25.0 telemetry shows them.
 - Monitor watch reads committed quota by default. Pass `--probe` to collect during watch. CLI dispatch for subscription peers on default accounts and `suggest` attempt a quota refresh only when the snapshot is missing or older than 15 minutes.
 - `peerhub monitor` (#414): a child pool in POOLS (`└─ F-7D`, `└─ 3P-5H`, `└─ G-5H`) has its own bar, so it no longer looks like its parent: filled `▬` in the state colour and empty `╌` in dim, 20 cells with the same shrink rule (to 4 cells, then hidden); the ASCII form is `=` filled and `-` empty. A parent keeps `█░` (`#.`). The plain `--expand` QUOTA `[BAR]` column draws a child row the same way. An empty cell is never a space, so 0% still shows.

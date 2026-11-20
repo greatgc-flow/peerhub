@@ -1227,6 +1227,58 @@ def with_writable(argv: list[str]) -> list[str]:
     return [*argv, "--writable"]
 
 
+def _run_core_command(args: argparse.Namespace) -> int:
+    core_read = (args.subcommand, args.action) in {
+        ("peer", "get"), ("peer", "list"), ("stream", "show"), ("stream", "list"),
+        ("record", "read"), ("offset", "get"),
+    }
+    if core_read:
+        from peerhub.cli.store_select import report_missing_store
+        use_json = bool(getattr(args, "json", False) or getattr(args, "format", None) == "json")
+        db_source = getattr(args, "db_source", None)
+        if report_missing_store(args.db, json_output=use_json, selected=db_source in ("explicit", "env"), source=db_source):
+            return 5
+    else:
+        Path(args.db).parent.mkdir(parents=True, exist_ok=True)
+    return _run_core_cli(args, CoreStore(args.db, readonly=core_read))
+
+
+def _dispatch_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    match args.subcommand:
+        case "ask":
+            return _run_ask_cli(args)
+        case "suggest":
+            from peerhub.cli.suggest import run_suggest
+            return run_suggest(args)
+        case "account":
+            return _run_account_cli(args)
+        case "batch":
+            return _run_batch_cli(args)
+        case "profile":
+            return _run_profile_cli(args)
+        case "outcome":
+            from peerhub.cli.profile_stats import mark_outcome
+            mark_outcome(args.db, args.ask_id, args.outcome)
+            payload = {"ask_id": args.ask_id, "outcome": args.outcome}
+            _emit(payload, True) if args.json else print(f"{args.ask_id} {args.outcome}")
+            return 0
+        case "session":
+            return _run_session_cli(args)
+        case "monitor" | "observation":
+            return _run_light_command(args, parser)
+        case "diag":  # optional first-party extension: Core must work without it (E2E-009)
+            return _run_diag_cli(args, parser)
+        case "explain":
+            from peerhub.cli.recovery import run_explain_cli
+            return run_explain_cli(" ".join(args.code), json_output=bool(getattr(args, "json", False)))
+        case "guide":
+            from peerhub.cli.guide import render_guide
+            _emit({"guide": render_guide()}, True) if args.json else print(render_guide())
+            return 0
+        case _:
+            return _run_core_command(args)
+
+
 def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
     tolerant_streams()
     parser = build_parser(prog=prog)
@@ -1318,50 +1370,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             args._provided_options = {item.split("=", 1)[0] for item in actual if item.startswith("--")}
         if getattr(args, "obs_db", None):
             args.obs_db = _resolve_db_path(args.obs_db, use_env=False, discover=False)
-        if args.subcommand == "ask":
-            return _run_ask_cli(args)
-        if args.subcommand == "suggest":
-            from peerhub.cli.suggest import run_suggest
-            return run_suggest(args)
-        if args.subcommand == "account":
-            return _run_account_cli(args)
-        if args.subcommand == "batch":
-            return _run_batch_cli(args)
-        if args.subcommand == "profile":
-            return _run_profile_cli(args)
-        if args.subcommand == "outcome":
-            from peerhub.cli.profile_stats import mark_outcome
-            mark_outcome(args.db, args.ask_id, args.outcome)
-            payload = {"ask_id": args.ask_id, "outcome": args.outcome}
-            _emit(payload, True) if args.json else print(f"{args.ask_id} {args.outcome}")
-            return 0
-        if args.subcommand == "session":
-            return _run_session_cli(args)
-        if args.subcommand in ("monitor", "observation"):
-            return _run_light_command(args, parser)
-        if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
-            return _run_diag_cli(args, parser)
-        if args.subcommand == "explain":
-            from peerhub.cli.recovery import run_explain_cli
-            return run_explain_cli(" ".join(args.code), json_output=bool(getattr(args, "json", False)))
-        if args.subcommand == "guide":
-            from peerhub.cli.guide import render_guide
-            _emit({"guide": render_guide()}, True) if args.json else print(render_guide())
-            return 0
-        core_read = ((args.subcommand, args.action) in {
-            ("peer", "get"), ("peer", "list"), ("stream", "show"), ("stream", "list"),
-            ("record", "read"), ("offset", "get")
-        })
-        if core_read:
-            from peerhub.cli.store_select import report_missing_store
-            use_json = bool(getattr(args, "json", False) or getattr(args, "format", None) == "json")
-            db_source = getattr(args, "db_source", None)
-            if report_missing_store(args.db, json_output=use_json, selected=db_source in ("explicit", "env"), source=db_source):
-                return 5
-        if not core_read:
-            Path(args.db).parent.mkdir(parents=True, exist_ok=True)
-        store = CoreStore(args.db, readonly=core_read)
-        return _run_core_cli(args, store)
+        return _dispatch_command(args, parser)
 
     except (StorageReadOnlyError, StorageFullError, StorageCorruptError) as e:
         error_output("storage_corrupt", f"STORAGE ERROR ({type(e).__name__}): {e}", getattr(e, "session", None), exception=e)
