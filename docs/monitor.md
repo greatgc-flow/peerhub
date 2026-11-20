@@ -237,7 +237,7 @@ The word `Guide` at the right end of line 2 is an OSC 8 hyperlink to this page f
 | Variable | Effect |
 |---|---|
 | `PEERHUB_MONITOR_VIEW` | `auto`, `rich` or `plain`: the default of `--view` (an explicit `--view` wins). `plain` is the fix for a terminal that draws the glyphs two cells wide. |
-| `PEERHUB_NO_LINKS` | `1` (any value except empty, `0`, `false`, `no`, `off`) leaves the `Guide` link out. |
+| `PEERHUB_NO_LINKS` | `1` (any value except empty, `0`, `false`, `no`, `off`) leaves the `Guide` link out. `NO_COLOR` does too (no escape bytes at all). |
 | `PEERHUB_GUIDE_URL` | tests and mirrors: an `http(s)` URL used instead of the version's page (a control character or space makes it ignored). |
 | `NO_COLOR` | no colour; the rich layout and its glyphs stay. |
 | `PEERHUB_MONITOR_TEXT` | `off` hides the session name, the title and the conversation lines. |

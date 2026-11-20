@@ -249,7 +249,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     output = FrameOutput(interactive=not args.json, anchor_rows=True)
     effective_view = ("rich" if output.live else "plain") if args.view == "auto" else args.view
     color = effective_view == "rich" and use_color(output.live, os.environ)
-    links = effective_view == "rich" and output.live  # the Guide link (OSC 8): the rich view on a VT terminal only
+    links = color and output.live  # the Guide link (OSC 8): the rich, coloured view on a VT terminal only (NO_COLOR: none)
     expand = bool(getattr(args, "expand", False))
     show_quota_notes = bool(getattr(args, "show_quota_notes", False))
     last_payload: dict[str, Any] | None = None
@@ -306,6 +306,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         output.write(_render_human_frame(display, view=effective_view, width=width, height=_live_rows(height), color=color,
                                          expand=expand, show_quota_notes=show_quota_notes, links=links))
 
+    if not Path(args.db).exists() and report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
+        return 5  # a missing store is reported before any frame, with or without --probe
     try:
         if args.json or sys.stdout.isatty():
             code = emit(0, "initial", {"status": "NOT_STARTED"})
@@ -441,7 +443,7 @@ def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = F
     try:
         effective_view = ("rich" if output.vt else "plain") if view == "auto" else view
         color = effective_view == "rich" and use_color(output.vt, os.environ)
-        links = effective_view == "rich" and output.vt  # the Guide link (OSC 8): the rich view on a VT terminal only
+        links = color and output.vt  # the Guide link (OSC 8): the rich, coloured view on a VT terminal only (NO_COLOR: none)
         bounded = tty and (expand or output.vt)
         width, height = output.geometry() if bounded else (output.width(), 24)
         effective_height = _live_rows(height) if bounded else None
