@@ -646,8 +646,8 @@ def test_the_lesson_the_readme_and_the_changelog_describe_the_expand_frame():
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     release = changelog.split("## [0.24.21] - 2026-11-17")[1].split("\n## [")[0]
     assert "### Changed" in release and "`--expand`" in release and released in release
-    unreleased = changelog.split("## [Unreleased]")[1].split("\n## [")[0]
-    assert "### Changed" in unreleased and "RECENT" in unreleased and "`peerhub monitor`" in unreleased
+    newer = changelog.split("## [0.24.21] - 2026-11-17")[0]  # Unreleased and every release since: the re-layout is recorded there
+    assert "### Changed" in newer and "RECENT" in newer and "`peerhub monitor`" in newer
 
 
 # ---- the plain view retains its layout; the payload is untouched ------------------------------------------------------
