@@ -4,6 +4,7 @@ import os
 import sqlite3
 from contextlib import nullcontext
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -122,6 +123,41 @@ def test_dispatch_skips_when_guard_is_busy_or_peer_refreshed(monkeypatch):
     monkeypatch.setattr(support, "quota_refresh_lock", lambda db: nullcontext(True))
     monkeypatch.setattr(support, "quota_items", lambda *a, **kw: [{"subject_ref": "cc", "age_seconds": 60}])
     support.try_quota_refresh(__file__, ["cc"])
+
+
+@pytest.mark.parametrize("failure", ["reader", "collector"])
+def test_dispatch_refresh_failure_is_quiet(monkeypatch, capsys, failure):
+    calls = []
+
+    def fail(*args, **kwargs):
+        calls.append(failure)
+        raise ValueError("invalid quota profile configuration")
+
+    monkeypatch.setattr(support, "quota_refresh_lock", lambda db: nullcontext(True))
+    monkeypatch.setattr(support, "quota_items", fail if failure == "reader" else lambda *a, **kw: [])
+    monkeypatch.setattr(support, "refresh_with_profile_pools", fail)
+    support.refresh_dispatch_quota(Path(__file__), "cc")
+    assert calls == [failure]
+    assert capsys.readouterr() == ("", "")
+
+
+def test_dispatch_does_not_wait_for_a_blocked_collector(monkeypatch):
+    collecting, release, done = Event(), Event(), Event()
+
+    def collect(*args, **kwargs):
+        collecting.set()
+        release.wait(5)
+        done.set()
+
+    monkeypatch.setattr(support, "quota_refresh_lock", lambda db: nullcontext(True))
+    monkeypatch.setattr(support, "quota_items", lambda *a, **kw: [])
+    monkeypatch.setattr(support, "refresh_with_profile_pools", collect)
+    try:
+        support.refresh_dispatch_quota(Path(__file__), "cc")
+        assert collecting.wait(1) and not done.is_set()
+    finally:
+        release.set()
+    assert done.wait(1)
 
 
 def test_live_watch_rechecks_after_acquiring_guard(monkeypatch):

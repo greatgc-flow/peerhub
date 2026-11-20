@@ -15,7 +15,7 @@ from peerhub.cli.monitor_preferences import GROUPS
 from peerhub.extensions.caller import host_id, local_workspace_file
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.monitor_read_model import TEXT_NEWEST_ROWS
-from peerhub.extensions.observation_model import QUOTA_FALLBACK_SECONDS, quota_probe_timed_out
+from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, quota_probe_timed_out
 
 # Mirrors peerhub.extensions.observation_model.NOT_REPORTED_REASON (the human renderer imports no extension code).
 _NOT_REPORTED = "not reported by provider"
@@ -3001,7 +3001,7 @@ def _with_retained_quota(payload: dict[str, Any]) -> dict[str, Any]:
             raw = _obj(item.get("last_measurements")) or _obj(item.get("measurements"))
             remaining = _number(raw.get("remaining_fraction"))
             reset = _number(item.get("resets_at"))
-            if (age is not None and 0 <= age + elapsed < QUOTA_FALLBACK_SECONDS and remaining is not None and 0 <= remaining <= 1
+            if (age is not None and 0 <= age + elapsed < QUOTA_MAX_AGE_SECONDS and remaining is not None and 0 <= remaining <= 1
                     and (reset is None or reset > now + elapsed)):
                 ages.append(age + elapsed)
                 replacements[id(original)] = {**item, "state": "MEASURED", "stored_state": "MEASURED",

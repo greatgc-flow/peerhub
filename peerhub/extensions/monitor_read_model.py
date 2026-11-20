@@ -20,7 +20,7 @@ from peerhub.extensions.observation_model import (
     MEASUREMENT_KEYS,
     ABSENT_FACT_REASONS,
     NOT_REPORTED_REASON,
-    QUOTA_FALLBACK_SECONDS,
+    QUOTA_MAX_AGE_SECONDS,
     FreshnessPolicy,
     account_text as _account_text,  # stored account strings are display data: re-sanitized when read back
     changed_account_plan,
@@ -1706,7 +1706,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
                 "AND (s.effective_at_us,s.capture_seq)<(o.effective_at_us,o.capture_seq) "
                 "ORDER BY s.effective_at_us DESC,s.capture_seq DESC LIMIT 1) "
                 "WHERE o.observation_id IN (" + ",".join("?" for _ in ids) + ")",
-                [round((now - QUOTA_FALLBACK_SECONDS) * 1_000_000), *ids],
+                [round((now - QUOTA_MAX_AGE_SECONDS) * 1_000_000), *ids],
             ).fetchall()
             by_id = {row["observation_id"]: row for row in evidence}
             for item in observations:

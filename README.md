@@ -157,14 +157,16 @@ The generated command selects the store and profile, requests a fresh session,
 and passes `--writable` for ag and for CLI peers selected for a code task.
 `--json` also returns the command as an `argv` array.
 
-Suggestions use profiles with `suggest = true` in the requested tier. A usable
-5-hour reading must show under 90% usage. The lowest 7-day PACE wins, with ties
-in ag, cx, cc order. A missing or over-15-minute snapshot gets one refresh
-attempt, which may spend quota. Candidates with unusable data rank last with
-`quota unknown`. If no candidate has usable data for both windows, the
-command exits nonzero with one reason on stderr. CLI dispatch for ag, cx and
-cc default accounts also attempts a refresh only when quota is missing or
-older than 15 minutes. Run `peerhub explain suggest` for details.
+Suggestions use profiles with `suggest = true` in the requested tier. A measured
+5-hour reading must show under 90% usage. Fresh provider-reported 5-hour absence
+skips that gate, and an exhausted 7-day pool rules out the profile. Among profiles
+with usable evidence, the lowest 7-day PACE wins, with ties in ag, cx, cc order.
+A missing or over-15-minute snapshot gets one refresh attempt, which may spend
+quota. Candidates with unusable data remain fallback choices and show
+`quota unknown`, including `5H unknown` when applicable. CLI dispatch for ag, cx
+and cc default accounts also attempts a refresh when quota is missing or older
+than 15 minutes and waits at most one second for it. Run `peerhub explain suggest`
+for details.
 
 `--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its forecast and `EXHAUST-IN`, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
 

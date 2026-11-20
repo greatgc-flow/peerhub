@@ -7,15 +7,17 @@ import sqlite3
 import sys
 from contextlib import contextmanager
 from pathlib import Path
+from threading import Thread
 from time import monotonic, sleep
 from typing import Any, BinaryIO, Callable, Generator, Sequence, cast
 
+from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS
 
 _PEER_ALIASES = {"cx": {"cx", "codex"}, "cc": {"cc", "claude"}, "ag": {"ag", "agy"}}
-QUOTA_MAX_AGE_SECONDS = 15 * 60
 MONITOR_QUOTA_MAX_AGE_SECONDS = 5 * 60
 QUOTA_LOCK_WAIT_SECONDS = 3.0
 QUOTA_REFRESH_COOLDOWN_SECONDS = 60
+DISPATCH_QUOTA_WAIT_SECONDS = 1.0
 
 
 def quota_workspace(db_path: str | Path) -> Path:
@@ -125,7 +127,7 @@ def try_quota_refresh(db_path: str | Path, peers: Sequence[str]) -> None:
                 due = [peer for peer in peers if peer not in recent]
                 if due:
                     refresh_with_profile_pools(db_path, due)
-    except (OSError, sqlite3.Error):
+    except Exception:
         pass
 
 
@@ -155,9 +157,18 @@ def refresh_monitor_quota(args: argparse.Namespace, before_probe: Callable[[], N
 
 
 def refresh_dispatch_quota(db_path: Path, peer: str) -> None:
-    if not any(not quota_expired(item) for item in quota_items(db_path, peer=peer)
-               if item["subject_ref"] == peer):
-        try_quota_refresh(db_path, [peer])
+    """Give advisory quota collection a short head start before dispatch."""
+    def refresh() -> None:
+        try:
+            if not any(not quota_expired(item) for item in quota_items(db_path, peer=peer)
+                       if item["subject_ref"] == peer):
+                try_quota_refresh(db_path, [peer])
+        except Exception:
+            pass
+
+    worker = Thread(target=refresh, daemon=True)
+    worker.start()
+    worker.join(DISPATCH_QUOTA_WAIT_SECONDS)
 
 
 def print_warnings(result: dict[str, Any]) -> None:

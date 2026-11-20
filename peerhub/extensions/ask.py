@@ -349,7 +349,10 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         else:
             if (before_dispatch is not None and runtime is None and account_binding is None
                     and kind in ("ag", "cc", "cx") and ALIASES.get(peer_id) == kind):
-                before_dispatch(db, kind)
+                try:
+                    before_dispatch(db, kind)
+                except Exception:
+                    pass  # Advisory collection must not strand the persisted prompt.
             result = asdict(bridge.run_cycle(token, target))
         if result.get("delivery_id") is not None:
             with closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as conn:

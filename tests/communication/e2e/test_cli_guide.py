@@ -152,6 +152,19 @@ def test_every_pointer_topic_resolves_to_its_own_lesson(capsys):
         assert topic == "lessons" or printed.splitlines()[0].startswith(f"{topic}:"), topic
 
 
+@pytest.mark.parametrize("topic", ["ask-basics", "independent-peer-votes"])
+def test_guide_pointer_uses_the_registered_lesson_id(capsys, monkeypatch, topic):
+    from peerhub.cli import lessons
+
+    catalog = load_lessons()
+    for lesson in catalog:
+        if lesson["id"] == topic:
+            lesson["id"] = f"renamed-{topic}"
+    monkeypatch.setattr(lessons, "load_lessons", lambda: catalog)
+    topics = _topics_named_by(_guide(capsys))
+    assert f"renamed-{topic}" in topics and topic not in topics
+
+
 def test_topic_ids_do_not_shadow_guidance_codes_or_profile_ids():
     from peerhub.cli.recovery import REGISTRY
 

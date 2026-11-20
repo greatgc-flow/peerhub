@@ -19,7 +19,7 @@ they do not claim new validation or publication evidence.
 ### Changed
 
 - Terminal monitor watch refreshes quota automatically again when the newest reading for the selected peers is missing or over five minutes old, so an idle watch keeps the readings used by `diag` and `suggest` current. Use `--no-probe` to opt out. Snapshots and diagnostics read committed evidence.
-- Automatic watch, ask dispatch, and `peerhub suggest` share a per-store refresh lock and use committed evidence after a three-second wait for the lock. `suggest` gates on measured 5H usage at 90% and ranks eligible profiles by 7D PACE.
+- Automatic watch, ask dispatch, and `peerhub suggest` share a per-store refresh lock. Ask dispatch waits at most one second for the refresh and proceeds quietly on failure. `suggest` gates on measured 5H usage at 90%, skips that gate for fresh provider-reported absence, and ranks eligible profiles by 7D PACE. Unknown quota ranks last and remains a fallback.
 - Publishing requires green full-matrix CI and verified reports for the exact release commit before live evidence validation. The release keeps its installed-wheel smoke checks and records the CI run URL with the evidence.
 - Batch query files use the selected store’s scratch directory (`.peerhub/tmp`) and are cleaned up when the batch exits. Capability-job spools support an explicit scratch directory and are cleaned up on orderly exit.
 

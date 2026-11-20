@@ -124,7 +124,7 @@ class SourceReading:
 
 
 ACCOUNT_TTL_SECONDS = 6 * 3600.0
-QUOTA_FALLBACK_SECONDS = 15 * 60
+QUOTA_MAX_AGE_SECONDS = 15 * 60
 
 
 def quota_probe_timed_out(reason: object) -> bool:

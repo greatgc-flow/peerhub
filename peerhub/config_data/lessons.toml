@@ -33,6 +33,7 @@ issue = "#117"
 
 [[lessons]]
 id = "ag-recipe"
+guide_order = 9
 title = "ag recipe (empty replies, permissions, trusted -w)"
 keywords = ["ag", "agy", "recipe", "permission", "permissions", "writable", "read-only", "sandbox", "limit", "failed_not_started", "empty", "reply", "denied_empty", "delivered", "trustedWorkspaces", "allow", "allow-list", "scope", "glob", "wildcard", "grep", "cat", "inline", "regex", "command", "files", "binary", "prompt", "query-file", "resume"]
 symptom = "ag fails or returns an empty reply: delivered/TERMINAL with no text, denied_empty after a denied shell or read_file, a resumed stream that fabricates paths, or failed_not_started without write permission."
@@ -105,6 +106,7 @@ issue = "2026-11-10 quota diet"
 
 [[lessons]]
 id = "independent-peer-votes"
+guide_order = 1
 title = "Independent review votes"
 keywords = ["peer", "vote", "votes", "author", "independent", "unanimity", "review", "self-vote", "batch", "responses", "verdict", "fresh", "consequential"]
 symptom = "A document author votes AGREE on their own work and the result is treated as unanimous approval, votes are collected one ask at a time, or a routine check is sent to three peers or to a named stream."
@@ -233,6 +235,7 @@ issue = "#361 (checked 2026-11-13)"
 
 [[lessons]]
 id = "api-peers"
+guide_order = 10
 title = "API peers ca, oa and ga: text-only asks on API credits"
 keywords = ["ca", "oa", "ga", "api", "ant", "openai", "gemini", "OPENAI_API_KEY", "GEMINI_API_KEY", "RESOURCE_EXHAUSTED", "credits", "credit", "balance", "stateless", "truncated", "incomplete", "request_rejected", "inline", "vote", "votes", "text"]
 symptom = "A vote, text review or documentation check spends a subscription pool of cc, cx or ag although it needs no tools or files; or a ca/oa/ga ask is refused (request_rejected), ends truncated or incomplete, or does not see a file; or the credit balance of an API is wanted."
@@ -241,6 +244,7 @@ issue = "#378, #381, #384"
 
 [[lessons]]
 id = "setup"
+guide_order = 2
 title = "Setup: what each peer needs (tool, sign-in or API key)"
 keywords = ["setup", "install", "installation", "prerequisites", "requirements", "needs", "missing", "executable", "not", "found", "tool", "cli", "claude", "codex", "agy", "ant", "sign-in", "signed", "login", "PATH", "version", "OPENAI_API_KEY", "GEMINI_API_KEY", "key", "official", "page", "link"]
 symptom = "An ask ends failed_not_started with 'claude executable not found' (or codex, agy, ant), with 'set OPENAI_API_KEY' or with 'set GEMINI_API_KEY'; or PeerHub is installed and it is not clear what a peer needs before the first ask."
@@ -251,6 +255,7 @@ issue = "#385"
 # or in an older topic (ag-recipe, api-peers, store-missing, monitor-states, peer-subagents, setup, ask-timeouts).
 [[lessons]]
 id = "ask-basics"
+guide_order = 3
 title = "Ask basics: stream reuse, long asks, tiers, transport"
 keywords = ["ask", "basics", "example", "request-id", "foreground", "tiers", "transport", "blocks"]
 symptom = "A caller needs the reuse pattern, the tier choice, the long-ask behaviour or the transport options that the short guide states only as decisions."
@@ -259,6 +264,7 @@ issue = "0.25.0 plan D5"
 
 [[lessons]]
 id = "writes-and-uncertain"
+guide_order = 4
 title = "Writes, uncertain results and secrets"
 keywords = ["writes", "uncertain", "pending_earlier_record", "secrets", "blind-retry", "partial", "edits", "claims"]
 symptom = "A result is uncertain, a pending_earlier_record blocks a retry, or it is unclear which peers enforce read-only and what PeerHub stores."
@@ -267,6 +273,7 @@ issue = "0.25.0 plan D5; #140, #325"
 
 [[lessons]]
 id = "store-and-upgrade"
+guide_order = 5
 title = "Store selection, upgrade and restore hazards"
 keywords = ["store", "upgrade", "backup", "core.db", "schema", "restore", "dev-builds", "fenced"]
 symptom = "Which database an ask uses, what to do before a PeerHub upgrade or restore, and why an old version cannot open a new store."
@@ -275,6 +282,7 @@ issue = "0.25.0 plan D5; #123"
 
 [[lessons]]
 id = "batch-and-load"
+guide_order = 6
 title = "Batch runs, load and cost side effects"
 keywords = ["batch", "load", "concurrency", "balance", "cancel", "manifest", "cost", "side-effects"]
 symptom = "How many asks to run at once, what a batch spends, how suggest: and PACE guide the choice of a peer, and which quota and account side effects exist."
@@ -283,6 +291,7 @@ issue = "0.25.0 plan D5; docs/batch.md"
 
 [[lessons]]
 id = "discovery-commands"
+guide_order = 7
 title = "Discovery and inspection commands"
 keywords = ["discovery", "inspection", "commands", "diag", "models", "slugs", "sessions", "facts", "needs_recheck"]
 symptom = "Which read-only commands show quota, pools, sessions, accounts and models, and how the line-1 facts alert clears."
@@ -291,6 +300,7 @@ issue = "0.25.0 plan D5"
 
 [[lessons]]
 id = "report-issues"
+guide_order = 8
 title = "Report an issue"
 keywords = ["report", "issue", "issues", "github", "bug"]
 symptom = "Something behaves wrongly and the problem should be filed without leaking secrets."
@@ -310,5 +320,5 @@ id = "suggest"
 title = "Recommend a profile and ask command"
 keywords = ["suggest", "recommend", "profile choice", "7d pace", "5h usage"]
 symptom = "Choose a profile in the requested tier using quota evidence."
-fix = "Run peerhub suggest --tier standard|effort|deepthink [--task review|code|read]. Put the prompt in prompt.txt or TASK.txt when using --task. The command prints an ask and one reason on separate lines; --json returns command, argv, profile and reason. Eligible profiles enable suggest in their configuration. Usable 5H quota must show under 90% used; lower 7D PACE wins, with ties in ag, cx, cc order. Missing or over-15-minute quota is refreshed once, which may spend provider quota. Unusable quota ranks last (quota unknown); without both usable windows for any candidate, the command exits nonzero with a reason on stderr. The printed ask requests a fresh session and uses --writable for ag and for CLI code tasks. Automatic monitor watch, ask dispatch and suggest share a per-store PID lock. After taking it they check recent quota again. TTY watch refreshes when the newest reading is over five minutes old or absent."
+fix = "Run peerhub suggest --tier standard|effort|deepthink [--task review|code|read]. Put the prompt in prompt.txt or TASK.txt when using --task. The command prints an ask and one reason on separate lines; --json returns command, argv, profile and reason. Eligible profiles enable suggest in their configuration. A measured 5H window must show under 90% used, and fresh provider-reported 5H absence skips that gate. An exhausted 7D pool rules out the profile. Lower 7D PACE wins for profiles with usable evidence, with ties in ag, cx, cc order. Missing or over-15-minute quota gets one refresh attempt, which may spend provider quota. Profiles with unknown quota rank last and remain fallback choices, with 5H unknown shown when applicable. The printed ask requests a fresh session and uses --writable for ag and for CLI code tasks. Automatic monitor watch, ask dispatch and suggest share a per-store PID lock. After taking it they check recent quota again. TTY watch refreshes when the newest reading is over five minutes old or absent."
 issue = "0.25.0 plan D7/D8/A6/A7"
