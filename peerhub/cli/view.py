@@ -86,13 +86,16 @@ class FrameOutput:
                    and os.environ.get("TERM", "").lower() != "dumb" and enable_vt())
         self.live = self.vt and overwrite
         self.anchor_rows = anchor_rows
+        # Row-anchored frames (the monitor) own the whole screen: the alternate screen has no command line above the
+        # frame, so a pinned command (VS Code sticky scroll) can never cover the first line (ATTN).
+        self.alt_screen = anchor_rows
         self.started = False
 
     def write(self, frame: str) -> None:
         if self.live:
             if not self.started:
                 self.started = True
-                prefix = "\x1b[?25l\x1b[H\x1b[2J"
+                prefix = ("\x1b[?1049h" if self.alt_screen else "") + "\x1b[?25l\x1b[H\x1b[2J"
             else:
                 prefix = "\x1b[H"
             if self.anchor_rows:
@@ -112,7 +115,7 @@ class FrameOutput:
     def close(self) -> None:
         try:
             if self.started:
-                sys.stdout.write("\x1b[0m\x1b[?25h")
+                sys.stdout.write(("\x1b[?1049l" if self.alt_screen else "") + "\x1b[0m\x1b[?25h")
                 sys.stdout.flush()
                 self.started = False
         finally:
