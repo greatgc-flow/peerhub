@@ -290,7 +290,7 @@ def test_freeze_rule_is_recorded_in_status_and_changelog():
     status = (REPO / "docs" / "STATUS.md").read_text(encoding="utf-8")
     open_row = next(line for line in status.splitlines() if line.startswith("| Open |"))
     changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+    unreleased = changelog.split("## [0.24.29]", 1)[0]  # the 0.25.0 section and anything above it
     for name, text in (("STATUS Open row", open_row), ("CHANGELOG Unreleased", unreleased)):
         flat = " ".join(text.split())
         assert "no further monitor cosmetics" in flat, name
@@ -299,7 +299,7 @@ def test_freeze_rule_is_recorded_in_status_and_changelog():
 
 
 def test_changelog_unreleased_names_each_m1_change():
-    unreleased = (REPO / "CHANGELOG.md").read_text(encoding="utf-8").split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+    unreleased = (REPO / "CHANGELOG.md").read_text(encoding="utf-8").split("## [0.24.29]", 1)[0]
     changed = unreleased.split("### Changed", 1)[1].split("\n### ", 1)[0]
     flat = " ".join(changed.split())
     for needle in ("`peerhub guide`", "1600 bytes", "--max-parallel 3", "VERDICT / BLOCKERS / NITS", "`alias_of`",
