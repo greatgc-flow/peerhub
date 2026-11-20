@@ -1130,9 +1130,12 @@ def test_snapshot_step_performs_no_writes(tmp_path, capsys):
     db_path = tmp_path / "db.sqlite"
     CoreStore(db_path)
     
+    refreshes = []
+
     def fake_refresh(db, *a, **kw):
         from peerhub.core.store import CoreStore
         from peerhub.extensions.observation import ObservationStore
+        refreshes.append(1)
         CoreStore(db)
         ObservationStore(db)
         return {"status": "OK", "observations": [{"payload": {}}], "warnings": []}
@@ -1141,12 +1144,12 @@ def test_snapshot_step_performs_no_writes(tmp_path, capsys):
     def record_hash(*args):
         hashes.append(hashlib.sha256(db_path.read_bytes()).hexdigest())
 
-    with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh) as refresh, \
+    with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.cli.monitor.sleep", record_hash):
         assert _run(db_path, "--probe", "--cycles", "3", "--collect-every", "2") in (0, 4)
 
     # cycle 0 = refresh+snapshot, cycle 1 = snapshot only, cycle 2 = refresh+snapshot: the two sleeps bracket the snapshot-only cycle
-    assert refresh.call_count == 2
+    assert len(refreshes) == 2
     assert len(hashes) == 2
     assert hashes[0] == hashes[1]
 
