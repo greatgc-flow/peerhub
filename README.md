@@ -64,7 +64,7 @@ Keep the same body, timestamp, and idempotency key when retrying an append.
 
 ## Quick reference & guide
 
-Run `peerhub guide` (or bare `peerhub` with no arguments) for a concise, offline reference covering profile tables (by tier), two-asks session reuse, delivery safety, discovery commands, and drift recovery. Run `peerhub explain <CODE>` for detailed recovery guidance on any ask outcome code:
+Run `peerhub guide` (or bare `peerhub` with no arguments) for the decisions in at most 1600 bytes, offline: which peer, which tier, when to reuse a stream, fresh votes (one reviewer for a routine check, three independent peers for a consequential one, reply `VERDICT / BLOCKERS / NITS`), the batch cap, the timeout and what to do when a result is uncertain. Models and tiers: `peerhub profile list`. The rare hazards, the store and upgrade steps, the load limits and the discovery commands are topics of `peerhub explain <topic>` (`peerhub explain lessons` lists them). Run `peerhub explain <CODE>` for detailed recovery guidance on any ask outcome code:
 
 ```powershell
 peerhub guide
@@ -77,11 +77,14 @@ CLI output defaults to compact human text, including when redirected. Use `--jso
 
 [Account-bound peers](docs/accounts.md) isolate cc/cx vendor roots behind immutable peer identities; `peerhub account list` inspects bindings.
 
-[Batch runs](docs/batch.md): `peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run` validates a flat batch before execution.
+[Batch runs](docs/batch.md): `peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run` validates a flat batch before execution.
 
 ```powershell
 # Persist the prompt, execute one provider, and persist its response.
 peerhub ask cx "Summarize this repository" --stream review --request-id review-001
+
+# Recommend a peer and print an ask command that reads review.txt.
+peerhub suggest --tier effort --task review
 
 # Explicit collection may contact provider CLIs.
 peerhub observation refresh --peers cx cc ag
@@ -103,10 +106,11 @@ peerhub monitor --snapshot
 peerhub monitor --snapshot --group sessions --group execution
 
 # Watch the nine default groups: overview, activity, peers, execution, sessions,
-# usage, context, capacity, and coverage. Collection may call provider CLIs
-# (including agy /usage and /credits) and consume provider quota.
+# usage, context, capacity, and coverage. Watch reads committed evidence.
 peerhub monitor --interval-seconds 60
 peerhub monitor --view plain --cycles 1
+# Opt in to collecting quota from providers during watch.
+peerhub monitor --probe --interval-seconds 60
 
 # For an AI session: line 1 (the verdict), the suggestion and the pools only; no text of other sessions.
 peerhub monitor --snapshot --group capacity
@@ -121,10 +125,22 @@ peerhub monitor defaults reset   # saved before 0.24.16? reset to get the new `a
 
 # Review with a second provider using a declared profile.
 peerhub ask cc "Explain the Core Peer, Stream, Record and Offset flow" --stream learning --request-id learning-001 --profile cc.standard --json
+
+# Inspect stored profile measurements and installed model catalogs.
+peerhub profile stats
+peerhub profile stats --json
+peerhub profile check
+
+# Replace ASK_ID with requested_record_id from ask JSON or the ID in the terminal receipt.
+peerhub outcome ASK_ID accepted
 ```
 
 The two `ask` examples require the corresponding vendor CLI to be installed and
 authenticated, and spend provider quota. See the [adapter guide](docs/adapters/README.md).
+
+`peerhub profile list` includes ask counts and stale flags. `peerhub explain ask-metrics`
+covers usage coverage, outcome corrections, the terminal receipt, and stream budget warnings.
+See [profile measurements and stream budgets](docs/config-hierarchy.md#profile-measurements-and-stream-budgets).
 
 Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`, and the API peers `ca`, `oa` and `ga` (see [API peers](#api-peers-ca-oa-and-ga)). Custom Peer identities can be registered with `peer register --peer worker --adapter cx`.
 
@@ -133,6 +149,23 @@ Builtin provider names are `cx/codex`, `cc/claude` and `ag/agy`, and the API pee
 `--writable` is off by default. It maps to cc `--permission-mode acceptEdits`, cx `-s workspace-write` (default `-s read-only`), and ag `--mode accept-edits`. Because the `agy` CLI does not enforce a read-only sandbox when `--mode accept-edits` is omitted, native `ag` execution fails closed pre-spawn unless `--writable` is explicitly passed (`#140`). cx resume passes `-c sandbox_mode="workspace-write"` (default `read-only`) because resume does not accept `-s`; writable mode is therefore part of the session binding, and changing it starts a fresh generation.
 
 Quota is collected separately from diagnostics. `diag --fresh` has been replaced by `observation refresh`. Unmeasured values remain `UNKNOWN` or another explicit evidence state, and expired measurements become `STALE`.
+
+`peerhub suggest --tier standard|effort|deepthink [--task review|code|read]`
+prints an ask command and one reason line. Put the task and supporting material
+in `prompt.txt` or, with `--task`, in `review.txt`, `code.txt`, or `read.txt`.
+The generated command selects the store and profile, requests a fresh session,
+and passes `--writable` for ag and for CLI peers selected for a code task.
+`--json` also returns the command as an `argv` array.
+
+Suggestions use profiles with `suggest = true` in the requested tier. A usable
+5-hour reading must show under 90% usage. The lowest 7-day PACE wins, with ties
+in ag, cx, cc order. A missing or over-15-minute snapshot gets one refresh
+attempt, which may spend quota. Candidates with unusable data rank last with
+`quota unknown`. If no candidate has usable data for both windows, the
+command exits nonzero with one reason on stderr. CLI dispatch for ag, cx and
+cc default accounts also attempts a refresh only when quota is missing or
+older than 15 minutes. Run `peerhub explain suggest` for details.
+
 `--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its forecast and `EXHAUST-IN`, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
 
 `diag --live` repeatedly reads committed snapshots only and keeps its `--cycles 0` default (until interrupted, including non-TTY stdout). `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
@@ -158,7 +191,8 @@ The compact frame has two views with the same lines and rows. The plain view (`-
 - A RUNNING row starts with `►` (green), `× gone` (red), `! overdue` (yellow) or `?` (yellow). A LEADS row shows the context as a meter of five cells: `ctx ■■□□□ 46%`, red with `!` at 80 % or more, and a dim `ctx ───── 106k` or `ctx ───── ?` when the percentage is unknown. A RECENT row starts with a dot and its state: green `● ok`, yellow for unsure, red for empty or error.
 - No state is shown by colour or glyph alone: the words of the plain view stay. The colours come from the 256-colour palette (semicolon SGR codes only; `COLORTERM` changes nothing). `NO_COLOR` keeps the rich layout with its Unicode glyphs and prints no colour. Output that cannot show Unicode gets the same layout with ASCII glyphs (`--`, `#`, `.`, `*`, `^`, `v`, `x`, `o`, `>`). A terminal that draws these glyphs two cells wide should use `--view plain` (or `PEERHUB_MONITOR_VIEW=plain`).
 - `--expand` has the same look: the compact top (pill line, header, POOLS, `suggest:`), then the detail sections under the same rules and with the same markers (see above). `NO_COLOR` and the ASCII glyphs apply to it in the same way. Its rows join their fields with ` · `; the `--expand` rows quoted in this README show the plain view's ` | `.
-- `peerhub explain monitor-view` sums up the order and the look; `peerhub explain monitor-states` explains the states, PACE and `suggest:`.
+- A child pool (`└─ F-7D`, `└─ 3P-5H`) has its own bar: `▬` filled and `╌` empty (ASCII `=` and `-`), where a parent keeps `█` and `░` (`#` and `.`). On a terminal the rich view ends line 2 with a `Guide` link (OSC 8) to [docs/monitor.md](docs/monitor.md), which says what every part of the screen means; a build without a release tag omits the link, and `PEERHUB_NO_LINKS=1` turns it off. `--view plain --expand` printed whole (a pipe) ends with a plain `Guide: <url>` line.
+- [docs/monitor.md](docs/monitor.md) is the reading guide of the monitor. `peerhub explain monitor-view` sums up the order and the look; `peerhub explain monitor-states` explains the states, PACE and `suggest:`.
 
 An example of the rich view, shown here without colour (the uncoloured frame, as `NO_COLOR` prints it):
 
@@ -240,11 +274,13 @@ least 105% is a threat. Below the support gates the screen says “not enough
 data”. Inferred anchors remain conditional and predictive accuracy is not
 established.
 
-Monitor runs collection cycles every N seconds (`--interval-seconds`), collecting
-initially and then every Kth cycle (`--collect-every`). With `--cycles` omitted,
+Monitor reads committed evidence every N seconds (`--interval-seconds`).
+With `--probe`, it also collects initially and then every Kth cycle
+(`--collect-every`). Collection may spend quota through provider calls such as
+agy `/usage` and `/credits`. With `--cycles` omitted,
 stdout on a TTY watches until interrupted; non-TTY stdout runs one cycle.
 Explicit `--cycles 0` watches until interrupted everywhere; positive values
-bound collection cycles. The legacy dashboard and
+bound watch cycles. The legacy dashboard and
 live diagnostics update countdowns at most 1 Hz; PACE and forecast ETA remain
 anchored to the measurement. Non-TTY human watch prints one completed frame
 per cycle without escapes (skipping the initial pre-refresh frame), while unavailable VT on a TTY appends without escapes; schema 2.0 JSON watch emits one `initial` frame plus
@@ -278,7 +314,7 @@ What they can and cannot do:
 - One ask per stream. An ask on a stream that already has any record (another ask, delivered, failed, uncertain or still running, or a record put there some other way) is refused: `ca is stateless; use a new stream`. Only the same ask may come again: the same request-id and the same author (`--author-peer`) replay the stored result; another author with that request-id is refused the same way. Without `--stream`, every ask gets its own stream, `peer:<peer>:<request-id>` (PeerHub generates the request id when none is given), and the text output prints it before the `session:` line, for example `stream: peer:ca:<request-id>`; `--json` has it in `stream_id`. Other peers keep the default `peer:<peer>:chat`.
 - Refused before anything is stored or sent, with `request_rejected` and exit status 2: no `--profile` and no `--model`, a model that does not match, `--effort`, and `--writable`. See `peerhub explain request_rejected`.
 - The `@` rule: `ant` replaces a string that starts with `@` by the content of the file it names. The text that PeerHub sends to `ant` always starts with the fixed line `PeerHub ask (text only, no tools, no files).`, so a prompt that starts with `@<path>` is sent as that literal text, and no file is read.
-- Limits: replies up to 16,000 output tokens for `ca` and `oa` and up to 32,000 for `ga`; prompts up to 1,000,000 bytes; `peerhub guide` advises at most 3 asks at once per API peer (nothing enforces it). The limit of `ga` is higher because a Gemini model counts its thinking against the output limit: in a real call with a limit of 20 tokens the thinking used them all, and the reply came back cut and without text.
+- Limits: replies up to 16,000 output tokens for `ca` and `oa` and up to 32,000 for `ga`; prompts up to 1,000,000 bytes; `peerhub explain batch-and-load` advises at most 3 asks at once per API peer (nothing enforces it). The limit of `ga` is higher because a Gemini model counts its thinking against the output limit: in a real call with a limit of 20 tokens the thinking used them all, and the reply came back cut and without text.
 - `oa` always calls `https://api.openai.com/v1/responses`, and `ga` always calls `https://generativelanguage.googleapis.com/v1beta/models/<model>:generateContent`. `OPENAI_BASE_URL` and the proxy variables are ignored, redirects are not followed and TLS is always verified. A network that needs a proxy is not supported. For `oa` and `ga`, `--timeout-seconds` is a total over the whole call (connecting, the headers and the body): when it passes, the ask ends `uncertain`. `--silence-timeout-seconds`, when given, limits one network operation.
 
 Outcomes:

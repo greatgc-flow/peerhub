@@ -10,6 +10,7 @@ from unittest.mock import patch
 from peerhub.extensions.observation_model import EvidenceState
 from peerhub.core.store import CoreStore
 from tests.communication.fakes import FakeRuntimeTarget
+from tests.communication.e2e.test_cli_suggest import suggest_effect
 
 
 def lead_isolated_env(tmp, base):
@@ -311,6 +312,7 @@ def monitor_effect(e, option):
         argv += ["--json", option, "1.1"]
     elif option == "--view":
         argv += [option, "rich"]
+    argv.append("--probe")
     if option not in ("--view", "--schema-version"):
         # These option effects predate the grouped read model and concern the
         # collection loop itself. Keep the projection-independent 1.1 wire path
@@ -330,7 +332,7 @@ def monitor_effect(e, option):
          patch("peerhub.cli.monitor.sleep", fake_sleep):
         code, out, err = e.run(db, *argv)
         if option == "--view":
-            plain_code, plain, plain_err = e.run(db, "monitor", "--cycles", "1", "--view", "plain")
+            plain_code, plain, plain_err = e.run(db, "monitor", "--probe", "--cycles", "1", "--view", "plain")
             assert_vt_view_effect(e, db, "monitor")
     if option == "--view":
         assert code in (0, 4) and plain_code in (0, 4) and "refresh:" in err and "refresh:" in plain_err
@@ -352,6 +354,8 @@ def monitor_effect(e, option):
     elif option == "--schema-version":
         import json
         assert json.loads(out.splitlines()[0])["schema_version"] == "1.1"
+    elif option == "--probe":
+        assert len(captured) == 3
 
 
 def monitor_management_effect(e, argv, *, needs_bridge=False):
@@ -630,7 +634,9 @@ EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))
 EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refresh_effect(e, option))
                for option in ("--peers", "--system-dir", "--timeout-seconds")})
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
-               for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--schema-version", "--allow-agy-token-use", "--collect-every", "--view")})
+               for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--schema-version", "--allow-agy-token-use", "--collect-every", "--view", "--probe")})
+EFFECT.update({f"suggest {option}": (lambda e, option=option: suggest_effect(e, option))
+               for option in ("--tier", "--task", "--json")})
 EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, ["monitor", "groups", "--json"]),
                "monitor defaults show --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "show", "--json"]),
                "monitor defaults set --global": lambda e: monitor_management_effect(e, ["monitor", "defaults", "set", "--global", "--group", "usage"]),

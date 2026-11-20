@@ -7,19 +7,23 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-11-18.1"
-observed_at = "2026-11-18"
+defaults_revision = "2026-11-20.1"
+observed_at = "2026-11-20"
 
 [observed_versions]
-ag = "1.5.11"
-cc = "2.1.327"
-cx = "0.170.0"
+ag = "1.5.13"
+cc = "2.1.329"
+cx = "0.171.0"
+
+[stream_budget]
+prompt_tokens = 128000
+resumed_turns = 12
 
 [profiles."cx.standard"]
 selection_mode = "pinned"
 model = "gpt-6-luna"
 reasoning_effort = "low"
-source = "cli:codex debug models@0.170.0 2026-11-18"
+source = "cli:codex debug models@0.171.0 2026-11-20"
 checked = "2026-11-18"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -33,7 +37,7 @@ card_checked = "2026-11-18"
 selection_mode = "pinned"
 model = "gpt-6.2-sol"
 reasoning_effort = "high"
-source = "cli:codex debug models@0.170.0 2026-11-18"
+source = "cli:codex debug models@0.171.0 2026-11-20"
 checked = "2026-11-18"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -43,11 +47,17 @@ traits = ["sandbox hides other processes", "sandbox network fails; no commit", "
 evidence = ["cx-sandbox-and-prompt-hygiene", "docs/peer-limits.md"]
 card_checked = "2026-11-18"
 
+# Deprecated alias (0.25.0 plan D11): the binding comes from cx.effort (model sol) with effort xhigh. It still works and
+# prints one stderr line when an ask uses it. Optional profile keys (all four are validated by the loader):
+#   alias_of = "<peer>.<name>"     take the binding of that profile (one level, same peer)
+#   effort_override = "<effort>"   the effort of an alias (needs alias_of)
+#   suggest = false                never recommended automatically; explicit use still works (default true)
+#   measurement = "unmeasured"     no recorded measurement for the model id (default "measured")
 [profiles."cx.deepthink"]
-selection_mode = "pinned"
-model = "gpt-6.2-sol"
-reasoning_effort = "xhigh"
-source = "cli:codex debug models@0.170.0 2026-11-18"
+alias_of = "cx.effort"
+effort_override = "xhigh"
+suggest = false
+source = "cli:codex debug models@0.171.0 2026-11-20"
 checked = "2026-11-18"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -62,7 +72,7 @@ card_checked = "2026-11-18"
 selection_mode = "pinned"
 model = "gpt-6.2-astra"
 reasoning_effort = "high"
-source = "cli:codex debug models@0.170.0 2026-11-18"
+source = "cli:codex debug models@0.171.0 2026-11-20"
 checked = "2026-11-18"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -75,7 +85,7 @@ card_checked = "2026-11-18"
 [profiles."cc.standard"]
 selection_mode = "pinned"
 model = "claude-haiku-5-5"
-source = "known-id:claude --help aliases@2.1.327 2026-11-18"
+source = "known-id:claude --help aliases@2.1.329 2026-11-20"
 checked = "2026-11-18"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -89,7 +99,7 @@ card_checked = "2026-11-18"
 selection_mode = "pinned"
 model = "claude-sonnet-5-5"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.327 2026-11-18"
+source = "known-id:claude --help aliases@2.1.329 2026-11-20"
 checked = "2026-11-18"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -103,7 +113,8 @@ card_checked = "2026-11-18"
 selection_mode = "pinned"
 model = "claude-opus-5-5"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.327 2026-11-18"
+suggest = false
+source = "known-id:claude --help aliases@2.1.329 2026-11-20"
 checked = "2026-11-18"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -119,7 +130,7 @@ card_checked = "2026-11-18"
 selection_mode = "pinned"
 model = "claude-fable-5-2"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.327 2026-11-18"
+source = "known-id:claude --help aliases@2.1.329 2026-11-20"
 checked = "2026-11-18"
 pools = ["F-7D", "C-7D"]
 pools_source = "claude /usage weekly_scoped_shares (claude 2.1.322, 2026-11-10, #334)"
@@ -132,7 +143,7 @@ card_checked = "2026-11-18"
 [profiles."ag.standard"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-low"
-source = "cli:agy.exe models@1.5.11 2026-11-18"
+source = "cli:agy.exe models@1.5.13 2026-11-20"
 checked = "2026-11-18"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
@@ -145,7 +156,8 @@ card_checked = "2026-11-18"
 [profiles."ag.effort"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-high"
-source = "cli:agy.exe models@1.5.11 2026-11-18"
+suggest = false
+source = "cli:agy.exe models@1.5.13 2026-11-20"
 checked = "2026-11-18"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
@@ -158,7 +170,7 @@ card_checked = "2026-11-18"
 [profiles."ag.deepthink"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5-high"
-source = "cli:agy.exe models@1.5.11 2026-11-18"
+source = "cli:agy.exe models@1.5.13 2026-11-20"
 checked = "2026-11-18"
 pools = ["3P-5H", "3P-7D"]
 pools_source = "unverified"
@@ -171,7 +183,7 @@ card_checked = "2026-11-18"
 [profiles."ag.argon"]
 selection_mode = "pinned"
 model = "gemini-4-argon-medium"
-source = "cli:agy.exe models@1.5.11 2026-11-18"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
+source = "cli:agy.exe models@1.5.13 2026-11-20"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
 checked = "2026-11-18"
 pools = ["A-7D"]
 pools_source = "agy /usage group (agy 1.4.0)"
@@ -181,12 +193,26 @@ traits = ["45/45 at medium; high slower", "empty reply after tool use (#195)"]
 evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#195", "ag-recipe"]
 card_checked = "2026-11-18"
 
+[profiles."ag.neon"]
+selection_mode = "pinned"
+model = "gemini-4-neon-high"
+source = "cli:agy.exe models@1.5.13 2026-11-20"
+checked = "2026-11-20"
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+use_for = "opt-in strong reasoning on ag from the G pool, spreads load off A-7D"
+avoid_for = "tool use (follow the ag recipe: inline content, no tools)"
+traits = ["hard 2026-11-20: 100/100 (medium 98)", "pools inferred from ping, unverified"]
+evidence = ["docs/benchmarks/profiles-hard-2026-11-10/runs/results.txt", "ag-recipe"]
+card_checked = "2026-11-20"
+
 # API peers (#378, #381): one API call per ask, paid by API credits. No quota pool, so no `pools` and no CLI version in
 # [observed_versions]. `--model` must match the pattern of its peer:
 # ^claude-[a-z0-9.-]{1,64}$ (ca), ^gpt-[a-z0-9.-]{1,64}$ (oa), ^gemini-[a-z0-9.-]{1,64}$ (ga).
 [profiles."ca.standard"]
 selection_mode = "pinned"
 model = "claude-haiku-5-5"
+measurement = "unmeasured"
 source = "design:#378 ca-design v3 2026-11-15"
 checked = "2026-11-15"
 use_for = "inline the text; ca reads no file; cheap votes and doc checks"
@@ -198,6 +224,7 @@ card_checked = "2026-11-15"
 [profiles."ca.effort"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5"
+measurement = "unmeasured"
 source = "design:#378 ca-design v3 2026-11-15"
 checked = "2026-11-15"
 use_for = "inline the text; ca reads no file; text reviews and votes"
@@ -209,6 +236,7 @@ card_checked = "2026-11-15"
 [profiles."ca.deepthink"]
 selection_mode = "pinned"
 model = "claude-opus-5-5"
+measurement = "unmeasured"
 source = "design:#378 ca-design v3 2026-11-15"
 checked = "2026-11-15"
 use_for = "inline the text; ca reads no file; design votes, hard text reviews"
@@ -220,6 +248,7 @@ card_checked = "2026-11-15"
 [profiles."oa.standard"]
 selection_mode = "pinned"
 model = "gpt-6-luna"
+measurement = "unmeasured"
 source = "design:#378 oa-design v3 2026-11-15"
 checked = "2026-11-15"
 use_for = "inline the text; oa reads no file; cheap votes and doc checks"
@@ -231,6 +260,7 @@ card_checked = "2026-11-15"
 [profiles."oa.effort"]
 selection_mode = "pinned"
 model = "gpt-6.1-sol"
+measurement = "unmeasured"
 source = "design:#378 oa-design v3 2026-11-15"
 checked = "2026-11-15"
 use_for = "inline the text; oa reads no file; text reviews and votes"
@@ -242,6 +272,7 @@ card_checked = "2026-11-15"
 [profiles."oa.deepthink"]
 selection_mode = "pinned"
 model = "gpt-6-astra"
+measurement = "unmeasured"
 source = "design:#378 oa-design v3 2026-11-15"
 checked = "2026-11-15"
 use_for = "inline the text; oa reads no file; design votes, hard text reviews"
@@ -255,6 +286,7 @@ card_checked = "2026-11-15"
 [profiles."ga.standard"]
 selection_mode = "pinned"
 model = "gemini-3.5-flash-lite"
+measurement = "unmeasured"
 source = "design:#381 ga-design v3 2026-11-16"
 checked = "2026-11-16"
 use_for = "inline the text; ga reads no file; cheap votes and doc checks"
@@ -269,6 +301,7 @@ card_checked = "2026-11-16"
 [profiles."ga.effort"]
 selection_mode = "pinned"
 model = "gemini-3.6-flash"
+measurement = "unmeasured"
 source = "measured:#381 4 of 4 API calls answered 2026-11-16 (one key)"
 checked = "2026-11-16"
 use_for = "inline the text; ga reads no file; text reviews and votes"
@@ -371,3 +404,33 @@ pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 checked = "2026-11-18"
 note = "inferred from the -high run; gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
+
+[exact_model_pools."gemini-4-neon-low"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-20"
+note = "gemini-4-neon: new in agy 1.5.13; hard benchmark 2026-11-20 (one run each): medium 98/100, high 100/100, xhigh 100/100 (383 s); pools inferred from the G-pool quota drop of the ping (G-5H/G-7D), not from an /usage group; no profile yet"
+
+[exact_model_pools."gemini-4-neon-medium"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-20"
+note = "gemini-4-neon: new in agy 1.5.13; hard benchmark 2026-11-20 (one run each): medium 98/100, high 100/100, xhigh 100/100 (383 s); pools inferred from the G-pool quota drop of the ping (G-5H/G-7D), not from an /usage group; no profile yet"
+
+[exact_model_pools."gemini-4-neon-high"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-20"
+note = "gemini-4-neon: new in agy 1.5.13; hard benchmark 2026-11-20 (one run each): medium 98/100, high 100/100, xhigh 100/100 (383 s); pools inferred from the G-pool quota drop of the ping (G-5H/G-7D), not from an /usage group; no profile yet"
+
+[exact_model_pools."gemini-4-neon-xhigh"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-20"
+note = "gemini-4-neon: new in agy 1.5.13; hard benchmark 2026-11-20 (one run each): medium 98/100, high 100/100, xhigh 100/100 (383 s); pools inferred from the G-pool quota drop of the ping (G-5H/G-7D), not from an /usage group; no profile yet"
+
+[exact_model_pools."gemini-pro-orchestrator-neon"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-20"
+note = "gemini-4-neon: new in agy 1.5.13; hard benchmark 2026-11-20 (one run each): medium 98/100, high 100/100, xhigh 100/100 (383 s); pools inferred from the G-pool quota drop of the ping (G-5H/G-7D), not from an /usage group; no profile yet"

@@ -98,7 +98,8 @@ def test_catch_up_prompt_has_one_boundary_then_identified_records_then_current_a
     ])
     history.boundary = {"truncated": truncated, "omitted_count": omitted, "omitted_through_position": 3}
     prompt = base.CliRuntimeTarget._prompt(SimpleNamespace(body="current question"), history)
-    assert prompt == ('[context truncated: 3 earlier records omitted through position 3]\n\n'
+    assert prompt == ('PeerHub stream context follows. Use the earlier records as context for the final request.\n\n'
+                      '[context truncated: 3 earlier records omitted through position 3]\n\n'
                       '[4 r4 user prompt] old question\n\n'
                       '[5 r5 cx response] {"fact": "known"}\n\ncurrent question')
     assert prompt.count("[context truncated:") == 1
@@ -108,6 +109,7 @@ def test_empty_truncated_history_still_reports_boundary():
     history = ProjectedRecords()
     history.boundary = {"truncated": True, "omitted_count": 2, "omitted_through_position": 2}
     assert base.CliRuntimeTarget._prompt(SimpleNamespace(body="now"), history) == (
+        "PeerHub stream context follows. Use the earlier records as context for the final request.\n\n"
         "[context truncated: 2 earlier records omitted through position 2]\n\nnow")
 
 
@@ -117,5 +119,7 @@ def test_complete_history_has_no_boundary_note(boundary):
         SimpleNamespace(position=1, record_id="r1", author_peer_id="user", kind="prompt", body="earlier"),
     ])
     history.boundary = boundary
-    assert base.CliRuntimeTarget._prompt(SimpleNamespace(body="now"), history) == "[1 r1 user prompt] earlier\n\nnow"
+    assert base.CliRuntimeTarget._prompt(SimpleNamespace(body="now"), history) == (
+        "PeerHub stream context follows. Use the earlier records as context for the final request.\n\n"
+        "[1 r1 user prompt] earlier\n\nnow")
     assert base.CliRuntimeTarget._prompt(SimpleNamespace(body="now"), []) == "now"

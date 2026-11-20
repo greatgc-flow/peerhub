@@ -1310,6 +1310,29 @@ class CliRuntimeTarget:
         """Effective creation metadata; no cwd, credentials or vendor identity."""
         return dict(profile=self._profile, model=self._model, effort=self._effort, writable=self._writable)
 
+    def quota_pools(self) -> list[str] | None:
+        """Store quota is observed for the default account and known model pools."""
+        if self._account is not None:
+            return None
+        if self.runtime_kind == "cx":
+            scopes = ["X-7D", "X-5H"]
+        elif self.runtime_kind == "cc":
+            model = self._model or ""
+            if model.startswith(("fable", "claude-fable")):
+                scopes = ["C-7D", "C-5H", "F-7D"]
+            else:
+                scopes = ["C-7D", "C-5H"]  # the all-models pools also apply to CLI-default models
+        else:
+            from peerhub.extensions.adapters.profiles import inspect_model_pools
+            try:
+                model_pools = inspect_model_pools(self._model or "", self._workspace)
+            except (OSError, ValueError):
+                return None
+            if not model_pools or not model_pools["verified"]:
+                return None
+            scopes = sorted(model_pools["pools"], key=lambda scope: (not scope.endswith("7D"), scope))
+        return [f"quota:{self.runtime_kind}:{scope}" for scope in scopes]
+
     def create_session(self) -> str:
         return f"{self.runtime_kind}-local-{uuid.uuid4().hex}"  # a local handle: one process per delivery, no vendor call
 
@@ -1358,6 +1381,8 @@ class CliRuntimeTarget:
         for r in catch_up:
             parts.append(f"[{getattr(r, 'position', '?')} {getattr(r, 'record_id', '?')} "
                          f"{getattr(r, 'author_peer_id', '?')} {getattr(r, 'kind', '?')}] {txt(r)}")
+        if parts:
+            parts.insert(0, "PeerHub stream context follows. Use the earlier records as context for the final request.")
         parts.append(txt(record))
         return "\n\n".join(parts)
 

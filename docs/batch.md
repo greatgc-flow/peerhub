@@ -3,14 +3,15 @@
 Validate a flat manifest before executing asks (execution spends provider quota):
 
 ```powershell
-peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run --json
-peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --json
+peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run --json
+peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --json
 ```
 
 Use global `--db PATH` before `batch` to select a store. The parent resolves one
 absolute store path for every worker, including tasks with different workspaces.
 Dry runs validate without spawning workers or creating the store.
-`--batch-id` and `--max-parallel` are required; parallelism is 1..16.
+`--batch-id` and `--max-parallel` are required; parallelism is 1..16. The guide and every example
+recommend 3 (`RECOMMENDED_MAX_PARALLEL` in `peerhub/extensions/batch.py`, the one constant).
 
 The UTF-8 JSON manifest contains only `tasks` (1..256 entries):
 
@@ -61,6 +62,54 @@ Without the flag the output is unchanged; read a reply with
 - Replies are in the report (before 0.24.13: `peerhub record read --stream <stream> --json`).
 - Measured 2026-11-14: three peers answered in 11 s.
 
+Use the following as prompt files for `prompt_file` in a batch manifest or
+`--query-file` in an ask. Replace `<facts>` with the task and its supporting
+material. Keep repository paths, excerpts, decisions and other task facts after
+the fixed instructions.
+
+### Inline ag recipe prompt
+
+```text
+Use only the inline facts below. Do not use tools. Complete the requested task and return the result.
+
+<facts>
+```
+
+### ag file-read recipe prompt
+
+```text
+Use only your file read tool. If a file cannot be read, say so. Complete the task below.
+
+<facts>
+```
+
+### Fresh-stream handoff prompt
+
+```text
+Continue the work using the decisions, open work, and file references below.
+
+<facts>
+```
+
+### Batch task prompt
+
+```text
+Complete the task below. Report the result and any blockers.
+
+<facts>
+```
+
+### Batch vote prompt
+
+```text
+Review the proposal and evidence below. Reply in at most 300 tokens.
+VERDICT: AGREE or DISAGREE
+BLOCKERS: file:line and the exact fix for each, or none
+NITS: optional, one line each
+
+<facts>
+```
+
 Ctrl+C, SIGTERM, or Windows Ctrl+Break stops launches and terminates worker trees.
 Windows tree termination is guaranteed when confirmed; unconfirmed termination
 reports `UNCERTAIN` with `kill_unconfirmed`. POSIX termination is best-effort;
@@ -101,7 +150,7 @@ While 3P is low, explicitly use `ag.argon` only for tasks its measured capabilit
 
 | Limit | Value |
 | --- | --- |
-| Active asks, default | 4 (`--max-parallel 4`; the option stays required) |
+| Active asks, default | 4 (a batch takes `--max-parallel 3`, one slot stays free for a manual ask; the option stays required) |
 | Active asks, ceiling | 6 |
 | Per peer | cc 3, cx 3, ag 1 (use 2 for ag only after seeing no G-5H spike) |
 | pytest | one run at a time, never alongside more than 3 asks |

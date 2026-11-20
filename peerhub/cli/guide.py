@@ -1,140 +1,29 @@
-"""PeerHub Quick Reference and Best Practices Guide (S5).
+"""PeerHub guide (0.25.0 plan D5): decisions only, at most 1600 bytes of ASCII.
 
-Static prose and a generated profile table provide a concise (<=60 lines, <=5600 B LF-normalized
-for packaged default profiles) reference for session reuse, efficiency, safety, discovery, drift
-recovery, and issue reporting. Works without store or provider access. Profile fields are capped
-by character count (overlay model names can be longer in UTF-8 bytes; character caps only).
+Rare hazards, the store and upgrade steps, batch and load limits, discovery commands and the API peers moved to
+`peerhub explain <topic>` (peerhub/config_data/lessons.toml); the profile table is `peerhub profile list`. Static text:
+it reads no store, no profile file and no provider, so nothing configured can change it.
 """
 from __future__ import annotations
 
-import unicodedata
 from pathlib import Path
-from typing import Any, cast
 
-
-def _cell(value: object, width: int) -> str:
-    """Replace terminal controls; '~' marks a value truncated by character count."""
-    text = str(value)
-    cut = len(text) > width
-    text = "".join(
-        "?" if unicodedata.category(char).startswith("C")
-        or unicodedata.category(char) in {"Zl", "Zp"} else char
-        for char in text[:width]
-    )
-    if cut:
-        text = text[:width - 1] + "~"
-    return text.ljust(width)
-
-
-PROFILE_ROWS = 11  # keeps the guide within its 60-line cap however many profiles are configured
+GUIDE_MAX_BYTES = 1600  # enforced by tests/communication/e2e/test_cli_guide.py
 
 
 def render_guide(workspace: Path | None = None) -> str:
-    """Render the <=60 line quick reference guide."""
-    from peerhub.extensions.adapters.profiles import list_profiles
+    """The decisions a caller needs before its first ask. `workspace` is accepted for callers; it is not read."""
+    del workspace
+    from peerhub.extensions.batch import RECOMMENDED_MAX_PARALLEL
 
-    ws = workspace or Path(".")
-    load_error: str | None = None
-    try:
-        profs = list_profiles(ws)
-    except Exception as exc:
-        load_error = _cell(f"{type(exc).__name__}: {exc}", 120).rstrip()
-        profs = []
-
-    tier_order = {"standard": 0, "effort": 1, "deepthink": 2}
-
-    def _tier_key(p: dict[str, Any]) -> tuple[int, str]:
-        name = str(p.get("profile") or "")
-        suffix = name.split(".")[-1] if "." in name else name
-        return (tier_order.get(suffix, 9), name)
-
-    def _layer_key(p: dict[str, Any]) -> int:
-        raw_fields: object = p.get("fields")
-        fields: dict[str, Any] = cast(dict[str, Any], raw_fields) if isinstance(raw_fields, dict) else {}
-        raw: object = fields.get("model")
-        src = str(cast(dict[str, Any], raw).get("source") or "") if isinstance(raw, dict) else ""
-        return 0 if src == "packaged" else 1
-
-    sorted_profs = sorted(profs, key=lambda p: (_layer_key(p), *_tier_key(p)))
-    hidden = max(0, len(sorted_profs) - PROFILE_ROWS)
-    if hidden:
-        sorted_profs = sorted_profs[:PROFILE_ROWS - 1]
-        hidden += 1
-    lines: list[str] = [
-        "PeerHub Quick Reference & Best Practices",
-        "Profiles (listed by tier):",
-        f"{'Profile':<14} {'Model':<24} {'Pools':<14} {'Layer'} (~ = truncated; peerhub profile list)",
-    ]
-    if load_error:
-        lines.append(f"  (error loading profiles: {load_error})")
-    for p in sorted_profs:
-        raw_fields: object = p.get("fields")
-        fields: dict[str, Any] = cast(dict[str, Any], raw_fields) if isinstance(raw_fields, dict) else {}
-        p_name = str(p.get("profile") or "")
-        raw_model: object = fields.get("model")
-        model_dict: dict[str, Any] = cast(dict[str, Any], raw_model) if isinstance(raw_model, dict) else {}
-        mod = str(model_dict.get("value") or "")
-        src = str(model_dict.get("source") or "")
-        raw_pools: object = fields.get("pools")
-        pools_dict: dict[str, Any] = cast(dict[str, Any], raw_pools) if isinstance(raw_pools, dict) else {}
-        pools_val: object = pools_dict.get("value")
-        pools_list = cast(list[object], pools_val) if isinstance(pools_val, list) else []
-        # Don't materialize an unbounded joined string from a custom list.
-        pools_str = ", ".join(str(x)[:32] for x in pools_list[:3])
-        if len(pools_list) > 3:
-            pools_str += ", ..."
-        lines.append(
-            f"{_cell(p_name, 14)} {_cell(mod, 24)} "
-            f"{_cell(pools_str, 14)} {_cell(src, 12).rstrip()}"
-        )
-    if hidden:
-        lines.append(f"  +{hidden} more profiles: peerhub profile list")
-
-    lines.extend([
-        "Two-Asks Session Reuse Example:",
-        '  peerhub ask cc "Explain the architecture" --profile cc.standard --stream arch-review --request-id req-001',
-        '  peerhub ask cc "Now drill into data flow" --profile cc.standard --stream arch-review --request-id req-002',
-        "",
-        "Efficiency:",
-        "  Reuse: a --stream resumes (same store/binding, 1 peer); reuse per task; new task = new stream; votes one-shot.",
-        "  Profiles: lowest tier for task: bulk=standard, code=effort, review/design=deepthink (docs/batch.md).",
-        "  Transport: --query-file and --json select transport/format (no token saving).",
-        "",
-        "Long Asks:",
-        "  'peerhub ask' blocks until the peer finishes, then prints reply + 'session:'; run foreground/background-with-exit-notification and wait, never detach/poll.",
-        "  implementer/review asks: --timeout-seconds 1800-3600; ag prints nothing until done: up to --timeout-seconds 7200, --silence-timeout-seconds unset or >= it.",
-        "",
-        "Safety:",
-        "  ag recipe: 'peerhub explain ag-recipe' (--query-file + \"no tools\", one task per ask, --writable even to read, trusted -w, stdin prompts up to 1,000,000 bytes, never resume after an empty reply).",
-        "  Writes: cx sandbox enforced; cc enforced; ag NOT enforced (issue #140); when edits are intended, pass --writable on every turn, including resumed turns.",
-        "  pending_earlier_record: inspect processed_status; delivered => retry same request-id/prompt/binding/selector; uncertain => stop.",
-        "  Uncertain: stop that stream (timeouts too), check the working tree for partial edits, 'peerhub diag health' (skipped oversized line: cc ok if an intact result follows (#325), cx needs answer+turn.completed);",
-        "    never blind-retry original prompt under a new request-id, with --fresh, or delete claims; continue genuinely new work on a new stream with a summary; 'peerhub explain <code>'.",
-        "  Store hazards: --db > PEERHUB_DB > nearest upward .peerhub/core.db (miss: peerhub explain store-missing); back up core.db before upgrading; new schema not openable by old versions;",
-        "    stop 'peerhub monitor' -> pip install -U peerhub -> restart monitor (locks peerhub.exe on Windows; also wait for running asks (diag running), else broken install: reinstall, check results before resend); don't run dev builds on the real store; after restore, reopen stores (old instances fenced).",
-        "  Cost side effects: monitor watch / observation refresh may spend quota (snapshot/diag read-only); uncertain streams may stay quota-blocked after reset. Aged quota is last-known; refresh first.",
-        "  Batch: executes asks (spends quota); ag tasks always writable; overlapping writers rejected; cancel: Windows tree kill, POSIX best-effort; inspect UNCERTAIN; keep manifest + batch-id.",
-        "  API peers: ca (Claude API, `ant auth login`), oa (OpenAI API, OPENAI_API_KEY) and ga (Gemini API, GEMINI_API_KEY) spend API credits, not a pool: inline the text; ca reads no file (oa, ga neither); one ask per stream; no --writable.",
-        "  Load: 4 active asks (max 6; cc 3/cx 3/ag 1/ca 3/oa 3/ga 3). Balance: suggest: is advisory (rule H); reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer; compare 7D PACE (5H only gates); PACE (pp, used%-elapsed%) needs a fresh quota age; + = ahead of even burn.",
-        "  Accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots.",
-        "  Secrets: prompts/streams persist in local store; no tokens/passwords.",
-        "Discovery & Inspection Commands:",
-        "  peerhub explain lessons      # lesson index (id: title); then peerhub explain <id> or free words",
-        "  peerhub explain setup        # what each peer needs",  # kept short: the guide is close to its 5600-byte cap
-        "  peerhub monitor --group capacity  # AI sessions: verdict line + pools; suggest a|b = best + alternative peer; peerhub explain monitor-states",
-        "  peerhub monitor --expand     # everything: alerts, asks, leads, pools, peers, accounts, sessions, usage (or --snapshot)",
-        "  peerhub diag                 # read-only diagnostics",
-        "  peerhub diag --plan          # per-pool spend/hold/rest until reset, from stored quota",
-        "  models: peerhub profile list; slugs: agy models; --model <slug>",
-        "  peerhub batch run tasks.json --batch-id review-001 --max-parallel 2 --dry-run  # validate batch",
-        "  peerhub session list         # retained sessions; accounts: peerhub account list",
-        "  peerhub observation refresh  # re-probe provider quota",
-        "  peerhub explain peer-subagents  # sub-agents inside one ask (same peer quota)",
-        "",
-        "Model facts: the line-1 'facts:' alert (needs_recheck) clears via refresh-model-profiles skill or release upgrade.",
-        "Report Issues:",
-        "  File at github.com/greatgc-flow/peerhub/issues after checking 'gh issue list -R greatgc-flow/peerhub --search KEYWORD'.",
-        "  Include peerhub --version, OS, exact command, status/exit code, and workaround (no secrets/private paths).",
+    return "\n".join([
+        "PeerHub guide (decisions only)",
+        "Peer: cc/cx for code and files (sandbox enforced); ag for drafts with content inline (always --writable, not enforced); ca/oa/ga = API credits, text only.",
+        "Tier: lowest that fits: standard = bulk, effort = code and routine review, deepthink = design and final check.",
+        "Stream: one task = one --stream; reuse only for follow-ups and review rounds on ONE diff; new task = new stream.",
+        "Votes: routine check = ONE reviewer; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. All run FRESH, even if a stream name is given; facts inline. Reply VERDICT / BLOCKERS / NITS, <= 300 tokens (peerhub explain independent-peer-votes).",
+        f"Batch: peerhub batch run tasks.json --batch-id review-001 --max-parallel {RECOMMENDED_MAX_PARALLEL} --dry-run (spends quota; at most {RECOMMENDED_MAX_PARALLEL} at once).",
+        "Timeout: --timeout-seconds 1800-3600 for implementer/review asks (default 600); ag up to 7200.",
+        "Uncertain (timeout, empty reply, pending_earlier_record): stop that stream, check the working tree, never blind-retry; new work goes on a new stream.",
+        "More: peerhub profile list (models, tiers); peerhub explain <topic> for: ask-basics, writes-and-uncertain, store-and-upgrade, batch-and-load, discovery-commands, report-issues, ag-recipe, api-peers; all topics: peerhub explain lessons.",
     ])
-    return "\n".join(lines)
-

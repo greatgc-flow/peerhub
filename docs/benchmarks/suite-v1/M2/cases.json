@@ -1,0 +1,12 @@
+[
+  {"args": [[], ["VIPFREE"], true], "expected": 0},
+  {"args": [[["book", 0, 999]], [], false], "expected": 0},
+  {"args": [[["toy", 1, 5000]], ["VIPFREE"], true], "expected": 100},
+  {"args": [[["toy", 1, 2000]], ["VIPFREE"], false], "expected": 2200},
+  {"args": [[["book", 3, 300], ["book", 1, 300]], ["BOGO", "boGo", "unknown"], false], "expected": 900},
+  {"args": [[["toy", 1, 1200]], ["FLAT500"], false], "expected": 770},
+  {"args": [[["toy", 1, 1000]], ["SAVE10", "FLAT500"], false], "expected": 900},
+  {"args": [[["toy", 1, 1500]], ["SAVE10", "FLAT500"], true], "expected": 935},
+  {"args": [[["toy", 1, 1000000000000000001]], ["SAVE10", "SAVE10"], true], "expected": 935000000000000001},
+  {"args": [[["toy", 1, 400]], ["FLAT500"], false], "expected": 100}
+]

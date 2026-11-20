@@ -19,8 +19,8 @@ def test_inventory_file_equals_the_real_parser():
     committed = json.loads(inv.INVENTORY.read_text(encoding="utf-8"))
     assert committed == json.loads(inv.render(inv.derive()))
     assert [c["command"] for c in committed["commands"]] == [
-        "account bind", "account list", "account show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor defaults reset", "monitor defaults set", "monitor defaults show", "monitor groups", "monitor repair", "observation refresh", "offset advance", "offset get", "peer get", "peer list", "peer register",
-        "profile list", "profile show", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
+        "account bind", "account list", "account show", "ask", "batch run", "diag health", "diag integrity", "diag quota", "diag readiness", "diag running", "explain", "guide", "monitor defaults reset", "monitor defaults set", "monitor defaults show", "monitor groups", "monitor repair", "observation refresh", "offset advance", "offset get", "outcome", "peer get", "peer list", "peer register",
+        "profile check", "profile list", "profile show", "profile stats", "record append", "record read", "session list", "session show", "stream create", "stream list", "stream show", "suggest"]  # literal oracle: a new/removed leaf must be a conscious edit here and in the file
 
 
 def test_inventory_detects_divergence_positive_control(monkeypatch):
@@ -352,10 +352,15 @@ def universal_json_effect(e, command):
     elif root == "monitor":
         monitor_management_effect(proxy, ["monitor", "defaults", "show", "--json"])
     elif root == "profile":
-        action = "show" if command.endswith("show") else "list"
+        action = prefix[1] if len(prefix) == 2 else "list"
         argv = ["profile", action] + (["cx.standard"] if action == "show" else [])
-        result = machine(e.tmp / "unused.db", *argv)
+        from unittest.mock import patch
+        with patch("peerhub.cli.profile_stats.installed_models", return_value=None):
+            result = machine(e.tmp / "unused.db", *argv)
         assert result["schema_version"] == "1.0"
+    elif root == "outcome":
+        db, ask_id = _outcome_ask(e)
+        assert machine(db, "outcome", ask_id, "accepted") == {"ask_id": ask_id, "outcome": "accepted"}
     else:
         db = e.fresh()
         commands = {
@@ -387,12 +392,34 @@ for _hidden in ("peer list", "stream list", "profile list", "profile show", "ses
     EFFECT.pop(f"{_hidden} --format")
 for _command in (
     "*", "account", "batch", "diag health", "diag integrity", "guide", "monitor defaults",
-    "observation", "observation refresh", "offset", "offset advance", "offset get", "peer",
-    "peer get", "peer list", "peer register", "profile", "profile list", "profile show",
+    "observation", "observation refresh", "offset", "offset advance", "offset get", "outcome", "peer",
+    "peer get", "peer list", "peer register", "profile", "profile check", "profile list", "profile show", "profile stats",
     "record", "record append", "record read", "session", "session list", "session show",
     "stream", "stream create", "stream list", "stream show",
 ):
     EFFECT[f"{_command} --json"] = lambda e, command=_command: universal_json_effect(e, command)
+
+
+def _outcome_ask(e):
+    from peerhub.extensions.ask import ask
+    from tests.communication.fakes import FakeRuntimeTarget
+
+    db = e.fresh(populate=False)
+    runtime = FakeRuntimeTarget().script_deliver(("started", "exec"), ("terminal", {"response": "ok"}))
+    return db, ask(db, "cx", "question", runtime=runtime)["requested_record_id"]
+
+
+def _outcome_effect(e, field):
+    db, ask_id = _outcome_ask(e)
+    if field == "ask_id":
+        assert e.run(db, "outcome", "missing", "accepted")[0] == 1
+        assert e.j(db, "outcome", ask_id, "accepted")["ask_id"] == ask_id
+    else:
+        for outcome in ("accepted", "rejected", "retried"):
+            assert e.j(db, "outcome", ask_id, outcome)["outcome"] == outcome
+
+
+EFFECT.update({f"outcome {field}": lambda e, field=field: _outcome_effect(e, field) for field in ("ask_id", "outcome")})
 
 def test_every_published_option_has_an_effect_proof():
     assert inv.option_keys(inv.derive()) == sorted(EFFECT)  # a new option/positional/alias at any level without a behavioural proof (or a stale proof) fails here
@@ -432,8 +459,9 @@ def test_leaf_help_exit_zero_lists_every_option_and_unknown_option_exits_2(leaf,
         assert o["flags"][0] in out, (leaf["command"], o)
     if argv[0] == "diag":
         assert "example" in out.lower()  # public diag leaves carry copyable examples
-    req = [x for o in leaf["options"] if o["required"] for x in
-           (("x",) if o["positional"] else (o["flags"][0], "usage" if o["dest"] == "group" else "1" if o["dest"] in ("new_position", "expected_revision", "max_parallel") else "x"))]
+    values = {"group": "usage", "new_position": "1", "expected_revision": "1", "max_parallel": "1", "outcome": "accepted", "tier": "standard"}
+    req = [x for o in leaf["options"] if o["required"] for value in [values.get(o["dest"], "x")]
+           for x in ((value,) if o["positional"] else (o["flags"][0], value))]
     code, out, err = run(capsys, "unused.db", *argv, *req, "--definitely-unknown")
     assert code == 2 and "Traceback" not in err and "unrecognized arguments: --definitely-unknown" in err
 

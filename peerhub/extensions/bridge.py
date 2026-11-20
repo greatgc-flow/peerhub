@@ -373,7 +373,8 @@ class Bridge:
     def __init__(self, store: CoreStore, claims: ClaimStore, *, owner_id: str = "bridge-1", lease_sec: float = 30.0,
                  max_session_attempts: int = 3, catch_up_limit: int = 100, ack_retries: int = 8,
                  catch_up_budget: CatchUpBudget | None = None, fault_hook: Callable[[str], None] | None = None,
-                 caller: Mapping[str, Any] | None = None) -> None:
+                 caller: Mapping[str, Any] | None = None,
+                 stream_budget: tuple[int, int] | None = None, on_stream_budget: Callable[[], None] | None = None) -> None:
         self.store, self.claims = store, claims
         # #374: caller detail (schema v1, peerhub.extensions.caller); evidence only, never part of any digest.
         self.caller: dict[str, Any] | None = dict(caller) if isinstance(caller, dict) else None
@@ -382,6 +383,7 @@ class Bridge:
         # Leave room for the current ask and prompt headers within AG's 30,000-byte Windows inline limit.
         self.catch_up_budget = catch_up_budget if catch_up_budget is not None else CatchUpBudget(max_records=catch_up_limit, max_bytes=24_000)
         self._hook = fault_hook
+        self._stream_budget, self._on_stream_budget = stream_budget, on_stream_budget
         refuse_future_schema(claims.db_path)  # MIG-003: refuse a future schema before any DDL/DML
         with claims.transaction() as conn:
             owned = [m.group(1) for stmt in _DDL if (m := re.match(r"\s*CREATE TABLE IF NOT EXISTS (\w+)", stmt))]
@@ -408,6 +410,7 @@ class Bridge:
             for stmt in _DDL:
                 conn.execute(stmt)
             bridge_registry.initialize(conn, self._upgrade_session_context, self._fire)
+            session_receipts.install_ask_metrics(conn)
             for stmt in _POST_REGISTRY_DDL:
                 conn.execute(stmt)
 
@@ -575,7 +578,8 @@ class Bridge:
                 conn.execute("INSERT INTO bridge_evidence (delivery_id, stream_id, peer_id, kind, certainty, detail) VALUES (?,?,?,?,?,?)",
                              (delivery_id, token.stream_id, token.peer_id, "caller", NOT_STARTED,
                               json.dumps(self.caller, sort_keys=True, default=str)))
-            self._evidence(conn, token.stream_id, token.peer_id, "about_to_invoke", delivery_id, NOT_STARTED, invocation_no=n, **detail)
+            self._evidence(conn, token.stream_id, token.peer_id, "about_to_invoke", delivery_id, NOT_STARTED,
+                           invocation_no=n, quota_invoked_at=self.claims.now(), **detail)
             return n
 
     _CALLER_IDENTITY = ("host", "ns", "ask_pid", "ask_created")
@@ -1298,17 +1302,21 @@ class Bridge:
         last_termination_confirmed: bool | None = None
         # D-OWN-A4/TD-11: durable invocation marker BEFORE the runtime can possibly act; certainty stays NOT_STARTED while pending,
         # an unresolved marker after a crash is promoted to MAY_HAVE_STARTED by recovery (never re-invoked)
-        self._mark_invocation(token, did, external_session_id=ext, session_generation=gen)
+        quota_scope: Callable[[], list[str] | None] | None = getattr(runtime, "quota_pools", None)
+        self._mark_invocation(token, did, external_session_id=ext, session_generation=gen,
+                              quota_pools=quota_scope() if quota_scope is not None else None)
         self._fire("bridge.before_runtime_invoke")
         gated = self._gate(token, runtime, rec, did, after_marker=True)  # intent committed up to the very invoke still wins
         if gated is not None:
             return gated
         try:
-            with self.claims.fenced(token):  # D-OWN-A4: the claim must still be current/unexpired at the very moment of invoking
-                pass
+            with self.claims.fenced(token) as conn:  # D-OWN-A4: the claim must still be current/unexpired at invocation
+                warn_budget = self._stream_budget is not None and session_receipts.resumed_ask_budget(conn, did, self._stream_budget)
         except StaleClaimError as e:  # lost: nothing was invoked; the unresolved marker is promoted conservatively by the new owner
             self._late(token, did, "fenced_before_invoke", error=str(e))
             return CycleResult("fenced", rec.record_id, did, NOT_STARTED, session_generation=gen)
+        if warn_budget and self._on_stream_budget is not None:
+            self._on_stream_budget()
         try:
             for ev in runtime.deliver(ext, rec, catch_up):
                 try:
@@ -1485,9 +1493,10 @@ class Bridge:
                         self._evidence(conn, row["stream_id"], row["peer_id"], "conflicting_terminal", did, TERMINAL,
                                        digest=dig, committed_digest=row["result_digest"], result=supplied_result)
                 else:
+                    stopped = self.claims.now()
                     conn.execute("UPDATE bridge_deliveries SET result_json=?, result_digest=?, terminal_at=? WHERE delivery_id=?",
                                  (json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False), dig,
-                                  _iso(self.claims.now()), did))
+                                  _iso(stopped), did))
                     native = self._commit_native_terminal(conn, token, row, result)
                     if native and provenance is not None:
                         native.update(provenance)
@@ -1506,6 +1515,7 @@ class Bridge:
                     completed = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
                     session_receipts.telemetry(conn, completed, self.claims.now(), provider_candidate)
                     session_receipts.record_usage_coverage(conn, completed, self.claims.now())
+                    session_receipts.record_ask_pool_delta(conn, completed, stopped)
                     mapping = bridge_registry.generation(conn, token.stream_id, token.peer_id, row["session_generation"])
                     if mapping is not None and mapping["state"] not in ("LOST", "TOMBSTONED") and mapping["external_session_id"] == row["external_session_id"]:
                         conn.execute("UPDATE bridge_session_history SET last_seen=? WHERE session_handle=?", (self.claims.now(), mapping["session_handle"]))

@@ -488,6 +488,14 @@ def test_suggestions_exclude_unusable_profiles(compact_frame, bad):
     assert "eco=- normal=- quality=- top=-" not in screen
 
 
+def test_suggestions_exclude_profiles_with_suggest_false(compact_frame):
+    compact_frame["configured_profiles"].append({
+        "profile": "ag.effort", "suggest": False, "fields": {"pools": {"value": ["G-5H"]}},
+    })
+    screen = render_grouped_frame(compact_frame, view="plain", width=100)
+    assert "suggest: eco=- normal=cx.effort quality=- top=-" in screen.splitlines()
+
+
 @pytest.mark.parametrize("aged", [True, False])
 def test_peers_lines_left_the_compact_frame(compact_frame, aged):
     # #374: the PEERS summaries (and their "(aged)" suffix) are --expand only; an aged pool shows as `aged` in POOLS.
@@ -598,10 +606,23 @@ def test_peers_only_uses_snapshot_capacity_support(compact_frame):
     assert screen.splitlines()[1].startswith("PeerHub Monitor") and len(screen.splitlines()) <= 3
 
 
+def test_cached_profiles_add_only_the_suggest_flag(monkeypatch):
+    from peerhub.cli.monitor import _cached_profiles, _profile_fingerprints
+    from peerhub.extensions.adapters.profiles import list_profiles
+
+    workspace = Path(__file__).resolve().parent
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(workspace))
+    disabled = {"cc.deepthink", "cx.deepthink", "ag.effort"}
+    assert _cached_profiles(str(workspace), _profile_fingerprints(workspace)) == [
+        {**profile, "suggest": profile["profile"] not in disabled} for profile in list_profiles(workspace)
+    ]
+
+
 def test_profile_cache_reuses_parse_and_invalidates_overlay(tmp_path, monkeypatch):
     from peerhub.cli.monitor import _render_human_frame
     calls = []
-    monkeypatch.setattr("peerhub.extensions.adapters.profiles.list_profiles", lambda root: calls.append(root) or [])
+    monkeypatch.setattr("peerhub.extensions.adapters.profiles.list_profiles",
+                        lambda root, *, include_meta: calls.append(root) or [])
     frame = {"store_selection": {"path": str(tmp_path / ".peerhub/core.db")}, "groups": {}}
     for _ in range(2):
         _render_human_frame(frame, view="plain", width=100, height=None, color=False)
@@ -728,8 +749,13 @@ def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_fram
                                 ("G-5H", "▲ fast", "bad"), ("X-7D", "● ok", "ok")):
         line = _row(colored, pool)
         assert f"\x1b[{RICH_SGR[colour]}m{state}\x1b[0m" in line
-        assert re.search(r"\x1b\[" + RICH_SGR[colour] + r"m[█░]{20}\x1b\[0m", line)
-        assert {code for code in re.findall(r"\x1b\[([0-9;]*)m", line)} == {RICH_SGR[colour], RICH_SGR["dim"], "0"}
+        if pool.startswith("3P-5H"):  # a child pool (#414): filled in the row's colour, empty in SGR dim
+            assert re.search(r"\x1b\[" + RICH_SGR[colour] + r"m▬+\x1b\[0m\x1b\[2m╌+\x1b\[0m", line) or re.search(
+                r"\x1b\[2m╌{20}\x1b\[0m", line), line
+            assert {code for code in re.findall(r"\x1b\[([0-9;]*)m", line)} == {RICH_SGR[colour], RICH_SGR["dim"], "2", "0"}
+        else:
+            assert re.search(r"\x1b\[" + RICH_SGR[colour] + r"m[█░]{20}\x1b\[0m", line)
+            assert {code for code in re.findall(r"\x1b\[([0-9;]*)m", line)} == {RICH_SGR[colour], RICH_SGR["dim"], "0"}
         assert not line.startswith("\x1b")
         assert _width(line) <= 99
     assert "\x1b" not in _solo(compact_frame, view="plain", color=True, width=100)

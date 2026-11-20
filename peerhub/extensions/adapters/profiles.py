@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import tomllib
 from importlib import resources
 from importlib.resources.abc import Traversable
@@ -38,8 +39,33 @@ def _load_layers(workspace: str | Path | None) -> list[tuple[str, dict[str, Any]
     return layers
 
 
+DEFAULT_STREAM_BUDGET: tuple[int, int] = (128_000, 12)
+
+
+def stream_budget(workspace: str | Path) -> tuple[int, int]:
+    values: dict[str, int] = dict(zip(("prompt_tokens", "resumed_turns"), DEFAULT_STREAM_BUDGET))
+    for _, layer in _load_layers(workspace):
+        section: object = layer.get("stream_budget", {})
+        if not isinstance(section, dict):
+            raise ValueError("[stream_budget] must be a table")
+        settings = cast(dict[str, object], section)
+        for key in values:
+            if key in settings:
+                value = settings[key]
+                if type(value) is not int or value <= 0:
+                    raise ValueError(f"stream_budget.{key} must be a positive integer")
+                values[key] = value
+    return values["prompt_tokens"], values["resumed_turns"]
+
+
 BINDING_KEYS = ("selection_mode", "model", "reasoning_effort")
 CARD_KEYS = ("use_for", "avoid_for", "traits", "evidence", "card_checked")
+# 0.25.0 plan D11/A9: optional per-profile fields. They are never inherited from an alias target.
+META_KEYS = ("alias_of", "effort_override", "suggest", "measurement")
+META_DEFAULTS: dict[str, Any] = {"alias_of": None, "effort_override": None, "suggest": True, "measurement": "measured"}
+MEASUREMENTS = ("measured", "unmeasured")
+_PROFILE_ID = re.compile(r"(?:ag|cc|cx|ca|oa|ga)\.[A-Za-z0-9_.-]+")
+_NOTICED: set[tuple[str, str, str | None]] = set()
 
 
 def _card(effective: dict[str, Any], sources: dict[str, str]) -> dict[str, Any] | None:
@@ -90,12 +116,78 @@ def _select_profile(profile: str, layers: list[tuple[str, dict[str, Any]]]) -> t
     return selected, sources
 
 
+def _check_meta(profile: str, entry: dict[str, Any]) -> None:
+    """Validate the optional profile fields of one effective entry (format only)."""
+    kind = profile.split(".", 1)[0]
+    suggest: object = entry.get("suggest", True)
+    if not isinstance(suggest, bool):
+        raise ValueError(f"profile {profile}: suggest must be true or false")
+    measurement: object = entry.get("measurement", "measured")
+    if measurement not in MEASUREMENTS:
+        raise ValueError(f"profile {profile}: measurement must be measured or unmeasured")
+    alias: object = entry.get("alias_of")
+    override: object = entry.get("effort_override")
+    if override is not None and alias is None:
+        raise ValueError(f"profile {profile}: effort_override needs alias_of")
+    if override is not None and (not isinstance(override, str) or not override):
+        raise ValueError(f"profile {profile}: effort_override must be a nonempty string")
+    if alias is None:
+        return
+    if not isinstance(alias, str) or not _PROFILE_ID.fullmatch(alias):
+        raise ValueError(f"profile {profile}: alias_of must be a qualified profile id such as {kind}.effort")
+    if alias.split(".", 1)[0] != kind:
+        raise ValueError(f"profile {profile}: alias_of must name a {kind} profile")
+    if alias == profile:
+        raise ValueError(f"profile {profile}: alias_of cannot name itself")
+
+
+def _effective(profile: str, layers: list[tuple[str, dict[str, Any]]]) -> tuple[dict[str, Any], dict[str, str]]:
+    """The merged entry of one profile; an alias takes the binding of its target (one level), its own keys on top."""
+    selected, sources = _select_profile(profile, layers)
+    _check_meta(profile, selected)
+    target = selected.get("alias_of")
+    if target is None:
+        return selected, sources
+    target_entry, target_sources = _select_profile(target, layers)
+    if target_entry.get("alias_of") is not None:
+        raise ValueError(f"profile {profile}: alias chains are not supported ({target} is itself an alias)")
+    effective = {key: value for key, value in target_entry.items() if key not in CARD_KEYS and key not in META_KEYS}
+    effective_sources = {key: target_sources[key] for key in effective}
+    effective.update(selected)
+    effective_sources.update(sources)
+    override = selected.get("effort_override")
+    if override is not None:
+        effective["reasoning_effort"] = override
+        effective_sources["reasoning_effort"] = sources["effort_override"]
+    return effective, effective_sources
+
+
+def reset_deprecation_notices() -> None:
+    """Forget which alias notices were printed (tests; a long-lived process starts over)."""
+    _NOTICED.clear()
+
+
+def _notice_alias(profile: str, effective: dict[str, Any]) -> None:
+    """One stderr line per process and alias when a deprecated alias is resolved for an ask."""
+    target, override = str(effective["alias_of"]), effective.get("effort_override")
+    key = (profile, target, override)
+    if key in _NOTICED:
+        return
+    _NOTICED.add(key)
+    effort = f" with effort {override}" if override else ""
+    use = f"--profile {target} --effort {override}" if override else f"--profile {target}"
+    print(f"peerhub: profile {profile} is deprecated: an alias of {target}{effort}; use {use}", file=sys.stderr)
+
+
 def resolve_profile(kind: str, profile: str, workspace: str | Path) -> tuple[str | None, str | None]:
     profile = qualified_profile(kind, profile)
     if not profile.startswith(kind + ".") or not profile[len(kind) + 1:]:
         raise ValueError("profile must be a fully qualified name for the target provider")
-    selected, _ = _select_profile(profile, _load_layers(workspace))
-    return _profile_values(selected)
+    selected, _ = _effective(profile, _load_layers(workspace))
+    values = _profile_values(selected)
+    if selected.get("alias_of") is not None:
+        _notice_alias(profile, selected)
+    return values
 
 
 def _profile_values(selected: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -116,16 +208,22 @@ def qualified_profile(kind: str, profile: str) -> str:
     return f"{kind}.{profile}" if "." not in profile else profile
 
 
-def inspect_profile(profile: str, workspace: str | Path, *, include_pool_source: bool = False) -> dict[str, Any]:
-    """Return effective declarative values with the winning TOML layer per field."""
-    return _inspect_profile(profile, _load_layers(workspace), include_pool_source=include_pool_source)
+def inspect_profile(profile: str, workspace: str | Path, *, include_pool_source: bool = False,
+                    include_meta: bool = False) -> dict[str, Any]:
+    """Return effective declarative values with the winning TOML layer per field.
+
+    include_meta adds alias_of, effort_override, suggest and measurement (source "default" when no layer sets one).
+    They stay out by default: the monitor read model embeds this result and its JSON must not grow.
+    """
+    return _inspect_profile(profile, _load_layers(workspace), include_pool_source=include_pool_source, include_meta=include_meta)
 
 
-def _inspect_profile(profile: str, layers: list[tuple[str, dict[str, Any]]], *, include_pool_source: bool) -> dict[str, Any]:
+def _inspect_profile(profile: str, layers: list[tuple[str, dict[str, Any]]], *, include_pool_source: bool,
+                     include_meta: bool = False) -> dict[str, Any]:
     qualified = profile
     if "." not in qualified or not all(qualified.split(".", 1)):
         raise ValueError("profile must be a fully qualified provider.profile name")
-    effective, sources = _select_profile(qualified, layers)
+    effective, sources = _effective(qualified, layers)
     model, effort = _profile_values(effective)
     mode = effective["selection_mode"]
     result: dict[str, Any] = {
@@ -139,17 +237,21 @@ def _inspect_profile(profile: str, layers: list[tuple[str, dict[str, Any]]], *, 
     }
     if include_pool_source:
         result["fields"]["pools_source"] = {"value": effective.get("pools_source"), "source": sources.get("pools_source")}
+    if include_meta:
+        for key in META_KEYS:
+            result["fields"][key] = {"value": effective.get(key, META_DEFAULTS[key]), "source": sources.get(key, "default")}
     result["card"] = _card(effective, sources)
     return result
 
 
-def list_profiles(workspace: str | Path, *, include_pool_source: bool = False) -> list[dict[str, Any]]:
+def list_profiles(workspace: str | Path, *, include_pool_source: bool = False, include_meta: bool = False) -> list[dict[str, Any]]:
     """List the union of explicitly named profiles across the same resolver layers."""
     layers = _load_layers(workspace)
     names: set[str] = set()
     for _, layer in layers:
         names.update(cast("dict[str, Any]", layer.get("profiles", {})))
-    return [_inspect_profile(name, layers, include_pool_source=include_pool_source) for name in sorted(names)]
+    return [_inspect_profile(name, layers, include_pool_source=include_pool_source, include_meta=include_meta)
+            for name in sorted(names)]
 
 
 def packaged_defaults_meta() -> dict[str, Any]:

@@ -170,7 +170,7 @@ def test_schema_11_watch_is_explicit_legacy_ndjson(tmp_path, monkeypatch, capsys
                         lambda *a, **kw: {"status": "OK", "observations": [], "warnings": []})
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
     db = _db(tmp_path)
-    assert main(["--db", str(db), "monitor", "--json", "--schema-version", "1.1", "--cycles", "1"]) == 0
+    assert main(["--db", str(db), "monitor", "--probe", "--json", "--schema-version", "1.1", "--cycles", "1"]) == 0
     output = capsys.readouterr()
     frames = [json.loads(line) for line in output.out.splitlines()]
     assert len(frames) == 2
@@ -557,7 +557,7 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
     calls = []
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: calls.append("refresh") or {"status": "OK"})
-    code = _run(_db(tmp_path), "--view", view, "--cycles", "2", "--interval-seconds", "2.5")
+    code = _run(_db(tmp_path), "--probe", "--view", view, "--cycles", "2", "--interval-seconds", "2.5")
     if ending == "error":
         assert code == 1
     elif ending == "normal":
@@ -576,7 +576,8 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
     assert out.count("PeerHub") >= ((3 if tty else 2) if ending == "normal" else 1)
 
 
-def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch):
+@pytest.mark.parametrize("probe", [False, True])
+def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch, probe):
     import io
 
     class Output(io.StringIO):
@@ -590,10 +591,11 @@ def test_json_on_tty_emits_only_one_object_per_cycle(tmp_path, monkeypatch):
     refreshes = []
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: refreshes.append(1) or {"status": "OK"})
-    assert _run(_db(tmp_path), "--json", "--schema-version", "1.1", "--cycles", "3", "--collect-every", "2") == 0
+    options = ["--probe"] if probe else []
+    assert _run(_db(tmp_path), "--json", "--schema-version", "1.1", "--cycles", "3", "--collect-every", "2", *options) == 0
     lines = output.getvalue().splitlines()
     frames = [json.loads(line) for line in lines]
-    assert len(lines) == 4 and len(refreshes) == 2
+    assert len(lines) == 4 and len(refreshes) == (2 if probe else 0)
     assert all(frame["schema_version"] == "1.1" for frame in frames)
     assert frames[0]["phase"] == "initial" and frames[0]["refresh"]["status"] == "NOT_STARTED"
     assert [frame["cycle"] for frame in frames[1:]] == [0, 1, 2]
@@ -606,7 +608,7 @@ def test_grouped_watch_emits_initial_and_cycle_frames_without_changing_collect_c
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: calls.append(1) or {"status": "OK", "observations": [], "warnings": []})
     monkeypatch.setattr("peerhub.cli.monitor.sleep", lambda seconds: None)
-    assert _run(_db(tmp_path), "--json", "--group", "store", "--cycles", "3", "--collect-every", "2") == 0
+    assert _run(_db(tmp_path), "--probe", "--json", "--group", "store", "--cycles", "3", "--collect-every", "2") == 0
     frames = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert [frame["phase"] for frame in frames] == ["initial", "complete", "complete", "complete"]
     assert [frame["cycle"] for frame in frames] == [0, 0, 1, 2]
@@ -685,7 +687,7 @@ def test_grouped_tty_shows_refreshing_before_provider_call(tmp_path, monkeypatch
         return {"status": "OK", "observations": [], "warnings": []}
 
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
-    assert _run(_db(tmp_path), "--group", "store", "--cycles", "1") in (0, 4)
+    assert _run(_db(tmp_path), "--probe", "--group", "store", "--cycles", "1") in (0, 4)
     assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
 
 
@@ -803,7 +805,7 @@ def test_tty_countdown_redraw_reuses_snapshot_without_database_or_provider_calls
     monkeypatch.setattr(monitor, "monotonic", lambda: now[0])
     monkeypatch.setattr(monitor, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
 
-    assert main(["--db", str(_db(tmp_path)), "monitor", "--cycles", "2", "--interval-seconds", "2",
+    assert main(["--db", str(_db(tmp_path)), "monitor", "--probe", "--cycles", "2", "--interval-seconds", "2",
                  "--group", "store"]) in (0, 4)
     assert len(reads) == 3  # initial frame plus two completed collection cycles
     assert len(refreshes) == 2
@@ -839,7 +841,7 @@ def test_monitor_emits_committed_snapshot_before_calling_provider(tmp_path, monk
     with patch.object(ReadonlyDiag, "render", tracked), \
          patch("peerhub.extensions.quota_capture.refresh_quota", refresh), \
          patch("peerhub.cli.monitor.sleep", lambda seconds: None):
-        assert _run(_db(tmp_path), "--json", "--schema-version", "1.1", "--cycles", "1") == 0
+        assert _run(_db(tmp_path), "--probe", "--json", "--schema-version", "1.1", "--cycles", "1") == 0
     assert events == ["snapshot", "probe", "snapshot"]
     frames = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert frames[0]["phase"] == "initial" and frames[0]["refresh"]["status"] == "NOT_STARTED"
@@ -862,7 +864,7 @@ def test_monitor_exit_code_reports_diagnostic_failure_before_refresh_status(
     monkeypatch.setattr("peerhub.extensions.diag.ReadonlyDiag.render", lambda *a, **kw: empty)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota",
                         lambda *a, **kw: {"status": refresh_status, "observations": [], "warnings": []})
-    assert _run(_db(tmp_path), "--json", "--schema-version", "1.1", "--cycles", "1") == expected
+    assert _run(_db(tmp_path), "--probe", "--json", "--schema-version", "1.1", "--cycles", "1") == expected
 
 
 def test_monitor_skips_elapsed_monotonic_slots_after_slow_probe(tmp_path, monkeypatch):
@@ -877,7 +879,7 @@ def test_monitor_skips_elapsed_monotonic_slots_after_slow_probe(tmp_path, monkey
 
     with patch("peerhub.extensions.quota_capture.refresh_quota", slow_probe), \
          patch("peerhub.cli.monitor.sleep", lambda seconds: sleeps.append(seconds)):
-        assert _run(_db(tmp_path), "--cycles", "2", "--interval-seconds", "5") in (0, 4)
+        assert _run(_db(tmp_path), "--probe", "--cycles", "2", "--interval-seconds", "5") in (0, 4)
     assert sleeps == []
 
 
@@ -996,7 +998,7 @@ def test_sleep_called_count_minus_1_times(tmp_path, capsys):
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", fake_sleep), patch("peerhub.cli.monitor.monotonic", lambda: clock[0]):
-        assert _run(_db(tmp_path), "--cycles", "3", "--interval-seconds", "42") in (0, 4)
+        assert _run(_db(tmp_path), "--probe", "--cycles", "3", "--interval-seconds", "42") in (0, 4)
     assert sleeps == pytest.approx([42.0, 42.0], abs=1e-9)
     assert calls == ["refresh", "snapshot", "refresh", "snapshot", "refresh", "snapshot"]
 
@@ -1009,7 +1011,7 @@ def test_collect_every_honoured(tmp_path, capsys):
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
-        assert _run(_db(tmp_path), "--cycles", "4", "--collect-every", "2") in (0, 4)
+        assert _run(_db(tmp_path), "--probe", "--cycles", "4", "--collect-every", "2") in (0, 4)
     assert calls == ["refresh", "snapshot", "snapshot", "refresh", "snapshot", "snapshot"]
 
 
@@ -1026,7 +1028,7 @@ def test_guard_stop_after_first_violation(tmp_path, capsys):
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
-        assert _run(_db(tmp_path), "--cycles", "5") == 1
+        assert _run(_db(tmp_path), "--probe", "--cycles", "5") == 1
     assert calls == ["refresh"]
     err = capsys.readouterr().err
     assert "agy /usage consumed model tokens" in err
@@ -1043,7 +1045,7 @@ def test_guard_stop_message_names_the_command_that_consumed_tokens(tmp_path, cap
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
-        assert _run(_db(tmp_path), "--cycles", "5") == 1
+        assert _run(_db(tmp_path), "--probe", "--cycles", "5") == 1
     assert calls == ["refresh"]
     err = capsys.readouterr().err
     assert f"agy {command} consumed model tokens" in err
@@ -1056,7 +1058,7 @@ def test_guard_stop_message_for_schema_11_names_credits(tmp_path, capsys):
         return {"status": "PARTIAL", "observations": [{"kind": "account", "payload": {"evidence_ref": "agy_usage_consumed_tokens"}}], "warnings": []}
 
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), patch("peerhub.cli.monitor_schema11.sleep", lambda s: None, create=True):
-        assert _run(_db(tmp_path), "--json", "--schema-version", "1.1", "--cycles", "3") == 1
+        assert _run(_db(tmp_path), "--probe", "--json", "--schema-version", "1.1", "--cycles", "3") == 1
     assert "agy /credits consumed model tokens" in capsys.readouterr().err
 
 
@@ -1073,7 +1075,7 @@ def test_guard_continue_with_flag(tmp_path, capsys):
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.monitor_read_model.render_monitor_frame", _spy_group_frame(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
-        assert _run(_db(tmp_path), "--cycles", "2", "--allow-agy-token-use") == 4
+        assert _run(_db(tmp_path), "--probe", "--cycles", "2", "--allow-agy-token-use") == 4
     assert calls == ["refresh", "snapshot", "refresh", "snapshot"]
 
 
@@ -1101,7 +1103,7 @@ def test_json_frames_parse_and_carry_stable_keys(tmp_path, capsys):
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.extensions.diag.ReadonlyDiag.render", _spy_render(calls)), \
          patch("peerhub.cli.monitor.sleep", lambda s: None):
-        assert _run(_db(tmp_path), "--cycles", "2", "--collect-every", "2", "--json", "--schema-version", "1.1") == 0
+        assert _run(_db(tmp_path), "--probe", "--cycles", "2", "--collect-every", "2", "--json", "--schema-version", "1.1") == 0
     
     out = capsys.readouterr().out
     lines = [line for line in out.splitlines() if line.strip()]
@@ -1128,9 +1130,12 @@ def test_snapshot_step_performs_no_writes(tmp_path, capsys):
     db_path = tmp_path / "db.sqlite"
     CoreStore(db_path)
     
+    refreshes = []
+
     def fake_refresh(db, *a, **kw):
         from peerhub.core.store import CoreStore
         from peerhub.extensions.observation import ObservationStore
+        refreshes.append(1)
         CoreStore(db)
         ObservationStore(db)
         return {"status": "OK", "observations": [{"payload": {}}], "warnings": []}
@@ -1141,9 +1146,10 @@ def test_snapshot_step_performs_no_writes(tmp_path, capsys):
 
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh), \
          patch("peerhub.cli.monitor.sleep", record_hash):
-        assert _run(db_path, "--cycles", "3", "--collect-every", "2") in (0, 4)
+        assert _run(db_path, "--probe", "--cycles", "3", "--collect-every", "2") in (0, 4)
 
     # cycle 0 = refresh+snapshot, cycle 1 = snapshot only, cycle 2 = refresh+snapshot: the two sleeps bracket the snapshot-only cycle
+    assert len(refreshes) == 2
     assert len(hashes) == 2
     assert hashes[0] == hashes[1]
 
@@ -1159,7 +1165,7 @@ def test_monitor_forwards_system_dir(tmp_path):
 
     sys_path = tmp_path / "custom_sys"
     with patch("peerhub.extensions.quota_capture.refresh_quota", fake_refresh):
-        assert _run(_db(tmp_path), "--cycles", "1", "--system-dir", str(sys_path)) in (0, 4)
+        assert _run(_db(tmp_path), "--probe", "--cycles", "1", "--system-dir", str(sys_path)) in (0, 4)
 
     assert calls == [Path(sys_path)]
 
@@ -1167,7 +1173,11 @@ def test_monitor_forwards_system_dir(tmp_path):
 @pytest.mark.parametrize("extra", [(), ("--json",), ("--json", "--schema-version", "1.1")])
 def test_monitor_refresh_injects_the_same_profile_pools_as_observation_refresh(tmp_path, extra, capsys):
     """P4: monitor's refresh path declares the cx/cc/ag pools exactly like `observation refresh` (one shared helper)."""
-    def profiles(_root):
+    from peerhub.extensions.adapters.profiles import list_profiles
+
+    def profiles(root, *, include_meta=False):
+        if include_meta:
+            return list_profiles(root, include_meta=True)
         return [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
             ("cx.effort", ["X-5H", "X-7D"]), ("cc.fable", ["F-7D"]), ("cc.standard", ["C-5H", "C-7D"]),
             ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]))]
@@ -1180,7 +1190,7 @@ def test_monitor_refresh_injects_the_same_profile_pools_as_observation_refresh(t
     db = _db(tmp_path)
     with patch("peerhub.extensions.adapters.profiles.list_profiles", profiles), \
          patch("peerhub.extensions.quota_capture.refresh_quota", refresh):
-        main(["--db", str(db), "monitor", "--cycles", "1", *extra])
+        main(["--db", str(db), "monitor", "--probe", "--cycles", "1", *extra])
         main(["--db", str(db), "observation", "refresh"])
     capsys.readouterr()
     expected = {"cx_pools": ["X-5H", "X-7D"], "cc_pools": ["C-5H", "C-7D", "F-7D"], "ag_pools": ["A-7D", "G-5H", "G-7D"]}
@@ -1589,7 +1599,7 @@ def test_every_tty_redraw_ages_the_one_payload_so_line_1_and_pools_agree(tmp_pat
     monkeypatch.setattr(monitor, "monotonic", lambda: clock[0])
     monkeypatch.setattr(monitor, "sleep", sleep)
     monkeypatch.setattr(monitor, "_render_human_frame", spy)
-    assert main(["--db", str(h.db_path), "monitor", "--group", "capacity", "--view", "plain", "--cycles", "2",
+    assert main(["--db", str(h.db_path), "monitor", "--probe", "--group", "capacity", "--view", "plain", "--cycles", "2",
                  "--interval-seconds", "150", *(["--expand"] if expand else [])]) == 0
     assert len(reads) == 3  # the initial frame and two cycles
     countdown = [frame for frame in frames if frame["state"] == "REFRESH OK" and frame["next"]]  # not the frames of a read

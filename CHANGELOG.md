@@ -8,6 +8,34 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-20
+
+### Fixed
+
+- Profile stats, terminal ask receipts, and stream budget warnings use per-ask token counts. Session-cumulative counters contribute deltas from the previous delivery of the same session. A missing baseline or a counter reset leaves that metric unknown.
+- `peerhub profile stats` prints a compact table with token coverage and rounded token counts. `--json` retains the full measurements and per-metric coverage.
+
+### Added
+
+- `peerhub outcome <ask-id> accepted|rejected|retried` appends an outcome correction in the selected SQLite store. `peerhub profile stats [--json]` reports ask counts, per-metric coverage, reported usage, wall time, quota deltas per accepted answer, and measurement freshness. `peerhub profile check` checks model IDs against installed Codex and agy catalogs when available and flags profiles without a current measurement in 30 days.
+- Asks print a one-line terminal receipt on stderr. `PEERHUB_NO_RECEIPT=1` silences it. Resuming a stream over its configured budget prints a fresh-stream command with a handoff hint. Inlining a query file over 64 KB prints a warning and sends the full query.
+- Benchmark suite v1 (0.25.0 plan D10/A8) adds six fixed Python tasks and an offline runner for grading saved replies against hidden cases. The runner verifies all references and records versioned JSONL measurements with the effective profile settings for `peerhub profile stats`. [Benchmark instructions](docs/benchmarks/suite-v1/README.md)
+- `peerhub suggest --tier standard|effort|deepthink [--task review|code|read]` prints an ask command and a reason, with structured output via `--json`. It applies the 5H usage gate and ranks eligible profiles by 7D PACE.
+
+### Changed
+
+- `peerhub profile list` shows ask counts and stale measurements in `STATS`. Profile measurements reuse the existing Bridge evidence. SQLite adds outcome corrections and quota deltas with links to the source readings. Quota intervals require a single observed in-flight ask on the pool and comparable readings from the same reset window.
+- PeerHub prompt templates put the full fixed instructions before task and stream facts. Cache savings remain unproven until 0.25.0 telemetry shows them.
+- Monitor watch reads committed quota by default. Pass `--probe` to collect during watch. CLI dispatch for subscription peers on default accounts and `suggest` attempt a quota refresh only when the snapshot is missing or older than 15 minutes.
+- The monitor's `suggest:` line honors `suggest = false` in profile configuration, matching `peerhub suggest`.
+- `peerhub monitor` (#414): a child pool in POOLS (`└─ F-7D`, `└─ 3P-5H`, `└─ G-5H`) has its own bar, so it no longer looks like its parent: filled `▬` in the state colour and empty `╌` in dim, 20 cells with the same shrink rule (to 4 cells, then hidden); the ASCII form is `=` filled and `-` empty. A parent keeps `█░` (`#.`). The plain `--expand` QUOTA `[BAR]` column draws a child row the same way. An empty cell is never a space, so 0% still shows.
+- `peerhub monitor`: one `Guide` link (OSC 8) at the right end of line 2, in the compact and the `--expand` frame, in the rich view on a terminal only. It points at `docs/monitor.md` of the running version (`https://github.com/greatgc-flow/peerhub/blob/v<version>/docs/monitor.md`) and is left out of a development build (no tag to point at) and with `PEERHUB_NO_LINKS=1`. It is the first thing dropped on a narrow terminal, before any data, and is never cut. The width helpers (`visible_len` and the monitor's width functions) ignore OSC 8. The plain view has no link bytes; its `--expand` frame, printed whole (not height-bounded), ends with a plain `Guide: <url>` line. New page `docs/monitor.md` explains the whole screen; the README and `peerhub explain monitor-view` point at it.
+- Model refresh 2026-11-20 for claude 2.1.329, codex 0.171.0 and agy 1.5.13: observed versions and profile sources updated; one profile added. agy lists the new `gemini-4-neon-{low,medium,high,xhigh}` and `gemini-pro-orchestrator-neon`; their pools (G-5H, G-7D) are recorded as unverified in `[exact_model_pools]`, new profile `ag.neon` (gemini-4-neon-high). Hard benchmark (one run each): neon medium 98, high 100, xhigh 100 (383 s); `cx.effort` (sol 6.2 high) 100 in 48 s and `cx.astra` 100 in 37 s after the sanitizer fix.
+- `peerhub guide` (0.25.0 plan D5): now at most 1600 bytes of decisions only: which peer, which tier, the stream reuse rule, fresh votes, the batch cap, the timeout, how to treat an uncertain result, and one pointer line to `peerhub profile list` and `peerhub explain <topic>`. The profile table is gone (it was `peerhub profile list` all along). The rare hazards, the store and upgrade steps, the load limits, the cost side effects, the accounts rules, the discovery commands and the issue-report steps moved to six new `explain` topics, word for word: `ask-basics`, `writes-and-uncertain`, `store-and-upgrade`, `batch-and-load`, `discovery-commands`, `report-issues`; every earlier guide fact is reachable through `peerhub explain lessons`. The batch example and every doc now say `--max-parallel 3` (it was 2), from one constant (`RECOMMENDED_MAX_PARALLEL`).
+- Vote policy (0.25.0 plan D6/A5): a routine check is ONE reviewer; a consequential decision (release, schema, deletion, public API) is 3 independent peers with unanimity. Routine checks and all three votes always run fresh, even when a stream name is given; a named stream is for review rounds on one diff only. Reply template `VERDICT / BLOCKERS / NITS`, at most 300 tokens. It is text in the guide and in the existing topic `independent-peer-votes`; there is no new `vote` command (`batch run the batch response option` already runs votes).
+- Profile fields (0.25.0 plan D11/A9): four optional keys, validated in every config layer: `alias_of` (a deprecated alias takes the binding of another profile of the same peer), `effort_override`, `suggest` (default `true`; `false` = never recommended automatically) and `measurement` (`measured` default, or `unmeasured`). `cx.deepthink` is now an alias of `cx.effort` with effort `xhigh`: it resolves to the same model and effort as before, still works, and prints one stderr line when an ask uses it. `cc.deepthink`, `ag.effort` and `cx.deepthink` have `suggest = false`; every `ca`, `oa` and `ga` profile is `unmeasured` until it has a recorded measurement. `peerhub profile list` has a `NOTES` column (alias, not suggested, unmeasured) and `profile show` lists the four fields with their source layer; `--format json` carries them.
+- Freeze rule (0.25.0 plan D12): no further monitor cosmetics and no top-tier benchmark reruns until the 0.25.0 telemetry data exists (D1-D3).
+
 ## [0.24.29] - 2026-11-20
 
 ### Changed

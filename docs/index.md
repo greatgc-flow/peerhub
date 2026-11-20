@@ -4,6 +4,7 @@ PeerHub is a durable communication layer for collaborating AI peers (`cc`, `cx`,
 
 ## Core & Everyday Guides
 - [Account-bound Peers](accounts.md): Immutable cc/cx roots, environment isolation, and quota limitations.
+- [Reading the monitor](monitor.md): What every line, column, state word, bar glyph and alert code of `peerhub monitor` means (the target of its `Guide` link).
 - [Batch Runs](batch.md): Validate and execute flat parallel asks, interpret statuses, cancel and resume.
 - [Remote Ask](remote-ask.md): Running peerhub ask against peers on remote hosts over SSH.
 - [Knowledge Placement Policy](knowledge-placement.md): Policy governing guidance placement across docs, CLI guide, and lessons.

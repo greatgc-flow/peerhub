@@ -24,6 +24,7 @@ from peerhub.extensions.process_tree import creation_ticks as _creation_time, ki
 DEFAULT_TIMEOUT_S = 600.0
 MAX_TASKS = 256
 MAX_PARALLEL = 16
+RECOMMENDED_MAX_PARALLEL = 3  # the one value the guide and every example use (0.25.0 plan D5); the option stays required
 STDOUT_CAP = 4 * 1024 * 1024
 STDERR_CAP = 64 * 1024
 PROMPT_FILE_CAP = 1024 * 1024

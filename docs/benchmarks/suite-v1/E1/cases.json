@@ -1,0 +1,12 @@
+[
+  {"args": ["I"], "expected": 1},
+  {"args": ["CDXLIV"], "expected": 444},
+  {"args": ["MMMDCCCLXXXVIII"], "expected": 3888},
+  {"args": ["MMMCMXCIX"], "expected": 3999},
+  {"args": [""], "expected": -1},
+  {"args": ["IIII"], "expected": -1},
+  {"args": ["IC"], "expected": -1},
+  {"args": ["\tXIV "], "expected": -1},
+  {"args": ["MMMM"], "expected": -1},
+  {"args": ["xiv"], "expected": -1}
+]

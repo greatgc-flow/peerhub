@@ -47,7 +47,76 @@ column, and `--format json` carries the full `card`. The loader checks card form
 test suite checks that packaged evidence paths and lesson ids exist (issue refs: format only) and that
 `card_checked` is not older than the profile's `checked` date.
 
+Four more optional profile keys (0.25.0): `alias_of`, `effort_override`, `suggest` and `measurement`
+(see [model profiles](model-profiles/README.md)). They merge by field like the others and are not binding keys,
+so setting them does not drop the card.
+
 See the [model profile manifest](model-profiles/model-profiles.json) for
 profile IDs, models, efforts, and the refresh procedure, and
 [profiles.py](../peerhub/extensions/adapters/profiles.py) for the loader.
 Keep credentials with the vendor CLI's authentication mechanism.
+
+## Profile measurements and stream budgets
+
+`peerhub profile stats [--json]` reads the selected SQLite store on demand. Each stored
+ask prompt with a named profile counts once, including asks without a measurement.
+The latest delivery attempt supplies the measurement. Model and effort come from the
+stored binding, session mode from the accepted session, and wall time from the fenced
+start and terminal timing. Token counters come from each delivery's provider telemetry.
+The existing `bridge_session_history.usage_json` stores the session's latest usage.
+`bridge_session_usage_coverage_*` and `bridge_session_latency_daily` roll up monitor
+metrics by stream and peer. Profile stats use the underlying delivery evidence, and
+quota readings come from the existing `observations` table. The additive migration
+installs only the outcome history and attributable quota deltas.
+Delivery-scoped counters apply directly to the ask. For session-cumulative counters,
+PeerHub subtracts the previous delivery's values for the same stream, peer, and session
+handle. A counter is unknown when either value is missing or the current value is lower,
+as can happen after compaction. Stats average each metric over asks with an attributable
+value. Zero counts toward coverage. Cache-read percentage divides the sum of per-ask
+cache reads by total prompt tokens over asks with both counters and a positive prompt
+total. Claude reports fresh input separately from its cache counters. The p50 uses
+measured wall times.
+
+The text table shows one row per profile, with compact durations, rounded input and output
+averages (using `k` and `M`), and the latest benchmark date. `TOK%` is the share of asks
+with both input and output counts. Missing values appear as `-`. JSON retains the
+per-metric coverage and full measurement values, with `null` for unknowns and
+`token_coverage_pct` for the table's token coverage.
+
+Outcomes start as `unknown`. `peerhub outcome <ask-id> accepted|rejected|retried`
+appends a correction. The ask ID is `requested_record_id` in `ask --json` and the
+first field of the receipt. The latest mark supplies the outcome. Pool cost divides
+the sum of valid percentage-point deltas by the number of accepted asks in the profile,
+including accepted asks without a delta. A result requires both a valid delta and an
+accepted ask. A delta uses the longest interval of comparable readings inside a
+confirmed call with no overlapping call on the same pool in the selected store.
+PeerHub prefers a weekly pool when more than one pool qualifies. A reset, uncertain
+overlap, or missing pool evidence leaves that interval's delta unknown.
+
+A profile is stale when the effective model or effort differs from its latest measured
+binding. `profile check` flags profiles without a current measurement in 30 days and
+models missing from available `codex debug models` or `agy.exe models` output. It skips
+unavailable catalogs. Stats read `docs/benchmarks/suite-v1/results*.jsonl` from the
+workspace when available. A result line uses `profile`, `finished_at` (RFC 3339),
+and the effective `model` and `effort` (`null` for provider defaults).
+
+On an interactive terminal, `ask` prints a receipt on stderr after a call with the same
+per-ask token counts and cache-read percentage.
+Set `PEERHUB_NO_RECEIPT=1` to silence it. JSON and redirected stdout suppress receipts.
+Inlined query files over 64 KB produce one warning and are passed in full.
+
+Set these keys in `models.toml` at the same workspace or global scope as profiles.
+The workspace value wins per key. Both values are positive integers.
+
+```toml
+[stream_budget]
+prompt_tokens = 128000
+resumed_turns = 12
+```
+
+Before a resumed ask, PeerHub checks the previous delivery in the selected session for
+per-ask prompt tokens (fresh input, cache reads, and cache writes), using the same
+scope and delta rules as stats. If the previous ask's prompt total is unknown, PeerHub
+checks how many resumed calls the selected session has already had. Reaching either applicable
+threshold prints one warning with a fresh-stream command and a handoff checklist. The
+ask proceeds with the selected session.
