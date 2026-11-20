@@ -15,7 +15,7 @@ from peerhub.cli.monitor_preferences import GROUPS
 from peerhub.extensions.caller import host_id, local_workspace_file
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.monitor_read_model import TEXT_NEWEST_ROWS
-from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, quota_probe_timed_out
+from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, oldest_measured_quota_age, quota_probe_timed_out
 
 # Mirrors peerhub.extensions.observation_model.NOT_REPORTED_REASON (the human renderer imports no extension code).
 _NOT_REPORTED = "not reported by provider"
@@ -2720,9 +2720,10 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
         stamp = datetime.fromtimestamp(now + elapsed, timezone.utc).strftime("%Y-%m-%d %H:%MZ") if read_at is not None else "time unknown"
     except (ValueError, OverflowError, OSError):
         stamp = "time unknown"
-    ages = [_number(item.get("age_seconds")) for item in quota if not item.get("display_retired")]
-    known_ages = [age + elapsed for age in ages if age is not None]
-    age_label = _compact_age(max(known_ages) if known_ages else None)
+    oldest = (_number(payload.get("_quota_age_seconds")) if "_quota_age_seconds" in payload
+              else oldest_measured_quota_age(quota))
+    age = oldest + elapsed if oldest is not None else None
+    age_label = _compact_age(age)
     title = f"PeerHub Monitor {stamp} | DB:{source} | quota age {age_label}"
     refresh_state = _clean(payload.get("refresh_state") or "")
     next_refresh = _number(payload.get("next_refresh_in"))
@@ -2735,11 +2736,8 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
     title = title.replace(" | ", sep)  # the rich view's separator; line 2 is structure, so its colour is dim
     # Fields dropped from line 2 are disclosed on a line of their own, so a narrow terminal keeps the timestamp.
     header = [_paint(title, RICH_SGR["dim"]) if paint else title]
-    if selected_ids & {"capacity", "peers"} or "_quota_age_seconds" in payload:
-        oldest = _number(payload.get("_quota_age_seconds"))
-        age = oldest + elapsed if oldest is not None else max(known_ages, default=None)
-        if notice := quota_stale_line(age):
-            header.extend(_compact_wrap(notice, width))
+    if (selected_ids & {"capacity", "peers"} or "_quota_age_seconds" in payload) and (notice := quota_stale_line(age)):
+        header.extend(_compact_wrap(notice, width))
     header.extend(part for note in cast(list[str], payload.get("_quota_probe_notes", []))
                   for part in _compact_wrap(note, width))
     if cut and not expand:

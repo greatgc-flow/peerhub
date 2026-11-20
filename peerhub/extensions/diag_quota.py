@@ -11,10 +11,10 @@ import hashlib
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, cast
+from typing import Any, Mapping, cast
 
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
-from peerhub.extensions.observation_model import FreshnessPolicy, MEASUREMENT_KEYS
+from peerhub.extensions.observation_model import FreshnessPolicy, MEASUREMENT_KEYS, oldest_measured_quota_age
 from peerhub.extensions.quota_projection import ExhaustionProjection, limit_by_parent, project_exhaustion, scoped_parent_ref
 
 SCHEMA_VERSION = "1.0"
@@ -211,7 +211,7 @@ def observations_summary(db_path: str | Path, *, read_at: float | None = None) -
 
 def format_quota_table(rep: dict[str, Any]) -> str:
     lines = [f"quota/rate-limit evidence (read-only, no refresh) source={rep['source_db']} status={rep['status']} overall={rep['overall']}"]
-    age = oldest_quota_age(i for group in rep["pools"] for i in group["items"])
+    age = oldest_measured_quota_age(i for group in rep["pools"] for i in group["items"])
     if notice := quota_stale_line(age):
         lines.insert(0, notice)
     if rep["error"]:
@@ -229,11 +229,6 @@ def format_quota_table(rep: dict[str, Any]) -> str:
             lines.append(f"  {i['subject_ref'] or '-':<16} {i['kind']:<10} {i['state']:<11} age={age:<8} src={i['source'] or '-'}  {meas} {der}{limit}".rstrip())
     lines.extend(_reset_credit_lines(rep["reset_credits"], "reset credits (read-only; hours computed at read time)", "  "))
     return "\n".join(lines)
-
-
-def oldest_quota_age(items: Iterable[Mapping[str, object]]) -> float | None:
-    return max((age for i in items if i.get("kind") == "quota" and i.get("resource_pool_ref")
-                and (age := _num(i.get("age_seconds"))) is not None), default=None)
 
 
 def quota_stale_line(age: float | None) -> str:

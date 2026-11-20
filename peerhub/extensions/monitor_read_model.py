@@ -13,7 +13,7 @@ import unicodedata
 from collections import Counter
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Callable, cast
+from typing import Any, Callable, Iterator, cast
 
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.extensions.observation_model import (
@@ -24,6 +24,7 @@ from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     account_text as _account_text,  # stored account strings are display data: re-sanitized when read back
     changed_account_plan,
+    oldest_measured_quota_age,
     valid_epoch_seconds,
     ObservationCorruptError,
     evaluate as evaluate_observation,
@@ -201,6 +202,22 @@ _ROW_COLUMNS = ("o.capture_seq,o.observation_id,o.subject_ref,o.resource_pool_re
                 "o.payload_json,o.observed_at,o.captured_at,o.effective_at_us,p.provider,p.kind AS pool_kind ")
 _ROW_JOINS = ("FROM observation_rollups r JOIN observations o ON o.capture_seq=r.latest_capture_seq "
               "LEFT JOIN resource_pools p ON p.resource_pool_id=o.resource_pool_ref ")
+
+
+def _quota_age_observations(conn: sqlite3.Connection, now: float) -> Iterator[dict[str, Any]]:
+    """Supply quota age evidence for human frames without a capacity read."""
+    read_us = round(now * 1_000_000)
+    policy = FreshnessPolicy()
+    for row in conn.execute("SELECT " + _ROW_COLUMNS + _ROW_JOINS +
+                            "WHERE r.kind='quota' AND o.resource_pool_ref IS NOT NULL "
+                            "AND o.state='MEASURED' AND o.effective_at_us<=?", (read_us,)):
+        try:
+            observation, capture_seq = row_to_observation(row)
+        except ObservationCorruptError:
+            continue
+        freshness = evaluate_observation(observation, capture_seq, read_us, policy)
+        yield {"kind": observation.kind, "resource_pool_ref": observation.resource_pool_ref,
+               "state": freshness.state.value, "age_seconds": freshness.age_seconds, "payload": observation.payload}
 
 
 def _guarded(json_column: str, path: str, value: str) -> str:
@@ -1680,10 +1697,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
         quota_age: dict[str, float | None] = {}
         if human and not set(groups) & {"capacity", "peers"}:
             try:
-                row = conn.execute("SELECT MIN(o.effective_at_us) " + _ROW_JOINS +
-                                   "WHERE r.kind='quota' AND o.resource_pool_ref IS NOT NULL AND o.effective_at_us<=?",
-                                   (round(now * 1_000_000),)).fetchone()
-                quota_age["_quota_age_seconds"] = None if row[0] is None else now - row[0] / 1_000_000
+                quota_age["_quota_age_seconds"] = oldest_measured_quota_age(_quota_age_observations(conn, now))
             except sqlite3.Error as exc:
                 if _no_observation_tables(conn, exc):
                     quota_age["_quota_age_seconds"] = None

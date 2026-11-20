@@ -2,7 +2,7 @@ import io
 import json
 import os
 import sqlite3
-from contextlib import nullcontext
+from contextlib import closing, nullcontext
 from pathlib import Path
 from threading import Event
 
@@ -57,6 +57,79 @@ def test_diag_quota_uses_the_same_notice():
     report = {"source_db": "db", "status": "OK", "overall": "UNKNOWN", "error": None,
               "pools": [], "reset_credits": []}
     assert format_quota_table(report).splitlines()[0] == "quota: no reading -> peerhub observation refresh"
+
+
+@pytest.fixture
+def quota_age_store(monkeypatch, weekly_age):
+    from peerhub.extensions import observation
+    from peerhub.extensions.observation_model import NOT_REPORTED_REASON, epoch_to_iso
+
+    now = 1_800_000_000
+    connect = sqlite3.connect
+    with closing(connect(":memory:", isolation_level=None)) as store:
+        store.executescript(observation._DDL)
+        for trigger in observation._TRIGGERS:
+            store.execute(trigger)
+        for peer, family, offset, short_state in [
+            ("cc", "C", 0, "ABSENT"), ("cx", "X", 30, "ERROR"), ("ag", "A", 60, None),
+        ]:
+            for window, age, state, payload in [
+                ("7D", (weekly_age or 0) - offset, "MEASURED" if weekly_age is not None else None,
+                 {"remaining_fraction": .72, "resets_at": now + 86400}),
+                ("5H", 8 * 86400 + 3600, short_state,
+                 {"reason": NOT_REPORTED_REASON} if short_state == "ABSENT" else {"condition": "provider_probe_error"}),
+            ]:
+                pool = f"quota:{peer}:{family}-{window}"
+                store.execute("INSERT INTO resource_pools(resource_pool_id,provider,kind) VALUES (?, ?, 'QUOTA')", (pool, peer))
+                if state is not None:
+                    stamp = epoch_to_iso(now - age)
+                    store.execute("INSERT INTO observations(observation_id,subject_ref,kind,resource_pool_ref,source,state,"
+                                  "payload_json,observed_at,captured_at,effective_at_us) VALUES (?, ?, 'quota', ?, ?, ?, ?, ?, ?, ?)",
+                                  (pool, peer, pool, peer, state, json.dumps(payload), stamp, stamp, (now - age) * 1_000_000))
+
+        def open_snapshot(*args, **kwargs):
+            conn = connect(":memory:", isolation_level=None)
+            store.backup(conn)
+            return conn
+
+        monkeypatch.setattr(sqlite3, "connect", open_snapshot)
+        yield now
+
+
+@pytest.mark.parametrize("weekly_age, expected_age, expected_notice", [
+    (3780, "1h03m", "quota 1h old"), (570, "9m", None), (None, "?", "quota: no reading"),
+])
+@pytest.mark.parametrize("groups", [["capacity"], ["coverage"]])
+def test_monitor_quota_age_uses_measured_pool_readings(quota_age_store, groups, expected_age, expected_notice):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
+    snapshot = render_monitor_frame(__file__, groups, human=True, read_at=quota_age_store)
+    for expand in (False, True):
+        rows = monitor_view.render_grouped_frame(snapshot, width=100, expand=expand).splitlines()
+        assert rows[1].endswith(f"quota age {expected_age}")
+        if expected_notice is None:
+            assert not rows[2].startswith("quota")
+        else:
+            assert rows[2] == f"{expected_notice} -> peerhub observation refresh"
+
+
+@pytest.mark.parametrize("weekly_age, expected_notice", [
+    (3780, "quota 1h old"), (570, None), (None, "quota: no reading"),
+])
+def test_diag_quota_age_uses_measured_pool_readings(quota_age_store, expected_notice):
+    from peerhub.cli.view import render_view
+    from peerhub.extensions.diag import ReadonlyDiag
+    from peerhub.extensions.diag_quota import quota_report
+
+    report = quota_report(__file__, read_at=quota_age_store)
+    rows = format_quota_table(report).splitlines()
+    snapshot = ReadonlyDiag(__file__).render(["resource_pools", "observations"], read_at=quota_age_store)
+    live_rows = render_view(snapshot, show_quota_age=True).splitlines()
+    if expected_notice is None:
+        assert rows[0].startswith("quota/rate-limit evidence") and live_rows[1].startswith("Threats:")
+    else:
+        assert rows[0] == live_rows[1] == f"{expected_notice} -> peerhub observation refresh"
+    assert any("UNKNOWN" in row and "(no measurement)" in row for row in rows)
 
 
 def test_scoped_timeout_uses_history_without_rewriting_the_snapshot(monkeypatch):

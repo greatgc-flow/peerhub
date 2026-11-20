@@ -14,7 +14,8 @@ from datetime import datetime, tzinfo
 from typing import cast
 
 from peerhub.extensions.diag import DiagnosticReport, Section
-from peerhub.extensions.diag_quota import oldest_quota_age, projection, quota_stale_line
+from peerhub.extensions.diag_quota import projection, quota_stale_line
+from peerhub.extensions.observation_model import oldest_measured_quota_age
 
 RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
 _ANSI = re.compile(r"\033\[[0-9;]*m|\033\]8;[^\a\033]*(?:\033\\|\a)")  # SGR, and OSC 8 (a hyperlink's open and close)
@@ -774,7 +775,7 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
     if credit_alerts:
         alert += "; credit expiry<72h " + ", ".join(credit_alerts)
     lines = [_paint(line, CYAN, color) for line in _wrap(header, width)]
-    if show_quota_age and (notice := quota_stale_line(oldest_quota_age(items))):
+    if show_quota_age and (notice := quota_stale_line(oldest_measured_quota_age(items))):
         lines.extend(_wrap(notice, width))
     lines += [_paint(line, YELLOW, color) for line in _wrap(_safe_text(store_note), width)] if store_note else []
     lines += [_paint(line, RED if threats or exhausted else YELLOW if credit_alerts else '', color) for line in _wrap(alert, width)]
