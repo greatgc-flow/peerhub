@@ -460,8 +460,13 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
             result["provider_limit"] = limit
         if guidance_code:
             sid = result.get("stream_id") or getattr(args, "stream_id", None)
-            result["guidance"] = make_guidance_payload(guidance_code, db_path=args.db, stream_id=sid)
-            guidance_entry = get_guidance(guidance_code, db_path=args.db, stream_id=sid)
+            denied = result.get("denied_actions")
+            ag_command_denied = (guidance_code == "ask_denied_empty" and isinstance(denied, list)
+                                 and "command" in denied and _peer_kind(args.db, args.peer) == "ag")
+            result["guidance"] = make_guidance_payload(guidance_code, db_path=args.db, stream_id=sid,
+                                                       ag_command_denied=ag_command_denied)
+            guidance_entry = get_guidance(guidance_code, db_path=args.db, stream_id=sid,
+                                          ag_command_denied=ag_command_denied)
     if args.json:
         print(json.dumps(result, indent=2, ensure_ascii=True))
     elif result["status"] in ("delivered", "recovered_terminal") and result.get("response") is not None:

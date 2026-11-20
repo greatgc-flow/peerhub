@@ -972,22 +972,35 @@ def _stdout(events: list[dict], stream: bool) -> str:
                                                   if key in result}) + "\n"
 
 
-def _ask_ag(kit, tmp_path, monkeypatch, capsys, stdout: str, stream: bool) -> tuple[int, dict]:
+def _ask_ag(kit, tmp_path, monkeypatch, capsys, stdout: str, stream: bool, *args: str) -> tuple[int, dict]:
     env = kit.replay_env(stdout)
     monkeypatch.setattr(ask_module, "CliRuntimeTarget", lambda kind, workspace, **kw: CliRuntimeTarget(
         kind, workspace, command=[PY, FAKE], env_extra=kit.env("replay", stream=stream, **env), **kw))
     code = main(["--db", str(tmp_path / "store" / "peerhub.db"), "ask", "ag", "run the probe", "--writable", "--json",
-                 "-w", str(kit.ws)])
+                 "-w", str(kit.ws), *args])
     return code, json.loads(capsys.readouterr().out)
 
 
 @TRANSPORTS
 def test_e_a_denied_empty_turn_is_denied_empty_with_the_names_and_exit_1(kit, tmp_path, monkeypatch, capsys, stream):
-    code, out = _ask_ag(kit, tmp_path, monkeypatch, capsys, _stdout(_denied_events(), stream), stream)
-    assert (out["status"], out["denied_actions"], code) == ("denied_empty", ["command"], 1)
-    assert out["ag_transport"] == ("stream" if stream else "argv")
-    assert out["error"]["code"] == "denied_empty" and out["guidance"]["code"] == "ask_denied_empty"
+    stdout = _stdout(_denied_events(), stream)
+    code, out = _ask_ag(kit, tmp_path, monkeypatch, capsys, stdout, stream)
+    replay_code, replay = _ask_ag(kit, tmp_path, monkeypatch, capsys, stdout, stream, "--request-id", out["request_id"])
     assert kit.launches == 1
+    assert replay["delivery_id"] == out["delivery_id"]
+    for exit_code, result in ((code, out), (replay_code, replay)):
+        assert (result["status"], result["certainty"], exit_code) == ("denied_empty", "TERMINAL", 1)
+        assert (result["response"], result["denied_actions"]) == ("", ["command"])
+        assert (result["empty_response"], result["task_effects"]) == (True, "unverified")
+        assert result["ag_transport"] == ("stream" if stream else "argv")
+        assert result["error"]["code"] == "denied_empty"
+        guidance = result["guidance"]
+        assert guidance["code"] == "ask_denied_empty"
+        assert guidance["explain_cmd"] == "peerhub explain ask_denied_empty"
+        step = guidance["recover"][0]
+        assert "NEW_STREAM_ID" in step["argv"] and "--query-file" in step["argv"]
+        instruction = '"use only your file read tool; if a file cannot be read, say so"'
+        assert instruction in step["purpose"] and instruction in guidance["summary"]
 
 
 def test_e_b_a_failed_tool_step_validates_and_keeps_measured_usage(kit):
