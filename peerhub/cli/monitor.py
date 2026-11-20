@@ -17,7 +17,8 @@ from time import monotonic, sleep
 from pathlib import Path
 from typing import Any, cast
 
-from peerhub.cli.support import agy_token_command, agy_token_stop_message, error_line, print_warnings, refresh_with_profile_pools
+from peerhub.cli.support import (agy_token_command, agy_token_stop_message, error_line, monitor_auto_probe,
+                                 print_warnings, refresh_monitor_quota, refresh_with_profile_pools)
 from peerhub.cli.monitor_preferences import GROUP_IDS
 
 def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -36,8 +37,11 @@ def register_monitor_parser(subparsers: Any) -> None:
     p.add_argument("--cycles", type=int, default=None,
                    help="Number of cycles (default: 1 when stdout is not a TTY, until interrupted on a TTY; 0 = until interrupted everywhere)")
     p.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"],
-                   help="Peers to refresh quota for with --probe")
-    p.add_argument("--probe", action="store_true", help="Refresh provider quota during watch (may spend quota)")
+                   help="Peers to refresh quota for during watch")
+    probe = p.add_mutually_exclusive_group()
+    probe.add_argument("--probe", action="store_true", help="Refresh on the watch cadence, including redirected stdout")
+    probe.add_argument("--no-probe", action="store_true",
+                       help="Disable automatic quota refresh on a TTY (also PEERHUB_MONITOR_PROBE=off)")
     p.add_argument("--timeout-seconds", dest="timeout", type=float, default=15.0,
                    help="Probe timeout")
     p.add_argument("--json", action="store_true")
@@ -51,7 +55,7 @@ def register_monitor_parser(subparsers: Any) -> None:
                    default=os.environ.get("PEERHUB_MONITOR_VIEW") or "auto",
                    help="Dashboard style: auto (rich on a TTY), rich (colour), plain (ASCII override for ambiguous-width box glyphs, ▲▼ and █ in Korean/East-Asian locales). Set PEERHUB_MONITOR_VIEW=plain for a lasting ASCII fix (auto|rich|plain; explicit --view wins). Both show PACE; VT TTY redraws at most 1 Hz; non-TTY appends completed frames; TTY without VT appends without escapes")
     p.add_argument("--collect-every", type=int, default=1,
-                   help="With --probe, collect only every Kth cycle (K>=1)")
+                   help="Check for quota collection every Kth cycle (K>=1)")
     p.add_argument("--system-dir", dest="sys_dir", type=Path,
                    help="Explicit portable provider installation directory")
     p.add_argument("--group", action="append", choices=(*GROUP_IDS, "all"), default=None,
@@ -247,6 +251,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     from peerhub.core.schema_version import SchemaVersionError
     from peerhub.cli.view import FrameOutput, use_color
     output = FrameOutput(interactive=not args.json, anchor_rows=True)
+    auto_probe = monitor_auto_probe(args)
     effective_view = ("rich" if output.live else "plain") if args.view == "auto" else args.view
     color = effective_view == "rich" and use_color(output.live, os.environ)
     links = color and output.live  # the Guide link (OSC 8): the rich, coloured view on a VT terminal only (NO_COLOR: none)
@@ -319,12 +324,16 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         while True:
             if report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
                 return 5
-            refresh: dict[str, Any]
-            if args.probe and done % args.collect_every == 0:
-                if output.live:
-                    redraw("REFRESHING", 0)
-                result = refresh_with_profile_pools(args.db, args.peers, sys_dir=getattr(args, "sys_dir", None),
-                                                    deadline_sec=args.timeout)
+            result = None
+            if done % args.collect_every == 0:
+                if args.probe:
+                    if output.live:
+                        redraw("REFRESHING", 0)
+                    result = refresh_with_profile_pools(args.db, args.peers, sys_dir=args.sys_dir,
+                                                        deadline_sec=args.timeout)
+                elif auto_probe:
+                    result = refresh_monitor_quota(args, (lambda: redraw("REFRESHING")) if output.live else None)
+            if result is not None:
                 last_refresh_code = 1 if result["status"] != "OK" else 0
                 refresh = {"status": result["status"], "warnings": result.get("warnings", []),
                            "observations": len(result.get("observations", []))}

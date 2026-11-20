@@ -106,11 +106,11 @@ peerhub monitor --snapshot
 peerhub monitor --snapshot --group sessions --group execution
 
 # Watch the nine default groups: overview, activity, peers, execution, sessions,
-# usage, context, capacity, and coverage. Watch reads committed evidence.
+# usage, context, capacity, and coverage. TTY watch refreshes quota when due.
 peerhub monitor --interval-seconds 60
 peerhub monitor --view plain --cycles 1
-# Opt in to collecting quota from providers during watch.
-peerhub monitor --probe --interval-seconds 60
+# Read committed evidence during watch.
+peerhub monitor --no-probe --interval-seconds 60
 
 # For an AI session: line 1 (the verdict), the suggestion and the pools only; no text of other sessions.
 peerhub monitor --snapshot --group capacity

@@ -607,7 +607,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
                 else:
                     output.write(format_frame(rep, args.view, color=use_color(output.vt, os.environ),
                                               width=output.width(), store_path=store["path"],
-                                              store_source=store["source"], store_note=store_note))
+                                              store_source=store["source"], store_note=store_note, show_quota_age=args.live))
                 code = (5 if not Path(args.db).is_file() else 6 if rep.error and rep.error.startswith("SchemaVersionError")
                         else 0 if rep.status == "OK" else 4)
                 if code:

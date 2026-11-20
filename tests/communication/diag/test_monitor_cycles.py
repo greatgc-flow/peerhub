@@ -14,7 +14,7 @@ from peerhub.extensions.diag import DiagnosticReport
 
 
 @pytest.mark.parametrize("options", [[], ["--json"], ["--json", "--schema-version", "1.1"]])
-def test_watch_requires_probe_opt_in(monkeypatch, capsys, options):
+def test_redirected_watch_requires_probe_opt_in(monkeypatch, capsys, options):
     calls = []
     import peerhub.cli.monitor_schema11  # import first: a lazy import under the patch would keep the fake name for good
 

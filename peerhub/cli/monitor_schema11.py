@@ -7,7 +7,8 @@ import sys
 from typing import Any
 
 from peerhub.cli.store_select import report_missing_store
-from peerhub.cli.support import agy_token_command, agy_token_stop_message, refresh_with_profile_pools
+from peerhub.cli.support import (agy_token_command, agy_token_stop_message, monitor_auto_probe, refresh_monitor_quota,
+                                 refresh_with_profile_pools)
 
 
 def _cycle_exit_code(report: Any, refresh_code: int) -> int:
@@ -45,13 +46,19 @@ def run_schema_11_watch(args: Any, *, sleep_fn: Any, monotonic_fn: Any) -> int:
         done = 0
         total = args.cycles
         last_refresh_status_code = 0
+        auto_probe = monitor_auto_probe(args)
         next_deadline = monotonic_fn() + args.interval
         while True:
             if report_missing_store(args.db, json_output=True, selected=is_explicit, source=db_source):
                 return 5
-            if args.probe and done % args.collect_every == 0:
-                result = refresh_with_profile_pools(args.db, args.peers, sys_dir=getattr(args, "sys_dir", None),
-                                                    deadline_sec=args.timeout)
+            result = None
+            if done % args.collect_every == 0:
+                if args.probe:
+                    result = refresh_with_profile_pools(args.db, args.peers, sys_dir=args.sys_dir,
+                                                        deadline_sec=args.timeout)
+                elif auto_probe:
+                    result = refresh_monitor_quota(args)
+            if result is not None:
                 last_refresh_status_code = 1 if result["status"] != "OK" else 0
                 refresh_info = {"status": result["status"], "warnings": result.get("warnings", []),
                                 "observations": len(result.get("observations", []))}

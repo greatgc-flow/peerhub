@@ -4,9 +4,17 @@ This page is the target of the `Guide` link at the top right of `peerhub monitor
 `Guide:` line that ends `peerhub monitor --view plain --expand`. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
 
-Watch reads committed evidence by default. Pass `--probe` to collect quota
-during watch. Probes may spend provider quota. With `--probe`, `--collect-every K`
-sets the collection cadence. `--snapshot` reads one frame and rejects `--probe`.
+On a TTY, watch automatically refreshes quota when the newest reading for the selected peers is more than five minutes
+old or missing. It probes peers in order, collects a peer's pools together, and retries a timed-out quota probe once.
+If agy reports model-token use, watch stops unless `--allow-agy-token-use` was passed.
+Use `--no-probe` or set `PEERHUB_MONITOR_PROBE=off` to disable automatic refresh. Redirected watch reads committed evidence
+by default. Explicit `--probe` uses the watch cadence on a TTY or with redirected output. `--collect-every K` checks for
+collection every Kth cycle. `--snapshot`, `diag quota`, and `diag --live` read committed evidence. Use `monitor --probe --cycles 1`
+to collect and show one completed cycle.
+
+Automatic watch, suggest, and ask dispatch share the PID lock `quota-refresh.lock` in the store's scratch directory.
+After three seconds of contention they continue with committed evidence. After taking the lock, they recheck the quota
+readings to avoid repeating a refresh from the last minute.
 For a command you can run, use `peerhub suggest --tier standard` and see
 `peerhub explain suggest` for its quota rules.
 
@@ -30,9 +38,8 @@ narrow terminal; the rich view puts the snapshot time at the right edge when it 
 **Line 2 (the title)** is `PeerHub Monitor <UTC time> · DB:<source> · quota age <age>`:
 
 - The time is when the store was read (the snapshot), not when the quota was measured.
-- With `--probe`, a live monitor puts its refresh state and a countdown before them: `REFRESHING`, `REFRESH OK`, `REFRESH WARN`
-  (`· n warnings`), `STOPPED · AGY TOKEN USE`, and `refresh in 42s`. A redraw between two reads shows the same snapshot
-  aged by the time since its read.
+- A live monitor can show `REFRESHING`, `REFRESH OK`, a refresh warning count, or `STOPPED · AGY TOKEN USE`. With `--probe`
+  it also shows the cadence countdown. A redraw between two reads updates the age of the existing snapshot.
 - `DB:<source>` names where the store came from (`env` for `PEERHUB_DB`, `discovered`, `explicit` for `--db`, ...). With
   `--expand` the full path is one line near the end (`DB:env (<path>)`); the compact frame names it under line 2 only
   when it is not the nearest store or the read had errors.
@@ -40,6 +47,12 @@ narrow terminal; the rich view puts the snapshot time at the right edge when it 
   looks wrong.
 - Fields that do not fit are dropped from the right, and a line `Fields hidden · --expand` says so.
 - The `Guide` link is the right end of this line, rich view on a terminal only (see [The Guide link](#the-guide-link)).
+
+Below the title, both layouts show `quota 5h old -> peerhub observation refresh` when the oldest quota reading is more
+than an hour old. Ages of a day or more use days. Without quota readings, the line says `quota: no reading -> peerhub observation refresh`.
+The per-pool `aged` state keeps its own freshness rule. Human `diag quota` and `diag --live` show the same notice.
+After a timeout, both monitor layouts keep a measured value less than 15 minutes old and show one note per affected peer,
+such as `cc probe timeout (value 3m old)`.
 
 ## POOLS
 

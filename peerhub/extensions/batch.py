@@ -32,6 +32,11 @@ _ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 _KEYS = {"task_id", "peer", "prompt", "prompt_file", "workspace", "profile", "writable", "timeout_s"}
 
 
+def store_scratch_dir(db: str | Path) -> Path:
+    store_dir = Path(db).resolve().parent
+    return (store_dir if store_dir.name == ".peerhub" else store_dir / ".peerhub") / "tmp"
+
+
 class ManifestError(ValueError):
     """The manifest or batch options are invalid; nothing was launched."""
 
@@ -415,8 +420,7 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
                        "elapsed_s": round(time.monotonic() - started, 3)}
             rows[t.task_id] = row
 
-    store_dir = Path(os.path.abspath(db)).parent
-    scratch = (store_dir if store_dir.name == ".peerhub" else store_dir / ".peerhub") / "tmp"
+    scratch = store_scratch_dir(db)
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="peerhub-batch-", dir=scratch) as d:
         threads = [threading.Thread(target=supervisor, args=(Path(d),), daemon=True) for _ in range(min(max_parallel, len(tasks)))]

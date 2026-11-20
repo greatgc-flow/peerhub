@@ -443,7 +443,7 @@ def test_poolless_probe_does_not_poison_quota_age_or_refresh(compact_frame):
     assert len([line for line in screen.splitlines() if line.startswith(" ag ")]) == 1  # #374: one POOLS row, no PEERS line
     rows[1]["age_seconds"] = 30
     screen = render_grouped_frame(compact_frame, view="plain")
-    assert screen.count("probe error (30s)") == 1
+    assert screen.count("probe error (value 1m old)") == 1
     assert "quota age 1m" in screen and "next:" not in screen
 
 
@@ -452,7 +452,8 @@ def test_missing_configured_pool_requests_refresh(compact_frame):
     screen = render_grouped_frame(compact_frame, view="plain")
     assert "POOLS 0" in screen.splitlines() and "no quota evidence; next: peerhub observation refresh" in screen
     rich = render_grouped_frame(compact_frame).splitlines()  # P21: the head is a rule; the notes are the same lines
-    assert rich[2] == "── POOLS 0 " + "─" * 88 and rich[3:] == screen.splitlines()[3:]
+    assert rich[2] == screen.splitlines()[2] == "quota: no reading -> peerhub observation refresh"
+    assert rich[3] == "── POOLS 0 " + "─" * 88 and rich[4:] == screen.splitlines()[4:]
     compact_frame["selected_groups"] = ["peers"]
     assert "next: peerhub observation refresh" in render_grouped_frame(compact_frame)
 

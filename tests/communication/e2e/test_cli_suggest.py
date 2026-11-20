@@ -1,5 +1,6 @@
 """Offline recommendation cases using the shipped profiles and quota projection."""
 import json
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from importlib.resources import files
 from pathlib import Path
@@ -53,6 +54,7 @@ def quota_world(monkeypatch):
 
     monkeypatch.setattr("peerhub.extensions.diag_quota.quota_report", report)
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
+    monkeypatch.setattr("peerhub.cli.support.quota_refresh_lock", lambda db: nullcontext(True))
     return items, refreshed, calls
 
 
