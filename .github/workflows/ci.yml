@@ -140,6 +140,7 @@ jobs:
           peerhub --help
 
   full-matrix:
+    name: full-matrix (${{ matrix.os }}, ${{ matrix.python-version }})
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full_matrix)
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
@@ -165,12 +166,24 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: python -m pyright
       - name: Run full deterministic suite
-        run: python -u -m pytest -q --junitxml=junit/full-matrix.xml
+        run: python -u -m pytest -q --junitxml="junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml"
+      - name: Stamp candidate CI evidence
+        if: github.event_name == 'workflow_dispatch' && inputs.full_matrix
+        shell: bash
+        run: python -m tools.release_evidence --stamp-junit "junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml" --gate G2 --commit "$(git rev-parse HEAD)"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: github.event_name == 'workflow_dispatch' && inputs.full_matrix
+        with:
+          name: junit-g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: junit-full-${{ matrix.os }}-py${{ matrix.python-version }}-${{ github.sha }}-${{ github.run_id }}
-          path: junit/full-matrix.xml
+          path: junit/g2-rc-matrix-${{ matrix.os }}-py${{ matrix.python-version }}.xml
           if-no-files-found: warn
           retention-days: 7
           overwrite: true

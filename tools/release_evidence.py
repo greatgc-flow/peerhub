@@ -21,6 +21,8 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
+from tools.release_ci import matrix_junit_paths
+
 ROOT = Path(__file__).resolve().parents[1]
 TEST_SET = ROOT / "docs/m1_spec/06_GUIDES/TEST_SET"
 POLICY_REL = "docs/m1_spec/08_LIFECYCLE/gate-evidence-policy.json"
@@ -367,6 +369,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--policy-file", type=Path, default=None, help="gate evidence policy (default: the spec's gate-evidence-policy.json)")
     ap.add_argument("--gate", default=None, help="gate id (G0..G4) the stamped JUnit files belong to; evidence is accepted only for the gate its file name says")
     ap.add_argument("--release-policy", type=Path, default=None, help="repo-owned release policy with policy_ttl_seconds (required with --candidate)")
+    ap.add_argument("--ci-junit-dir", type=Path, help="download directory for the ten candidate CI artifacts")
+    ap.add_argument("--ci-run-url", help="URL of the validated candidate CI run")
     ap.add_argument("--stamp-junit", type=Path, action="append", default=None,
                     help="bind this JUnit file to the candidate inputs (needs --commit; repeatable) and exit; a missing file is skipped with a warning")
     a = ap.parse_args(argv)
@@ -383,11 +387,17 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--junit, --dist and --out are required")
     if a.candidate and a.release_policy is None:
         ap.error("--candidate requires --release-policy")
+    if a.ci_junit_dir is not None or a.ci_run_url is not None:
+        if not (a.candidate and a.ci_junit_dir and a.ci_run_url):
+            ap.error("--ci-junit-dir and --ci-run-url must be used together with --candidate")
+        a.junit.extend(matrix_junit_paths(a.ci_junit_dir))
     try:
         m = build_manifest(repo_root=ROOT, junit_paths=a.junit, dist_dir=a.dist, commit=a.commit, candidate=a.candidate, policy_path=a.policy_file,
                            release_policy=a.release_policy)
     except ValueError as e:
         ap.error(str(e))
+    if a.ci_run_url:
+        m["ci_run_url"] = a.ci_run_url
     write_bundle(a.out, m, a.junit, a.dist)
     print(json.dumps({"release_ready": m["release_ready"], "blockers": m["blockers"]}, indent=2))
     return 0 if m["release_ready"] else 1
