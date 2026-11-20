@@ -66,8 +66,8 @@ def part(lines: list[str], start: str, end: tuple[str, ...]) -> list[str]:
 def test_a_sessions_item_does_not_put_an_estimate_on_a_recent_row(frame, view):
     with_sessions(frame, session(DONE, estimated()), session(RUNNING, estimated(90)))
     lines = expanded(frame, view=view)
-    assert not any("% est," in line for line in part(lines, "RECENT ", ("RUNNING ",)))  # #412: the ask row carries it
-    assert not any("90%" in line for line in part(lines, "RUNNING ", ("ALERTS", "LEADS", "QUOTA")))
+    assert not any("% est," in line for line in part(lines, "RECENT ", ("LEADS ",)))  # #412: the ask row carries it
+    assert not any("90%" in line for line in part(lines, "RUNNING ", ("POOLS", "RECENT", "LEADS")))
 
 
 # ---- nothing in the compact frame ------------------------------------------------------------------------------------
@@ -194,7 +194,7 @@ def test_a_real_cc_ask_shows_its_estimate_in_expand_from_the_store_to_the_frame(
     assert row["session"]["generation"] == item["generation"] and row["session"]["context"]["percent"] == 2
     assert row["session"]["provider"] == "cc" and row["session"]["context"]["state"] == "ESTIMATED"
     lines = expanded(payload, width=160)
-    ended = part(lines, "RECENT ", ("RUNNING ",))
+    ended = part(lines, "RECENT ", ("LEADS ",))
     assert ended[0] == "RECENT 1 (0 running)" and "ctx 26k/1M 2% now" in ended[1]
     assert any(line.endswith("| ctx 2% est, 3m ago") for line in part(lines, "-- SESSIONS [", ("-- ",)))
     assert any(line.startswith("b 2% est, 3m ago ") and line.endswith("| 25,848 of 1,000,000 tokens")

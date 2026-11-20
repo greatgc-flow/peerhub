@@ -681,7 +681,8 @@ def test_terminal_capability_and_cleanup(tmp_path, monkeypatch, view, tty, vt, e
     assert " [H" not in out
     if tty and vt:
         assert "\x1b[H\x1b[2J" in out and "\x1b[K" in out and "\x1b[J" in out
-        assert out.endswith("\x1b[0m\x1b[?25h") and "\x1b[?25l" in out
+        assert out.endswith("\x1b[0m\x1b[?25h\r\n") and "\x1b[?25l" in out
+        assert "\x1b[?1049h" not in out and "\x1b[?1049l" not in out
         assert "\x1b[31m" not in out
     else:
         assert "\x1b" not in out
@@ -801,7 +802,7 @@ def test_grouped_tty_shows_refreshing_before_provider_call(tmp_path, monkeypatch
 
     monkeypatch.setattr("peerhub.extensions.quota_capture.refresh_quota", refresh)
     assert _run(_db(tmp_path), "--probe", "--group", "store", "--cycles", "1") in (0, 4)
-    assert output.getvalue().endswith("\x1b[0m\x1b[?25h")
+    assert output.getvalue().endswith("\x1b[0m\x1b[?25h\r\n")
 
 
 def test_redirected_snapshot_keeps_full_human_group_frame(tmp_path, capsys):

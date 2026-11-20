@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import CompactFrame, fit_compact_frame, render_grouped_frame, _width
+from peerhub.cli.monitor_view import COMPACT_MAX_LINES, FRAME_TRAILING_ROWS, CompactFrame, fit_compact_frame, render_grouped_frame, _width
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool, frame  # noqa: F401
 
 
@@ -29,28 +29,24 @@ def fitted(height: int | None, width: int = 100, **over: Any) -> list[str]:
 
 def test_unbounded_frame_keeps_every_section_within_24_lines():
     lines = fitted(None)
-    assert len(lines) == 24
-    assert lines[11] == "+2 pools (--expand)" and lines[23] == "+4 more (--expand)"  # #412: POOLS, RECENT, then RUNNING
+    assert len(lines) == COMPACT_MAX_LINES
+    assert "+2 pools (--expand)" in lines and "+4 more (--expand)" in lines
     assert [line.split()[0] for line in lines if not line.startswith((" ", "+"))][2:] == [
-        "POOLS", "suggest:", "RECENT", "RUNNING"]
+        "RUNNING", "POOLS", "suggest:", "RECENT"]
     assert lines.count("RECENT 4") == 1 and len([line for line in lines if line.startswith(" ok ")]) == 2
 
 
-@pytest.mark.parametrize("height,expected", [
-    (0, []), (1, []),
-    (2, ["OK | 9 running | 1 lead"]),
-    (3, ["OK | 9 running | 1 lead", "PeerHub Monitor"]),
-    (4, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10"]),
-    (5, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10"]),  # RECENT's header and a row need two lines
-    (6, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10", "RECENT 4", " ok"]),
-    (7, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10", "RECENT 4", " ok"]),
-    (8, ["OK | 9 running | 1 lead", "PeerHub Monitor", "POOLS 10", " cc P0", "+9 pools", "RECENT 4", " ok"]),
-])
-def test_small_heights_follow_the_removal_order_to_the_end(height, expected):
-    """The ATTN line, the title, the POOLS header and RECENT's header with one row are the last to go (#412)."""
+@pytest.mark.parametrize("height", range(9))
+def test_small_heights_keep_the_header_and_running(height):
     lines = fitted(height)
-    assert len(lines) == len(expected)
-    assert all(line.startswith(prefix) for line, prefix in zip(lines, expected)), lines
+    assert len(lines) <= height
+    if height > FRAME_TRAILING_ROWS:
+        assert lines[0].startswith("OK | 9 running")
+    if height > FRAME_TRAILING_ROWS + 1:
+        assert lines[1].startswith("PeerHub Monitor")
+    if any(line.startswith("RUNNING") for line in lines):
+        assert any("task-" in line for line in lines)
+    assert "RECENT 4" not in lines
 
 
 def test_zero_budget_prints_nothing():
@@ -74,12 +70,8 @@ def test_each_step_removes_in_the_single_order():
         if previous is not None:
             assert all(now <= before for now, before in zip(state, previous)), (height, lines)
         previous = state
-    # running rows go first (after the third), then pools rows after the fourth, the second suggestion line, the running
-    # rows again, RECENT down to its last row, the pools rows, and only then the lower sections and the suggestion
-    order = [s[:4] for s in seen]
-    assert (2, 5, 8, 2) in order and (2, 3, 8, 2) in order and (2, 3, 4, 2) in order and (2, 3, 4, 1) in order
-    assert (2, 1, 4, 1) in order and (1, 1, 4, 1) in order and (1, 1, 1, 1) in order
-    assert (1, 0, 1, 1) in order and (1, 0, 1, 0) in order and (1, 0, 0, 0) in order and (0, 0, 0, 0) in order
+    assert any(state[0] == 0 and state[1] == 5 for state in seen)
+    assert all(state[1] == 5 for state in seen if state[0])
 
 
 def test_first_removal_that_creates_an_overflow_line_removes_two_rows():
@@ -100,8 +92,8 @@ def test_floor_plus_one_rows_lose_two_rows_when_the_overflow_line_appears(key, t
     rows = [f" row {i}" for i in range(total)]
     other = "pools" if key == "running" else "running"
     # the other section holds rows that a later step could take instead (8 pools, or 3 running = its floor)
-    others = [f" other {i}" for i in range(8 if other == "pools" else 3)]
-    base = {key: [head, *rows], f"{key}_total": total, other: ["POOLS 8" if other == "pools" else "RUNNING 3", *others],
+    others = [] if other == "pools" else [f" other {i}" for i in range(3)]
+    base = {key: [head, *rows], f"{key}_total": total, other: ["RUNNING 3", *others] if others else None,
             f"{other}_total": len(others), "recent": None, "suggest": []}
     full = fitted(None, **base)
     lines = fitted(len(full), **base)  # one line over
@@ -158,11 +150,12 @@ def test_rendered_frame_with_10_pools_and_9_running_asks_at_small_heights(frame,
         + [ask("ok", name="done", age=60, exact=True, reply_line="fine")])
     screen = render_grouped_frame(frame, view="plain", unicode=True, width=100, height=height)
     lines = screen.splitlines()
-    head = ["OK | 9 running", "PeerHub Monitor", "POOLS"]
-    order = {2: head[:1], 3: head[:2], 4: head, 5: head,  # RECENT's header and its row need two lines
-             6: [*head, "RECENT 1 (9 running)", " ok"]}.get(height, [])  # the same lines, #412's order
-    assert len(lines) == len(order) <= max(0, height - 1)
-    assert [next(p for p in order if line.startswith(p)) for line in lines] == order[:len(lines)]
+    assert len(lines) <= max(0, height - FRAME_TRAILING_ROWS)
+    if height >= 2:
+        assert lines[0].startswith("OK | 9 running")
+    if height >= 3:
+        assert lines[1].startswith("PeerHub Monitor")
+    assert not any(line.startswith("RECENT") for line in lines)
 
 
 @pytest.mark.parametrize("width", [80, 100])

@@ -80,7 +80,8 @@ def _restore_console_mode(mode: int | None) -> None:
 class FrameOutput:
     """Overwrite VT terminals and append elsewhere, with exception-safe cleanup."""
 
-    def __init__(self, interactive: bool = True, *, overwrite: bool = True, anchor_rows: bool = False) -> None:
+    def __init__(self, interactive: bool = True, *, overwrite: bool = True, anchor_rows: bool = False,
+                 alternate: bool | None = None) -> None:
         self.original_console_mode = _console_mode() if interactive and os.name == "nt" else None
         self.vt = (interactive and sys.stdout.isatty()
                    and os.environ.get("TERM", "").lower() != "dumb" and enable_vt())
@@ -88,11 +89,13 @@ class FrameOutput:
         self.anchor_rows = anchor_rows
         # Row-anchored frames (the monitor) own the whole screen: the alternate screen has no command line above the
         # frame, so a pinned command (VS Code sticky scroll) can never cover the first line (ATTN).
-        self.alt_screen = anchor_rows
+        self.alt_screen = anchor_rows if alternate is None else alternate
         self.started = False
+        self.last_frame = ""
 
     def write(self, frame: str) -> None:
         if self.live:
+            self.last_frame = frame
             if not self.started:
                 self.started = True
                 prefix = ("\x1b[?1049h" if self.alt_screen else "") + "\x1b[?25l\x1b[H\x1b[2J"
@@ -115,7 +118,10 @@ class FrameOutput:
     def close(self) -> None:
         try:
             if self.started:
-                sys.stdout.write(("\x1b[?1049l" if self.alt_screen else "") + "\x1b[0m\x1b[?25h")
+                if self.alt_screen:
+                    sys.stdout.write("\x1b[?1049l\x1b[0m\x1b[?25h" + self.last_frame)
+                else:
+                    sys.stdout.write("\x1b[0m\x1b[?25h" + ("\r\n" if self.anchor_rows else ""))
                 sys.stdout.flush()
                 self.started = False
         finally:

@@ -162,7 +162,7 @@ def _profile_fingerprints(workspace: Path) -> tuple[tuple[str, int, int], ...]:
 def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                         height: int | None, color: bool, expand: bool = False, show_quota_notes: bool = False,
                         links: bool = False) -> str:
-    from peerhub.cli.monitor_view import render_grouped_frame
+    from peerhub.cli.monitor_view import FRAME_TRAILING_ROWS, render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
     # A5: separately from the decoration, text cells keep every character this stream can encode (not only on UTF).
@@ -180,9 +180,10 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                "_nearest_store_path": nearest.path if nearest.source == "discovered" else None,
                "_store_note": env_override_note(str(store_path), selection.get("source"))}
     return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
-                                color=color, unicode=unicode_ok, width=width, height=height,
+                                color=color, unicode=unicode_ok, width=width,
+                                height=None if height is None else height + FRAME_TRAILING_ROWS,
                                 expand=expand, text_encoding=text_encoding, show_quota_notes=show_quota_notes,
-                                links=links)
+                                links=links, tty=sys.stdout.isatty())
 
 
 def _read_failed(payload: dict[str, Any]) -> bool:
@@ -250,11 +251,11 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     from peerhub.extensions.monitor_read_model import render_monitor_frame
     from peerhub.core.schema_version import SchemaVersionError
     from peerhub.cli.view import FrameOutput, use_color
-    output = FrameOutput(interactive=not args.json, anchor_rows=True)
+    output = FrameOutput(interactive=not args.json, anchor_rows=True, alternate=args.cycles == 0)
     auto_probe = monitor_auto_probe(args)
     effective_view = ("rich" if output.live else "plain") if args.view == "auto" else args.view
     color = effective_view == "rich" and use_color(output.live, os.environ)
-    links = color and output.live  # the Guide link (OSC 8): the rich, coloured view on a VT terminal only (NO_COLOR: none)
+    links = color and output.live
     expand = bool(getattr(args, "expand", False))
     show_quota_notes = bool(getattr(args, "show_quota_notes", False))
     last_payload: dict[str, Any] | None = None
@@ -287,7 +288,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         else:
             width, height = output.geometry() if output.live else (output.width(), 24)
             output.write(_render_human_frame(payload, view=effective_view, width=width,
-                                             height=_live_rows(height) if output.live else None, color=color,
+                                             height=_live_rows(height, alternate=output.alt_screen) if output.live else None,
+                                             color=color,
                                              expand=expand, show_quota_notes=show_quota_notes, links=links))
         if _read_failed(payload):
             error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
@@ -308,7 +310,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         if next_in is not None:
             display["next_refresh_in"] = next_in
         width, height = output.geometry()
-        output.write(_render_human_frame(display, view=effective_view, width=width, height=_live_rows(height), color=color,
+        output.write(_render_human_frame(display, view=effective_view, width=width,
+                                         height=_live_rows(height, alternate=output.alt_screen), color=color,
                                          expand=expand, show_quota_notes=show_quota_notes, links=links))
 
     if not Path(args.db).exists() and report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
@@ -435,12 +438,12 @@ def _run_monitor_snapshot(args: argparse.Namespace, parser: argparse.ArgumentPar
     return 0
 
 
-LIVE_ROW_MARGIN = 2  # the command line stays on screen above the frame; terminals report one row more than they show
+LIVE_ROW_MARGIN = 2  # the command line stays on screen above a normal-screen frame
 
 
-def _live_rows(height: int) -> int:
-    """Rows the frame may use: the terminal height minus a margin, so the first line (ATTN) never scrolls off."""
-    return max(8, height - LIVE_ROW_MARGIN)
+def _live_rows(height: int, *, alternate: bool = False) -> int:
+    """Rows the frame may use on the selected screen."""
+    return max(0, height if alternate else height - LIVE_ROW_MARGIN)
 
 
 def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = False,

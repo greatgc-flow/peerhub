@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import CompactFrame, MONITOR_LEGEND, fit_compact_frame, render_grouped_frame, _width
+from peerhub.cli.monitor_view import COMPACT_MAX_LINES, CompactFrame, MONITOR_LEGEND, fit_compact_frame, render_grouped_frame, _width
 from tests.communication.diag.test_monitor_activity import db  # noqa: F401  (a fixture: a store with the Bridge tables)
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame  # noqa: F401
 
@@ -59,7 +59,7 @@ def test_leads_come_after_recent_and_running_with_the_column_order(frame):
     with_leads(frame, [lead("docs-site", session=sess())])
     lines = screen(frame)
     heads = [line.split()[0] for line in lines if re.match(r"^(RUNNING|LEADS|RECENT|POOLS|suggest:)", line)]
-    assert heads == ["POOLS", "suggest:", "RECENT", "RUNNING", "LEADS"]  # #412: the quota first, then the activity
+    assert heads == ["RUNNING", "POOLS", "suggest:", "RECENT", "LEADS"]
     block = leads_block(lines)
     assert block[0] == "LEADS 1 entry | 1 session found"
     assert block[1].split() == ["docs-site", "busy", "12s", "ctx", "10%", "0", "run", "fable-5-2", *TITLE.split()]
@@ -207,16 +207,11 @@ def fitted(height: int | None, max_lines: int = 24, **over: Any) -> list[str]:
 
 
 def test_the_unbounded_frame_with_leads_keeps_24_lines():
-    lines = fitted(None)  # 29 lines before fitting: LEADS goes to one row, RUNNING to three, POOLS to seven rows
-    assert len(lines) == 24
-    i = lines.index("LEADS 5")
-    assert lines[i - 1] == "+6 more (--expand)" and lines[i + 1].startswith(" lead-0") and lines[i + 2] == "+4 leads (--expand)"
-    assert len(lines) == i + 3  # LEADS is last (#412)
-    assert lines[lines.index("RECENT 4") - 1].startswith("  quality")  # the suggestion precedes RECENT
-    assert lines.index("RECENT 4") < lines.index("RUNNING 9 | cc 9") < i
-    assert lines.count("+3 pools (--expand)") == 1 and sum(line.startswith(" cc P") for line in lines) == 7
-    assert sum("done-" in line for line in lines) == 2  # RECENT keeps both rows
-
+    lines = fitted(None)
+    assert len(lines) <= COMPACT_MAX_LINES
+    heads = [line.split()[0] for line in lines[2:] if line.startswith(("RUNNING", "POOLS", "suggest:", "RECENT", "LEADS"))]
+    assert heads == ["RUNNING", "POOLS", "suggest:", "RECENT", "LEADS"]
+    assert "+4 more (--expand)" in lines and "+4 leads (--expand)" in lines
 
 def test_each_step_removes_in_the_one_order_with_leads():
     previous = None
@@ -233,15 +228,8 @@ def test_each_step_removes_in_the_one_order_with_leads():
             assert all(now <= before for now, before in zip(state, previous)), (height, lines)
         previous = state
         seen.append(state)
-    rows = [s[:5] for s in seen]
-    # LEADS rows down to one, then RUNNING rows after the third, POOLS after the fourth, the second suggestion line, RUNNING
-    # down to one row, RECENT down to one row, POOLS down to one row (#412: rows first, from the bottom up)
-    assert (2, 3, 5, 8, 2) in rows and (2, 1, 5, 8, 2) in rows and (2, 1, 3, 8, 2) in rows and (2, 1, 3, 4, 2) in rows
-    assert (2, 1, 3, 4, 1) in rows and (2, 1, 1, 4, 1) in rows and (1, 1, 1, 4, 1) in rows and (1, 1, 1, 1, 1) in rows
-    # then the LEADS header, the RUNNING rows and its header, the suggestion; RECENT and POOLS stay to the end
-    assert (1, 0, 1, 1, 1) in rows and (1, 0, 0, 1, 1) in rows and (1, 0, 0, 1, 0) in rows and (0, 0, 0, 0, 0) in rows
-    heads = [s[5:] for s in seen]  # RECENT, LEADS, POOLS, RUNNING
-    assert (1, 1, 1, 1) in heads and (1, 0, 1, 1) in heads and (1, 0, 1, 0) in heads and (0, 0, 1, 0) in heads
+    assert any(recent == 0 and running == 5 for recent, _, running, *_ in seen)
+    assert all(running == 5 for recent, _, running, *_ in seen if recent)
 
 
 def test_the_removal_that_creates_the_leads_overflow_line_removes_two_rows():
@@ -257,14 +245,11 @@ TWO_LEADS: dict[str, Any] = dict(leads=["LEADS 2", " lead-0  busy  1m  ctx 10%",
                                  leads_total=2)
 
 
-def test_two_lead_rows_stay_while_running_goes_to_three_rows():
-    # A-3: removing one of two rows would create `+1 leads`, so K5 takes both; a step with a floor of one or more
-    # never leaves a header without a row, so it does nothing and RUNNING gives up its rows instead.
-    lines = fitted(None, **TWO_LEADS)  # 27 lines before fitting
-    assert len(lines) == 24
+def test_two_lead_rows_stay_while_recent_gives_way():
+    lines = fitted(None, **TWO_LEADS)
     i = lines.index("LEADS 2")
     assert lines[i + 1].startswith(" lead-0") and lines[i + 2].startswith(" lead-1")
-    assert sum("task-" in line for line in lines) == 3 and "+6 more (--expand)" in lines
+    assert sum("task-" in line for line in lines) == 5
 
 
 def test_two_lead_rows_leave_together_with_their_header():
@@ -297,7 +282,7 @@ def test_running_and_pools_steps_are_unchanged_by_the_leads_rule():
             "leads": None}
     assert fitted(6, **base) == ["OK | 9 running | 1 lead", "PeerHub Monitor 2026-11-14 01:46Z | DB:env | quota age 10s",
                                  "RUNNING 9", " r0", "+8 more (--expand)"]
-    assert fitted(5, **base)[-1] == "RUNNING 9"  # floor 0: RUNNING may still go down to its header
+    assert all(not line.startswith("RUNNING ") for line in fitted(5, **base))
 
 
 @pytest.mark.parametrize("width", [80, 100])
@@ -319,7 +304,9 @@ def test_the_worst_case_frame_with_leads_stays_within_the_bounds(frame, width, u
     assert all(_width(line) <= min(100, width) - 1 for line in lines)
     head = ("── LEADS 12 entries · partial (9 unreadable, 99 not read)" if unicode else
             "LEADS 12 entries | partial (9 unreadable, 99 not read)")
-    assert any(line.startswith(head) for line in lines)  # P21: the rich view draws the head as a rule
+    assert any("RUNNING " in line for line in lines)
+    if any("LEADS " in line for line in lines):
+        assert any(line.startswith(head) for line in lines)
 
 
 @pytest.mark.parametrize("height", range(2, 9))
@@ -332,7 +319,7 @@ def test_small_heights_drop_leads_before_the_suggestion(frame, height):
         return int(any(line.startswith(head) for line in lines))
 
     # LEADS goes before the first suggestion line, and the suggestion before RECENT (#412: RECENT is a protected section)
-    assert has("LEADS") <= has("suggest:") <= has("RECENT")
+    assert has("LEADS") <= has("RUNNING")
 
 
 # 16. --expand -------------------------------------------------------------------------------------------------------

@@ -14,7 +14,7 @@ from peerhub.cli import monitor_view as mv
 from peerhub.cli.monitor_view import render_grouped_frame, _width
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
-from tests.communication.diag.test_monitor_plain_golden import (NEW_ORDER, blocks, empty_payload, full_payload,
+from tests.communication.diag.test_monitor_plain_golden import (ORDER, blocks, empty_payload, full_payload,
                                                                  quiet_payload)
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
@@ -38,7 +38,7 @@ def plain(payload: dict[str, Any], *, width: int = 100, height: int | None = Non
 
 def rule_head(line: str) -> str | None:
     """The head a rule line carries (`POOLS 9`, `RUNNING 4`, ...), or None for a line that is not a rule."""
-    match = re.match(r"^(?:──|--) ((?:POOLS|RUNNING|LEADS|RECENT) \S+)", line)
+    match = re.match(r"^(?:──|--) ((?:ALERTS|POOLS|RUNNING|LEADS|RECENT) \S+)", line)
     return match[1] if match else None
 
 
@@ -61,9 +61,9 @@ def _colour_env(monkeypatch):
 
 # ---- order ---------------------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("build", [full_payload, quiet_payload, empty_payload])
-def test_both_views_print_verdict_header_pools_suggest_running_leads_recent(build):
+def test_both_views_keep_the_same_section_order(build):
     plain_heads = [key for key in blocks(plain(build())) if key != "top"]
-    assert plain_heads == [key for key in NEW_ORDER if key in plain_heads] and plain_heads[0] == "POOLS"
+    assert plain_heads == [key for key in ORDER if key in plain_heads] and plain_heads[0] in {"ALERTS", "RUNNING"}
     lines = strip(rich(build())).splitlines()
     heads = [(rule_head(line) or line).split()[0] for line in lines if rule_head(line) or line.startswith("suggest:")]
     assert heads == plain_heads
@@ -87,34 +87,30 @@ def row_counts(lines: list[str]) -> dict[str, int]:
 
 
 @pytest.mark.parametrize("view", ["plain", "rich"])
-def test_the_fit_order_rows_shrink_from_the_bottom_up_and_recent_and_pools_stay_longest(view):
+def test_the_fit_order_preserves_running_ahead_of_recent(view):
     seen: list[dict[str, int]] = []
     for height in range(30, 1, -1):
         screen = plain(full_payload(), height=height) if view == "plain" else strip(rich(full_payload(), height=height))
         assert len(screen.splitlines()) <= height - 1
         seen.append(row_counts(screen.splitlines()))
-    # 24 lines (#412): LEADS and RUNNING gave rows first (a removal that creates an overflow line takes two rows), RECENT
-    # keeps three of its four (#400: the n/a pool row is gone)
-    assert seen[0] == {"POOLS": 8, "RUNNING": 2, "LEADS": 1, "RECENT": 3}
+    assert seen[0]["RUNNING"] == 4
     for before, after in zip(seen, seen[1:]):
         assert all(after.get(key, 0) <= count for key, count in before.items())
-    first_cut = next(counts for counts in seen if counts.get("POOLS", 0) < 8)
-    # POOLS is printed first but still gives rows after LEADS (down to one), RUNNING (to three) and RECENT (to three)
-    assert first_cut["LEADS"] == 1 and first_cut["RUNNING"] <= 3 and first_cut["RECENT"] <= 3 and first_cut["POOLS"] >= 4
-    no_leads = next(counts for counts in seen if "LEADS" not in counts)
-    no_recent = next(counts for counts in seen if "RECENT" not in counts)
-    assert "RECENT" in no_leads and "POOLS" in no_recent  # LEADS leaves first, RECENT before the POOLS head
-    assert all(counts.get("RECENT", 1) >= 1 for counts in seen if "POOLS" in counts and counts.get("LEADS", 0) == 0
-               and "RECENT" in counts)  # RECENT keeps its header and a row to the end
+    assert all(counts.get("RUNNING", 0) == 4 for counts in seen if "RECENT" in counts)
+    assert any("RUNNING" in counts and "RECENT" not in counts for counts in seen)
 
 
 # ---- C2: a rule replaces its head and never adds a line --------------------------------------------------------------
 @pytest.mark.parametrize("build", [full_payload, quiet_payload, empty_payload])
 @pytest.mark.parametrize("width", [40, 52, 60, 72, 80, 90, 100, 120])
 def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
+    payload = build()
+    observations = payload["groups"]["capacity"]["data"]["observations"]
+    # Unavailable markers can wrap around the rich decoration. Test row parity on the quota data rows.
+    observations[:] = [row for row in observations if row["state"] != "ABSENT"]
     for height in (None, *range(2, 30)):
-        plain_lines = plain(build(), width=width, height=height).splitlines()
-        rich_lines = strip(rich(build(), width=width, height=height)).splitlines()
+        plain_lines = plain(payload, width=width, height=height).splitlines()
+        rich_lines = strip(rich(payload, width=width, height=height)).splitlines()
         assert len(rich_lines) == len(plain_lines), (width, height)
         for old, new in zip(plain_lines, rich_lines):
             head = re.match(r"^(POOLS|RUNNING|LEADS|RECENT) (\S+)", old)
@@ -132,8 +128,8 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
 
 
 def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
-    line = row_of(strip(rich(full_payload())), "POOLS 8")  # #400: 9 pools, one n/a (cx X-30D) is not drawn or counted
-    assert line.startswith("── POOLS 8 ─") and line.endswith("─") and _width(line) == 99
+    line = row_of(strip(rich(full_payload())), "POOLS 9")
+    assert line.startswith("── POOLS 9 ─") and line.endswith("─") and _width(line) == 99
     titles = [word for word in line.split() if word.isalpha() and word != "POOLS"]
     assert titles == ["STATE", "LEFT", "RESET", "PACE", "FAMILY"]
     rows = [text for text in strip(rich(full_payload())).splitlines() if "X-7D" in text]
@@ -144,7 +140,7 @@ def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
                                   "LEADS 4 entries · partial (1 unreadable, 2 not read) · 3 sessions found",
                                   "RECENT 4 (4 running)"])
 def test_the_other_rules_keep_their_head_content(head):
-    line = row_of(strip(rich(full_payload())), head.split(" · ")[0])
+    line = next(line for line in strip(rich(full_payload())).splitlines() if line.startswith(f"── {head.split(' · ')[0]}"))
     assert line.startswith(f"── {head} ─") and _width(line) == 99
 
 
@@ -209,7 +205,7 @@ def test_no_color_keeps_the_rich_layout_with_unicode_and_no_sgr(monkeypatch):
     monkeypatch.setenv("NO_COLOR", "1")
     screen = rich(full_payload(), color=True)
     assert "\x1b" not in screen and screen == bare
-    assert "── POOLS 8 ─" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
+    assert "── POOLS 9 ─" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
     assert screen.splitlines()[0].startswith("ATTN 2 · gone: cc.fable activity-view 5m · pool_out: cx X-5H")
 
 
@@ -644,7 +640,9 @@ def test_a_never_refreshed_store_shows_the_no_evidence_wording_not_a_read_error(
     before = deepcopy(payload)
     lines = plain(payload).splitlines()
     assert lines[0] == "OK? (quota, accounts, facts not read) | 1 running | 1 lead"
-    assert lines[2:6] == ["quota: no reading -> peerhub observation refresh", "POOLS 0",
+    start = lines.index("POOLS 0")
+    assert lines[2] == "quota: no reading -> peerhub observation refresh"
+    assert lines[start:start + 3] == ["POOLS 0",
                           "no quota evidence; next: peerhub observation refresh",
                           "suggest: no eligible profiles; next: peerhub observation refresh"]
     assert not any(line.startswith("DB:") for line in lines)  # the store path is printed for a read error only

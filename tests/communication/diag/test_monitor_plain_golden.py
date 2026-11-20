@@ -1,11 +1,4 @@
-"""The plain compact frame, pinned byte for byte over every width, height and output encoding of `golden_cases()`.
-
-The goldens in `tests/communication/fixtures/monitor/plain_v0_24_17.json` began as the `v0.24.17` tag's frames (the file
-keeps its name); #400 regenerated the cases that show the n/a pool, and #412 regenerated all 100 for the order
-verdict, header, POOLS, the suggestion, RECENT, RUNNING, LEADS (0.24.17 printed RUNNING, LEADS, RECENT, the suggestion,
-POOLS) and RECENT's new rows (newest first, five at most, with the session and cache columns). Only what #412
-changed moved: every case still renders the same pools, suggestion, RUNNING rows, LEADS rows and line 1.
-"""
+"""Plain compact frames pinned at each width, height and encoding."""
 from __future__ import annotations
 
 import json
@@ -21,9 +14,8 @@ from tests.communication.diag.test_monitor_activity_view import NOW, SOURCES_REA
 from tests.communication.diag.test_monitor_leads_view import lead, sess
 
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_v0_24_17.json"
-OLD_ORDER = ("RUNNING", "LEADS", "RECENT", "suggest:", "POOLS")
-NEW_ORDER = ("POOLS", "suggest:", "RECENT", "RUNNING", "LEADS")
-_HEAD = re.compile(r"^(RUNNING|LEADS|RECENT|POOLS) |^(suggest:)")
+ORDER = ("ALERTS", "RUNNING", "POOLS", "suggest:", "RECENT", "LEADS")
+_HEAD = re.compile(r"^(?:-- )?(ALERTS|RUNNING|LEADS|RECENT|POOLS) |^(suggest:)")
 PROFILES = [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
     ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]), ("ag.deepthink", ["3P-5H", "3P-7D"]),
     ("cc.effort", ["C-5H", "C-7D"]), ("cc.fable", ["F-7D"]), ("cx.effort", ["X-5H", "X-7D"]))]
@@ -158,13 +150,13 @@ def test_the_goldens_cover_every_case():
 def test_plain_frame_matches_its_golden(case, payload, kwargs):
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
     assert screen == GOLDENS[case]
-    assert in_order(screen, NEW_ORDER) == screen  # the sections print in the one order
+    assert in_order(screen, ORDER) == screen  # the sections print in the one order
     assert "\x1b" not in screen
 
 
 @pytest.mark.parametrize("name", list(PAYLOADS))
 def test_the_golden_payloads_show_what_they_claim(name):
     heads = [key for key in blocks(GOLDENS[f"{name}-w100-hNone-None"]) if key != "top"]
-    expected = {"full": list(NEW_ORDER), "quiet": ["POOLS", "suggest:", "RUNNING"],
-                "empty": list(NEW_ORDER)}[name]
+    expected = {"full": list(ORDER), "quiet": ["RUNNING", "POOLS", "suggest:"],
+                "empty": list(ORDER[1:])}[name]
     assert heads == expected
