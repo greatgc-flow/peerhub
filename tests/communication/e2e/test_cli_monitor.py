@@ -119,7 +119,7 @@ def test_query_file_links_from_a_separate_monitor_process(tmp_path, monkeypatch,
                          "SELECT delivery_id, stream_id, peer_id, kind, certainty, ? FROM bridge_evidence "
                          "WHERE kind='caller' AND stream_id='review' LIMIT 1", (json.dumps(legacy | metadata),))
         assert "file://" not in monitor()
-    assert main([*base_ask, "--stream", "inline", "--request-id", "q2", "inline prompt"]) == 0
+    assert main([*base_ask[:4], "inline prompt", *base_ask[4:], "--stream", "inline", "--request-id", "q2"]) == 0
     assert main([*base_ask, "--stream", "outside", "--request-id", "q3", "--query-file", str(outside)]) == 0
     with closing(sqlite3.connect(db)) as conn:
         rows = conn.execute("SELECT stream_id, detail FROM bridge_evidence WHERE kind='caller' AND stream_id != 'review'").fetchall()
