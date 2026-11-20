@@ -24,6 +24,17 @@ GROUPS: tuple[dict[str, Any], ...] = (
 GROUP_IDS = tuple(str(item["id"]) for item in GROUPS)
 DEFAULT_GROUPS = ("overview", "activity", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage")
 
+MONITOR_LEGEND = (
+    "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan no longer reports it (diag quota may keep an older value) | ? unknown",
+    "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable",
+    "BAR=remaining, | marks the even-burn level (^ ahead, v behind)",
+    "TIME: the header time is the snapshot time (when the store was read), not the time quota was measured",
+    "LEADS: label | state (?busy = alive not confirmed, - = no session) | age of the last activity"
+    " | ctx = context of the model's maximum input (! 80% or more; 106k = window unknown; ? unknown) | running asks | model | title",
+    "CTX est: estimated context of a cc session at the end of its last ask (percent of the model's maximum input, with"
+    " its age); not a live measurement",
+)
+
 
 def _preference_paths(cwd: Path, env: dict[str, str]) -> tuple[Path, Path]:
     workspace = cwd / ".peerhub" / "config" / "monitor.toml"

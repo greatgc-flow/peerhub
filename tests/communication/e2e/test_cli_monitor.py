@@ -60,7 +60,7 @@ def test_query_file_links_from_a_separate_monitor_process(tmp_path, monkeypatch,
         stub = ("import sys; from peerhub.cli.app import main; from peerhub.cli import view; "
                 f"sys.stdout.isatty = lambda: {tty!r}; view.enable_vt = lambda: {vt!r}; "
                 "raise SystemExit(main())")
-        mode = ["--cycles", "1"] if watch else ["--snapshot"]
+        mode = ["--cycles", "1", "--no-probe"] if watch else ["--snapshot"]
         return subprocess.run([sys.executable, "-c", stub, "--db", db, "monitor", *mode,
                                "--group", "activity", "--view", "rich", *options],
                               cwd=root, env=env, capture_output=True, encoding="utf-8", check=True, timeout=10).stdout

@@ -19,7 +19,7 @@ from typing import Any, cast
 
 from peerhub.cli.support import (agy_token_command, agy_token_stop_message, error_line, monitor_auto_probe,
                                  print_warnings, refresh_monitor_quota, refresh_with_profile_pools)
-from peerhub.cli.monitor_preferences import GROUP_IDS
+from peerhub.cli.monitor_preferences import GROUP_IDS, MONITOR_LEGEND
 
 def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """The lead sessions of the registered Claude Code folders (#376 A-1); looked up at call time, so tests isolate it."""
@@ -28,8 +28,6 @@ def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
 
 def register_monitor_parser(subparsers: Any) -> None:
-    from peerhub.cli.monitor_view import MONITOR_LEGEND
-
     p = subparsers.add_parser("monitor", help="Watch committed quota evidence and diagnostics",
                              epilog="\n".join(MONITOR_LEGEND), formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--interval-seconds", dest="interval", type=float, default=60.0,

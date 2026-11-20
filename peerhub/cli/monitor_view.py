@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, cast
 
-from peerhub.cli.monitor_preferences import GROUPS
+from peerhub.cli.monitor_preferences import GROUPS, MONITOR_LEGEND
 from peerhub.extensions.caller import host_id, local_workspace_file
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.monitor_read_model import TEXT_NEWEST_ROWS
@@ -29,16 +29,6 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m|\x1b\]8;[^\x07\x1b]*(?:\x1b\\|\x07)")  # SGR
 _FILE_OSC = re.compile(r"\x1b\]8;;file://[^\x1b]*\x1b\\([^\x1b]*)\x1b\]8;;\x1b\\")
 _BIDI = {"\u061c", "\u200e", "\u200f", *[chr(code) for code in range(0x202A, 0x202F)],
          *[chr(code) for code in range(0x2066, 0x206A)]}
-MONITOR_LEGEND = (
-    "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan no longer reports it (diag quota may keep an older value) | ? unknown",
-    "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable",
-    "BAR=remaining, | marks the even-burn level (^ ahead, v behind)",
-    "TIME: the header time is the snapshot time (when the store was read), not the time quota was measured",
-    "LEADS: label | state (?busy = alive not confirmed, - = no session) | age of the last activity"
-    " | ctx = context of the model's maximum input (! 80% or more; 106k = window unknown; ? unknown) | running asks | model | title",
-    "CTX est: estimated context of a cc session at the end of its last ask (percent of the model's maximum input, with"
-    " its age); not a live measurement",
-)
 # The legend line of the FORECAST column in the QUOTA details of the rich --expand frame (P23).
 FORECAST_LEGEND = "FORECAST: insuff=insufficient projection data; threat=exhausts before reset"
 

@@ -11,8 +11,6 @@ from threading import Thread
 from time import monotonic, sleep
 from typing import Any, BinaryIO, Callable, Generator, Sequence, cast
 
-from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS
-
 _PEER_ALIASES = {"cx": {"cx", "codex"}, "cc": {"cc", "claude"}, "ag": {"ag", "agy"}}
 MONITOR_QUOTA_MAX_AGE_SECONDS = 5 * 60
 QUOTA_LOCK_WAIT_SECONDS = 3.0
@@ -49,7 +47,7 @@ def refresh_with_profile_pools(db_path: str | Path, peers: Sequence[str], **opti
 
 def quota_items(db_path: str | Path, *, peer: str | None = None) -> list[dict[str, Any]]:
     from peerhub.extensions.diag_quota import quota_report
-    from peerhub.extensions.observation_model import FreshnessPolicy
+    from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, FreshnessPolicy
 
     # Observation freshness compares age >= TTL at microsecond precision. This gate includes exactly 15 minutes.
     policy = FreshnessPolicy(by_kind={"quota": QUOTA_MAX_AGE_SECONDS + .000001})
@@ -58,6 +56,8 @@ def quota_items(db_path: str | Path, *, peer: str | None = None) -> list[dict[st
 
 
 def quota_expired(item: dict[str, Any]) -> bool:
+    from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS
+
     age = item.get("age_seconds")
     return age is None or age > QUOTA_MAX_AGE_SECONDS
 

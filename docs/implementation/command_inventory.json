@@ -1602,6 +1602,16 @@
           "takes_value": false
         },
         {
+          "default": false,
+          "dest": "no_probe",
+          "flags": [
+            "--no-probe"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": "['cx', 'cc', 'ag']",
           "dest": "peers",
           "flags": [
