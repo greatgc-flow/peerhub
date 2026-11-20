@@ -50,7 +50,7 @@ Keep the hand-built atomic stages beside their targets too (`peerhub/core/worksp
 - **D5 · #418.** Use the exact-SHA CI handoff and retain artifact smoke. Move only the duplicate source matrix and its reports. Record the CI run URL with the release evidence. Parallelism and timeout tuning stay outside this release.
 - **D6 · #415.** Keep prompt-cache TTL in backlog. Revisit when ≥20% of same-stream gaps are 5–60 min, cache-read/write ≥2.0, and cc PACE is below both cx and ag. [Backlog trigger](https://github.com/greatgc-flow/peerhub/issues/415)
 
-- **D7 · #420.** Deferred to 0.27.0 as its own release (vote 2026-11-21: scope too large with four fixes; the ATTN badge would need a persisted check result, a new store). Design kept in #420: read-only `peerhub update --check` and `--plan`, no auto kill/install, resume hints from existing rows. No code in 0.26.0.
+- **D7 · #420 (owner decision 2026-11-21: one release for everything).** In 0.26.0: read-only `peerhub update --check` (zero quota: local --version, `codex debug models`, PyPI/release metadata vs packaged defaults) and `peerhub update --plan` (gate on running asks = 0, list blocking processes, print ordered update commands with a store copy command, one resume hint per stream/lead session/batch from existing rows). No ATTN badge, no persisted check result, no auto kill/install/restart.
 
 ## Milestones and tests
 
@@ -61,6 +61,7 @@ Each milestone starts with a failing focused test or workflow fixture.
 | **M1 · #406** | Extend the fake ag stream/argv denial cases. Assert the ag command-specific next step on fresh and replayed asks, with the same exit/status/JSON. Check non-command and cc paths. Change guidance only. `tests/communication/adapters/test_ag_stdin_stream.py:985`; `tests/communication/e2e/test_cli_recovery.py:1530`. |
 | **M2 · #419** | Assert default and custom store roots, independent concurrent scratch, cleanup after completion, spawn failure, cancel and orderly exit with an uncollected job. Check read-only/dry-run paths and Windows handles. Then route batch and capability-job scratch. |
 | **M3 · #417** | Start with a fake ask and a separate monitor process reading the same DB while running and after completion. Cover cwd versus `--workspace`, replay, legacy and null metadata, inline prompt, deleted file, missing stream source, out-of-root/symlink/UNC/control paths, spaced or Unicode paths, TTY gates, text-off, JSON compatibility and narrow-frame OSC closure. Then add caller metadata and renderer wiring. Manually click on Windows and Linux. |
+| **M5 · #420** | Fixture `--check` (fake versions, offline, no inference), `--plan` refuses with a running ask, idle store prints commands + resume hints, legacy rows without cwd/session id omit the hint, no store writes. |
 | **M4 · #418** | Replace workflow-contract expectations with exact-SHA/run/cell/artifact checks. Test wrong SHA, ordinary CI, failed or skipped cells, stale or missing reports, failed-only rerun and manual-dispatch no-OIDC. Then move the G2 reports and wire the gate. Time a hosted dry run through G5. `tests/communication/package/test_ci_workflow.py:157`; `tests/communication/package/test_cut_candidate_evidence.py:280`; `tests/communication/package/test_rel_ci_dag.py:193`; `tests/communication/soak/test_soak_ci_wiring.py:35`. |
 
 ## Release gate
