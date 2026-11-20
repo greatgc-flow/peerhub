@@ -34,8 +34,9 @@ def test_tool_writes_the_section_as_lf_bytes_on_every_platform():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.24.29"
-    assert "#412" in body and "RECENT" in body
+    assert __version__ == "0.25.0"
+    assert "#414" in body and "peerhub suggest" in body and "profile stats" in body
+    assert "directly under POOLS" not in body  # no adjacent history (0.24.29)
     assert "#410" not in body and "alternate screen" not in body  # no adjacent history (0.24.28)
     assert "#408" not in body and "shell fallback" not in body  # no adjacent history (0.24.27)
     assert "#398" not in body and "#400" not in body and "#401" not in body  # no adjacent history (0.24.26)

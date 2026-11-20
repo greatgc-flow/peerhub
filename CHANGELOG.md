@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-20
+
 ### Fixed
 
 - Profile stats, terminal ask receipts, and stream budget warnings use per-ask token counts. Session-cumulative counters contribute deltas from the previous delivery of the same session. A missing baseline or a counter reset leaves that metric unknown.
