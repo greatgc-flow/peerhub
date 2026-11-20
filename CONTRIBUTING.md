@@ -148,7 +148,10 @@ A release is one PR plus the steps after its merge; there is no post-release doc
    This is not a test failure: run `gh run rerun <RUN-ID> --failed`, which
    repeats only the failed and cancelled jobs, and wait for `ci-pass` again.
 2. Dispatch `gh workflow run ci.yml --ref <candidate-ref> -f full_matrix=true`
-   on a ref pinned to the merged release commit. Wait for `ci-pass` and all ten
+   on a ref pinned to the merged release commit (right after the squash merge,
+   `--ref main`; a branch run does not count because the SHA differs; a Windows
+   cell cancelled at the 60 min timeout: `gh run rerun <RUN-ID> --failed`, then
+   rerun the failed publish run). Wait for `ci-pass` and all ten
    `full-matrix` cells to pass on that SHA before publishing the draft. The G2
    reports must still be available and current when G5 runs.
    To verify the reports before spending quota, download them with
