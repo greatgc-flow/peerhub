@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- The monitor section order and headings of both layouts come from one catalog, `FRAME_SECTIONS`; tests and docs read it, and the release-notes test follows `__version__`. Output is unchanged (#436).
+
 ## [0.26.3] - 2026-11-21
 
 ### Changed

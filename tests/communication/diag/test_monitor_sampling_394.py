@@ -38,11 +38,11 @@ def sampled_payload() -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("view", ["plain", "rich"])
-@pytest.mark.parametrize("head,marker", [("EXECUTION", "sample 44/2,863"), ("SESSIONS", "sample 100/2,001"),
-                                         ("USAGE", "sample 100/2,001"), ("CONTEXT", "sample 100/2,001")])
-def test_a_sampled_section_head_carries_sample_n_of_m(view, head, marker):
+@pytest.mark.parametrize("section,marker", [("execution", "sample 44/2,863"), ("sessions", "sample 100/2,001"),
+                                           ("usage", "sample 100/2,001"), ("context", "sample 100/2,001")])
+def test_a_sampled_section_head_carries_sample_n_of_m(view, section, marker):
     screen = render(sampled_payload(), view)
-    assert marker in re.search(rf"^(?:--|──) {head}\b.*$", screen, re.M)[0]
+    assert marker in block(screen, section)[0]
 
 
 def test_a_section_that_is_not_a_sample_has_no_sample_marker():
@@ -69,7 +69,7 @@ def test_usage_and_context_without_a_sample_total_say_how_many_were_read():
     for name in ("usage", "context"):
         frame["groups"][name]["data"].pop("sample_total")
     screen = render(frame, "rich")
-    head = re.search(r"^(?:--|──) USAGE .*$", screen, re.M)[0]
+    head = block(screen, "usage")[0]
     assert "sample 100 " in head + " " and "100/" not in head
 
 
@@ -106,10 +106,11 @@ def first_seen(lines: list[str], pattern: str) -> list[str]:
 def test_pools_and_quota_details_list_the_peers_in_one_order(view):
     frame = eight_pools_payload()
     rich = render(frame, "rich")
-    pools = first_seen(block(rich, "POOLS")[1:], r"\s+(ag|cc|cx) ")
+    pools = first_seen(block(rich, "pools")[1:], r"\s+(ag|cc|cx) ")
     assert pools[0] == "cx"  # cx X-5H is out: the most urgent peer comes first, not the alphabet
     lines = render(frame, view).splitlines()
-    start = next(i for i, line in enumerate(lines) if re.match(r"(?:--|──) QUOTA\b", line))
+    quota = re.escape(mv.FRAME_SECTIONS["capacity"])
+    start = next(i for i, line in enumerate(lines) if re.match(rf"(?:--|──) {quota}(?= |$)", line))
     end = next((i for i in range(start + 1, len(lines)) if re.match(r"(?:--|──) ", lines[i])), len(lines))
     assert first_seen(lines[start + 2:end], r"\s*(ag|cc|cx) ") == pools
 

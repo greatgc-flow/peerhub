@@ -11,13 +11,15 @@ from typing import Any
 import pytest
 
 from peerhub.cli.monitor_view import (
-    COMPACT_MAX_LINES, FRAME_HEADS, CompactFrame, MONITOR_LEGEND, fit_compact_frame, render_grouped_frame, _width,
+    COMPACT_MAX_LINES, FRAME_HEADS, FRAME_SECTIONS, CompactFrame, MONITOR_LEGEND, fit_compact_frame,
+    render_grouped_frame, _width,
 )
 from tests.communication.diag.test_monitor_activity import db  # noqa: F401  (a fixture: a store with the Bridge tables)
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame, section  # noqa: F401
 
 READ = {"state": "read", "unreadable": 0, "not_read": 0}
 TITLE = "Release notes for the spring update"
+_LEADS_HEAD = re.compile(rf"\b{re.escape(FRAME_SECTIONS['leads'])}\b")
 
 
 def sess(**over: Any) -> dict[str, Any]:
@@ -50,7 +52,7 @@ def screen(payload: dict[str, Any], width: int = 100, unicode: bool = False, **k
 
 
 def leads_block(lines: list[str]) -> list[str]:
-    return section(lines, "LEADS")
+    return section(lines, FRAME_SECTIONS["leads"])
 
 
 # 14. the compact LEADS block ----------------------------------------------------------------------------------------
@@ -409,7 +411,7 @@ def test_entry_count_and_found_sessions_explain_the_open_ask_lead_count_without_
         output = render_grouped_frame(frame, view=view, expand=expand, unicode=False, width=200)
         lines = output.splitlines()
         assert re.search(r"\b1 lead\b", lines[0]) and "2 leads" not in lines[0]
-        header = next(line for line in lines if re.search(r"\bLEADS\b", line))
+        header = next(line for line in lines if _LEADS_HEAD.search(line))
         assert f"LEADS {entries} | 1 session found" in header
         assert ("history-only" in output) == expand
         if expand and alive is None:
@@ -423,11 +425,11 @@ def test_empty_expanded_leads_only_claim_zero_found_sessions_after_a_known_read(
     with_leads(frame, [], read)
     frame["selected_groups"] = ["activity"]
     expanded_text = render_grouped_frame(frame, view=view, expand=True, unicode=False, width=200)
-    head = next(line for line in expanded_text.splitlines() if re.search(r"\bLEADS\b", line))
+    head = next(line for line in expanded_text.splitlines() if _LEADS_HEAD.search(line))
     assert f"LEADS 0 entries{statistic}" in head
     assert ("sessions found" in head) == (read is not None)
     compact_text = render_grouped_frame(frame, view=view, unicode=False, width=200)
-    assert not any(re.search(r"\bLEADS\b", line) for line in compact_text.splitlines())
+    assert not any(_LEADS_HEAD.search(line) for line in compact_text.splitlines())
 
 
 @pytest.mark.parametrize("read", [None, READ, {"state": "partial", "unreadable": 1, "not_read": 0},

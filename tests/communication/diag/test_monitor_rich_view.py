@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from peerhub.cli import monitor_view as mv
-from peerhub.cli.monitor_view import FRAME_HEADS, render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER, render_grouped_frame, _width
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
@@ -20,6 +20,12 @@ from tests.communication.diag.test_monitor_plain_golden import blocks, empty_pay
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values(), mv.CHILD_EMPTY_SGR}  # #414: a child bar's empty cells
 U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
+POOLS_HEAD = FRAME_SECTIONS["pools"]
+SUGGEST_HEAD = FRAME_SECTIONS["suggest"]
+_RULE_HEADS = "|".join(re.escape(head) for head in FRAME_HEADS if head != SUGGEST_HEAD)
+_PLAIN_HEADS = "|".join(re.escape(FRAME_SECTIONS[key]) for key in FRAME_SECTION_ORDER if key not in {"suggest", "alerts"})
+_RULE_HEAD = re.compile(rf"^(?:──|--) ((?:{_RULE_HEADS}) \S+)")
+_PLAIN_HEAD = re.compile(rf"^({_PLAIN_HEADS}) (\S+)")
 
 
 def strip(text: str) -> str:
@@ -38,7 +44,7 @@ def plain(payload: dict[str, Any], *, width: int = 100, height: int | None = Non
 
 def rule_head(line: str) -> str | None:
     """The head a rule line carries (`POOLS 9`, `RUNNING 4`, ...), or None for a line that is not a rule."""
-    match = re.match(r"^(?:──|--) ((?:ALERTS|POOLS|RUNNING|LEADS|RECENT) \S+)", line)
+    match = _RULE_HEAD.match(line)
     return match[1] if match else None
 
 
@@ -65,7 +71,7 @@ def test_both_views_keep_the_same_section_order(build):
     plain_heads = [key for key in blocks(plain(build())) if key != "top"]
     assert plain_heads == [key for key in FRAME_HEADS if key in plain_heads] and plain_heads[0] == FRAME_HEADS[0]
     lines = strip(rich(build())).splitlines()
-    heads = [(rule_head(line) or line).split()[0] for line in lines if rule_head(line) or line.startswith("suggest:")]
+    heads = [(rule_head(line) or line).split()[0] for line in lines if rule_head(line) or line.startswith(SUGGEST_HEAD)]
     assert heads == plain_heads
     assert lines[1].startswith("PeerHub Monitor 2026-11-14 23:46Z")
 
@@ -75,13 +81,13 @@ def row_counts(lines: list[str]) -> dict[str, int]:
     counts: dict[str, int] = {}
     key = ""
     for line in lines:
-        head = rule_head(line) or (line if re.match(r"^(POOLS|RUNNING|LEADS|RECENT) ", line) else None)
+        head = rule_head(line) or (line if _PLAIN_HEAD.match(line) else None)
         if head:
             key = head.split()[0]
             counts[key] = 0
         elif key and line.startswith(" "):
             counts[key] += 1
-        elif line.startswith("suggest:"):
+        elif line.startswith(SUGGEST_HEAD):
             key = ""
     return counts
 
@@ -113,13 +119,13 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
         rich_lines = strip(rich(payload, width=width, height=height)).splitlines()
         assert len(rich_lines) == len(plain_lines), (width, height)
         for old, new in zip(plain_lines, rich_lines):
-            head = re.match(r"^(POOLS|RUNNING|LEADS|RECENT) (\S+)", old)
+            head = _PLAIN_HEAD.match(old)
             if head:  # the rule keeps the head's title, count and notes (a head too long for the line stays a head)
                 assert new.removeprefix("── ").startswith(f"{head[1]} {head[2]}"), (width, height, old, new)
                 assert rule_head(new) or _width(old) > min(100, width) - 4, (width, height, old, new)
                 for part in old.split(" | ")[1:]:
                     assert part.replace("~", "…") in new, (width, height, old, new)
-            elif old.startswith(("+", "suggest:", "next:", "no quota evidence", "DB:")):
+            elif old.startswith(("+", SUGGEST_HEAD, "next:", "no quota evidence", "DB:")):
                 assert new == old
             elif old.startswith(" "):  # a data row: the same row (its first cells), whatever the decoration
                 cells = [cell.lstrip("!") for cell in old.split() if re.match(r"^!?[A-Za-z0-9]", cell)][:2]
@@ -128,9 +134,9 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
 
 
 def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
-    line = row_of(strip(rich(full_payload())), "POOLS 9")
-    assert line.startswith("── POOLS 9 ─") and line.endswith("─") and _width(line) == 99
-    titles = [word for word in line.split() if word.isalpha() and word != "POOLS"]
+    line = row_of(strip(rich(full_payload())), f"{POOLS_HEAD} 9")
+    assert line.startswith(f"── {POOLS_HEAD} 9 ─") and line.endswith("─") and _width(line) == 99
+    titles = [word for word in line.split() if word.isalpha() and word != POOLS_HEAD]
     assert titles == ["STATE", "LEFT", "RESET", "PACE", "FAMILY"]
     rows = [text for text in strip(rich(full_payload())).splitlines() if "X-7D" in text]
     assert line.index("LEFT") + len("LEFT") == rows[0].index("42%") + len("42%")  # titles sit over their columns
@@ -205,7 +211,7 @@ def test_no_color_keeps_the_rich_layout_with_unicode_and_no_sgr(monkeypatch):
     monkeypatch.setenv("NO_COLOR", "1")
     screen = rich(full_payload(), color=True)
     assert "\x1b" not in screen and screen == bare
-    assert "── POOLS 9 ─" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
+    assert f"── {POOLS_HEAD} 9 ─" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
     assert screen.splitlines()[0].startswith("ATTN 2 · gone: cc.fable activity-view 5m · pool_out: cx X-5H")
 
 
@@ -362,17 +368,17 @@ def test_the_bar_shrinks_then_goes_before_any_data_column_drops():
     observations[:] = [item for item in observations if not item["pool_ref"].endswith(("A-7D", "G-5H", "G-7D"))]
     cells: dict[int, int] = {}
     for width in range(100, 19, -1):
-        old = row_of(plain(payload, width=width, show_quota_notes=True), "POOLS ")
-        new = row_of(strip(rich(payload, width=width, show_quota_notes=True)), "POOLS ")
+        old = row_of(plain(payload, width=width, show_quota_notes=True), f"{POOLS_HEAD} ")
+        new = row_of(strip(rich(payload, width=width, show_quota_notes=True)), f"{POOLS_HEAD} ")
         titles = [word for word in old.split()[2:]]
-        assert [word for word in new.split() if word.isalpha() and word != "POOLS"] == titles, width
+        assert [word for word in new.split() if word.isalpha() and word != POOLS_HEAD] == titles, width
         row = row_of(strip(rich(payload, width=width, show_quota_notes=True)), "X-7D")
         bar = re.search(r"[█░]+", row)
         cells[width] = len(bar[0]) if bar else 0
         if titles != ["STATE", "LEFT", "RESET", "PACE", "FAMILY"]:
             assert cells[width] == 0, width  # a column dropped: the bar went before it
         if cells[width]:  # the bar takes only what is left over: no cell is cut beside it
-            assert "…" not in strip(rich(payload, width=width, show_quota_notes=True)).split("suggest:")[0].split("POOLS", 1)[1], width
+            assert "…" not in strip(rich(payload, width=width, show_quota_notes=True)).split(SUGGEST_HEAD)[0].split(POOLS_HEAD, 1)[1], width
     sizes = [cells[width] for width in range(100, 19, -1)]
     assert sizes[0] == 20 and sizes == sorted(sizes, reverse=True) and 0 in sizes
     assert all(size == 0 or size >= mv.BAR_MIN for size in sizes) and len(set(sizes)) > 3
@@ -452,7 +458,7 @@ def test_every_glyph_is_one_cell_and_has_an_ascii_fallback():
 def test_the_rich_view_without_unicode_is_ascii_decoration():
     screen = rich(quiet_payload(), unicode=False, color=False)
     assert screen.isascii()
-    assert "-- POOLS 2  STATE -" in screen and "#############......." in screen and f"{A['ok']} ok" in screen
+    assert f"-- {POOLS_HEAD} 2  STATE -" in screen and "#############......." in screen and f"{A['ok']} ok" in screen
     assert "-- RUNNING 0 -" in screen and screen.splitlines()[0].startswith("OK | 0 running | 0 leads | min quota")
     painted = rich(quiet_payload(), unicode=False)
     assert strip(painted).isascii() and strip(painted).splitlines()[1:] == screen.splitlines()[1:]
@@ -642,11 +648,11 @@ def test_a_never_refreshed_store_shows_the_no_evidence_wording_not_a_read_error(
     before = deepcopy(payload)
     lines = plain(payload).splitlines()
     assert lines[0] == "OK? (quota, accounts, facts not read) | 1 running | 1 lead"
-    start = lines.index("POOLS 0")
+    start = lines.index(f"{POOLS_HEAD} 0")
     assert lines[2] == "quota: no reading -> peerhub observation refresh"
-    assert lines[start:start + 3] == ["POOLS 0",
+    assert lines[start:start + 3] == [f"{POOLS_HEAD} 0",
                           "no quota evidence; next: peerhub observation refresh",
-                          "suggest: no eligible profiles; next: peerhub observation refresh"]
+                          f"{SUGGEST_HEAD} no eligible profiles; next: peerhub observation refresh"]
     assert not any(line.startswith("DB:") for line in lines)  # the store path is printed for a read error only
     assert payload == before
     expanded = render_grouped_frame(payload, view="plain", unicode=False, width=120, expand=True)

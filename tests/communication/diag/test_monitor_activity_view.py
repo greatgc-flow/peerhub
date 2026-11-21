@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_HEADS, render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame, _width
 
 NOW = 1_794_700_000.0  # 2026-11-14 23:46:40Z
 SOURCES_READ = {"activity": "read", "capacity": "read", "accounts": "read", "facts": "read"}
@@ -506,7 +506,7 @@ def test_expand_lists_every_field_of_asks_leads_and_alerts(frame):
     assert lines[0].startswith("ATTN 2 | empty: ag.standard denied-postinstall 3m | facts: ag: version_drift")
     assert lines[1].startswith("PeerHub Monitor")
     order = [next(i for i, line in enumerate(lines) if line.removeprefix("-- ").startswith(heading))
-             for heading in (*FRAME_HEADS, "QUOTA [")]
+             for heading in (*FRAME_HEADS, FRAME_SECTIONS["capacity"])]
     assert order == sorted(order) and "ACTIVITY [" not in screen
     for text in ("empty: ag.standard denied-postinstall | age 3m | high | a1", "facts: ag: version_drift | age - | low | a6",
                  "flag ? (other host)", "state run", "elapsed 16m", "started 2026-11-14 23:30:40Z", "lease left 10m",

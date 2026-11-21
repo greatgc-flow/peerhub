@@ -57,7 +57,7 @@ def test_rich_expand_counts_unavailable_windows_and_names_them_in_quota():
     plain = strip(screen)
     assert re.search(r"POOLS 4\b", plain)
     assert not any(re.match(r"^\s*(?:(?:cc|cx)\s+)?\S*\s*(C-5H|X-30D)\b.*\bn/a\b", line) for line in plain.splitlines() if "not reported" not in line)
-    quota = block(screen, "QUOTA")
+    quota = block(screen, "capacity")
     assert any("C-7D" in line and line.rstrip().endswith("(C-5H n/a)") for line in quota)
     assert any("X-7D" in line and line.rstrip().endswith("(X-30D n/a)") for line in quota)
 

@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from peerhub.cli import monitor_view as mv
-from peerhub.cli.monitor_view import FRAME_HEADS, render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame, _width
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload, in_order, quiet_payload
 
@@ -20,7 +20,9 @@ OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values(), mv.CHILD_EMPTY_S
 GUIDE_URL = "https://github.com/greatgc-flow/peerhub/blob/main/docs/monitor.md"  # pinned: the plain frame's `Guide:` line
 U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_expand_v0_24_20.json"
-ORDER = [*FRAME_HEADS, "QUOTA", "PEERS", "EXECUTION", "SESSIONS", "USAGE", "CONTEXT", "STORE"]
+ORDER = [*FRAME_SECTIONS.values(), "STORE"]
+_FRAME_HEAD = re.compile(r"^(?:── |-- )?(" + "|".join(map(re.escape, FRAME_SECTIONS.values())) + r")(?= |$)")
+_OTHER_RULE_HEAD = re.compile(r"^(?:──|--) ([A-Z]+)\b")
 DB_LINE = "DB:env (/w/.peerhub/core.db)"
 
 
@@ -94,17 +96,16 @@ def heads(screen: str) -> list[str]:
     """The first word of each section heading, including unruled headings."""
     names: list[str] = []
     for line in strip(screen).splitlines():
-        if match := re.match(r"^(?:──|--) ([A-Z]+)\b", line):
+        if match := _FRAME_HEAD.match(line) or _OTHER_RULE_HEAD.match(line):
             names.append(match[1])
-        elif (name := line.partition(" ")[0]) in FRAME_HEADS:
-            names.append(name)
     return names
 
 
-def block(screen: str, head: str) -> list[str]:
+def block(screen: str, section: str) -> list[str]:
     """The lines of one section (its rule first), colour removed, up to the next rule or the first line at column 0."""
+    head = FRAME_SECTIONS[section]
     lines = strip(screen).splitlines()
-    start = next(i for i, line in enumerate(lines) if re.match(rf"^(?:──|--) {head}\b", line))
+    start = next(i for i, line in enumerate(lines) if re.match(rf"^(?:──|--) {re.escape(head)}(?= |$)", line))
     end = next((i for i in range(start + 1, len(lines)) if not lines[i].startswith(" ")), len(lines))
     return lines[start:end]
 
@@ -133,7 +134,7 @@ def test_expansion_keeps_the_compact_pool_rows_and_section_order(width, color, u
     small = compact(payload, width=width, color=color, unicode=unicode)
     big = expand(payload, width=width, color=color, unicode=unicode)
     assert small.splitlines()[:2] == big.splitlines()[:2]
-    assert block(small, "POOLS") == block(big, "POOLS")
+    assert block(small, "pools") == block(big, "pools")
     assert {"POOLS", "RUNNING", "RECENT"} <= set(heads(small))
     for screen in (small, big):
         shown = [head for head in heads(screen) if head in FRAME_HEADS]
@@ -150,15 +151,15 @@ def test_expand_uses_the_terminal_width_and_the_compact_frame_stays_at_100_colum
 def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
     small, big = compact(payload).splitlines(), expand(payload, show_quota_notes=True).splitlines()
-    assert block("\n".join(small), "POOLS")[0].startswith("── POOLS 9 ─")
-    assert block("\n".join(big), "POOLS")[0].startswith("── POOLS 11 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
-    rows = block("\n".join(big), "POOLS")[1:]
+    assert block("\n".join(small), "pools")[0].startswith("── POOLS 9 ─")
+    assert block("\n".join(big), "pools")[0].startswith("── POOLS 11 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
+    rows = block("\n".join(big), "pools")[1:]
     names = [" ".join(row.replace("└─ ", "").split()[:2]) for row in rows]
     assert len(rows) == 10 and len(set(names)) == 10  # every observation of the payload but the n/a one (#400) has its row
     # 5-hour rows that do not bind are listed under their 7-day pool, after the compact frame's order
     assert [row.split()[1] for row in rows if "└─" in row] == ["X-5H", "3P-5H", "C-5H", "G-5H"]
     assert rows[rows.index(next(row for row in rows if "ag 3P-7D" in row)) + 1].split()[:2] == ["└─", "3P-5H"]
-    compact_rows = [" ".join(row.split()[:3]) for row in block("\n".join(small), "POOLS")[1:]]
+    compact_rows = [" ".join(row.split()[:3]) for row in block("\n".join(small), "pools")[1:]]
     order = [" ".join(row.split()[:3]) for row in rows]
     assert [row for row in order if row in compact_rows] == compact_rows  # the same order, with the hidden rows added
     assert any("(X-30D n/a)" in row for row in rows)
@@ -281,7 +282,7 @@ def test_section_lines_use_the_dot_separator_never_a_pipe():
 def quota_rows(screen: str) -> dict[str, list[str]]:
     """The cells of each pool row of the QUOTA details table, by pool name."""
     rows: dict[str, list[str]] = {}
-    for line in block(screen, "QUOTA")[2:]:
+    for line in block(screen, "capacity")[2:]:
         cells = line.replace("└─ ", "").replace("`- ", "").split()
         name = next((cell for cell in cells[:2] if re.fullmatch(r"[0-9A-Z]+-\d+[HD]", cell)), None)
         if name and name not in rows and "next:" not in line and "n/a not" not in line:
@@ -291,12 +292,12 @@ def quota_rows(screen: str) -> dict[str, list[str]]:
 
 def test_quota_details_have_the_compact_state_and_a_forecast_column_and_no_bar():
     screen = expand(detail_payload(), width=140)
-    table = block(screen, "QUOTA")
+    table = block(screen, "capacity")
     assert table[1].split() == ["PEER", "POOL", "STATE", "FORECAST", "REM", "RESET-IN", "PACE", "EXHAUST-IN", "AGE",
                                 "PROFILES", "(configured)"]
     assert "[BAR]" not in screen and not re.search(r"\[[█░▏|#.:-]{8}\]", screen)
     pools: dict[str, list[str]] = {}  # pool name -> [glyph, word] of its POOLS row (a sub-row has no peer cell)
-    for row in block(screen, "POOLS")[1:]:
+    for row in block(screen, "pools")[1:]:
         cells = re.sub(r" \([^)]* n/a\)", "", row.replace("└─ ", "")).split()
         at = next(i for i, cell in enumerate(cells[:2]) if re.fullmatch(r"[0-9A-Z]+-\d+[HD]", cell))
         pools[cells[at]] = cells[at + 1:at + 3]
@@ -324,11 +325,11 @@ def test_stale_duplicate_pool_names_keep_each_human_observations_state(unicode):
     screen = expand(payload, width=160, unicode=unicode)
     glyphs = U if unicode else A
     expected = [[glyphs["low"], "low"], [glyphs["aged"], "aged"], [glyphs["aged"], "aged"]]
-    for head in ("POOLS", "QUOTA"):
-        states = [cells[at + 1:at + 3] for line in block(screen, head)[1:]
+    for section in ("pools", "capacity"):
+        states = [cells[at + 1:at + 3] for line in block(screen, section)[1:]
                   if "C-7D" in (cells := line.split()) and "next:" not in line
                   for at in [cells.index("C-7D")]]
-        assert states == expected, (head, states)
+        assert states == expected, (section, states)
 
 
 @pytest.mark.parametrize("elapsed", [0, 2])
@@ -336,7 +337,7 @@ def test_quota_remaining_matches_pools_after_reset_passes(elapsed):
     payload = _payload([], [pool("cc", "C-7D", .10, fast=True, pace=31.0, reset=-1 if elapsed == 0 else 1)],
                        display_elapsed_seconds=elapsed)
     screen = expand(payload, width=160)
-    pool_cells = block(screen, "POOLS")[1].split()
+    pool_cells = block(screen, "pools")[1].split()
     quota_cells = quota_rows(screen)["C-7D"]
     assert pool_cells[2:4] == quota_cells[:2] == [U["aged"], "reset"]
     assert pool_cells[5] == "-"
@@ -346,7 +347,7 @@ def test_quota_remaining_matches_pools_after_reset_passes(elapsed):
 
 def test_the_forecast_legend_replaces_the_state_legend_and_the_even_burn_sentence_goes():
     screen = expand(detail_payload(), width=140)
-    quota = block(screen, "QUOTA")
+    quota = block(screen, "capacity")
     legend = " FORECAST: insuff=insufficient projection data; threat=exhausts before reset"
     assert legend in quota and quota.index(legend) > quota.index(next(line for line in quota if "X-30D" in line))
     assert "STATE: INSUFF" not in screen and "INSUFF" not in screen and "THREAT" not in screen
@@ -359,14 +360,14 @@ def test_the_forecast_legend_replaces_the_state_legend_and_the_even_burn_sentenc
 
 def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns():
     screen = expand(detail_payload(), show_quota_notes=True, width=140)
-    quota = block(screen, "QUOTA")
+    quota = block(screen, "capacity")
     for row in (" cx X-30D n/a not reported (plan prolite)", " ag STALE:window; next: peerhub observation refresh --peers ag",
                 " cc F-7D evidence UNKNOWN; next: peerhub observation refresh --peers cc",
                 " cx reset credits: 0 · soonest - [MEASURED]",
                 " ACCOUNTS (plan is display data; the expiry is the login token's, not billing)"):
         assert row in quota, row
     assert "Columns omitted" not in screen and "cc.effort" in next(line for line in quota if " C-7D " in line)
-    narrow = block(expand(detail_payload(), show_quota_notes=True, width=60), "QUOTA")
+    narrow = block(expand(detail_payload(), show_quota_notes=True, width=60), "capacity")
     assert narrow[1].split()[:4] == ["PEER", "POOL", "STATE", "FORECAST"] and "PROFILES" not in narrow[1]
     omitted = flat(" ".join(line for line in narrow if "omitted" in line.lower() or line.strip() in {
         "profiles", "(configured)", "profiles (configured)", "age", "exhaust-in"}))
@@ -410,7 +411,7 @@ def span(line: str, text: str) -> str | None:
 def test_running_entries_start_with_the_compact_marker_and_keep_every_field():
     payload = detail_payload()
     screen = expand(payload, color=True, width=120)
-    rows = entries(block(screen, "RUNNING"))
+    rows = entries(block(screen, "running"))
     assert [row.split()[0] for row in rows] == [U["run"], U["gone"], "?", "!"]
     asks = [row for row in payload["groups"]["activity"]["data"]["asks"] if row["state"] in ("run", "overdue")]
     for row, ask_row in zip(rows, asks):
@@ -430,7 +431,7 @@ def test_running_entries_start_with_the_compact_marker_and_keep_every_field():
 def test_recent_entries_start_with_a_state_dot_in_the_state_colour():
     payload = detail_payload()
     screen = expand(payload, color=True, width=120)
-    rows = entries(block(screen, "RECENT"))
+    rows = entries(block(screen, "recent"))
     # newest first: ok (2m), empty (3m), unsure (33m), error (40m); each is two lines, the dot starting the first
     assert [row.split()[:2] for row in rows] == [[U["dot"], state] for state in ("ok", "empty", "unsure", "error")]
     assert all(len(row.splitlines()) == 2 and row.splitlines()[1].startswith("   in ") for row in rows)
@@ -451,7 +452,7 @@ def test_recent_expands_history_and_names_the_running_and_superseded_counts():
     payload["groups"]["activity"]["data"] = activity_data(asks)
     screen = expand(payload)
     assert f"── RECENT {mv.TEXT_NEWEST_ROWS + 1} (1 running) · superseded 1 ─" in screen
-    rows = entries(block(screen, "RECENT"))
+    rows = entries(block(screen, "recent"))
     assert len(rows) == mv.TEXT_NEWEST_ROWS + 1
     assert f"done-{mv.TEXT_NEWEST_ROWS - 1}" in rows[-2] and "replaced" in rows[-1]
     assert "still-running" not in "".join(rows)
@@ -459,7 +460,7 @@ def test_recent_expands_history_and_names_the_running_and_superseded_counts():
 def test_leads_entries_list_every_lead_with_a_context_meter():
     payload = detail_payload()
     screen = expand(payload, color=True, width=120)
-    rows = entries(block(screen, "LEADS"))
+    rows = entries(block(screen, "leads"))
     assert [row.split()[0] for row in rows] == ["docs-site", "shop-4f", "notes", "ci-box"]  # the compact frame caps at 3
     assert rows[0].startswith(" docs-site · cc 1a2b3c4d · busy since 2026-11-14 23:16:29Z · active 12s ago · alive · pid 4242")
     assert "model claude-fable-5-2 · ctx ■□□□□ 106,137 of 1,000,000 model max (10%) at 2026-11-14 23:45:08Z" in flat(rows[0])
@@ -484,7 +485,7 @@ def test_an_unreadable_activity_group_is_one_running_section_that_says_so():
     payload["groups"]["activity"] = {"status": "ERROR", "data": None}
     payload["errors"] = {"activity": "OperationalError: secret text"}
     screen = expand(payload)
-    assert block(screen, "RUNNING") == ["── RUNNING ? · activity read failed " + "─" * 63,
+    assert block(screen, "running") == ["── RUNNING ? · activity read failed " + "─" * 63,
                                         " OperationalError: database read failed"]
     assert "LEADS" not in heads(screen) and "RECENT" not in heads(screen) and "secret text" not in screen
 
@@ -495,7 +496,7 @@ def test_a_failed_group_names_the_error_class_only():
     payload["errors"] = {"capacity": "OperationalError: SELECT secret"}
     for height in (None, 80):
         screen = expand(payload, height=height)
-        assert block(screen, "QUOTA")[:3] == ["── QUOTA [ERROR] · measured remaining " + "─" * 61,
+        assert block(screen, "capacity")[:3] == ["── QUOTA [ERROR] · measured remaining " + "─" * 61,
                                               " OperationalError: database read failed", " data unavailable"]
         assert "SELECT secret" not in screen
 
@@ -527,12 +528,12 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m")
     assert any(line.startswith("-- POOLS 11 ") for line in lines) and any("`- 3P-5H" in line for line in lines)
-    assert [row.split()[0] for row in entries(block(screen, "RUNNING"))] == [A["run"], A["gone"], "?", "!"]
-    assert all(re.match(rf" {re.escape(A['dot'])} (ok|empty|unsure|error) ", row) for row in entries(block(screen, "RECENT")))
+    assert [row.split()[0] for row in entries(block(screen, "running"))] == [A["run"], A["gone"], "?", "!"]
+    assert all(re.match(rf" {re.escape(A['dot'])} (ok|empty|unsure|error) ", row) for row in entries(block(screen, "recent")))
     if width == 100:
         assert "ctx #.... 106,137 of 1,000,000 model max (10%)" in screen and "ctx ----- 106,137 (window unknown)" in screen
         assert " gone: cc.fable activity-view | age 5m | high | a2" in lines
-    assert f"{A['fast']} fast" in " ".join(block(screen, "QUOTA")) and "FORECAST: insuff=" in screen
+    assert f"{A['fast']} fast" in " ".join(block(screen, "capacity")) and "FORECAST: insuff=" in screen
     kept = expand(detail_payload(), unicode=False, width=width, text_encoding="utf-8")
     assert "결론: " in kept and "─" not in kept and "·" not in kept and "●" not in kept  # A5: text stays (cut at 60 columns)
     # the same layout line for line once the text has the same widths (without an encoding, Korean becomes `?`)
@@ -632,7 +633,8 @@ def test_the_plain_expand_goldens_cover_every_case():
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in plain_cases()])
 def test_plain_expand_matches_its_golden(case, payload, kwargs):
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
-    top, *tail = re.split(r"(?m)(?=^-- QUOTA |^\+\d+ rows hidden)", GOLDENS[case], maxsplit=1)
+    quota = re.escape(FRAME_SECTIONS["capacity"])
+    top, *tail = re.split(rf"(?m)(?=^-- {quota} |^\+\d+ rows hidden)", GOLDENS[case], maxsplit=1)
     assert screen == in_order(top, FRAME_HEADS) + "".join(tail)
     assert "\x1b" not in screen and screen.isascii()
     assert render_grouped_frame(payload, show_quota_notes=True, color=True, **kwargs) == screen  # the plain view is never painted
