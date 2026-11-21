@@ -7,9 +7,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta, tzinfo
 from pathlib import Path
+from threading import Event, Lock
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Sequence, Optional, TypedDict, Callable, cast, Any, TypeGuard
 
@@ -353,6 +355,97 @@ def _real_command(peer: str, sys_dir: Optional[Path] = None) -> Optional[list[st
 
 
 real_command = _real_command
+
+
+PROBE_TREE_KILL_TIMEOUT_SECONDS = .25
+AGY_USAGE_EXIT_GRACE_SECONDS = 2.0
+
+
+class ProbeCancellation:
+    """Own the subprocesses of one cancellable collection, including account probes."""
+
+    def __init__(self) -> None:
+        self._stopped = Event()
+        self._lock = Lock()
+        self._closed = False
+        self._processes: set[subprocess.Popen[str]] = set()
+
+    def cancelled(self) -> bool:
+        return self._stopped.is_set()
+
+    def spawn(self, command: Sequence[str], **options: Any) -> subprocess.Popen[str]:
+        with self._lock:
+            if self._closed or self.cancelled():
+                raise OSError("quota collection cancelled")
+            if sys.platform == "win32":
+                options["creationflags"] = subprocess.CREATE_NO_WINDOW
+            options["start_new_session"] = sys.platform != "win32"
+            proc: subprocess.Popen[str] = subprocess.Popen(command, **options)
+            self._processes.add(proc)
+            return proc
+
+    @staticmethod
+    def _terminate(proc: subprocess.Popen[str]) -> None:
+        if kill_process_tree(proc, timeout=PROBE_TREE_KILL_TIMEOUT_SECONDS):
+            return
+        if sys.platform == "win32":
+            import psutil
+            # A wrapper can already have exited, but its children still carry its PID.
+            for child in psutil.process_iter(["ppid"]):
+                if child.info["ppid"] == proc.pid:
+                    with suppress(psutil.Error):
+                        for descendant in reversed(child.children(recursive=True)):
+                            with suppress(psutil.Error):
+                                descendant.kill()
+                    with suppress(psutil.Error):
+                        child.kill()
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+    def finish(self, proc: subprocess.Popen[str]) -> None:
+        with self._lock:
+            if proc in self._processes:
+                self._terminate(proc)
+                self._processes.remove(proc)
+
+    def stop(self) -> None:
+        self._stopped.set()
+        self.close()
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            for proc in self._processes:
+                self._terminate(proc)
+            self._processes.clear()
+
+
+def _spawn_probe(cancellation: ProbeCancellation | None, command: Sequence[str], **options: Any) -> subprocess.Popen[str]:
+    if cancellation is not None:
+        return cancellation.spawn(command, **options)
+    return subprocess.Popen(command, **options)
+
+
+def run_text_probe(command: Sequence[str], *, timeout: float, cancellation: ProbeCancellation | None,
+                   **options: Any) -> subprocess.CompletedProcess[str]:
+    if cancellation is None:
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False, **options)
+    options.setdefault("stdin", subprocess.DEVNULL)
+    proc = cancellation.spawn(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **options)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
+    finally:
+        cancellation.finish(proc)
+
+
+def _finish_probe(proc: subprocess.Popen[str], cancellation: ProbeCancellation | None) -> None:
+    if cancellation is None:
+        _cleanup_probe(proc)
+    else:
+        cancellation.finish(proc)
 
 
 def _cleanup_probe(proc: subprocess.Popen[str]) -> None:
@@ -763,6 +856,7 @@ def poll_claude_usage(
     freshness_ttl: int = 60,
     sys_dir: Optional[Path] = None,
     configured_pools: Sequence[str] | None = None,
+    cancellation: ProbeCancellation | None = None,
 ) -> Sequence[UsageObserved]:
     """Poll claude.cmd /usage and return observations for each quota pool.
 
@@ -789,7 +883,8 @@ def poll_claude_usage(
     # avoids both cmd.exe '&' splitting and orphaned grandchild process leaks.
     proc = None
     try:
-        proc = subprocess.Popen(
+        proc = _spawn_probe(
+            cancellation,
             [*claude_cmd, "/usage"],
             cwd=str(workspace_root),
             env=env,
@@ -811,7 +906,7 @@ def poll_claude_usage(
                              extra={"reason": f"claude_usage_spawn_failed:{type(exc).__name__}"}),)
     finally:
         if proc is not None:
-            _cleanup_probe(proc)
+            _finish_probe(proc, cancellation)
 
     text = "\n".join(str(part) for part in (stdout, stderr) if part)
     dt_now = datetime.fromtimestamp(observed_at, tz=timezone.utc).astimezone()
@@ -882,6 +977,7 @@ def poll_codex_usage(
     freshness_ttl: int = 60,
     sys_dir: Optional[Path] = None,
     configured_pools: Sequence[str] | None = None,
+    cancellation: ProbeCancellation | None = None,
 ) -> Sequence[UsageObserved | ResetCreditObserved]:
     """Poll codex app-server (JSON-RPC `account/rateLimits/read`, no model turn) and return observations for each quota pool,
     plus one reset-credit observation from the same response."""
@@ -901,7 +997,8 @@ def poll_codex_usage(
 
     proc = None
     try:
-        proc = subprocess.Popen(
+        proc = _spawn_probe(
+            cancellation,
             [*codex_cmd, "app-server"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -933,7 +1030,7 @@ def poll_codex_usage(
         def _wait_for_id(expected_id: int) -> Optional[dict[str, Any]]:
             while True:
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if remaining <= 0 or (cancellation is not None and cancellation.cancelled()):
                     return None
                 try:
                     line = q.get(timeout=min(0.5, remaining))
@@ -1134,7 +1231,7 @@ def poll_codex_usage(
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
     finally:
         if proc is not None:
-            _cleanup_probe(proc)
+            _finish_probe(proc, cancellation)
 
 def poll_agy_usage(
     ids: IdSource,
@@ -1146,6 +1243,7 @@ def poll_agy_usage(
     log_path: Optional[str | Path] = None,
     sys_dir: Optional[Path] = None,
     configured_pools: Sequence[str] | None = None,
+    cancellation: ProbeCancellation | None = None,
 ) -> Sequence[UsageObserved]:
     """Poll Agy's local ``/usage`` command, with explicitly configured statusline fallback.
 
@@ -1180,7 +1278,7 @@ def poll_agy_usage(
                                      evidence_ref_override="agy_usage_cwd_refused",
                                      extra={"reason": "agy_usage_cwd_refused", "warning": refusal}),)
             try:
-                completed = subprocess.run(
+                completed = run_text_probe(
                     [
                         *agy_cmd,
                         "-p",
@@ -1192,11 +1290,9 @@ def poll_agy_usage(
                     ],
                     cwd=str(agy_cwd),
                     stdin=subprocess.DEVNULL,
-                    capture_output=True,
-                    text=True,
                     errors="replace",
-                    timeout=deadline_sec + 2.0,
-                    check=False,
+                    timeout=deadline_sec + AGY_USAGE_EXIT_GRACE_SECONDS if cancellation is None else deadline_sec,
+                    cancellation=cancellation,
                 )
                 violation = _agy_usage_violation(completed.stdout)  # whatever the exit code: tokens may be spent either way
                 if violation is not None:
@@ -1491,7 +1587,7 @@ account_failure = _account_failure  # public name for the collector (same patter
 
 
 def poll_claude_account(*, clock: Optional[Callable[[], float]] = None, deadline_sec: float = 10.0,
-                        sys_dir: Optional[Path] = None) -> AccountObserved:
+                        sys_dir: Optional[Path] = None, cancellation: ProbeCancellation | None = None) -> AccountObserved:
     """`claude auth status` for the default account, with the quota probe's CLAUDE_CONFIG_DIR handling. No model turn."""
     ref, source = _CC_ACCOUNT_REF, "claude_auth_status"
     observed_at = int((clock if clock else (lambda: datetime.now(timezone.utc).timestamp()))())
@@ -1505,7 +1601,7 @@ def poll_claude_account(*, clock: Optional[Callable[[], float]] = None, deadline
         env["CLAUDE_CONFIG_DIR"] = root
     proc = None
     try:
-        proc = subprocess.Popen([*command, "auth", "status"], cwd=str(_resolve_workspace_root(resolved_sys)), env=env,
+        proc = _spawn_probe(cancellation, [*command, "auth", "status"], cwd=str(_resolve_workspace_root(resolved_sys)), env=env,
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                                 errors="replace", start_new_session=sys.platform != "win32")
         try:
@@ -1516,7 +1612,7 @@ def poll_claude_account(*, clock: Optional[Callable[[], float]] = None, deadline
         return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "spawn_failed")
     finally:
         if proc is not None:
-            _cleanup_probe(proc)
+            _finish_probe(proc, cancellation)
     payload = parse_claude_auth_status(str(stdout or ""))
     if payload is None:
         return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "unparseable")
@@ -1524,7 +1620,7 @@ def poll_claude_account(*, clock: Optional[Callable[[], float]] = None, deadline
 
 
 def poll_codex_account(*, clock: Optional[Callable[[], float]] = None, deadline_sec: float = 10.0,
-                       sys_dir: Optional[Path] = None) -> AccountObserved:
+                       sys_dir: Optional[Path] = None, cancellation: ProbeCancellation | None = None) -> AccountObserved:
     """codex app-server `account/read` (refreshToken false, no model turn) for the default account (the inherited CODEX_HOME)."""
     import queue
     import threading
@@ -1540,7 +1636,7 @@ def poll_codex_account(*, clock: Optional[Callable[[], float]] = None, deadline_
     proc = None
     try:
         try:
-            proc = subprocess.Popen([*command, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            proc = _spawn_probe(cancellation, [*command, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                     text=True, cwd=str(_resolve_workspace_root(resolved_sys)), env=env,
                                     start_new_session=sys.platform != "win32")
         except Exception:
@@ -1565,7 +1661,7 @@ def poll_codex_account(*, clock: Optional[Callable[[], float]] = None, deadline_
         def wait_for(expected: int) -> Optional[dict[str, Any]]:
             while True:
                 remaining = deadline - time.monotonic()
-                if remaining <= 0:
+                if remaining <= 0 or (cancellation is not None and cancellation.cancelled()):
                     return None
                 try:
                     line = lines.get(timeout=min(0.5, remaining))
@@ -1602,11 +1698,11 @@ def poll_codex_account(*, clock: Optional[Callable[[], float]] = None, deadline_
         return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "io_error")
     finally:
         if proc is not None:
-            _cleanup_probe(proc)
+            _finish_probe(proc, cancellation)
 
 
 def poll_agy_account(*, clock: Optional[Callable[[], float]] = None, deadline_sec: float = 10.0,
-                     sys_dir: Optional[Path] = None) -> Optional[AccountObserved]:
+                     sys_dir: Optional[Path] = None, cancellation: ProbeCancellation | None = None) -> Optional[AccountObserved]:
     """`agy -p /credits --output-format json` (envelope verified like /usage: zero tokens, zero turns, a real slash command).
     Success proves endpoint access only: login, plan and identity stay UNKNOWN / n/a (the Gemini accounts file is never read).
     None when the statusline override is active (no spawning probe is wanted then)."""
@@ -1623,9 +1719,9 @@ def poll_agy_account(*, clock: Optional[Callable[[], float]] = None, deadline_se
     if refusal is not None:  # nothing is spawned: outside the workspace the slash command would be a paid model turn
         return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "cwd_refused", refusal)
     try:
-        completed = subprocess.run([*command, "-p", "/credits", "--output-format", "json", "--print-timeout", f"{max(1, int(deadline_sec))}s"],
-                                   cwd=str(cwd), stdin=subprocess.DEVNULL, capture_output=True, text=True, errors="replace",
-                                   timeout=deadline_sec, check=False)  # the caller's shared deadline: no extra slack
+        completed = run_text_probe([*command, "-p", "/credits", "--output-format", "json", "--print-timeout", f"{max(1, int(deadline_sec))}s"],
+                                   cwd=str(cwd), stdin=subprocess.DEVNULL, errors="replace",
+                                   timeout=deadline_sec, cancellation=cancellation)
     except subprocess.TimeoutExpired:
         return _account_failure(ref, source, observed_at, EvidenceState.ERROR, "timeout")
     except (OSError, subprocess.SubprocessError, ValueError):

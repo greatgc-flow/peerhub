@@ -13,6 +13,11 @@ they do not claim new validation or publication evidence.
 - Packaged model defaults 2026-11-21.1: observed versions agy 1.5.14, claude 2.1.330, codex 0.171.0. The model lists of `codex debug models` and `agy.exe models` match the profiles; no model was added or removed. `tools.model_ping` on 2026-11-21 confirmed the answering model for ag.neon, ag.argon, cx.effort, cx.astra, cc.fable and cc.effort.
 - `peerhub guide` gets a Models line: the opt-in tops (cx.astra, ag.neon, ag.argon, cc.fable) are underused; use them for design, hard review and final checks, vary model and effort per task, and give each vote a different model.
 - Compact and expanded monitor frames now trim sections from the bottom up. POOLS lists usable families by their weekly parent's PACE, most under-used first, followed by unknown PACE and exhausted pools.
+- Continuous terminal monitor watch refreshes each peer's quota in the background before its readings expire and retries failed peers independently.
+
+### Added
+
+- The live monitor title shows a heartbeat, the oldest selected quota age, and the next refresh, active probe, or retry timing in both layouts.
 
 ## [0.26.4] - 2026-11-21
 

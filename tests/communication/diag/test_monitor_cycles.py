@@ -45,12 +45,13 @@ def test_snapshot_rejects_probe(capsys):
     assert "--snapshot cannot be combined with --probe" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("options", [[], ["--json"], ["--json", "--schema-version", "1.1"]])
-@pytest.mark.parametrize("tty,cycles,expected", [
-    (False, None, 1), (True, None, 2),
-    (False, 0, 2), (True, 0, 2), (True, 1, 1),
+@pytest.mark.parametrize("options,tty,cycles,expected", [
+    (options, tty, cycles, expected)
+    for options in ([], ["--json"], ["--json", "--schema-version", "1.1"])
+    for tty, cycles, expected in ((False, None, 1), (True, None, 2), (False, 0, 2), (True, 0, 2), (True, 1, 1))
+    if options or not tty or cycles == 1  # Continuous human TTY cycles are covered by test_monitor_live_refresh.
 ])
-def test_monitor_cycle_defaults_and_explicit_zero(tmp_path, monkeypatch, capsys, options, tty, cycles, expected):
+def test_scripted_monitor_cycle_defaults_and_explicit_zero(tmp_path, monkeypatch, capsys, options, tty, cycles, expected):
     db = tmp_path / "core.db"
     CoreStore(db)
     ObservationStore(db)

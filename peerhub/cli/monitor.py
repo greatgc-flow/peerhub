@@ -17,10 +17,12 @@ from time import monotonic, sleep
 from pathlib import Path
 from typing import Any, cast
 
-from peerhub.cli.support import (agy_token_command, agy_token_stop_message, error_line, monitor_auto_probe,
+from peerhub.cli.support import (MONITOR_TICK_SECONDS, agy_token_command, agy_token_stop_message, error_line, monitor_auto_probe,
                                  print_warnings, refresh_monitor_quota, refresh_with_profile_pools)
 from peerhub.cli.monitor_preferences import GROUP_IDS, MONITOR_LEGEND
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
+
+
 
 def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """The lead sessions of the registered Claude Code folders (#376 A-1); looked up at call time, so tests isolate it."""
@@ -260,7 +262,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     last_payload: dict[str, Any] | None = None
     last_frame_monotonic = 0.0
 
-    def emit(cycle: int, phase: str, refresh: dict[str, Any]) -> int:
+    def read_frame() -> dict[str, Any]:
         nonlocal last_payload, last_frame_monotonic
         try:
             payload: dict[str, Any] = render_monitor_frame(args.db, selected, human=not args.json,
@@ -272,6 +274,20 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         payload.update({"selected_groups": selected, "available_groups": list(GROUP_IDS),
                        "preference": {key: preference.get(key) for key in ("status", "source", "reason")},
                        "store_selection": {"path": str(args.db), "source": getattr(args, "db_source", "unknown")}})
+        last_payload = payload
+        last_frame_monotonic = monotonic()
+        return payload
+
+    def read_code(payload: dict[str, Any]) -> int:
+        if _read_failed(payload):
+            error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
+            return 4
+        errors_obj: object = payload.get("errors")
+        errors = cast(dict[str, Any], errors_obj) if isinstance(errors_obj, dict) else {}
+        return 6 if "schema" in errors else 0
+
+    def emit(cycle: int, phase: str, refresh: dict[str, Any]) -> int:
+        payload = read_frame()
         if output.live and refresh.get("status") not in (None, "NOT_STARTED"):
             warnings = refresh.get("warnings", [])
             warning_count = len(cast(list[Any], warnings)) if isinstance(warnings, list) else 0
@@ -279,8 +295,6 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                                          + (f" · {warning_count} warnings" if warning_count else ""))
             if warning_count:
                 payload["refresh_warnings"] = warnings
-        last_payload = payload
-        last_frame_monotonic = monotonic()
         if args.json:
             print(json.dumps({"schema_version": "2.0", "cycle": cycle, "phase": phase, "refresh": refresh,
                               "snapshot": payload}, ensure_ascii=True, separators=(",", ":")), flush=True)
@@ -290,14 +304,9 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                                              height=_live_rows(height, alternate=output.alt_screen) if output.live else None,
                                              color=color,
                                              expand=expand, show_quota_notes=show_quota_notes, links=links))
-        if _read_failed(payload):
-            error_line("diag_unavailable", "Monitor evidence could not be read", "peerhub diag health")
-            return 4
-        errors_obj: object = payload.get("errors")
-        errors = cast(dict[str, Any], errors_obj) if isinstance(errors_obj, dict) else {}
-        return 6 if "schema" in errors else 0
+        return read_code(payload)
 
-    def redraw(state: str | None = None, next_in: float | None = None) -> None:
+    def redraw(state: str | None = None, next_in: float | None = None, *, live_refresh: dict[str, Any] | None = None) -> None:
         """Draw the last payload again between two reads. Every such frame is that one payload aged by the time since
         its read, so line 1 and POOLS always show the same moment (P9)."""
         if last_payload is None:
@@ -308,14 +317,76 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         display["display_elapsed_seconds"] = max(0.0, monotonic() - last_frame_monotonic)
         if next_in is not None:
             display["next_refresh_in"] = next_in
+        if live_refresh is not None:
+            display["_live_refresh"] = live_refresh
         width, height = output.geometry()
         output.write(_render_human_frame(display, view=effective_view, width=width,
-                                         height=_live_rows(height, alternate=output.alt_screen), color=color,
+                                         height=_live_rows(height, alternate=output.alt_screen) if output.live else None,
+                                         color=color,
                                          expand=expand, show_quota_notes=show_quota_notes, links=links))
+
+    def watch_live() -> int:
+        from peerhub.cli.monitor_refresh import RefreshJob, RefreshSchedule, read_quota_readings, required_quota_pools
+
+        collect = args.probe or auto_probe
+        peers = tuple(cast(list[str], getattr(args, "peers", list(QUOTA_CAPABLE_PEERS))))
+        required = required_quota_pools(args.db, peers) if collect else dict.fromkeys(peers, set[str]())
+        schedule = RefreshSchedule(required, forced_interval=args.interval * args.collect_every if args.probe else None)
+        job: RefreshJob | None = None
+        job_started = 0.0
+        next_read = monotonic()
+        heartbeat = 0
+        warnings: list[str] = []
+        try:
+            while True:
+                tick = monotonic()
+                completed = job if job is not None and job.done() else None
+                payload = None
+                if completed is not None or tick >= next_read:
+                    if report_missing_store(args.db, json_output=False, selected=is_explicit, source=db_source):
+                        return 5
+                    payload = read_frame()
+                    readings = read_quota_readings(args.db)
+                    now = monotonic()
+                    schedule.update(readings, now)
+                    if tick >= next_read:
+                        next_read = tick + args.interval
+                now = monotonic()
+                stop = False
+                if completed is not None:
+                    job = None
+                    if completed.result is not None:
+                        schedule.completed(completed.peers, completed.result, now)
+                        warnings = completed.result.get("warnings", [])
+                        stop = bool(agy_token_command(completed.result) and not args.allow_agy_token_use)
+                schema_error = payload is not None and "schema" in (payload.get("errors") or {})
+                if collect and job is None and not stop and not schema_error and (due := schedule.due(now)):
+                    job = RefreshJob.start(args, due, force=args.probe, required=required,
+                                           retry=tuple(peer for peer in due if schedule.failed(peer)))
+                    job_started = now
+                if last_payload is not None:
+                    last_payload["refresh_warnings"] = warnings
+                redraw("STOPPED · AGY TOKEN USE" if stop else None, live_refresh={
+                    "heartbeat": heartbeat, "age": schedule.oldest_age(now),
+                    "next_in": schedule.next_in(now) if collect else None,
+                    "peers": job.peers if job is not None else (), "elapsed": now - job_started,
+                    "failed_ago": schedule.failed_ago(now), "retry_in": schedule.retry_in(now),
+                })
+                if stop:
+                    return 1
+                if payload is not None and read_code(payload) == 6:
+                    return 6
+                heartbeat += 1
+                sleep(max(0.0, tick + MONITOR_TICK_SECONDS - monotonic()))
+        finally:
+            if job is not None:
+                job.stop()
 
     if not Path(args.db).exists() and report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
         return 5  # a missing store is reported before any frame, with or without --probe
     try:
+        if not args.json and args.cycles == 0 and sys.stdout.isatty():
+            return watch_live()
         if args.json or sys.stdout.isatty():
             code = emit(0, "initial", {"status": "NOT_STARTED"})
             if code == 6:
