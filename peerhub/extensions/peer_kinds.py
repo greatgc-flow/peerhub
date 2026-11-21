@@ -1,15 +1,14 @@
-"""Provider-kind aliases shared by the Session Bridge entry (`ask`) and Observation collection.
-
-A neutral, dependency-free module: extensions must not import each other (the composition root is `peerhub/cli`), so a
-vocabulary both need lives here.
-"""
+"""Compatibility alias: the peer-kind vocabulary lives in `peerhub.core.peer_kinds` (importable in core-only mode)."""
 
 from __future__ import annotations
 
-ALIASES = {"codex": "cx", "cx": "cx", "claude": "cc", "cc": "cc", "agy": "ag", "ag": "ag",
-           "ca": "ca", "oa": "oa", "ga": "ga"}  # the API peers (#378, #381): Claude API through `ant`, OpenAI, Gemini
-
-
-def peer_kind(adapter_ref: str | None, peer_id: str) -> str | None:
-    """The provider kind of a peer: its registered adapter decides; only an unregistered peer goes by its name."""
-    return ALIASES.get(adapter_ref or peer_id)
+from peerhub.core.peer_kinds import (
+    ALIASES as ALIASES,
+    API_PEER_KINDS as API_PEER_KINDS,
+    BUILTIN_PEER_CHOICES as BUILTIN_PEER_CHOICES,
+    BUILTIN_PEER_KINDS as BUILTIN_PEER_KINDS,
+    BUILTIN_PEER_LABELS as BUILTIN_PEER_LABELS,
+    CLI_PEER_ALIASES as CLI_PEER_ALIASES,
+    QUOTA_CAPABLE_PEERS as QUOTA_CAPABLE_PEERS,
+    peer_kind as peer_kind,
+)

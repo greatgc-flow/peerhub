@@ -20,6 +20,7 @@ from typing import Any, cast
 from peerhub.cli.support import (agy_token_command, agy_token_stop_message, error_line, monitor_auto_probe,
                                  print_warnings, refresh_monitor_quota, refresh_with_profile_pools)
 from peerhub.cli.monitor_preferences import GROUP_IDS, MONITOR_LEGEND
+from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
 
 def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """The lead sessions of the registered Claude Code folders (#376 A-1); looked up at call time, so tests isolate it."""
@@ -34,7 +35,7 @@ def register_monitor_parser(subparsers: Any) -> None:
                    help="Watch cycles every N s (positive float); supported TTY countdown redraw at most 1 Hz")
     p.add_argument("--cycles", type=int, default=None,
                    help="Number of cycles (default: 1 when stdout is not a TTY, until interrupted on a TTY; 0 = until interrupted everywhere)")
-    p.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"],
+    p.add_argument("--peers", nargs="+", default=list(QUOTA_CAPABLE_PEERS),
                    help="Peers to refresh quota for during watch")
     probe = p.add_mutually_exclusive_group()
     probe.add_argument("--probe", action="store_true", help="Refresh on the watch cadence, including redirected stdout")

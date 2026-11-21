@@ -1,11 +1,14 @@
 """Offline lessons lookup and generated documentation parity (#117)."""
 from pathlib import Path
 import json
+import re
 
 import pytest
 
 from peerhub.cli.app import main
+from peerhub.cli.guide import render_guide
 from peerhub.cli.lessons import load_lessons, lookup_lessons, render_lesson, render_lessons_reference
+from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
 
 pytestmark = [pytest.mark.unit]
 
@@ -258,7 +261,7 @@ def test_setup_lesson_has_one_row_per_peer_with_links_and_checks_and_no_install_
     assert out.splitlines()[0].startswith("setup:") and len(out.splitlines()) <= 5
 
 
-def test_readme_install_section_has_the_same_rows_and_points_to_the_lesson():
+def test_readme_and_guide_document_the_builtin_peers():
     """#385 S3: the README table and the lesson name the same peers, pages and checks."""
     from peerhub.cli.lessons import lesson_by_id
 
@@ -266,7 +269,9 @@ def test_readme_install_section_has_the_same_rows_and_points_to_the_lesson():
     assert "\n### What each peer needs\n" in section and "`peerhub explain setup`" in section
     assert "never downloads or runs an installer" in section
     rows = {line.split("`")[1]: line for line in section.splitlines() if line.startswith("| `")}
-    assert list(rows) == ["cc", "cx", "ag", "ca", "oa", "ga"]
+    peer_line = next(line for line in render_guide().splitlines() if line.startswith("Peer: "))
+    guide_groups = re.findall(r"(?:^Peer: |; )([a-z/]+) (?:for|=)", peer_line)
+    assert set(rows) == {kind for group in guide_groups for kind in group.split("/")} == set(BUILTIN_PEER_KINDS)
     for peer, (tool, page) in SETUP_TOOLS.items():
         assert f"`{tool}` CLI" in rows[peer] and page in rows[peer] and f"`{tool} --version`" in rows[peer], peer
     assert "`ant auth login`" in rows["ca"] and ANT_WINDOWS in rows["ca"]

@@ -11,6 +11,7 @@ from peerhub.cli.app import build_parser, main
 from peerhub.core.store import CoreStore
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.diag import DiagnosticReport
+from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
 
 
 @pytest.mark.parametrize("options", [[], ["--json"], ["--json", "--schema-version", "1.1"]])
@@ -34,7 +35,7 @@ def test_redirected_watch_requires_probe_opt_in(monkeypatch, capsys, options):
     assert main(argv) == 0
     assert not calls and not capsys.readouterr().err
     assert main([*argv, "--probe"]) == 0
-    assert calls == [["cx", "cc", "ag"]]
+    assert calls == [list(QUOTA_CAPABLE_PEERS)]
 
 
 def test_snapshot_rejects_probe(capsys):

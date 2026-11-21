@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 from typing import Any, Callable, Sequence, cast
 
-from peerhub.extensions.peer_kinds import ALIASES
+from peerhub.core.peer_kinds import ALIASES, CLI_PEER_ALIASES, QUOTA_CAPABLE_PEERS
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import (EvidenceState, Observation, ResourcePool, changed_account_plan,
                                                   epoch_to_iso, quota_probe_timed_out)
@@ -182,8 +182,9 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     kinds: list[str] = []
     for peer in peers:
         kind = ALIASES.get(peer)
-        if kind not in ("cx", "cc", "ag"):  # the API peers ca, oa and ga have no quota pool (#378)
-            raise ValueError("quota providers: cx/codex, cc/claude, ag/agy")
+        if kind is None or kind not in QUOTA_CAPABLE_PEERS:
+            labels = ", ".join(f"{peer}/{CLI_PEER_ALIASES[peer]}" for peer in QUOTA_CAPABLE_PEERS)
+            raise ValueError(f"quota providers: {labels}")
         kinds.append(kind)
     injected_pollers = pollers is not None
     if pollers is None:

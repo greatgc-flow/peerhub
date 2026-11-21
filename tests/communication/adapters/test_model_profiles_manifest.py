@@ -10,17 +10,18 @@ from pathlib import Path
 
 import pytest
 
+from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS, CLI_PEER_ALIASES
+
 REPO = Path(__file__).resolve().parents[3]
 DIR = REPO / "docs" / "model-profiles"
 MANIFEST = json.loads((DIR / "model-profiles.json").read_text(encoding="utf-8"))
 TOML = tomllib.loads((REPO / "peerhub" / "config_data" / "model-defaults.toml").read_text(encoding="utf-8"))
-PEERS = ("ag", "cc", "cx")
-API_PEERS = ("ca", "oa", "ga")  # #378, #381: no CLI recipe, no observed version, no pool (see test_api_peers_wiring.py)
+PEERS = tuple(sorted(CLI_PEER_ALIASES))  # Only CLI peers have a refresh recipe and observed version.
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def packaged_profiles(peers: tuple[str, ...] = PEERS) -> dict:
-    """The packaged profiles of the CLI peers; pass PEERS + API_PEERS for all of them."""
+    """The packaged profiles of the CLI peers by default."""
     return {k: v for k, v in TOML["profiles"].items() if k.split(".", 1)[0] in peers}
 
 
@@ -41,9 +42,9 @@ def test_toml_metadata_is_well_formed():
 
 
 def test_every_profile_id_names_a_peer_and_has_required_fields():
-    assert set(packaged_profiles(PEERS + API_PEERS)) == set(TOML["profiles"])  # no profile of an unknown peer
-    for pid, p in packaged_profiles(PEERS + API_PEERS).items():
-        assert re.fullmatch(r"(ag|cc|cx|ca|oa|ga)\.[a-z0-9-]+", pid), pid
+    for pid, p in TOML["profiles"].items():
+        kind, _, name = pid.partition(".")
+        assert kind in BUILTIN_PEER_KINDS and re.fullmatch(r"[a-z0-9-]+", name), pid
         if "alias_of" in p:  # 0.25.0 D11: an alias takes its binding from the target profile
             target = p["alias_of"]
             assert target in TOML["profiles"] and target != pid and "alias_of" not in TOML["profiles"][target], pid
@@ -137,6 +138,6 @@ def test_added_profile_needs_only_a_toml_table(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(home))
     names = [p["profile"] for p in list_profiles(tmp_path)]
-    assert "cx.terra" in names and set(packaged_profiles(PEERS + API_PEERS)) <= set(names)
+    assert "cx.terra" in names and set(packaged_profiles(BUILTIN_PEER_KINDS)) <= set(names)
     fields = inspect_profile("cx.terra", tmp_path)["fields"]
     assert fields["model"]["value"] == "gpt-6.1-terra" and fields["effort"]["value"] == "low"

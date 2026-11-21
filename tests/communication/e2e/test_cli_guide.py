@@ -17,6 +17,7 @@ import pytest
 
 from peerhub.cli.app import build_parser, main
 from peerhub.cli.lessons import lesson_by_id, load_lessons
+from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
 from tools.release_notes import release_notes
 
 pytestmark = [pytest.mark.unit]
@@ -89,12 +90,27 @@ def test_guide_json_carries_the_same_text(capsys):
     assert json.loads(capsys.readouterr().out)["guide"].strip() == text.strip()
 
 
+def test_readme_quota_peers_match_the_cli_defaults(capsys):
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    example = re.search(r"(?m)^# Explicit collection[^\n]*\n([^\n]+)", readme)
+    peers = " ".join(QUOTA_CAPABLE_PEERS)
+    assert example and example[1] == f"peerhub observation refresh --peers {peers}"
+
+    parser = build_parser()
+    assert parser.parse_args(["observation", "refresh"]).peers == list(QUOTA_CAPABLE_PEERS)
+    assert parser.parse_args(["monitor"]).peers == list(QUOTA_CAPABLE_PEERS)
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["observation", "refresh", "--help"])
+    assert exc.value.code == 0
+    assert f"(default: {peers})" in " ".join(capsys.readouterr().out.split())
+
+
 # ---- the decisions ----------------------------------------------------------------------------------------------
 
 def test_guide_states_the_decisions(capsys, monkeypatch, tmp_path):
     out = _guide(capsys, monkeypatch, tmp_path)
     flat = " ".join(out.split())
-    assert re.search(r"(?m)^Peer: ", out) and "cc/cx" in out and "ag" in out and "ca/oa/ga" in out  # peer choice
+    assert "cc/cx for code and files" in out and "ag for drafts" in out and "API credits, text only" in out
     assert "standard" in out and "effort" in out and "deepthink" in out  # tiers
     assert re.search(r"(?m)^Stream: ", out) and "new task = new stream" in out  # stream reuse rule
     assert re.search(r"(?m)^Votes: ", out) and "FRESH" in out  # fresh votes
