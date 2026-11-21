@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.4] - 2026-11-21
+
 ### Added
 
 - `python -m tools.release_flow run --version X.Y.Z` runs candidate CI and the local live gate, then verifies a GitHub release draft. It supports a dry run, CI-first ordering and resuming with verified evidence. Publishing remains manual (#437).
@@ -15,6 +17,10 @@ they do not claim new validation or publication evidence.
 ### Changed
 
 - The monitor section order and headings of both layouts come from one catalog, `FRAME_SECTIONS`; tests and docs read it, and the release-notes test follows `__version__`. Output is unchanged (#436).
+
+### Fixed
+
+- The batch scratch test no longer fails intermittently on Windows: `Path.resolve()` can return the same directory in extended-length form when two threads create it at once, so the test compares directories by identity (#434). Product behaviour is unchanged.
 
 ## [0.26.3] - 2026-11-21
 
