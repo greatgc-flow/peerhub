@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any, Mapping, cast
 
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
-from peerhub.extensions.observation_model import FreshnessPolicy, MEASUREMENT_KEYS, oldest_measured_quota_age
+from peerhub.extensions.observation_model import (
+    FreshnessPolicy,
+    MEASUREMENT_KEYS,
+    QUOTA_NOTICE_AGE_SECONDS,
+    oldest_measured_quota_age,
+)
 from peerhub.extensions.quota_projection import ExhaustionProjection, limit_by_parent, project_exhaustion, scoped_parent_ref
 
 SCHEMA_VERSION = "1.0"
@@ -235,7 +240,7 @@ def quota_stale_line(age: float | None) -> str:
     hint = " -> peerhub observation refresh"
     if age is None:
         return "quota: no reading" + hint
-    if age <= _SECONDS_PER_HOUR:
+    if age <= QUOTA_NOTICE_AGE_SECONDS:
         return ""
     duration = f"{int(age // _SECONDS_PER_DAY)}d" if age >= _SECONDS_PER_DAY else f"{int(age // _SECONDS_PER_HOUR)}h"
     return f"quota {duration} old" + hint

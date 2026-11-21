@@ -15,7 +15,12 @@ from peerhub.cli.monitor_preferences import GROUPS, MONITOR_LEGEND
 from peerhub.extensions.caller import host_id, local_workspace_file
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.monitor_read_model import TEXT_NEWEST_ROWS
-from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, oldest_measured_quota_age, quota_probe_timed_out
+from peerhub.extensions.observation_model import (
+    LOW_QUOTA_FRACTION,
+    QUOTA_MAX_AGE_SECONDS,
+    oldest_measured_quota_age,
+    quota_probe_timed_out,
+)
 
 # Mirrors peerhub.extensions.observation_model.NOT_REPORTED_REASON (the human renderer imports no extension code).
 _NOT_REPORTED = "not reported by provider"
@@ -351,7 +356,7 @@ def _quota_color(state: str, remaining: float | None = None, *, aged: bool = Fal
         return "1;31"
     if state == "THREAT":
         return "31"
-    if state in {"LOW", "FAST", "WATCH"} or remaining is not None and 0 < remaining <= .10:
+    if state in {"LOW", "FAST", "WATCH"} or remaining is not None and 0 < remaining <= LOW_QUOTA_FRACTION:
         return "33"
     if state in {"INSUFF", "INSUFFICIENT"}:
         return None
@@ -1687,7 +1692,7 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
         state = "reset"
     elif remaining == 0:
         state = "out"
-    elif remaining <= .10:
+    elif remaining <= LOW_QUOTA_FRACTION:
         state = "low"
     elif samples >= 2 and projection.get("state") == "threat":
         state = "fast"
@@ -2511,7 +2516,7 @@ def _pool_colour(row: dict[str, Any]) -> str | None:
     state = "warn" if code == "33" else "ok"
     if remaining is None:
         return state if code else None
-    left = "ok" if remaining > .50 else "warn" if remaining > .25 else "hot" if remaining > .10 else "bad"
+    left = "ok" if remaining > .50 else "warn" if remaining > .25 else "hot" if remaining > LOW_QUOTA_FRACTION else "bad"
     return max(state, left, key=order.index)
 
 

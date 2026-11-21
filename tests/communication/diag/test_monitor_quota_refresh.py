@@ -11,6 +11,7 @@ import pytest
 from peerhub.cli import monitor, monitor_view, support
 from peerhub.cli.app import main
 from peerhub.extensions.diag_quota import format_quota_table
+from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, QUOTA_NOTICE_AGE_SECONDS
 
 
 def _reading(age, **fields):
@@ -25,8 +26,11 @@ def _frame(items):
 
 @pytest.mark.parametrize("view", ["plain", "rich"])
 @pytest.mark.parametrize("width", [39, 100])
-@pytest.mark.parametrize("age,notice", [(None, "quota: no reading"), (3600, ""), (5 * 3600, "quota 5h old"),
-                                         (86400, "quota 1d old"), (8 * 86400, "quota 8d old")])
+@pytest.mark.parametrize("age,notice", [
+    (None, "quota: no reading"), (QUOTA_NOTICE_AGE_SECONDS, ""),
+    (QUOTA_NOTICE_AGE_SECONDS + 1, "quota 1h old"), (5 * 3600, "quota 5h old"),
+    (86400, "quota 1d old"), (8 * 86400, "quota 8d old"),
+])
 def test_stale_notice_has_the_same_position_and_wording(age, notice, view, width):
     payload = _frame([] if age is None else [_reading(age)])
     for expand in (False, True):
@@ -41,12 +45,12 @@ def test_stale_notice_has_the_same_position_and_wording(age, notice, view, width
 @pytest.mark.parametrize("view", ["plain", "rich"])
 @pytest.mark.parametrize("width", [39, 100])
 @pytest.mark.parametrize("expand", [False, True])
-@pytest.mark.parametrize("age", [180, 899, 900])
-def test_timeout_note_uses_recent_measured_pools(age, view, width, expand):
+@pytest.mark.parametrize("age,show_note", [(180, True), (QUOTA_MAX_AGE_SECONDS - 1, True), (QUOTA_MAX_AGE_SECONDS, False)])
+def test_timeout_note_uses_recent_measured_pools(age, show_note, view, width, expand):
     reading = _reading(age, state="STALE" if age >= 300 else "MEASURED", stored_state="MEASURED")
     timeout = _reading(20, pool_ref=None, state="ERROR", measurements=None, reason="claude_usage_timeout")
     text = monitor_view.render_grouped_frame(_frame([reading, timeout]), view=view, width=width, expand=expand)
-    if age < 900:
+    if show_note:
         assert text.count(f"cc probe timeout (value {age // 60}m old)") == 1
         assert "72%" in text and "cc probe error" not in text
     else:
@@ -167,7 +171,8 @@ class _Terminal(io.StringIO):
 
 
 @pytest.mark.parametrize("options,disabled,age,expected", [
-    ([], False, None, True), ([], False, 301, True), ([], False, 300, False),
+    ([], False, None, True), ([], False, support.MONITOR_QUOTA_MAX_AGE_SECONDS + 1, True),
+    ([], False, support.MONITOR_QUOTA_MAX_AGE_SECONDS, False),
     (["--no-probe"], False, None, False), ([], True, None, False),
 ])
 def test_live_watch_default_and_freshness(monkeypatch, options, disabled, age, expected):
