@@ -274,6 +274,10 @@ def test_concurrent_batches_use_independent_store_scratch(tmp_path, db_dir, scra
             assert run.result()["tasks"][0]["status"] == "COMPLETED"
     assert len(queries) == 2 and queries[0].parent != queries[1].parent
     assert all(query.parent.parent == tmp_path / scratch for query in queries)
+    # Windows keeps a removed directory listed (delete pending) until the exited worker's last handle closes.
+    deadline = time.monotonic() + 10
+    while list((tmp_path / scratch).iterdir()) and time.monotonic() < deadline:
+        time.sleep(0.05)
     assert list((tmp_path / scratch).iterdir()) == []
 
 
