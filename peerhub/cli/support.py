@@ -11,7 +11,7 @@ from threading import Thread
 from time import monotonic, sleep
 from typing import Any, BinaryIO, Callable, Generator, Sequence, cast
 
-from peerhub.extensions.observation_model import QUOTA_TTL_SECONDS
+from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 
 _PEER_ALIASES = {"cx": {"cx", "codex"}, "cc": {"cc", "claude"}, "ag": {"ag", "agy"}}
 MONITOR_REFRESH_LEAD_SECONDS = 90
