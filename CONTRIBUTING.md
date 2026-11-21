@@ -214,6 +214,16 @@ A release is one PR plus the steps after its merge; there is no post-release doc
 The release is complete only after the evidence asset is confirmed (step 5)
 and the shipped-tag check (step 7) is done.
 
+**Automated flow**
+
+From the clean, merged checkout, run `python -m tools.release_flow run --version X.Y.Z`
+to dispatch full-matrix CI, run the local live gate, and prepare a verified draft.
+The live gate spends provider quota. Add `--ci-first` to wait for green CI before
+the live gate, or `--dry-run` to print the plan only. Use `--resume` to reuse the
+recorded CI run and hash-verified live evidence after a successful live gate.
+Publishing the draft stays manual. After the publish workflow succeeds, verify
+PyPI as in step 4.
+
 `publish.yml` consumes an already published GitHub Release and does not
 generate or edit its body. Supplying the extracted notes via `--notes-file`
 is the manual release step; do not substitute auto-generated PR notes.

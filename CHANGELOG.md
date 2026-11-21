@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- `python -m tools.release_flow run --version X.Y.Z` runs candidate CI and the local live gate, then verifies a GitHub release draft. It supports a dry run, CI-first ordering and resuming with verified evidence. Publishing remains manual (#437).
+
 ### Changed
 
 - The monitor section order and headings of both layouts come from one catalog, `FRAME_SECTIONS`; tests and docs read it, and the release-notes test follows `__version__`. Output is unchanged (#436).
