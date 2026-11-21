@@ -11,9 +11,17 @@ from threading import Thread
 from time import monotonic, sleep
 from typing import Any, BinaryIO, Callable, Generator, Sequence, cast
 
+from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
+
 _PEER_ALIASES = {"cx": {"cx", "codex"}, "cc": {"cc", "claude"}, "ag": {"ag", "agy"}}
-MONITOR_QUOTA_MAX_AGE_SECONDS = 5 * 60
+MONITOR_REFRESH_LEAD_SECONDS = 90
+MONITOR_TICK_SECONDS = 1.0
+MONITOR_QUOTA_MAX_AGE_SECONDS = QUOTA_TTL_SECONDS - MONITOR_REFRESH_LEAD_SECONDS
+MONITOR_PROBE_MAX_TIMEOUT_SECONDS = MONITOR_REFRESH_LEAD_SECONDS - MONITOR_TICK_SECONDS
+assert 0 < MONITOR_PROBE_MAX_TIMEOUT_SECONDS < MONITOR_REFRESH_LEAD_SECONDS < QUOTA_TTL_SECONDS
+
 QUOTA_LOCK_WAIT_SECONDS = 3.0
+QUOTA_LOCK_POLL_SECONDS = .05
 QUOTA_REFRESH_COOLDOWN_SECONDS = 60
 DISPATCH_QUOTA_WAIT_SECONDS = 1.0
 
@@ -77,7 +85,7 @@ def _try_file_lock(file: BinaryIO) -> bool:
 
 
 @contextmanager
-def quota_refresh_lock(db_path: str | Path) -> Generator[bool, None, None]:
+def quota_refresh_lock(db_path: str | Path, *, cancelled: Callable[[], bool] | None = None) -> Generator[bool, None, None]:
     """Hold a PID lock until the refresh finishes or its process exits."""
     import psutil
     from peerhub.extensions.batch import store_scratch_dir
@@ -89,19 +97,19 @@ def quota_refresh_lock(db_path: str | Path) -> Generator[bool, None, None]:
     with (scratch / "quota-refresh.lock").open("a+b") as file:
         while not _try_file_lock(file):
             remaining = deadline - monotonic()
-            if remaining <= 0:
+            if remaining <= 0 or (cancelled is not None and cancelled()):
                 yield False
                 return
-            sleep(min(.05, remaining))
+            sleep(min(QUOTA_LOCK_POLL_SECONDS, remaining))
         file.seek(0)
         raw = file.read(32).strip()
         owner = int(raw) if raw.isdigit() else 0
         while 0 < owner <= 0x7fffffff and psutil.pid_exists(owner):
             remaining = deadline - monotonic()
-            if remaining <= 0:
+            if remaining <= 0 or (cancelled is not None and cancelled()):
                 yield False
                 return
-            sleep(min(.05, remaining))
+            sleep(min(QUOTA_LOCK_POLL_SECONDS, remaining))
         file.seek(0)
         file.truncate()
         file.write(str(os.getpid()).encode("ascii"))
@@ -137,16 +145,16 @@ def monitor_auto_probe(args: argparse.Namespace) -> bool:
 
 
 def refresh_monitor_quota(args: argparse.Namespace, before_probe: Callable[[], None] | None = None) -> dict[str, Any] | None:
-    """Start one automatic cycle only when the newest reading for the selected peers is old."""
+    """Preserve the automatic collection cadence of the scripted monitor."""
     peers = set(args.peers)
     for kind, aliases in _PEER_ALIASES.items():
         if peers & aliases:
             peers.add(kind)
     try:
-        if peers & _recent_quota_peers(args.db, MONITOR_QUOTA_MAX_AGE_SECONDS):
+        if peers & _recent_quota_peers(args.db, QUOTA_TTL_SECONDS):
             return None
         with quota_refresh_lock(args.db) as acquired:
-            if not acquired or peers & _recent_quota_peers(args.db, MONITOR_QUOTA_MAX_AGE_SECONDS):
+            if not acquired or peers & _recent_quota_peers(args.db, QUOTA_TTL_SECONDS):
                 return None
             if before_probe is not None:
                 before_probe()

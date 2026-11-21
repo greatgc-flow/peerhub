@@ -16,6 +16,7 @@ def render_guide(workspace: Path | None = None) -> str:
     del workspace
     from peerhub.cli.lessons import load_lessons
     from peerhub.extensions.batch import RECOMMENDED_MAX_PARALLEL
+    from peerhub.core.peer_kinds import API_PEER_KINDS
 
     # The first pointer belongs to the Votes line. The rest appear under More.
     vote, *topics = sorted((lesson for lesson in load_lessons() if "guide_order" in lesson),
@@ -23,8 +24,10 @@ def render_guide(workspace: Path | None = None) -> str:
     more = ", ".join(topic["id"] for topic in topics)
     return "\n".join([
         "PeerHub guide (decisions only)",
-        "Peer: cc/cx for code and files (sandbox enforced); ag for drafts with content inline (always --writable, not enforced); ca/oa/ga = API credits, text only.",
+        # CLI peers are grouped by what their sandboxes support.
+        f"Peer: cc/cx for code and files (sandbox enforced); ag for drafts with content inline (always --writable, not enforced); {'/'.join(API_PEER_KINDS)} = API credits, text only.",
         "Tier: lowest that fits: standard = bulk, effort = code and routine review, deepthink = design and final check.",
+        "Models: tops are opt-in and underused (cx.astra, ag.neon, ag.argon, cc.fable): use them for design, hard review, final checks; vary model and effort per task; give each vote a different model.",
         "Stream: one task = one --stream; reuse only for follow-ups and review rounds on ONE diff; new task = new stream.",
         f"Votes: routine check = ONE reviewer; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. All run FRESH, even if a stream name is given; facts inline. Reply VERDICT / BLOCKERS / NITS, <= 300 tokens (peerhub explain {vote['id']}).",
         f"Batch: peerhub batch run tasks.json --batch-id review-001 --max-parallel {RECOMMENDED_MAX_PARALLEL} --dry-run (validates only); execution spends quota, at most {RECOMMENDED_MAX_PARALLEL} at once.",

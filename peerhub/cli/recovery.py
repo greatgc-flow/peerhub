@@ -17,6 +17,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 
+from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
+
 
 @dataclass(frozen=True)
 class GuidanceEntry:
@@ -749,7 +751,8 @@ def render_explain(entry: GuidanceEntry) -> str:
     return "\n".join(lines)
 
 
-_PROFILE_ID = re.compile(r"(?:ag|cc|cx|ca|oa|ga)\.\S+")  # one token; the resolver decides known vs unknown
+# Match one token here and let the resolver decide whether the profile is known.
+_PROFILE_ID = re.compile(rf"(?:{'|'.join(map(re.escape, BUILTIN_PEER_KINDS))})\.\S+")
 
 
 def _explain_profile(profile: str, *, json_output: bool) -> int:

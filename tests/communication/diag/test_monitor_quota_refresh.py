@@ -171,11 +171,11 @@ class _Terminal(io.StringIO):
 
 
 @pytest.mark.parametrize("options,disabled,age,expected", [
-    ([], False, None, True), ([], False, support.MONITOR_QUOTA_MAX_AGE_SECONDS + 1, True),
-    ([], False, support.MONITOR_QUOTA_MAX_AGE_SECONDS, False),
+    ([], False, None, True), ([], False, support.QUOTA_TTL_SECONDS + 1, True),
+    ([], False, support.QUOTA_TTL_SECONDS, False),
     (["--no-probe"], False, None, False), ([], True, None, False),
 ])
-def test_live_watch_default_and_freshness(monkeypatch, options, disabled, age, expected):
+def test_finite_watch_retains_automatic_collection_cadence(monkeypatch, options, disabled, age, expected):
     monkeypatch.setattr("sys.stdout", _Terminal())
     monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: False)
     monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)

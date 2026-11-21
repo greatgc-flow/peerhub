@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, cast
 
+from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES
 from peerhub.extensions.process_tree import creation_ticks as _creation_time, kill_process_tree
 
 DEFAULT_TIMEOUT_S = 600.0
@@ -146,7 +147,7 @@ def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None
     for t in tasks:
         kind = kind_of(t.peer)
         if kind is None:
-            raise ManifestError(f"task {t.task_id}: unknown peer {t.peer!r} (register it with --adapter cx, cc, ag, ca, oa or ga)")
+            raise ManifestError(f"task {t.task_id}: unknown peer {t.peer!r} (register it with --adapter {BUILTIN_PEER_CHOICES})")
         if t.writable and kind in ("ca", "oa", "ga"):
             raise ManifestError(f"task {t.task_id}: {kind} has no workspace access; remove writable")
         if t.workspace is not None and not t.workspace.is_dir():

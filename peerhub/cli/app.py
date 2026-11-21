@@ -39,6 +39,7 @@ from peerhub.cli.support import error_line as _error_line, print_warnings as _pr
 from peerhub.core.models import Peer, Stream, utc_now_iso
 from peerhub.core.schema_version import SchemaVersionError
 from peerhub.core.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
+from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES, BUILTIN_PEER_LABELS, QUOTA_CAPABLE_PEERS
 
 
 
@@ -138,7 +139,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     p_reg = peer_sub.add_parser("register", help="Register a peer")
     p_reg.add_argument("--peer", required=True, dest="peer_id", help="Peer ID to register")
     p_reg.add_argument("--name", dest="display_name", help="Display name for the peer")
-    p_reg.add_argument("--adapter", dest="adapter_ref", help="Adapter the peer runs on: cx, cc, ag, ca, oa or ga")
+    p_reg.add_argument("--adapter", dest="adapter_ref", help=f"Adapter the peer runs on: {BUILTIN_PEER_CHOICES}")
 
     p_get = peer_sub.add_parser("get", help="Get a peer")
     p_get.add_argument("--peer", required=True, dest="peer_id", help="Peer ID")
@@ -199,7 +200,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
 
     ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge",
                                      description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Select --fresh or an exact --session HANDLE. Results include a session handle and mode.")
-    ask_parser.add_argument("peer", help="Peer ID (built-ins: cx/codex, cc/claude, ag/agy, ca, oa, ga)")
+    ask_parser.add_argument("peer", help=f"Peer ID (built-ins: {', '.join(BUILTIN_PEER_LABELS)})")
     ask_parser.add_argument("prompt", nargs="?")
     ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
     ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat; ca, oa and ga: peer:<id>:<request-id>, one ask per stream)")
@@ -279,7 +280,8 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     observation_parser = subparsers.add_parser("observation", help="Explicit observation collection (mutating)")
     observation_sub = observation_parser.add_subparsers(dest="action", required=True)
     refresh = observation_sub.add_parser("refresh", help="Collect provider quota and account evidence into append-only Observations")
-    refresh.add_argument("--peers", nargs="+", default=["cx", "cc", "ag"], help="Peers to collect quota evidence for (default: cx cc ag)")
+    refresh.add_argument("--peers", nargs="+", default=list(QUOTA_CAPABLE_PEERS),
+                         help=f"Peers to collect quota evidence for (default: {' '.join(QUOTA_CAPABLE_PEERS)})")
     refresh.add_argument("--system-dir", dest="sys_dir", type=Path, help="Explicit portable provider installation directory")
     refresh.add_argument("--timeout-seconds", type=float, default=15, help="Probe timeout in seconds (default 15)")
 
@@ -1159,7 +1161,7 @@ def _peer_kind(db: str | None, peer: str) -> str | None:
     """The provider kind of a peer by the rule `ask` uses: the adapter registered in `db` (read-only) decides, else
     the name of a builtin peer; None when it is not known. A store that cannot be read (missing, a directory, locked,
     corrupt or not a database) counts as no registration."""
-    from peerhub.extensions.peer_kinds import peer_kind
+    from peerhub.core.peer_kinds import peer_kind
 
     adapter_ref: str | None = None
     if db:

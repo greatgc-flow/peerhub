@@ -9,14 +9,19 @@ import time
 import uuid
 import math
 from pathlib import Path
-from typing import Any, Callable, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
 
-from peerhub.extensions.peer_kinds import ALIASES
+from peerhub.core.peer_kinds import ALIASES, CLI_PEER_ALIASES, QUOTA_CAPABLE_PEERS
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import (EvidenceState, Observation, ResourcePool, changed_account_plan,
                                                   epoch_to_iso, quota_probe_timed_out)
 from peerhub.extensions.quota_types import ResetCreditObserved, UsageObserved
 from peerhub.core.models import utc_now_iso
+
+if TYPE_CHECKING:
+    from peerhub.extensions.quota_probes import ProbeCancellation
+
+VERSION_PROBE_TIMEOUT_SECONDS = 3.0
 
 
 class _Ids:
@@ -90,18 +95,20 @@ class AccountCollection:
         return out
 
 
-def default_account_pollers(sys_dir: Path | None, deadline_sec: float) -> dict[str, Callable[[], Any]]:
+def default_account_pollers(sys_dir: Path | None, deadline_sec: float,
+                            cancellation: ProbeCancellation | None = None) -> dict[str, Callable[[], Any]]:
     """The real account probes, bounded by the refresh deadline; only the builtin default accounts are collected."""
     from peerhub.extensions.quota_probes import poll_agy_account, poll_claude_account, poll_codex_account
-    return {"cc": lambda: poll_claude_account(sys_dir=sys_dir, deadline_sec=deadline_sec),
-            "cx": lambda: poll_codex_account(sys_dir=sys_dir, deadline_sec=deadline_sec),
-            "ag": lambda: poll_agy_account(sys_dir=sys_dir, deadline_sec=deadline_sec)}
+    options: dict[str, Any] = {"cancellation": cancellation} if cancellation is not None else {}
+    return {"cc": lambda: poll_claude_account(sys_dir=sys_dir, deadline_sec=deadline_sec, **options),
+            "cx": lambda: poll_codex_account(sys_dir=sys_dir, deadline_sec=deadline_sec, **options),
+            "ag": lambda: poll_agy_account(sys_dir=sys_dir, deadline_sec=deadline_sec, **options)}
 
 
-def _probe_cli_version(kind: str, sys_dir: Path | None) -> str | None:
+def _probe_cli_version(kind: str, sys_dir: Path | None, *, timeout: float = VERSION_PROBE_TIMEOUT_SECONDS,
+                       cancellation: ProbeCancellation | None = None) -> str | None:
     import re
-    import subprocess
-    from peerhub.extensions.quota_probes import real_command, resolve_sys_dir
+    from peerhub.extensions.quota_probes import real_command, resolve_sys_dir, run_text_probe
     resolved_sys = resolve_sys_dir(sys_dir)
     peer_map = {"claude": "cc", "codex": "cx", "antigravity": "ag", "cc": "cc", "cx": "cx", "ag": "ag"}
     peer = peer_map.get(kind, kind)
@@ -109,7 +116,7 @@ def _probe_cli_version(kind: str, sys_dir: Path | None) -> str | None:
     if not cmd:
         return None
     try:
-        proc = subprocess.run([*cmd, "--version"], capture_output=True, text=True, timeout=3.0, check=False)
+        proc = run_text_probe([*cmd, "--version"], timeout=timeout, cancellation=cancellation)
         if proc.returncode != 0:
             return None
         m = re.search(r"\b\d+\.\d+\.\d+(?:[-+][A-Za-z0-9._-]+)?\b", proc.stdout or proc.stderr)
@@ -174,7 +181,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
                   cx_pools: Sequence[str] | None = None, cc_pools: Sequence[str] | None = None,
                   ag_pools: Sequence[str] | None = None,
                   account_pollers: dict[str, Callable[[], Any]] | None = None,
-                  retry_timeouts: bool = False) -> dict[str, Any]:
+                  retry_timeouts: bool = False, cancellation: ProbeCancellation | None = None) -> dict[str, Any]:
     if not peers or not math.isfinite(deadline_sec) or deadline_sec <= 0:
         raise ValueError("provide peers and a positive probe timeout")
     if not Path(db_path).is_file():
@@ -182,8 +189,9 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     kinds: list[str] = []
     for peer in peers:
         kind = ALIASES.get(peer)
-        if kind not in ("cx", "cc", "ag"):  # the API peers ca, oa and ga have no quota pool (#378)
-            raise ValueError("quota providers: cx/codex, cc/claude, ag/agy")
+        if kind is None or kind not in QUOTA_CAPABLE_PEERS:
+            labels = ", ".join(f"{peer}/{CLI_PEER_ALIASES[peer]}" for peer in QUOTA_CAPABLE_PEERS)
+            raise ValueError(f"quota providers: {labels}")
         kinds.append(kind)
     injected_pollers = pollers is not None
     if pollers is None:
@@ -195,8 +203,9 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     # Account / login / plan evidence (#329): bounded no-model-turn probes, independent of the quota probes (a failure there never
     # blocks them). They start now, run alongside the serial version and quota probes below, and are joined after the quota loop, so the
     # whole refresh stays within roughly max(quota time, probe timeout). Injected quota pollers imply no real account probes.
+    probe_options: dict[str, Any] = {"cancellation": cancellation} if cancellation is not None else {}
     if account_pollers is None:
-        account_pollers = {} if injected_pollers else default_account_pollers(sys_dir, deadline_sec)
+        account_pollers = {} if injected_pollers else default_account_pollers(sys_dir, deadline_sec, **probe_options)
     accounts_running = AccountCollection(store, list(zip(peers, kinds)), account_pollers, deadline_sec)
 
     observed_versions = _packaged_observed_versions()
@@ -211,10 +220,18 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     probed_versions: dict[str, str | None] = {}
 
     def _default_v_fn(k: str) -> str | None:
+        if cancellation is not None:
+            return _probe_cli_version(k, sys_dir, timeout=min(deadline_sec, VERSION_PROBE_TIMEOUT_SECONDS),
+                                      cancellation=cancellation)
         return _probe_cli_version(k, sys_dir)
+
+    def check_cancelled() -> None:
+        if cancellation is not None and cancellation.cancelled():
+            raise OSError("quota collection cancelled")
 
     v_fn: Callable[[str], str | None] = version_checker if version_checker is not None else _default_v_fn
     for kind in set(kinds):
+        check_cancelled()
         try:
             probed_versions[kind] = v_fn(kind)
         except Exception:
@@ -223,10 +240,11 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
     warnings: list[str] = []
 
     for peer, kind in zip(peers, kinds):
+        check_cancelled()
         try:
             injected = {"cx": cx_pools, "cc": cc_pools, "ag": ag_pools}[kind]
             readings = _poll_quota(pollers[kind], retry_timeouts=retry_timeouts, ids=_Ids(), instance_id=peer,
-                                   profile_id="default", deadline_sec=deadline_sec, sys_dir=sys_dir,
+                                   profile_id="default", deadline_sec=deadline_sec, sys_dir=sys_dir, **probe_options,
                                    **({"configured_pools": injected} if injected is not None else {}))
             if not readings:
                 raise ValueError("probe returned no evidence")
@@ -380,6 +398,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
 
     written: list[dict[str, Any]] = []
     for peer_id, pool_ref, src, st, pld, obs_at, cap_at, kind_name in pending_obs:
+        check_cancelled()
         if kind_name == "quota":
             pld["facts_report"] = facts_report
         obs = Observation(

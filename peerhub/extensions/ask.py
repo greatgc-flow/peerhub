@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.adapters.api import API_TARGETS, RequestRejected
-from peerhub.extensions.peer_kinds import ALIASES as ALIASES, peer_kind  # ALIASES: re-exported for existing importers
+from peerhub.core.peer_kinds import ALIASES as ALIASES, BUILTIN_PEER_CHOICES, peer_kind  # ALIASES: re-exported
 from peerhub.extensions.bridge import PrespawnError, Bridge, CycleResult, RuntimeTarget, normalize_session_selector
 from peerhub.extensions.caller import detect_caller
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, StaleClaimError
@@ -197,7 +197,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         account_args["account"] = AccountRef(account_binding.slot_id)
     if runtime is None:
         if kind is None:
-            raise PeerNotFoundError("register this peer with --adapter cx, cc, ag, ca, oa or ga before asking it")
+            raise PeerNotFoundError(f"register this peer with --adapter {BUILTIN_PEER_CHOICES} before asking it")
         execution_workspace = workspace or Path.cwd()
         options: dict[str, Any] = dict(model=model, effort=effort, profile=profile, silence_timeout_s=silence_timeout_s,
                                        writable=writable, timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output,

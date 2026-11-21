@@ -4,17 +4,18 @@ This page is the target of the `Guide` link at the top right of `peerhub monitor
 `Guide:` line that ends `peerhub monitor --view plain --expand`. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
 
-On a TTY, watch automatically refreshes quota when the newest reading for the selected peers is more than five minutes
-old or missing. It probes peers in order, collects a peer's pools together, and retries a timed-out quota probe once.
+Continuous terminal watch checks each selected peer every second and refreshes it in the background when its oldest
+required quota reading reaches 210 seconds (90 seconds before expiry) or is missing. Failed or partial peers retry after 60 seconds.
 If agy reports model-token use, watch stops unless `--allow-agy-token-use` was passed.
 Use `--no-probe` or set `PEERHUB_MONITOR_PROBE=off` to disable automatic refresh. Redirected watch reads committed evidence
-by default. Explicit `--probe` uses the watch cadence on a TTY or with redirected output. `--collect-every K` checks for
-collection every Kth cycle. `--snapshot`, `diag quota`, and `diag --live` read committed evidence. Use `monitor --probe --cycles 1`
+by default. Explicit `--probe` also schedules collection on the watch cadence. `--collect-every K` applies to
+that cadence and scripted cycles. `--snapshot`, `diag quota`, and `diag --live` read committed evidence. Use `monitor --probe --cycles 1`
 to collect and show one completed cycle.
+With `--cycles N` and `N > 0`, scripted runs keep synchronous refresh and the same output as before, while continuous TTY watch refreshes in the background.
 
-Automatic watch, suggest, and ask dispatch share the PID lock `quota-refresh.lock` in the store's scratch directory.
-After three seconds of contention they continue with committed evidence. After taking the lock, they recheck the quota
-readings to avoid repeating a refresh from the last minute.
+Continuous watch, automatic collection in scripted watch, suggest, and ask dispatch share the PID lock
+`quota-refresh.lock` in the store's scratch directory. After three seconds of contention they continue with committed
+evidence. Automatic collection rechecks quota under the lock before probing.
 For a command you can run, use `peerhub suggest --tier standard` and see
 `peerhub explain suggest` for its quota rules.
 
@@ -38,13 +39,13 @@ narrow terminal; the rich view puts the snapshot time at the right edge when it 
 **Line 2 (the title)** is `PeerHub Monitor <UTC time> · DB:<source> · quota age <age>`:
 
 - The time is when the store was read (the snapshot), not when the quota was measured.
-- A live monitor can show `REFRESHING`, `REFRESH OK`, a refresh warning count, or `STOPPED · AGY TOKEN USE`. With `--probe`
-  it also shows the cadence countdown. A redraw between two reads updates the age of the existing snapshot.
+- Continuous terminal watch adds a rotating heartbeat and the oldest selected quota age, with a `next refresh`
+  countdown, the peers currently refreshing and their elapsed time, or the time since failure and the retry countdown.
+  Agy token use can still show `STOPPED · AGY TOKEN USE`.
 - `DB:<source>` names where the store came from (`env` for `PEERHUB_DB`, `discovered`, `explicit` for `--db`, ...). With
   `--expand` the full path is directly below the title (`DB:env (<path>)`); the compact frame names it under line 2 only
   when it is not the nearest store or the read had errors.
-- `quota age` is the age of the oldest quota evidence of a shown pool. It is the first thing to look at when a number
-  looks wrong.
+- In snapshots and scripted frames, `quota age` is the age of the oldest quota evidence of a shown pool.
 - Fields that do not fit are dropped from the right, and a line `Fields hidden · --expand` says so.
 - The `Guide` link is the right end of this line, rich view on a terminal only (see [The Guide link](#the-guide-link)).
 
@@ -86,8 +87,9 @@ counted). The compact frame shows at most eight rows, `--expand` shows all of th
 `threat` is a projection, not a POOLS word: it is the FORECAST of the QUOTA details (`threat`, `on_pace`, `safe`,
 `insuff` for insufficient data), and a `threat` with two samples makes the row `fast`.
 
-**Order.** `out`, then `low`, then binding (a 7-day pool whose 5-hour sub-row is shown), then `fast`, then the rest;
-within a class by peer, family, window length and name.
+**Order.** POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools.
+Ties sort by peer and pool name. The most negative PACE shows the most under-used weekly pool. The heading shows
+`use first` when there is room. Compact POOLS keeps the first `POOLS_CAP` rows and gives the remaining count as `+N pools`.
 
 **Child pools and the F-7D / C-7D rule.** A 5-hour pool (`C-5H`, `3P-5H`, `G-5H`) is shown under its 7-day pool of the
 same family when it has less left than the 7-day pool or is `low` or `out` (`--expand` shows it always). Fable's
@@ -204,8 +206,8 @@ is `Coverage: complete|partial; peerhub explain <code>`.
 - **Compact** (the default) uses `COMPACT_MAX_LINES` and `COMPACT_MAX_BYTES`. The header is followed by POOLS,
   the suggestion, ALERTS, RUNNING, RECENT and LEADS. POOLS and RUNNING use `POOLS_CAP` and `RUNNING_CAP`.
 - **`--expand`** adds the full DB path under the title and lists every pool. After LEADS it shows QUOTA, PEERS,
-  EXECUTION, SESSIONS, USAGE, CONTEXT and any other selected group. A clipped frame reports `+N rows hidden`
-  and gives the command to print the full frame.
+  EXECUTION, SESSIONS, USAGE, CONTEXT and any other selected group. When space allows, a clipped frame reports
+  `+N rows hidden` and gives the command to print the full frame.
 - `--view plain` (the default for pipes) is ASCII and never coloured; `--view rich` is the default on a terminal.
   `--snapshot` draws one frame and exits.
 
@@ -215,9 +217,9 @@ is `Coverage: complete|partial; peerhub explain <code>`.
   before it goes). The POOLS bar shrinks from 20 cells to 4 and then goes, before any column drops. A state glyph stays
   only while the columns of the plain table stay. Line 2 drops fields from the right and says `Fields hidden`. The
   `Guide` link is the first thing to go, before any data, and it is never shown when it does not fit.
-- **Height.** ALERTS and RUNNING get space before RECENT. As space runs out, expanded RECENT switches to single-line
-  rows and then gives up rows. The header keeps the full DB path across wrapped lines. The smallest frames reduce
-  POOLS through `POOLS_TRIM_FLOOR` and keep a heading and a detail line for active work where space allows.
+- **Height.** Short frames shrink and drop sections from the bottom up in both layouts. Expanded RECENT switches to
+  single-line rows before giving up rows. POOLS keeps its heading and a row as long as space allows, and the title
+  and verdict have the highest priority.
 - **Never cut.** A row that does not fit is shortened with `…` (ASCII `~`) or loses whole fields; a link is never cut.
 
 ## The alternate screen and LIVE_ROW_MARGIN

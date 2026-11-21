@@ -8,6 +8,28 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.5] - 2026-11-21
+
+### Changed
+
+- Packaged model defaults 2026-11-21.1: observed versions agy 1.5.14, claude 2.1.330, codex 0.171.0. The model lists of `codex debug models` and `agy.exe models` match the profiles; no model was added or removed. `tools.model_ping` on 2026-11-21 confirmed the answering model for ag.neon, ag.argon, cx.effort, cx.astra, cc.fable and cc.effort.
+- `peerhub guide` gets a Models line: the opt-in tops (cx.astra, ag.neon, ag.argon, cc.fable) are underused; use them for design, hard review and final checks, vary model and effort per task, and give each vote a different model.
+- Compact and expanded monitor frames now trim sections from the bottom up. POOLS lists usable families by their weekly parent's PACE, most under-used first, followed by unknown PACE and exhausted pools.
+- Continuous terminal monitor watch refreshes each peer's quota in the background before its readings expire and retries failed peers independently.
+
+- The built-in peer ids and the default quota peers have one core registry, `peerhub/core/peer_kinds.py` (the old module path stays as an alias), and the quota freshness TTL lives in `peerhub/core/quota_policy.py`; the monitor section fixtures have stable names. Output is unchanged (#436).
+
+### Added
+
+- The live monitor title shows a heartbeat, the oldest selected quota age, and the next refresh, active probe, or retry timing in both layouts.
+
+### Fixed
+
+- Quota probe cleanup skips exited processes, waits briefly for terminated probes to exit, and preserves Windows process creation flags.
+- Continuous monitor watch commits each peer's quota readings as soon as its probe finishes. If the refresh lock is busy, watch waits through the cooldown before retrying and continues to show committed readings.
+- In compact and expanded monitor views, POOLS moves families with an exhausted binding short window to the end. The live title shows each countdown once, and short expanded frames use a one-line hidden-rows hint when it makes room for more rows.
+- The monitor guide clarifies that finite scripted cycles refresh synchronously and continuous TTY watch refreshes in the background.
+
 ## [0.26.4] - 2026-11-21
 
 ### Added

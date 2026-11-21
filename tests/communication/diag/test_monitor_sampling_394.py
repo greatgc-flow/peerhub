@@ -92,7 +92,7 @@ def test_a_complete_peers_list_has_no_showing_marker(view):
     assert "showing" not in render(detail_payload(), view)
 
 
-# ---- 4: one pool order ---------------------------------------------------------------------------------------------
+# ---- 4: QUOTA detail order ------------------------------------------------------------------------------------------
 def first_seen(lines: list[str], pattern: str) -> list[str]:
     seen: list[str] = []
     for line in lines:
@@ -103,16 +103,13 @@ def first_seen(lines: list[str], pattern: str) -> list[str]:
 
 
 @pytest.mark.parametrize("view", ["plain", "rich"])
-def test_pools_and_quota_details_list_the_peers_in_one_order(view):
+def test_quota_details_keep_the_most_urgent_peer_first(view):
     frame = eight_pools_payload()
-    rich = render(frame, "rich")
-    pools = first_seen(block(rich, "pools")[1:], r"\s+(ag|cc|cx) ")
-    assert pools[0] == "cx"  # cx X-5H is out: the most urgent peer comes first, not the alphabet
     lines = render(frame, view).splitlines()
     quota = re.escape(mv.FRAME_SECTIONS["capacity"])
     start = next(i for i, line in enumerate(lines) if re.match(rf"(?:--|──) {quota}(?= |$)", line))
     end = next((i for i in range(start + 1, len(lines)) if re.match(r"(?:--|──) ", lines[i])), len(lines))
-    assert first_seen(lines[start + 2:end], r"\s*(ag|cc|cx) ") == pools
+    assert first_seen(lines[start + 2:end], r"\s*(ag|cc|cx) ") == ["cx", "ag", "cc"]  # X-5H is out
 
 
 # ---- 5: two dates, two labels --------------------------------------------------------------------------------------

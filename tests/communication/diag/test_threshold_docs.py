@@ -3,14 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.cli.support import MONITOR_QUOTA_MAX_AGE_SECONDS
+from peerhub.cli.support import MONITOR_QUOTA_MAX_AGE_SECONDS, MONITOR_REFRESH_LEAD_SECONDS, QUOTA_REFRESH_COOLDOWN_SECONDS
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION, QUOTA_MAX_AGE_SECONDS, QUOTA_NOTICE_AGE_SECONDS
 
 ROOT = Path(__file__).resolve().parents[3]
 MONITOR_DOC = "docs/monitor.md"
 LESSONS = "peerhub/config_data/lessons.toml"
 QUOTA_MINUTES = QUOTA_MAX_AGE_SECONDS // 60
-WATCH_MINUTES = MONITOR_QUOTA_MAX_AGE_SECONDS // 60
+WATCH_SECONDS = MONITOR_QUOTA_MAX_AGE_SECONDS
 NOTICE_MINUTES = QUOTA_NOTICE_AGE_SECONDS // 60
 LOW_PERCENT = f"{LOW_QUOTA_FRACTION * 100:g}%"
 
@@ -21,8 +21,10 @@ LOW_PERCENT = f"{LOW_QUOTA_FRACTION * 100:g}%"
     (MONITOR_DOC, "keep a measured value less than ", f"{QUOTA_MINUTES} minutes old"),
     (LESSONS, "shows a measured value younger than ", f"{QUOTA_MINUTES} minutes with"),
     (LESSONS, "Missing or over-", f"{QUOTA_MINUTES}-minute quota"),
-    (MONITOR_DOC, "reading for the selected peers is more than ", f"{WATCH_MINUTES} minutes old"),
-    (LESSONS, "TTY watch refreshes when the newest reading is over ", f"{WATCH_MINUTES} minutes old"),
+    (MONITOR_DOC, "required quota reading reaches ", f"{WATCH_SECONDS} seconds ({MONITOR_REFRESH_LEAD_SECONDS} seconds before expiry)"),
+    (LESSONS, "oldest required reading reaches ", f"{WATCH_SECONDS} seconds or is missing"),
+    (MONITOR_DOC, "Failed or partial peers retry after ", f"{QUOTA_REFRESH_COOLDOWN_SECONDS} seconds"),
+    (LESSONS, "retries failed or partial peers after ", f"{QUOTA_REFRESH_COOLDOWN_SECONDS} seconds"),
     (MONITOR_DOC, "oldest quota reading is more than ", f"{NOTICE_MINUTES} minutes old"),
     (LESSONS, "flag quota older than ", f"{NOTICE_MINUTES} minutes or missing"),
     (MONITOR_DOC, "more than 0% and at most ", f"{LOW_PERCENT} left."),

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[3] / "peerhub" / "extensions"
 # Edges inside one extension family (several modules that are one unit) and edges to neutral, dependency-free helpers.
 ALLOWED: dict[str, set[str]] = {
     # M1 Session Bridge entry
-    "ask": {"accounts", "bridge", "bridge_claims", "observation", "observation_model", "peer_kinds", "adapters",
+    "ask": {"accounts", "bridge", "bridge_claims", "observation", "observation_model", "adapters",
             "caller"},  # caller: who started an ask (neutral; stdlib and psutil only)
     "adapters": {"accounts", "runtime_contract", "binary_resolution", "process_tree", "usage_normalization"},  # adapters depend on neutral RuntimeTarget, not the Bridge implementation
     "bridge": {"bridge_claims", "catchup", "schema_guard", "bridge_registry", "session_receipts", "runtime_contract"},
@@ -28,7 +28,7 @@ ALLOWED: dict[str, set[str]] = {
     "bridge_claims": {"schema_guard"},
     # M1 Observation
     "observation": {"schema_guard", "observation_model"},
-    "quota_capture": {"observation", "observation_model", "peer_kinds", "quota_probes", "quota_types"},
+    "quota_capture": {"observation", "observation_model", "quota_probes", "quota_types"},
     "quota_probes": {"quota_types", "binary_resolution", "process_tree"},
     "quota_types": {"observation_model"},
     # M1 Diag
@@ -38,7 +38,6 @@ ALLOWED: dict[str, set[str]] = {
     "diag_quota": {"diag", "observation_model", "quota_projection"},
     "diag_watch": {"diag"},
     # M2
-    "accounts": {"peer_kinds"},
     "batch": {"process_tree"},
     "host": {"manifest", "sqlite_tx"},
     "work": {"authoritative", "sqlite_tx"},

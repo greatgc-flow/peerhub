@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping, TypeGuard, cast
 
+from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS, CLI_PEER_ALIASES
 from peerhub.extensions.usage_normalization import NORMALIZED_FIELDS, REPORTED_FIELDS, normalize_provider_usage
 
 
@@ -293,7 +294,7 @@ def record_ask_pool_delta(conn: sqlite3.Connection, delivery: sqlite3.Row, stopp
             or not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='observations'").fetchone()
             or not any(column[1] == "effective_at_us" for column in conn.execute("PRAGMA table_info(observations)"))):
         return
-    alias = {"cc": "claude", "cx": "codex", "ag": "agy"}[provider]
+    alias = CLI_PEER_ALIASES[provider]
     pool_order = {pool: rank for rank, pool in enumerate(pools)}
     readings: dict[tuple[str, str], tuple[QuotaReading, QuotaReading]] = {}
     selected: tuple[QuotaReading, QuotaReading, float] | None = None
@@ -347,7 +348,7 @@ _SECRET_LIKE_BINDING = re.compile(
     r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}|"
     r"\b(?:api[_-]?key|token|secret|password|credential)[_-][A-Za-z0-9_-]{8,}\b)"
 )
-_ADAPTER_VERSION = re.compile(r"adapter:(cc|cx|ag|ca|oa|ga):v([0-9]{1,3})\Z")
+_ADAPTER_VERSION = re.compile(rf"adapter:({'|'.join(map(re.escape, BUILTIN_PEER_KINDS))}):v([0-9]{{1,3}})\Z")
 PROCESS_CLOCK_DOMAIN = str(uuid.uuid4())
 monotonic_ns = time.monotonic_ns
 _MAX_TICK = 2**63 - 1
@@ -572,7 +573,7 @@ def telemetry_coverage_state(conn: sqlite3.Connection, delivery: Mapping[str, An
         return "UNKNOWN"
     identity = conn.execute("SELECT runtime_kind FROM bridge_session_history WHERE session_handle=?",
                             (accepted["handle"],)).fetchone()
-    provider_kind = identity[0] if identity and identity[0] in _PROVIDER_USAGE_CONTRACT else "unknown"
+    provider_kind = identity[0] if identity and identity[0] in BUILTIN_PEER_KINDS else "unknown"
     usage_raw = detail.get("usage")
     if not isinstance(usage_raw, dict):
         return "UNKNOWN"
@@ -836,6 +837,9 @@ def repair_latest_telemetry_pointers(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT OR IGNORE INTO bridge_session_monitor_meta(name,version) VALUES (?,0)", (name,))
     if conn.execute("SELECT version FROM bridge_session_monitor_meta WHERE name=?", (name,)).fetchone()[0] >= 1:
         return
+    kind_marks = ",".join("?" for _ in BUILTIN_PEER_KINDS)
+    source_cases = " ".join("WHEN ? THEN ?" for _ in _PROVIDER_USAGE_CONTRACT)
+    source_params = tuple(value for kind, (_, source) in _PROVIDER_USAGE_CONTRACT.items() for value in (kind, source))
     candidates = conn.execute(
         "SELECT e.seq,d.session_handle,CAST(CASE WHEN json_valid(e.detail) "
         "THEN json_extract(e.detail,'$.observed_at') END AS REAL) observed_at "
@@ -853,7 +857,7 @@ def repair_latest_telemetry_pointers(conn: sqlite3.Connection) -> None:
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.observed_at') END IN ('integer','real') "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.provider_kind') END='text' "
         "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.provider_kind') END="
-        "CASE WHEN h.runtime_kind IN ('cc','cx','ag','ca','oa','ga') THEN h.runtime_kind ELSE 'unknown' END "
+        f"CASE WHEN h.runtime_kind IN ({kind_marks}) THEN h.runtime_kind ELSE 'unknown' END "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.configured_binding') END='object' "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.steps') END='array' "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.step_coverage') END='object' "
@@ -873,11 +877,11 @@ def repair_latest_telemetry_pointers(conn: sqlite3.Connection) -> None:
         "CASE WHEN CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.scope') END='delivery' "
         "THEN 'delivery' ELSE 'unattributed' END "
         "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.source') END IS "
-        "CASE h.runtime_kind WHEN 'cc' THEN 'cc.result.usage' WHEN 'cx' THEN 'cx.turn.completed.usage' WHEN 'ag' THEN 'ag.result.usage' "
-        "WHEN 'ca' THEN 'ca.message.usage' WHEN 'oa' THEN 'oa.response.usage' WHEN 'ga' THEN 'ga.response.usage' ELSE NULL END "
+        f"CASE h.runtime_kind {source_cases} ELSE NULL END "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.coverage.state') END='text' "
         "AND CASE WHEN json_valid(e.detail) THEN json_type(e.detail,'$.usage.coverage.reason') END IN ('text','null') "
-        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.coverage.state') END IN ('MEASURED','ABSENT','UNSUPPORTED','UNKNOWN')")
+        "AND CASE WHEN json_valid(e.detail) THEN json_extract(e.detail,'$.usage.coverage.state') END IN ('MEASURED','ABSENT','UNSUPPORTED','UNKNOWN')",
+        (*BUILTIN_PEER_KINDS, *source_params))
     latest: dict[str, tuple[float, int]] = {}
     while batch := candidates.fetchmany(500):
         for row in batch:
@@ -1167,7 +1171,7 @@ def telemetry(conn: sqlite3.Connection, delivery: Mapping[str, Any] | sqlite3.Ro
         raw_binding = {}
     raw_binding = cast("dict[str, Any]", raw_binding)
     binding_detail = {key: _safe_binding(raw_binding.get(key)) for key in ("profile", "model", "effort")}
-    provider_kind = identity["runtime_kind"] if identity and identity["runtime_kind"] in _PROVIDER_USAGE_CONTRACT else "unknown"
+    provider_kind = identity["runtime_kind"] if identity and identity["runtime_kind"] in BUILTIN_PEER_KINDS else "unknown"
     fingerprint = identity["adapter_fingerprint"] if identity else None
     version_match = _ADAPTER_VERSION.fullmatch(fingerprint) if isinstance(fingerprint, str) else None
     adapter_version = version_match.group(2) if version_match and version_match.group(1) == provider_kind else None

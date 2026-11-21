@@ -14,6 +14,8 @@ from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any, cast
 
+from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
+
 
 def _load_layer(path: Path | Traversable) -> dict[str, Any]:
     with path.open("rb") as handle:
@@ -64,7 +66,7 @@ CARD_KEYS = ("use_for", "avoid_for", "traits", "evidence", "card_checked")
 META_KEYS = ("alias_of", "effort_override", "suggest", "measurement")
 META_DEFAULTS: dict[str, Any] = {"alias_of": None, "effort_override": None, "suggest": True, "measurement": "measured"}
 MEASUREMENTS = ("measured", "unmeasured")
-_PROFILE_ID = re.compile(r"(?:ag|cc|cx|ca|oa|ga)\.[A-Za-z0-9_.-]+")
+_PROFILE_ID = re.compile(rf"(?:{'|'.join(map(re.escape, BUILTIN_PEER_KINDS))})\.[A-Za-z0-9_.-]+")
 _NOTICED: set[tuple[str, str, str | None]] = set()
 
 

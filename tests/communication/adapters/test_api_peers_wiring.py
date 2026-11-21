@@ -10,10 +10,11 @@ import pytest
 
 from peerhub.extensions.adapters import api
 from peerhub.extensions.adapters.api import ApiRuntimeTarget, CaRuntimeTarget, GaRuntimeTarget, OaRuntimeTarget
+from peerhub.core.peer_kinds import API_PEER_KINDS as API_KINDS
+from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES, BUILTIN_PEER_KINDS, BUILTIN_PEER_LABELS
 
 REPO = Path(__file__).resolve().parents[3]
 TOML = tomllib.loads((REPO / "peerhub" / "config_data" / "model-defaults.toml").read_text(encoding="utf-8"))
-API_KINDS = ("ca", "oa", "ga")
 API_PROFILES = {pid: p for pid, p in TOML["profiles"].items() if pid.split(".", 1)[0] in API_KINDS}
 
 
@@ -23,7 +24,7 @@ def isolated_config(tmp_path, monkeypatch):
 
 
 def test_the_api_peers_are_builtin_peer_kinds_without_other_aliases():
-    from peerhub.extensions.peer_kinds import ALIASES
+    from peerhub.core.peer_kinds import ALIASES
 
     assert all(ALIASES[kind] == kind for kind in API_KINDS)
     assert sorted(alias for alias, kind in ALIASES.items() if kind in API_KINDS) == sorted(API_KINDS)
@@ -67,19 +68,24 @@ def test_every_list_that_names_ca_and_oa_names_ga():
                     missing.append(f"{path.relative_to(REPO)}:{number}: a line with ca and oa has no ga")
     assert not missing, "\n".join(missing)
     assert seen >= 30  # the files of design 8 are among them (the next assertions name each one)
+    from peerhub.cli import recovery
     from peerhub.extensions import batch, bridge, peer_kinds, session_receipts, usage_normalization
 
-    receipts = Path(session_receipts.__file__).read_text(encoding="utf-8")
-    assert "adapter:(cc|cx|ag|ca|oa|ga)" in receipts and "'ca','oa','ga'" in receipts and "WHEN 'ga' THEN 'ga.response.usage'" in receipts
-    assert session_receipts._PROVIDER_USAGE_CONTRACT["ga"] == ("delivery", "ga.response.usage")  # pyright: ignore[reportPrivateUsage]
+    usage_contract = session_receipts._PROVIDER_USAGE_CONTRACT  # pyright: ignore[reportPrivateUsage]
+    assert set(usage_contract) == set(BUILTIN_PEER_KINDS)
+    assert usage_contract["ga"] == ("delivery", "ga.response.usage")
+    for kind in BUILTIN_PEER_KINDS:
+        match = session_receipts._ADAPTER_VERSION.fullmatch(f"adapter:{kind}:v12")  # pyright: ignore[reportPrivateUsage]
+        assert match and match.groups() == (kind, "12")
+        assert recovery._PROFILE_ID.fullmatch(f"{kind}.example")  # pyright: ignore[reportPrivateUsage]
+    api_kinds = ", ".join(json.dumps(kind) for kind in API_KINDS)
     bridge_source = Path(bridge.__file__).read_text(encoding="utf-8")
-    assert bridge_source.count("'ca','oa','ga'") == 2 and bridge_source.count('"ca", "oa", "ga"') == 2
-    assert '"ca", "oa", "ga"' in Path(batch.__file__).read_text(encoding="utf-8")
+    assert f"runtime_kind\"] in ({api_kinds})" in bridge_source
+    assert api_kinds in Path(batch.__file__).read_text(encoding="utf-8")
     assert peer_kinds.ALIASES["ga"] == "ga" and usage_normalization.REPORTED_FIELDS["ga"] == {"input_tokens", "output_tokens"}
-    for name in ("cli/app.py", "cli/guide.py", "cli/recovery.py", "extensions/ask.py", "config_data/lessons.toml"):
+    for name in ("cli/app.py", "cli/recovery.py", "extensions/ask.py", "config_data/lessons.toml"):
         text = (REPO / "peerhub" / name).read_text(encoding="utf-8")
         assert word["ga"].search(text), name
-    assert "(?:ag|cc|cx|ca|oa|ga)" in (REPO / "peerhub" / "cli" / "recovery.py").read_text(encoding="utf-8")
 
 
 def test_the_output_limit_is_per_class_in_every_text_that_names_it():
@@ -198,7 +204,7 @@ def test_the_registered_adapter_comes_before_the_peer_name_as_in_ask(tmp_path, m
     from peerhub.core.store import CoreStore
     from peerhub.extensions import ask as ask_module
     from peerhub.extensions.bridge_claims import ClaimHeldError
-    from peerhub.extensions.peer_kinds import peer_kind
+    from peerhub.core.peer_kinds import peer_kind
 
     assert peer_kind("codex", "ca") == "cx" and peer_kind("ca", "cx") == "ca"  # the one rule `ask` uses
     assert peer_kind(None, "oa") == "oa" and peer_kind(None, "nobody") is None and peer_kind("no-such-adapter", "ca") is None
@@ -356,7 +362,7 @@ def test_quota_refresh_has_no_probe_for_an_api_peer(tmp_path):
 
 def test_batch_accepts_api_peers_refuses_writable_and_classifies_incomplete_replies(tmp_path):
     from peerhub.extensions import batch
-    from peerhub.extensions.peer_kinds import ALIASES
+    from peerhub.core.peer_kinds import ALIASES
 
     task = batch.Task("t1", "ca", "question", None, "ca.standard", False, 60.0)
     batch.validate_tasks([task, batch.Task("t2", "oa", "question", None, None, False, 60.0),
@@ -393,14 +399,14 @@ def test_messages_name_the_api_peers(tmp_path, capsys):
     from peerhub.extensions import batch
     from peerhub.extensions.ask import ask
 
-    with pytest.raises(ValueError, match="--adapter cx, cc, ag, ca, oa or ga"):
+    with pytest.raises(ValueError, match=f"--adapter {re.escape(BUILTIN_PEER_CHOICES)}"):
         ask(tmp_path / "core.db", "nobody", "question")
-    with pytest.raises(batch.ManifestError, match="--adapter cx, cc, ag, ca, oa or ga"):
+    with pytest.raises(batch.ManifestError, match=f"--adapter {re.escape(BUILTIN_PEER_CHOICES)}"):
         batch.validate_tasks([batch.Task("t1", "nobody", "question", None, None, False, 60.0)], kind_of=lambda peer: None)
     with pytest.raises(SystemExit):
         build_parser().parse_args(["ask", "--help"])
     help_text = " ".join(capsys.readouterr().out.split())
-    assert "cx/codex, cc/claude, ag/agy, ca, oa, ga" in help_text
+    assert ", ".join(BUILTIN_PEER_LABELS) in help_text
     assert "ca, oa and ga: peer:<id>:<request-id>" in help_text
 
 
@@ -415,6 +421,7 @@ def test_live_gate_can_select_the_api_peers():
     assert canary.count("@pytest.mark.ga\n") == 1 and "ga.deepthink" not in canary
     assert f'@pytest.mark.parametrize("profile", {json.dumps(sorted(ga_profiles, reverse=True))})' in canary  # every packaged ga profile
     parser_source = Path(live_gate.__file__).read_text(encoding="utf-8")
-    assert '"cc", "cx", "ag", "ca", "oa", "ga"' in parser_source
+    choices = re.search(r'add_argument\("--peer", choices=(\([^)]+\))', parser_source)
+    assert choices and set(ast.literal_eval(choices[1])) == set(BUILTIN_PEER_KINDS)
     markers = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["pytest"]["ini_options"]["markers"]
     assert all(kind in markers for kind in API_KINDS)

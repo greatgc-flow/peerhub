@@ -6,13 +6,16 @@ import signal
 import subprocess
 import sys
 
+PROCESS_TREE_KILL_TIMEOUT_SECONDS = 10.0
 
-def kill_process_tree(proc: subprocess.Popen[bytes] | subprocess.Popen[str]) -> bool:
+
+def kill_process_tree(proc: subprocess.Popen[bytes] | subprocess.Popen[str], *,
+                      timeout: float = PROCESS_TREE_KILL_TIMEOUT_SECONDS) -> bool:
     """Return whether the OS accepted a whole-tree kill (exit is observed separately)."""
     try:
         if sys.platform == "win32":
             result = subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                                    capture_output=True, timeout=10, check=False)
+                                    capture_output=True, timeout=timeout, check=False)
             if result.returncode == 0:
                 return True
             proc.kill()  # best-effort cleanup, but cannot claim whole-tree termination

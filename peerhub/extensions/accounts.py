@@ -14,7 +14,7 @@ from typing import Mapping
 from peerhub.core.models import Peer
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.core.store import CoreStore, storage_errors
-from peerhub.extensions.peer_kinds import ALIASES
+from peerhub.core.peer_kinds import ALIASES
 
 ROOT_VARS = {"cc": "CLAUDE_CONFIG_DIR", "cx": "CODEX_HOME"}
 SCRUB_PREFIXES = ("ANTHROPIC_", "CLAUDE_CODE_", "OPENAI_", "CODEX_")

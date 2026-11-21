@@ -19,7 +19,7 @@ from peerhub.core.store import CoreStore
 from peerhub.extensions import accounts
 from peerhub.extensions.ask import ask
 from peerhub.extensions.bridge import PrespawnError
-from peerhub.extensions.peer_kinds import ALIASES
+from peerhub.core.peer_kinds import ALIASES
 
 
 @pytest.fixture
