@@ -273,11 +273,9 @@ def test_concurrent_batches_use_independent_store_scratch(tmp_path, db_dir, scra
         for run in runs:
             assert run.result()["tasks"][0]["status"] == "COMPLETED"
     assert len(queries) == 2 and queries[0].parent != queries[1].parent
-    assert all(query.parent.parent == tmp_path / scratch for query in queries)
-    # Windows keeps a removed directory listed (delete pending) until the exited worker's last handle closes.
-    deadline = time.monotonic() + 10
-    while list((tmp_path / scratch).iterdir()) and time.monotonic() < deadline:
-        time.sleep(0.05)
+    # On Windows Path.resolve() sometimes returns the same directory in extended-length form (prefix backslash x2 and
+    # a question mark) when two threads create it at once, so compare directories by identity, not by string (#434).
+    assert all(os.path.samefile(query.parent.parent, tmp_path / scratch) for query in queries)
     assert list((tmp_path / scratch).iterdir()) == []
 
 
