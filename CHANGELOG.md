@@ -8,6 +8,11 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Packaged model defaults 2026-11-21.1: observed versions agy 1.5.14, claude 2.1.330, codex 0.171.0. The model lists of `codex debug models` and `agy.exe models` match the profiles; no model was added or removed. `tools.model_ping` on 2026-11-21 confirmed the answering model for ag.neon, ag.argon, cx.effort, cx.astra, cc.fable and cc.effort.
+- `peerhub guide` gets a Models line: the opt-in tops (cx.astra, ag.neon, ag.argon, cc.fable) are underused; use them for design, hard review and final checks, vary model and effort per task, and give each vote a different model.
+
 ## [0.26.4] - 2026-11-21
 
 ### Added
