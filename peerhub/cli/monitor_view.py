@@ -2056,6 +2056,17 @@ def _fit_bytes(text: str, budget: int, unicode: bool) -> str:
     return "".join(kept) + mark
 
 
+
+# The one top-to-bottom order of the compact and expanded frame below the title: quota first (0.24.18), then what needs
+# attention, then running and finished work (#430). Eviction priority on small terminals is the separate `steps` ladder.
+FRAME_SECTION_ORDER = ("pools", "suggest", "alerts", "running", "recent", "leads")
+FRAME_SECTION_HEADS = {
+    "pools": "POOLS", "suggest": "suggest:", "alerts": "ALERTS",
+    "running": "RUNNING", "recent": "RECENT", "leads": "LEADS",
+}
+FRAME_HEADS = tuple(FRAME_SECTION_HEADS[key] for key in FRAME_SECTION_ORDER)
+
+
 def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, unicode: bool,
                       max_lines: int = COMPACT_MAX_LINES, max_bytes: int = COMPACT_MAX_BYTES,
                       keep: str | None = None) -> str:
@@ -2091,8 +2102,8 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
         return [*lines, _overflow(hidden, nouns[key], width, unicode)] if key in totals and hidden > 0 and rows > 0 else lines
 
     def assemble() -> list[str]:
-        return [verdict, *header, *section("alerts"), *section("running"), *section("pools"), *suggest,
-                *section("recent"), *section("leads")]
+        body = {"suggest": suggest, **{key: section(key) for key in parts}}
+        return [verdict, *header, *(line for key in FRAME_SECTION_ORDER for line in body[key])]
 
     def pop_rows(key: str, floor: int) -> bool:
         lines = parts[key]

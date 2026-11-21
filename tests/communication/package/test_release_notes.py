@@ -34,8 +34,9 @@ def test_tool_writes_the_section_as_lf_bytes_on_every_platform():
 def test_current_package_version_has_changelog_release_body():
     changelog = Path(__file__).resolve().parents[3] / "CHANGELOG.md"
     body = release_notes(changelog.read_text(encoding="utf-8"), __version__)
-    assert __version__ == "0.26.1"
-    assert "#426" in body and "provider stopped reporting" in body
+    assert __version__ == "0.26.2"
+    assert "#430" in body and "FRAME_SECTION_ORDER" in body
+    assert "provider stopped reporting" not in body  # no adjacent history (0.26.1)
     assert "per-store refresh lock" not in body  # no adjacent history (0.26.0)
     assert "#414" not in body and "Monitor watch reads committed quota by default" not in body  # no adjacent history (0.25.0)
     assert "directly under POOLS" not in body  # no adjacent history (0.24.29)

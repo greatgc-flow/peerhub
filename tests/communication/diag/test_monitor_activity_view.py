@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_HEADS, render_grouped_frame, _width
 
 NOW = 1_794_700_000.0  # 2026-11-14 23:46:40Z
 SOURCES_READ = {"activity": "read", "capacity": "read", "accounts": "read", "facts": "read"}
@@ -102,7 +102,7 @@ def lines_of(screen: str) -> list[str]:
 
 def section(lines: list[str], head: str) -> list[str]:
     start = next(i for i, line in enumerate(lines) if line.startswith(head))
-    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^(RUNNING|LEADS|RECENT|POOLS|suggest:)", lines[i])),
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].removeprefix("-- ").startswith(FRAME_HEADS)),
                len(lines))
     return lines[start:end]
 
@@ -116,8 +116,8 @@ def test_compact_frame_order_and_width_with_korean_text(frame, width, unicode_mo
     lines = lines_of(screen)
     assert lines[0] == "OK | 3 running | 2 leads | min quota 1% ag 3P-7D low"
     assert lines[1] == "PeerHub Monitor 2026-11-14 23:46Z | DB:env | quota age 10s"
-    heads = [line.split()[0] for line in lines if re.match(r"^(RUNNING|RECENT|POOLS|suggest:)", line)]
-    assert heads == ["RUNNING", "POOLS", "suggest:", "RECENT"]
+    heads = [line.split()[0] for line in lines if line.startswith(FRAME_HEADS)]
+    assert heads == [head for head in FRAME_HEADS if head != "ALERTS"]
     assert any(line.startswith("POOLS 8 ") for line in lines) and "RUNNING 3 | cc 2 cx 1" in lines
     assert all(_width(line) <= width - 1 for line in lines), screen
     korean = next(line for line in lines if "activity-374-cc" in line or "평가" in line or "?? ??" in line)
@@ -463,7 +463,7 @@ def test_pools_cap_at_eight_rows_with_an_overflow_line(frame):
 def test_suggestion_belongs_to_capacity_and_wraps_to_two_lines(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=50))
     start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
-    assert lines[start + 2].startswith("RECENT") and not lines[start + 1].startswith(("RECENT", "POOLS"))  # two lines
+    assert lines[start + 1].lstrip().startswith("quality=") and lines[start + 2].startswith(FRAME_HEADS)
     assert lines[start - 1].startswith((" ", "+"))  # P21: the suggestion follows the POOLS rows
     frame["selected_groups"] = ["activity"]
     assert "suggest:" not in render_grouped_frame(frame, view="plain", unicode=False, width=100)
@@ -505,8 +505,8 @@ def test_expand_lists_every_field_of_asks_leads_and_alerts(frame):
     lines = lines_of(screen)
     assert lines[0].startswith("ATTN 2 | empty: ag.standard denied-postinstall 3m | facts: ag: version_drift")
     assert lines[1].startswith("PeerHub Monitor")
-    order = [next(i for i, line in enumerate(lines) if line.startswith(marker))
-             for marker in ("-- ALERTS", "RUNNING ", "POOLS ", "suggest:", "RECENT ", "LEADS ", "-- QUOTA [")]
+    order = [next(i for i, line in enumerate(lines) if line.removeprefix("-- ").startswith(heading))
+             for heading in (*FRAME_HEADS, "QUOTA [")]
     assert order == sorted(order) and "ACTIVITY [" not in screen
     for text in ("empty: ag.standard denied-postinstall | age 3m | high | a1", "facts: ag: version_drift | age - | low | a6",
                  "flag ? (other host)", "state run", "elapsed 16m", "started 2026-11-14 23:30:40Z", "lease left 10m",
