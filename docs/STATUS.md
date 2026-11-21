@@ -15,7 +15,7 @@ Slices S1-S4 of the [issue resolution note](design/issue-resolution-2026-10-18.m
 | Track | Status | Design SSOT |
 |---|---|---|
 | Deferred by Design | Top-level `peerhub readiness` (#145; cached `peerhub diag readiness` delivered in v0.21.0 part 1), lazy imports, queue/provider timing split, db schema slices 2-5, arbitrary-model monitor/readiness integration (`ag.argon` profile and exact registry delivered in #194), TUI interactive. | [Issue Resolution Note](design/issue-resolution-2026-10-18.md), issues #145, #194 |
-| Open | Per-peer prompt-cache TTL backlog (#415) and deferred review findings (#424). | [0.26.0 plan](design/plan-0.26.0-2026-11-21.md) |
+| Backlog | Per-peer prompt-cache TTL (start rule and plan in the design note; was #415) and deferred review trade-offs (audit note; was #424). Reopen as an issue when a trigger or a user report appears. | [cache TTL](design/backlog-cache-ttl-2026-11-20.md), [0.26.0 audit](design/audit-0.26.0-regressions.md) |
 
 ### Deferred backlog (start triggers)
 
