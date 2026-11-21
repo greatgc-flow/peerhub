@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_SECTIONS, render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_SECTIONS, FRAME_TRAILING_ROWS, render_grouped_frame, _width
 
 NOW = 1_794_522_324.0
 
@@ -440,10 +440,9 @@ def test_r3_height_3_through_60_sweep_has_exact_cuts_and_peer_priority(
         peers.extend({**deepcopy(peers[0]), "peer_id": f"worker{i}"} for i in range(peer_count - 3))
         whole = render_grouped_frame(payload, width=width, height=1000, view="plain", expand=True).splitlines()
         all_rows = _data_rows("\n".join(whole))
-        # #374: line 1 is the verdict. At height 3 the two free lines hold the verdict and the short cut notice;
-        # from height 4 the exact count and the complete command follow it.
+        # The verdict and title are the last lines to give way.
         tiny = render_grouped_frame(payload, width=width, height=3, view="plain", expand=True).splitlines()
-        assert len(tiny) == 2 and tiny[0].startswith("OK") and "--expand" in tiny[1], tiny
+        assert tiny == whole[:2]
         for height in range(4, 61):
             screen = render_grouped_frame(payload, width=width, height=height, view="plain", expand=True)
             lines = screen.splitlines()
@@ -451,10 +450,14 @@ def test_r3_height_3_through_60_sweep_has_exact_cuts_and_peer_priority(
             shown = _data_rows(screen)
             assert not shown - all_rows, (width, height, shown - all_rows, screen)  # nothing is invented
             # #412: the frame is cut from the bottom; the count is exactly the lines left out (the coverage line aside)
-            at = next(i for i, line in enumerate(lines) if re.match(r"\+\d+ rows hidden", line))
-            if height >= 24:  # below it a pool row may also go (counted as `+N pools`, in its own line)
-                assert int(re.match(r"\+(\d+)", lines[at])[1]) == len(whole) - 1 - at, (width, height, screen)  # type: ignore[index]
-            assert "all rows" in screen and "peerhub monitor --snapshot --group all --expand | more" in screen
+            cut = next(((i, match) for i, line in enumerate(lines) if (match := re.match(r"\+(\d+) ", line))), None)
+            if height != 5:  # the verdict, title and final pool row leave no room for the hint
+                assert cut is not None and "--expand | more" in screen
+            if cut is not None:
+                at, match = cut
+                assert int(match[1]) == len(whole) - 1 - at, (width, height, screen)
+                if "rows hidden" in lines[at]:
+                    assert "all rows" in screen and "peerhub monitor --snapshot --group all --expand | more" in screen
             for line in lines:
                 if "-> latest session:" in line:
                     assert line.split()[0] in {peer["peer_id"] for peer in peers}
@@ -531,18 +534,18 @@ def test_live_title_never_shows_partial_countdown_digits(round2_frame: dict[str,
 
 @pytest.mark.parametrize("height", [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 20])
 def test_compact_small_heights_follow_the_single_removal_order(frame: dict[str, Any], height: int) -> None:
-    # #374 H2: POOLS rows after the fourth, then the second suggestion line, the remaining POOLS rows down to one, the
-    # suggestion, the last POOLS row, the POOLS header; the header lines carry the totals, so every cut is disclosed.
-    # #412: the same cuts, but the suggestion goes before the last POOLS row (RECENT, when there is any, outlives both).
+    # Suggestion goes first, and the first POOLS cut trades two rows for an overflow line (K5).
     full = render_grouped_frame(frame, width=80, height=1000, view="plain", unicode=False).splitlines()
     pools = next(i for i, line in enumerate(full) if line.startswith("POOLS 7 "))
     assert full[10].startswith("suggest:") and pools == 2 and len(full) == 11  # verdict, line 2, POOLS, 7 rows, suggestion
     rows = full[pools + 1:10]
-    shown = {12: 7, 11: 5, 10: 4, 9: 3, 8: 2, 7: 1, 6: 1, 5: 0, 4: 0, 3: 0}.get(height, 7)
-    expected = [*full[:2], *(full[2:3] if height >= 6 else []), *rows[:shown]]
-    if 0 < shown < 7:
-        expected.append(f"+{7 - shown} pools (--expand)")
-    expected.extend(full[10:] if height >= 7 else [])
+    room = height - FRAME_TRAILING_ROWS - pools - 1  # after the top and the POOLS heading
+    shown = len(rows) if room >= len(rows) else max(0, min(len(rows) - 2, room - 1))
+    expected = [*full[:2], *(full[2:3] if shown else []), *rows[:shown]]
+    if 0 < shown < len(rows):
+        expected.append(f"+{len(rows) - shown} pools (--expand)")
+    if height >= len(full) + FRAME_TRAILING_ROWS:
+        expected.extend(full[10:])
     lines = render_grouped_frame(frame, width=80, height=height, view="plain", unicode=False).splitlines()
     assert lines == expected, (height, lines)
 

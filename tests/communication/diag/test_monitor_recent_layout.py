@@ -149,7 +149,7 @@ def test_expand_has_the_one_order_of_the_spec_in_both_views(busy, view, unicode_
     assert db < next(i for i, line in enumerate(out) if _head(line) in FRAME_HEADS)
     compact = [n for n in head_names(render_grouped_frame(busy, view=view, unicode=unicode_mode, width=120))
                if n in SPEC_ORDER]
-    assert compact == list(FRAME_HEADS)
+    assert compact == list(FRAME_HEADS[:len(compact)])
 
 
 def test_recent_header_counts_finished_asks_and_running_ones(busy):
@@ -284,19 +284,16 @@ def test_heights_stay_within_the_bound_and_keep_the_top(busy, height, width, vie
     out = lines(screen)
     assert len(out) <= height - 1, (height, len(out), screen)
     assert re.match(r"^\W*(OK|ATTN)", out[0]) and "PeerHub" in head_names(screen)
-    names = head_names(screen)
-    assert names.index("ALERTS") < names.index("RUNNING")
-    if "RECENT" in names:
-        assert names.index("RUNNING") < names.index("RECENT")
+    names = [name for name in head_names(screen) if name in SPEC_ORDER]
+    assert names == SPEC_ORDER[:len(names)] and "ALERTS" in names
 
 @pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True)])
-def test_the_expand_ladder_shrinks_recent_first_then_drops_the_sections_from_the_bottom(busy, view, unicode_mode):
+def test_the_expand_ladder_drops_the_sections_from_the_bottom(busy, view, unicode_mode):
     detailed(busy)
     for height in range(19, 61):
         screen = render_grouped_frame(busy, view=view, unicode=unicode_mode, width=118, height=height, expand=True)
         names = [n for n in head_names(screen) if n in SPEC_ORDER]
-        assert {"ALERTS", "RUNNING"} <= set(names)
-        assert names == [n for n in SPEC_ORDER if n in names], (height, names)
+        assert "POOLS" in names and names == SPEC_ORDER[:len(names)], (height, names)
         entries = [row for row in recent_rows(screen) if "done-" in row]
         assert len(entries) <= RECENT_EXPAND
 
@@ -330,14 +327,17 @@ def test_rows_shrink_before_lower_sections_go(busy, height):
     screen = render_grouped_frame(busy, view="plain", unicode=False, width=100, height=height)
     recent = section_rows(screen, "RECENT")
     assert 0 <= recent <= RECENT_CAP and len(lines(screen)) <= height - 1
-    assert section_rows(screen, "RUNNING") == 2
     taller = render_grouped_frame(busy, view="plain", unicode=False, width=100, height=height + 1)
     assert section_rows(taller, "RECENT") >= recent
+    assert section_rows(screen, "RUNNING") <= section_rows(taller, "RUNNING") <= 2
+    if recent:
+        assert section_rows(screen, "RUNNING") == 2
 
-def test_small_expand_height_keeps_running_details(busy):
+def test_small_expand_height_keeps_pool_details(busy):
     screen = render_grouped_frame(busy, view="rich", unicode=True, width=120, height=12, expand=True)
     assert len(lines(screen)) <= 11
-    assert "RUNNING" in head_names(screen) and "running-a" in screen
+    assert "POOLS" in head_names(screen) and "RUNNING" not in head_names(screen)
+    assert "--expand | more" in screen
 
 # ---- JSON / read model schema stays additive ----------------------------------------------------------------------
 

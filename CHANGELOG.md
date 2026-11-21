@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Compact and expanded monitor frames now trim sections from the bottom up. POOLS lists usable families by their weekly parent's PACE, most under-used first, followed by unknown PACE and exhausted pools.
+
 ## [0.26.4] - 2026-11-21
 
 ### Added

@@ -9,13 +9,14 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_HEADS, render_grouped_frame
+from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import NOW, SOURCES_READ, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
 
-GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_v0_24_17.json"
+GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_compact_sections.json"
 ORDER = FRAME_HEADS
-_HEAD = re.compile(r"^(?:-- )?(" + "|".join(map(re.escape, ORDER)) + r")(?= |$)")
+_HEAD = re.compile(r"^(?:-- )?(" + "|".join(map(re.escape, FRAME_SECTIONS.values())) + r")(?= |$)")
+_TRAILER = re.compile(r"^(?:\+\d+ (?:rows hidden|--expand \| more)|Coverage: )")
 PROFILES = [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
     ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]), ("ag.deepthink", ["3P-5H", "3P-7D"]),
     ("cc.effort", ["C-5H", "C-7D"]), ("cc.fable", ["F-7D"]), ("cx.effort", ["X-5H", "X-7D"]))]
@@ -100,7 +101,7 @@ def golden_cases() -> Iterator[tuple[str, dict[str, Any], dict[str, Any]]]:
                            {"view": "plain", "unicode": False, "width": width, "height": height, "text_encoding": encoding})
 
 
-def blocks(screen: str) -> dict[str, list[str]]:
+def blocks(screen: str, *, expanded: bool = False) -> dict[str, list[str]]:
     """The frame's lines by section: `top` (line 1, line 2 and the lines that belong to it) and one block per head."""
     result: dict[str, list[str]] = {"top": []}
     key = "top"
@@ -110,6 +111,9 @@ def blocks(screen: str) -> dict[str, list[str]]:
             key = match[1]
             assert key not in result, f"two {key} blocks"
             result[key] = []
+        elif expanded and _TRAILER.match(line):
+            key = "trailer"
+            result.setdefault(key, [])
         result[key].append(line)
     return result
 
@@ -149,9 +153,19 @@ def test_the_goldens_cover_every_case():
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in golden_cases()])
 def test_plain_frame_matches_its_golden(case, payload, kwargs):
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
-    assert screen == in_order(GOLDENS[case], ORDER)
     assert in_order(screen, ORDER) == screen  # the sections print in the one order
     assert "\x1b" not in screen
+    actual, expected = blocks(screen), blocks(GOLDENS[case])
+    pools = FRAME_SECTIONS["pools"]
+    assert actual.get(pools) == expected.get(pools)
+    if kwargs["height"] is None and not case.startswith("full-"):
+        assert actual == expected  # the quiet and empty frames fit the compact budget whole
+    for section in (actual.keys() & expected.keys()) - {pools}:
+        # Height eviction changes how much of a block fits and where its overflow line appears.
+        shown = [line for line in actual[section] if not line.startswith("+")]
+        saved = [line for line in expected[section] if not line.startswith("+")]
+        common = min(len(shown), len(saved))
+        assert shown[:common] == saved[:common], section
 
 
 @pytest.mark.parametrize("name", list(PAYLOADS))

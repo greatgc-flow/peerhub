@@ -7,7 +7,9 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame, _width
+from peerhub.cli.monitor_view import (
+    FRAME_HEADS, FRAME_SECTIONS, POOLS_USE_FIRST_HINT, render_grouped_frame, _width,
+)
 
 NOW = 1_794_700_000.0  # 2026-11-14 23:46:40Z
 SOURCES_READ = {"activity": "read", "capacity": "read", "accounts": "read", "facts": "read"}
@@ -422,30 +424,27 @@ def test_missing_alert_sources_never_claim_ok(frame):
     assert lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))[0].startswith("OK? (alerts not read)")
 
 
-def test_pools_classes_five_hour_rule_and_columns(frame):
+def test_pools_five_hour_rule_and_columns(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     pools = section(lines, "POOLS")
-    assert pools[0].split() == ["POOLS", "8", "STATE", "LEFT", "RESET", "PACE", "FAMILY"]
-    names = [re.search(r"\b((?:3P|[A-Z])-\d+[HD])\b", line)[1] for line in pools[1:]]
-    # K3/L6: a 7-day pool takes the most severe class of itself and its shown 5-hour row: X-7D (fast) with X-5H out
-    # is class out, so it comes first; then 3P-7D (low), G-7D (binding), the rest.
-    assert names == ["X-7D", "X-5H", "3P-7D", "G-7D", "G-5H", "A-7D", "C-7D", "F-7D"]
-    assert pools[3].split()[:5] == ["ag", "3P-7D", "low", "1%", "1d00h"]
-    assert pools[3].split()[5:] == ["^+71", "claude-via-ag"]  # the direction glyph stays (ASCII here)
-    assert pools[5].lstrip().startswith("`- G-5H")  # the binding 5-hour sub-row follows its 7-day pool
-    assert pools[2].split()[1:4] == ["X-5H", "out", "0%"]
-    assert "fast" in pools[1].split()
+    assert pools[0].split() == ["POOLS", "8", "STATE", "LEFT", "RESET", "PACE", "FAMILY", *POOLS_USE_FIRST_HINT.split()]
+    rows = {re.search(r"\b((?:3P|[A-Z])-\d+[HD])\b", line)[1]: line for line in pools[1:]}
+    assert rows["3P-7D"].split() == ["ag", "3P-7D", "low", "1%", "1d00h", "^+71", "claude-via-ag"]
+    for parent, child in (("G-7D", "G-5H"), ("X-7D", "X-5H")):
+        assert rows[child].lstrip().startswith(f"`- {child}")
+        assert pools.index(rows[child]) == pools.index(rows[parent]) + 1
+    assert rows["X-5H"].split()[1:4] == ["X-5H", "out", "0%"]
+    assert "fast" in rows["X-7D"].split()
     assert "" not in pools and "3P-5H" not in "".join(pools) and "C-5H" not in "".join(pools)
     header = pools[0]
     assert header.index("STATE") < header.index("LEFT") < header.index("RESET") < header.index("PACE")
 
 
 @pytest.mark.parametrize("child,other", [
-    (0.05, .03),  # a low 5-hour row lifts its ok 7-day pool into class low: ag sorts before the low cc pool
-    (0.0, 0.0),   # an out 5-hour row lifts it into class out, beside an out cc pool
+    (0.05, .03),
+    (0.0, 0.0),
 ])
-def test_a_seven_day_pool_takes_the_most_severe_class_of_its_shown_five_hour_row(frame, child, other):
-    # K3/L6: without this rule G-7D would be class binding and sort after the cc pool of class low or out.
+def test_a_five_hour_child_stays_under_its_weekly_pool_when_low_or_out(frame, child, other):
     frame["groups"]["capacity"]["data"]["observations"] = [
         pool("ag", "G-7D", .50), pool("ag", "G-5H", child), pool("cc", "C-7D", other)]
     pools = section(lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100)), "POOLS")

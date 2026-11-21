@@ -183,7 +183,7 @@ mean the model answered the task successfully. PeerHub does not currently
 classify semantic task success/error. Context occupancy of asks: for cc it is estimated at the end of each ask, from the tokens of the last main-chain assistant message and the context window that the result reports for that model; it is an estimate with its time (`state: "ESTIMATED"`, `observed_at`; `latest_telemetry.context` in `peerhub session show --json`), and it stays unknown when either value is missing or does not fit. `--expand` shows it as `2% est, 3m ago` (see below). For cx it is not implemented (its rollout file has it). For ag it is not measured. `runtime` and `store` remain available with
 `--group` or `--snapshot --group`.
 
-The compact monitor starts with the verdict and header, followed by POOLS, the suggestion, ALERTS, RUNNING, RECENT and LEADS. ALERTS and RUNNING get space before RECENT. `RECENT 130 (2 running)` counts finished asks and lists the newest. Live session values appear only on the newest ask per stream and peer. When available, RECENT uses the SESSIONS context estimate for `cx` and `ag`. Pools that report `n/a` stay in the count and are identified inline. Use `--group capacity` for quota and suggestions without other sessions' text. Request and reply text is cleaned of known secrets. `PEERHUB_MONITOR_TEXT=off` hides it.
+The compact monitor starts with the verdict and header, followed by POOLS, the suggestion, ALERTS, RUNNING, RECENT and LEADS. Short frames shrink and drop sections from the bottom up in both layouts. POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools. Ties sort by peer and pool name. The heading shows `use first` when there is room. `RECENT 130 (2 running)` counts finished asks and lists the newest. Live session values appear only on the newest ask per stream and peer. When available, RECENT uses the SESSIONS context estimate for `cx` and `ag`. Pools that report `n/a` stay in the count and are identified inline. Use `--group capacity` for quota and suggestions without other sessions' text. Request and reply text is cleaned of known secrets. `PEERHUB_MONITOR_TEXT=off` hides it.
 
 The compact frame has two views with the same lines and rows. The plain view (`--view plain`, and the default when the output is not a VT terminal, for example a pipe or an AI session) keeps ASCII frame lines and no colour. Its sections follow the order above, and the LEADS header distinguishes list entries from found sessions. The rich view (`--view rich`, the default on a VT terminal) draws the same frame in a new look:
 
@@ -201,16 +201,16 @@ An example of the rich view, shown here without colour (the uncoloured frame, as
 ```text
 OK · 2 running · 1 lead · min quota 18% cx X-7D ok                                           23:46Z
 PeerHub Monitor 2026-11-14 23:46Z · DB:env · quota age 10s
+── POOLS 5 ─ STATE ────────────────────── LEFT  RESET  PACE  FAMILY  use first ───────────────────
+ cc C-7D     ● ok   █████████████░░░░░░░   63%  1d00h  ▼-20  claude
+    └─ C-5H  ● ok   ██████░░░░░░░░░░░░░░   30%  1d00h     -  claude
+ ag G-7D     ● ok   ██████████████░░░░░░   71%  1d00h   ▼-6  flash
+    └─ G-5H  ● ok   ████████░░░░░░░░░░░░   40%  1d00h     -  flash
+ cx X-7D     ● ok   ████░░░░░░░░░░░░░░░░   18%  1d00h   ▲+9  codex
+suggest: eco=ag.standard normal=cc.effort|cx.effort quality=- top=-
 ── RUNNING 2 · ag 1 cx 1 ──────────────────────────────────────────────────────────────────────────
  ►  16m  cx.effort    docs-site  Review the importer change and its tests  review-api
  ►   1m  ag.standard  docs-site  Vote on the release plan                  vote-1
-── POOLS 5 ─ STATE ────────────────────── LEFT  RESET  PACE  FAMILY ───────────────────────────────
- ag G-7D     ● ok   ██████████████░░░░░░   71%  1d00h   ▼-6  flash
-    └─ G-5H  ● ok   ████████░░░░░░░░░░░░   40%  1d00h     -  flash
- cc C-7D     ● ok   █████████████░░░░░░░   63%  1d00h  ▼-20  claude
-    └─ C-5H  ● ok   ██████░░░░░░░░░░░░░░   30%  1d00h     -  claude
- cx X-7D     ● ok   ████░░░░░░░░░░░░░░░░   18%  1d00h   ▲+9  codex
-suggest: eco=ag.standard normal=cc.effort|cx.effort quality=- top=-
 ── RECENT 2 (2 running) ──────────────────────────────────────────────────────────────────────────
  ● ok      3m  cc.effort  docs-site  check-links    R  u3  62k/6%  c91%  "All 42 links resolve."
  ● unsure   ?  cx.effort  docs-site  shipped-check  F  u1  -       c40%  (no reply)
@@ -218,7 +218,7 @@ suggest: eco=ag.standard normal=cc.effort|cx.effort quality=- top=-
  docs-site  busy  12s  ctx ■■□□□ 46%  2 run  fable-5-2  Importer docs
 ```
 
-The plain view of the same frame starts `OK | 2 running | 1 lead | min quota 18% cx X-7D ok`, has `POOLS 5      STATE  LEFT  RESET  PACE  FAMILY` as its head and ` cc C-7D     ok      63%  1d00h  v-20  claude` as a row.
+The plain view of the same frame starts `OK | 2 running | 1 lead | min quota 18% cx X-7D ok`, has `POOLS 5      STATE  LEFT  RESET  PACE  FAMILY  use first` as its head and ` cc C-7D     ok      63%  1d00h  v-20  claude` as a row.
 
 The context of a cc ask is an estimate and never live data. On a RECENT row it is the estimate of the newest session of the ask's stream at the time of the read (`62k/6%` in the compact frame, `ctx 62k/1M 6% now` in `--expand`): the read model joins each of the newest ended asks to that session in the activity statement, so the value does not depend on the `SESSIONS` sample and needs no `sessions` group; a stream without a session shows `-`. In the sessions, context and peers sections of `--expand` it reads `<percent>% est, <age> ago`, for example `2% est, 3m ago`: `est` means an estimate of the context at the end of that session's last ask, as a share of the model's maximum input, and the age is counted from that ask's end to the time of the frame. The estimate appears as the last field of a SESSIONS row (dropped whole when the line is too narrow), as a CONTEXT row (`cc 2% est, 3m ago ... | 20,113 of 1,000,000 tokens`, never with the word `MEASURED`) and on the PEERS line (`-> context: 2% est, 3m ago`); in these three places it reads `2% est, age ?` when its time is unknown. The legend explains `CTX est`. `--expand` also lists `source capacity: unknown (no 7-day pool has a number)` for `OK? (quota unknown)`, and `source capacity: no quota evidence` for a store that never had a quota refresh.
 

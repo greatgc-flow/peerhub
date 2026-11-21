@@ -4,10 +4,9 @@ from __future__ import annotations
 import math
 import os
 import re
-import sys
 import unicodedata
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, cast
 
@@ -115,7 +114,7 @@ def _fit(text: str, width: int, unicode: bool, painted: bool = False, *, indent:
 
 
 def _pool_order(peer: str, pool: str) -> tuple[str, str, int, str]:
-    """The one pool ordering every monitor view uses: peer, family, window length, name."""
+    """Identity order for the underlying pool rows: peer, family, window length, name."""
     return (peer, _pool_family(pool), _parse_window(pool)[0], pool)
 
 
@@ -125,9 +124,8 @@ def _na_suffix(names: Sequence[str]) -> str:
 
 def _quota_layout(rows: list[dict[str, Any]], unicode: bool, *, show_quota_notes: bool = True,
                   order: dict[tuple[str, str], int] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
-    """Derive a forest from configured consumers, leaving every pool's values intact. `order` (#394) is the position of
-    each (peer, pool) in POOLS: the peers follow it (the peer of the most urgent pool first), so POOLS and QUOTA name the
-    peers in one order. Within a peer the trees keep their family and window order."""
+    """Derive a forest from configured consumers, leaving every pool's values intact. `order` gives the urgency rank
+    of each (peer, pool) for the QUOTA peer order. Within a peer the trees keep their family and window order."""
     result: list[dict[str, Any]] = []
     notes: list[str] = []
     hidden: dict[str, list[str]] = {}  # the n/a pools that have no parent row to carry their name
@@ -275,7 +273,7 @@ def _fit_live_title(refresh_state: str, next_refresh: float | None, stamp: str,
 
 
 def _hidden_lines(rows: int, groups: int, width: int, unicode: bool, *, expand: bool,
-                  quota: bool = False) -> list[str]:
+                  quota: bool = False, single_line: bool = False) -> list[str]:
     sep = " · " if unicode else " | "
     detail = f"+{rows} rows hidden"
     group_note = f" ({groups} {'group' if groups == 1 else 'groups'})" if groups else ""
@@ -286,7 +284,7 @@ def _hidden_lines(rows: int, groups: int, width: int, unicode: bool, *, expand: 
             if _width(detail + group_note + sep + hint) <= width:
                 detail += group_note
             return [detail + sep + hint]
-        if _width(command) <= width:
+        if not single_line and _width(command) <= width:
             return [_fit(detail + group_note + "; all rows:", width, unicode), command]
         return [_fit(f"+{rows} --expand | more", width, unicode)]
     hint = ("peerhub monitor --snapshot --group capacity --expand" if quota else
@@ -1019,9 +1017,9 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                               "PROFILES (configured)": _clean(_obj(data.get("consumers")).get(f"{peer}:{pool_id}") or "unmapped")})
 
             pool_rows = cast(dict[tuple[str, str], dict[str, Any]], data.get("_pool_rows") or {})
-            # POOLS' order (#394): the position of each pool in the rows POOLS draws.
+            # QUOTA keeps the most urgent peer first (#394).
             position = {(str(row["peer"]), str(row["pool"])): index
-                        for index, (row, _) in enumerate(_ordered_pools(list(pool_rows.values()), every=True))}
+                        for index, (row, _) in enumerate(_ordered_pools(list(pool_rows.values()), every=True, for_quota=True))}
             layout, retired_notes = _quota_layout([
                 {"peer": cells["PEER"], "pool": cells["POOL"], "state": cells["STATE"],
                  "profiles": cells["PROFILES (configured)"], "cells": cells, "source": item,
@@ -1726,12 +1724,15 @@ def _compact_pool(item: dict[str, Any], now: float, elapsed: float,
               "passed" if reset_in <= 0 else _compact_age(reset_in))
     pace = _number(projection.get("pace_pt"))
     pace_text = "-"
-    if pace is not None and remaining is not None and state not in {QUOTA_NA, "?", "reset"}:
+    if remaining is None or state in {QUOTA_NA, "?", "reset"}:
+        pace = None
+    if pace is not None:
         rounded = round(pace)
         pace_text = f"{rounded:+d}" if rounded else "0"
     return {"peer": peer, "pool": pool, "pool_ref": _clean(item.get("pool_ref") or ""),
             "meaning": meaning, "remaining": remaining, "left": left,
-            "resets": resets, "pace": pace_text, "reset_seconds": reset_in, "family": family, "age": _compact_age(age), "state": state, "aged": aged,
+            "resets": resets, "pace": pace_text, "pace_pt": pace, "reset_seconds": reset_in,
+            "family": family, "age": _compact_age(age), "state": state, "aged": aged,
             "color_state": "ERROR" if item.get("state") == "ERROR" else
                            state if state in {QUOTA_NA, "?", "reset", "aged"} else _clean(projection.get("state") or state),
             "needs_refresh": aged or age is None or state in {"?", "reset"}, "reason": reason, "display_plan": item.get("display_plan"),
@@ -1856,6 +1857,8 @@ LEADS_CAP = 3
 LEAD_LABEL_COLS = 16
 RECENT_CAP = 5
 POOLS_CAP = 8
+POOLS_USE_FIRST_ASCENDING = True
+POOLS_USE_FIRST_HINT = "use first"
 REQUEST_CAP = 60
 RECENT_EXPAND = 8
 POOLS_TRIM_FLOOR = 4
@@ -2087,13 +2090,25 @@ def _fit_bytes(text: str, budget: int, unicode: bool) -> str:
 def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, unicode: bool,
                       max_lines: int = COMPACT_MAX_LINES, max_bytes: int = COMPACT_MAX_BYTES,
                       keep: str | None = None) -> str:
-    """Fit the shared section order to the width, line and byte budgets.
-
-    For tight frames, RECENT shrinks before active work. A row removal that introduces an overflow line
-    removes two rows to free space. The last fallback fits the verdict to the byte budget."""
+    """Fit the shared section order to the width, line and byte budgets."""
     limit = max_lines if height is None else min(max_lines, height - FRAME_TRAILING_ROWS)
     if limit <= 0 or width <= 0:
         return ""
+
+    verdict = frame.verdict
+    for lines in _frame_line_ladder(frame, width, unicode, keep):
+        verdict = lines[0]
+        if len(lines) <= limit:
+            if sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
+                return "\n".join(lines) + "\n"
+            lines = [_FILE_OSC.sub(r"\1", line) for line in lines]
+            if sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
+                return "\n".join(lines) + "\n"
+    return _fit_bytes(verdict, max_bytes - 1, unicode) + "\n"
+
+
+def _frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str | None) -> Iterator[list[str]]:
+    """Yield the fitted frame, then shrink and drop each section from the bottom up."""
 
     def fit(line: str) -> str:
         return _fit(line if unicode else _ascii(line.replace(" · ", " | ").replace("·", "|"), keep), width, unicode,
@@ -2104,9 +2119,7 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
 
     verdict = fit(frame.verdict)
     header = [fit(line) for line in frame.header]
-    suggest = [fit(line) for line in frame.suggest]
-    parts = {"alerts": fitted(frame.alerts), "running": fitted(frame.running), "leads": fitted(frame.leads),
-             "recent": fitted(frame.recent), "pools": fitted(frame.pools)}
+    parts = {key: fitted(getattr(frame, key)) for key in FRAME_SECTION_ORDER}
     totals = {"running": frame.running_total, "leads": frame.leads_total, "pools": frame.pools_total}
     nouns = {"running": "more", "leads": "leads", "pools": "pools"}
 
@@ -2119,8 +2132,7 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
         return [*lines, _overflow(hidden, nouns[key], width, unicode)] if key in totals and hidden > 0 and rows > 0 else lines
 
     def assemble() -> list[str]:
-        body = {"suggest": suggest, **{key: section(key) for key in parts}}
-        return [verdict, *header, *(line for key in FRAME_SECTION_ORDER for line in body[key])]
+        return [verdict, *header, *(line for key in FRAME_SECTION_ORDER for line in section(key))]
 
     def pop_rows(key: str, floor: int) -> bool:
         lines = parts[key]
@@ -2136,47 +2148,32 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
             lines.pop()
         return True
 
-    def drop(key: str) -> bool:
-        if parts[key] is None:
-            return False
-        parts[key] = None
-        return True
-
-    def pop_line(lines: list[str] | None, floor: int) -> bool:
-        if lines is None or len(lines) <= floor:
-            return False
-        lines.pop()
-        return True
-
-    steps: list[Callable[[], bool]] = [
-        lambda: pop_rows("leads", 1),
-        lambda: pop_line(parts["recent"], SECTION_WITH_DETAIL),
-        lambda: pop_rows("pools", POOLS_TRIM_FLOOR),
-        lambda: pop_line(suggest, 1),
-        lambda: drop("leads"),
-        lambda: drop("recent"),
-        lambda: pop_rows("pools", 1),
-        lambda: pop_line(suggest, 0),
-        lambda: pop_line(header, 1),  # what hangs on the title line; the title stays
-        lambda: drop("pools"),
-        lambda: pop_rows("running", 1),
-        lambda: pop_line(parts["alerts"], SECTION_WITH_DETAIL),
-        lambda: drop("running"),
-        lambda: drop("alerts"),
-        lambda: pop_line(header, 0),
-    ]
-    while True:
-        lines = assemble()
-        if len(lines) <= limit:
-            if sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
-                break
-            lines = [_FILE_OSC.sub(r"\1", line) for line in lines]
-            if sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
-                break
-        if not any(step() for step in steps):
-            lines = [_fit_bytes(verdict, max_bytes - 1, unicode)]
-            break
-    return "\n".join(lines) + "\n"
+    yield assemble()
+    for key in reversed(FRAME_SECTION_ORDER):
+        rows = parts[key]
+        if rows and key == "recent" and frame.recent_short:
+            rows[1:] = [fit(line) for line in frame.recent_short]
+            yield assemble()
+        if key in totals:
+            floors = (POOLS_TRIM_FLOOR, 1) if key == "pools" else (1,)
+            for floor in floors:
+                while pop_rows(key, floor):
+                    yield assemble()
+        elif rows:
+            floor = 1 if key == "suggest" else SECTION_WITH_DETAIL
+            while len(rows) > floor:
+                rows.pop()
+                yield assemble()
+        if key == "pools":
+            while len(header) > 1:  # title details give way before the final pool row
+                header.pop()
+                yield assemble()
+        if rows:
+            parts[key] = None
+            yield assemble()
+    if header:
+        header.pop()
+        yield assemble()
 
 
 def _columns(rows: list[list[str]], width: int, elastic: int | None, floor: int = 12) -> tuple[int, list[int]]:
@@ -2466,18 +2463,19 @@ def _scoped_weekly_parents(rows: list[dict[str, Any]]) -> dict[int, dict[str, An
     return parents
 
 
-def _ordered_pools(rows: list[dict[str, Any]], *, every: bool = False) -> list[tuple[dict[str, Any], int]]:
-    """Classes out, low, binding (a 7-day pool whose 5-hour sub-row is shown), fast, the rest; then peer and pool.
-    `every` (the rich --expand frame, P23) also lists the 5-hour rows that do not bind, under their 7-day pool; the
-    order of the other rows is unchanged, because a short window that does not bind never decides a class. A scoped
-    Fable weekly row always follows its configured all-models parent; each tuple carries its indentation depth."""
+def _ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
+                   for_quota: bool = False) -> list[tuple[dict[str, Any], int]]:
+    """Sort POOLS by each family's weekly parent. QUOTA retains its urgency order.
+
+    Expanded POOLS also lists the short windows that do not bind. Each tuple carries its indentation depth.
+    """
     scoped = _scoped_weekly_parents(rows)
     weekly: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
         if row["family"] != "?" and _parse_window(str(row["pool"]))[0] == _WEEK:
             weekly.setdefault((str(row["peer"]), str(row["family"])), row)
     tops: list[dict[str, Any]] = []
-    children: dict[int, list[dict[str, Any]]] = {}  # the sub-rows that bind: they decide the class of their pool
+    children: dict[int, list[dict[str, Any]]] = {}  # binding sub-rows contribute to QUOTA urgency
     listed: dict[int, list[dict[str, Any]]] = {}  # the sub-rows the frame lists
     for row in rows:
         parent = scoped.get(id(row)) or weekly.get((str(row["peer"]), str(row["family"])))
@@ -2490,16 +2488,25 @@ def _ordered_pools(rows: list[dict[str, Any]], *, every: bool = False) -> list[t
         if binds or every or id(row) in scoped:
             listed.setdefault(id(parent), []).append(row)
     for children_rows in listed.values():
-        children_rows.sort(key=lambda row: (-_parse_window(str(row["pool"]))[0], str(row["pool"])))
+        children_rows.sort(key=lambda row: (not for_quota and id(row) in scoped,
+                                            -_parse_window(str(row["pool"]))[0], str(row["pool"])))
 
-    def rank(row: dict[str, Any]) -> tuple[int, tuple[str, str, int, str]]:
+    def urgency(row: dict[str, Any]) -> int:
         # The most severe class of the pool and its binding short rows, including a scoped weekly child's class.
         states = {row["state"], *(child["state"] for child in children.get(id(row), ())),
                   *(child["state"] for child in listed.get(id(row), ()) if id(child) in scoped)}
         cls = (0 if "out" in states else 1 if "low" in states else 2 if id(row) in children
                else 3 if "fast" in states else 4)
-        cls = min([cls, *(rank(child)[0] for child in listed.get(id(row), ()) if id(child) in scoped)])
-        return cls, _pool_order(str(row["peer"]), str(row["pool"]))
+        return min([cls, *(urgency(child) for child in listed.get(id(row), ()) if id(child) in scoped)])
+
+    def use_first(row: dict[str, Any]) -> tuple[int, float, str, str]:
+        peer, name = str(row["peer"]), str(row["pool"])
+        if row["state"] == "out":
+            return 2, 0, peer, name
+        pace = _number(row.get("pace_pt")) if _parse_window(name)[0] == _WEEK else None
+        if pace is None:
+            return 1, 0, peer, name
+        return 0, pace if POOLS_USE_FIRST_ASCENDING else -pace, peer, name
 
     ordered: list[tuple[dict[str, Any], int]] = []
 
@@ -2508,7 +2515,11 @@ def _ordered_pools(rows: list[dict[str, Any]], *, every: bool = False) -> list[t
         for child in listed.get(id(row), ()):
             append_tree(child, depth + 1)
 
-    for top in sorted(tops, key=rank):
+    if for_quota:
+        tops.sort(key=lambda row: (urgency(row), _pool_order(str(row["peer"]), str(row["pool"]))))
+    else:
+        tops.sort(key=use_first)
+    for top in tops:
         append_tree(top, 0)
     return ordered
 
@@ -2544,6 +2555,14 @@ def _pool_bar(row: dict[str, Any], cells: int, unicode: bool, child: bool = Fals
     return full * filled + empty * (cells - filled)
 
 
+def _pools_heading(head: str, width: int, unicode: bool, rich: bool, paint: bool) -> str:
+    hint = f"  {POOLS_USE_FIRST_HINT}"
+    room = width - (3 if rich else 0)  # leave the rich heading room for its rule
+    if _width(head + hint) <= room:
+        head += hint
+    return _head_rule(head, width, unicode, paint) if rich else head
+
+
 def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
                   rich: bool = False, paint: bool = False, every: bool = False) -> tuple[list[str], int]:
     """POOLS rows with inline unavailable windows included in the header count.
@@ -2570,7 +2589,7 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
     markers = [_na_suffix(suffixes[id(row)]) if id(row) in suffixes else "" for row, _ in shown]
 
     def with_markers(lines: list[str], code: str | None = None) -> tuple[list[str], int]:
-        rendered = [lines[0]]
+        rendered = [_pools_heading(lines[0], width, unicode, rich, paint)]
         for line, marker in zip(lines[1:], markers):
             rendered.extend(_quota_suffix(line, marker, width, unicode, code))
         return rendered, len(rendered) - 1 + len(ordered) - len(shown)
@@ -2636,7 +2655,8 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
         return text
 
     lines = _table(chosen, width, unicode, right=right, elastic=elastic, floor=floor, paint=painter if paint else None)
-    lines[0] = _head_rule(lines[0] if chosen is table else lines[0][3:], width, unicode, paint)
+    if chosen is not table:
+        lines[0] = lines[0][3:]
     return with_markers(lines, RICH_SGR["dim"] if paint else None)
 
 
@@ -2695,6 +2715,7 @@ def _limit_by_parent(row: dict[str, Any], parent: dict[str, Any]) -> None:
         resets = [value for value in (_number(row["reset_seconds"]), _number(parent["reset_seconds"])) if value is not None]
         reset = min(resets)
         row.update(own_left=row["left"], remaining=parent["remaining"], left=parent["left"], pace=parent["pace"],
+                   pace_pt=parent["pace_pt"],
                    reset_seconds=reset, resets="passed" if reset <= 0 else _compact_age(reset))
     worse = _SEVERITY.get(parent["state"], -1) > _SEVERITY.get(row["state"], -1)
     if worse:
@@ -3078,8 +3099,7 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
             consumers.setdefault(f"{peer.get('peer_id')}:{pool}", []).append(str(profile.get("name") or profile.get("profile")))
     cap = _obj(groups.get("capacity"))
     data = _obj(cap.get("data"))
-    # Use POOLS' human observations and full identities: distinct pools can share a display name. Both views take their
-    # pool order and each pool's effective values from these rows (#394).
+    # Use POOLS' human observations and full identities for the same effective values (#394).
     pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row
                  for row in _frame_pools(payload, _frame_consumers(payload))[2]}
     display_groups = {**groups,
@@ -3260,11 +3280,6 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
                            expand=True)
     frame.header[1:1] = store_lines
 
-    def top_of(shown: CompactFrame) -> list[str]:
-        # The top is the compact frame's, from its one owner, without the budget of a frame that has to fit a screen.
-        return fit_compact_frame(shown, width=target, height=None, unicode=unicode, max_lines=sys.maxsize,
-                                 max_bytes=sys.maxsize, keep=keep).splitlines()
-
     lines: list[str] = []
     groups = _obj(display.get("groups"))
     selected = cast(list[str], display.get("selected_groups") or [])
@@ -3273,13 +3288,14 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
     now = None if read_at is None else read_at + elapsed
     pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row  # the rows POOLS draws (see `_render_expanded_frame`)
                  for row in _frame_pools(payload, _frame_consumers(payload))[2]}
-    # Expanded LEADS follows the fitted compact sections and shares the detail budget.
     if "activity" in selected:
         if rich:
-            frame.running, lines = _rich_activity(_obj(groups.get("activity")), payload, now, target, unicode, paint, keep)
+            frame.running, frame.leads = _rich_activity(_obj(groups.get("activity")), payload, now, target, unicode, paint, keep)
         else:
-            frame.running, lines = _plain_activity(_obj(groups.get("activity")), payload, now, target, unicode, keep)
-    top = top_of(frame)
+            frame.running, frame.leads = _plain_activity(_obj(groups.get("activity")), payload, now, target, unicode, keep)
+    frame.pools_total = 0  # the expanded frame's final hidden-row hint counts the trim
+    ladder = _frame_line_ladder(frame, target, unicode, keep)
+    top = next(ladder)
     detail_groups = [gid for gid in _FRAME_DETAIL_ORDER if gid in selected]
     detail_groups.extend(gid for gid in selected if gid != "activity" and gid not in _FRAME_DETAIL_ORDER)
     for group_id in detail_groups:
@@ -3323,91 +3339,37 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
         return "\n".join([*top, *rest, *legend, footer]) + "\n"
     limit = height - FRAME_TRAILING_ROWS
 
-    def bounded(head: list[str], floor: int | None = None) -> str | None:
-        """The frame with `head` whole (down to `floor` lines of it, when given) and the sections below it cut to the
-        limit; None when it does not fit."""
-        every = [*head, *rest]
-        keep = len(head) if floor is None else floor
-        total = len(top) + len(rest)
-        if total == len(every) and len(every) + 1 <= limit:
-            return "\n".join([*every, footer]) + "\n"
-        for tail in ([footer], []):  # the coverage line gives way before a line of the frame's top does
-            kept = min(len(every), limit - len(tail) - 1)
-            while kept >= keep:
-                while kept > max(1, keep) and _is_head(every[kept - 1]):  # never a head without a row before the hint
-                    kept -= 1
-                hint = _hidden_lines(total - kept, 0, target, unicode, expand=True)
-                if kept + len(hint) + len(tail) <= limit:
-                    return "\n".join([*every[:kept], *(fit(line) for line in hint), *tail]) + "\n"
-                kept -= 1
-        return None
+    every = [*top, *rest]
+    total = len(every)
+    if total + 1 <= limit:
+        return "\n".join([*every, footer]) + "\n"
 
-    # The top reserves the full alert and running sections before it allocates history.
-    smallest, head = frame, top
-    result = bounded(head)
-    if result is not None:
-        return result
-    for smaller in _recent_ladder(frame):
-        smallest, head = smaller, top_of(smaller)
-        result = bounded(head)
-        if result is not None:
-            return result
-    for smaller in _last_resort(smallest, 1 + len(store_lines)):
-        smallest, head = smaller, top_of(smaller)
-        result = bounded(head)
-        if result is not None:
-            return result
-    # even that does not fit: its own lines from the first, cut at the bottom, then the hint
-    result = bounded(head, floor=1)
-    if result is not None:
-        return result
-    short = _fit(f"+{len(top) + len(rest) - 1} --expand | more", target, unicode)
-    return "\n".join([top[0], short][:limit]) + "\n"
+    def hint(kept: int, *, single_line: bool = False) -> list[str]:
+        return [fit(line) for line in _hidden_lines(total - kept, 0, target, unicode, expand=True, single_line=single_line)]
 
+    for tail in ([footer], []):  # coverage gives way before the top does
+        for kept in range(min(total, limit - len(tail) - 1), len(top) - 1, -1):
+            if kept > len(top) and _is_head(every[kept - 1]):
+                continue  # never keep a detail heading without a row
+            hidden = hint(kept)
+            if kept + len(hidden) + len(tail) <= limit:
+                return "\n".join([*every[:kept], *hidden, *tail]) + "\n"
 
-def _recent_ladder(frame: CompactFrame) -> Iterator[CompactFrame]:
-    """Condense the expanded history to compact rows, then reduce or remove that section."""
-    if not frame.recent or not frame.recent_short:
-        return
-    head, rows = frame.recent[0], frame.recent_short
-    for count in range(len(rows), 0, -1):
-        yield replace(frame, recent=[head, *rows[:count]])
-    yield replace(frame, recent=None)
-
-
-def _last_resort(frame: CompactFrame, protected_header: int) -> Iterator[CompactFrame]:
-    """Reduce the optional top sections before trimming running and alert details."""
-    pools = len(frame.pools) - 1 if frame.pools else 0
-    suggest = len(frame.suggest)
-    def variant(p: int, s: int) -> CompactFrame:
-        shrunk = replace(frame, suggest=frame.suggest[:s])
-        if frame.pools and p < pools:
-            shrunk.pools = frame.pools[:p + 1] if p else None
-            shrunk.pools_total = 0  # the frame's final hidden-row hint reports the cut
-        return shrunk
-
-    p, s = pools, suggest
-    while p > POOLS_TRIM_FLOOR:
-        p -= 1
-        yield variant(p, s)
-    while s > 1:
-        s -= 1
-        yield variant(p, s)
-    while p > 1:
-        p -= 1
-        yield variant(p, s)
-    while s > 0:
-        s -= 1
-        yield variant(p, s)
-    small = replace(variant(0, 0), pools=None)
-    yield small
-    if len(small.header) > protected_header:
-        small = replace(small, header=small.header[:protected_header])
-        yield small
-    for section in ("running", "alerts"):
-        rows = small.running if section == "running" else small.alerts
-        if rows:
-            for count in range(len(rows) - 1, SECTION_WITH_DETAIL - 1, -1):
-                small = replace(small, **{section: rows[:count]})
-                yield small
+    # Details have given way. Keep the verdict, title and final pool row ahead of the hint.
+    protected = 2 + (SECTION_WITH_DETAIL if frame.pools else 0)
+    if len(top) <= limit <= protected:
+        return "\n".join(top) + "\n"
+    for head in ladder:
+        kept = len(head)
+        if kept == limit and limit <= protected:
+            return "\n".join(head) + "\n"
+        if kept < limit:
+            hidden = hint(kept)
+            if kept + len(hidden) > limit:
+                if kept > protected:
+                    continue
+                hidden = hint(kept, single_line=True)
+            tail = [footer] if kept + len(hidden) < limit else []
+            return "\n".join([*head, *hidden, *tail]) + "\n"
+    return top[0] + "\n"
 

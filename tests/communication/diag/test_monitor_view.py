@@ -283,13 +283,13 @@ def test_height_aware_frame_stays_inside_viewport_and_discloses_overflow(frame, 
     assert all(len(line) <= width - 1 for line in rendered.splitlines())
     if height == 2:  # #374: one line holds only line 1, the verdict
         assert rendered.startswith("OK") and len(rendered.splitlines()) == 1
-    elif 1 < height <= 3:
-        assert "+" in rendered
-        if width >= 20:
-            assert "--expand" in rendered
+    elif height == 3:
+        assert rendered.splitlines()[1].startswith("PeerHub")
+    elif height == 5:
+        assert "POOLS" in rendered
     elif height >= 4 and len(frame["selected_groups"]) > max(0, height - 3):
         assert "omitted" in rendered or "hidden" in rendered or any(f"+{i}" in rendered for i in range(1, 10))
-        if width >= 64:
+        if width >= 64 and height > 4:
             assert any(f"peerhub monitor --snapshot --group {group} --expand" in rendered
                        for group in ("capacity", "all"))
         else:
