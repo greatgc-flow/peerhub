@@ -11,6 +11,7 @@ Use `--no-probe` or set `PEERHUB_MONITOR_PROBE=off` to disable automatic refresh
 by default. Explicit `--probe` also schedules collection on the watch cadence. `--collect-every K` applies to
 that cadence and scripted cycles. `--snapshot`, `diag quota`, and `diag --live` read committed evidence. Use `monitor --probe --cycles 1`
 to collect and show one completed cycle.
+With `--cycles N` and `N > 0`, scripted runs keep synchronous refresh and the same output as before, while continuous TTY watch refreshes in the background.
 
 Continuous watch, automatic collection in scripted watch, suggest, and ask dispatch share the PID lock
 `quota-refresh.lock` in the store's scratch directory. After three seconds of contention they continue with committed

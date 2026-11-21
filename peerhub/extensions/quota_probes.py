@@ -358,6 +358,7 @@ real_command = _real_command
 
 
 PROBE_TREE_KILL_TIMEOUT_SECONDS = .25
+PROBE_EXIT_WAIT_SECONDS = .25
 AGY_USAGE_EXIT_GRACE_SECONDS = 2.0
 
 
@@ -378,7 +379,7 @@ class ProbeCancellation:
             if self._closed or self.cancelled():
                 raise OSError("quota collection cancelled")
             if sys.platform == "win32":
-                options["creationflags"] = subprocess.CREATE_NO_WINDOW
+                options["creationflags"] = options.get("creationflags", 0) | subprocess.CREATE_NO_WINDOW
             options["start_new_session"] = sys.platform != "win32"
             proc: subprocess.Popen[str] = subprocess.Popen(command, **options)
             self._processes.add(proc)
@@ -386,23 +387,25 @@ class ProbeCancellation:
 
     @staticmethod
     def _terminate(proc: subprocess.Popen[str]) -> None:
-        if kill_process_tree(proc, timeout=PROBE_TREE_KILL_TIMEOUT_SECONDS):
+        if proc.poll() is not None:
             return
-        if sys.platform == "win32":
-            import psutil
-            # A wrapper can already have exited, but its children still carry its PID.
-            for child in psutil.process_iter(["ppid"]):
-                if child.info["ppid"] == proc.pid:
-                    with suppress(psutil.Error):
-                        for descendant in reversed(child.children(recursive=True)):
-                            with suppress(psutil.Error):
-                                descendant.kill()
-                    with suppress(psutil.Error):
-                        child.kill()
         try:
-            proc.kill()
-        except OSError:
-            pass
+            if not kill_process_tree(proc, timeout=PROBE_TREE_KILL_TIMEOUT_SECONDS):
+                if sys.platform == "win32":
+                    import psutil
+                    for child in psutil.process_iter(["ppid"]):
+                        if child.info["ppid"] == proc.pid:
+                            with suppress(psutil.Error):
+                                for descendant in reversed(child.children(recursive=True)):
+                                    with suppress(psutil.Error):
+                                        descendant.kill()
+                            with suppress(psutil.Error):
+                                child.kill()
+                with suppress(OSError):
+                    proc.kill()
+        finally:
+            with suppress(OSError, subprocess.TimeoutExpired):
+                proc.wait(timeout=PROBE_EXIT_WAIT_SECONDS)
 
     def finish(self, proc: subprocess.Popen[str]) -> None:
         with self._lock:

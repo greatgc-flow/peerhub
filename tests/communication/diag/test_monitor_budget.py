@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from peerhub.cli.monitor_view import (
-    COMPACT_MAX_LINES, FRAME_HEADS, FRAME_SECTION_HEADS, FRAME_TRAILING_ROWS, POOLS_TRIM_FLOOR,
+    COMPACT_MAX_LINES, FRAME_HEADS, FRAME_SECTION_HEADS, FRAME_TRAILING_ROWS,
     CompactFrame, fit_compact_frame, render_grouped_frame, _width,
 )
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool, frame  # noqa: F401
@@ -87,7 +87,7 @@ def test_first_removal_that_creates_an_overflow_line_removes_two_rows():
     assert len(lines) == len(full) - 1
 
 
-@pytest.mark.parametrize("key,total", [("running", 4), ("pools", POOLS_TRIM_FLOOR + 1)])
+@pytest.mark.parametrize("key,total", [("running", 4), ("pools", 5)])
 def test_first_cut_above_the_floor_keeps_the_overflow_count(key, total):
     # K5: one row over the budget. The first cut takes two rows to leave room for the overflow line.
     head = f"{FRAME_SECTION_HEADS[key]} {total}"

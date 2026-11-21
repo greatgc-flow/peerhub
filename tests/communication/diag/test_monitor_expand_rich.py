@@ -595,6 +595,14 @@ def test_the_narrow_hint_keeps_the_count_and_the_command():
     assert len(lines) <= 11 and any(re.match(r"^\+\d+ ", line) and "--expand | more" in line for line in lines)
 
 
+@pytest.mark.parametrize("style", ["plain", "rich"])
+def test_short_narrow_frame_fits_the_hint_on_one_line_to_keep_a_second_pool(style):
+    lines = render_grouped_frame(detail_payload(), view=style, expand=True, width=60, height=9).splitlines()
+    assert len(lines) == 8
+    assert "C-7D" in lines[-3] and "C-5H" in lines[-2]
+    assert re.fullmatch(r"\+\d+ rows hidden (?:\||·) --expand \| more", lines[-1])
+
+
 # ---- the documents say what --expand is --------------------------------------------------------------------------------
 def test_the_lesson_and_docs_describe_priority_and_the_full_db_path():
     from peerhub.cli.lessons import lesson_by_id, render_lessons_reference

@@ -23,6 +23,13 @@ they do not claim new validation or publication evidence.
 
 - The live monitor title shows a heartbeat, the oldest selected quota age, and the next refresh, active probe, or retry timing in both layouts.
 
+### Fixed
+
+- Quota probe cleanup skips exited processes, waits briefly for terminated probes to exit, and preserves Windows process creation flags.
+- Continuous monitor watch commits each peer's quota readings as soon as its probe finishes. If the refresh lock is busy, watch waits through the cooldown before retrying and continues to show committed readings.
+- In compact and expanded monitor views, POOLS moves families with an exhausted binding short window to the end. The live title shows each countdown once, and short expanded frames use a one-line hidden-rows hint when it makes room for more rows.
+- The monitor guide clarifies that finite scripted cycles refresh synchronously and continuous TTY watch refreshes in the background.
+
 ## [0.26.4] - 2026-11-21
 
 ### Added

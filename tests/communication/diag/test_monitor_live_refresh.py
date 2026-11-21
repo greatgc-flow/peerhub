@@ -13,7 +13,7 @@ import pytest
 
 from peerhub.cli import monitor, monitor_view, support, view
 from peerhub.cli.app import main
-from peerhub.extensions import monitor_read_model, quota_probes
+from peerhub.extensions import monitor_read_model, process_tree, quota_probes
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload
 
@@ -135,6 +135,148 @@ def test_live_title_status_and_truncation(expand, style):
     assert view.visible_len(first) < 18 and view.visible_len(second) < 18
 
 
+@pytest.mark.parametrize("expand", [False, True])
+def test_live_title_lists_distinct_countdowns(expand):
+    payload = _payload([], [])
+    status = payload["_live_refresh"] = {"heartbeat": 0, "failed_ago": 120, "retry_in": 39.2, "next_in": 39.8}
+
+    def title():
+        return monitor_view.render_grouped_frame(payload, view="plain", width=100, expand=expand).splitlines()[1]
+
+    assert "retry 40s" in title() and "next refresh" not in title()
+    status["next_in"] = 40.2
+    assert "next refresh 41s" in title()
+
+
+@pytest.mark.parametrize("columns", [0, 1])
+def test_live_title_at_minimum_width_defaults_heartbeat(columns):
+    assert monitor_view._fit_live_quota_title({}, "", "", "", columns, False) == (
+        monitor_view.QUOTA_HEARTBEAT_ASCII[0], True)
+
+
+def test_live_title_at_zero_width_keeps_heartbeat():
+    assert monitor_view._fit_live_quota_title({"heartbeat": 0}, "", "", "", 0, False) == (
+        monitor_view.QUOTA_HEARTBEAT_ASCII[0], True)
+
+
+@pytest.mark.parametrize("second_status", ["OK", "PARTIAL", "FAILED", "raises"])
+def test_job_commits_each_peer_before_starting_the_next(monkeypatch, second_status):
+    from peerhub.cli.monitor_refresh import RefreshJob
+
+    committed = []
+    calls = []
+    first = _result("cc", "C-7D")
+    second = _result("cx", "X-7D")
+
+    def collect(db, peers, **options):
+        assert options["deadline_sec"] == support.MONITOR_PROBE_MAX_TIMEOUT_SECONDS
+        calls.append(peers)
+        if peers == ("cc",):
+            committed.append(first)
+            return {"status": "OK", "observations": [first], "warnings": ["cc warning"]}
+        assert peers == ("cx",) and committed == [first]
+        if second_status == "raises":
+            raise OSError("provider unavailable")
+        if second_status == "OK":
+            committed.append(second)
+        return {"status": second_status, "observations": [second], "warnings": ["cx warning"]}
+
+    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
+    monkeypatch.setattr(support, "refresh_with_profile_pools", collect)
+    args = argparse.Namespace(db=__file__, sys_dir=None, timeout=support.MONITOR_REFRESH_LEAD_SECONDS)
+    peers = ("cc", "cx")
+    job = RefreshJob(args, peers, dict.fromkeys(peers, set()), force=True, retry=())
+    job._run(args, dict.fromkeys(peers, set()), True, ())
+
+    assert calls == [("cc",), ("cx",)]
+    assert job.result == {
+        "status": "OK" if second_status == "OK" else "PARTIAL",
+        "observations": [first] if second_status == "raises" else [first, second],
+        "warnings": ["cc warning", "OSError" if second_status == "raises" else "cx warning"],
+    }
+
+
+def test_job_reports_failed_if_every_peer_fails(monkeypatch):
+    from peerhub.cli.monitor_refresh import RefreshJob
+
+    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
+    monkeypatch.setattr(support, "refresh_with_profile_pools", lambda db, peers, **kw: {
+        "status": "FAILED", "warnings": list(peers),
+    })
+    args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)
+    peers = ("cc", "cx")
+    required = dict.fromkeys(peers, set())
+    job = RefreshJob(args, peers, required, force=True, retry=())
+    job._run(args, required, True, ())
+
+    assert job.result == {"status": "FAILED", "observations": [], "warnings": ["cc", "cx"]}
+
+
+def test_job_cancelled_during_one_peer_skips_the_next(monkeypatch):
+    from peerhub.cli.monitor_refresh import RefreshJob
+
+    calls = []
+
+    def collect(db, peers, **options):
+        calls.append(peers)
+        options["cancellation"].stop()
+        return {"status": "OK"}
+
+    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(True))
+    monkeypatch.setattr(support, "refresh_with_profile_pools", collect)
+    args = argparse.Namespace(db=__file__, sys_dir=None, timeout=15)
+    peers = ("cc", "cx")
+    required = dict.fromkeys(peers, set())
+    job = RefreshJob(args, peers, required, force=True, retry=())
+    job._run(args, required, True, ())
+
+    assert calls == [("cc",)]
+    assert job.result is None
+
+
+@pytest.mark.parametrize("expand", [False, True])
+def test_watch_defers_a_lock_timeout_without_reporting_failure(monkeypatch, expand):
+    from peerhub.cli import monitor_refresh
+
+    now = 100.0
+    launches, frames = [], []
+    last = now + support.MONITOR_TICK_SECONDS + support.QUOTA_REFRESH_COOLDOWN_SECONDS
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setenv("TERM", "xterm")
+    monkeypatch.setattr(view.FrameOutput, "write", lambda self, frame: frames.append(frame))
+    monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: (100, 40)))
+    monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
+    monkeypatch.setattr(monitor_read_model, "render_monitor_frame", lambda *a, **kw: full_payload())
+    monkeypatch.setattr(monitor_refresh, "read_quota_readings", lambda db: [])
+    monkeypatch.setattr(support, "configured_pools", lambda *a: ["C-7D"])
+    monkeypatch.setattr(support, "quota_refresh_lock", lambda *a, **kw: nullcontext(False))
+    monkeypatch.setattr(monitor, "monotonic", lambda: now)
+    start_job = monitor_refresh.RefreshJob.start
+
+    def launch(*args, **kwargs):
+        launches.append(now)
+        job = start_job(*args, **kwargs)
+        assert job is not None
+        job._worker.join(1)
+        assert job.done() and job.result is None
+        return job
+
+    def tick(seconds):
+        nonlocal now
+        if now >= last:
+            raise KeyboardInterrupt
+        now += seconds
+
+    monkeypatch.setattr(monitor_refresh.RefreshJob, "start", staticmethod(launch))
+    monkeypatch.setattr(monitor, "sleep", tick)
+    assert main(["--db", __file__, "monitor", "--group", "capacity", "--peers", "cc", "--view", "plain",
+                 "--cycles", "0", "--probe", *(["--expand"] if expand else [])]) == 0
+    assert launches == [100, last]
+    assert any("next refresh 1m" in frame for frame in frames)
+    assert all("refresh failed" not in frame for frame in frames)
+
+
 @pytest.mark.parametrize("forced", [False, True])
 def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch, forced):
     from peerhub.cli import monitor_refresh
@@ -227,6 +369,12 @@ def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monke
             assert killed.wait(2)
             return "", ""
 
+        def poll(self):
+            return self.returncode
+
+        def wait(self, *, timeout):
+            assert killed.wait(timeout)
+
     def kill(process, **kwargs):
         assert process in processes
         killed.set()
@@ -272,13 +420,84 @@ def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monke
     assert killed.is_set() and len(processes) == 1
 
 
+@pytest.mark.parametrize("returncode,taskkill_returncode", [(0, 1), (None, 0), (None, 1)])
+def test_windows_probe_finishes_only_a_live_process_tree(monkeypatch, returncode, taskkill_returncode):
+    import psutil
+
+    events = []
+
+    class Process:
+        pid = 123
+
+        def poll(self):
+            return returncode
+
+        def kill(self):
+            events.append("kill")
+
+        def wait(self, *, timeout):
+            assert timeout > 0
+            events.append("wait")
+
+    def taskkill(command, **options):
+        assert command == ["taskkill", "/T", "/F", "/PID", str(Process.pid)]
+        events.append("taskkill")
+        return SimpleNamespace(returncode=taskkill_returncode)
+
+    def sweep(fields):
+        assert fields == ["ppid"]
+        events.append("sweep")
+        return []
+
+    windows = SimpleNamespace(platform="win32")
+    monkeypatch.setattr(quota_probes, "sys", windows)
+    monkeypatch.setattr(process_tree, "sys", windows)
+    monkeypatch.setattr(quota_probes.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(quota_probes.subprocess, "Popen", lambda *a, **kw: Process())
+    monkeypatch.setattr(process_tree.subprocess, "run", taskkill)
+    monkeypatch.setattr(psutil, "process_iter", sweep)
+    cancellation = quota_probes.ProbeCancellation()
+    cancellation.finish(cancellation.spawn(["fake-provider"]))
+
+    if returncode is not None:
+        assert events == []
+    elif taskkill_returncode == 0:
+        assert events == ["taskkill", "wait"]
+    else:
+        assert events[0] == "taskkill" and events[-1] == "wait" and events.count("sweep") == 1
+
+
+def test_windows_probe_preserves_creation_flags(monkeypatch):
+    monkeypatch.setattr(quota_probes, "sys", SimpleNamespace(platform="win32"))
+    no_window = 0x08000000
+    new_group = 0x00000200
+    monkeypatch.setattr(quota_probes.subprocess, "CREATE_NO_WINDOW", no_window, raising=False)
+    options = {}
+
+    def popen(command, **kw):
+        options.update(kw)
+        return object()
+
+    monkeypatch.setattr(quota_probes.subprocess, "Popen", popen)
+    quota_probes.ProbeCancellation().spawn(["fake-provider"], creationflags=new_group)
+    assert options["creationflags"] == new_group | no_window
+
+
 def test_job_cleans_up_a_lingering_probe_before_releasing_the_guard(monkeypatch):
     from contextlib import contextmanager
 
     from peerhub.cli.monitor_refresh import RefreshJob
 
     events = []
-    process = object()
+
+    class Process:
+        def poll(self):
+            return None
+
+        def wait(self, *, timeout):
+            events.append("wait")
+
+    process = Process()
 
     @contextmanager
     def guard(*args, **kwargs):
@@ -299,8 +518,8 @@ def test_job_cleans_up_a_lingering_probe_before_releasing_the_guard(monkeypatch)
     job = RefreshJob.start(args, ("cc",), force=True, required={"cc": set()})
     assert job is not None
     job._worker.join(1)
-    assert job.done() and job.result == {"status": "PARTIAL"}
-    assert events == [process, "release"]
+    assert job.done() and job.result == {"status": "PARTIAL", "observations": [], "warnings": []}
+    assert events == [process, "wait", "release"]
 
 
 @pytest.mark.parametrize("mode", ["snapshot", "redirected", "finite", "json"])
@@ -350,3 +569,19 @@ def test_scripted_monitor_bytes_match_main(monkeypatch, capsys, mode):
     captured = capsys.readouterr()
     assert captured.out.encode("utf-8") == expected[mode]
     assert captured.err == ""
+
+
+def test_a_deferred_peer_that_another_process_refreshed_is_not_due_again_at_the_cooldown():
+    from peerhub.cli.monitor_refresh import RefreshSchedule
+
+    schedule = RefreshSchedule({"cc": {"quota:cc:C-7D"}})
+    stale = support.MONITOR_QUOTA_MAX_AGE_SECONDS + 5
+    schedule.update([_reading("cc", "C-7D", stale)], 100.0)
+    assert schedule.due(100.0) == ("cc",)
+    schedule.deferred(("cc",), 100.0)  # the refresh lock was held elsewhere
+    cooldown = 100.0 + support.QUOTA_REFRESH_COOLDOWN_SECONDS
+    assert schedule.due(cooldown - 1) == ()
+    schedule.update([_reading("cc", "C-7D", 3)], cooldown)  # the other process committed a fresh reading
+    assert schedule.due(cooldown) == () and schedule.next_in(cooldown) > 0  # no tight loop of useless jobs
+    schedule.update([_reading("cc", "C-7D", stale)], cooldown + support.MONITOR_QUOTA_MAX_AGE_SECONDS)
+    assert schedule.due(cooldown + support.MONITOR_QUOTA_MAX_AGE_SECONDS) == ("cc",)

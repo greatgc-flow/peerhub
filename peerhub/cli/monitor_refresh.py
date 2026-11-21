@@ -41,6 +41,7 @@ class RefreshSchedule:
         self._forced_interval = forced_interval
         self._forced_at = dict.fromkeys(required, float("-inf"))
         self._evidence_due: dict[str, float] = {}
+        self._retry_at: dict[str, float] = {}
         self._failed_at: dict[str, float] = {}
         self._oldest_at: float | None = None
 
@@ -71,9 +72,11 @@ class RefreshSchedule:
         return None if self._oldest_at is None else now - self._oldest_at
 
     def _due_at(self, peer: str) -> float:
-        if peer in self._failed_at:
-            return self._failed_at[peer] + support.QUOTA_REFRESH_COOLDOWN_SECONDS
         evidence_due = self._evidence_due.get(peer, float("-inf"))
+        if peer in self._retry_at:
+            # A failed peer waits out its cooldown; a merely deferred one (the lock was held elsewhere) is also not due
+            # while fresh evidence says so, or a refresh by another process would restart jobs every tick.
+            return self._retry_at[peer] if peer in self._failed_at else max(self._retry_at[peer], evidence_due)
         return min(evidence_due, self._forced_at[peer]) if self._forced_interval is not None else evidence_due
 
     def due(self, now: float) -> tuple[str, ...]:
@@ -91,6 +94,9 @@ class RefreshSchedule:
     def retry_in(self, now: float) -> float | None:
         return max(0, min(map(self._due_at, self._failed_at)) - now) if self._failed_at else None
 
+    def deferred(self, peers: Sequence[str], now: float) -> None:
+        self._retry_at.update(dict.fromkeys(peers, now + support.QUOTA_REFRESH_COOLDOWN_SECONDS))
+
     def completed(self, peers: Sequence[str], result: Mapping[str, Any], now: float) -> None:
         reported: dict[str, set[str]] = {}
         failed_peers: set[str] = set()
@@ -104,11 +110,14 @@ class RefreshSchedule:
             else:
                 failed_peers.add(peer)
         for peer in peers:
-            complete = self.required[peer] <= reported.get(peer, set())
+            pools = reported.get(peer)
+            complete = pools is not None and self.required[peer] <= pools
             if result["status"] not in {"OK", "PARTIAL"} or peer in failed_peers or not complete or self._evidence_due[peer] <= now:
                 self._failed_at[peer] = now
+                self.deferred((peer,), now)
             else:
                 self._failed_at.pop(peer, None)
+                self._retry_at.pop(peer, None)
             if self._forced_interval is not None:
                 self._forced_at[peer] = now + self._forced_interval
 
@@ -152,28 +161,47 @@ class RefreshJob:
     def _run(self, args: argparse.Namespace, required: Mapping[str, set[str]], force: bool, retry: tuple[str, ...]) -> None:
         try:
             with support.quota_refresh_lock(args.db, cancelled=self._cancel.cancelled) as acquired, closing(self._cancel):
-                if not acquired or self._cancel.cancelled():
+                if not acquired or self.cancelled():
                     return
                 if not force:
                     check = RefreshSchedule({peer: required[peer] for peer in self.peers})
                     check.update(read_quota_readings(args.db), 0)
                     due = set(check.due(0)) | set(retry)
                     self.peers = tuple(peer for peer in self.peers if peer in due)
-                if self.peers and not self._cancel.cancelled():
-                    timeout = args.timeout
-                    if timeout >= support.MONITOR_REFRESH_LEAD_SECONDS:
-                        timeout = support.MONITOR_PROBE_MAX_TIMEOUT_SECONDS
-                    self.result = support.refresh_with_profile_pools(
-                        args.db, self.peers, sys_dir=args.sys_dir, cancellation=self._cancel,
-                        deadline_sec=timeout)
+                timeout = args.timeout
+                if timeout >= support.MONITOR_REFRESH_LEAD_SECONDS:
+                    timeout = support.MONITOR_PROBE_MAX_TIMEOUT_SECONDS
+                statuses: set[str] = set()
+                observations: list[dict[str, Any]] = []
+                warnings: list[str] = []
+                for peer in self.peers:
+                    if self.cancelled():
+                        return
+                    try:
+                        result = support.refresh_with_profile_pools(
+                            args.db, (peer,), sys_dir=args.sys_dir, cancellation=self._cancel,
+                            deadline_sec=timeout)
+                    except Exception as exc:
+                        statuses.add("FAILED")
+                        warnings.append(type(exc).__name__)
+                        continue
+                    statuses.add(result["status"])
+                    observations.extend(result.get("observations", []))
+                    warnings.extend(result.get("warnings", []))
+                if statuses and not self.cancelled():
+                    status = "OK" if statuses == {"OK"} else "FAILED" if statuses == {"FAILED"} else "PARTIAL"
+                    self.result = {"status": status, "observations": observations, "warnings": warnings}
         except Exception as exc:
-            if not self._cancel.cancelled():
+            if not self.cancelled():
                 self.result = {"status": "FAILED", "warnings": [type(exc).__name__]}
         finally:
             self._release()
 
     def done(self) -> bool:
         return not self._worker.is_alive()
+
+    def cancelled(self) -> bool:
+        return self._cancel.cancelled()
 
     def stop(self) -> None:
         self._cancel.stop()

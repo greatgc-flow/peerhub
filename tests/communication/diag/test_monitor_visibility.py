@@ -457,7 +457,13 @@ def test_r3_height_3_through_60_sweep_has_exact_cuts_and_peer_priority(
                 at, match = cut
                 assert int(match[1]) == len(whole) - 1 - at, (width, height, screen)
                 if "rows hidden" in lines[at]:
-                    assert "all rows" in screen and "peerhub monitor --snapshot --group all --expand | more" in screen
+                    command = "peerhub monitor --snapshot --group all --expand | more"
+                    if "all rows" in lines[at]:
+                        assert command in screen
+                    else:
+                        short_hints = (command, "--expand | more")
+                        assert any(re.fullmatch(rf"\+\d+ rows hidden (?:·|\|) {re.escape(hint)}", lines[at])
+                                   for hint in short_hints)
             for line in lines:
                 if "-> latest session:" in line:
                     assert line.split()[0] in {peer["peer_id"] for peer in peers}

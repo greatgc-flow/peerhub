@@ -359,6 +359,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                         schedule.completed(completed.peers, completed.result, now)
                         warnings = completed.result.get("warnings", [])
                         stop = bool(agy_token_command(completed.result) and not args.allow_agy_token_use)
+                    elif not completed.cancelled():
+                        schedule.deferred(completed.peers, now)
                 schema_error = payload is not None and "schema" in (payload.get("errors") or {})
                 if collect and job is None and not stop and not schema_error and (due := schedule.due(now)):
                     job = RefreshJob.start(args, due, force=args.probe, required=required,

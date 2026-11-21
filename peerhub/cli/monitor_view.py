@@ -291,7 +291,9 @@ def _live_duration(seconds: float | None, *, countdown: bool = False) -> str:
 def _fit_live_quota_title(status: Mapping[str, Any], state: str, stamp: str, source: str,
                           width: int, unicode: bool) -> tuple[str, bool]:
     spinner = QUOTA_HEARTBEAT_UNICODE if unicode else QUOTA_HEARTBEAT_ASCII
-    heartbeat = spinner[int(status["heartbeat"]) % len(spinner)]
+    heartbeat = spinner[int(status.get("heartbeat") or 0) % len(spinner)]
+    if width <= 1:
+        return heartbeat, True
     peers = cast(Sequence[str], status.get("peers") or ())
     next_in = _number(status.get("next_in"))
     retry_in = _number(status.get("retry_in"))
@@ -302,16 +304,16 @@ def _fit_live_quota_title(status: Mapping[str, Any], state: str, stamp: str, sou
     elif peers:
         fields.append(f"refreshing {' '.join(_clean(peer) for peer in peers)} {_live_duration(_number(status.get('elapsed')))}")
     else:
+        retry = _live_duration(retry_in, countdown=True) if failed_ago is not None else None
         if failed_ago is not None:
-            fields.extend((f"refresh failed {_live_duration(failed_ago)} ago",
-                           f"retry {_live_duration(retry_in, countdown=True)}"))
-        if next_in is not None and next_in != retry_in:
-            fields.append(f"next refresh {_live_duration(next_in, countdown=True)}")
+            fields.extend((f"refresh failed {_live_duration(failed_ago)} ago", f"retry {retry}"))
+        if next_in is not None:
+            next_refresh = _live_duration(next_in, countdown=True)
+            if next_refresh != retry:
+                fields.append(f"next refresh {next_refresh}")
     fields.extend((f"oldest quota age {_live_duration(_number(status.get('age')))}",
                    f"PeerHub Monitor {stamp}", f"DB:{source}"))
     title = heartbeat + " " + " | ".join(fields)
-    if width == 1:
-        return heartbeat, True
     return _fit_fields(title, width, unicode, inline_note=False), _width(title) > width
 
 
@@ -327,8 +329,13 @@ def _hidden_lines(rows: int, groups: int, width: int, unicode: bool, *, expand: 
             if _width(detail + group_note + sep + hint) <= width:
                 detail += group_note
             return [detail + sep + hint]
+        if single_line and _width(detail + sep + command) <= width:
+            return [detail + sep + command]
         if not single_line and _width(command) <= width:
             return [_fit(detail + group_note + "; all rows:", width, unicode), command]
+        short = detail + sep + "--expand | more"
+        if _width(short) <= width:
+            return [short]
         return [_fit(f"+{rows} --expand | more", width, unicode)]
     hint = ("peerhub monitor --snapshot --group capacity --expand" if quota else
             "peerhub monitor --snapshot --group all --expand")
@@ -1904,7 +1911,6 @@ POOLS_USE_FIRST_ASCENDING = True
 POOLS_USE_FIRST_HINT = "use first"
 REQUEST_CAP = 60
 RECENT_EXPAND = 8
-POOLS_TRIM_FLOOR = 4
 SECTION_WITH_DETAIL = 2  # one heading and one detail line
 _WEEK = 7 * 86400
 _ALERT_SOURCES = (("activity", "asks"), ("capacity", "quota"), ("accounts", "accounts"), ("facts", "facts"))
@@ -2198,10 +2204,8 @@ def _frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str
             rows[1:] = [fit(line) for line in frame.recent_short]
             yield assemble()
         if key in totals:
-            floors = (POOLS_TRIM_FLOOR, 1) if key == "pools" else (1,)
-            for floor in floors:
-                while pop_rows(key, floor):
-                    yield assemble()
+            while pop_rows(key, 1):
+                yield assemble()
         elif rows:
             floor = 1 if key == "suggest" else SECTION_WITH_DETAIL
             while len(rows) > floor:
@@ -2518,7 +2522,7 @@ def _ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
         if row["family"] != "?" and _parse_window(str(row["pool"]))[0] == _WEEK:
             weekly.setdefault((str(row["peer"]), str(row["family"])), row)
     tops: list[dict[str, Any]] = []
-    children: dict[int, list[dict[str, Any]]] = {}  # binding sub-rows contribute to QUOTA urgency
+    children: dict[int, list[dict[str, Any]]] = {}  # binding sub-rows contribute to sorting
     listed: dict[int, list[dict[str, Any]]] = {}  # the sub-rows the frame lists
     for row in rows:
         parent = scoped.get(id(row)) or weekly.get((str(row["peer"]), str(row["family"])))
@@ -2544,7 +2548,8 @@ def _ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
 
     def use_first(row: dict[str, Any]) -> tuple[int, float, str, str]:
         peer, name = str(row["peer"]), str(row["pool"])
-        if row["state"] == "out":
+        if row["state"] == "out" or any(child["state"] == "out" and id(child) not in scoped
+                                         for child in children.get(id(row), ())):
             return 2, 0, peer, name
         pace = _number(row.get("pace_pt"))  # a top row (weekly, monthly or a lone short window) sorts by its own PACE
         if pace is None:
@@ -3391,7 +3396,8 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
         return "\n".join([*every, footer]) + "\n"
 
     def hint(kept: int, *, single_line: bool = False) -> list[str]:
-        return [fit(line) for line in _hidden_lines(total - kept, 0, target, unicode, expand=True, single_line=single_line)]
+        return [fit(line) for line in _hidden_lines(total - kept, 0, target, unicode, expand=True,
+                                                    single_line=single_line)]
 
     for tail in ([footer], []):  # coverage gives way before the top does
         for kept in range(min(total, limit - len(tail) - 1), len(top) - 1, -1):
@@ -3410,11 +3416,7 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
         if kept == limit and limit <= protected:
             return "\n".join(head) + "\n"
         if kept < limit:
-            hidden = hint(kept)
-            if kept + len(hidden) > limit:
-                if kept > protected:
-                    continue
-                hidden = hint(kept, single_line=True)
+            hidden = hint(kept, single_line=limit - kept == 1)
             tail = [footer] if kept + len(hidden) < limit else []
             return "\n".join([*head, *hidden, *tail]) + "\n"
     return top[0] + "\n"

@@ -17,13 +17,14 @@ from tests.communication.diag.test_monitor_plain_golden import _payload
 def test_pools_use_parent_pace_keep_the_tree_and_cap_the_tail(view: str, expand: bool, reverse: bool, monkeypatch) -> None:
     if reverse:
         monkeypatch.setattr(mv, "POOLS_USE_FIRST_ASCENDING", not mv.POOLS_USE_FIRST_ASCENDING)
-    # C-5H is out and F-7D has a lower pace, but both take the C-7D family's position.
+    # The binding C-5H puts its family in the out bucket, regardless of weekly PACE.
     known = [
         ("ag", "B-7D", .40, -20.24), ("ag", "A-7D", .40, -20.24), ("zz", "Z-7D", .40, -20.24),
-        ("cc", "C-7D", .60, -20.49), ("cx", "X-7D", .90, 15), ("ag", "G-7D", .02, 30),
+        ("cx", "X-7D", .90, 15), ("ag", "G-7D", .02, 30),
     ]
     payload = _payload([], [pool(peer, name, left, pace=pace) for peer, name, left, pace in reversed(known)] + [
-        pool("cc", "F-7D", .30, pace=-60), pool("cc", "C-5H", 0), pool("ag", "U-7D", .90),
+        pool("cc", "C-7D", .60, pace=-20.49), pool("cc", "F-7D", .30, pace=-60),
+        pool("cc", "C-5H", 0), pool("ag", "U-7D", .90),
         pool("cx", "O-7D", 0, pace=-70), pool("ag", "E-7D", 0),
     ], configured_profiles=[
         {"profile": "cc.effort", "fields": {"pools": {"value": ["C-7D", "C-5H"]}}},
@@ -35,17 +36,14 @@ def test_pools_use_parent_pace_keep_the_tree_and_cap_the_tail(view: str, expand:
     screen = mv.render_grouped_frame(payload, **render)
     pools = screen.split(mv.FRAME_SECTIONS["suggest"], 1)[0].split(mv.FRAME_SECTIONS["pools"], 1)[1]
     direction = 1 if mv.POOLS_USE_FIRST_ASCENDING else -1
-    expected = []
-    for peer, name, _, _ in sorted(known, key=lambda row: (direction * row[3], *row[:2])):
-        expected.append(name)
-        if (peer, name) == ("cc", "C-7D"):
-            expected.extend(("C-5H", "F-7D"))
-    expected.extend(("U-7D", "E-7D", "O-7D"))
+    expected = [row[1] for row in sorted(known, key=lambda row: (direction * row[3], *row[:2]))]
+    expected.extend(("U-7D", "E-7D", "C-7D", "C-5H", "F-7D", "O-7D"))
     shown = re.findall(r"(?m)^ +(?:\S+ +)?([A-Z]+-(?:7D|5H))(?= +)", pools)
     assert shown == (expected if expand else expected[:mv.POOLS_CAP])
     assert (re.findall(r"(?m)^\+(\d+) pools", pools) ==
             ([] if expand else [str(len(expected) - mv.POOLS_CAP)]))
-    assert "needs C-7D" in pools and "ATTN 1" in screen and "pool_out: cc C-5H" in screen
+    assert ("needs C-7D" in pools) == expand
+    assert "ATTN 1" in screen and "pool_out: cc C-5H" in screen
     assert payload == original
 
 
