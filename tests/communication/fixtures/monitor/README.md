@@ -2,12 +2,17 @@
 
 [`plain_compact_sections.json`](plain_compact_sections.json) and
 [`plain_expand_sections.json`](plain_expand_sections.json) store the expected
-text blocks for each section of the compact and expanded plain monitor frames.
-The tests use `in_order()` to re-sort the stored sections by the monitor's
-`FRAME_HEADS` order before comparing them with the rendered frames. The stored
-section order is therefore independent of the rendered order. The expanded
-test keeps the trailing quota or hidden-row text in place.
+text for the sections of the compact and expanded plain monitor frames. The
+tests identify each block using the renderer's section catalog. When height
+eviction changes the retained sections or their lengths, the height tests
+check the section priority and overflow counts.
 
-There is no regeneration helper. The fixture rename did not regenerate either
-file. Keep the JSON bytes identical when only the monitor's section order
-changes.
+Run this command from the repository root to regenerate the POOLS blocks:
+
+```powershell
+python -m tests.communication.fixtures.monitor.regenerate_plain_sections
+```
+
+The script uses the same payloads and widths, heights, and encodings as the
+golden tests. It replaces, adds, or removes the POOLS block for each case and
+preserves the text and order of the other stored blocks.

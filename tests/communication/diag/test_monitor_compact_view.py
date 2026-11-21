@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_SECTIONS, render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_SECTIONS, POOLS_USE_FIRST_HINT, render_grouped_frame, _width
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
 
 NOW = 1794134880.0  # 2026-11-08 10:48Z
@@ -75,15 +75,14 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
     assert screen.splitlines()[1] == "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m"
     assert "/work/.peerhub/core.db" not in screen
     assert "next: peerhub observation refresh" in screen
-    assert _header(screen).split() == ["POOLS", "7", "STATE", "LEFT", "RESET", "PACE", "FAMILY"]
+    assert _header(screen).split() == ["POOLS", "7", "STATE", "LEFT", "RESET", "PACE", "FAMILY", *POOLS_USE_FIRST_HINT.split()]
     for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "out", "0%"),
                                 ("A-7D", "aged", "55%"), ("G-7D", "reset", None), ("F-7D", "?", None),
                                 ("X-7D", "ok", "89%")):
         row = _row(screen, name)
         assert state in row.split()
         assert "%" not in row if value is None else value in row
-    positions = [screen.index(_row(screen, name)) for name in ("3P-7D", "3P-5H", "A-7D", "G-7D", "F-7D", "X-7D")]
-    assert positions == sorted(positions)  # out first with its binding 5-hour row, then the rest by peer and pool
+    assert screen.index(_row(screen, "X-7D")) < screen.index(_row(screen, "3P-7D")) < screen.index(_row(screen, "3P-5H"))
     assert "G-5H" not in screen and "(X-5H n/a)" in screen
     assert "claude-via-ag" in _row(screen, "3P-7D")
     for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:", "ok enough",
@@ -671,11 +670,10 @@ def _compact_pool_order(screen):
 
 
 def test_compact_and_expand_each_keep_their_pool_order(compact_frame):
-    # #374 F5: one pin per view. Compact: out, low, binding, fast, the rest (then peer and pool), no peer grouping;
-    # --expand keeps today's order and grouping.
+    # Unknown-PACE roots tie by peer and name in POOLS. The QUOTA detail lists the most urgent peer first.
     compact = _compact_pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
     expanded = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=120, expand=True))
-    assert compact == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "cc F-7D", "cx X-7D"]
+    assert compact == [*sorted(["ag G-7D", "cc F-7D", "cx X-7D", "ag A-7D"]), "ag 3P-7D", "ag 3P-5H"]
     assert expanded[:5] == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "ag G-5H"]
 
 
@@ -688,7 +686,7 @@ def test_narrow_pools_table_drops_whole_columns_from_the_right(compact_frame, wi
     pools = screen.split("\nPOOLS ", 1)[1].split("\nsuggest:", 1)[0]  # P21: the suggestion follows the POOLS rows
     assert "~" not in pools and "Columns omitted" not in screen
     header = _header(screen)
-    shown = header.split()[2:]
+    shown = header.removesuffix(POOLS_USE_FIRST_HINT).split()[2:]
     assert shown == COMPACT_COLUMNS[:len(shown)] and len(shown) >= 1
     for pool in ("3P-5H", "3P-7D", "X-7D"):  # every row shows the same columns
         row = _row(screen, pool)
@@ -697,7 +695,8 @@ def test_narrow_pools_table_drops_whole_columns_from_the_right(compact_frame, wi
 
 @pytest.mark.parametrize("width,dropped", [(30, ["RESET", "PACE", "FAMILY"]), (40, ["FAMILY"]), (60, [])])
 def test_pools_columns_drop_by_priority_and_state_survives(compact_frame, width, dropped):
-    header = _header(render_grouped_frame(compact_frame, view="plain", unicode=False, width=width)).split()[2:]
+    header = _header(render_grouped_frame(compact_frame, view="plain", unicode=False, width=width))
+    header = header.removesuffix(POOLS_USE_FIRST_HINT).split()[2:]
     assert header == [name for name in COMPACT_COLUMNS if name not in dropped]
     assert "STATE" in header and "LEFT" in header
 
@@ -772,7 +771,7 @@ def test_expand_and_compact_keep_the_column_priority_order(compact_frame):
     positions = [header.index(name) for name in slots]
     assert positions == sorted(positions) and len(set(positions)) == len(slots)
     compact = _header(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
-    assert compact.split()[2:] == COMPACT_COLUMNS  # STATE directly after POOL (#374 F5)
+    assert compact.removesuffix(POOLS_USE_FIRST_HINT).split()[2:] == COMPACT_COLUMNS  # STATE directly after POOL (#374 F5)
 
 
 def test_wide_pools_table_keeps_every_column_and_prints_no_omission(compact_frame):

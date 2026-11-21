@@ -211,8 +211,8 @@ def test_the_unbounded_frame_with_leads_keeps_24_lines():
     lines = fitted(None)
     assert len(lines) <= COMPACT_MAX_LINES
     heads = [line.split()[0] for line in lines[2:] if line.startswith(FRAME_HEADS)]
-    assert heads == [head for head in FRAME_HEADS if head != "ALERTS"]
-    assert "+4 more (--expand)" in lines and "+4 leads (--expand)" in lines
+    assert heads == [head for head in FRAME_HEADS if head not in {"ALERTS", "LEADS"}]
+    assert "+4 more (--expand)" in lines and "RECENT 4" in lines
 
 def test_each_step_removes_in_the_one_order_with_leads():
     previous = None
@@ -246,10 +246,9 @@ TWO_LEADS: dict[str, Any] = dict(leads=["LEADS 2", " lead-0  busy  1m  ctx 10%",
                                  leads_total=2)
 
 
-def test_two_lead_rows_stay_while_recent_gives_way():
+def test_two_lead_rows_give_way_before_recent():
     lines = fitted(None, **TWO_LEADS)
-    i = lines.index("LEADS 2")
-    assert lines[i + 1].startswith(" lead-0") and lines[i + 2].startswith(" lead-1")
+    assert "LEADS 2" not in lines and sum("done-" in line for line in lines) == 2
     assert sum("task-" in line for line in lines) == 5
 
 

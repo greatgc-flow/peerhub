@@ -6,7 +6,8 @@ from typing import Any
 import pytest
 
 from peerhub.cli.monitor_view import (
-    COMPACT_MAX_LINES, FRAME_HEADS, FRAME_TRAILING_ROWS, CompactFrame, fit_compact_frame, render_grouped_frame, _width,
+    COMPACT_MAX_LINES, FRAME_HEADS, FRAME_SECTION_HEADS, FRAME_TRAILING_ROWS, POOLS_TRIM_FLOOR,
+    CompactFrame, fit_compact_frame, render_grouped_frame, _width,
 )
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool, frame  # noqa: F401
 
@@ -86,22 +87,17 @@ def test_first_removal_that_creates_an_overflow_line_removes_two_rows():
     assert len(lines) == len(full) - 1
 
 
-@pytest.mark.parametrize("key,total", [("running", 4), ("pools", 5)])
-def test_floor_plus_one_rows_lose_two_rows_when_the_overflow_line_appears(key, total):
-    # K5: 4 running asks (floor 3) or 5 pools (floor 4), no overflow line yet, one line over: removing one row and
-    # adding `+1 more` would leave the frame as long as before; the first removal takes two rows.
-    head = "RUNNING 4" if key == "running" else "POOLS 5"
+@pytest.mark.parametrize("key,total", [("running", 4), ("pools", POOLS_TRIM_FLOOR + 1)])
+def test_first_cut_above_the_floor_keeps_the_overflow_count(key, total):
+    # K5: one row over the budget. The first cut takes two rows to leave room for the overflow line.
+    head = f"{FRAME_SECTION_HEADS[key]} {total}"
     rows = [f" row {i}" for i in range(total)]
-    other = "pools" if key == "running" else "running"
-    # the other section holds rows that a later step could take instead (8 pools, or 3 running = its floor)
-    others = [] if other == "pools" else [f" other {i}" for i in range(3)]
-    base = {key: [head, *rows], f"{key}_total": total, other: ["RUNNING 3", *others] if others else None,
-            f"{other}_total": len(others), "recent": None, "suggest": []}
+    base = {"running": None, "pools": None, "recent": None, "suggest": [], key: [head, *rows],
+            f"{key}_total": total}
     full = fitted(None, **base)
     lines = fitted(len(full), **base)  # one line over
     noun = "more" if key == "running" else "pools"
     assert f"+2 {noun} (--expand)" in lines and sum(line.startswith(" row") for line in lines) == total - 2
-    assert sum(line.startswith(" other") for line in lines) == len(others)  # nothing taken from the other section
     assert len(lines) == len(full) - 1
 
 

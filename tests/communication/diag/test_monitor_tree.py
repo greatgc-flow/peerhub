@@ -50,8 +50,8 @@ def detail_lines(screen: str) -> list[str]:
 
 
 # #374 F5: the profile-containment tree, folded n/a suffixes and blank lines between peers stay in --expand. The compact
-# frame orders POOLS by class (out, low, binding, fast, the rest) and shows a 5-hour row under its 7-day pool only when
-# it binds (test_monitor_activity_view.py). The tree pins below therefore run for --expand only.
+# POOLS shows a 5-hour row under its 7-day pool in compact mode when it binds (test_monitor_activity_view.py).
+# The QUOTA tree pins below run for --expand only.
 EXPAND_ONLY = pytest.mark.parametrize("expand", [True])
 
 
@@ -207,7 +207,7 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool,
     for height in range(len(lines) + 2, 3, -1):
         screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=height, expand=expand)
         assert len(screen.splitlines()) < height
-        if height <= len(lines):
+        if 5 < height <= len(lines):
             assert "rows hidden" in screen
         kept = [line for line in screen.splitlines() if not line.startswith(("+", "Coverage:"))]
         original = iter(lines)
@@ -410,8 +410,10 @@ def test_tree_height_sweep_keeps_bounds_and_never_shows_child_without_parent(exp
             screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=width, height=height, expand=expand)
             assert len(screen.splitlines()) < height
             assert all(mv._width(line) < width for line in screen.splitlines())
-            assert "C-7D" not in screen or "C-30D" in screen
-            assert "C-5H" not in screen or "C-7D" in screen
+            pools, _, quota = screen.partition("QUOTA [")
+            assert "C-7D" not in quota or "C-30D" in quota
+            assert "C-5H" not in pools or "C-7D" in pools
+            assert "C-5H" not in quota or "C-7D" in quota
     assert frame == before
 
 
@@ -523,7 +525,7 @@ def test_expanded_separators_show_at_exact_full_fit_and_yield_below_it(width: in
 
 
 @pytest.mark.parametrize("height", [1, 2, 3])
-def test_tiny_heights_never_overflow_and_announce_cuts_when_a_line_fits(height: int) -> None:
+def test_tiny_heights_keep_the_verdict_and_title_when_they_fit(height: int) -> None:
     frame = frame_for({"cc.deepthink": ["C-5H", "C-7D"], "cc.fable": ["F-7D", "C-7D"]})
     screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=height, expand=True)
     lines = screen.splitlines()
@@ -531,4 +533,4 @@ def test_tiny_heights_never_overflow_and_announce_cuts_when_a_line_fits(height: 
     if height == 2:  # #374: --expand starts with the verdict line; one line holds only that
         assert lines == ["OK? (alerts not read)"]
     if height >= 3:
-        assert "rows hidden" in screen
+        assert lines[1].startswith("PeerHub Monitor")

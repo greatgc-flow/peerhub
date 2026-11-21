@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER
+from peerhub.cli.monitor_view import (
+    FRAME_HEADS, FRAME_SECTIONS, FRAME_SECTION_ORDER, POOLS_USE_FIRST_ASCENDING, POOLS_USE_FIRST_HINT,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 FILES = ("README.md", "docs/monitor.md", "docs/lessons.md", "peerhub/config_data/lessons.toml")
@@ -26,3 +28,13 @@ def test_monitor_docs_list_expanded_details_in_catalog_order() -> None:
     details = [head for key, head in FRAME_SECTIONS.items() if key not in FRAME_SECTION_ORDER]
     expected = f"After {FRAME_SECTIONS['leads']} it shows {', '.join(details)} and any other selected group."
     assert expected in " ".join(text.split())
+
+
+@pytest.mark.parametrize("name", ("README.md", "docs/monitor.md"))
+def test_monitor_docs_describe_height_priority_and_pool_order(name: str) -> None:
+    text = " ".join((ROOT / name).read_text(encoding="utf-8").split())
+    direction = "ascending" if POOLS_USE_FIRST_ASCENDING else "descending"
+    assert "Short frames shrink and drop sections from the bottom up in both layouts." in text
+    assert (f"{FRAME_SECTIONS['pools']} sorts families by {direction} 7D PACE of the parent, "
+            "then shows unknown PACE and finally `out` pools.") in text
+    assert f"The heading shows `{POOLS_USE_FIRST_HINT}` when there is room." in text

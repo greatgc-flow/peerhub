@@ -136,7 +136,8 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
 def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
     line = row_of(strip(rich(full_payload())), f"{POOLS_HEAD} 9")
     assert line.startswith(f"── {POOLS_HEAD} 9 ─") and line.endswith("─") and _width(line) == 99
-    titles = [word for word in line.split() if word.isalpha() and word != POOLS_HEAD]
+    assert mv.POOLS_USE_FIRST_HINT in line
+    titles = [word for word in line.replace(mv.POOLS_USE_FIRST_HINT, "").split() if word.isalpha() and word != POOLS_HEAD]
     assert titles == ["STATE", "LEFT", "RESET", "PACE", "FAMILY"]
     rows = [text for text in strip(rich(full_payload())).splitlines() if "X-7D" in text]
     assert line.index("LEFT") + len("LEFT") == rows[0].index("42%") + len("42%")  # titles sit over their columns
@@ -146,7 +147,9 @@ def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
                                   "LEADS 4 entries · partial (1 unreadable, 2 not read) · 3 sessions found",
                                   "RECENT 4 (4 running)"])
 def test_the_other_rules_keep_their_head_content(head):
-    line = next(line for line in strip(rich(full_payload())).splitlines() if line.startswith(f"── {head.split(' · ')[0]}"))
+    payload = full_payload()
+    payload["selected_groups"] = ["activity"]
+    line = next(line for line in strip(rich(payload)).splitlines() if line.startswith(f"── {head.split(' · ')[0]}"))
     assert line.startswith(f"── {head} ─") and _width(line) == 99
 
 
@@ -370,8 +373,9 @@ def test_the_bar_shrinks_then_goes_before_any_data_column_drops():
     for width in range(100, 19, -1):
         old = row_of(plain(payload, width=width, show_quota_notes=True), f"{POOLS_HEAD} ")
         new = row_of(strip(rich(payload, width=width, show_quota_notes=True)), f"{POOLS_HEAD} ")
-        titles = [word for word in old.split()[2:]]
-        assert [word for word in new.split() if word.isalpha() and word != POOLS_HEAD] == titles, width
+        titles = old.removesuffix(mv.POOLS_USE_FIRST_HINT).split()[2:]
+        words = new.replace(mv.POOLS_USE_FIRST_HINT, "").split()
+        assert [word for word in words if word.isalpha() and word != POOLS_HEAD] == titles, width
         row = row_of(strip(rich(payload, width=width, show_quota_notes=True)), "X-7D")
         bar = re.search(r"[█░]+", row)
         cells[width] = len(bar[0]) if bar else 0

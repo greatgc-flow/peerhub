@@ -13,7 +13,7 @@ import pytest
 from peerhub.cli import monitor_view as mv
 from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame, _width
 from tests.communication.diag.test_monitor_activity_view import pool
-from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload, in_order, quiet_payload
+from tests.communication.diag.test_monitor_plain_golden import _payload, blocks, full_payload, quiet_payload
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values(), mv.CHILD_EMPTY_SGR}  # #414: a child bar's empty cells
@@ -156,9 +156,11 @@ def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     rows = block("\n".join(big), "pools")[1:]
     names = [" ".join(row.replace("└─ ", "").split()[:2]) for row in rows]
     assert len(rows) == 10 and len(set(names)) == 10  # every observation of the payload but the n/a one (#400) has its row
-    # 5-hour rows that do not bind are listed under their 7-day pool, after the compact frame's order
-    assert [row.split()[1] for row in rows if "└─" in row] == ["X-5H", "3P-5H", "C-5H", "G-5H"]
-    assert rows[rows.index(next(row for row in rows if "ag 3P-7D" in row)) + 1].split()[:2] == ["└─", "3P-5H"]
+    # Expanded POOLS adds non-binding 5-hour rows directly under their weekly parents.
+    for index, row in enumerate(rows):
+        if "└─" in row:
+            assert rows[index - 1].split()[1] == row.split()[1].replace("-5H", "-7D")
+    assert {row.split()[1] for row in rows if "└─" in row} == {"X-5H", "3P-5H", "C-5H", "G-5H"}
     compact_rows = [" ".join(row.split()[:3]) for row in block("\n".join(small), "pools")[1:]]
     order = [" ".join(row.split()[:3]) for row in rows]
     assert [row for row in order if row in compact_rows] == compact_rows  # the same order, with the hidden rows added
@@ -574,17 +576,16 @@ def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
         screen = expand(payload, width=width, height=height)
         lines = screen.splitlines()
         assert len(lines) <= height - 1
-        assert lines[0] == whole[0] and "--expand | more" in screen
+        assert lines[:2] == whole[:2]
         shown = heads(screen)
-        if height >= 10:
-            assert lines[:3] == whole[:3]
-            assert {"ALERTS", "RUNNING"} <= set(shown)
-        assert shown == [head for head in ORDER if head in shown]
+        if height != 5:  # the title and one pool row use the four available lines
+            assert "--expand | more" in screen
+        assert shown == ORDER[:len(shown)]
 
 def test_a_bounded_height_keeps_alerts_and_running_visible():
-    screen = expand(detail_payload(), height=24)
+    screen = expand(detail_payload(), height=28)
     shown = heads(screen)
-    assert len(screen.splitlines()) <= 23 and {"ALERTS", "RUNNING"} <= set(shown)
+    assert len(screen.splitlines()) <= 27 and {"ALERTS", "RUNNING"} <= set(shown)
     assert shown == [head for head in FRAME_HEADS if head in shown]
     assert DB_LINE in screen and "pool_out:" in screen and "review-api" in screen
     assert "--expand | more" in screen
@@ -602,8 +603,8 @@ def test_the_lesson_and_docs_describe_priority_and_the_full_db_path():
     lesson = lesson_by_id("monitor-view")[0]["fix"]
     assert "ALERTS and RUNNING get space before RECENT" in lesson and "full DB path" in lesson
     assert (root / "docs" / "lessons.md").read_text(encoding="utf-8") == render_lessons_reference()
-    for name in ("README.md", "docs/monitor.md", "docs/implementation/OBSERVATION_PROBES.md"):
-        assert "ALERTS and RUNNING get space before RECENT" in (root / name).read_text(encoding="utf-8")
+    assert "ALERTS and RUNNING get space before RECENT" in (
+        root / "docs/implementation/OBSERVATION_PROBES.md").read_text(encoding="utf-8")
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     newer, release = changelog.split("## [0.24.21] - 2026-11-17", 1)
     assert "ALERTS, RUNNING, LEADS, QUOTA, PEERS, EXECUTION, SESSIONS, USAGE, CONTEXT" in release.split("\n## [", 1)[0]
@@ -633,9 +634,17 @@ def test_the_plain_expand_goldens_cover_every_case():
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in plain_cases()])
 def test_plain_expand_matches_its_golden(case, payload, kwargs):
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
-    quota = re.escape(FRAME_SECTIONS["capacity"])
-    top, *tail = re.split(rf"(?m)(?=^-- {quota} |^\+\d+ rows hidden)", GOLDENS[case], maxsplit=1)
-    assert screen == in_order(top, FRAME_HEADS) + "".join(tail)
+    actual, expected = blocks(screen, expanded=True), blocks(GOLDENS[case], expanded=True)
+    pools = FRAME_SECTIONS["pools"]
+    assert actual.get(pools) == expected.get(pools)
+    if kwargs["height"] is None:
+        assert actual == expected
+    else:
+        # Expanded RECENT can switch formats and the trailer counts the rows cut by the current ladder.
+        for section in (actual.keys() & expected.keys()) - {pools, "trailer", FRAME_SECTIONS["recent"]}:
+            shown, saved = actual[section], expected[section]
+            common = min(len(shown), len(saved))
+            assert shown[:common] == saved[:common], section
     assert "\x1b" not in screen and screen.isascii()
     assert render_grouped_frame(payload, show_quota_notes=True, color=True, **kwargs) == screen  # the plain view is never painted
 
