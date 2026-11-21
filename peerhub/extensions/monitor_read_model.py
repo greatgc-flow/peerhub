@@ -17,6 +17,7 @@ from typing import Any, Callable, Iterator, cast
 
 from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.extensions.observation_model import (
+    LOW_QUOTA_FRACTION,
     MEASUREMENT_KEYS,
     ABSENT_FACT_REASONS,
     NOT_REPORTED_REASON,
@@ -966,8 +967,8 @@ def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None
     provider says it does not have or has disabled (ABSENT with one of ABSENT_FACT_REASONS, also when aged).
 
     `shown` is what the POOLS table shows (precedence n/a ? reset out low fast aged ok): `state` for a fresh row; for a STALE
-    row out at 0, low at 0.10 or less, fast on a threat projection, else aged. `fast` needs two projection samples, as in the
-    view (monitor_view `_compact_pool`): the item's `projection_samples`, else `samples[observation_id]`, else 0."""
+    row out at 0, low at `LOW_QUOTA_FRACTION` or less, fast on a threat projection, else aged. `fast` needs two projection
+    samples, as in the view (monitor_view `_compact_pool`): the item's `projection_samples`, else `samples[observation_id]`, else 0."""
     pools: list[dict[str, Any]] = []
     for item in observations:
         if item.get("kind") != "quota" or item.get("pool_ref") is None:
@@ -991,7 +992,7 @@ def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None
         threat = projection.get("state") == "threat" and (count or 0) >= 2
 
         def graded(fraction: float, otherwise: str) -> str:
-            return "out" if fraction == 0 else "low" if fraction <= 0.10 else "fast" if threat else otherwise
+            return "out" if fraction == 0 else "low" if fraction <= LOW_QUOTA_FRACTION else "fast" if threat else otherwise
         known = (last_known or {}).get(str(item.get("observation_id"))) if evidence == "STALE" else None
         if known is not None:
             remaining, resets_at = known

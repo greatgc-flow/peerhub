@@ -49,7 +49,7 @@ def quota_items(db_path: str | Path, *, peer: str | None = None) -> list[dict[st
     from peerhub.extensions.diag_quota import quota_report
     from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS, FreshnessPolicy
 
-    # Observation freshness compares age >= TTL at microsecond precision. This gate includes exactly 15 minutes.
+    # Observation freshness compares age >= TTL at microsecond precision. Keep readings exactly at the age limit fresh.
     policy = FreshnessPolicy(by_kind={"quota": QUOTA_MAX_AGE_SECONDS + .000001})
     report = quota_report(db_path, peer=peer, policy=policy)
     return [item for group in report["pools"] for item in group["items"] if item["kind"] == "quota"]

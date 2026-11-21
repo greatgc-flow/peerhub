@@ -11,6 +11,7 @@ import pytest
 
 from peerhub.cli import monitor_view as mv
 from peerhub.cli.monitor import register_monitor_parser, validate_monitor_args
+from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
 
 
 def frame_for(members: dict[str, list[str]]) -> dict[str, Any]:
@@ -230,7 +231,7 @@ def test_expanded_folded_pool_keeps_identity_and_reason(reason: str, detail: str
 @pytest.mark.parametrize("state,remaining,aged,expected", [
     ("OUT", .8, False, "1;31"), ("EXHAUSTED", .8, False, "1;31"),
     ("THREAT", 0, False, "1;31"), ("THREAT", .05, False, "31"),
-    ("INSUFF", .10, False, "33"), ("FAST", .8, False, "33"),
+    ("INSUFF", LOW_QUOTA_FRACTION, False, "33"), ("FAST", .8, False, "33"),
     ("INSUFF", .8, False, None), ("OK", .8, False, "32"),
     ("ON_PACE", .8, False, "32"), ("SAFE", .8, False, "32"),
     ("OUT", 0, True, "2"), ("STALE", 0, False, "2"),
@@ -470,8 +471,9 @@ def test_fast_and_low_intentionally_share_warning_colour() -> None:
     assert mv._quota_color("FAST", .5) == mv._quota_color("LOW", .05) == "33"
 
 
-@pytest.mark.parametrize("remaining,left,code", [(.05, "5%", "33"), (.10, "10%", "33"), (.11, "11%", "32")])
-def test_remaining_is_a_fraction_before_colour_threshold(remaining: float, left: str, code: str) -> None:
+@pytest.mark.parametrize("remaining,code", [(.05, "33"), (LOW_QUOTA_FRACTION, "33"), (LOW_QUOTA_FRACTION + .01, "32")])
+def test_remaining_is_a_fraction_before_colour_threshold(remaining: float, code: str) -> None:
+    left = f"{remaining:.0%}"
     frame = frame_for({"cc.a": ["C-5H"]})
     item = frame["groups"]["capacity"]["data"]["observations"][0]
     item["measurements"]["remaining_fraction"] = remaining

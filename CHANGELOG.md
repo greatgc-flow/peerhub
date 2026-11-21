@@ -8,6 +8,12 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.3] - 2026-11-21
+
+### Changed
+
+- The quota thresholds each have one named source: `QUOTA_MAX_AGE_SECONDS`, `MONITOR_QUOTA_MAX_AGE_SECONDS`, `QUOTA_NOTICE_AGE_SECONDS` (the 60-minute refresh hint) and `LOW_QUOTA_FRACTION` (10 %). Code and tests read them and a test pins the README, monitor guide and lesson wording to the values. Output is unchanged.
+
 ### Fixed
 
 - README, `docs/monitor.md`, `docs/lessons.md` and the packaged monitor lesson name the sections in the order the monitor prints them (POOLS, the suggestion, ALERTS, RUNNING, RECENT, LEADS); a test pins the text to `FRAME_HEADS`.

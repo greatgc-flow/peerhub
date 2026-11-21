@@ -12,6 +12,7 @@ import pytest
 
 from peerhub.cli import monitor_view as mv
 from peerhub.cli.monitor_view import FRAME_HEADS, render_grouped_frame, _width
+from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
 from tests.communication.diag.test_monitor_plain_golden import blocks, empty_payload, full_payload, quiet_payload
@@ -300,8 +301,10 @@ def test_the_bar_has_twenty_cells_of_what_is_left(remaining, filled):
     assert f"  {'#' * filled}{'.' * (20 - filled)}  " in ascii_line
 
 
-@pytest.mark.parametrize("remaining,colour", [(.9, "ok"), (.51, "ok"), (.5, "warn"), (.26, "warn"), (.25, "hot"),
-                                              (.11, "hot"), (.10, "bad"), (.01, "bad"), (0.0, "bad")])
+@pytest.mark.parametrize("remaining,colour", [
+    (.9, "ok"), (.51, "ok"), (.5, "warn"), (.26, "warn"), (.25, "hot"),
+    (LOW_QUOTA_FRACTION + .01, "hot"), (LOW_QUOTA_FRACTION, "bad"), (.01, "bad"), (0.0, "bad"),
+])
 def test_the_bar_colour_is_what_is_left(remaining, colour):
     line = row_of(rich(pools_payload(pool("cc", "C-7D", remaining))), "C-7D")
     assert re.search(r"\x1b\[" + mv.RICH_SGR[colour] + "m[█░]{20}\x1b\\[0m", line), line

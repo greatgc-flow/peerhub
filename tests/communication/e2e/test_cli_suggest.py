@@ -10,6 +10,7 @@ import pytest
 from peerhub.cli.app import main
 from peerhub.extensions.adapters.profiles import _load_layer
 from peerhub.extensions.diag_quota import projection
+from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS
 
 NOW = 1_800_000_000
 WINDOWS = {"ag": ("G", "3P"), "cx": ("X", "X"), "cc": ("C", "C")}
@@ -67,7 +68,7 @@ def suggest(*options):
     return main(["--db", str(Path(__file__)), "suggest", *options])
 
 
-@pytest.mark.parametrize("age,refreshed", [(900, False), (901, True), (None, True)])
+@pytest.mark.parametrize("age,refreshed", [(QUOTA_MAX_AGE_SECONDS, False), (QUOTA_MAX_AGE_SECONDS + 1, True), (None, True)])
 def test_dispatch_only_refreshes_an_expired_or_missing_snapshot(quota, age, refreshed):
     from peerhub.cli.support import refresh_dispatch_quota
     items, _, calls = quota
@@ -87,7 +88,7 @@ def test_dispatch_only_refreshes_an_expired_or_missing_snapshot(quota, age, refr
 def test_rank_by_weekly_pace_and_gate_at_90_percent(quota, capsys, weekly, short, expected):
     items, _, calls = quota
     for peer, used_7d, used_5h in zip(WINDOWS, weekly, short):
-        items.extend(readings(peer, used_7d=used_7d, used_5h=used_5h, age=900))
+        items.extend(readings(peer, used_7d=used_7d, used_5h=used_5h, age=QUOTA_MAX_AGE_SECONDS))
     assert suggest("--tier", "standard", "--task", "review", "--json") == 0
     out = capsys.readouterr()
     value = json.loads(out.out)
@@ -101,8 +102,8 @@ def test_rank_by_weekly_pace_and_gate_at_90_percent(quota, capsys, weekly, short
 
 def test_refresh_missing_and_expired_once_then_rank_unknown_last(quota, capsys):
     items, refreshed, calls = quota
-    items.extend(readings("cc", used_7d=.01, age=901) + readings("cx", used_7d=.40))
-    refreshed["cc"] = readings("cc", used_7d=.02, age=901)
+    items.extend(readings("cc", used_7d=.01, age=QUOTA_MAX_AGE_SECONDS + 1) + readings("cx", used_7d=.40))
+    refreshed["cc"] = readings("cc", used_7d=.02, age=QUOTA_MAX_AGE_SECONDS + 1)
     refreshed["ag"] = readings("ag", used_7d=None)
     assert suggest("--tier", "standard") == 0
     out = capsys.readouterr()
@@ -114,7 +115,7 @@ def test_refresh_missing_and_expired_once_then_rank_unknown_last(quota, capsys):
 
 def test_refreshed_reading_can_win(quota, capsys):
     items, refreshed, calls = quota
-    items.extend(readings("cc") + readings("cx") + readings("ag", age=901))
+    items.extend(readings("cc") + readings("cx") + readings("ag", age=QUOTA_MAX_AGE_SECONDS + 1))
     refreshed["ag"] = readings("ag", used_7d=.01)
     assert suggest("--tier", "standard", "--json") == 0
     assert json.loads(capsys.readouterr().out)["profile"] == "ag.standard"
@@ -179,7 +180,9 @@ def test_unexposed_5h_is_no_gate(quota, capsys):
     assert value["profile"] == "cx.effort" and "5H n/a" in value["reason"]
 
 
-@pytest.mark.parametrize("short_state,age", [(None, 0), ("UNKNOWN", 0), ("MEASURED", 901), ("ABSENT", 901)])
+@pytest.mark.parametrize("short_state,age", [
+    (None, 0), ("UNKNOWN", 0), ("MEASURED", QUOTA_MAX_AGE_SECONDS + 1), ("ABSENT", QUOTA_MAX_AGE_SECONDS + 1),
+])
 def test_unknown_5h_ranks_after_measured_and_can_be_a_fallback(quota, capsys, short_state, age):
     items, _, _ = quota
     if short_state is not None:

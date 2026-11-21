@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.monitor_view import render_grouped_frame, _width
+from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
 
 NOW = 1794134880.0  # 2026-11-08 10:48Z
 
@@ -193,9 +194,9 @@ def test_projection_fast_requires_two_samples(compact_frame, samples, expected):
 
 
 @pytest.mark.parametrize("remaining,projection,samples,age,reset,expected", [
-    (.10, "safe", 0, 60, 3600, "low"),
-    (.10, "threat", 2, 301, 3600, "low"),
-    (.100001, "threat", 2, 60, 3600, "fast"),
+    (LOW_QUOTA_FRACTION, "safe", 0, 60, 3600, "low"),
+    (LOW_QUOTA_FRACTION, "threat", 2, 301, 3600, "low"),
+    (LOW_QUOTA_FRACTION + .000001, "threat", 2, 60, 3600, "fast"),
     (.8, "threat", 2, 301, 3600, "fast"),
     (.8, "threat", 1, 301, 3600, "aged"),
     (.8, "safe", 2, 60, 3600, "ok"),
