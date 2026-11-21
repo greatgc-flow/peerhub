@@ -27,7 +27,9 @@ def test_active_work_survives_history_pressure(width, style, expand):
     screen = mv.render_grouped_frame(payload, view=style, unicode=style == "rich", width=width, height=24, expand=expand)
     heads = head_names(screen)
     assert heads.index("ALERTS") < heads.index("RUNNING")
-    running = screen.split("RUNNING", 1)[1].split("POOLS", 1)[0]
+    after_running = screen.split("RUNNING", 1)[1]
+    next_heading = r"\n(?:── |-- )?(?:" + "|".join(map(re.escape, mv.FRAME_HEADS)) + r") "
+    running = re.split(next_heading, after_running, maxsplit=1)[0]
     assert "pool_out:" in screen and "cx.deepthink" in running
     if "RECENT" in heads:
         assert heads.index("RUNNING") < heads.index("RECENT")

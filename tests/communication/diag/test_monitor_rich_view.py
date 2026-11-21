@@ -11,11 +11,10 @@ from typing import Any
 import pytest
 
 from peerhub.cli import monitor_view as mv
-from peerhub.cli.monitor_view import render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_HEADS, render_grouped_frame, _width
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
-from tests.communication.diag.test_monitor_plain_golden import (ORDER, blocks, empty_payload, full_payload,
-                                                                 quiet_payload)
+from tests.communication.diag.test_monitor_plain_golden import blocks, empty_payload, full_payload, quiet_payload
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values(), mv.CHILD_EMPTY_SGR}  # #414: a child bar's empty cells
@@ -63,7 +62,7 @@ def _colour_env(monkeypatch):
 @pytest.mark.parametrize("build", [full_payload, quiet_payload, empty_payload])
 def test_both_views_keep_the_same_section_order(build):
     plain_heads = [key for key in blocks(plain(build())) if key != "top"]
-    assert plain_heads == [key for key in ORDER if key in plain_heads] and plain_heads[0] in {"ALERTS", "RUNNING"}
+    assert plain_heads == [key for key in FRAME_HEADS if key in plain_heads] and plain_heads[0] == FRAME_HEADS[0]
     lines = strip(rich(build())).splitlines()
     heads = [(rule_head(line) or line).split()[0] for line in lines if rule_head(line) or line.startswith("suggest:")]
     assert heads == plain_heads

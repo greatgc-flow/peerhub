@@ -9,13 +9,13 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import render_grouped_frame
+from peerhub.cli.monitor_view import FRAME_HEADS, render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import NOW, SOURCES_READ, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
 
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_v0_24_17.json"
-ORDER = ("ALERTS", "RUNNING", "POOLS", "suggest:", "RECENT", "LEADS")
-_HEAD = re.compile(r"^(?:-- )?(ALERTS|RUNNING|LEADS|RECENT|POOLS) |^(suggest:)")
+ORDER = FRAME_HEADS
+_HEAD = re.compile(r"^(?:-- )?(" + "|".join(map(re.escape, ORDER)) + r")(?= |$)")
 PROFILES = [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
     ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]), ("ag.deepthink", ["3P-5H", "3P-7D"]),
     ("cc.effort", ["C-5H", "C-7D"]), ("cc.fable", ["F-7D"]), ("cx.effort", ["X-5H", "X-7D"]))]
@@ -107,7 +107,7 @@ def blocks(screen: str) -> dict[str, list[str]]:
     for line in screen.splitlines():
         match = _HEAD.match(line)
         if match:
-            key = match[1] or match[2]
+            key = match[1]
             assert key not in result, f"two {key} blocks"
             result[key] = []
         result[key].append(line)
@@ -149,14 +149,15 @@ def test_the_goldens_cover_every_case():
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in golden_cases()])
 def test_plain_frame_matches_its_golden(case, payload, kwargs):
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
-    assert screen == GOLDENS[case]
+    assert screen == in_order(GOLDENS[case], ORDER)
     assert in_order(screen, ORDER) == screen  # the sections print in the one order
     assert "\x1b" not in screen
 
 
 @pytest.mark.parametrize("name", list(PAYLOADS))
 def test_the_golden_payloads_show_what_they_claim(name):
-    heads = [key for key in blocks(GOLDENS[f"{name}-w100-hNone-None"]) if key != "top"]
-    expected = {"full": list(ORDER), "quiet": ["RUNNING", "POOLS", "suggest:"],
-                "empty": list(ORDER[1:])}[name]
+    golden = in_order(GOLDENS[f"{name}-w100-hNone-None"], ORDER)
+    heads = [key for key in blocks(golden) if key != "top"]
+    absent = {"full": set(), "quiet": {"ALERTS", "LEADS", "RECENT"}, "empty": {"ALERTS"}}[name]
+    expected = [head for head in ORDER if head not in absent]
     assert heads == expected

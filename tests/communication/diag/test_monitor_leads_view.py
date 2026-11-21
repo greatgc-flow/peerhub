@@ -10,9 +10,11 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import COMPACT_MAX_LINES, CompactFrame, MONITOR_LEGEND, fit_compact_frame, render_grouped_frame, _width
+from peerhub.cli.monitor_view import (
+    COMPACT_MAX_LINES, FRAME_HEADS, CompactFrame, MONITOR_LEGEND, fit_compact_frame, render_grouped_frame, _width,
+)
 from tests.communication.diag.test_monitor_activity import db  # noqa: F401  (a fixture: a store with the Bridge tables)
-from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame  # noqa: F401
+from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame, section  # noqa: F401
 
 READ = {"state": "read", "unreadable": 0, "not_read": 0}
 TITLE = "Release notes for the spring update"
@@ -48,18 +50,15 @@ def screen(payload: dict[str, Any], width: int = 100, unicode: bool = False, **k
 
 
 def leads_block(lines: list[str]) -> list[str]:
-    start = next(i for i, line in enumerate(lines) if line.startswith("LEADS"))
-    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^(RUNNING|RECENT|POOLS|suggest:)", lines[i])),
-               len(lines))
-    return lines[start:end]
+    return section(lines, "LEADS")
 
 
 # 14. the compact LEADS block ----------------------------------------------------------------------------------------
 def test_leads_come_after_recent_and_running_with_the_column_order(frame):
     with_leads(frame, [lead("docs-site", session=sess())])
     lines = screen(frame)
-    heads = [line.split()[0] for line in lines if re.match(r"^(RUNNING|LEADS|RECENT|POOLS|suggest:)", line)]
-    assert heads == ["RUNNING", "POOLS", "suggest:", "RECENT", "LEADS"]
+    heads = [line.split()[0] for line in lines if line.startswith(FRAME_HEADS)]
+    assert heads == [head for head in FRAME_HEADS if head != "ALERTS"]
     block = leads_block(lines)
     assert block[0] == "LEADS 1 entry | 1 session found"
     assert block[1].split() == ["docs-site", "busy", "12s", "ctx", "10%", "0", "run", "fable-5-2", *TITLE.split()]
@@ -209,8 +208,8 @@ def fitted(height: int | None, max_lines: int = 24, **over: Any) -> list[str]:
 def test_the_unbounded_frame_with_leads_keeps_24_lines():
     lines = fitted(None)
     assert len(lines) <= COMPACT_MAX_LINES
-    heads = [line.split()[0] for line in lines[2:] if line.startswith(("RUNNING", "POOLS", "suggest:", "RECENT", "LEADS"))]
-    assert heads == ["RUNNING", "POOLS", "suggest:", "RECENT", "LEADS"]
+    heads = [line.split()[0] for line in lines[2:] if line.startswith(FRAME_HEADS)]
+    assert heads == [head for head in FRAME_HEADS if head != "ALERTS"]
     assert "+4 more (--expand)" in lines and "+4 leads (--expand)" in lines
 
 def test_each_step_removes_in_the_one_order_with_leads():

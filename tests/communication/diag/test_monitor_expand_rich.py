@@ -1,4 +1,4 @@
-"""Expanded layout, quota, activity and the historical plain alert-first contract."""
+"""Expanded layout, quota, activity and historical plain output."""
 from __future__ import annotations
 
 import json
@@ -11,17 +11,16 @@ from typing import Any
 import pytest
 
 from peerhub.cli import monitor_view as mv
-from peerhub.cli.monitor_view import render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_HEADS, render_grouped_frame, _width
 from tests.communication.diag.test_monitor_activity_view import pool
-from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload, quiet_payload
+from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload, in_order, quiet_payload
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values(), mv.CHILD_EMPTY_SGR}  # #414: a child bar's empty cells
 GUIDE_URL = "https://github.com/greatgc-flow/peerhub/blob/main/docs/monitor.md"  # pinned: the plain frame's `Guide:` line
 U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_expand_v0_24_20.json"
-ORDER = ["ALERTS", "RUNNING", "POOLS", "RECENT", "LEADS", "QUOTA", "PEERS", "EXECUTION", "SESSIONS", "USAGE", "CONTEXT",
-         "STORE"]
+ORDER = [*FRAME_HEADS, "QUOTA", "PEERS", "EXECUTION", "SESSIONS", "USAGE", "CONTEXT", "STORE"]
 DB_LINE = "DB:env (/w/.peerhub/core.db)"
 
 
@@ -92,8 +91,14 @@ def eight_pools_payload() -> dict[str, Any]:
 
 
 def heads(screen: str) -> list[str]:
-    """The first word of every section rule, in order."""
-    return [match[1] for line in strip(screen).splitlines() if (match := re.match(r"^(?:──|--) ([A-Z]+)\b", line))]
+    """The first word of each section heading, including unruled headings."""
+    names: list[str] = []
+    for line in strip(screen).splitlines():
+        if match := re.match(r"^(?:──|--) ([A-Z]+)\b", line):
+            names.append(match[1])
+        elif (name := line.partition(" ")[0]) in FRAME_HEADS:
+            names.append(name)
+    return names
 
 
 def block(screen: str, head: str) -> list[str]:
@@ -123,14 +128,16 @@ def flat(text: str) -> str:
 @pytest.mark.parametrize("width", [60, 80, 100])
 @pytest.mark.parametrize("color", [False, True])
 @pytest.mark.parametrize("unicode", [True, False])
-def test_expansion_keeps_the_compact_pool_rows_and_moves_active_work_first(width, color, unicode):
+def test_expansion_keeps_the_compact_pool_rows_and_section_order(width, color, unicode):
     payload = eight_pools_payload()
     small = compact(payload, width=width, color=color, unicode=unicode)
     big = expand(payload, width=width, color=color, unicode=unicode)
     assert small.splitlines()[:2] == big.splitlines()[:2]
     assert block(small, "POOLS") == block(big, "POOLS")
+    assert {"POOLS", "RUNNING", "RECENT"} <= set(heads(small))
     for screen in (small, big):
-        assert heads(screen).index("RUNNING") < heads(screen).index("POOLS") < heads(screen).index("RECENT")
+        shown = [head for head in heads(screen) if head in FRAME_HEADS]
+        assert shown == [head for head in FRAME_HEADS if head in shown]
 
 def test_expand_uses_the_terminal_width_and_the_compact_frame_stays_at_100_columns():
     payload = eight_pools_payload()
@@ -172,7 +179,7 @@ def test_the_suggestion_wraps_without_a_cap():
     assert next(i for i in range(at + 1, len(narrow)) if narrow[i].startswith("── ")) - at <= 2
     lines = expand(payload, width=30).splitlines()
     start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
-    end = next(i for i, line in enumerate(lines) if line.startswith("── RECENT"))  # #412: RECENT follows the suggestion
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("── "))
     assert end - start > 2 and "…" not in "".join(lines[start:end])
     assert "".join(lines[start:end]).replace(" ", "") == whole.replace(" ", "")  # nothing is lost at 30 columns
 
@@ -194,8 +201,7 @@ def test_without_capacity_data_the_store_line_stays_in_the_header():
     payload["selected_groups"] = ["activity"]
     lines = expand(payload).splitlines()
     assert lines[1].startswith("PeerHub Monitor 2026-11-14 23:46Z") and "DB:env" in lines[1]
-    assert "POOLS" not in heads("\n".join(lines)) and not any(line.startswith("suggest:") for line in lines)
-    assert heads("\n".join(lines)) == ["ALERTS", "RUNNING", "RECENT", "LEADS"]
+    assert heads("\n".join(lines)) == [head for head in FRAME_HEADS if head not in {"POOLS", "suggest:"}]
     at = lines.index(DB_LINE)
     assert at == 2
     payload["_store_note"] = "--db overrides PEERHUB_DB (/other/core.db)"
@@ -224,8 +230,7 @@ def test_one_db_line_at_100_columns_then_the_sections_in_the_agreed_order():
     assert lines[1].startswith("PeerHub Monitor") and "DB:env" in lines[1]  # the title names the store (#412)...
     assert lines[2] == DB_LINE
     suggest = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
-    assert lines[suggest + 1].startswith("── RECENT 4 (4 running) ─")  # RECENT follows the suggestion
-    assert next(line for line in lines if line.startswith("── ALERTS 2 ─")) and heads(screen).index("ALERTS") == 0
+    assert lines[suggest + 1].startswith("── ALERTS 2 ─")
     assert sum(line.startswith("PeerHub Monitor") for line in lines) == 1  # the grouped frame's own title line is gone
     assert not any("ACTIVITY [" in line or "PeerHub Monitor | " in line for line in lines)
     assert lines[-1] == "Coverage: partial; peerhub explain <code>"
@@ -243,10 +248,10 @@ def test_the_order_does_not_depend_on_the_selection_order_and_an_unknown_group_s
     assert "── MYSTERY [OK] [unrecognized group] ─" in screen and " some value: 3" in screen.splitlines()
 
 
-def test_every_section_head_is_a_rule_like_the_compact_ones():
+def test_the_expanded_section_rules_match_the_compact_style():
     screen = expand(detail_payload(), color=True)
     rules = [line for line in screen.splitlines() if strip(line).startswith("── ")]
-    assert len(rules) == len(ORDER)
+    assert heads("\n".join(rules)) == [head for head in ORDER if head != "suggest:"]
     dim, title = mv.RICH_SGR["dim"], mv.RICH_SGR["title"]
     assert all(line.startswith(f"\x1b[{dim}m──\x1b[0m \x1b[{title}m") and _width(line) == 99 for line in rules)
     texts = [strip(line) for line in rules]
@@ -569,15 +574,17 @@ def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
         lines = screen.splitlines()
         assert len(lines) <= height - 1
         assert lines[0] == whole[0] and "--expand | more" in screen
+        shown = heads(screen)
         if height >= 10:
             assert lines[:3] == whole[:3]
-            assert heads(screen)[:2] == ["ALERTS", "RUNNING"]
-        if "RECENT" in heads(screen):
-            assert heads(screen).index("RUNNING") < heads(screen).index("RECENT")
+            assert {"ALERTS", "RUNNING"} <= set(shown)
+        assert shown == [head for head in ORDER if head in shown]
 
-def test_a_bounded_height_shows_alerts_and_running_first():
+def test_a_bounded_height_keeps_alerts_and_running_visible():
     screen = expand(detail_payload(), height=24)
-    assert len(screen.splitlines()) <= 23 and heads(screen)[:2] == ["ALERTS", "RUNNING"]
+    shown = heads(screen)
+    assert len(screen.splitlines()) <= 23 and {"ALERTS", "RUNNING"} <= set(shown)
+    assert shown == [head for head in FRAME_HEADS if head in shown]
     assert DB_LINE in screen and "pool_out:" in screen and "review-api" in screen
     assert "--expand | more" in screen
 
@@ -625,23 +632,19 @@ def test_the_plain_expand_goldens_cover_every_case():
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in plain_cases()])
 def test_plain_expand_matches_its_golden(case, payload, kwargs):
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
-    assert screen == GOLDENS[case]
+    top, *tail = re.split(r"(?m)(?=^-- QUOTA |^\+\d+ rows hidden)", GOLDENS[case], maxsplit=1)
+    assert screen == in_order(top, FRAME_HEADS) + "".join(tail)
     assert "\x1b" not in screen and screen.isascii()
     assert render_grouped_frame(payload, show_quota_notes=True, color=True, **kwargs) == screen  # the plain view is never painted
 
 
 def test_the_plain_expand_frame_has_the_one_order_of_the_compact_frame():
-    """#412: the plain --expand frame starts as the compact frame does (line 1, the title with DB:env, POOLS, the
-    suggestion, RECENT) and goes on in the rich frame's order; its QUOTA keeps the 8-cell bar and upper-case states."""
-    lines = render_grouped_frame(detail_payload(), view="plain", unicode=False, width=120, expand=True).splitlines()
+    """The plain expanded frame follows the compact order and keeps its 8-cell quota bar and upper-case states."""
+    screen = render_grouped_frame(detail_payload(), view="plain", unicode=False, width=120, expand=True)
+    lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m | pool_out: cx X-5H")
     assert lines[1].startswith("PeerHub Monitor 2026-11-14 23:46Z | DB:env | quota age")
-    heads_ = [match[1] for line in lines if (match := re.match(r"^(?:-- )?(suggest:|(?:POOLS|RECENT|RUNNING|ALERTS|LEADS"
-                                                              r"|QUOTA|PEERS|EXECUTION|SESSIONS|USAGE|CONTEXT|STORE)\b)", line))]
-    heads_ = list(dict.fromkeys(heads_))  # the legend at the end names LEADS again
-    assert heads_[:5] == ["ALERTS", "RUNNING", "POOLS", "suggest:", "RECENT"]
-    assert heads_ == ["ALERTS", "RUNNING", "POOLS", "suggest:", "RECENT", "LEADS", "QUOTA", "PEERS", "EXECUTION", "SESSIONS",
-                      "USAGE", "CONTEXT", "STORE"]
+    assert heads(screen) == ORDER
     assert any("[BAR]" in line for line in lines) and not any("FORECAST" in line for line in lines)
     assert any(line.startswith("- flag none (caller alive) | state run") for line in lines)  # RUNNING keeps every field
     assert lines.index(DB_LINE) == 2

@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import RECENT_CAP, RECENT_EXPAND, render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_HEADS, RECENT_CAP, RECENT_EXPAND, render_grouped_frame, _width
 from peerhub.extensions.caller import host_id
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame  # noqa: F401
 
@@ -121,9 +121,8 @@ def recent_rows(screen: str) -> list[str]:
 @pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True), ("rich", False)])
 def test_compact_order_puts_running_ahead_of_recent(busy, view, unicode_mode):
     screen = render_grouped_frame(busy, view=view, unicode=unicode_mode, width=100)
-    names = head_names(screen)
-    assert [n for n in names if n in {"POOLS", "suggest:", "RECENT", "RUNNING", "LEADS"}] == [
-        "RUNNING", "POOLS", "suggest:", "RECENT", "LEADS"]
+    names = [name for name in head_names(screen) if name in FRAME_HEADS]
+    assert names == [head for head in FRAME_HEADS if head != "ALERTS"]
 
 
 def detailed(busy: dict[str, Any]) -> dict[str, Any]:
@@ -138,8 +137,7 @@ def detailed(busy: dict[str, Any]) -> dict[str, Any]:
     return busy
 
 
-SPEC_ORDER = ["ALERTS", "RUNNING", "POOLS", "suggest:", "RECENT", "LEADS", "QUOTA", "PEERS", "EXECUTION", "SESSIONS", "USAGE",
-              "CONTEXT"]
+SPEC_ORDER = [*FRAME_HEADS, "QUOTA", "PEERS", "EXECUTION", "SESSIONS", "USAGE", "CONTEXT"]
 
 
 @pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True), ("rich", False)])
@@ -151,10 +149,10 @@ def test_expand_has_the_one_order_of_the_spec_in_both_views(busy, view, unicode_
     names = [n for n in head_names(screen) if n in set(SPEC_ORDER)]
     assert names == SPEC_ORDER, names
     db = next(i for i, line in enumerate(out) if line.startswith("DB:env ("))
-    assert db < next(i for i, line in enumerate(out) if _head(line) == "ALERTS")
+    assert db < next(i for i, line in enumerate(out) if _head(line) in FRAME_HEADS)
     compact = [n for n in head_names(render_grouped_frame(busy, view=view, unicode=unicode_mode, width=120))
                if n in set(SPEC_ORDER)]
-    assert compact == SPEC_ORDER[:SPEC_ORDER.index("QUOTA")]
+    assert compact == list(FRAME_HEADS)
 
 
 def test_recent_header_counts_finished_asks_and_running_ones(busy):
@@ -300,7 +298,7 @@ def test_the_expand_ladder_shrinks_recent_first_then_drops_the_sections_from_the
     for height in range(19, 61):
         screen = render_grouped_frame(busy, view=view, unicode=unicode_mode, width=118, height=height, expand=True)
         names = [n for n in head_names(screen) if n in SPEC_ORDER]
-        assert names[:2] == ["ALERTS", "RUNNING"]
+        assert {"ALERTS", "RUNNING"} <= set(names)
         assert names == [n for n in SPEC_ORDER if n in names], (height, names)
         entries = [row for row in recent_rows(screen) if "done-" in row]
         assert len(entries) <= RECENT_EXPAND
@@ -314,7 +312,9 @@ def test_a_real_sized_history_keeps_the_bounded_cap(frame, view, unicode_mode, h
     screen = render_grouped_frame(payload, view=view, unicode=unicode_mode, width=118, height=height, expand=True)
     shown = recent_rows(screen)
     assert len(lines(screen)) <= height - 1 and "RECENT 116 (2 running)" in screen
-    assert [n for n in head_names(screen) if n in SPEC_ORDER][:2] == ["ALERTS", "RUNNING"]
+    names = [name for name in head_names(screen) if name in SPEC_ORDER]
+    assert {"ALERTS", "RUNNING"} <= set(names)
+    assert names == [head for head in SPEC_ORDER if head in names]
     assert sum("done-" in row for row in shown) <= RECENT_EXPAND
 
 def section_rows(screen: str, head: str) -> int:

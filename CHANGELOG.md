@@ -8,6 +8,12 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-11-21
+
+### Fixed
+
+- The monitor shows POOLS directly under the title again, in compact and `--expand`: ALERTS and RUNNING come after the `suggest:` line and before RECENT, not above POOLS (0.26.0 moved them above POOLS, #430). The section order is one constant, `FRAME_SECTION_ORDER`, and the tests derive their expected order from it.
+
 ## [0.26.1] - 2026-11-21
 
 ### Fixed

@@ -5,7 +5,9 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import COMPACT_MAX_LINES, FRAME_TRAILING_ROWS, CompactFrame, fit_compact_frame, render_grouped_frame, _width
+from peerhub.cli.monitor_view import (
+    COMPACT_MAX_LINES, FRAME_HEADS, FRAME_TRAILING_ROWS, CompactFrame, fit_compact_frame, render_grouped_frame, _width,
+)
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, pool, frame  # noqa: F401
 
 
@@ -32,7 +34,7 @@ def test_unbounded_frame_keeps_every_section_within_24_lines():
     assert len(lines) == COMPACT_MAX_LINES
     assert "+2 pools (--expand)" in lines and "+4 more (--expand)" in lines
     assert [line.split()[0] for line in lines if not line.startswith((" ", "+"))][2:] == [
-        "RUNNING", "POOLS", "suggest:", "RECENT"]
+        head for head in FRAME_HEADS if head not in {"ALERTS", "LEADS"}]
     assert lines.count("RECENT 4") == 1 and len([line for line in lines if line.startswith(" ok ")]) == 2
 
 
