@@ -22,6 +22,28 @@ from peerhub.extensions.observation_model import (
     quota_probe_timed_out,
 )
 
+# The top-to-bottom order below the title (#430). Compact ends with LEADS.
+# Detail section keys are monitor group IDs.
+FRAME_SECTIONS = {
+    "pools": "POOLS",
+    "suggest": "suggest:",
+    "alerts": "ALERTS",
+    "running": "RUNNING",
+    "recent": "RECENT",
+    "leads": "LEADS",
+    "capacity": "QUOTA",
+    "peers": "PEERS",
+    "execution": "EXECUTION",
+    "sessions": "SESSIONS",
+    "usage": "USAGE",
+    "context": "CONTEXT",
+}
+_FRAME_SECTION_KEYS = tuple(FRAME_SECTIONS)
+FRAME_SECTION_ORDER = _FRAME_SECTION_KEYS[:_FRAME_SECTION_KEYS.index("leads") + 1]
+FRAME_SECTION_HEADS = {key: FRAME_SECTIONS[key] for key in FRAME_SECTION_ORDER}
+FRAME_HEADS = tuple(FRAME_SECTION_HEADS.values())
+_FRAME_DETAIL_ORDER = _FRAME_SECTION_KEYS[len(FRAME_SECTION_ORDER):]
+
 # Mirrors peerhub.extensions.observation_model.NOT_REPORTED_REASON (the human renderer imports no extension code).
 _NOT_REPORTED = "not reported by provider"
 _DISABLED = "disabled by provider"  # mirrors observation_model.DISABLED_REASON: the window exists but the provider switched it off
@@ -389,7 +411,7 @@ def _alert_exhaustion_at(item: dict[str, Any]) -> float | None:
 
 def _quota_label(status: str, group: dict[str, Any], read_at: float | None,
                  elapsed_seconds: float) -> str:
-    label = f"QUOTA [{status}] | measured remaining"
+    label = f"{FRAME_SECTIONS['capacity']} [{status}] | measured remaining"
     candidates: list[tuple[float, str]] = []
     for item in _items(_obj(group.get("data")).get("observations")):
         exhaustion = _alert_exhaustion_at(item)
@@ -466,8 +488,9 @@ def _group_label(gid: str, group: dict[str, Any], status: str, read_at: float | 
     if gid == "capacity":
         return _quota_label(status, group, read_at, elapsed)
     if gid == "alerts":
-        return f"ALERTS {len(_items(_obj(group.get('data')).get('alerts')))}"
-    label = f"{gid.upper()} [{status}]"
+        return f"{FRAME_SECTIONS[gid]} {len(_items(_obj(group.get('data')).get('alerts')))}"
+    head = FRAME_SECTIONS[gid] if gid in _FRAME_DETAIL_ORDER else gid.upper()
+    label = f"{head} [{status}]"
     note = _sample_note(gid, _obj(group.get("data")))
     label += f" | {note}" if note else ""
     return label if gid in {str(item["id"]) for item in GROUPS} else label + " [unrecognized group]"
@@ -1318,7 +1341,7 @@ def _recent_ended(data: dict[str, Any], groups: dict[str, Any]) -> list[dict[str
 def _recent_head(data: dict[str, Any], ended: list[dict[str, Any]], *, superseded: bool = False) -> str:
     """`RECENT 130 (2 running)`: the finished asks, and how many more run (they are listed under RUNNING). The detail
     frames also report the superseded sample."""
-    head = f"RECENT {len(ended)} ({_running_head(data, _ask_split(data)[0], True)[1]} running)"
+    head = f"{FRAME_SECTIONS['recent']} {len(ended)} ({_running_head(data, _ask_split(data)[0], True)[1]} running)"
     omitted = _number(data.get("superseded_omitted")) or 0
     replaced = len(_ask_split(data)[2])
     if superseded and (replaced or omitted):
@@ -1810,7 +1833,7 @@ def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, An
                 tier = {"standard": "eco", "effort": "normal", "deepthink": "quality"}.get(suffix, "top")
                 choices[tier].append((fast, min(scores), name))
     if not any(choices.values()):
-        return "suggest: no eligible profiles; next: peerhub observation refresh"
+        return f"{FRAME_SECTIONS['suggest']} no eligible profiles; next: peerhub observation refresh"
     suggestions: list[str] = []
     for tier, items in choices.items():
         ranked = sorted(items, key=lambda item: (item[0], -item[1], item[2]))
@@ -1820,7 +1843,7 @@ def _compact_suggestions(profiles: list[dict[str, Any]], rows: list[dict[str, An
         if alternative is not None:
             pick += f"|{alternative}"
         suggestions.append(f"{tier}={pick}")
-    return "suggest: " + " ".join(suggestions)
+    return FRAME_SECTIONS["suggest"] + " " + " ".join(suggestions)
 
 
 # ---- compact frame (#374, P21, #412) ---------------------------------------------------------------------------------
@@ -2061,17 +2084,6 @@ def _fit_bytes(text: str, budget: int, unicode: bool) -> str:
     return "".join(kept) + mark
 
 
-
-# The one top-to-bottom order of the compact and expanded frame below the title: quota first (0.24.18), then what needs
-# attention, then running and finished work (#430). Eviction priority on small terminals is the separate `steps` ladder.
-FRAME_SECTION_ORDER = ("pools", "suggest", "alerts", "running", "recent", "leads")
-FRAME_SECTION_HEADS = {
-    "pools": "POOLS", "suggest": "suggest:", "alerts": "ALERTS",
-    "running": "RUNNING", "recent": "RECENT", "leads": "LEADS",
-}
-FRAME_HEADS = tuple(FRAME_SECTION_HEADS[key] for key in FRAME_SECTION_ORDER)
-
-
 def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, unicode: bool,
                       max_lines: int = COMPACT_MAX_LINES, max_bytes: int = COMPACT_MAX_BYTES,
                       keep: str | None = None) -> str:
@@ -2246,7 +2258,7 @@ def _running_head(data: dict[str, Any], running: list[dict[str, Any]], unicode: 
     total = int(number) if number is not None and number >= 0 else len(running)
     by_peer = _obj(counts.get("by_peer"))
     peers = " ".join(f"{_cell(peer, unicode, '-', keep)} {_count(n)}" for peer, n in by_peer.items())
-    return f"RUNNING {total}" + (f" | {peers}" if peers and total else ""), total
+    return f"{FRAME_SECTIONS['running']} {total}" + (f" | {peers}" if peers and total else ""), total
 
 
 def _recent_text(row: dict[str, Any]) -> object:
@@ -2282,7 +2294,7 @@ def _activity_sections(groups: dict[str, Any], width: int, unicode: bool, keep: 
     group = _obj(groups.get("activity"))
     if not isinstance(group.get("data"), Mapping):
         why = "read failed" if _clean(group.get("status") or "").upper() in {"ERROR", "FAILED"} else "not read"
-        return [head_line(f"RUNNING ? | activity {why}")], 0, None
+        return [head_line(f"{FRAME_SECTIONS['running']} ? | activity {why}")], 0, None
     data = _obj(group.get("data"))
     glyphs = RICH_GLYPHS[unicode]
 
@@ -2331,8 +2343,8 @@ def _leads_header(data: dict[str, Any], leads: list[dict[str, Any]]) -> str:
     note = (" | partial" + (f" ({', '.join(notes)})" if notes else "") if state == "partial"
             else " | read failed" if state == "error" else "")
     if note and count == 0:
-        return f"LEADS ?{note}"
-    header = f"LEADS {count} {'entry' if count == 1 else 'entries'}{note}"
+        return f"{FRAME_SECTIONS['leads']} ?{note}"
+    header = f"{FRAME_SECTIONS['leads']} {count} {'entry' if count == 1 else 'entries'}{note}"
     sessions = sum(bool(_obj(lead.get("session"))) for lead in leads)
     if sessions or state in {"read", "partial", "error"}:
         header += f" | {sessions} {'session' if sessions == 1 else 'sessions'} found"
@@ -2553,7 +2565,7 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
         suffixes.setdefault(id(parent), []).append(_cell(absent["pool"], unicode, "-", keep))
     shown = ordered if every else ordered[:POOLS_CAP]
     glyphs = RICH_GLYPHS[unicode]
-    head = f"POOLS {len(ordered) + len(unavailable) - len(marker_rows)}"
+    head = f"{FRAME_SECTIONS['pools']} {len(ordered) + len(unavailable) - len(marker_rows)}"
     table = [[head, "STATE", "LEFT", "RESET", "PACE", "FAMILY"]]
     markers = [_na_suffix(suffixes[id(row)]) if id(row) in suffixes else "" for row, _ in shown]
 
@@ -2807,7 +2819,8 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
         else:
             notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None
                      else _compact_wrap("no quota evidence; next: peerhub observation refresh", width))
-            frame.pools = [_head_rule("POOLS 0", width, unicode, paint) if rich else "POOLS 0", *notes]
+            head = f"{FRAME_SECTIONS['pools']} 0"
+            frame.pools = [_head_rule(head, width, unicode, paint) if rich else head, *notes]
     return frame
 
 
@@ -3124,9 +3137,6 @@ def _group_error(payload: dict[str, Any], group_id: str) -> str:
     return _safe_error_reason(error)
 
 
-_DETAIL_ORDER = ("activity", "capacity", "peers", "execution", "sessions", "usage", "context")
-
-
 def _is_head(line: str) -> bool:
     """A section head of the rich frame (a rule), colour or not."""
     return _ANSI.sub("", line).startswith(("── ", "-- "))
@@ -3188,8 +3198,8 @@ def _rich_activity(group: dict[str, Any], payload: dict[str, Any], now: float | 
     if not isinstance(group.get("data"), Mapping):
         failed = _clean(group.get("status") or "").upper() in {"ERROR", "FAILED"}
         why = _group_error(payload, "activity") if failed else "data unavailable"
-        return _rich_section(f"RUNNING ? | activity {'read failed' if failed else 'not read'}", [why], width, unicode,
-                             paint), []
+        head = f"{FRAME_SECTIONS['running']} ? | activity {'read failed' if failed else 'not read'}"
+        return _rich_section(head, [why], width, unicode, paint), []
     data = _obj(group.get("data"))
     inner = max(1, width - 3)  # an entry's text starts in the fourth cell: the indent, the mark and a space
 
@@ -3219,7 +3229,7 @@ def _plain_activity(group: dict[str, Any], payload: dict[str, Any], now: float |
     if not isinstance(group.get("data"), Mapping):
         failed = _clean(group.get("status") or "").upper() in {"ERROR", "FAILED"}
         why = _group_error(payload, "activity") if failed else "data unavailable"
-        return [f"RUNNING ? | activity {'read failed' if failed else 'not read'}", why], []
+        return [f"{FRAME_SECTIONS['running']} ? | activity {'read failed' if failed else 'not read'}", why], []
     data = _obj(group.get("data"))
     running = _ask_split(data)[0]
     rows = [_running_head(data, running, unicode, keep)[0]]
@@ -3263,19 +3273,17 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
     now = None if read_at is None else read_at + elapsed
     pool_rows = {(str(row["peer"]), str(row["pool_ref"])): row  # the rows POOLS draws (see `_render_expanded_frame`)
                  for row in _frame_pools(payload, _frame_consumers(payload))[2]}
-    leads: list[str] = []
+    # Expanded LEADS follows the fitted compact sections and shares the detail budget.
     if "activity" in selected:
         if rich:
-            running, leads = _rich_activity(_obj(groups.get("activity")), payload, now, target, unicode, paint, keep)
+            frame.running, lines = _rich_activity(_obj(groups.get("activity")), payload, now, target, unicode, paint, keep)
         else:
-            running, leads = _plain_activity(_obj(groups.get("activity")), payload, now, target, unicode, keep)
-        frame.running = running
+            frame.running, lines = _plain_activity(_obj(groups.get("activity")), payload, now, target, unicode, keep)
     top = top_of(frame)
-    for group_id in [*(gid for gid in _DETAIL_ORDER if gid in selected), *(gid for gid in selected if gid not in _DETAIL_ORDER)]:
+    detail_groups = [gid for gid in _FRAME_DETAIL_ORDER if gid in selected]
+    detail_groups.extend(gid for gid in selected if gid != "activity" and gid not in _FRAME_DETAIL_ORDER)
+    for group_id in detail_groups:
         group = _obj(groups.get(group_id))
-        if group_id == "activity":
-            lines.extend(leads)
-            continue
         status = _clean(group.get("status") or "UNKNOWN").upper()
         if group_id == "capacity":  # a group that was not read has no data: it says so, as every other group does
             read = _obj(_obj(payload.get("groups")).get("capacity"))

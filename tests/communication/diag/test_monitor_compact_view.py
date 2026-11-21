@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.cli.monitor_view import render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_SECTIONS, render_grouped_frame, _width
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
 
 NOW = 1794134880.0  # 2026-11-08 10:48Z
@@ -290,7 +290,8 @@ def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
     assert all(_width(line) <= width for line in screen.splitlines())
     # #374: the footer with "details: --expand" left the compact frame; below 26 columns POOLS keeps POOL and STATE
     # whole (LEFT drops as a column, never as a cut number).
-    pools = re.split(r"\n(?:-- )?POOLS ", screen, maxsplit=1)[1]  # P21: this view (rich, ASCII glyphs) draws a rule
+    head = re.escape(FRAME_SECTIONS["pools"])
+    pools = re.split(rf"\n(?:-- )?{head} ", screen, maxsplit=1)[1]  # P21: rich with ASCII glyphs draws a rule
     pools = pools.split("\nsuggest:", 1)[0]  # P21: the suggestion and the activity follow POOLS
     assert ("55%" in pools and "89%" in pools) if width >= 26 else "%" not in pools and "~" not in pools
     if width < 48:

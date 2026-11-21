@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_SECTIONS, render_grouped_frame, _width
 
 NOW = 1_794_522_324.0
 
@@ -55,7 +55,8 @@ def frame() -> dict[str, Any]:
 def pools_block(screen: str) -> str:
     """The POOLS rows of a compact frame in either view (P21: the rich view draws the head as a rule, and the
     suggestion follows the rows)."""
-    return re.split(r"\n(?:── |-- )?POOLS ", screen, maxsplit=1)[1].split("\nsuggest:", 1)[0]
+    pools = re.escape(FRAME_SECTIONS["pools"])
+    return re.split(rf"\n(?:── |-- )?{pools} ", screen, maxsplit=1)[1].split(f"\n{FRAME_SECTIONS['suggest']}", 1)[0]
 
 
 def test_d1_expanded_rows_remain_under_their_own_header(frame: dict[str, Any]) -> None:

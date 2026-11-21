@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_HEADS, RECENT_CAP, RECENT_EXPAND, render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, RECENT_CAP, RECENT_EXPAND, render_grouped_frame, _width
 from peerhub.extensions.caller import host_id
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame  # noqa: F401
 
@@ -84,8 +84,8 @@ def lines(screen: str) -> list[str]:
     return screen.splitlines()
 
 
-_HEAD = re.compile(r"(?:ATTN|OK\??|PeerHub|POOLS|suggest:|RECENT|RUNNING|ALERTS|LEADS|QUOTA|PEERS|EXECUTION|SESSIONS"
-                   r"|USAGE|CONTEXT)(?![A-Za-z])")
+SPEC_ORDER = list(FRAME_SECTIONS.values())
+_HEAD = re.compile(r"(?:ATTN|OK\??|PeerHub|" + "|".join(map(re.escape, SPEC_ORDER)) + r")(?![A-Za-z])")
 
 
 def _head(line: str) -> str | None:
@@ -110,7 +110,7 @@ def recent_rows(screen: str) -> list[str]:
     for line in lines(screen):
         name = _head(line)
         if name is not None:
-            inside = name == "RECENT"
+            inside = name == FRAME_SECTIONS["recent"]
         elif inside and line.strip():
             out.append(line)
     return out
@@ -137,21 +137,18 @@ def detailed(busy: dict[str, Any]) -> dict[str, Any]:
     return busy
 
 
-SPEC_ORDER = [*FRAME_HEADS, "QUOTA", "PEERS", "EXECUTION", "SESSIONS", "USAGE", "CONTEXT"]
-
-
 @pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True), ("rich", False)])
 def test_expand_has_the_one_order_of_the_spec_in_both_views(busy, view, unicode_mode):
     detailed(busy)
     screen = render_grouped_frame(busy, view=view, unicode=unicode_mode, width=120, expand=True)
     out = lines(screen)
     assert re.match(r"^\W*(OK|ATTN)", out[0]) and out[1].startswith("PeerHub Monitor") and "DB:env" in out[1]
-    names = [n for n in head_names(screen) if n in set(SPEC_ORDER)]
+    names = [n for n in head_names(screen) if n in SPEC_ORDER]
     assert names == SPEC_ORDER, names
     db = next(i for i, line in enumerate(out) if line.startswith("DB:env ("))
     assert db < next(i for i, line in enumerate(out) if _head(line) in FRAME_HEADS)
     compact = [n for n in head_names(render_grouped_frame(busy, view=view, unicode=unicode_mode, width=120))
-               if n in set(SPEC_ORDER)]
+               if n in SPEC_ORDER]
     assert compact == list(FRAME_HEADS)
 
 
