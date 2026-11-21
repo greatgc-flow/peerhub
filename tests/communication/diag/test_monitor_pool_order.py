@@ -60,3 +60,12 @@ def test_pools_hint_only_uses_spare_heading_width(view: str, expand: bool) -> No
         assert (hint in heading) == (width == 100)
         assert screen.count(hint) == (width == 100)
         assert "FAMILY" in heading and mv._width(heading) < width
+
+
+@pytest.mark.parametrize("expand", [False, True], ids=["compact", "expand"])
+def test_a_monthly_pool_without_a_weekly_parent_sorts_by_its_own_pace(expand: bool) -> None:
+    payload = _payload([], [pool("cx", "X-7D", .60, pace=-3), pool("ag", "A-7D", .90, pace=8),
+                            pool("cx", "X-30D", .93, pace=5)])
+    screen = mv.render_grouped_frame(payload, view="plain", expand=expand, width=100)
+    pools = screen.split(mv.FRAME_SECTIONS["suggest"], 1)[0].split(mv.FRAME_SECTIONS["pools"], 1)[1]
+    assert re.findall(r"(?m)^ +(?:\S+ +)?([A-Z]+-(?:30D|7D|5H))(?= +)", pools) == ["X-7D", "X-30D", "A-7D"]

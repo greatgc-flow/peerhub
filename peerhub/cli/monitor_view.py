@@ -2546,7 +2546,7 @@ def _ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
         peer, name = str(row["peer"]), str(row["pool"])
         if row["state"] == "out":
             return 2, 0, peer, name
-        pace = _number(row.get("pace_pt")) if _parse_window(name)[0] == _WEEK else None
+        pace = _number(row.get("pace_pt"))  # a top row (weekly, monthly or a lone short window) sorts by its own PACE
         if pace is None:
             return 1, 0, peer, name
         return 0, pace if POOLS_USE_FIRST_ASCENDING else -pace, peer, name
