@@ -8,6 +8,14 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Continuous terminal monitor watch refreshes each peer's quota in the background before its readings expire and retries failed peers independently.
+
+### Added
+
+- The live monitor title shows a heartbeat, the oldest selected quota age, and the next refresh, active probe, or retry timing in both layouts.
+
 ## [0.26.4] - 2026-11-21
 
 ### Added

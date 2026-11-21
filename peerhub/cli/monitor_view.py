@@ -274,6 +274,49 @@ def _fit_live_title(refresh_state: str, next_refresh: float | None, stamp: str,
     return _fit_fields(title, width, unicode, inline_note=inline_note), dropped
 
 
+QUOTA_HEARTBEAT_ASCII = "|/-\\"
+QUOTA_HEARTBEAT_UNICODE = "⠋⠙⠹⠸"
+
+
+def _live_duration(seconds: float | None, *, countdown: bool = False) -> str:
+    if seconds is None:
+        return "?"
+    seconds = max(0, math.ceil(seconds) if countdown else int(seconds))
+    if seconds >= 3600:
+        return _format_duration(seconds)
+    minutes, remainder = divmod(seconds, 60)
+    if minutes:
+        return f"{minutes}m{remainder:02d}s" if remainder else f"{minutes}m"
+    return f"{remainder}s"
+
+
+def _fit_live_quota_title(status: Mapping[str, Any], state: str, stamp: str, source: str,
+                          width: int, unicode: bool) -> tuple[str, bool]:
+    spinner = QUOTA_HEARTBEAT_UNICODE if unicode else QUOTA_HEARTBEAT_ASCII
+    heartbeat = spinner[int(status["heartbeat"]) % len(spinner)]
+    peers = cast(Sequence[str], status.get("peers") or ())
+    next_in = _number(status.get("next_in"))
+    retry_in = _number(status.get("retry_in"))
+    failed_ago = _number(status.get("failed_ago"))
+    fields: list[str] = []
+    if state:
+        fields.append(state)
+    elif peers:
+        fields.append(f"refreshing {' '.join(_clean(peer) for peer in peers)} {_live_duration(_number(status.get('elapsed')))}")
+    else:
+        if failed_ago is not None:
+            fields.extend((f"refresh failed {_live_duration(failed_ago)} ago",
+                           f"retry {_live_duration(retry_in, countdown=True)}"))
+        if next_in is not None and next_in != retry_in:
+            fields.append(f"next refresh {_live_duration(next_in, countdown=True)}")
+    fields.extend((f"oldest quota age {_live_duration(_number(status.get('age')))}",
+                   f"PeerHub Monitor {stamp}", f"DB:{source}"))
+    title = heartbeat + " " + " | ".join(fields)
+    if width == 1:
+        return heartbeat, True
+    return _fit_fields(title, width, unicode, inline_note=False), _width(title) > width
+
+
 def _hidden_lines(rows: int, groups: int, width: int, unicode: bool, *, expand: bool,
                   quota: bool = False) -> list[str]:
     sep = " · " if unicode else " | "
@@ -2745,7 +2788,10 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
     title = f"PeerHub Monitor {stamp} | DB:{source} | quota age {age_label}"
     refresh_state = _clean(payload.get("refresh_state") or "")
     next_refresh = _number(payload.get("next_refresh_in"))
-    if refresh_state or next_refresh is not None:
+    live_refresh = _obj(payload.get("_live_refresh"))
+    if live_refresh:
+        title, cut = _fit_live_quota_title(live_refresh, refresh_state, stamp, source, width, unicode)
+    elif refresh_state or next_refresh is not None:
         title, cut = _fit_live_title(refresh_state, next_refresh, stamp, [f"DB:{source}", f"quota age {age_label}"],
                                      width, unicode, inline_note=False)
     else:

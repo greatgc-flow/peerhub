@@ -124,6 +124,7 @@ class SourceReading:
 
 
 ACCOUNT_TTL_SECONDS = 6 * 3600.0
+QUOTA_TTL_SECONDS = 300
 QUOTA_MAX_AGE_SECONDS = 15 * 60
 QUOTA_NOTICE_AGE_SECONDS = 60 * 60
 LOW_QUOTA_FRACTION = 0.10
@@ -179,7 +180,7 @@ def account_text(value: object, limit: int = 24) -> str | None:
 class FreshnessPolicy:
     """TTL policy per observation kind (TD-13: age >= TTL is STALE)."""
 
-    default_ttl_seconds: float = 300.0
+    default_ttl_seconds: float = QUOTA_TTL_SECONDS
     by_kind: Mapping[str, float] = field(default_factory=dict[str, float])
 
     def __post_init__(self) -> None:

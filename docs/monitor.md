@@ -4,17 +4,17 @@ This page is the target of the `Guide` link at the top right of `peerhub monitor
 `Guide:` line that ends `peerhub monitor --view plain --expand`. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
 
-On a TTY, watch automatically refreshes quota when the newest reading for the selected peers is more than five minutes
-old or missing. It probes peers in order, collects a peer's pools together, and retries a timed-out quota probe once.
+Continuous terminal watch checks each selected peer every second and refreshes it in the background when its oldest
+required quota reading reaches 210 seconds (90 seconds before expiry) or is missing. Failed or partial peers retry after 60 seconds.
 If agy reports model-token use, watch stops unless `--allow-agy-token-use` was passed.
 Use `--no-probe` or set `PEERHUB_MONITOR_PROBE=off` to disable automatic refresh. Redirected watch reads committed evidence
-by default. Explicit `--probe` uses the watch cadence on a TTY or with redirected output. `--collect-every K` checks for
-collection every Kth cycle. `--snapshot`, `diag quota`, and `diag --live` read committed evidence. Use `monitor --probe --cycles 1`
+by default. Explicit `--probe` also schedules collection on the watch cadence. `--collect-every K` applies to
+that cadence and scripted cycles. `--snapshot`, `diag quota`, and `diag --live` read committed evidence. Use `monitor --probe --cycles 1`
 to collect and show one completed cycle.
 
-Automatic watch, suggest, and ask dispatch share the PID lock `quota-refresh.lock` in the store's scratch directory.
-After three seconds of contention they continue with committed evidence. After taking the lock, they recheck the quota
-readings to avoid repeating a refresh from the last minute.
+Continuous watch, automatic collection in scripted watch, suggest, and ask dispatch share the PID lock
+`quota-refresh.lock` in the store's scratch directory. After three seconds of contention they continue with committed
+evidence. Automatic collection rechecks quota under the lock before probing.
 For a command you can run, use `peerhub suggest --tier standard` and see
 `peerhub explain suggest` for its quota rules.
 
@@ -38,13 +38,13 @@ narrow terminal; the rich view puts the snapshot time at the right edge when it 
 **Line 2 (the title)** is `PeerHub Monitor <UTC time> · DB:<source> · quota age <age>`:
 
 - The time is when the store was read (the snapshot), not when the quota was measured.
-- A live monitor can show `REFRESHING`, `REFRESH OK`, a refresh warning count, or `STOPPED · AGY TOKEN USE`. With `--probe`
-  it also shows the cadence countdown. A redraw between two reads updates the age of the existing snapshot.
+- Continuous terminal watch adds a rotating heartbeat and the oldest selected quota age, with a `next refresh`
+  countdown, the peers currently refreshing and their elapsed time, or the time since failure and the retry countdown.
+  Agy token use can still show `STOPPED · AGY TOKEN USE`.
 - `DB:<source>` names where the store came from (`env` for `PEERHUB_DB`, `discovered`, `explicit` for `--db`, ...). With
   `--expand` the full path is directly below the title (`DB:env (<path>)`); the compact frame names it under line 2 only
   when it is not the nearest store or the read had errors.
-- `quota age` is the age of the oldest quota evidence of a shown pool. It is the first thing to look at when a number
-  looks wrong.
+- In snapshots and scripted frames, `quota age` is the age of the oldest quota evidence of a shown pool.
 - Fields that do not fit are dropped from the right, and a line `Fields hidden · --expand` says so.
 - The `Guide` link is the right end of this line, rich view on a terminal only (see [The Guide link](#the-guide-link)).
 
