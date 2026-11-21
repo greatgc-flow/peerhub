@@ -19,7 +19,7 @@ SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values(), mv.CHILD_EMPTY_SGR}  # #414: a child bar's empty cells
 GUIDE_URL = "https://github.com/greatgc-flow/peerhub/blob/main/docs/monitor.md"  # pinned: the plain frame's `Guide:` line
 U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
-GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_expand_v0_24_20.json"
+GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_expand_sections.json"
 ORDER = [*FRAME_SECTIONS.values(), "STORE"]
 _FRAME_HEAD = re.compile(r"^(?:── |-- )?(" + "|".join(map(re.escape, FRAME_SECTIONS.values())) + r")(?= |$)")
 _OTHER_RULE_HEAD = re.compile(r"^(?:──|--) ([A-Z]+)\b")

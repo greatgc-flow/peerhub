@@ -55,7 +55,7 @@ a-cx                     cx       COMPLETED
    - **Severity:** S2
 
 9. **`--view plain --expand` broke its 0.24.20 byte-for-byte stability contract and severity-based layout**
-   - **Evidence:** `0.24.21` (`#388`) Changed — *"Unchanged: ... `--view plain --expand`, which is byte for byte the 0.24.20 output (pinned by `tests/communication/fixtures/monitor/plain_expand_v0_24_20.json`)."* `0.24.29` (`#412`) Changed — *"The plain `--expand` frame no longer starts with ALERTS and a grouped ACTIVITY section: it has the rich frame's top, order and ladder ... and its per-section allocation by severity is gone"*. `0.25.0` Changed — *"its `--expand` frame, printed whole (not height-bounded), ends with a plain `Guide: <url>` line."*
+   - **Evidence:** `0.24.21` (`#388`) Changed — *"Unchanged: ... `--view plain --expand`, which is byte for byte the 0.24.20 output"*. `0.24.29` (`#412`) Changed — *"The plain `--expand` frame no longer starts with ALERTS and a grouped ACTIVITY section: it has the rich frame's top, order and ladder ... and its per-section allocation by severity is gone"*. `0.25.0` Changed — *"its `--expand` frame, printed whole (not height-bounded), ends with a plain `Guide: <url>` line."*
    - **Why worse:** Breaks scripts, accessibility readers, and docs relying on the pinned plain layout and alert-first severity allocation; also appends an unsolicited `Guide:` trailer line.
    - **Smallest fix:** Restore `ALERTS`/`RUNNING`-first ordering in plain `--expand` and omit the trailing `Guide:` line when `PEERHUB_NO_LINKS=1` or stdout is not a TTY.
    - **Severity:** S2
@@ -94,7 +94,7 @@ a-cx                     cx       COMPLETED
 
 ### UNVERIFIED (requires reading code/docs/tests)
 
-- **Tests pinning worse behaviour:** Check whether `tests/communication/fixtures/monitor/plain_expand_v0_24_20.json` was deleted/rewritten in `0.24.29`, and identify tests pinning `--probe` opt-in, `RECENT`-before-`ALERTS`/`RUNNING`, hidden `n/a` rows, alt-screen, and `height - 2`.
+- **Tests pinning worse behaviour:** Check whether the [plain expanded fixture](../../tests/communication/fixtures/monitor/plain_expand_sections.json) was deleted or rewritten in `0.24.29`, and identify tests pinning `--probe` opt-in, `RECENT`-before-`ALERTS`/`RUNNING`, hidden `n/a` rows, alt-screen, and `height - 2`.
 - **Stale docs:** Check `docs/implementation/OBSERVATION_PROBES.md`, `docs/monitor.md`, `README.md`, and `peerhub explain monitor-view` for leftover `0.24.21` layout descriptions (`ALERTS` first, `DB:` at top, `plain --expand` byte-for-byte `0.24.20`) or pre-`0.25.0` auto-probing statements.
 - **`peerhub ask` stderr gating (`0.25.0`):** Verify whether terminal receipts and the `cx.deepthink` alias notice are suppressed under `--json` or non-TTY stderr.
 - **`plain --expand` height-bounding contradiction (`0.24.29` vs `0.25.0`):** `0.24.29` says sections are cut from the bottom while `0.25.0` says plain `--expand` is printed whole (not height-bounded); also check whether plain `Guide: <url>` obeys `PEERHUB_NO_LINKS=1` and dev-build omission.

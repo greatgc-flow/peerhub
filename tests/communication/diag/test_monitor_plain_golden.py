@@ -13,7 +13,7 @@ from peerhub.cli.monitor_view import FRAME_HEADS, render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import NOW, SOURCES_READ, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
 
-GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_v0_24_17.json"
+GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_compact_sections.json"
 ORDER = FRAME_HEADS
 _HEAD = re.compile(r"^(?:-- )?(" + "|".join(map(re.escape, ORDER)) + r")(?= |$)")
 PROFILES = [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
