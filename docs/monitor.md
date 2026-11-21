@@ -201,8 +201,8 @@ is `Coverage: complete|partial; peerhub explain <code>`.
 
 ## Compact and expand
 
-- **Compact** (the default) uses `COMPACT_MAX_LINES` and `COMPACT_MAX_BYTES`. The header is followed by ALERTS,
-  RUNNING, POOLS, the suggestion, RECENT and LEADS. POOLS and RUNNING use `POOLS_CAP` and `RUNNING_CAP`.
+- **Compact** (the default) uses `COMPACT_MAX_LINES` and `COMPACT_MAX_BYTES`. The header is followed by POOLS,
+  the suggestion, ALERTS, RUNNING, RECENT and LEADS. POOLS and RUNNING use `POOLS_CAP` and `RUNNING_CAP`.
 - **`--expand`** adds the full DB path under the title and lists every pool. After LEADS it shows QUOTA, PEERS,
   EXECUTION, SESSIONS, USAGE, CONTEXT and any other selected group. A clipped frame reports `+N rows hidden`
   and gives the command to print the full frame.
