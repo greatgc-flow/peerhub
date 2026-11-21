@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- README, `docs/monitor.md`, `docs/lessons.md` and the packaged monitor lesson name the sections in the order the monitor prints them (POOLS, the suggestion, ALERTS, RUNNING, RECENT, LEADS); a test pins the text to `FRAME_HEADS`.
+
 ## [0.26.2] - 2026-11-21
 
 ### Fixed
