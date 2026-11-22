@@ -14,13 +14,16 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.view import plan_action, plan_data, render_plan
+from peerhub.cli.view import PLAN_TAG_LEGEND, plan_action, plan_data, render_plan, visible_len
+from peerhub.core.load_limits import format_load, load_snapshot
 from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import DiagnosticReport, Section
 from tests.communication.harness.observation import ObservationHarness
 
 NOW = 1794134880.0  # 2026-11-08 10:48Z
 DAY, HOUR = 86400.0, 3600.0
+PLAN_TEXT_TOKEN_BUDGET = 450
+PLAN_TEXT_CHARS_PER_TOKEN = 3  # Character budget proxy for the sample's punctuation-heavy output.
 
 
 # --- action classification (pure) ----------------------------------------------------------------
@@ -176,6 +179,28 @@ def test_plain_table_columns_and_legend():
     assert "D:/w/.peerhub/core.db (explicit)" in lines[0]
     assert all(word in lines[-1] for word in ("spend", "hold", "rest", "blocked", "PACE"))
     assert all(len(line) <= 120 for line in lines)
+
+
+def test_plan_profiles_footer_wraps_within_the_sample_text_budget():
+    families = {"ag": "G", "cc": "C", "cx": "X"}
+    windows = {"5H": 5 * HOUR, "7D": 7 * DAY}
+    items = [_item(peer, f"{family}-{window}", .8, span=span, elapsed=span / 2)
+             for peer, family in families.items() for window, span in windows.items()]
+    profiles = {f"{family}-{window}": [f"{peer}.effort", f"{peer}.standard"]
+                for peer, family in families.items() for window in windows}
+    width = 100
+    load = load_snapshot({}, None)
+    out = render_plan(_report(*reversed(items)), width=width, store_path="D:/w/.peerhub/core.db",
+                      store_source="explicit", load=load, profiles_by_pool=profiles)
+    lines = out.splitlines()
+    legend_end = next(i for i, line in enumerate(lines) if line.endswith(PLAN_TAG_LEGEND))
+    footer = lines[legend_end + 1:-1]
+    assert len(footer) > 1
+    assert " ".join(footer) == "profiles: " + " | ".join(
+        f"{pool} {','.join(names)}" for pool, names in profiles.items())
+    assert lines[-1] == format_load(load)
+    assert all(visible_len(line) <= width for line in lines)
+    assert len(out) < PLAN_TEXT_TOKEN_BUDGET * PLAN_TEXT_CHARS_PER_TOKEN
 
 
 # --- CLI: read-only, no refresh, no provider call -------------------------------------------------

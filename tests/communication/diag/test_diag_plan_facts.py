@@ -129,11 +129,22 @@ def test_fast_matches_monitor_state_from_stored_samples(history, remaining, age,
 
 
 def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
+    absent = _item("ag", "G-1D", None, span=DAY, elapsed=HOUR, state="ABSENT",
+                   reason="not reported by provider", age=FRESH_AGE)
+    profile_pools = {"ag.standard": ("G-7D", "G-5H", "G-1D"), "ag.fast": ("G-7D",)}
+    profile_reads = []
+
     def render(self, sections, *, include_quota_samples):
         assert include_quota_samples
-        return _report(*_flash_windows())
+        return _report(absent, *_flash_windows())
+
+    def list_profiles(workspace):
+        profile_reads.append(workspace)
+        return [{"profile": name, "fields": {"pools": {"value": pools}}}
+                for name, pools in profile_pools.items()]
 
     monkeypatch.setattr(ReadonlyDiag, "render", render)
+    monkeypatch.setattr("peerhub.extensions.adapters.profiles.list_profiles", list_profiles)
     monkeypatch.setattr("peerhub.extensions.diag_running.running_report",
                         lambda *args, **kwargs: {"status": "OK", "rows": [], "truncated": False})
     argv = ["--db", str(Path(__file__).resolve()), "diag", "--plan"]
@@ -142,6 +153,9 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     data = json.loads(out)
     assert data["pools"] and all(FACT_FIELDS <= row.keys() for row in data["pools"])
     assert out == json.dumps(data, separators=(",", ":"), ensure_ascii=True) + "\n"
+    assert profile_reads == [Path.cwd()]
+    for row in data["pools"]:
+        assert row["profiles"] == sorted(name for name, pools in profile_pools.items() if row["pool"] in pools)
 
     monkeypatch.setenv("COLUMNS", "120")
     assert main(argv) == 0
@@ -149,6 +163,13 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     assert all(field not in out for field in FACT_FIELDS - {"fast"})
     weekly = next(row for row in data["pools"] if row["gates"])
     assert all(f"({PLAN_GATE_TAG}: {gate['pool']})" in out for gate in weekly["gates"])
+    assert profile_reads == [Path.cwd(), Path.cwd()]
+    groups = [f"{row['pool']} {','.join(row['profiles'])}" for row in data["pools"]
+              if row["action"] != "n/a" and row["profiles"]]
+    legend, footer, load = out.splitlines()[-3:]
+    assert legend.endswith(PLAN_TAG_LEGEND)
+    assert footer == "profiles: " + " | ".join(groups)
+    assert load.startswith("load: ")
 
 
 def test_explain_parallel_quota_names_the_json_row_facts(capsys):

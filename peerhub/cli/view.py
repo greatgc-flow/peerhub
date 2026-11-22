@@ -613,6 +613,9 @@ def _plan_pools(report: DiagnosticReport, *,
                     "pace_pt": r.diff, "forecast": r.projection["state"], "binding": binding,
                     "action": decided[2], "reason": reason})
     _plan_pool_facts(own, out, report.read_at, profiles_by_pool or {})
+    if profiles_by_pool is not None:
+        for row in out:
+            row["profiles"] = list(profiles_by_pool.get(str(row["pool"]), []))
     return out
 
 
@@ -623,21 +626,19 @@ def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
     pools = _plan_pools(report, profiles_by_pool=profiles_by_pool)
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
                                "store_selection": dict(store_selection), "legend": PLAN_LEGEND, "pools": pools}
-    if profiles_by_pool is not None:  # additive: which profiles spend each pool, so an AI maps pools to asks without `profile list`
-        for row in pools:
-            row["profiles"] = list(profiles_by_pool.get(str(row["pool"]), []))
     if load is not None:
         data["load"] = dict(load)  # additive: sampled now, unlike the stored pools
     return data
 
 
 def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None = None, store_path: str = "",
-                store_source: str = "", store_note: str = "", load: Mapping[str, Any] | None = None) -> str:
+                store_source: str = "", store_note: str = "", load: Mapping[str, Any] | None = None,
+                profiles_by_pool: Mapping[str, list[str]] | None = None) -> str:
     width = max(1, width)
     when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M%z")
     lines = _wrap(f"PeerHub plan {_safe_text(report.status)} {when} {_safe_text(store_path)} ({_safe_text(store_source)})", width)
     lines += _wrap(_safe_text(store_note), width) if store_note else []
-    pools = _plan_pools(report)
+    pools = _plan_pools(report, profiles_by_pool=profiles_by_pool)
     cells = [[str(p["peer"]), str(p["pool"]),
               "?" if p["left_pct"] is None else f"{cast(float, p['left_pct']):.0f}%",
               human_duration(cast("float | None", p["resets_in_seconds"])),
@@ -659,6 +660,10 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
     if not pools:
         lines.append("no quota evidence; next: peerhub observation refresh")
     lines.extend(_wrap(_PLAN_TEXT_LEGEND, width))
+    profile_groups = [f"{p['pool']} {','.join(cast(list[str], p['profiles']))}"
+                      for p in pools if p["action"] != "n/a" and p.get("profiles")]
+    if profile_groups:
+        lines.extend(_wrap(_safe_text("profiles: " + " | ".join(profile_groups)), width))
     if load is not None:
         from peerhub.core.load_limits import format_load
         lines.extend(_wrap(format_load(load), width))

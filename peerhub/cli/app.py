@@ -616,16 +616,16 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         for profile in list_profiles(Path.cwd()):
             pools_of_profile[str(profile["profile"])] = [str(pool) for pool in cast("list[object]", profile["fields"]["pools"]["value"] or [])]
         load = sample_load(args.db, pools_of_profile=pools_of_profile)
+        profiles_by_pool: dict[str, list[str]] = {}
+        for name, pools in pools_of_profile.items():
+            for pool in pools:
+                profiles_by_pool.setdefault(pool, []).append(name)
+        profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
         if args.json:
-            profiles_by_pool: dict[str, list[str]] = {}
-            for name, pools in pools_of_profile.items():
-                for pool in pools:
-                    profiles_by_pool.setdefault(pool, []).append(name)
-            profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
             plan_output = json.dumps(plan_data(rep, store, load, profiles_by_pool), separators=(",", ":"), ensure_ascii=True)
         else:
             plan_output = render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
-                                      store_note=store_note, load=load)
+                                      store_note=store_note, load=load, profiles_by_pool=profiles_by_pool)
         print(plan_output, flush=True)
         return 6 if rep.error and rep.error.startswith("SchemaVersionError") else 0 if rep.status == "OK" else 4
     if args.action is None:
