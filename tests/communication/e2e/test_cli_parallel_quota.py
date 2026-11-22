@@ -42,7 +42,11 @@ def test_topic_is_the_loop_in_order():
 def test_topic_matches_the_pool_order_and_the_batch_cap():
     text = _text()
     assert ("lowest 7D PACE first" if POOLS_USE_FIRST_ASCENDING else "highest 7D PACE first") in text
-    assert f"--max-parallel {RECOMMENDED_MAX_PARALLEL}" in text
+    assert "--max-parallel n" in text and "n = " in text, "the wave size n is open, not fixed"
+    assert f"{RECOMMENDED_MAX_PARALLEL} keeps one slot free" in text
+    for limit in ("active asks 4, ceiling 6", "cc 3", "cx 3", "ag 1"):
+        assert limit in text
+    assert "at most 3 tasks" not in text
     for word in ("spend", "hold", "rest", "blocked", "stale", "<5%"):
         assert word in text
     assert "5H only gates" in text
