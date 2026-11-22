@@ -303,8 +303,12 @@ class CoreStore:
 
     def get_peer(self, peer_id: str) -> Peer | None:
         with self._read() as conn:
-            row = conn.execute("SELECT * FROM peers WHERE peer_id = ?", (peer_id,)).fetchone()
-            return self._row_to_peer(row) if row else None
+            return self.read_peer_from(conn, peer_id)
+
+    @staticmethod
+    def read_peer_from(conn: sqlite3.Connection, peer_id: str) -> Peer | None:
+        row = conn.execute("SELECT * FROM peers WHERE peer_id = ?", (peer_id,)).fetchone()
+        return CoreStore._row_to_peer(row) if row else None
 
     def list_peers_page(self, *, after_peer_id: str | None, limit: int) -> list[Peer]:
         if not _is_int(limit) or not 1 <= limit <= 201:
@@ -435,12 +439,16 @@ class CoreStore:
             return new
 
     # --- Record
+    @staticmethod
+    def check_append_stream(stream: sqlite3.Row) -> None:
+        if stream["state"] == StreamState.CLOSED.value:
+            raise StreamClosedError(f"stream {stream['stream_id']!r} is CLOSED")
+
     def _insert_record(self, conn: sqlite3.Connection, req: AppendRequest, digest: str) -> Record:
         """Validate references and append one Record inside the caller's write transaction (position = MAX + 1, TD-01)."""
         stream = self._require_stream(conn, req.stream_id)
         self._require_peers(conn, [req.author_peer_id])
-        if stream["state"] == StreamState.CLOSED.value:
-            raise StreamClosedError(f"stream {req.stream_id!r} is CLOSED")
+        self.check_append_stream(stream)
         next_pos = conn.execute(
             "SELECT COALESCE(MAX(position), 0) + 1 FROM records WHERE stream_id = ?", (req.stream_id,)).fetchone()[0]
         now = utc_now_iso()
@@ -496,11 +504,15 @@ class CoreStore:
         if not _is_int(limit) or limit < 1:
             raise ValueError("limit must be a positive integer")
         with self._read() as conn:
-            rows = conn.execute(
-                "SELECT * FROM records WHERE stream_id = ? AND position > ? ORDER BY position ASC LIMIT ?",
-                (stream_id, after_position, limit),
-            ).fetchall()
-            return [self._row_to_record(r) for r in rows]
+            return self.read_records_from(conn, stream_id, after_position, limit)
+
+    @staticmethod
+    def read_records_from(conn: sqlite3.Connection, stream_id: str, after_position: int, limit: int) -> list[Record]:
+        rows = conn.execute(
+            "SELECT * FROM records WHERE stream_id = ? AND position > ? ORDER BY position ASC LIMIT ?",
+            (stream_id, after_position, limit),
+        ).fetchall()
+        return [CoreStore._row_to_record(row) for row in rows]
 
     def iter_records_snapshot(self, page_size: int = 500) -> Iterator[Record]:
         """Yield all committed Records in (stream_id, position) order, from ONE read snapshot.

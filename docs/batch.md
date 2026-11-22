@@ -7,6 +7,8 @@ peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run --
 peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --json
 ```
 
+`peerhub batch run --help` includes a JSON example for the manifest path argument.
+
 Use global `--db PATH` before `batch` to select a store. The parent resolves one
 absolute store path for every worker, including tasks with different workspaces.
 Dry runs validate without spawning workers or creating the store.

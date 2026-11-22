@@ -87,8 +87,9 @@ def list_bindings(db: str | Path) -> list[AccountBinding]:
         return _rows(conn)
 
 
-def get_binding(db: str | Path, peer_id: str) -> AccountBinding | None:
-    return next((row for row in list_bindings(db) if row.peer_id == peer_id), None)
+def get_binding(db: str | Path, peer_id: str, *, conn: sqlite3.Connection | None = None) -> AccountBinding | None:
+    rows = list_bindings(db) if conn is None else _rows(conn)
+    return next((row for row in rows if row.peer_id == peer_id), None)
 
 
 def _key(root: str | Path) -> str:
@@ -149,17 +150,20 @@ def bind_account(db: str | Path, *, peer_id: str, provider: str, alias: str, roo
     return binding
 
 
-def validate_launch(db: str | Path, binding: AccountBinding, workspace: str | Path) -> AccountSnapshot:
-    current = get_binding(db, binding.peer_id)
+def validate_launch(db: str | Path, binding: AccountBinding, workspace: str | Path, *,
+                    conn: sqlite3.Connection | None = None) -> AccountSnapshot:
+    current = get_binding(db, binding.peer_id) if conn is None else get_binding(db, binding.peer_id, conn=conn)
     if current != binding:
         raise AccountError("account binding changed after claim acquisition")
     if binding.provider not in ROOT_VARS or re.fullmatch(r"[0-9a-f]{16}", binding.slot_id) is None:
         raise AccountError("invalid account binding identity")
     # Re-read the marker too: a peer registration must never silently unbind it.
-    peer = CoreStore(db, readonly=True).get_peer(binding.peer_id)
+    peer = (CoreStore(db, readonly=True).get_peer(binding.peer_id) if conn is None
+            else CoreStore.read_peer_from(conn, binding.peer_id))
     if peer is None or peer.metadata.get("account_bound") is not True or peer.adapter_ref != binding.provider:
         raise AccountError("account marker and binding disagree")
-    root = _validate_root(binding.config_root, [b for b in list_bindings(db) if b.peer_id != binding.peer_id], workspace=workspace)
+    bindings = list_bindings(db) if conn is None else _rows(conn)
+    root = _validate_root(binding.config_root, [b for b in bindings if b.peer_id != binding.peer_id], workspace=workspace)
     return AccountSnapshot(binding.slot_id, binding.provider, root)
 
 

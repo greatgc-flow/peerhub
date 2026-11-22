@@ -34,7 +34,8 @@ def register_monitor_parser(subparsers: Any) -> None:
     p = subparsers.add_parser("monitor", help="Watch committed quota evidence and diagnostics",
                              epilog="\n".join(MONITOR_LEGEND), formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--interval-seconds", dest="interval", type=float, default=60.0,
-                   help="Watch cycles every N s (positive float); supported TTY countdown redraw at most 1 Hz")
+                   help="Run watch cycles every N s (positive seconds, default %(default)s). "
+                        "On supported TTYs, the countdown redraws at most 1 Hz.")
     p.add_argument("--cycles", type=int, default=None,
                    help="Number of cycles (default: 1 when stdout is not a TTY, until interrupted on a TTY; 0 = until interrupted everywhere)")
     p.add_argument("--peers", nargs="+", default=list(QUOTA_CAPABLE_PEERS),
@@ -44,7 +45,7 @@ def register_monitor_parser(subparsers: Any) -> None:
     probe.add_argument("--no-probe", action="store_true",
                        help="Disable automatic quota refresh on a TTY (also PEERHUB_MONITOR_PROBE=off)")
     p.add_argument("--timeout-seconds", dest="timeout", type=float, default=15.0,
-                   help="Probe timeout")
+                   help="Probe timeout in seconds (default %(default)s)")
     p.add_argument("--json", action="store_true")
     p.add_argument("--schema-version", choices=("1.1", "2.0"), default=None,
                    help="JSON contract version (requires --json; default: 2.0)")
@@ -56,7 +57,7 @@ def register_monitor_parser(subparsers: Any) -> None:
                    default=os.environ.get("PEERHUB_MONITOR_VIEW") or "auto",
                    help="Dashboard style: auto (rich on a TTY), rich (colour), plain (ASCII override for ambiguous-width box glyphs, ▲▼ and █ in Korean/East-Asian locales). Set PEERHUB_MONITOR_VIEW=plain for a lasting ASCII fix (auto|rich|plain; explicit --view wins). Both show PACE; VT TTY redraws at most 1 Hz; non-TTY appends completed frames; TTY without VT appends without escapes")
     p.add_argument("--collect-every", type=int, default=1,
-                   help="Check for quota collection every Kth cycle (K>=1)")
+                   help="Check for quota collection every Kth cycle (K>=1, default %(default)s)")
     p.add_argument("--system-dir", dest="sys_dir", type=Path,
                    help="Explicit portable provider installation directory")
     p.add_argument("--group", action="append", choices=(*GROUP_IDS, "all"), default=None,

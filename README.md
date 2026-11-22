@@ -157,6 +157,7 @@ peerhub outcome ASK_ID accepted
 
 The two `ask` examples require the corresponding vendor CLI to be installed and
 authenticated, and spend provider quota. See the [adapter guide](docs/adapters/README.md).
+Add `--dry-run` to an ask to preview its resolved settings, stream, session and replay status without provider calls or store writes.
 
 `peerhub profile list` includes ask counts and stale flags. `peerhub explain ask-metrics`
 covers usage coverage, outcome corrections, the terminal receipt, and stream budget warnings.

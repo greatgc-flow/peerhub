@@ -116,6 +116,18 @@ class ClaimStore:
     def workspace_generation(self) -> str:
         return self._generation()
 
+    @staticmethod
+    def read_claim(conn: sqlite3.Connection, peer_id: str, stream_id: str) -> sqlite3.Row | None:
+        return conn.execute("SELECT * FROM bridge_claims WHERE stream_id=? AND peer_id=?", (stream_id, peer_id)).fetchone()
+
+    @staticmethod
+    def check_available(row: sqlite3.Row, peer_id: str, stream_id: str, owner_id: str | None,
+                        workspace_generation: str | None, now: float) -> bool:
+        live = row["workspace_generation"] == workspace_generation and now < row["expires_at"]
+        if live and row["owner_id"] != owner_id:
+            raise ClaimHeldError(f"claim for ({peer_id}, {stream_id}) held by {row['owner_id']!r}")
+        return live
+
     def acquire(self, peer_id: str, stream_id: str, owner_id: str, lease_sec: float) -> ClaimToken:
         gen = self._generation()
         with self._tx() as conn:
@@ -123,15 +135,13 @@ class ClaimStore:
                 if conn.execute(f"SELECT 1 FROM {table} WHERE {col} = ?", (val,)).fetchone() is None:
                     raise UnknownReferenceError(f"unknown {col} {val!r}")
             now = self._clock()
-            row = conn.execute("SELECT * FROM bridge_claims WHERE stream_id=? AND peer_id=?", (stream_id, peer_id)).fetchone()
+            row = self.read_claim(conn, peer_id, stream_id)
             if row is None:
                 claim_gen = 1
                 conn.execute("INSERT INTO bridge_claims VALUES (?,?,?,?,?,?,?)",
                              (stream_id, peer_id, owner_id, claim_gen, now + lease_sec, lease_sec, gen))
             else:
-                live = row["workspace_generation"] == gen and now < row["expires_at"]  # TD-19: expired when now >= expires_at
-                if live and row["owner_id"] != owner_id:
-                    raise ClaimHeldError(f"claim for ({peer_id}, {stream_id}) held by {row['owner_id']!r}")
+                live = self.check_available(row, peer_id, stream_id, owner_id, gen, now)
                 claim_gen = row["generation"] if live else row["generation"] + 1  # renewal keeps G; takeover fences old tokens
                 conn.execute(
                     "UPDATE bridge_claims SET owner_id=?, generation=?, expires_at=?, lease_sec=?, workspace_generation=? "

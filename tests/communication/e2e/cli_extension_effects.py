@@ -86,6 +86,17 @@ def ask_effect(e, option):
             assert code == 0 and out.startswith("hello\nsession: sess_")
 
 
+def ask_dry_run_effect(e):
+    db = e.fresh()
+    before = db.read_bytes()
+    with patch("subprocess.Popen", side_effect=AssertionError("ask --dry-run must not spawn")), \
+         patch("socket.socket", side_effect=AssertionError("ask --dry-run must not access the network")):
+        preview = e.j(db, "ask", "cx", "hello", "--dry-run", "--request-id", "preview")
+    assert preview["store_exists"] and not preview["stream_exists"]
+    assert preview["request_id"] == "preview" and preview["session_mode"] == "fresh"
+    assert db.read_bytes() == before
+
+
 def diag_json(e):
     from peerhub.extensions.observation import ObservationStore
     db = e.fresh()
@@ -654,6 +665,7 @@ EFFECT.update({f"account {action} {option}": (lambda e, action=action, option=op
                for action, options in (("bind", ("--peer", "--provider", "--alias", "--root", "--json")),
                                        ("list", ("--json", "--show-root")),
                                        ("show", ("--peer", "--json", "--show-root"))) for option in options})
+EFFECT["ask --dry-run"] = ask_dry_run_effect
 EFFECT["diag --json"] = diag_json
 EFFECT["diag --plan"] = diag_plan
 EFFECT["diag readiness --json"] = readiness_json
