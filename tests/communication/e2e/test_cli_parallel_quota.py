@@ -101,3 +101,10 @@ def test_topic_gives_facts_and_leaves_the_decision_to_the_ai():
     text = _text()
     assert "You decide" in text and "default" in text
     assert "must" not in text and "do not start more" not in text
+
+
+def test_guide_batch_line_does_not_cap_parallel_work_at_a_fixed_number(capsys):
+    assert main(["guide"]) == 0
+    batch = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("Batch:"))
+    assert "at most" not in batch and "--max-parallel" in batch
+    assert "n at once" in batch and TOPIC in batch
