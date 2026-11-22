@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, cast
 
+from peerhub._exit_codes import DIAG_EXIT_BY_STATUS
 from peerhub.extensions.diag import DiagnosticReport, ReadonlyDiag
 from peerhub.extensions.observation_model import (
     FreshnessPolicy,
@@ -29,8 +30,7 @@ _SECONDS_PER_HOUR = 60 * 60
 _SECONDS_PER_DAY = 24 * _SECONDS_PER_HOUR
 RESET_CREDIT_WARN_SECONDS = 72 * _SECONDS_PER_HOUR  # an available credit expiring in strictly less than this is flagged WARN
 POOL_KINDS = ("QUOTA", "RATE_LIMIT")  # registered pools of these kinds without evidence are listed as UNKNOWN
-# status -> public CLI exit code: 4 storage fault, 5 diag unavailable, 6 schema version
-EXIT_BY_STATUS = {"OK": 0, "UNAVAILABLE": 5, "FAILED": 4, "SCHEMA_VERSION": 6}
+EXIT_BY_STATUS = DIAG_EXIT_BY_STATUS
 
 
 def _classify(rep: DiagnosticReport, db: str) -> tuple[str, str | None]:

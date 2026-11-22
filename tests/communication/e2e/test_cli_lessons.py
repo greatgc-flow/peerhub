@@ -334,7 +334,7 @@ def test_guidance_code_beats_lesson_id_and_keywords_still_work(capsys):
 def test_catalog_and_rendering():
     lessons = load_lessons()
     ids = {lesson["id"] for lesson in lessons}
-    assert len(lessons) == len(ids) == 40
+    assert len(lessons) == len(ids) == 41
     assert {"ask-metrics", "suggest"} <= ids
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & ids
     for lesson in lessons:

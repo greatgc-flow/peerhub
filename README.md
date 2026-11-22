@@ -85,7 +85,7 @@ peerhub guide
 peerhub explain ask_blocked_uncertain
 ```
 
-CLI output defaults to compact human text, including when redirected. Use `--json` for scripts; `--format` is a hidden compatibility alias. Errors carry an outcome code and `next:` hint.
+CLI output defaults to compact human text, including when redirected. Use `--json` for scripts; `--format` is a hidden compatibility alias. Errors carry an outcome code and `next:` hint. Run `peerhub explain exit-codes` for the process exit codes and error output by command.
 
 ## Everyday commands
 
