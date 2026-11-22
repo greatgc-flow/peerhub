@@ -607,6 +607,8 @@ def _plan_pools(report: DiagnosticReport, *,
         reason = decided[3] if decided[0] is r else f"{decided[0].pool}: {decided[3]}"
         if binding not in (r.pool, decided[0].pool):  # the decided window is already named in the reason
             reason += f"; binding {binding}"
+        if r.projection["state"] == "stale" and "(stale)" not in reason:  # a sibling decided the reason: this window is still stale
+            reason += " (stale)"
         hours = r.left / 3600 if r.left is not None and r.left > 0 else None
         out.append({"peer": r.peer, "pool": r.pool, "resource_pool_ref": r.ref, "left_pct": left,
                     "resets_in_seconds": r.left, "target_pct_per_hour": left / hours if left is not None and hours else None,

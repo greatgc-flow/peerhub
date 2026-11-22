@@ -175,3 +175,12 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
 def test_explain_parallel_quota_names_the_json_row_facts(capsys):
     assert main(["explain", "parallel-quota"]) == 0
     assert FACT_FIELDS <= set(re.findall(r"\w+", capsys.readouterr().out))
+
+
+def test_a_stale_window_keeps_its_own_stale_flag_when_a_sibling_decides_the_reason():
+    from tests.communication.diag.test_diag_plan_339 import HOUR, DAY, _by_pool, _item, _report
+    rows = _by_pool(_report(_item("ag", "G-5H", .84, span=5 * HOUR, elapsed=2 * HOUR, state="STALE", age=2000.0),
+                            _item("ag", "G-7D", .60, span=7 * DAY, elapsed=3.5 * DAY)))
+    five, seven = rows[("ag", "G-5H")], rows[("ag", "G-7D")]
+    assert "stale" in five["reason"], five["reason"]
+    assert "stale" not in seven["reason"]
