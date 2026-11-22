@@ -100,11 +100,16 @@ def test_usage_and_policy_refusals_match_real_ask(args, monkeypatch, capsys):
 def test_existing_store_unchanged(monkeypatch, capsys, tmp_path):
     db = tmp_path / "core.db"
     CoreStore(db)
-    before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    before = _tree_bytes(tmp_path)
     _offline(monkeypatch)
     assert main(["--db", str(db), "ask", "cx", "hello", "--dry-run", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["store_exists"] is True
-    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+    assert _tree_bytes(tmp_path) == before
+
+
+def _tree_bytes(root: Path) -> dict[str, bytes]:
+    """Every file under root (store sidecars live in a subdirectory), by relative path."""
+    return {str(path.relative_to(root)): path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file()}
 
 
 def test_retained_session_and_settled_replay(monkeypatch, capsys, tmp_path):
@@ -123,7 +128,7 @@ def test_retained_session_and_settled_replay(monkeypatch, capsys, tmp_path):
         handle = json.loads(capsys.readouterr().out)["session"]["handle"]
         assert handle
 
-    before = {path.name: path.read_bytes() for path in tmp_path.iterdir()}
+    before = _tree_bytes(tmp_path)
 
     def preview(*args):
         assert main([*command, "--dry-run", *args]) == 0
@@ -143,7 +148,7 @@ def test_retained_session_and_settled_replay(monkeypatch, capsys, tmp_path):
 
     assert main([*command, "--dry-run", "--request-id", "first", "different prompt"]) == 2
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "idempotency_conflict"
-    assert {path.name: path.read_bytes() for path in tmp_path.iterdir()} == before
+    assert _tree_bytes(tmp_path) == before
 
 
 def test_stateless_second_request_refusal_matches_real_ask(monkeypatch, capsys, tmp_path):
