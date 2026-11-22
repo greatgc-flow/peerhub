@@ -15,6 +15,11 @@ that cadence and scripted cycles. `--snapshot`, `diag quota`, and `diag --live` 
 to collect and show one completed cycle.
 With `--cycles N` and `N > 0`, scripted runs keep synchronous refresh and the same output as before, while continuous TTY watch refreshes in the background.
 
+On Windows, background quota refresh puts each probe in a Job Object before it can start children.
+Cancellation, timeouts and normal completion clean up that job even if its wrapper has already exited.
+If a job cannot be created or joined (a restricted runner), the probe still runs and cleanup kills only the wrapper through its handle, with a warning; no PID matching is used. The synchronous `peerhub observation refresh` has no cancellation owner and also kills only the wrapper (#453).
+If Windows refuses containment, the refresh result includes a warning with the API and WinError, and cleanup can stop only the process that PeerHub started.
+
 Continuous watch, automatic collection in scripted watch, suggest, and ask dispatch share the PID lock
 `quota-refresh.lock` in the store's scratch directory. After three seconds of contention they continue with committed
 evidence. Automatic collection rechecks quota under the lock before probing.

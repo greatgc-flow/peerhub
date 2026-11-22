@@ -18,6 +18,7 @@ from typing import Sequence, Optional, TypedDict, Callable, cast, Any, TypeGuard
 from peerhub.extensions.binary_resolution import CLAUDE_CMD, CODEX_CMD
 from peerhub.extensions.process_tree import kill_process_tree
 from peerhub.extensions.quota_types import account_text as _account_text, valid_epoch_seconds, DISABLED_REASON, NOT_REPORTED_REASON, IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement, ResetCreditObserved
+import peerhub.extensions.win_job as win_job
 
 AGY_QUOTA_FAMILIES = (
     ("gemini-5h", "G-5H"),
@@ -369,38 +370,85 @@ class ProbeCancellation:
         self._stopped = Event()
         self._lock = Lock()
         self._closed = False
-        self._processes: set[subprocess.Popen[str]] = set()
+        self._processes: dict[subprocess.Popen[str], win_job.Job | None] = {}
+        self._warnings: list[str] = []
 
     def cancelled(self) -> bool:
         return self._stopped.is_set()
+
+    def take_warnings(self) -> list[str]:
+        with self._lock:
+            warnings, self._warnings = self._warnings, []
+            return warnings
 
     def spawn(self, command: Sequence[str], **options: Any) -> subprocess.Popen[str]:
         with self._lock:
             if self._closed or self.cancelled():
                 raise OSError("quota collection cancelled")
-            if sys.platform == "win32":
-                options["creationflags"] = options.get("creationflags", 0) | subprocess.CREATE_NO_WINDOW
-            options["start_new_session"] = sys.platform != "win32"
+            if os.name == "nt":
+                try:
+                    return self._spawn_windows(command, options)
+                except win_job.ProbeResumeError as exc:
+                    self._warnings.append(str(exc))
+                    raise
+            options["start_new_session"] = True
             proc: subprocess.Popen[str] = subprocess.Popen(command, **options)
-            self._processes.add(proc)
+            self._processes[proc] = None
             return proc
 
+    def _spawn_windows(self, command: Sequence[str], options: dict[str, Any]) -> subprocess.Popen[str]:
+        resume = win_job.resolve_resume_process()
+        no_window: int = getattr(subprocess, "CREATE_NO_WINDOW")
+        options["creationflags"] = options.get("creationflags", 0) | no_window | win_job.CREATE_SUSPENDED
+        options["start_new_session"] = False
+        proc: subprocess.Popen[str] = subprocess.Popen(command, **options)
+        job = None
+        try:
+            try:
+                handle = int(getattr(proc, "_handle"))
+            except (AttributeError, TypeError, ValueError, OverflowError):
+                handle = 0
+            if not handle:
+                raise win_job.ProbeResumeError("NtResumeProcess could not access the probe process handle")
+            try:
+                job = win_job.Job(handle)
+            except OSError as exc:
+                self._warnings.append(f"Windows quota probe has no tree containment ({exc})")
+            if self.cancelled():  # stop() sets the event before it takes the lock this spawn holds: never start a cancelled probe
+                raise OSError("quota collection cancelled")
+            resume(handle)
+            self._processes[proc] = job
+            return proc
+        except BaseException:
+            with suppress(Exception):
+                proc.kill()
+            if job is not None:
+                job.terminate_and_close()
+            with suppress(Exception):
+                proc.wait(timeout=PROBE_EXIT_WAIT_SECONDS)
+            for pipe in (proc.stdin, proc.stdout, proc.stderr):
+                if pipe is not None:
+                    with suppress(Exception):
+                        pipe.close()
+            raise
+
     @staticmethod
-    def _terminate(proc: subprocess.Popen[str]) -> None:
+    def _terminate(proc: subprocess.Popen[str], job: win_job.Job | None) -> None:
+        if os.name == "nt":
+            with suppress(Exception):
+                if job is not None:
+                    job.terminate_and_close()
+                elif proc.poll() is None:
+                    proc.kill()
+                else:
+                    return
+            with suppress(Exception):
+                proc.wait(timeout=PROBE_EXIT_WAIT_SECONDS)
+            return
         if proc.poll() is not None:
             return
         try:
             if not kill_process_tree(proc, timeout=PROBE_TREE_KILL_TIMEOUT_SECONDS):
-                if sys.platform == "win32":
-                    import psutil
-                    for child in psutil.process_iter(["ppid"]):
-                        if child.info["ppid"] == proc.pid:
-                            with suppress(psutil.Error):
-                                for descendant in reversed(child.children(recursive=True)):
-                                    with suppress(psutil.Error):
-                                        descendant.kill()
-                            with suppress(psutil.Error):
-                                child.kill()
                 with suppress(OSError):
                     proc.kill()
         finally:
@@ -410,8 +458,7 @@ class ProbeCancellation:
     def finish(self, proc: subprocess.Popen[str]) -> None:
         with self._lock:
             if proc in self._processes:
-                self._terminate(proc)
-                self._processes.remove(proc)
+                self._terminate(proc, self._processes.pop(proc))
 
     def stop(self) -> None:
         self._stopped.set()
@@ -420,9 +467,9 @@ class ProbeCancellation:
     def close(self) -> None:
         with self._lock:
             self._closed = True
-            for proc in self._processes:
-                self._terminate(proc)
-            self._processes.clear()
+            while self._processes:
+                proc, job = self._processes.popitem()
+                self._terminate(proc, job)
 
 
 def _spawn_probe(cancellation: ProbeCancellation | None, command: Sequence[str], **options: Any) -> subprocess.Popen[str]:
@@ -452,23 +499,11 @@ def _finish_probe(proc: subprocess.Popen[str], cancellation: ProbeCancellation |
 
 
 def _cleanup_probe(proc: subprocess.Popen[str]) -> None:
-    try:
-        kill_process_tree(proc)
-    except Exception:
-        pass  # best-effort cleanup must not discard the probe result
-    if sys.platform != "win32":
-        return
-    # Windows retains PPID after wrapper exit; preserve cleanup of that lineage only.
-    try:
-        import psutil
-        for child in psutil.process_iter(["pid", "ppid"]):
-            try:
-                if child.info.get("ppid") == proc.pid:
-                    kill_process_tree(cast(Any, child))
-            except Exception:
-                continue
-    except Exception:
-        pass
+    with suppress(Exception):  # best-effort cleanup preserves the probe result
+        if os.name == "nt":
+            proc.kill()
+        else:
+            kill_process_tree(proc)
 
 
 def _valid_fraction(value: object) -> TypeGuard[int | float]:
@@ -1309,6 +1344,9 @@ def poll_agy_usage(
                         report_clean = _agy_report_is_clean(completed.stdout)
             except subprocess.TimeoutExpired:
                 timed_out = True
+            except win_job.ProbeResumeError:
+                return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at_now, freshness_ttl,
+                                     peer="ag", extra={"reason": "agy_usage_spawn_failed"}),)
             except (OSError, subprocess.SubprocessError, ValueError):
                 pass
     if quota_dict_typed is None:
