@@ -11,7 +11,7 @@ import textwrap
 import unicodedata
 from collections.abc import Mapping, Sequence
 from datetime import datetime, tzinfo
-from typing import cast
+from typing import Any, cast
 
 from peerhub.extensions.diag import DiagnosticReport, Section
 from peerhub.extensions.diag_quota import projection, quota_stale_line
@@ -564,14 +564,18 @@ def _plan_pools(report: DiagnosticReport) -> list[dict[str, object]]:
     return out
 
 
-def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object]) -> dict[str, object]:
+def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
+              load: Mapping[str, object] | None = None) -> dict[str, object]:
     """`diag --plan --json`: read-only, from the stored observations of one snapshot."""
-    return {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
-            "store_selection": dict(store_selection), "legend": PLAN_LEGEND, "pools": _plan_pools(report)}
+    data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
+                               "store_selection": dict(store_selection), "legend": PLAN_LEGEND, "pools": _plan_pools(report)}
+    if load is not None:
+        data["load"] = dict(load)  # additive: sampled now, unlike the stored pools
+    return data
 
 
 def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None = None, store_path: str = "",
-                store_source: str = "", store_note: str = "") -> str:
+                store_source: str = "", store_note: str = "", load: Mapping[str, Any] | None = None) -> str:
     width = max(1, width)
     when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M%z")
     lines = _wrap(f"PeerHub plan {_safe_text(report.status)} {when} {_safe_text(store_path)} ({_safe_text(store_source)})", width)
@@ -595,6 +599,9 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
     if not pools:
         lines.append("no quota evidence; next: peerhub observation refresh")
     lines.extend(_wrap(PLAN_LEGEND, width))
+    if load is not None:
+        from peerhub.core.load_limits import format_load
+        lines.extend(_wrap(format_load(load), width))
     return "\n".join(lines)
 
 

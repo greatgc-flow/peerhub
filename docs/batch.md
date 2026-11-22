@@ -160,7 +160,7 @@ If a provider throttles, reduce concurrency; do not reroute the same work to ano
 
 **J. Parallel work over the least quota** (advice only; `peerhub explain parallel-quota` is the same loop)
 
-1. `peerhub diag --plan` (about 350 tokens; stored evidence only). Usable: `spend`, then `hold`; not usable: `rest`, `blocked`, `-` (n/a). Old or `(stale)` evidence: `peerhub observation refresh` (no model tokens), then read again. `peerhub monitor | head -20` shows the same as POOLS (use-first, about 700 tokens).
+1. `peerhub diag --plan` (about 350 tokens; the AI query: pools from stored evidence, then the `load:` line with active asks, per-peer slots and free RAM, sampled now; `--json` has a `load` object). `peerhub monitor` is the human screen; AIs do not read it. Usable: `spend`, then `hold`; not usable: `rest`, `blocked`, `-` (n/a). Old or `(stale)` evidence: `peerhub observation refresh` (no model tokens), then read again.
 2. Order usable pools by 7D PACE, lowest first (`POOLS_USE_FIRST_ASCENDING` in `peerhub/cli/monitor_view.py` flips it); rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools.
 3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.
 4. Wave size n = as many tasks as quota and load allow (not a fixed 3): one per usable pool top-down, then more on the same pool while the peer stays under its limit (cc 3 / cx 3 / ag 1) and the total under the active-ask limit (4, ceiling 6, manual asks count; 3 keeps one slot free): `peerhub batch run tasks.json --batch-id ID --max-parallel n`.

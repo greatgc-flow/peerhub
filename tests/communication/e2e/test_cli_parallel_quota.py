@@ -12,6 +12,7 @@ import pytest
 from peerhub.cli.app import main
 from peerhub.cli.lessons import lesson_by_id
 from peerhub.cli.monitor_view import POOLS_USE_FIRST_ASCENDING
+from peerhub.core import load_limits as L
 from peerhub.extensions.batch import RECOMMENDED_MAX_PARALLEL
 
 pytestmark = [pytest.mark.unit]
@@ -44,7 +45,7 @@ def test_topic_matches_the_pool_order_and_the_batch_cap():
     assert ("lowest 7D PACE first" if POOLS_USE_FIRST_ASCENDING else "highest 7D PACE first") in text
     assert "--max-parallel n" in text and "n = " in text, "the wave size n is open, not fixed"
     assert f"{RECOMMENDED_MAX_PARALLEL} keeps one slot free" in text
-    for limit in ("active asks 4, ceiling 6", "cc 3", "cx 3", "ag 1"):
+    for limit in (f"active asks {L.ACTIVE_ASKS_DEFAULT}, ceiling {L.ACTIVE_ASKS_CEILING}", *(f"{p} {L.PER_PEER_LIMITS[p]}" for p in L.CLI_PEERS)):
         assert limit in text
     assert "at most 3 tasks" not in text
     for word in ("spend", "hold", "rest", "blocked", "stale", "<5%"):
@@ -62,7 +63,9 @@ def test_topic_names_the_cost_rules():
 def test_agents_file_and_docs_point_to_the_topic():
     docs = (REPO / "docs" / "lessons.md").read_text(encoding="utf-8")
     assert f"(`{TOPIC}`)" in docs
-    assert f"peerhub explain {TOPIC}" in (REPO.parent / "AGENTS.md").read_text(encoding="utf-8")
+    agents = REPO.parent / "AGENTS.md"  # the workspace file lives outside the repository: checked only where it exists
+    if agents.is_file():
+        assert f"peerhub explain {TOPIC}" in agents.read_text(encoding="utf-8")
 
 
 def test_batch_doc_explains_the_loop():
@@ -70,3 +73,25 @@ def test_batch_doc_explains_the_loop():
     assert f"peerhub explain {TOPIC}" in doc
     for needle in ("peerhub diag --plan", "peerhub observation refresh", "--max-parallel"):
         assert needle in doc
+
+
+def test_ai_reads_diag_and_never_the_monitor(capsys):
+    text = _text()
+    assert "never peerhub monitor" in text and "human" in text
+    assert "load line" in text and "free RAM" in text
+    assert main(["guide"]) == 0
+    guide = capsys.readouterr().out
+    assert "diag --plan" in guide and "monitor" in guide and "human" in guide
+    agents = REPO.parent / "AGENTS.md"
+    if agents.is_file():
+        assert "never `peerhub monitor`" in agents.read_text(encoding="utf-8")
+
+
+def test_docs_derive_the_limits_from_the_one_source():
+    doc = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
+    assert f"| Active asks, ceiling | {L.ACTIVE_ASKS_CEILING} |" in doc
+    assert f"| Active asks, default | {L.ACTIVE_ASKS_DEFAULT} " in doc
+    per_peer = ", ".join(f"{p} {L.PER_PEER_LIMITS[p]}" for p in L.CLI_PEERS)
+    assert f"| Per peer | {per_peer} " in doc
+    assert f"| Free RAM | keep at least {L.MIN_FREE_RAM_GB} GB |" in doc
+    assert "the `load:` line" in doc and "human screen" in (REPO / "docs" / "monitor.md").read_text(encoding="utf-8")

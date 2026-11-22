@@ -85,6 +85,24 @@ def running_report(db_path: str | Path, *, read_at: float | None = None) -> dict
             "rows": [_row(r, now) for r in snap["rows"]], "truncated": snap["truncated"], "error": snap["error"]}
 
 
+def free_ram_bytes() -> int | None:
+    """Available memory now (psutil `available`: reclaimable cache counts), or None when it cannot be read."""
+    try:
+        import psutil
+        return int(psutil.virtual_memory().available)
+    except Exception:  # missing module or an OS refusal: the load line shows "?", never a traceback
+        return None
+
+
+def sample_load(db_path: str | Path, *, read_at: float | None = None) -> dict[str, Any]:
+    """The load now: lease-active asks per peer (the rows `diag running` lists) and free RAM. Read-only."""
+    from peerhub.core.load_limits import load_snapshot
+    counts: dict[str, int] = {}
+    for row in running_report(db_path, read_at=read_at)["rows"]:
+        counts[row["peer_id"]] = counts.get(row["peer_id"], 0) + 1
+    return load_snapshot(counts, free_ram_bytes())
+
+
 def _secs(value: float | None) -> str:
     return "?" if value is None else f"{value:.0f}s"  # "?" = no valid start evidence (elapsed) / not applicable to the lease
 

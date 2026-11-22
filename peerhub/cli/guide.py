@@ -27,11 +27,12 @@ def render_guide(workspace: Path | None = None) -> str:
         # CLI peers are grouped by what their sandboxes support.
         f"Peer: cc/cx for code and files (sandbox enforced); ag for drafts with content inline (always --writable, not enforced); {'/'.join(API_PEER_KINDS)} = API credits, text only.",
         "Tier: lowest that fits: standard = bulk, effort = code and routine review, deepthink = design and final check.",
-        "Models: tops are opt-in and underused (cx.astra, ag.neon, ag.argon, cc.fable): use them for design, hard review, final checks; vary model and effort per task; give each vote a different model.",
+        "Models: tops (cx.astra, ag.neon, ag.argon, cc.fable) are underused: use them for design, hard review, final checks; vary model and effort; give each vote a different model.",
+        "Quota (AI): peerhub diag --plan = pools + load + RAM; peerhub monitor is the human screen.",
         "Stream: one task = one --stream; reuse only for follow-ups and review rounds on ONE diff; new task = new stream.",
         f"Votes: routine check = ONE reviewer; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. All run FRESH, even if a stream name is given; facts inline. Reply VERDICT / BLOCKERS / NITS, <= 300 tokens (peerhub explain {vote['id']}).",
         f"Batch: peerhub batch run tasks.json --batch-id review-001 --max-parallel {RECOMMENDED_MAX_PARALLEL} --dry-run (validates only); execution spends quota, at most {RECOMMENDED_MAX_PARALLEL} at once.",
         "Timeout: --timeout-seconds 1800-3600 for implementer/review asks (default 600); ag up to 7200.",
-        "Uncertain (timeout, empty reply, pending_earlier_record): stop that stream, check the working tree, never blind-retry; new work goes on a new stream.",
+        "Uncertain (timeout, empty reply, pending_earlier_record): stop that stream, check the working tree, never blind-retry; new work = new stream.",
         f"More: peerhub profile list (models, tiers); peerhub explain <topic> for: {more}; all topics: peerhub explain lessons.",
     ])

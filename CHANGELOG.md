@@ -10,6 +10,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- `peerhub diag --plan` ends with a `load:` line (`--json`: a `load` object): lease-active asks against the limits, per-peer slots and free RAM, sampled at query time; the numbers live in `peerhub/core/load_limits.py`. `peerhub monitor` is documented as the human screen and the guide tells AIs to read `diag --plan`.
 - `peerhub explain parallel-quota`: the loop for spreading parallel work over the least quota (read POOLS use-first, one task per pool, waves of n tasks as quota and load allow, re-read, defer when every pool is out or fast). The guide names it; no new command.
 
 ## [0.26.5] - 2026-11-21
