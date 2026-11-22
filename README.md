@@ -398,6 +398,7 @@ the handle later expires. Historical asks lacking complete selector identity met
 inspectable as Records but cannot be replayed through the new interface; do not
 retry uncertain work. Use `peerhub session list` and `peerhub session show`
 for bounded, read-only session inspection.
+Both commands show the monitor's stored context estimate and its age when available, with `ctx_est_pct`, `ctx_est_tokens`, and `ctx_age_seconds` in JSON (null when unknown).
 See the [registry contract](docs/implementation/RETAINED_SESSIONS.md).
 
 To create another generation on the same Stream, then return to the first

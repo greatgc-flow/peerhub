@@ -13,7 +13,7 @@ from typing import Any, cast
 from peerhub.cli.monitor_preferences import GROUPS, MONITOR_LEGEND
 from peerhub.extensions.caller import host_id, local_workspace_file
 from peerhub.extensions.diag_quota import quota_stale_line
-from peerhub.extensions.monitor_read_model import TEXT_NEWEST_ROWS
+from peerhub.extensions.monitor_read_model import TEXT_NEWEST_ROWS, context_estimate_age
 from peerhub.extensions.observation_model import (
     LOW_QUOTA_FRACTION,
     QUOTA_MAX_AGE_SECONDS,
@@ -600,9 +600,9 @@ def _estimate(context: dict[str, Any], now: float | None) -> str | None:
     percent = _number(context.get("percent"))
     if context.get("state") != "ESTIMATED" or percent is None or not 0 <= percent <= 100:
         return None
-    at = _number(context.get("observed_at"))
+    age = context_estimate_age(_number(context.get("observed_at")), now)
     return f"{percent:.0f}% {CONTEXT_ESTIMATE_LABEL}, " + (
-        "age ?" if at is None or now is None else f"{_compact_age(max(0.0, now - at))} ago")
+        "age ?" if age is None else f"{_compact_age(age)} ago")
 
 
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,

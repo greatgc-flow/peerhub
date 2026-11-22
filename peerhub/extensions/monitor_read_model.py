@@ -353,6 +353,11 @@ def _monitor_workspace(db_path: str, workspace: str | Path | None) -> Path:
     return Path.cwd()
 
 
+def context_estimate_age(observed_at: float | None, now: float | None) -> float | None:
+    """Seconds since the context sample, clamped at zero for clock skew."""
+    return None if observed_at is None or now is None else max(0.0, now - observed_at)
+
+
 def public_telemetry(raw: object, *, handle: str, generation: int, provider: str) -> dict[str, Any]:
     """Validate and redact one session receipt for monitor and session inspection."""
     detail = _safe_object(raw)

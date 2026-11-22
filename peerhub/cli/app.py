@@ -31,6 +31,7 @@ import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from time import time
 from typing import Any, NoReturn, cast
 
 from peerhub._console import tolerant_streams
@@ -969,6 +970,18 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
     return 0
 
 
+_SESSION_CONTEXT_FIELDS = ("ctx_est_pct", "ctx_est_tokens", "ctx_age_seconds")
+
+
+def _session_context_text(session: dict[str, Any]) -> str:
+    percent, age = session["ctx_est_pct"], session["ctx_age_seconds"]
+    if percent is None or age is None:
+        return ""
+    from peerhub.cli.monitor_view import _compact_age  # pyright: ignore[reportPrivateUsage]
+
+    return f"ctx {percent}% ({_compact_age(age)} ago)"
+
+
 def _run_session_cli(args: argparse.Namespace) -> int:
     db_path = Path(args.db)
     if not db_path.is_file():
@@ -994,8 +1007,13 @@ def _run_session_cli(args: argparse.Namespace) -> int:
         if payload.get("status") == "NOT_FOUND":
             _error_line("session_not_found", f"Session not found: {args.handle}", "peerhub session list")
         elif not use_json and args.action == "show":
-            for key, value in payload.get("session", {}).items():
-                print(f"{key}: {value}")
+            session = payload["session"]
+            for key, value in session.items():
+                if key not in _SESSION_CONTEXT_FIELDS:
+                    print(f"{key}: {value}")
+            context = _session_context_text(session)
+            if context:
+                print(context)
         elif not use_json:
             rows = payload.get("items", [])
             if not rows:
@@ -1014,7 +1032,9 @@ def _run_session_cli(args: argparse.Namespace) -> int:
                 print("  ".join(key.upper().ljust(widths[i]) for i, key in enumerate(keys)))
                 print("  ".join("-" * width for width in widths))
                 for row in rows:
-                    print("  ".join(cell(row, key).ljust(widths[i]) for i, key in enumerate(keys)))
+                    line = "  ".join(cell(row, key).ljust(widths[i]) for i, key in enumerate(keys))
+                    context = _session_context_text(row)
+                    print(f"{line}  {context}" if context else line)
                 if payload.get("next_cursor"):
                     print(f"next_cursor: {payload['next_cursor']}")
         status = payload.get("status")
@@ -1035,6 +1055,7 @@ def _run_session_cli(args: argparse.Namespace) -> int:
                 raise SchemaVersionError(future_schema_message(schema_version, SUPPORTED_SCHEMA_VERSION))
             has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bridge_session_history'").fetchone()
             has_stats = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bridge_session_monitor_stats'").fetchone()
+            now = time()
             if args.action == "show":
                 extra_select = (",s.binding_json,s.fresh_count,s.reuse_count,s.counts_complete,e.detail AS telemetry_detail "
                                 "FROM bridge_session_history h LEFT JOIN bridge_session_monitor_stats s ON s.session_handle=h.session_handle "
@@ -1047,7 +1068,7 @@ def _run_session_cli(args: argparse.Namespace) -> int:
                     extra_select + " WHERE h.session_handle=?", (args.handle,)).fetchone()
                 if row is None:
                     return emit({"schema_version": "1.0", "status": "NOT_FOUND", "handle": args.handle})
-                return emit({"schema_version": "1.0", "status": "OK", "session": _session_public_row(row)})
+                return emit({"schema_version": "1.0", "status": "OK", "session": _session_public_row(row, now=now)})
             if not has_table:
                 return emit({"schema_version": "1.0", "store_selection": {"path": str(db_path), "source": getattr(args, "db_source", "unknown")},
                              "items": [], "next_cursor": None})
@@ -1087,7 +1108,7 @@ def _run_session_cli(args: argparse.Namespace) -> int:
                     "order": "scope-generation-handle-v1", "high_water": high_water,
                     "after": [last["stream_id"], last["peer_id"], last["session_generation"], last["session_handle"]]})
             return emit({"schema_version": "1.0", "store_selection": {"path": str(db_path), "source": getattr(args, "db_source", "unknown")},
-                         "items": [_session_public_row(row) for row in page_rows], "next_cursor": next_cursor})
+                         "items": [_session_public_row(row, now=now) for row in page_rows], "next_cursor": next_cursor})
     except SchemaVersionError as exc:
         error = {"schema_version": "1.0", "status": "SCHEMA_VERSION_ERROR", "error": str(exc)}
         if use_json:
@@ -1108,7 +1129,9 @@ def _run_session_cli(args: argparse.Namespace) -> int:
         return 4
 
 
-def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
+def _session_public_row(row: sqlite3.Row, *, now: float) -> dict[str, Any]:
+    from peerhub.extensions.monitor_read_model import context_estimate_age, public_telemetry
+
     binding: dict[str, Any] = {"profile": None, "model": None, "effort": None, "writable": None}
     binding_json = row["binding_json"] if "binding_json" in row.keys() else None
     if isinstance(binding_json, str):
@@ -1126,13 +1149,13 @@ def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
     if "counts_complete" in row.keys():
         complete = bool(row["counts_complete"])
         calls = {"fresh": row["fresh_count"], "reuse": row["reuse_count"], "complete": complete}
-    latest = None
+    latest: dict[str, Any] | None = None
     raw_telemetry = row["telemetry_detail"] if "telemetry_detail" in row.keys() else None
     if isinstance(raw_telemetry, str):
-        from peerhub.extensions.monitor_read_model import public_telemetry
         latest = {"schema_version": 3, **public_telemetry(
             raw_telemetry, handle=str(row["session_handle"]),
             generation=int(row["session_generation"]), provider=str(row["runtime_kind"]))}
+    context: dict[str, Any] = latest["context"] if latest is not None else {}
     result = {
         "handle": str(row["session_handle"]), "stream_id": str(row["stream_id"]),
         "peer_id": str(row["peer_id"]), "generation": int(row["session_generation"]),
@@ -1142,6 +1165,9 @@ def _session_public_row(row: sqlite3.Row) -> dict[str, Any]:
         "context_watermark_version": int(row["context_watermark_version"]),
         "created_at": float(row["created_at"]), "tombstoned_at": row["tombstoned_at"],
         "configured_binding": binding,
+        "ctx_est_pct": context.get("percent"),
+        "ctx_est_tokens": context.get("occupancy_tokens"),
+        "ctx_age_seconds": context_estimate_age(context.get("observed_at"), now),
     }
     if calls is not None:
         result["call_counts"] = calls
