@@ -126,7 +126,7 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     description = "PeerHub CLI"
-    parser = _ArgumentParser(prog=prog, description=description, epilog="Advanced: stream, record, offset")
+    parser = _ArgumentParser(prog=prog, description=description, epilog="Advanced: stream, record, offset. Start: AI = peerhub guide, peerhub diag --plan | human = peerhub monitor | first ask: peerhub ask cc \"prompt\" --profile cc.standard --stream ID --request-id R1 | bugs: peerhub explain report-issues")
     from peerhub._version import __version__
     parser.add_argument("--version", "-v", "-V", action="version", version=f"peerhub {__version__}")
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Path to SQLite database")

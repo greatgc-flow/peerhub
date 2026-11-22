@@ -108,3 +108,27 @@ def test_guide_batch_line_does_not_cap_parallel_work_at_a_fixed_number(capsys):
     batch = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("Batch:"))
     assert "at most" not in batch and "--max-parallel" in batch
     assert "n at once" in batch and TOPIC in batch
+
+
+def test_topic_covers_inflight_spend_mid_wave_refusal_and_replay():
+    text = _text()
+    assert "in-flight" in text and "margin" in text
+    assert "refused" in text and "still run" in text and "same --batch-id" in text
+    assert text.index("after each wave run peerhub observation refresh, then diag --plan again") > text.index("--max-parallel n")
+
+
+def test_help_start_line_and_batch_doc_point_to_the_one_recipe(capsys):
+    top = _help_top(capsys)
+    for needle in ("peerhub guide", "peerhub diag --plan", "peerhub monitor", "peerhub explain report-issues", "peerhub ask"):
+        assert needle in top
+    doc = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
+    section_h = doc[doc.index("**H. Balancing rule**"):doc.index("**I. Concurrency**")]
+    assert f"peerhub explain {TOPIC}" in section_h
+    section_j = doc[doc.index("**J. Parallel work"):]
+    assert "peerhub observation refresh" in section_j.split("5. After each wave")[1]
+
+
+def _help_top(capsys) -> str:
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    return " ".join(capsys.readouterr().out.split())
