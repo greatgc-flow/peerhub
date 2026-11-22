@@ -7,7 +7,7 @@ python -c "from pathlib import Path; from peerhub.cli.lessons import render_less
 ```
 
 Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.
-Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then `lessons` (an index: one `id: title` line per lesson), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order.
+Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then `lessons` (an index: one `id: title` line per lesson), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order; one match prints in full, several print one `id: title` line each (open one with `peerhub explain <id>`).
 
 ## ag profile choice for bulk work (observed 2026-11-01) (`ag-bulk-profile-heuristics`)
 
@@ -116,7 +116,7 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 
 ## Discovery and inspection commands (`discovery-commands`)
 
-- Keywords: discovery, inspection, commands, diag, models, slugs, sessions, facts, needs_recheck
+- Keywords: discovery, inspection, commands, diag, model, models, slugs, sessions, facts, needs_recheck
 - Symptom: Which read-only commands show quota, pools, sessions, accounts and models, and how the line-1 facts alert clears.
 - Fix: peerhub explain lessons: lesson index (id: title); then peerhub explain <id> or free words. peerhub explain setup: what each peer needs. peerhub monitor --group capacity: AI sessions: verdict line + pools; suggest a|b = best + alternative peer; peerhub explain monitor-states. peerhub monitor --expand: everything: alerts, asks, leads, pools, peers, accounts, sessions, usage (or --snapshot). peerhub diag: read-only diagnostics. peerhub diag --plan: per-pool spend/hold/rest until reset, from stored quota. Recommendations: peerhub suggest --tier standard (peerhub explain suggest). Models: peerhub profile list; slugs: agy models; --model <slug>. peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run: validate a batch. peerhub session list: retained sessions; accounts: peerhub account list. peerhub observation refresh: re-probe provider quota. peerhub explain peer-subagents: sub-agents inside one ask (same peer quota). Model facts: the line-1 'facts:' alert (needs_recheck) clears via refresh-model-profiles skill or release upgrade.
 - Issue: 0.25.0 plan D5
@@ -207,7 +207,7 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 
 ## Spread parallel work over the least quota (`parallel-quota`)
 
-- Keywords: parallel, quota, pace, pools, batch, loop, distribute, minimal
+- Keywords: parallel, quota, pace, pools, batch, loop, distribute, minimal, ram, free, memory, slots, load, diag, plan, resource, resources
 - Symptom: Several tasks can run at once and the caller wants them spread over the pools with the most spare quota, spending as little as possible.
 - Fix: PeerHub gives the facts; You decide how many tasks to start and where. Facts: AIs read quota with peerhub diag --plan, never peerhub monitor (the human screen). About 350 tokens, one command: pools (stored evidence, never refreshes; old or (stale): peerhub observation refresh, no model tokens) plus the load line (active asks, per-peer slots, free RAM, sampled now); --json has a load object. Per pool: LEFT, RESETS, PACE (+ = ahead of even burn; a family follows its 7D parent, children share it), a spend/hold/rest/blocked label (advice) and n/a. 5H only gates. Limits (advice, not enforced): active asks 4 default, ceiling 6, manual asks count; per peer cc 3, cx 3, ag 1; free RAM at least 6 GB. A default plan, change it when the task needs: independent tasks (no shared files; each writer its own workspace, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote, tops for design and final checks; usable pools lowest 7D PACE first (spend, then hold; skip rest, blocked, <5% and fast); wave size n = as many tasks as quota and load allow, 3 keeps one slot free for a manual ask; peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run, then run it; run diag --plan again after each wave and drop pools that became rest or blocked; with no usable pool, defer. Do not resume a stream for a new task (resumed context is re-sent every turn).
 - Issue: owner request 2026-11-22

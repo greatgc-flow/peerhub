@@ -804,7 +804,10 @@ def run_explain_cli(code: str, *, json_output: bool = False) -> int:
             if json_output:
                 print(json.dumps({"lessons": matches}, indent=2, ensure_ascii=True))
             else:
-                print("\n".join(render_lesson(lesson) for lesson in matches))
+                # One match: the full text. Several: one `id: title` line each (an AI pays only for what it opens).
+                print(render_lesson(matches[0]) if len(matches) == 1 else
+                      "\n".join([*(f"{lesson['id']}: {lesson['title']}" for lesson in matches),
+                                 "peerhub explain <id> shows one in full"]))
             return 0
         known = sorted(REGISTRY.keys())
         msg = f"No matching lessons for {code!r}. Try fewer keywords, 'peerhub explain lessons' (index) or 'peerhub guide'."
