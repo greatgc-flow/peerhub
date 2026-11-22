@@ -45,7 +45,7 @@ def register_suggest_parser(subparsers: Any) -> None:
     parser.add_argument("--tier", choices=("standard", "effort", "deepthink"), required=True,
                         help="Profile tier to recommend")
     parser.add_argument("--task", choices=("review", "code", "read"),
-                        help="Use TASK.txt for the prompt. Code enables writes for CLI peers.")
+                        help="Use <task>.txt as the prompt file in the suggested ask command. The code task adds --writable.")
     parser.add_argument("--candidates", action="store_true", help="Show the tier's candidate profiles and quota facts")
 
 

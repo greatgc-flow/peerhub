@@ -13,6 +13,10 @@ they do not claim new validation or publication evidence.
 - `peerhub suggest --candidates` shows profile eligibility, quota facts and reasons for the selected tier, with the same facts in a `candidates` array when using `--json` (#446).
 - `session list` and `session show` report the monitor's stored context estimate and its age, with token count in JSON (#446).
 
+### Changed
+
+- CLI help explains positional arguments, option units and defaults, record inputs, and how `suggest --task` builds the suggested ask command (#446).
+
 ### Fixed
 
 - `LOW_QUOTA_FRACTION` has one source in `peerhub/core/quota_policy.py` (the monitor, diag and suggest read it; `peerhub suggest` stays importable with the extensions disabled).
