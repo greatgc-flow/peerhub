@@ -70,7 +70,8 @@ Each scenario gets 0-100 with the exact commands, the number of calls and the ap
 |---|---|---|---|---|---|
 | 1 ([parallel](rounds/r1-parallel.md), [scenarios](rounds/r1-scenarios.md)) | 76 / 63.3 / 65 (third = ag.effort) | 84.3 / 75.7 / 76.7 | 77.5 / 72.5 / 78.3 | 68.1, 78.9, 76.1 | 74.4 |
 | 2 ([rescore](rounds/r2-rescore.md)) | 72 / 74 / 81.7 (third = ag.argon) | 82 / 83 / 85 | 77 / 78 / 81 | 75.9, 83.3, 78.7 | 79.3 |
-| 3 | see [rounds](rounds/) | | | | |
+| 3 ([rescore](rounds/r3-rescore.md)) | 87 / 85.8 / 90.2 (third = ag.argon) | 88 / 88 / 91 | 85 / 85 / 88 | 87.7, 89, 86 | 87.6 |
+| 4 | pending | | | | |
 
 ### Axis means for the parallel rubric
 
