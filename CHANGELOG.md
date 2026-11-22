@@ -8,6 +8,13 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- On Windows, synchronous `peerhub observation refresh` uses Job Objects to clean up Claude and Codex probe subprocesses and their children (#453).
+### Changed
+
+- `batch run --dry-run` previews named defaults using ask's profile resolution, and `diag --plan` identifies other mapped in-flight pools by name in its `n/a pools` clause (#447).
+
 ## [0.26.7] - 2026-11-23
 
 ### Added
@@ -38,6 +45,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- Dry-run batch previews use ask's resolved profile when available, and the diagnostic plan footer names in-flight pools that lack applicable rows (#447).
 - Windows quota refresh results include an API and WinError warning if a background probe cannot be contained in a Job Object (#444).
 - `update --plan`: the printed backup and restore commands run the interpreter that runs PeerHub (not a bare `python`, which may lack peerhub for a pipx or uv install); the scoring record `docs/design/scoring-2026-11-22/` (rubric, six rounds, overall 95.2) documents why 0.26.6 ships.
 - `diag --plan`: a stale window keeps its own `(stale)` tag even when a sibling window decides the reason; `explain parallel-quota` says a profile listed under several pools spends each of them.

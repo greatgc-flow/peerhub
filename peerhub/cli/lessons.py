@@ -30,6 +30,10 @@ def load_lessons() -> list[Lesson]:
                 error={code: entry.exit_code for code, entry in REGISTRY.items()},
                 diag=DIAG_EXIT_BY_STATUS,
             )
+        elif lesson["id"] == "parallel-quota":
+            from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL
+
+            lesson["fix"] = lesson["fix"].format(plan_na_pools=PLAN_NA_POOLS_LABEL)
     return sorted(lessons, key=lambda lesson: lesson["id"])
 
 

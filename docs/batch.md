@@ -37,7 +37,8 @@ Each task requires `task_id`, `peer`, and exactly one of `prompt` or `prompt_fil
 Optional keys: `workspace`, `profile`, `writable` (default false), `timeout_s`
 (finite positive seconds, default 600). Unknown keys, including `stream`, fail.
 Dry runs show the profile in the table and in JSON `profile_display`. Tasks without a
-profile display `(peer default)` and retain `null` in JSON `profile`.
+manifest profile retain `null` in JSON `profile`. They display `(default: PROFILE)`
+when `ask --dry-run` resolves a named profile, or `(peer default)` when it cannot.
 IDs match `[A-Za-z0-9._-]{1,64}`; task IDs must be unique. Prompt files are UTF-8,
 at most 1 MiB, and resolved relative to the manifest; workspaces must exist and
 relative workspace paths use the current directory. Peers must be builtin aliases
@@ -183,5 +184,6 @@ If a provider throttles, reduce concurrency; do not reroute the same work to ano
 3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.
 4. Wave size n = as many tasks as quota and load allow (not a fixed 3): one per usable pool top-down, then more on the same pool while the peer stays under its limit (cc 3 / cx 3 / ag 1) and the total under the active-ask limit (4, ceiling 6, manual asks count; 3 keeps one slot free): `peerhub batch run tasks.json --batch-id ID --max-parallel n`.
 5. After each wave run `peerhub observation refresh`, then `peerhub diag --plan` again; asks still running are in-flight spend the readings do not show yet, so keep a margin; a task refused for quota is reported per task and the rest of that manifest still runs (one wave per manifest); the same batch ID replays settled tasks; a pool that turned `rest` or `blocked` drops out. No usable pool: defer.
-   The load line names in-flight pools with applicable table rows. `n/a pools N` counts
-   the other mapped pools, and JSON `load.by_pool` includes all mapped pools.
+   The load line lists in-flight counts for pools with applicable table rows. Its
+   `n/a pools` clause lists other mapped in-flight pools, with `+K` for any names
+   beyond the display limit. JSON `load.by_pool` includes all mapped pools.

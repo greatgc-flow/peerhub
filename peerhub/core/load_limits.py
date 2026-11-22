@@ -13,6 +13,8 @@ ACTIVE_ASKS_CEILING = 6
 PER_PEER_LIMITS: dict[str, int] = {"cc": 3, "cx": 3, "ag": 1, "ca": 3, "oa": 3, "ga": 3}
 CLI_PEERS = ("cc", "cx", "ag")  # always shown; API peers appear only while active
 MIN_FREE_RAM_GB = 6
+PLAN_NA_POOLS_LABEL = "n/a pools"
+PLAN_NA_POOLS_LIMIT = 4
 _GB = 1024 ** 3
 
 
