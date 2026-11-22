@@ -29,7 +29,7 @@ ALLOWED: dict[str, set[str]] = {
     # M1 Observation
     "observation": {"schema_guard", "observation_model"},
     "quota_capture": {"observation", "observation_model", "quota_probes", "quota_types"},
-    "quota_probes": {"quota_types", "binary_resolution", "process_tree"},
+    "quota_probes": {"quota_types", "binary_resolution", "process_tree", "win_job"},
     "quota_types": {"observation_model"},
     # M1 Diag
     "diag": {"observation_model"},
@@ -103,7 +103,7 @@ def test_extension_import_graph_matches_the_documented_allowlist():
 
 
 def test_m2_m3_extensions_do_not_depend_on_each_other_across_slices():
-    m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
+    m1 = {"ask", "bridge", "bridge_claims", "catchup", "observation", "observation_model", "quota_capture", "quota_probes", "win_job",
           "quota_types", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "peer_kinds", "schema_guard", "adapters", "quota_projection", "bridge_registry", "session_receipts", "monitor_read_model", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions"}
     helpers = {"peer_kinds", "binary_resolution", "process_tree", "sqlite_tx", "boundary", "authoritative", "source_records", "manifest", "a2a", "a2a_journal"}  # neutral helpers / same-slice modules

@@ -415,5 +415,7 @@ def refresh_quota(db_path: str | Path, peers: list[str], *, sys_dir: Path | None
         store.persist(obs)
         written.append(obs.model_dump(mode="json"))
 
+    if cancellation is not None:
+        warnings.extend(cancellation.take_warnings())
     return {"schema_version": "1.0", "status": "PARTIAL" if any(o["state"] == "ERROR" and o["kind"] != "account" for o in written) else "OK",  # account evidence never degrades quota status
             "observations": written, "warnings": warnings}

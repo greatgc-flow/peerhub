@@ -22,6 +22,7 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- Windows background quota refresh cleans up the probe's Job Object on cancellation, timeout and completion, including when the wrapper has exited (#444).
 - `LOW_QUOTA_FRACTION` has one source in `peerhub/core/quota_policy.py` (the monitor, diag and suggest read it; `peerhub suggest` stays importable with the extensions disabled).
 - Monitor account snapshot tests use a fixed terminal width so the failed-probe row keeps its stale marker in parallel CI (#442).
 - `diag --plan` names only applicable table pools in the profiles footer and in-flight list, counts other mapped in-flight pools in an `n/a pools` clause, and keeps all per-pool counts in JSON.
@@ -33,6 +34,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- Windows quota refresh results include an API and WinError warning if a background probe cannot be contained in a Job Object (#444).
 - `update --plan`: the printed backup and restore commands run the interpreter that runs PeerHub (not a bare `python`, which may lack peerhub for a pipx or uv install); the scoring record `docs/design/scoring-2026-11-22/` (rubric, six rounds, overall 95.2) documents why 0.26.6 ships.
 - `diag --plan`: a stale window keeps its own `(stale)` tag even when a sibling window decides the reason; `explain parallel-quota` says a profile listed under several pools spends each of them.
 - `diag --plan` tags fast pools and family gates in the text table, emits compact JSON, and counts lease-active asks with no quota pool. `update --plan` prints a restore command for the selected store after the backup command.

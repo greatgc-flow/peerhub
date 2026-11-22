@@ -13,7 +13,7 @@ import pytest
 
 from peerhub.cli import monitor, monitor_view, support, view
 from peerhub.cli.app import main
-from peerhub.extensions import monitor_read_model, process_tree, quota_probes
+from peerhub.extensions import monitor_read_model, quota_probes
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload
 
@@ -350,7 +350,12 @@ def test_watch_ticks_while_probe_runs_and_reads_once_at_completion(monkeypatch, 
     assert "next refresh" in titles[-1]
 
 
-def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monkeypatch):
+@pytest.fixture
+def posix_probe_cleanup(monkeypatch):
+    monkeypatch.setattr(quota_probes, "os", SimpleNamespace(name="posix", environ=quota_probes.os.environ))
+
+
+def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monkeypatch, posix_probe_cleanup):
     from peerhub.cli import monitor_refresh
 
     started, killed = Event(), Event()
@@ -420,70 +425,7 @@ def test_interrupt_kills_the_probe_and_single_flight_blocks_probe_and_auto(monke
     assert killed.is_set() and len(processes) == 1
 
 
-@pytest.mark.parametrize("returncode,taskkill_returncode", [(0, 1), (None, 0), (None, 1)])
-def test_windows_probe_finishes_only_a_live_process_tree(monkeypatch, returncode, taskkill_returncode):
-    import psutil
-
-    events = []
-
-    class Process:
-        pid = 123
-
-        def poll(self):
-            return returncode
-
-        def kill(self):
-            events.append("kill")
-
-        def wait(self, *, timeout):
-            assert timeout > 0
-            events.append("wait")
-
-    def taskkill(command, **options):
-        assert command == ["taskkill", "/T", "/F", "/PID", str(Process.pid)]
-        events.append("taskkill")
-        return SimpleNamespace(returncode=taskkill_returncode)
-
-    def sweep(fields):
-        assert fields == ["ppid"]
-        events.append("sweep")
-        return []
-
-    windows = SimpleNamespace(platform="win32")
-    monkeypatch.setattr(quota_probes, "sys", windows)
-    monkeypatch.setattr(process_tree, "sys", windows)
-    monkeypatch.setattr(quota_probes.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
-    monkeypatch.setattr(quota_probes.subprocess, "Popen", lambda *a, **kw: Process())
-    monkeypatch.setattr(process_tree.subprocess, "run", taskkill)
-    monkeypatch.setattr(psutil, "process_iter", sweep)
-    cancellation = quota_probes.ProbeCancellation()
-    cancellation.finish(cancellation.spawn(["fake-provider"]))
-
-    if returncode is not None:
-        assert events == []
-    elif taskkill_returncode == 0:
-        assert events == ["taskkill", "wait"]
-    else:
-        assert events[0] == "taskkill" and events[-1] == "wait" and events.count("sweep") == 1
-
-
-def test_windows_probe_preserves_creation_flags(monkeypatch):
-    monkeypatch.setattr(quota_probes, "sys", SimpleNamespace(platform="win32"))
-    no_window = 0x08000000
-    new_group = 0x00000200
-    monkeypatch.setattr(quota_probes.subprocess, "CREATE_NO_WINDOW", no_window, raising=False)
-    options = {}
-
-    def popen(command, **kw):
-        options.update(kw)
-        return object()
-
-    monkeypatch.setattr(quota_probes.subprocess, "Popen", popen)
-    quota_probes.ProbeCancellation().spawn(["fake-provider"], creationflags=new_group)
-    assert options["creationflags"] == new_group | no_window
-
-
-def test_job_cleans_up_a_lingering_probe_before_releasing_the_guard(monkeypatch):
+def test_job_cleans_up_a_lingering_probe_before_releasing_the_guard(monkeypatch, posix_probe_cleanup):
     from contextlib import contextmanager
 
     from peerhub.cli.monitor_refresh import RefreshJob

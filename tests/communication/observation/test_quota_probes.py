@@ -810,6 +810,8 @@ def test_claude_percent_boundaries_are_valid(value):
 
 
 def test_claude_probe_uses_shared_posix_tree_cleanup(monkeypatch):
+    from types import SimpleNamespace
+
     from peerhub.extensions import process_tree
     from peerhub.extensions import quota_probes as probes
     calls, groups = [], []
@@ -818,6 +820,7 @@ def test_claude_probe_uses_shared_posix_tree_cleanup(monkeypatch):
         def communicate(self, timeout):
             raise subprocess.TimeoutExpired("claude", timeout)
     monkeypatch.setattr(probes.sys, "platform", "linux")
+    monkeypatch.setattr(probes, "os", SimpleNamespace(name="posix", environ=probes.os.environ))
     monkeypatch.setattr(probes, "kill_process_tree", process_tree.kill_process_tree)
     monkeypatch.setattr(process_tree.os, "killpg", lambda pid, sig: groups.append(pid), raising=False)
     monkeypatch.setattr(process_tree.signal, "SIGKILL", 9, raising=False)
