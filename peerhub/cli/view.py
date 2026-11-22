@@ -501,8 +501,12 @@ def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
 
 PLAN_SPEND_PACE_PT = 10.0  # spend at PACE <= -10: well behind an even burn
 PLAN_REST_PACE_PT = 20.0  # rest only above PACE +20: owner 2026-11-22, up to +20 ahead of an even burn is fine to use
-PLAN_LEGEND = (f"spend PACE<=-{PLAN_SPEND_PACE_PT:.0f} | hold | rest PACE>+{PLAN_REST_PACE_PT:.0f}/exhausts early | "
-               "blocked 0%/unknown | - n/a | TARGET=left%/h")
+_PLAN_PACE_LEGEND = f"spend PACE<=-{PLAN_SPEND_PACE_PT:.0f} | hold | rest PACE>+{PLAN_REST_PACE_PT:.0f}"
+PLAN_LEGEND = _PLAN_PACE_LEGEND + "/exhausts early | blocked 0%/unknown | - n/a | TARGET=left%/h"
+PLAN_FAST_TAG = "fast"
+PLAN_GATE_TAG = "gate"
+PLAN_TAG_LEGEND = f"{PLAN_FAST_TAG}/{PLAN_GATE_TAG} tags"
+_PLAN_TEXT_LEGEND = f"{_PLAN_PACE_LEGEND}/runs out | blocked 0%/? | - n/a | TARGET=%/h | {PLAN_TAG_LEGEND}"
 _PLAN_RANK = {"spend": 0, "hold": 1, "rest": 2, "blocked": 3}
 _PlanWindow = tuple[_Row, float | None, str, str]
 
@@ -568,7 +572,7 @@ def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]], read_
                    if window == _WEEK else [])
 
 
-def _plan_pools(report: DiagnosticReport, *, include_facts: bool = False,
+def _plan_pools(report: DiagnosticReport, *,
                 profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[dict[str, object]]:
     items = [i for i in _items(_section(report, "observations").get("items")) if i.get("kind") == "quota"]
     pools = [p for p in _items(_section(report, "resource_pools").get("pools")) if p.get("kind") == "QUOTA"]
@@ -608,8 +612,7 @@ def _plan_pools(report: DiagnosticReport, *, include_facts: bool = False,
                     "resets_in_seconds": r.left, "target_pct_per_hour": left / hours if left is not None and hours else None,
                     "pace_pt": r.diff, "forecast": r.projection["state"], "binding": binding,
                     "action": decided[2], "reason": reason})
-    if include_facts:
-        _plan_pool_facts(own, out, report.read_at, profiles_by_pool or {})
+    _plan_pool_facts(own, out, report.read_at, profiles_by_pool or {})
     return out
 
 
@@ -617,7 +620,7 @@ def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
               load: Mapping[str, object] | None = None,
               profiles_by_pool: Mapping[str, list[str]] | None = None) -> dict[str, object]:
     """`diag --plan --json`: read-only, from the stored observations of one snapshot."""
-    pools = _plan_pools(report, include_facts=True, profiles_by_pool=profiles_by_pool)
+    pools = _plan_pools(report, profiles_by_pool=profiles_by_pool)
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
                                "store_selection": dict(store_selection), "legend": PLAN_LEGEND, "pools": pools}
     if profiles_by_pool is not None:  # additive: which profiles spend each pool, so an AI maps pools to asks without `profile list`
@@ -649,10 +652,13 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
                         for i, (c, w) in enumerate(zip(row, widths))) + " "
     lines.append(_ellipsis(lead(head) + "REASON", width, False))
     for row, p in zip(cells, pools):
-        lines.append(_ellipsis(lead(row) + _safe_text(p["reason"]), width, False))
+        reason = lead(row) + _safe_text(p["reason"])
+        tags = [f"({PLAN_FAST_TAG})"] if p["fast"] else []
+        tags.extend(f"({PLAN_GATE_TAG}: {_safe_text(gate['pool'])})" for gate in _items(p["gates"]))
+        lines.extend(_wrap(" ".join([reason, *tags]), width) if tags else [_ellipsis(reason, width, False)])
     if not pools:
         lines.append("no quota evidence; next: peerhub observation refresh")
-    lines.extend(_wrap(PLAN_LEGEND, width))
+    lines.extend(_wrap(_PLAN_TEXT_LEGEND, width))
     if load is not None:
         from peerhub.core.load_limits import format_load
         lines.extend(_wrap(format_load(load), width))

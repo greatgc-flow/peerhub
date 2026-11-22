@@ -5,16 +5,17 @@ import json
 import re
 import sqlite3
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from peerhub.cli.app import main
 from peerhub.cli.monitor_view import FAMILIES
-from peerhub.cli.view import plan_data
+from peerhub.cli.view import PLAN_FAST_TAG, PLAN_GATE_TAG, PLAN_TAG_LEGEND, plan_data, render_plan
 from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION, epoch_to_iso
-from tests.communication.diag.test_diag_plan_339 import DAY, HOUR, NOW, _item, _report, plan_store  # noqa: F401
+from tests.communication.diag.test_diag_plan_339 import DAY, HOUR, NOW, _item, _report
 
 FRESH_AGE = QUOTA_TTL_SECONDS / 2
 AGED = QUOTA_TTL_SECONDS * 2
@@ -44,6 +45,11 @@ def test_reset_gate_is_visible_alongside_a_weekly_hold():
     assert short["gates"] == argon["gates"] == []
     assert weekly["age_seconds"] == FRESH_AGE and weekly["ttl_seconds"] == QUOTA_TTL_SECONDS
 
+    out = render_plan(_report(*_flash_windows()), width=100)
+    line = next(line for line in out.splitlines() if line.split()[:2] == [weekly["peer"], weekly["pool"]])
+    assert line.endswith(f"{weekly['reason']} ({PLAN_GATE_TAG}: {short['pool']})")
+    assert PLAN_TAG_LEGEND in out.splitlines()[-1]
+
 
 def test_weekly_gates_use_each_siblings_own_action_and_skip_na_and_other_accounts():
     _, weekly, _ = _flash_windows()
@@ -52,12 +58,20 @@ def test_weekly_gates_use_each_siblings_own_action_and_skip_na_and_other_account
     absent = _item("ag", "G-1D", None, span=DAY, elapsed=HOUR, state="ABSENT",
                    reason="not reported by provider", age=FRESH_AGE)
     other_account = {**rested, "resource_pool_ref": "quota:other:G-2H"}
-    rows = _rows(_report(weekly, rested, usable, absent, other_account))
+    blocked = _item("ag", "G-3H", .3, span=3 * HOUR, elapsed=3 * HOUR - FRESH_AGE / 2, age=FRESH_AGE)
+    report = _report(weekly, rested, usable, absent, other_account, blocked)
+    rows = _rows(report)
     assert rows[usable["resource_pool_ref"]]["action"] == "rest"  # inherits the 5H action
     assert rows[absent["resource_pool_ref"]]["action"] == "n/a"
-    assert rows[weekly["resource_pool_ref"]]["gates"] == [
-        {"pool": "G-5H", "action": "rest", "reason": _rows(_report(rested))[rested["resource_pool_ref"]]["reason"]}
+    gates = rows[weekly["resource_pool_ref"]]["gates"]
+    rested_row = _rows(_report(rested))[rested["resource_pool_ref"]]
+    assert gates == [
+        {"pool": rows[blocked["resource_pool_ref"]]["pool"], "action": "blocked", "reason": "reset"},
+        {"pool": rested_row["pool"], "action": rested_row["action"], "reason": rested_row["reason"]},
     ]
+    line = next(line for line in render_plan(report, width=120).splitlines()
+                if line.split()[:2] == [weekly["subject_ref"], rows[weekly["resource_pool_ref"]]["pool"]])
+    assert line.endswith(" ".join(f"({PLAN_GATE_TAG}: {gate['pool']})" for gate in gates))
     assert rows[other_account["resource_pool_ref"]]["parent"] is None
 
 
@@ -109,16 +123,32 @@ def test_fast_matches_monitor_state_from_stored_samples(history, remaining, age,
     row = _rows(report)[ref]
     assert row["forecast"] == ("stale" if age == AGED else "threat")
     assert row["fast"] is fast
+    line = next(line for line in render_plan(report, width=100).splitlines()
+                if line.split()[:2] == [row["peer"], row["pool"]])
+    assert line.endswith(row["reason"] + (f" ({PLAN_FAST_TAG})" if fast else ""))
 
 
-def test_cli_plan_facts_are_json_only(plan_store, capsys):  # noqa: F811
-    argv = ["--db", str(plan_store), "diag", "--plan"]
+def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
+    def render(self, sections, *, include_quota_samples):
+        assert include_quota_samples
+        return _report(*_flash_windows())
+
+    monkeypatch.setattr(ReadonlyDiag, "render", render)
+    monkeypatch.setattr("peerhub.extensions.diag_running.running_report",
+                        lambda *args, **kwargs: {"status": "OK", "rows": [], "truncated": False})
+    argv = ["--db", str(Path(__file__).resolve()), "diag", "--plan"]
     assert main([*argv, "--json"]) == 0
-    rows = json.loads(capsys.readouterr().out)["pools"]
-    assert rows and all(FACT_FIELDS <= row.keys() for row in rows)
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert data["pools"] and all(FACT_FIELDS <= row.keys() for row in data["pools"])
+    assert out == json.dumps(data, separators=(",", ":"), ensure_ascii=True) + "\n"
+
+    monkeypatch.setenv("COLUMNS", "120")
     assert main(argv) == 0
     out = capsys.readouterr().out
-    assert all(field not in out for field in FACT_FIELDS)
+    assert all(field not in out for field in FACT_FIELDS - {"fast"})
+    weekly = next(row for row in data["pools"] if row["gates"])
+    assert all(f"({PLAN_GATE_TAG}: {gate['pool']})" in out for gate in weekly["gates"])
 
 
 def test_explain_parallel_quota_names_the_json_row_facts(capsys):

@@ -17,7 +17,7 @@ _GB = 1024 ** 3
 
 
 def load_snapshot(active_by_peer: Mapping[str, int] | None, ram_available_bytes: int | None,
-                  by_pool: Mapping[str, int] | None = None) -> dict[str, Any]:
+                  by_pool: Mapping[str, int] | None = None, *, unmapped: int = 0) -> dict[str, Any]:
     """Counts of lease-active asks against the limits; slots_free is measured against the default limit, never below 0.
 
     `active_by_peer=None` means the leases could not be counted: every count is None (shown as ?), never 0."""
@@ -35,7 +35,8 @@ def load_snapshot(active_by_peer: Mapping[str, int] | None, ram_available_bytes:
     return {"active": active, "limit_default": ACTIVE_ASKS_DEFAULT, "limit_ceiling": ACTIVE_ASKS_CEILING,
             "slots_free": None if active is None else max(0, ACTIVE_ASKS_DEFAULT - active), "peers": peers,
             "ram_free_gb": ram, "ram_min_gb": MIN_FREE_RAM_GB, "ram_ok": None if ram is None else ram >= MIN_FREE_RAM_GB,
-            "by_pool": dict(by_pool) if known and by_pool is not None else None}  # in-flight asks per pool: spend the readings do not show yet
+            "by_pool": dict(by_pool) if known and by_pool is not None else None,
+            "unmapped": unmapped if known else None}
 
 
 def format_load(load: Mapping[str, Any]) -> str:
@@ -47,6 +48,12 @@ def format_load(load: Mapping[str, Any]) -> str:
                      for p, v in load["peers"].items())
     ram = "?" if load["ram_free_gb"] is None else f"{load['ram_free_gb']:.1f}"
     pools = load.get("by_pool")
-    flight = f"in flight {', '.join(f'{p} {n}' for p, n in sorted(pools.items()))} | " if pools else ""
+    unmapped = load.get("unmapped") or 0
+    flight_parts = ["in flight"]
+    if pools:
+        flight_parts.append(", ".join(f"{p} {n}" for p, n in sorted(pools.items())))
+    if unmapped > 0:
+        flight_parts.append(f"unmapped {unmapped}")
+    flight = " ".join(flight_parts) + " | " if len(flight_parts) > 1 else ""
     return (f"load: active {count(load['active'])}/{load['limit_default']} (ceil {load['limit_ceiling']}) | {peers} | "
             f"{flight}free RAM {ram} GB (min {load['ram_min_gb']}) | sampled now")

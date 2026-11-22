@@ -100,18 +100,23 @@ def free_ram_bytes() -> int | None:
 
 def sample_load(db_path: str | Path, *, read_at: float | None = None,
                 pools_of_profile: Mapping[str, list[str]] | None = None) -> dict[str, Any]:
-    """The load now: lease-active asks per peer (the rows `diag running` lists) and free RAM. Read-only."""
+    """Sample lease-active asks per peer and pool, asks without a pool, and free RAM. Read-only."""
     from peerhub.core.load_limits import load_snapshot
     report = running_report(db_path, read_at=read_at, limit=LOAD_ROW_LIMIT)
     if report["status"] != "OK" or report["truncated"]:  # a failed or cut-off read is not a count: show ?, never 0
         return load_snapshot(None, free_ram_bytes())
     counts: dict[str, int] = {}
     by_pool: dict[str, int] = {}
+    unmapped = 0
+    pool_mapping = pools_of_profile or {}
     for row in report["rows"]:
         counts[row["peer_id"]] = counts.get(row["peer_id"], 0) + 1
-        for pool in (pools_of_profile or {}).get(row.get("profile") or "", []):
+        pools = pool_mapping.get(row.get("profile") or "", [])
+        if not pools:
+            unmapped += 1
+        for pool in pools:
             by_pool[pool] = by_pool.get(pool, 0) + 1
-    return load_snapshot(counts, free_ram_bytes(), by_pool)
+    return load_snapshot(counts, free_ram_bytes(), by_pool, unmapped=unmapped)
 
 
 def _secs(value: float | None) -> str:

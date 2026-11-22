@@ -40,6 +40,7 @@ _VERSION = re.compile(r"(?<![0-9])[0-9]{1,12}\.[0-9]{1,12}\.[0-9]{1,12}(?:[-+][0
 _LEAD_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _BATCH_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 _METADATA_LIMIT = 2 * 1024 * 1024
+UPDATE_BACKUP_SUFFIX = ".pre-update.bak"
 _PROVIDERS = {"codex": "cx", "claude": "cc", "agy": "ag", "ant": "ca"}
 
 
@@ -283,13 +284,22 @@ def _upgrade_commands(db: Path) -> list[dict[str, Any]]:
     backup = ("import sqlite3,sys; from pathlib import Path; dest=Path(sys.argv[2]); "
               "dest.touch(exist_ok=False); sqlite3.connect(Path(sys.argv[1]).as_uri()+'?mode=ro',uri=True)"
               ".backup(sqlite3.connect(dest))")
+    db_path = str(db)
+    backup_path = str(db.with_name(db.name + UPDATE_BACKUP_SUFFIX))
+    health = _shell("peerhub", "--db", db_path, "diag", "health")
+    if os.name == "nt":
+        copy = _shell("Copy-Item", "-LiteralPath", backup_path, "-Destination", db_path, "-Force", "-ErrorAction", "Stop")
+        restore = f"{copy}; if ($?) {{ {health} }}"
+    else:
+        restore = f"{_shell('cp', '--', backup_path, db_path)} && {health}"
     return [
         dict(step="Copy the selected store. Continue after the copy succeeds.",
-             command=_shell("python", "-c", backup, str(db), str(db.with_name(db.name + ".pre-update.bak")))),
+             command=_shell("python", "-c", backup, db_path, backup_path),
+             restore=dict(step="To restore, stop all clients first.", command=restore)),
         dict(step="Upgrade PeerHub with the installer you originally used. Choose one.",
              command="pipx upgrade peerhub", alternatives=["uv tool upgrade peerhub", "python -m pip install -U peerhub"]),
         dict(step="Verify the upgraded CLI.", command="peerhub --version"),
-        dict(step="Restart the monitor if you use it.", command=_shell("peerhub", "--db", str(db), "monitor")),
+        dict(step="Restart the monitor if you use it.", command=_shell("peerhub", "--db", db_path, "monitor")),
     ]
 
 
@@ -343,6 +353,8 @@ def run_update(args: argparse.Namespace) -> int:
             print(report["next"])
         for num, step in enumerate(report["commands"], 1):
             print(f"{num}. {step['step']}\n   {step['command']}")
+            if restore := step.get("restore"):
+                print(f"   {restore['step']}\n   {restore['command']}")
             for alternative in step.get("alternatives", []):
                 print(f"   or {alternative}")
         for row in report["resume"]:

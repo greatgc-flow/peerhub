@@ -62,15 +62,18 @@ def test_plan_json_and_text_carry_load(plan_store, capsys, monkeypatch):  # noqa
     assert main(["--db", str(plan_store), "diag", "--plan", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["load"]["ram_free_gb"] == 8.0 and data["load"]["active"] == 0 and data["pools"]
+    assert data["load"]["unmapped"] == 0
     assert main(["--db", str(plan_store), "diag", "--plan"]) == 0
     out = capsys.readouterr().out
     assert "load: active 0/4 (ceil 6)" in out and "free RAM 8.0 GB (min 6)" in out
+    assert "unmapped" not in out
 
 
 
 def test_unknown_leases_show_a_question_mark_never_zero():
     load = L.load_snapshot(None, 12 * GB)
     assert load["active"] is None and load["slots_free"] is None
+    assert load["unmapped"] is None
     assert load["peers"]["cx"] == {"active": None, "limit": 3, "free": None}
     line = L.format_load(load)
     assert line.startswith("load: active ?/4 (ceil 6) | cc ?/3 cx ?/3 ag ?/1 |") and "free RAM 12.0 GB" in line
@@ -106,6 +109,8 @@ def test_plan_json_rows_name_the_profiles_that_use_each_pool(plan_store, capsys,
 def test_in_flight_asks_are_counted_per_pool_as_a_fact():
     load = L.load_snapshot({"cx": 2, "cc": 1}, 12 * GB, {"X-7D": 2, "C-7D": 1})
     assert load["by_pool"] == {"X-7D": 2, "C-7D": 1}
+    assert load["unmapped"] == 0
+    assert "unmapped" not in L.format_load(load)
     line = L.format_load(load)
     assert "in flight C-7D 1, X-7D 2" in line and line.index("in flight") < line.index("free RAM")
     assert "in flight" not in L.format_load(L.load_snapshot({"cx": 0}, 12 * GB, {}))
@@ -115,8 +120,16 @@ def test_in_flight_asks_are_counted_per_pool_as_a_fact():
 def test_sample_load_maps_running_profiles_to_pools(monkeypatch):
     from peerhub.extensions import diag_running
     rows = [{"peer_id": "cx", "profile": "cx.effort"}, {"peer_id": "cx", "profile": "cx.effort"},
-            {"peer_id": "cc", "profile": "cc.standard"}, {"peer_id": "ag", "profile": None}]
+            {"peer_id": "cc", "profile": "cc.standard"}, {"peer_id": "ag", "profile": None},
+            {"peer_id": "ag", "profile": "ag.retired"}, {"peer_id": "oa", "profile": "oa.standard"}]
     monkeypatch.setattr(diag_running, "running_report", lambda db, **kw: {"status": "OK", "rows": rows, "truncated": False})
     monkeypatch.setattr(diag_running, "free_ram_bytes", lambda: 8 * GB)
-    load = diag_running.sample_load("x.db", pools_of_profile={"cx.effort": ["X-7D"], "cc.standard": ["C-7D", "F-7D"]})
+    mapping = {"cx.effort": ["X-7D"], "cc.standard": ["C-7D", "F-7D"], "oa.standard": []}
+    load = diag_running.sample_load("x.db", pools_of_profile=mapping)
     assert load["by_pool"] == {"X-7D": 2, "C-7D": 1, "F-7D": 1}
+    assert load["unmapped"] == len(rows) - 3
+    assert f"in flight C-7D 1, F-7D 1, X-7D 2 unmapped {load['unmapped']} | free RAM" in L.format_load(load)
+
+    load = diag_running.sample_load("x.db", pools_of_profile={})
+    assert load["by_pool"] == {} and load["unmapped"] == len(rows)
+    assert f"in flight unmapped {len(rows)} | free RAM" in L.format_load(load)

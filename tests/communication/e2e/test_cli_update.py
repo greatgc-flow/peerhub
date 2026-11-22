@@ -201,6 +201,41 @@ def test_plan_selected_store(tmp_path, monkeypatch, capsys, active):
     assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
 
 
+@pytest.mark.parametrize("shell", ["nt", "posix"])
+def test_plan_prints_restore_after_backup(shell, monkeypatch, capsys):
+    from peerhub.cli import update
+
+    db = Path("a space [and 'quote']") / "core.db"
+    monkeypatch.setattr(update, "os", SimpleNamespace(name=shell))
+    monkeypatch.setattr(update, "_plan", lambda _: (
+        dict(status="READY", db=str(db), running_asks=[], processes=[], commands=update._upgrade_commands(db),
+             resume=[], next="Ready"), 0,
+    ))
+    argv = ["--db", str(db), "update", "--plan"]
+    assert main([*argv, "--json"]) == 0
+    commands = json.loads(capsys.readouterr().out)["commands"]
+    backup, upgrade, *_ = commands
+    restore = backup["restore"]
+    backup_path = db.with_name(db.name + update.UPDATE_BACKUP_SUFFIX)
+    assert backup["command"].endswith(update._shell(str(db), str(backup_path)))
+    health = update._shell("peerhub", "--db", str(db), "diag", "health")
+    if shell == "nt":
+        copy = update._shell("Copy-Item", "-LiteralPath", str(backup_path), "-Destination", str(db))
+        assert restore["command"].startswith(copy)
+        assert restore["command"].endswith(f"; if ($?) {{ {health} }}")
+    else:
+        copy = update._shell("cp", "--", str(backup_path), str(db))
+        assert restore["command"] == f"{copy} && {health}"
+    assert "stop all clients" in restore["step"].lower()
+
+    assert main(argv) == 0
+    out = capsys.readouterr().out
+    lines = [line.strip() for line in out.splitlines()]
+    idx = lines.index(backup["command"])
+    assert lines[idx + 1:idx + 3] == [restore["step"], restore["command"]]
+    assert idx + 3 < lines.index(upgrade["command"])
+
+
 def test_plan_reads_committed_wal(tmp_path, monkeypatch, capsys):
     from peerhub.cli import update
 

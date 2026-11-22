@@ -608,21 +608,25 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     store_note = env_override_note(store["path"], store["source"])
     if args.plan:  # #339: read-only, stored observations only (no refresh, no provider call)
         from peerhub.cli.view import FrameOutput, plan_data, render_plan
-        from peerhub.extensions.diag_running import sample_load
-        rep = ReadonlyDiag(args.db).render(["resource_pools", "observations"], include_quota_samples=args.json)
         from peerhub.extensions.adapters.profiles import list_profiles
+        from peerhub.extensions.diag_running import sample_load
+
+        rep = ReadonlyDiag(args.db).render(["resource_pools", "observations"], include_quota_samples=True)
         pools_of_profile: dict[str, list[str]] = {}
         for profile in list_profiles(Path.cwd()):
             pools_of_profile[str(profile["profile"])] = [str(pool) for pool in cast("list[object]", profile["fields"]["pools"]["value"] or [])]
         load = sample_load(args.db, pools_of_profile=pools_of_profile)
-        profiles_by_pool: dict[str, list[str]] = {}
-        for name, pools in pools_of_profile.items():
-            for pool in pools:
-                profiles_by_pool.setdefault(pool, []).append(name)
-        profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
-        print(json.dumps(plan_data(rep, store, load, profiles_by_pool), indent=2, ensure_ascii=True) if args.json else
-              render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
-                          store_note=store_note, load=load), flush=True)
+        if args.json:
+            profiles_by_pool: dict[str, list[str]] = {}
+            for name, pools in pools_of_profile.items():
+                for pool in pools:
+                    profiles_by_pool.setdefault(pool, []).append(name)
+            profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
+            plan_output = json.dumps(plan_data(rep, store, load, profiles_by_pool), separators=(",", ":"), ensure_ascii=True)
+        else:
+            plan_output = render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
+                                      store_note=store_note, load=load)
+        print(plan_output, flush=True)
         return 6 if rep.error and rep.error.startswith("SchemaVersionError") else 0 if rep.status == "OK" else 4
     if args.action is None:
         from peerhub.extensions.diag_watch import dashboard_snapshots
