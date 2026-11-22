@@ -133,7 +133,7 @@ check available quota before execution. COMPLETED proves delivery, not task succ
 
 Both rules are advice for the caller; PeerHub never selects a profile or throttles for you.
 Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepthink` = quality,
-`<peer>.<top>` (`cc.fable`, `cx.astra`, `ag.argon`) = top: opt-in, never a default.
+`<peer>.<top>` (`cx.astra`, `ag.neon`, `ag.argon`, `cc.fable`) = top: opt-in, never a default.
 
 **H. Balancing rule**
 

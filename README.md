@@ -451,7 +451,7 @@ peerhub diag --plan
 
 To upgrade PeerHub safely:
 
-0. **Plan first**: `peerhub update --plan` lists blocking asks and processes, the backup command (it writes `.peerhub/core.db.pre-update.bak`) and the upgrade commands; `peerhub explain store-and-upgrade` has the hazards.
+0. **Plan and back up**: `peerhub update --plan` lists blocking asks and processes, the backup command, the restore command and the upgrade commands; `peerhub explain store-and-upgrade` has the hazards. Back up first: run the printed backup command (it writes `.peerhub/core.db.pre-update.bak`) and check that the file exists before step 2.
 1. **Stop `peerhub monitor`**: Stop any active monitor process before upgrading. A running monitor locks `peerhub.exe` on Windows and keeps old code running. Also wait for running `peerhub ask` calls to finish: they keep dependency files such as `pydantic_core` loaded, so an in-place upgrade can fail and leave a half-deleted install. If peerhub crashes with `ModuleNotFoundError` after an upgrade, reinstall it and check the result records before re-sending an ask.
 2. **Run upgrade**:
    ```powershell

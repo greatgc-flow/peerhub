@@ -145,3 +145,32 @@ def test_section_h_and_j_say_which_ranking_each_one_is_for():
     j = doc[doc.index("**J. Parallel work"):]
     assert "`suggest:`" in h and "single ask" in h and "wave" in h and "lowest 7D PACE" in h
     assert "rule H" in j and "single ask" in j
+
+
+def test_guide_tells_what_to_do_with_stale_quota_and_a_caller_timeout(capsys):
+    assert main(["guide"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    quota = next(line for line in lines if line.startswith("Quota (AI):"))
+    uncertain = next(line for line in lines if line.startswith("Uncertain"))
+    assert "observation refresh" in quota and "diag running" in uncertain
+
+
+def test_topic_has_the_throttle_rule_and_the_reconcile_steps():
+    text = _text()
+    assert "do not reroute" in text and "reduce concurrency" in text
+    assert "diag health --stream" in text and "diag running" in text
+
+
+def test_batch_doc_lists_the_same_tops_as_the_guide(capsys):
+    assert main(["guide"]) == 0
+    guide = capsys.readouterr().out
+    tops = re.search(r"tops \(([^)]+)\)", guide).group(1).split(", ")
+    doc = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
+    assert all(top in doc for top in tops), tops
+
+
+def test_readme_upgrade_makes_the_backup_a_checked_step_before_the_install():
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    upgrade = readme[readme.index("### Upgrade"):readme.index("### Uninstall")]
+    assert upgrade.index("Back up") < upgrade.index("pip install -U peerhub")
+    assert "file exists" in upgrade[:upgrade.index("pip install -U peerhub")]

@@ -27,12 +27,12 @@ def render_guide(workspace: Path | None = None) -> str:
         # CLI peers are grouped by what their sandboxes support.
         f"Peer: cc/cx for code and files (sandbox enforced); ag for drafts with content inline (always --writable, not enforced); {'/'.join(API_PEER_KINDS)} = API credits, text only.",
         "Tier: lowest that fits: standard = bulk, effort = code and routine review, deepthink = design and final check.",
-        "Models: tops (cx.astra, ag.neon, ag.argon, cc.fable) underused: use for design, hard review, final checks; vary model and effort; each vote a different model.",
-        "Quota (AI): peerhub diag --plan = pools + load + RAM; monitor = human screen.",
+        "Models: tops (cx.astra, ag.neon, ag.argon, cc.fable) underused: use for design, review, final checks; vary model and effort; each vote a different model.",
+        "Quota (AI): peerhub diag --plan = pools + load + RAM (stale: observation refresh); monitor = human screen.",
         "Stream: one task = one --stream; reuse only for follow-ups and review rounds on ONE diff; new task = new stream.",
         f"Votes: routine check = ONE reviewer; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. All run FRESH, even if a stream name is given; facts inline. Reply VERDICT / BLOCKERS / NITS, <= 300 tokens (peerhub explain {vote['id']}).",
         f"Batch: peerhub batch run tasks.json --batch-id review-001 --max-parallel {RECOMMENDED_MAX_PARALLEL} --dry-run (validates only); execution spends quota; n at once as quota and load allow (explain parallel-quota).",
         "Timeout: --timeout-seconds 1800-3600 for implementer/review (default 600); ag up to 7200.",
-        "Uncertain (timeout, empty reply, pending_earlier_record): stop that stream, check the working tree, never blind-retry; new work = new stream.",
-        f"More: peerhub profile list (models, tiers); peerhub explain <topic> for: {more}; all topics: peerhub explain lessons.",
+        "Uncertain (timeout, empty reply, pending_earlier_record): stop that stream, check diag running, the working tree, never blind-retry.",
+        f"More: peerhub profile list; peerhub explain <topic> for: {more}; all topics: peerhub explain lessons.",
     ])
