@@ -8,8 +8,11 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.7] - 2026-11-23
+
 ### Added
 
+- Added CLI aliases `peer show` for `peer get`, `-w` for `--workspace` on all four `profile` commands, and `ask --prompt-file` for `ask --query-file` (#446).
 - `diag quota --max-age-seconds N` filters quota readings by age and reports how many older readings it hid. `diag --plan` accepts repeatable `--peer` and a read-only `--observation-db` while load remains global to the selected store (#446).
 - `peerhub ask --dry-run` previews the resolved settings, stream, session and replay status offline without writing to the store (#446).
 - `peerhub suggest --candidates` shows profile eligibility, quota facts and reasons for the selected tier, with the same facts in a `candidates` array when using `--json` (#446).
@@ -18,6 +21,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- `diag --plan`: the `(stale)` tag leads the reason, so an 80-column terminal cannot cut it off; `suggest --candidates` says `not suggested (profile setting)`; the `update --plan` steps check store health (`diag health`) before the monitor restart; the README upgrade waits for running asks and its restore step names the interpreter that runs PeerHub.
 - CLI help explains positional arguments, option units and defaults, record inputs, and how `suggest --task` builds the suggested ask command (#446).
 
 ### Fixed

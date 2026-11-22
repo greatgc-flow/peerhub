@@ -39,7 +39,12 @@ def _walk(parser: argparse.ArgumentParser, path: tuple[str, ...], leaves: list[d
         return
     if path:  # intermediate level (the root is reported as global_options)
         groups.append({"command": " ".join(path), "options": _options(parser)})
+    seen: set[argparse.ArgumentParser] = set()
     for name, sp in subs[0].choices.items():
+        # argparse inserts the canonical name before aliases of the same parser.
+        if sp in seen:
+            continue
+        seen.add(sp)
         _walk(sp, (*path, name), leaves, groups)
 
 

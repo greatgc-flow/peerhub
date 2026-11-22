@@ -501,6 +501,7 @@ def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
     return data
 
 
+PLAN_STALE_TAG = "(stale)"  # one spelling, shown first in the reason of a stale window
 PLAN_SPEND_PACE_PT = 10.0  # spend at PACE <= -10: well behind an even burn
 PLAN_REST_PACE_PT = 20.0  # rest only above PACE +20: owner 2026-11-22, up to +20 ahead of an even burn is fine to use
 _PLAN_PACE_LEGEND = f"spend PACE<=-{PLAN_SPEND_PACE_PT:.0f} | hold | rest PACE>+{PLAN_REST_PACE_PT:.0f}"
@@ -515,7 +516,7 @@ _PlanWindow = tuple[_Row, float | None, str, str]
 
 def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) -> tuple[str, str]:
     """#339: one window's action from stored evidence and the existing PACE/forecast; never re-derived."""
-    stale = " (stale)" if forecast == "stale" else ""
+    stale = PLAN_STALE_TAG + " " if forecast == "stale" else ""  # leads the reason: a narrow terminal cuts the end
     if left_pct is None:
         return "blocked", "left unknown; refresh"
     if left_pct <= 0 or forecast == "exhausted":
@@ -523,14 +524,14 @@ def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) ->
     if forecast == "expired":
         return "blocked", "window reset; refresh"
     if forecast == "threat":
-        return "rest", "forecast exhausts before reset" + stale
+        return "rest", stale + "forecast exhausts before reset"
     if pace_pt is None:
-        return "hold", "PACE unknown" + stale
+        return "hold", stale + "PACE unknown"
     if pace_pt > PLAN_REST_PACE_PT:
-        return "rest", f"PACE {pace_pt:+.1f} > {PLAN_REST_PACE_PT:+.0f}" + stale
+        return "rest", stale + f"PACE {pace_pt:+.1f} > {PLAN_REST_PACE_PT:+.0f}"
     if pace_pt <= -PLAN_SPEND_PACE_PT:
-        return "spend", f"{-pace_pt:.0f}pp above even share" + stale
-    return "hold", "on pace" + stale
+        return "spend", stale + f"{-pace_pt:.0f}pp above even share"
+    return "hold", stale + "on pace"
 
 
 def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]], read_at: float,
@@ -609,8 +610,9 @@ def _plan_pools(report: DiagnosticReport, *,
         reason = decided[3] if decided[0] is r else f"{decided[0].pool}: {decided[3]}"
         if binding not in (r.pool, decided[0].pool):  # the decided window is already named in the reason
             reason += f"; binding {binding}"
-        if r.projection["state"] == "stale" and "(stale)" not in reason:  # a sibling decided the reason: this window is still stale
-            reason += " (stale)"
+        reason = reason.replace(PLAN_STALE_TAG + " ", "")
+        if r.projection["state"] == "stale":  # this window's own freshness, whichever window decided the reason
+            reason = f"{PLAN_STALE_TAG} {reason}"
         hours = r.left / 3600 if r.left is not None and r.left > 0 else None
         out.append({"peer": r.peer, "pool": r.pool, "resource_pool_ref": r.ref, "left_pct": left,
                     "resets_in_seconds": r.left, "target_pct_per_hour": left / hours if left is not None and hours else None,

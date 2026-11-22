@@ -303,6 +303,7 @@ def _upgrade_commands(db: Path) -> list[dict[str, Any]]:
         dict(step="Upgrade PeerHub with the installer you originally used. Choose one.",
              command="pipx upgrade peerhub", alternatives=["uv tool upgrade peerhub", "python -m pip install -U peerhub"]),
         dict(step="Verify the upgraded CLI.", command="peerhub --version"),
+        dict(step="Check the upgraded store.", command=_shell("peerhub", "--db", db_path, "diag", "health")),
         dict(step="Restart the monitor if you use it.", command=_shell("peerhub", "--db", db_path, "monitor")),
     ]
 

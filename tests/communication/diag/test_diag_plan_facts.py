@@ -197,3 +197,13 @@ def test_a_stale_window_keeps_its_own_stale_flag_when_a_sibling_decides_the_reas
     five, seven = rows[("ag", "G-5H")], rows[("ag", "G-7D")]
     assert "stale" in five["reason"], five["reason"]
     assert "stale" not in seven["reason"]
+
+
+def test_the_stale_tag_leads_the_reason_so_a_narrow_terminal_cannot_cut_it_off():
+    from tests.communication.diag.test_diag_plan_339 import DAY, HOUR, _item, _report
+    report = _report(_item("ag", "G-5H", .84, span=5 * HOUR, elapsed=2 * HOUR, state="STALE", age=2000.0),
+                     _item("ag", "G-7D", .60, span=7 * DAY, elapsed=3.5 * DAY))
+    lines = render_plan(report, width=80, store_path="x", store_source="explicit").splitlines()
+    row = next(line for line in lines if " G-5H " in line)
+    assert len(row) <= 80 and "(stale)" in row
+    assert row.split(maxsplit=7)[-1].startswith("(stale)")

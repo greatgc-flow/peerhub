@@ -13,6 +13,7 @@ from peerhub._console import format_shell_command as _shell_command
 from peerhub.cli.support import quota_expired, quota_items, quota_workspace, try_quota_refresh
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 
+REASON_PROFILE_NOT_ENABLED = "not suggested (profile setting)"  # the profile file sets suggest = false; its facts are still listed
 TIE_ORDER = {"ag": 0, "cx": 1, "cc": 2}
 MAX_5H_USAGE = .90
 
@@ -103,7 +104,7 @@ def _evaluate(profile: _Profile, readings: dict[tuple[str, str], dict[str, Any]]
 
     rank = None
     if not profile.enabled:
-        reason = "not suggested"
+        reason = REASON_PROFILE_NOT_ENABLED
     elif max_used is not None and max_used >= MAX_5H_USAGE:
         reason = f"5H usage >= {MAX_5H_USAGE:.0%}"
     elif any(left[pool] == 0 for pool in weekly):

@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from peerhub.cli.app import _ASK_QUERY_FILE_OPTIONS, _WORKSPACE_OPTIONS
 from peerhub.extensions.observation_model import EvidenceState
 from peerhub.core.store import CoreStore
 from tests.communication.fakes import FakeRuntimeTarget
@@ -38,12 +39,12 @@ def ask_effect(e, option):
         argv[1] = "cc"
     elif option == "prompt":
         argv[2] = expected = "different text"
-    elif option == "--query-file":
+    elif option in _ASK_QUERY_FILE_OPTIONS:
         query = e.tmp / "query.txt"
         query.write_text("한글 prompt\n", encoding="utf-8")
         expected = query.read_text(encoding="utf-8")
-        argv = ["ask", "cx", "--query-file", str(query), "--json"]
-    elif option in ("--workspace", "-w"):
+        argv = ["ask", "cx", option, str(query), "--json"]
+    elif option in _WORKSPACE_OPTIONS:
         argv += [option, str(e.tmp)]
     elif option in ("--json", "--writable"):
         argv += [option] if option != "--json" else []
@@ -67,7 +68,7 @@ def ask_effect(e, option):
         elif option == "--request-id":
             assert e.j(db, *argv)["status"] == "recovered_terminal"
             assert len([r for r in CoreStore(db).read_records(sid) if r.kind == "prompt"]) == 1
-        elif option in ("--workspace", "-w"):
+        elif option in _WORKSPACE_OPTIONS:
             assert captured[0][1] == str(e.tmp)
         elif option in ("--model", "--effort", "--timeout-seconds", "--max-output-bytes", "--profile", "-p", "--silence-timeout-seconds"):
             key = {"--model": "model", "--effort": "effort", "--timeout-seconds": "timeout_s",
@@ -521,7 +522,7 @@ def profile_effect(e, command, option):
     argv = ["profile", command]
     if command == "show":
         argv.append("cx.standard")
-    if option == "--workspace":
+    if option in _WORKSPACE_OPTIONS:
         argv += [option, str(workspace)]
     elif option == "--format":
         argv += [option, "table"]
@@ -536,7 +537,7 @@ def profile_effect(e, command, option):
         import json
         result = json.loads(out)
         assert result["schema_version"] == "1.0"
-        if option == "--workspace":
+        if option in _WORKSPACE_OPTIONS:
             assert result["workspace"] == str(workspace)
 
 
@@ -690,7 +691,7 @@ def explain_effect(e, option):
 
 
 EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for option in (
-    "peer", "prompt", "--query-file", "--stream", "--request-id", "--author-peer", "-w", "--workspace", "--model",
+    "peer", "prompt", *_ASK_QUERY_FILE_OPTIONS, "--stream", "--request-id", "--author-peer", *_WORKSPACE_OPTIONS, "--model",
     "--effort", "-p", "--profile", "--writable", "--timeout-seconds", "--silence-timeout-seconds",
     "--max-output-bytes", "--json")}
 EFFECT.update({f"ask {option}": (lambda e, option=option: session_selector_effect(e, option))
@@ -734,15 +735,15 @@ EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, [
                "monitor --show-quota-notes": lambda e: monitor_display_effect(e, "--show-quota-notes"),
                "monitor repair --chunk-size": lambda e: monitor_management_effect(e, ["monitor", "repair", "--chunk-size", "1", "--json"], needs_bridge=True),
                "monitor repair --json": lambda e: monitor_management_effect(e, ["monitor", "repair", "--json"], needs_bridge=True)})
-EFFECT.update({f"profile list {option}": (lambda e, option=option: profile_effect(e, "list", option))
-               for option in ("--workspace", "--format")})
-EFFECT.update({"profile show profile": lambda e: profile_effect(e, "show", "profile"),
-               "profile show --workspace": lambda e: profile_effect(e, "show", "--workspace"),
-               "profile show --format": lambda e: profile_effect(e, "show", "--format")})
-def profile_store_workspace_effect(e, command):
+EFFECT.update({f"profile {command} {option}": (lambda e, command=command, option=option: profile_effect(e, command, option))
+               for command in ("list", "show") for option in (*_WORKSPACE_OPTIONS, "--format")})
+EFFECT["profile show profile"] = lambda e: profile_effect(e, "show", "profile")
+
+
+def profile_store_workspace_effect(e, command, option):
     workspace = e.tmp / f"profiles-{command}"
     workspace.mkdir(exist_ok=True)
-    result = e.j(e.fresh(), "profile", command, "--workspace", str(workspace), "--json")
+    result = e.j(e.fresh(), "profile", command, option, str(workspace), "--json")
     assert result["workspace"] == str(workspace)
 
 
@@ -752,9 +753,9 @@ def running_option_effect(e, option):
     assert result[option[2:]] == (value if option == "--peer" else int(value)) and result["rows"] == []
 
 
-EFFECT.update({"profile stats --workspace": lambda e: profile_store_workspace_effect(e, "stats"),
-               "profile check --workspace": lambda e: profile_store_workspace_effect(e, "check"),
-               "diag running --peer": lambda e: running_option_effect(e, "--peer"),
+EFFECT.update({f"profile {command} {option}": (lambda e, command=command, option=option: profile_store_workspace_effect(e, command, option))
+               for command in ("stats", "check") for option in _WORKSPACE_OPTIONS})
+EFFECT.update({"diag running --peer": lambda e: running_option_effect(e, "--peer"),
                "diag running --limit": lambda e: running_option_effect(e, "--limit")})
 EFFECT.update({f"session list {option}": (lambda e, option=option: session_inspection_effect(e, "list", option))
                for option in ("--stream", "--peer", "--limit", "--cursor", "--format")})
