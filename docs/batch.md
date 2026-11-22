@@ -157,3 +157,11 @@ While 3P is low, explicitly use `ag.argon` only for tasks its measured capabilit
 | Free RAM | keep at least 6 GB |
 
 If a provider throttles, reduce concurrency; do not reroute the same work to another peer.
+
+**J. Parallel work over the least quota** (advice only; `peerhub explain parallel-quota` is the same loop)
+
+1. `peerhub diag --plan` (about 350 tokens; stored evidence only). Usable: `spend`, then `hold`; not usable: `rest`, `blocked`, `-` (n/a). Old or `(stale)` evidence: `peerhub observation refresh` (no model tokens), then read again. `peerhub monitor | head -20` shows the same as POOLS (use-first, about 700 tokens).
+2. Order usable pools by 7D PACE, lowest first (`POOLS_USE_FIRST_ASCENDING` in `peerhub/cli/monitor_view.py` flips it); rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools.
+3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.
+4. One task per pool, top-down, at most 3 in each manifest (cc 3 / cx 3 / ag 1): `peerhub batch run tasks.json --batch-id ID --max-parallel 3`.
+5. After each wave run `peerhub diag --plan` again; a pool that turned `rest` or `blocked` drops out. No usable pool: defer.

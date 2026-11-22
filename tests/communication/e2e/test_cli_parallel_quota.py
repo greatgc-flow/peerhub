@@ -34,7 +34,7 @@ def test_topic_exists_and_is_named_by_the_guide(capsys):
 
 def test_topic_is_the_loop_in_order():
     text = _text()
-    steps = ["peerhub monitor", "POOLS", "independent", "--max-parallel", "again", "defer"]
+    steps = ["peerhub diag --plan", "spend (PACE", "independent", "--max-parallel", "diag --plan again", "defer"]
     positions = [text.index(step) for step in steps]
     assert positions == sorted(positions), "read quota, pick pools, split, run a wave, re-read, defer when none"
 
@@ -43,15 +43,15 @@ def test_topic_matches_the_pool_order_and_the_batch_cap():
     text = _text()
     assert ("lowest 7D PACE first" if POOLS_USE_FIRST_ASCENDING else "highest 7D PACE first") in text
     assert f"--max-parallel {RECOMMENDED_MAX_PARALLEL}" in text
-    for skip in ("out", "fast", "aged", "stale", "<5%"):
-        assert skip in text
+    for word in ("spend", "hold", "rest", "blocked", "stale", "<5%"):
+        assert word in text
     assert "5H only gates" in text
 
 
 def test_topic_names_the_cost_rules():
     text = _text()
     for rule in ("lowest tier that fits", "fresh", "facts inline", "different model", "no shared files",
-                 "peerhub monitor --probe"):
+                 "peerhub observation refresh", "peerhub monitor"):
         assert rule in text
 
 
@@ -59,3 +59,10 @@ def test_agents_file_and_docs_point_to_the_topic():
     docs = (REPO / "docs" / "lessons.md").read_text(encoding="utf-8")
     assert f"(`{TOPIC}`)" in docs
     assert f"peerhub explain {TOPIC}" in (REPO.parent / "AGENTS.md").read_text(encoding="utf-8")
+
+
+def test_batch_doc_explains_the_loop():
+    doc = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
+    assert f"peerhub explain {TOPIC}" in doc
+    for needle in ("peerhub diag --plan", "peerhub observation refresh", "--max-parallel"):
+        assert needle in doc
