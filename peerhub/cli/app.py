@@ -251,6 +251,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                                  "Execution remains uncertain after an abort.")
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000,
                             help="Stop collecting reply output after this many bytes (default %(default)s)")
+    ask_parser.add_argument("--dry-run", action="store_true", help="Print the resolved ask without contacting a provider or writing the store")
     ask_parser.add_argument("--json", action="store_true")
 
     from peerhub.cli.suggest import register_suggest_parser
@@ -466,7 +467,7 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
             print("Warning: inlined query file exceeds 64 KB. Consider paths or a diff.", file=sys.stderr)
     else:
         prompt = args.prompt
-    terminal_notices = not args.json and sys.stderr.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1"
+    terminal_notices = not args.dry_run and not args.json and sys.stderr.isatty() and os.environ.get("PEERHUB_NO_RECEIPT") != "1"
     has_streamed = False
     output_has_newline = False
     def show_output(text: str) -> None:
@@ -493,12 +494,21 @@ def _run_ask_cli(args: argparse.Namespace) -> int:
                      timeout_s=args.timeout_seconds, max_bytes=args.max_output_bytes,
                      fresh=args.fresh, session=args.session, query_file=args.query_file,
                      on_output=None if args.json else show_output, on_stream_budget=show_budget_warning,
-                     before_dispatch=refresh_dispatch_quota, notice_alias=terminal_notices)
+                     before_dispatch=refresh_dispatch_quota, notice_alias=terminal_notices,
+                     dry_run=bool(args.dry_run))
     except Exception:
         if has_streamed and not args.json and not output_has_newline:
             print()
-        show_receipt({})
+        if not args.dry_run:
+            show_receipt({})
         raise
+    if args.dry_run and "store_exists" in result:
+        if args.json:
+            _emit(result, True)
+        else:
+            for key, value in result.items():
+                print(f"{key}: {json.dumps(value) if not isinstance(value, str) or not value.isprintable() else value}")
+        return 0
     from peerhub.cli.recovery import get_guidance, make_guidance_payload, render_guidance_hint, select_guidance_code
     is_success = result.get("status") in ("delivered", "recovered_terminal") and result.get("error") is None
     guidance_entry = None
@@ -1244,7 +1254,7 @@ def _run_account_cli(args: argparse.Namespace) -> int:
         return 1
 
 
-def _peer_kind(db: str | None, peer: str) -> str | None:
+def _peer_kind(db: str | None, peer: str, *, offline: bool = False) -> str | None:
     """The provider kind of a peer by the rule `ask` uses: the adapter registered in `db` (read-only) decides, else
     the name of a builtin peer; None when it is not known. A store that cannot be read (missing, a directory, locked,
     corrupt or not a database) counts as no registration."""
@@ -1253,7 +1263,11 @@ def _peer_kind(db: str | None, peer: str) -> str | None:
     adapter_ref: str | None = None
     if db:
         try:
-            conn = sqlite3.connect(Path(os.path.abspath(db)).as_uri() + "?mode=ro", uri=True)
+            if offline:
+                from peerhub.extensions.ask import open_ask_snapshot
+                conn = open_ask_snapshot(Path(db).resolve())
+            else:
+                conn = sqlite3.connect(Path(os.path.abspath(db)).as_uri() + "?mode=ro", uri=True)
             try:
                 row = conn.execute("SELECT adapter_ref FROM peers WHERE peer_id = ?", (peer,)).fetchone()
                 adapter_ref = row[0] if row else None
@@ -1466,7 +1480,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 from peerhub.extensions.adapters.api import API_TARGETS
                 from peerhub.extensions.ask import default_stream
                 try:
-                    sid = default_stream(args.peer, getattr(args, "request_id", None), stateless=_peer_kind(db_arg, args.peer) in API_TARGETS)
+                    sid = default_stream(args.peer, getattr(args, "request_id", None), stateless=_peer_kind(db_arg, args.peer, offline=getattr(args, "dry_run", False)) in API_TARGETS)
                 except Exception:  # any failure the lookup itself does not handle: the error being reported wins, and no stream is named
                     sid = None
             if args.json:
@@ -1505,7 +1519,10 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
                 parser.error("ask requires exactly one of prompt or --query-file")
         if hasattr(args, "db") and args.db and not getattr(args, "update_check", False):
             workspace = Path(args.workspace) if args.subcommand in ("ask", "profile") and getattr(args, "workspace", None) else None
-            selection = _select_db(args.db, discover=not explicit_db, workspace_root=workspace)
+            if args.subcommand == "ask" and args.dry_run:
+                selection = select_store(args.db, discover=not explicit_db, workspace_root=workspace, allow_process=False)
+            else:
+                selection = _select_db(args.db, discover=not explicit_db, workspace_root=workspace)
             args.db, args.db_source = selection.path, selection.source
         if getattr(args, "json", False) and hasattr(args, "format"):
             args.format = "json"

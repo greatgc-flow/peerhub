@@ -112,8 +112,29 @@ def _main_worktree(base: Path) -> Path | None:
         return None
 
 
+def _main_worktree_from_files(base: Path) -> Path | None:
+    """Read the linked worktree's Git pointers without starting a process."""
+    if not base.is_dir():
+        return None
+    for directory in (base, *base.parents):
+        marker = directory / ".git"
+        if marker.is_dir() or (directory / "HEAD").is_file() and (directory / "objects").is_dir():
+            return None  # main or bare repository; do not cross into an enclosing repository
+        if marker.is_file():
+            try:
+                pointer = marker.read_text(encoding="utf-8").strip()
+                if not pointer.startswith("gitdir: "):
+                    return None
+                git_dir = (directory / pointer.removeprefix("gitdir: ")).resolve()
+                common = (git_dir / (git_dir / "commondir").read_text(encoding="utf-8").strip()).resolve()
+                return common.parent if common.name == ".git" and common.is_dir() else None
+            except (OSError, UnicodeError, ValueError):
+                return None
+    return None
+
+
 def select_store(configured_path: str, *, use_env: bool = True, discover: bool = True, workspace_root: Path | None = None,
-                 env: Mapping[str, str] | None = None, cwd: Path | None = None) -> StoreSelection:
+                 env: Mapping[str, str] | None = None, cwd: Path | None = None, allow_process: bool = True) -> StoreSelection:
     env = os.environ if env is None else env
     base = (cwd or Path.cwd()).resolve()
     if configured_path != DEFAULT_DB_PATH or not discover:
@@ -129,7 +150,8 @@ def select_store(configured_path: str, *, use_env: bool = True, discover: bool =
         candidate = root / DEFAULT_DB_PATH
         if candidate.is_file():
             return StoreSelection(str(candidate), "discovered")
-    main_root = _main_worktree(workspace_root.resolve() if workspace_root is not None else base)
+    find_main = _main_worktree if allow_process else _main_worktree_from_files
+    main_root = find_main(workspace_root.resolve() if workspace_root is not None else base)
     if main_root is not None and main_root not in roots:
         fallback_roots = [main_root] if workspace_root is not None else [main_root, *main_root.parents]
         for root in fallback_roots:

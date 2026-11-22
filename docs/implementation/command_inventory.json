@@ -129,6 +129,16 @@
           "takes_value": true
         },
         {
+          "default": false,
+          "dest": "dry_run",
+          "flags": [
+            "--dry-run"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": false
+        },
+        {
           "default": null,
           "dest": "effort",
           "flags": [

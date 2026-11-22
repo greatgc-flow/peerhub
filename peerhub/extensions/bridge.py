@@ -20,6 +20,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -37,6 +38,8 @@ from peerhub.core.models import Record
 from peerhub.core.store import CasMismatchError, CoreStore, IdempotencyConflictError
 
 NOT_STARTED, MAY_HAVE_STARTED, STARTED, TERMINAL = "NOT_STARTED", "MAY_HAVE_STARTED", "STARTED", "TERMINAL"
+_DEFAULT_CATCH_UP_BYTES = 24_000
+_RecordReader = Callable[[str, int, int], list[Record]]
 _BUILTIN_PEER_MARKS = ",".join("?" for _ in BUILTIN_PEER_KINDS)
 _ALLOWED = {
     NOT_STARTED: {NOT_STARTED, MAY_HAVE_STARTED, STARTED},
@@ -383,7 +386,7 @@ class Bridge:
         self.owner_id, self.lease_sec = owner_id, lease_sec
         self.max_session_attempts, self.catch_up_limit, self.ack_retries = max_session_attempts, catch_up_limit, ack_retries
         # Leave room for the current ask and prompt headers within AG's 30,000-byte Windows inline limit.
-        self.catch_up_budget = catch_up_budget if catch_up_budget is not None else CatchUpBudget(max_records=catch_up_limit, max_bytes=24_000)
+        self.catch_up_budget = catch_up_budget if catch_up_budget is not None else CatchUpBudget(max_records=catch_up_limit, max_bytes=_DEFAULT_CATCH_UP_BYTES)
         self._hook = fault_hook
         self._stream_budget, self._on_stream_budget = stream_budget, on_stream_budget
         refuse_future_schema(claims.db_path)  # MIG-003: refuse a future schema before any DDL/DML
@@ -759,6 +762,154 @@ class Bridge:
         conn.execute("UPDATE bridge_deliveries SET external_session_id=?,session_generation=?,session_handle=?,session_snapshot_json=? WHERE delivery_id=?",
                      (mapping["external_session_id"], mapping["session_generation"], mapping["session_handle"], session_receipts.dumps(accepted), did))
 
+    @staticmethod
+    def check_exact_session(mapping: dict[str, Any] | None, runtime: RuntimeTarget, peer: str, stream: str,
+                            workspace_generation: str | None, now: float) -> None:
+        if mapping is None:
+            raise SessionNotFoundError("Requested session handle does not exist in this store.")
+        if mapping["stream_id"] != stream:
+            raise SessionStreamMismatchError("Requested session belongs to another Stream.")
+        if mapping["peer_id"] != peer:
+            raise SessionPeerMismatchError("Requested session belongs to another Peer.")
+        if mapping["state"] == "TOMBSTONED":
+            raise SessionTombstonedError("Requested session is expired or tombstoned.")
+        if mapping["state"] == "LOST":
+            raise SessionLostError("Requested session continuity is lost or tainted.")
+        if not runtime.resumable or mapping["runtime_kind"] != runtime.runtime_kind or not bridge_registry.eligible(mapping, now):
+            raise SessionUnavailableError("Requested session lacks compatible resume capability or trusted continuity.")
+        if mapping["workspace_generation"] != workspace_generation:
+            raise SessionWorkspaceMismatchError("Requested session belongs to another workspace lineage.")
+        if mapping["adapter_fingerprint"] != runtime.fingerprint():
+            raise SessionFingerprintMismatchError("Requested session adapter fingerprint differs.")
+        if mapping["binding"] != runtime.binding():
+            raise SessionBindingMismatchError("Requested session effective binding differs.")
+
+    @staticmethod
+    def _registry_prior(conn: sqlite3.Connection, stream: str, peer: str) -> dict[str, Any] | None:
+        row = bridge_registry.current(conn, stream, peer)
+        if row is None:
+            row = conn.execute("SELECT * FROM bridge_session_history WHERE stream_id=? AND peer_id=? "
+                               "ORDER BY last_seen DESC,session_generation DESC LIMIT 1", (stream, peer)).fetchone()
+        return dict(row) if row is not None else None
+
+    @staticmethod
+    def _latest_candidate(rows: list[dict[str, Any]], prior: dict[str, Any] | None, runtime: RuntimeTarget,
+                          workspace_generation: str | None, fp: str, bnd: str, now: float) -> dict[str, Any] | None:
+        # The MRU pointer supplies tie-breaking without restricting compatible history search.
+        if prior is not None:
+            rows.sort(key=lambda row: row["session_handle"] != prior["session_handle"])
+        return next((row for row in rows if runtime.resumable and bridge_registry.eligible(row, now)
+                     and row["runtime_kind"] == runtime.runtime_kind and row["workspace_generation"] == workspace_generation
+                     and row["adapter_fingerprint"] == fp and row["binding"] == bnd), None)
+
+    @staticmethod
+    def _delta_overflows(mapping: dict[str, Any], boundary: Record | _PersistedRecord, *, exact: bool,
+                         native_delta: Callable[[Mapping[str, Any], Record | _PersistedRecord], CatchUpProjection],
+                         local_delta: Callable[[Mapping[str, Any], Record | _PersistedRecord], CatchUpProjection | None]) -> bool:
+        native = mapping["vendor_session_id"] is not None
+        if native and not exact and mapping["bootstrap_truncated"]:
+            return True
+        delta = native_delta(mapping, boundary) if native else local_delta(mapping, boundary)
+        return bool((exact and mapping["bootstrap_truncated"]) or (delta is not None and delta.truncated))
+
+    @staticmethod
+    def check_preview_claim(conn: sqlite3.Connection, tables: set[str], peer: str, stream: str,
+                            workspace_generation: str | None) -> None:
+        if "bridge_claims" in tables:
+            row = ClaimStore.read_claim(conn, peer, stream)
+            if row is not None:
+                ClaimStore.check_available(row, peer, stream, None, workspace_generation, time.time())
+
+    @staticmethod
+    def _retry_authorization(conn: sqlite3.Connection, delivery: str, certainty: str) -> sqlite3.Row | None:
+        if certainty != MAY_HAVE_STARTED:
+            return None
+        return conn.execute("SELECT * FROM bridge_reconciliations WHERE delivery_id=? AND consumed_attempt IS NULL",
+                            (delivery,)).fetchone()
+
+    @staticmethod
+    def _stored_incomplete(inflight: sqlite3.Row) -> dict[str, Any] | None:
+        saved: object = json.loads(inflight["result_json"]) if inflight["certainty"] == STARTED and inflight["result_json"] else None
+        stored = cast("dict[str, Any]", saved) if isinstance(saved, dict) else {}
+        return stored if stored.get("reason") in ("truncated", "incomplete") else None
+
+    @staticmethod
+    def preview_gate(conn: sqlite3.Connection, tables: set[str], peer: str, stream: str) -> CycleResult | None:
+        """Read pre-dispatch pause and invocation state without applying controls or claiming work."""
+        row = Bridge._read_inflight(conn, peer, stream) if "bridge_deliveries" in tables else None
+        certainty = row["certainty"] if row is not None else None
+        if row is not None and certainty == NOT_STARTED and {"bridge_invocations", "bridge_invocation_resolutions"} <= tables:
+            if Bridge.open_invocation(conn, row["delivery_id"]) is not None:
+                certainty = MAY_HAVE_STARTED
+        if row is not None and (certainty == TERMINAL or Bridge._stored_incomplete(row)):
+            return None  # dispatch settles an already recorded result before checking pause
+        if row is not None and certainty == STARTED and "bridge_evidence" in tables:
+            if Bridge._read_delivery_details(conn, row["delivery_id"]).get("task_outcome") == "NOT_EXECUTED":
+                return None
+        pause = Bridge._preview_pause(conn, tables, peer, stream)
+        if pause is not None:
+            return CycleResult("paused", row["record_id"] if row is not None else None,
+                               row["delivery_id"] if row is not None else None, certainty, detail={"pause_record_id": pause})
+        if row is not None and certainty in (STARTED, MAY_HAVE_STARTED):
+            if "bridge_reconciliations" not in tables or Bridge._retry_authorization(conn, row["delivery_id"], certainty) is None:
+                return CycleResult("blocked_uncertain", row["record_id"], row["delivery_id"], certainty)
+        return None
+
+    @staticmethod
+    def _preview_pause(conn: sqlite3.Connection, tables: set[str], peer: str, stream: str) -> str | None:
+        last = Bridge._latest_pause_control(conn, peer, stream) if "bridge_controls" in tables else None
+        position = last["position"] if last is not None else 0
+        pause = last["record_id"] if last is not None and last["kind"] == "control.pause" else None
+        offset = conn.execute("SELECT read_through_position FROM offsets WHERE stream_id=? AND peer_id=?",
+                              (stream, peer)).fetchone()
+        for row in conn.execute("SELECT kind, record_id, author_peer_id, targets_json FROM records "
+                                "WHERE stream_id=? AND position>? AND kind IN ('control.pause','control.resume') ORDER BY position",
+                                (stream, max(position, offset[0] if offset is not None else 0))):
+            if Bridge._addresses_control(peer, row["author_peer_id"], row["kind"], json.loads(row["targets_json"])):
+                pause = row["record_id"] if row["kind"] == "control.pause" else None
+        return pause
+
+    @staticmethod
+    def preview_session(conn: sqlite3.Connection, tables: set[str], runtime: RuntimeTarget, peer: str, stream: str,
+                        workspace_generation: str | None, selector: str, previous: sqlite3.Row | None) -> str | None:
+        """Return the candidate handle using the same binding and context rules as dispatch."""
+        if selector == "fresh":
+            return None
+        now = time.time()
+        exact = selector.startswith("sess:")
+        registered = "bridge_session_history" in tables
+        retained = bridge_registry.ordered(conn, stream, peer) if registered else []
+        removed = bridge_registry.retention_removals(retained, now)
+        candidate = None
+        if exact:
+            row = conn.execute("SELECT * FROM bridge_session_history WHERE session_handle=?", (selector[5:],)).fetchone() if registered else None
+            candidate = dict(row) if row is not None else None
+            if candidate is not None and candidate["session_handle"] in removed:
+                candidate["state"] = "TOMBSTONED"
+            Bridge.check_exact_session(candidate, runtime, peer, stream, workspace_generation, now)
+        elif registered:
+            prior = Bridge._registry_prior(conn, stream, peer)
+            rows = [dict(row) for row in retained if row["session_handle"] not in removed]
+            candidate = Bridge._latest_candidate(rows, prior, runtime, workspace_generation, runtime.fingerprint(), runtime.binding(), now)
+        if candidate is None:
+            return None
+        position = previous["position"] if previous is not None else conn.execute(
+            "SELECT COALESCE(MAX(position),0)+1 FROM records WHERE stream_id=?", (stream,)).fetchone()[0]
+        boundary = _PersistedRecord("", position)
+        budget = CatchUpBudget(max_bytes=_DEFAULT_CATCH_UP_BYTES)
+
+        def read_records(stream_id: str, after: int, limit: int) -> list[Record]:
+            return CoreStore.read_records_from(conn, stream_id, after, limit)
+
+        if Bridge._delta_overflows(candidate, boundary, exact=exact,
+                                   native_delta=lambda m, r: Bridge._project_native_delta(read_records, budget, m, r),
+                                   local_delta=lambda m, r: Bridge._project_local_delta(
+                                       read_records, budget, m, r, Bridge._local_delta_evidence(conn, m, r.position))):
+            if exact:
+                raise SessionDeltaOverflowError("Requested session catch-up delta exceeds its context budget.")
+            return None
+        return candidate["session_handle"]
+
     def _validate_exact(self, token: ClaimToken, runtime: RuntimeTarget, handle: str,
                         boundary: Record | _PersistedRecord) -> dict[str, Any]:
         # Commit expiry and pointer repair before raising a selector error.
@@ -767,28 +918,16 @@ class Bridge:
             bridge_registry.prune(conn, token.stream_id, token.peer_id, now)
             row = conn.execute("SELECT * FROM bridge_session_history WHERE session_handle=?", (handle,)).fetchone()
             mapping = dict(row) if row is not None else None
-        if mapping is None:
-            raise SessionNotFoundError("Requested session handle does not exist in this store.")
-        if mapping["stream_id"] != token.stream_id:
-            raise SessionStreamMismatchError("Requested session belongs to another Stream.")
-        if mapping["peer_id"] != token.peer_id:
-            raise SessionPeerMismatchError("Requested session belongs to another Peer.")
-        if mapping["state"] == "TOMBSTONED":
-            raise SessionTombstonedError("Requested session is expired or tombstoned.")
-        if mapping["state"] == "LOST":
-            raise SessionLostError("Requested session continuity is lost or tainted.")
-        if not runtime.resumable or mapping["runtime_kind"] != runtime.runtime_kind or not bridge_registry.eligible(mapping, now):
-            raise SessionUnavailableError("Requested session lacks compatible resume capability or trusted continuity.")
-        if mapping["workspace_generation"] != token.workspace_generation:
-            raise SessionWorkspaceMismatchError("Requested session belongs to another workspace lineage.")
-        if mapping["adapter_fingerprint"] != runtime.fingerprint():
-            raise SessionFingerprintMismatchError("Requested session adapter fingerprint differs.")
-        if mapping["binding"] != runtime.binding():
-            raise SessionBindingMismatchError("Requested session effective binding differs.")
-        delta = self._native_delta(mapping, boundary) if mapping["vendor_session_id"] is not None else self._local_history_delta(mapping, boundary)
-        if mapping["bootstrap_truncated"] or delta is not None and delta.truncated:
+        self.check_exact_session(mapping, runtime, token.peer_id, token.stream_id, token.workspace_generation, now)
+        assert mapping is not None
+        if self._delta_overflows(mapping, boundary, exact=True, native_delta=self._native_delta, local_delta=self._local_history_delta):
             raise SessionDeltaOverflowError("Requested session catch-up delta exceeds its context budget.")
         return mapping
+
+    @staticmethod
+    def has_unsettled_delivery(conn: sqlite3.Connection, peer: str, stream: str) -> bool:
+        return conn.execute("SELECT 1 FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND acked=0 LIMIT 1",
+                            (stream, peer)).fetchone() is not None
 
     def validate_selector_before_append(self, token: ClaimToken, runtime: RuntimeTarget, selector: str) -> None:
         """Preflight exact intent where no earlier execution can change its context."""
@@ -797,8 +936,7 @@ class Bridge:
         with self.claims.fenced(token) as conn:
             # Recovery/uncertainty takes precedence over selection. The queued
             # prompt is validated again after its own attempt is proven unstarted.
-            if conn.execute("SELECT 1 FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND acked=0 LIMIT 1",
-                            (token.stream_id, token.peer_id)).fetchone():
+            if self.has_unsettled_delivery(conn, token.peer_id, token.stream_id):
                 return
             position = conn.execute("SELECT COALESCE(MAX(position),0)+1 FROM records WHERE stream_id=?", (token.stream_id,)).fetchone()[0]
         self._validate_exact(token, runtime, selector[5:], _PersistedRecord("", position))
@@ -817,16 +955,9 @@ class Bridge:
             if record.metadata.get("binding", bnd) != bnd:
                 raise SessionBindingMismatchError("Queued request effective binding differs from this runtime.")
         with self.claims.fenced(token) as conn:
-            prior = bridge_registry.current(conn, token.stream_id, token.peer_id)
-            if prior is None:
-                prior = conn.execute("SELECT * FROM bridge_session_history WHERE stream_id=? AND peer_id=? ORDER BY last_seen DESC,session_generation DESC LIMIT 1",
-                                     (token.stream_id, token.peer_id)).fetchone()
-            prior = dict(prior) if prior is not None else None
+            prior = self._registry_prior(conn, token.stream_id, token.peer_id)
             bridge_registry.prune(conn, token.stream_id, token.peer_id, now)
             rows = [dict(r) for r in bridge_registry.ordered(conn, token.stream_id, token.peer_id)]
-        # An MRU pointer supplies tie-breaking without restricting compatible history search.
-        if prior is not None:
-            rows.sort(key=lambda r: r["session_handle"] != prior["session_handle"])
         reason = None
         if prior is not None:
             if now-prior["last_seen"] > bridge_registry.MAX_AGE_S or prior["state"] == "TOMBSTONED":
@@ -848,13 +979,12 @@ class Bridge:
         elif selector == "fresh":
             candidate, reason = None, "explicit_fresh"
         else:
-            candidate = next((m for m in rows if runtime.resumable and bridge_registry.eligible(m, now) and m["runtime_kind"] == runtime.runtime_kind
-                              and m["workspace_generation"] == token.workspace_generation and m["adapter_fingerprint"] == fp and m["binding"] == bnd), None)
+            candidate = self._latest_candidate(rows, prior, runtime, token.workspace_generation, fp, bnd, now)
         if candidate is not None:
             m = candidate
             native = m["vendor_session_id"] is not None
-            local_delta = None if native or exact else self._local_history_delta(m, record)
-            overflow = not exact and (native and (m["bootstrap_truncated"] or self._native_delta(m, record).truncated) or local_delta is not None and local_delta.truncated)
+            overflow = not exact and self._delta_overflows(m, record, exact=False, native_delta=self._native_delta,
+                                                           local_delta=self._local_history_delta)
             if overflow:
                 reason = "delta_too_large"
             else:
@@ -932,10 +1062,15 @@ class Bridge:
         return "missing"
 
     def _iter_records(self, stream: str, after_position: int, before_position: int, *, page: int = 200) -> Iterator[Record]:
+        return self._read_record_range(self.store.read_records, stream, after_position, before_position, page)
+
+    @staticmethod
+    def _read_record_range(read_records: _RecordReader, stream: str, after_position: int,
+                           before_position: int, page: int) -> Iterator[Record]:
         cursor = after_position
         while cursor < before_position:
             limit = min(page, before_position - cursor)
-            batch = self.store.read_records(stream, cursor, limit)
+            batch = read_records(stream, cursor, limit)
             if not batch:
                 return
             for r in batch:
@@ -985,16 +1120,26 @@ class Bridge:
         return seen is None
 
     def _native_delta(self, mapping: Mapping[str, Any], rec: Record | _PersistedRecord, *, page: int = 200) -> CatchUpProjection:
+        return self._project_native_delta(self.store.read_records, self.catch_up_budget, mapping, rec, page=page)
+
+    @staticmethod
+    def _project_native_delta(read_records: _RecordReader, budget: CatchUpBudget, mapping: Mapping[str, Any],
+                              rec: Record | _PersistedRecord, *, page: int = 200) -> CatchUpProjection:
         peer, stream = mapping["peer_id"], mapping["stream_id"]
-        candidates = (r for r in self._iter_records(stream, mapping["context_watermark"], rec.position, page=page)
+        candidates = (r for r in Bridge._read_record_range(read_records, stream, mapping["context_watermark"], rec.position, page)
                       if (r.kind != "control.redirect" or (not r.targets or peer in r.targets)))
         # Native continuity is all-or-nothing; count limits belong to fresh bootstrap only.
-        return project_catch_up(candidates, CatchUpBudget(max_bytes=self.catch_up_budget.max_bytes,
-                                              max_tokens=self.catch_up_budget.max_tokens,
-                                              token_estimator=self.catch_up_budget.token_estimator),
+        return project_catch_up(candidates, CatchUpBudget(max_bytes=budget.max_bytes, max_tokens=budget.max_tokens,
+                                                          token_estimator=budget.token_estimator),
                                 after_position=mapping["context_watermark"], before_position=rec.position)
 
     def _local_history_delta(self, mapping: Mapping[str, Any], rec: Record | _PersistedRecord, *, page: int = 200) -> CatchUpProjection | None:
+        with self.claims.transaction() as conn:
+            evidence = self._local_delta_evidence(conn, mapping, rec.position)
+        return self._project_local_delta(self.store.read_records, self.catch_up_budget, mapping, rec, evidence, page=page)
+
+    @staticmethod
+    def _local_delta_evidence(conn: sqlite3.Connection, mapping: Mapping[str, Any], position: int) -> tuple[int, set[str]] | None:
         """Older local sessions use exact delivery evidence, not a native watermark.
 
         Preserve the ordinary local-session redirect contract. When another
@@ -1002,18 +1147,27 @@ class Bridge:
         omit responses provably generated by this exact local session.
         """
         stream, peer, gen = mapping["stream_id"], mapping["peer_id"], mapping["session_generation"]
-        with self.claims.transaction() as conn:
-            after = conn.execute("SELECT MAX(record_position) FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? AND external_session_id=? AND certainty='TERMINAL'",
-                                 (stream, peer, gen, mapping["external_session_id"])).fetchone()[0]
-            if after is None or not conn.execute("SELECT 1 FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation!=? AND record_position>? AND record_position<? AND certainty!='NOT_STARTED' LIMIT 1",
-                                                 (stream, peer, gen, after, rec.position)).fetchone():
-                return None
-            represented = {r[0] for r in conn.execute("SELECT response_record_id FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? AND external_session_id=? AND certainty='TERMINAL'",
-                                                     (stream, peer, gen, mapping["external_session_id"])) if r[0] is not None}
-        candidates = (r for r in self._iter_records(stream, after, rec.position, page=page)
+        after = conn.execute("SELECT MAX(record_position) FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? AND external_session_id=? AND certainty='TERMINAL'",
+                             (stream, peer, gen, mapping["external_session_id"])).fetchone()[0]
+        if after is None or not conn.execute("SELECT 1 FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation!=? AND record_position>? AND record_position<? AND certainty!='NOT_STARTED' LIMIT 1",
+                                             (stream, peer, gen, after, position)).fetchone():
+            return None
+        represented = {r[0] for r in conn.execute("SELECT response_record_id FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? AND external_session_id=? AND certainty='TERMINAL'",
+                                                 (stream, peer, gen, mapping["external_session_id"])) if r[0] is not None}
+        return after, represented
+
+    @staticmethod
+    def _project_local_delta(read_records: _RecordReader, budget: CatchUpBudget, mapping: Mapping[str, Any],
+                             rec: Record | _PersistedRecord, evidence: tuple[int, set[str]] | None, *,
+                             page: int = 200) -> CatchUpProjection | None:
+        if evidence is None:
+            return None
+        after, represented = evidence
+        stream, peer = mapping["stream_id"], mapping["peer_id"]
+        candidates = (r for r in Bridge._read_record_range(read_records, stream, after, rec.position, page)
                       if r.record_id not in represented and (r.kind != "control.redirect" or not r.targets or peer in r.targets))
-        return project_catch_up(candidates, CatchUpBudget(max_bytes=self.catch_up_budget.max_bytes,
-                                max_tokens=self.catch_up_budget.max_tokens, token_estimator=self.catch_up_budget.token_estimator),
+        return project_catch_up(candidates, CatchUpBudget(max_bytes=budget.max_bytes, max_tokens=budget.max_tokens,
+                                                          token_estimator=budget.token_estimator),
                                 after_position=after, before_position=rec.position)
 
     @staticmethod
@@ -1123,8 +1277,12 @@ class Bridge:
 
     def _inflight(self, token: ClaimToken) -> sqlite3.Row | None:
         with self.claims.transaction() as conn:
-            row = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? ORDER BY seq DESC LIMIT 1",
-                               (token.stream_id, token.peer_id)).fetchone()
+            return self._read_inflight(conn, token.peer_id, token.stream_id)
+
+    @staticmethod
+    def _read_inflight(conn: sqlite3.Connection, peer: str, stream: str) -> sqlite3.Row | None:
+        row = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? ORDER BY seq DESC LIMIT 1",
+                           (stream, peer)).fetchone()
         return row if row is not None and row["acked"] == 0 else None  # sequential per scope: only the newest attempt can be in flight
 
     def _record_by_id(self, stream_id: str, position: int, record_id: str):
@@ -1184,9 +1342,8 @@ class Bridge:
             refusal_detail = self.delivery_details(infl["delivery_id"])
             if infl["certainty"] == STARTED and refusal_detail.get("task_outcome") == "NOT_EXECUTED":
                 return self._settle_refusal(token, rec, infl["delivery_id"], infl["session_generation"], refusal_detail)
-            saved: object = json.loads(infl["result_json"]) if infl["certainty"] == STARTED and infl["result_json"] else None
-            stored = cast("dict[str, Any]", saved) if isinstance(saved, dict) else {}
-            if stored.get("reason") in ("truncated", "incomplete"):
+            stored = self._stored_incomplete(infl)
+            if stored:
                 # API peers (#378): the incomplete reply is committed; finish its settlement, never invoke the provider again.
                 detail: dict[str, Any] = {key: stored[key] for key in ("reason", "message", "partial_response", "usage") if key in stored}
                 self._settle_without_response(token, rec, infl["delivery_id"], detail, str(detail["reason"]))
@@ -1198,9 +1355,8 @@ class Bridge:
                 return CycleResult("paused", rec.record_id, infl["delivery_id"], infl["certainty"], detail={"pause_record_id": st["pause_record_id"]})
             if infl["certainty"] != NOT_STARTED:
                 with self.claims.transaction() as conn:
-                    auth = conn.execute("SELECT * FROM bridge_reconciliations WHERE delivery_id=? AND consumed_attempt IS NULL",
-                                        (infl["delivery_id"],)).fetchone()
-                if auth is None or infl["certainty"] != MAY_HAVE_STARTED:
+                    auth = self._retry_authorization(conn, infl["delivery_id"], infl["certainty"])
+                if auth is None:
                     return CycleResult("blocked_uncertain", rec.record_id, infl["delivery_id"], infl["certainty"])
                 blocker = self._retry_blocked_by_cancel(token, auth["reconcile_record_id"])
                 if blocker is not None:  # D-W4-9: an older RETRY never overrides a newer cancel
@@ -1575,27 +1731,31 @@ class Bridge:
         return detail
 
     def delivery_details(self, delivery_id: str | None) -> dict[str, Any]:
-        out: dict[str, Any] = {}
         with self.claims.transaction() as conn:
-            for kind, detail in conn.execute("SELECT kind, detail FROM bridge_evidence WHERE delivery_id=? ORDER BY seq", (delivery_id,)):
-                data = json.loads(detail)
-                if kind == "execution_metadata":
-                    for key in ("env_scrubbed", "ag_transport", "ag_transport_source", "ag_cli_version"):
-                        if key in data:
-                            out[key] = data[key]
-                if kind == "terminal":
-                    if "effective_mode" in data:
-                        out.update({key: data[key] for key in ("effective_mode", "fallback_reason", "injected_record_ids")})
-                    if "output_truncated" in data:
-                        out["output_truncated"] = data["output_truncated"]
-                    if "display_truncated" in data:
-                        out["display_truncated"] = data["display_truncated"]
-                    if "ag_stream_validation" in data:
-                        out["ag_stream_validation"] = data["ag_stream_validation"]
-                elif kind == "refusal_detected":
-                    for key in ("task_outcome", "reason", "refusal_reason", "reset_time", "resets_at", "message", "termination_confirmed"):
-                        if key in data:
-                            out[key] = data[key]
+            return self._read_delivery_details(conn, delivery_id)
+
+    @staticmethod
+    def _read_delivery_details(conn: sqlite3.Connection, delivery_id: str | None) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for kind, detail in conn.execute("SELECT kind, detail FROM bridge_evidence WHERE delivery_id=? ORDER BY seq", (delivery_id,)):
+            data = json.loads(detail)
+            if kind == "execution_metadata":
+                for key in ("env_scrubbed", "ag_transport", "ag_transport_source", "ag_cli_version"):
+                    if key in data:
+                        out[key] = data[key]
+            if kind == "terminal":
+                if "effective_mode" in data:
+                    out.update({key: data[key] for key in ("effective_mode", "fallback_reason", "injected_record_ids")})
+                if "output_truncated" in data:
+                    out["output_truncated"] = data["output_truncated"]
+                if "display_truncated" in data:
+                    out["display_truncated"] = data["display_truncated"]
+                if "ag_stream_validation" in data:
+                    out["ag_stream_validation"] = data["ag_stream_validation"]
+            elif kind == "refusal_detected":
+                for key in ("task_outcome", "reason", "refusal_reason", "reset_time", "resets_at", "message", "termination_confirmed"):
+                    if key in data:
+                        out[key] = data[key]
         return out
 
     def _settle_refusal(self, token: ClaimToken, rec: Record, did: str, gen: int,
@@ -1680,11 +1840,15 @@ class Bridge:
         return resp.record_id
 
     # ------------------------------------------------------------------ control (TD-05, CTL-001..005, BRG-008/009)
+    @staticmethod
+    def _latest_pause_control(conn: sqlite3.Connection, peer: str, stream: str) -> sqlite3.Row | None:
+        return conn.execute("SELECT kind, record_id, position FROM bridge_controls WHERE stream_id=? AND peer_id=? "
+                            "AND kind IN ('control.pause','control.resume') ORDER BY position DESC LIMIT 1", (stream, peer)).fetchone()
+
     def control_state(self, peer_id: str, stream_id: str) -> dict[str, Any]:
         """Gating state derived from ACCEPTED control intent, ordered by Record position (never by handling order)."""
         with self.claims.transaction() as conn:
-            last = conn.execute("SELECT kind, record_id FROM bridge_controls WHERE stream_id=? AND peer_id=? "
-                                "AND kind IN ('control.pause','control.resume') ORDER BY position DESC LIMIT 1", (stream_id, peer_id)).fetchone()
+            last = self._latest_pause_control(conn, peer_id, stream_id)
             cancel = conn.execute("SELECT COALESCE(MAX(position),0) FROM bridge_controls WHERE stream_id=? AND peer_id=? "
                                   "AND kind='control.cancel'", (stream_id, peer_id)).fetchone()[0]
         paused = last is not None and last["kind"] == "control.pause"
@@ -1855,6 +2019,10 @@ class Bridge:
         for r in rows:
             self._apply_control(r, token.peer_id, runtime, token)
 
+    @staticmethod
+    def _addresses_control(peer: str, author: str, kind: str, targets: list[str]) -> bool:
+        return author != peer and is_control_kind(kind) and (not targets or peer in targets)
+
     def _handle_unread_controls(self, token: ClaimToken, runtime: RuntimeTarget) -> None:
         """Honour durable intent BEFORE any side effect: recover stranded controls, then apply every unprocessed control in the unread window."""
         self._recover_stranded(token, runtime)
@@ -1866,7 +2034,7 @@ class Bridge:
                 return
             for r in recs:
                 cursor = r.position
-                if r.author_peer_id != peer and is_control_kind(r.kind) and (not r.targets or peer in r.targets):
+                if self._addresses_control(peer, r.author_peer_id, r.kind, r.targets):
                     self._apply_control({"record_id": r.record_id, "stream_id": stream, "position": r.position, "kind": r.kind},
                                         peer, runtime, token)
 

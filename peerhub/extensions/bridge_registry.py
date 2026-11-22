@@ -83,18 +83,24 @@ def repair(conn: sqlite3.Connection, stream: str, peer: str, now: float) -> None
         point(conn, candidate, now)
 
 
+def retention_removals(rows: list[sqlite3.Row], now: float) -> dict[str, str]:
+    alive = [row for row in rows if now - row["last_seen"] <= MAX_AGE_S]
+    removals = {row["session_handle"]: "retention_quota" for row in alive[MAX_RETAINED:]}
+    removals.update({row["session_handle"]: "retention_max_age" for row in rows if now - row["last_seen"] > MAX_AGE_S})
+    return removals
+
+
 def prune(conn: sqlite3.Connection, stream: str, peer: str, now: float) -> None:
     retained = ordered(conn, stream, peer)
-    alive = [r for r in retained if now-r["last_seen"] <= MAX_AGE_S]
-    removed = {r["session_handle"] for r in alive[MAX_RETAINED:]}
+    removals = retention_removals(retained, now)
     for row in retained:
-        age = now-row["last_seen"] > MAX_AGE_S
-        if age or row["session_handle"] in removed:
+        reason = removals.get(row["session_handle"])
+        if reason is not None:
             conn.execute("UPDATE bridge_session_history SET state='TOMBSTONED',tombstoned_at=? WHERE session_handle=? AND state!='TOMBSTONED'",
                          (now, row["session_handle"]))
             conn.execute("INSERT INTO bridge_session_events(stream_id,peer_id,event,from_state,to_state,generation,detail) VALUES (?,?,'tombstoned',?,'TOMBSTONED',?,?)",
                          (stream, peer, row["state"], row["session_generation"], session_receipts.dumps({
-                             "session_handle": row["session_handle"], "reason": "retention_max_age" if age else "retention_quota"})))
+                             "session_handle": row["session_handle"], "reason": reason})))
     repair(conn, stream, peer, now)
 
 
