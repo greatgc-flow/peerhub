@@ -1209,18 +1209,20 @@ def _peer_kind(db: str | None, peer: str) -> str | None:
     return peer_kind(adapter_ref, peer)
 
 
-def _batch_active_asks(db: str) -> tuple[int | None, dict[str, int]]:
+def _batch_load_sample(db: str) -> tuple[int | None, dict[str, int], float | None]:
     try:
         from peerhub.extensions.diag_running import sample_load
 
         sample = sample_load(db)
+        ram_free_gb = cast(float | None, sample.get("ram_free_gb"))
         active = sample["active"]
         if isinstance(active, int) and not isinstance(active, bool):
             peers = cast(dict[str, dict[str, int | None]], sample["peers"])
-            return active, {peer: count for peer, load in peers.items() if (count := load["active"]) is not None}
+            counts = {peer: count for peer, load in peers.items() if (count := load["active"]) is not None}
+            return active, counts, ram_free_gb
+        return None, {}, ram_free_gb
     except Exception:  # diagnostic sampling is best-effort and cannot affect manifest validation
-        pass
-    return None, {}
+        return None, {}, None
 
 
 def _run_batch_cli(args: argparse.Namespace) -> int:
@@ -1241,25 +1243,27 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
     try:
         max_parallel = batch.check_max_parallel(args.max_parallel)
         tasks = batch.load_manifest(args.manifest, batch_id=args.batch_id)
-        batch.validate_tasks(tasks, kind_of=kind_of, warnings=warnings)
+        workspaces = batch.validate_tasks(tasks, kind_of=kind_of, warnings=warnings)
         tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
         if warnings is not None:
-            active, active_by_peer = _batch_active_asks(db)
+            active, active_by_peer, ram_free_gb = _batch_load_sample(db)
             warnings.extend(batch.load_warnings(tasks, max_parallel=max_parallel, kind_of=kind_of,
-                                                active=active, active_by_peer=active_by_peer))
+                                                active=active, active_by_peer=active_by_peer, ram_free_gb=ram_free_gb))
             rows: list[dict[str, Any]] = []
             for task in tasks:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)
                 rows.append(dict(task_id=task.task_id, peer=task.peer, stream=stream,
-                                 request_id=request, writable=task.writable))
+                                 request_id=request, writable=task.writable, profile=task.profile,
+                                 workspace=workspaces[task.task_id]))
             if args.json:
                 print(json.dumps(dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel,
                                       tasks=rows, warnings=warnings), indent=2, ensure_ascii=True))
             else:
                 print(f"Dry run: {args.batch_id} (max_parallel={max_parallel})")
-                print("TASK PEER STREAM REQUEST_ID WRITABLE")
+                print("TASK PEER STREAM REQUEST_ID WRITABLE PROFILE WORKSPACE")
                 for row in rows:
-                    print(f"{row['task_id']} {row['peer']} {row['stream']} {row['request_id']} {row['writable']}")
+                    print(f"{row['task_id']} {row['peer']} {row['stream']} {row['request_id']} {row['writable']} "
+                          f"{row['profile'] or '-'} {row['workspace']}")
                 for warning in warnings:
                     print(warning)
             return 0
