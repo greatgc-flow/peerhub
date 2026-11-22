@@ -1205,14 +1205,18 @@ def _peer_kind(db: str | None, peer: str) -> str | None:
     return peer_kind(adapter_ref, peer)
 
 
-def _batch_active_asks(db: str) -> int | None:
+def _batch_active_asks(db: str) -> tuple[int | None, dict[str, int]]:
     try:
         from peerhub.extensions.diag_running import sample_load
 
-        active = sample_load(db)["active"]
+        sample = sample_load(db)
+        active = sample["active"]
+        if isinstance(active, int) and not isinstance(active, bool):
+            peers = cast(dict[str, dict[str, int | None]], sample["peers"])
+            return active, {peer: count for peer, load in peers.items() if (count := load["active"]) is not None}
     except Exception:  # diagnostic sampling is best-effort and cannot affect manifest validation
-        return None
-    return active if isinstance(active, int) and not isinstance(active, bool) else None
+        pass
+    return None, {}
 
 
 def _run_batch_cli(args: argparse.Namespace) -> int:
@@ -1236,7 +1240,9 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
         batch.validate_tasks(tasks, kind_of=kind_of, warnings=warnings)
         tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
         if warnings is not None:
-            warnings.extend(batch.load_warnings(tasks, kind_of=kind_of, active=_batch_active_asks(db)))
+            active, active_by_peer = _batch_active_asks(db)
+            warnings.extend(batch.load_warnings(tasks, max_parallel=max_parallel, kind_of=kind_of,
+                                                active=active, active_by_peer=active_by_peer))
             rows: list[dict[str, Any]] = []
             for task in tasks:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)

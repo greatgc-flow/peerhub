@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -32,18 +33,26 @@ STDOUT_CAP = 4 * 1024 * 1024
 STDERR_CAP = 64 * 1024
 PROMPT_FILE_CAP = 1024 * 1024
 _ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
+_PROMPT_KEY = "prompt"
+_PROMPT_FILE_KEY = "prompt_file"
 _TASK_FIELDS = {
     "task_id": "review",
     "peer": "cc",
-    "prompt": "Review the code",
-    "prompt_file": "prompt.txt",
+    _PROMPT_KEY: "Review the code",
+    _PROMPT_FILE_KEY: "prompt.txt",
     "workspace": ".",
     "profile": "cc.standard",
     "writable": False,
     "timeout_s": DEFAULT_TIMEOUT_S,
 }
 _KEYS = _TASK_FIELDS.keys()
-_PROMPT_CHOICE = "exactly one of prompt or prompt_file"
+_PROMPT_CHOICE = f"exactly one of {_PROMPT_KEY} or {_PROMPT_FILE_KEY}"
+_WARNING_MESSAGES = {
+    "per_peer_limit": "{peer}: {load} exceed per-peer limit {limit}",
+    "active_asks_ceiling": "batch: {load} exceed active-ask ceiling {limit}",
+    "active_asks_sample": "active now {active}",
+    "workspace_overlap": "writable tasks {first} and {second} have {relationship} workspaces",
+}
 _NOT_EXECUTED = "not_executed"
 _QUOTA_REFUSAL_REASONS = {f"{_NOT_EXECUTED}:{reason}" for reason in ("quota_exhausted", "usage_limit")}
 _QUOTA_REFUSED = "quota_refused"
@@ -101,8 +110,14 @@ def check_max_parallel(value: object) -> int:
 
 
 def manifest_help() -> str:
-    shape = json.dumps({"tasks": [_TASK_FIELDS]}, indent=2)
-    return f"Manifest shape (task_id and peer required; give {_PROMPT_CHOICE}):\n{shape}"
+    example = {key: _TASK_FIELDS[key] for key in _KEYS if key != _PROMPT_FILE_KEY}
+    return "\n".join((
+        "Manifest example (task_id and peer required):",
+        json.dumps({"tasks": [example]}, indent=2),
+        f"or {_PROMPT_FILE_KEY} instead of {_PROMPT_KEY}",
+        f"Dry-run warning kinds: {', '.join(_WARNING_MESSAGES)}",
+        "--responses prints each completed task's reply in full (can be large).",
+    ))
 
 
 def load_manifest(path: str | Path, *, batch_id: str) -> list[Task]:
@@ -130,21 +145,21 @@ def load_manifest(path: str | Path, *, batch_id: str) -> list[Task]:
         peer = row.get("peer")
         if not isinstance(peer, str) or not peer.strip():
             raise ManifestError(f"task {tid}: peer is required")
-        if ("prompt" in row) == ("prompt_file" in row):
+        if (_PROMPT_KEY in row) == (_PROMPT_FILE_KEY in row):
             raise ManifestError(f"task {tid}: give {_PROMPT_CHOICE}")
-        if "prompt" in row:
-            prompt = row["prompt"]
+        if _PROMPT_KEY in row:
+            prompt = row[_PROMPT_KEY]
         else:
             try:
-                file = Path(row["prompt_file"])
+                file = Path(row[_PROMPT_FILE_KEY])
                 file = file if file.is_absolute() else path.parent / file
                 if file.stat().st_size > PROMPT_FILE_CAP:
-                    raise ManifestError(f"task {tid}: prompt_file exceeds {PROMPT_FILE_CAP} bytes")
+                    raise ManifestError(f"task {tid}: {_PROMPT_FILE_KEY} exceeds {PROMPT_FILE_CAP} bytes")
                 prompt = file.read_text(encoding="utf-8-sig")
             except (OSError, ValueError, TypeError) as exc:
-                raise ManifestError(f"task {tid}: cannot read prompt_file: {exc}") from exc
+                raise ManifestError(f"task {tid}: cannot read {_PROMPT_FILE_KEY}: {exc}") from exc
         if not isinstance(prompt, str) or not prompt.strip():
-            raise ManifestError(f"task {tid}: prompt must be non-empty text")
+            raise ManifestError(f"task {tid}: {_PROMPT_KEY} must be non-empty text")
         timeout = row.get("timeout_s", DEFAULT_TIMEOUT_S)
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
             raise ManifestError(f"task {tid}: timeout_s must be a finite positive number")
@@ -194,21 +209,32 @@ def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None
                     raise ManifestError(first_overlap)
             if warnings is not None and wa and wb:
                 relationship = "equal" if pa == pb else "nested"
-                warnings.append(f"writable tasks {ta.task_id} and {tb.task_id} have {relationship} workspaces")
+                warnings.append(_WARNING_MESSAGES["workspace_overlap"].format(
+                    first=ta.task_id, second=tb.task_id, relationship=relationship))
     if first_overlap is not None:
         raise ManifestError(first_overlap)
 
 
-def load_warnings(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None], active: int | None) -> list[str]:
+def load_warnings(tasks: Sequence[Task], *, max_parallel: int, kind_of: Callable[[str], str | None],
+                  active: int | None, active_by_peer: Mapping[str, int]) -> list[str]:
+    def describe_load(parallel: int, active_count: int) -> str:
+        batch_load = f"{parallel} concurrent batch tasks"
+        return f"{batch_load} + {active_count} active asks" if active is not None else batch_load
+
     warnings: list[str] = []
     for peer, count in Counter(task.peer for task in tasks).items():
         limit = PER_PEER_LIMITS.get(kind_of(peer) or peer)
-        if limit is not None and count > limit:
-            warnings.append(f"{peer}: {count} tasks exceed per-peer limit {limit}")
-    if len(tasks) > ACTIVE_ASKS_CEILING:
-        warnings.append(f"batch: {len(tasks)} tasks exceed active-ask ceiling {ACTIVE_ASKS_CEILING}")
+        parallel = min(count, max_parallel)
+        peer_active = active_by_peer.get(peer, 0)
+        if limit is not None and parallel + peer_active > limit:
+            warnings.append(_WARNING_MESSAGES["per_peer_limit"].format(
+                peer=peer, load=describe_load(parallel, peer_active), limit=limit))
+    parallel = min(len(tasks), max_parallel)
+    if parallel + (active or 0) > ACTIVE_ASKS_CEILING:
+        warnings.append(_WARNING_MESSAGES["active_asks_ceiling"].format(
+            load=describe_load(parallel, active or 0), limit=ACTIVE_ASKS_CEILING))
     if active is not None:
-        warnings.append(f"active now {active}")
+        warnings.append(_WARNING_MESSAGES["active_asks_sample"].format(active=active))
     return warnings
 
 
@@ -447,11 +473,15 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             reason = "cancelled"
         result = _parse_result(out.decode("utf-8", "replace"))
         session = result.get("session") if isinstance(result, dict) else None
-        out_row = {**row, "status": status, "elapsed_s": round(time.monotonic() - started, 3)}
+        out_row: dict[str, Any] = {**row, "status": status, "elapsed_s": round(time.monotonic() - started, 3)}
         if reason:
             out_row["reason"] = reason
         if isinstance(session, dict) and isinstance(cast(dict[str, Any], session).get("handle"), str):
             out_row["session"] = session["handle"]
+        guidance = result.get("guidance") if result is not None else None
+        explain = cast(dict[str, Any], guidance).get("explain_cmd") if isinstance(guidance, dict) else None
+        if status != "COMPLETED" and isinstance(explain, str) and explain:
+            out_row["next"] = [explain]
         if responses and status == "COMPLETED" and result is not None:
             out_row["response"] = result["response"]  # the stored reply, as printed by `ask --json`
         return out_row
@@ -496,9 +526,16 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
     results: list[dict[str, Any]] = []
     for t in tasks:
         try:
-            results.append(rows[t.task_id])
+            row = rows[t.task_id]
         except KeyError as exc:
-            results.append({**blocked(t, f"missing_worker_result:{type(exc).__name__}"), "status": "UNCERTAIN"})
+            row = {**blocked(t, f"missing_worker_result:{type(exc).__name__}"), "status": "UNCERTAIN"}
+        if row["status"] != "COMPLETED":
+            row["next"] = [
+                f"peerhub diag running --peer {shlex.quote(t.peer)}",
+                f"peerhub diag health --stream {row['stream']}",
+                *row.get("next", ()),
+            ]
+        results.append(row)
     return {"batch_id": batch_id, "max_parallel": max_parallel, "tasks": results, "outcomes": _outcome_counts(results)}
 
 
@@ -506,6 +543,8 @@ def render_text(report: Mapping[str, Any]) -> str:
     lines = [f"batch {report['batch_id']} max-parallel {report['max_parallel']}"]
     for r in report["tasks"]:
         lines.append(f"{r['task_id']:<24} {r['peer']:<8} {r['status']:<10} {r.get('reason') or ''}".rstrip())
+        if r.get("next"):
+            lines.append(f"    next: {', '.join(r['next'])} (request_id={r['request_id']})")
     outcomes = report.get("outcomes")
     if outcomes is None:
         outcomes = _outcome_counts(report["tasks"])

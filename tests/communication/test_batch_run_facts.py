@@ -3,7 +3,10 @@
 import json
 import subprocess
 import sys
+from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -17,9 +20,9 @@ def _task(task_id, peer="cc", **fields):
     return {"task_id": task_id, "peer": peer, "prompt": "mode:ok", **fields}
 
 
-def _argv(db, manifest):
+def _argv(db, manifest, max_parallel=batch.RECOMMENDED_MAX_PARALLEL):
     return ["--db", str(db), "batch", "run", str(manifest), "--batch-id", "facts",
-            "--max-parallel", str(batch.RECOMMENDED_MAX_PARALLEL)]
+            "--max-parallel", str(max_parallel)]
 
 
 @pytest.fixture
@@ -27,7 +30,7 @@ def dry_run(monkeypatch):
     db = Path.cwd() / "batch-facts-missing.db"
     manifest = Path("batch-facts.json")
 
-    def prepare(tasks):
+    def prepare(tasks, max_parallel=batch.RECOMMENDED_MAX_PARALLEL):
         def read_manifest(path, **kwargs):
             assert path == manifest
             return json.dumps({"tasks": tasks})
@@ -37,7 +40,7 @@ def dry_run(monkeypatch):
 
         monkeypatch.setattr(Path, "read_text", read_manifest)
         monkeypatch.setattr(batch, "run_batch", fail_to_launch)
-        return _argv(db, manifest)
+        return _argv(db, manifest, max_parallel)
 
     return prepare
 
@@ -47,8 +50,9 @@ def test_dry_run_reports_load_facts_after_the_task_table(dry_run, monkeypatch, c
     limit = load_limits.PER_PEER_LIMITS[peer]
     ceiling = load_limits.ACTIVE_ASKS_CEILING
     count = max(limit, ceiling) + 1
-    argv = dry_run([_task(f"t{i}", peer) for i in range(count)])
-    active_by_peer = {peer: limit}
+    parallel = batch.RECOMMENDED_MAX_PARALLEL
+    argv = dry_run([_task(f"t{i}", peer) for i in range(count)], parallel)
+    active_by_peer = {peer: limit, "cx": ceiling - parallel - limit + 1}
     sampled = load_limits.load_snapshot(active_by_peer, None)
 
     def sample(db):
@@ -61,8 +65,10 @@ def test_dry_run_reports_load_facts_after_the_task_table(dry_run, monkeypatch, c
     assert len(report["tasks"]) == count
     warnings = report["warnings"]
     assert len(warnings) == 3
-    assert any(peer in line and f"{count} tasks" in line and f"limit {limit}" in line for line in warnings)
-    assert any(f"{count} tasks" in line and f"ceiling {ceiling}" in line for line in warnings)
+    assert any(peer in line and f"{parallel} concurrent batch tasks + {limit} active asks" in line
+               and f"limit {limit}" in line for line in warnings)
+    assert any(f"{parallel} concurrent batch tasks + {sum(active_by_peer.values())} active asks" in line
+               and f"ceiling {ceiling}" in line for line in warnings)
     assert f"active now {sum(active_by_peer.values())}" in warnings
 
     assert main([*argv, "--dry-run"]) == 0
@@ -70,6 +76,32 @@ def test_dry_run_reports_load_facts_after_the_task_table(dry_run, monkeypatch, c
     assert lines[1].startswith("TASK PEER")
     assert [line.split()[0] for line in lines[2:2 + count]] == [row["task_id"] for row in report["tasks"]]
     assert lines[2 + count:] == warnings
+
+
+@pytest.mark.parametrize("extra_tasks", [0, 1])
+def test_dry_run_capped_parallelism_allows_long_queue(dry_run, monkeypatch, capsys, extra_tasks):
+    peer = "cx"
+    count = load_limits.ACTIVE_ASKS_CEILING + extra_tasks
+    parallel = load_limits.PER_PEER_LIMITS[peer] - 1
+    argv = dry_run([_task(f"t{i}", peer) for i in range(count)], parallel)
+    monkeypatch.setattr(diag_running, "sample_load", lambda _db: load_limits.load_snapshot({}, None))
+    assert main([*argv, "--dry-run", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["warnings"] == ["active now 0"]
+
+
+@pytest.mark.parametrize("other_active", [1, 2])
+def test_dry_run_compares_sample_with_actual_batch_size(dry_run, monkeypatch, capsys, other_active):
+    peer = "cx"
+    limit = load_limits.PER_PEER_LIMITS[peer]
+    ceiling = load_limits.ACTIVE_ASKS_CEILING
+    # Both projections exactly meet their limits with one active ask on another peer.
+    active = {peer: limit - 1, "cc": ceiling - limit - 2 + other_active}
+    argv = dry_run([_task("cx-task", peer), _task("cc-task")], ceiling)
+    monkeypatch.setattr(diag_running, "sample_load", lambda _db: load_limits.load_snapshot(active, None))
+    assert main([*argv, "--dry-run", "--json"]) == 0
+    warnings = json.loads(capsys.readouterr().out)["warnings"]
+    assert sum("ceiling" in line for line in warnings) == other_active - 1
+    assert all(not line.startswith(f"{peer}:") for line in warnings)
 
 
 @pytest.mark.parametrize("active", [None, 0, OSError("unreadable load")])
@@ -156,15 +188,66 @@ def test_final_cli_counts_each_outcome_and_runs_over_limit(tmp_path, monkeypatch
     assert report["outcomes"] == {"ok": ok_count, "failed": 2, "uncertain": 2, "quota_refused": 1}
 
 
-def test_batch_help_shows_one_task_with_every_validator_key(capsys):
+def test_final_report_exposes_task_diagnostics_and_child_explain(monkeypatch):
+    explain = "peerhub explain ask_blocked_uncertain"
+    results = {
+        "ok": {"status": "delivered", "certainty": "TERMINAL", "response": "reply"},
+        "failed": {"certainty": "NOT_STARTED"},
+        "uncertain": {"status": "uncertain", "guidance": {"explain_cmd": explain}},
+        "blocked": {"status": "pending_earlier_record"},
+        "unverified": {"status": "denied_empty"},
+    }
+
+    def build(t, **_kwargs):
+        if t.task_id == "setup-error":
+            raise ValueError("worker setup failed")
+        return [sys.executable, "-c", "import sys; print(sys.argv[1])", json.dumps(results[t.task_id])]
+
+    # Exercise the runner and child JSON without creating disk-backed scratch files.
+    monkeypatch.setattr(batch, "store_scratch_dir", lambda _db: Mock(spec=Path))
+    monkeypatch.setattr(batch, "tempfile", SimpleNamespace(TemporaryDirectory=lambda **_: nullcontext(".")))
+    monkeypatch.setattr(Path, "write_text", lambda *_args, **_kwargs: None)
+    tasks = [batch.Task(task_id, "cx", "prompt", None, None, False, batch.DEFAULT_TIMEOUT_S)
+             for task_id in [*results, "setup-error"]]
+    report = batch.run_batch(tasks, batch_id="facts", max_parallel=batch.RECOMMENDED_MAX_PARALLEL,
+                             db="batch-facts-missing.db", argv_builder=build)
+    lines = batch.render_text(report).splitlines()
+    assert batch.exit_code(report) == 1
+    assert "next" not in report["tasks"][0]
+    for row in report["tasks"][1:]:
+        stream, request = batch.derive_ids(report["batch_id"], row["task_id"])
+        assert (row["stream"], row["request_id"]) == (stream, request)
+        commands = [f"peerhub diag running --peer {row['peer']}", f"peerhub diag health --stream {stream}"]
+        if row["task_id"] == "uncertain":
+            commands.append(explain)
+        assert row["next"] == commands
+        index = next(i for i, line in enumerate(lines) if line.startswith(row["task_id"] + " "))
+        assert lines[index + 1].startswith("    next: ")
+        assert all(part in lines[index + 1] for part in [*commands, request])
+
+
+def test_batch_help_shows_a_valid_manifest_and_prompt_alternative(capsys, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         main(["batch", "run", "--help"])
     assert exc.value.code == 0
     help_text = capsys.readouterr().out
-    assert "exactly one of" in help_text
-    shape, _ = json.JSONDecoder().raw_decode(help_text[help_text.index("{"):])
+    example = help_text[help_text.index("{"):]
+    shape, end = json.JSONDecoder().raw_decode(example)
     (row,) = shape["tasks"]
-    assert set(row) == set(batch._KEYS)
+    monkeypatch.setattr(Path, "read_text", lambda _path, **_kwargs: example[:end])
+    tasks = batch.load_manifest("example.json", batch_id="help")
+    batch.validate_tasks(tasks, kind_of=lambda peer: peer)
+    assert set(row) == set(batch._KEYS) - {"prompt_file"}
+    assert "or prompt_file instead of prompt" in help_text.splitlines()
+
+
+def test_batch_help_lists_warning_kinds_and_full_replies(capsys):
+    with pytest.raises(SystemExit):
+        main(["batch", "run", "--help"])
+    lines = capsys.readouterr().out.splitlines()
+    warning_line = next(line for line in lines if line.startswith("Dry-run warning kinds:"))
+    assert set(warning_line.split(": ", 1)[1].split(", ")) == set(batch._WARNING_MESSAGES)
+    assert any("--responses" in line and "in full" in line and "large" in line for line in lines)
 
 
 def test_batch_help_keeps_the_parser_available_with_extensions_disabled():
