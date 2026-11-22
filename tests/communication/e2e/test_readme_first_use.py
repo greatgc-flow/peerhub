@@ -40,6 +40,20 @@ def test_upgrade_says_how_to_back_up_check_and_restore():
     assert "workspace.generation" in restore and "peerhub diag health" in restore
 
 
+def test_upgrade_checks_health_before_restarting_the_monitor():
+    upgrade = _section("### Upgrade")
+    assert upgrade.index("`peerhub diag health`") < upgrade.index("**Restart monitor**")
+
+
+def test_upgrade_names_the_plan_installers_with_one_example():
+    upgrade = _section("### Upgrade")
+    installer = update._upgrade_commands(Path(DEFAULT_DB_PATH))[1]
+    install_step = upgrade.split("2. **Run upgrade**", 1)[1].split("3. **", 1)[0]
+    explanation, example, _ = install_step.split("```")
+    assert example.partition("\n")[2].strip() == installer["command"]
+    assert any(all(command in line for command in installer["alternatives"]) for line in explanation.splitlines())
+
+
 def test_readme_does_not_send_ai_sessions_to_the_monitor():
     assert "# For an AI session: line 1" not in README
     assert "# For a person who wants only the verdict, suggestion and pools" in README

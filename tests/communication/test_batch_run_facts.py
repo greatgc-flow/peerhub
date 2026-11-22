@@ -69,11 +69,12 @@ def test_dry_run_reports_load_facts_after_the_task_table(dry_run, monkeypatch, c
     assert len(report["tasks"]) == count
     assert "replay" not in report
     warnings = report["warnings"]
-    assert len(warnings) == 4
+    assert len(warnings) == 3
     assert any(peer in line and f"{parallel} concurrent batch tasks + {limit} active asks" in line
                and f"limit {limit}" in line for line in warnings)
     assert any(f"{parallel} concurrent batch tasks + {sum(active_by_peer.values())} active asks" in line
-               and f"ceiling {ceiling}" in line for line in warnings)
+               and f"ceiling {ceiling}" in line
+               and f"also above the default {load_limits.ACTIVE_ASKS_DEFAULT}" in line for line in warnings)
     assert f"active now {sum(active_by_peer.values())}" in warnings
 
     assert main([*argv, "--dry-run"]) == 0
@@ -244,13 +245,13 @@ def test_dry_run_shows_manifest_profile_and_resolved_workspaces(dry_run, capsys)
     assert defaults_line.endswith(f" {defaults['profile_display']} {defaults['workspace']}")
 
 
-@pytest.mark.parametrize(("projected", "ceiling_status"), [
-    (load_limits.ACTIVE_ASKS_DEFAULT, None),
-    (load_limits.ACTIVE_ASKS_DEFAULT + 1, "within"),
-    (load_limits.ACTIVE_ASKS_CEILING, "within"),
-    (load_limits.ACTIVE_ASKS_CEILING + 1, "above"),
+@pytest.mark.parametrize(("projected", "warns_default"), [
+    (load_limits.ACTIVE_ASKS_DEFAULT, False),
+    (load_limits.ACTIVE_ASKS_DEFAULT + 1, True),
+    (load_limits.ACTIVE_ASKS_CEILING, True),
+    (load_limits.ACTIVE_ASKS_CEILING + 1, False),
 ])
-def test_dry_run_reports_default_threshold_and_ceiling_status(dry_run, monkeypatch, capsys, projected, ceiling_status):
+def test_dry_run_reports_default_threshold_and_ceiling_status(dry_run, monkeypatch, capsys, projected, warns_default):
     tasks = [_task("cc-task"), _task("cx-task", "cx")]
     active = projected - len(tasks)
     argv = dry_run(tasks, load_limits.ACTIVE_ASKS_CEILING)
@@ -260,13 +261,14 @@ def test_dry_run_reports_default_threshold_and_ceiling_status(dry_run, monkeypat
     assert main([*argv, "--dry-run", "--json"]) == 0
     warnings = json.loads(capsys.readouterr().out)["warnings"]
     defaults = [line for line in warnings if "active-ask default" in line]
-    if ceiling_status is None:
-        assert not defaults
-    else:
+    ceiling_warnings = [line for line in warnings if "exceed active-ask ceiling" in line]
+    assert len(ceiling_warnings) == int(projected > load_limits.ACTIVE_ASKS_CEILING)
+    assert len(defaults) == int(warns_default)
+    if defaults:
         (warning,) = defaults
         assert f"{len(tasks)} concurrent batch tasks + {active} active asks" in warning
         assert f"active-ask default {load_limits.ACTIVE_ASKS_DEFAULT}" in warning
-        assert f"{ceiling_status} the ceiling {load_limits.ACTIVE_ASKS_CEILING}" in warning
+        assert f"within the ceiling {load_limits.ACTIVE_ASKS_CEILING}" in warning
 
 
 @pytest.mark.parametrize("ram_delta_gb", [-1, 0, 1, None])

@@ -131,8 +131,10 @@ def test_fast_matches_monitor_state_from_stored_samples(history, remaining, age,
 def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     absent = _item("ag", "G-1D", None, span=DAY, elapsed=HOUR, state="ABSENT",
                    reason="not reported by provider", age=FRESH_AGE)
-    profile_pools = {"ag.standard": ("G-7D", "G-5H", "G-1D"), "ag.fast": ("G-7D",)}
+    running_profile = "ag.standard"
+    profile_pools = {running_profile: ("G-7D", "G-5H", "G-1D", "G-2D"), "ag.fast": ("G-7D",)}
     profile_reads = []
+    running = [{"peer_id": "ag", "profile": running_profile}] * 2 + [{"peer_id": "ag", "profile": None}]
 
     def render(self, sections, *, include_quota_samples):
         assert include_quota_samples
@@ -146,7 +148,7 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     monkeypatch.setattr(ReadonlyDiag, "render", render)
     monkeypatch.setattr("peerhub.extensions.adapters.profiles.list_profiles", list_profiles)
     monkeypatch.setattr("peerhub.extensions.diag_running.running_report",
-                        lambda *args, **kwargs: {"status": "OK", "rows": [], "truncated": False})
+                        lambda *args, **kwargs: {"status": "OK", "rows": running, "truncated": False})
     argv = ["--db", str(Path(__file__).resolve()), "diag", "--plan"]
     assert main([*argv, "--json"]) == 0
     out = capsys.readouterr().out
@@ -157,7 +159,11 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     for row in data["pools"]:
         assert row["profiles"] == sorted(name for name, pools in profile_pools.items() if row["pool"] in pools)
 
-    monkeypatch.setenv("COLUMNS", "120")
+    by_pool = dict.fromkeys(profile_pools[running_profile], len(running) - 1)
+    assert data["load"]["by_pool"] == by_pool
+    assert data["load"]["unmapped"] == 1
+
+    monkeypatch.setenv("COLUMNS", "180")
     assert main(argv) == 0
     out = capsys.readouterr().out
     assert all(field not in out for field in FACT_FIELDS - {"fast"})
@@ -170,6 +176,13 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     assert legend.endswith(PLAN_TAG_LEGEND)
     assert footer == "profiles: " + " | ".join(groups)
     assert load.startswith("load: ")
+    table_pools = {row["pool"] for row in data["pools"] if row["action"] != "n/a"}
+    named_pools = ", ".join(f"{pool} {by_pool[pool]}" for pool in sorted(table_pools & by_pool.keys()))
+    hidden_pools = by_pool.keys() - table_pools
+    assert named_pools and len(hidden_pools) == 2
+    assert f"in flight {named_pools} unmapped {data['load']['unmapped']}" in load
+    assert all(pool not in load for pool in hidden_pools)
+    assert load.count(f"n/a pools {len(hidden_pools)}") == 1
 
 
 def test_explain_parallel_quota_names_the_json_row_facts(capsys):

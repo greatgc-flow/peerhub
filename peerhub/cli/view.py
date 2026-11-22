@@ -662,13 +662,21 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
     if not pools:
         lines.append("no quota evidence; next: peerhub observation refresh")
     lines.extend(_wrap(_PLAN_TEXT_LEGEND, width))
+    applicable_pools = [p for p in pools if p["action"] != "n/a"]
     profile_groups = [f"{p['pool']} {','.join(cast(list[str], p['profiles']))}"
-                      for p in pools if p["action"] != "n/a" and p.get("profiles")]
+                      for p in applicable_pools if p.get("profiles")]
     if profile_groups:
         lines.extend(_wrap(_safe_text("profiles: " + " | ".join(profile_groups)), width))
     if load is not None:
         from peerhub.core.load_limits import format_load
-        lines.extend(_wrap(format_load(load), width))
+        pool_names = {str(p["pool"]) for p in applicable_pools}
+        in_flight = _obj(load.get("by_pool"))
+        shown = {pool: count for pool, count in in_flight.items() if pool in pool_names}
+        load_line = format_load({**load, "by_pool": shown})
+        hidden_count = len(in_flight) - len(shown)
+        if hidden_count:
+            load_line += f" | n/a pools {hidden_count}"
+        lines.extend(_wrap(load_line, width))
     return "\n".join(lines)
 
 
