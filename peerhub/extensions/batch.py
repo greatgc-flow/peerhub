@@ -49,8 +49,8 @@ _KEYS = _TASK_FIELDS.keys()
 _PROMPT_CHOICE = f"exactly one of {_PROMPT_KEY} or {_PROMPT_FILE_KEY}"
 _WARNING_MESSAGES = {
     "per_peer_limit": "{peer}: {load} exceed per-peer limit {limit}",
-    "active_asks_ceiling": "batch: {load} exceed active-ask ceiling {limit}",
-    "active_asks_default": "batch: {load} exceed active-ask default {limit} ({position} the ceiling {ceiling})",
+    "active_asks_ceiling": "batch: {load} exceed active-ask ceiling {ceiling} (also above the default {default})",
+    "active_asks_default": "batch: {load} exceed active-ask default {default} (within the ceiling {ceiling})",
     "active_asks_sample": "active now {active}",
     "free_ram": "free RAM {free:.1f} GB is below minimum {minimum} GB",
     "workspace_overlap": "writable tasks {first} and {second} have {relationship} workspaces",
@@ -238,14 +238,10 @@ def load_warnings(tasks: Sequence[Task], *, max_parallel: int, kind_of: Callable
                 peer=peer, load=describe_load(parallel, peer_active), limit=limit))
     parallel = min(len(tasks), max_parallel)
     projected = parallel + (active or 0)
-    above_ceiling = projected > ACTIVE_ASKS_CEILING
-    if above_ceiling:
-        warnings.append(_WARNING_MESSAGES["active_asks_ceiling"].format(
-            load=describe_load(parallel, active or 0), limit=ACTIVE_ASKS_CEILING))
     if projected > ACTIVE_ASKS_DEFAULT:
-        warnings.append(_WARNING_MESSAGES["active_asks_default"].format(
-            load=describe_load(parallel, active or 0), limit=ACTIVE_ASKS_DEFAULT,
-            position="above" if above_ceiling else "within", ceiling=ACTIVE_ASKS_CEILING))
+        warning = "active_asks_ceiling" if projected > ACTIVE_ASKS_CEILING else "active_asks_default"
+        warnings.append(_WARNING_MESSAGES[warning].format(
+            load=describe_load(parallel, active or 0), default=ACTIVE_ASKS_DEFAULT, ceiling=ACTIVE_ASKS_CEILING))
     warnings.append(_WARNING_MESSAGES["active_asks_sample"].format(active=UNKNOWN_ACTIVE_SAMPLE if active is None else active))
     if ram_free_gb is not None and ram_free_gb < MIN_FREE_RAM_GB:
         warnings.append(_WARNING_MESSAGES["free_ram"].format(free=ram_free_gb, minimum=MIN_FREE_RAM_GB))

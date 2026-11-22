@@ -274,7 +274,8 @@ FORMER_GUIDE_FACTS: dict[str, tuple[str, ...]] = {
     "discovery-commands": (
         "peerhub explain lessons", "peerhub explain setup", "peerhub monitor --group capacity",
         "suggest a|b = best + alternative peer; peerhub explain monitor-states", "peerhub monitor --expand",
-        "peerhub diag --plan", "per-pool spend/hold/rest until reset", "peerhub profile list; slugs: agy models; --model <slug>",
+        "AI sessions: peerhub diag --plan", "per-pool spend/hold/rest until reset", "peerhub monitor: the human screen",
+        "peerhub profile list; slugs: agy models; --model <slug>",
         "peerhub session list", "peerhub account list", "peerhub observation refresh", "peerhub explain peer-subagents",
         "the line-1 'facts:' alert (needs_recheck) clears via refresh-model-profiles skill or release upgrade",
     ),

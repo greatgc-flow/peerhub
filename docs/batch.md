@@ -16,7 +16,8 @@ recommend 3 (`RECOMMENDED_MAX_PARALLEL` in `peerhub/extensions/batch.py`, the on
 Dry-run warnings cover equal or nested workspaces for writable pairs
 (`workspace_overlap`), per-peer limits (`per_peer_limit`), the active-ask ceiling
 and default (`active_asks_ceiling`, `active_asks_default`), low free RAM (`free_ram`),
-and the sampled lease count (`active_asks_sample`). The sample appears as `active now N`
+and the sampled lease count (`active_asks_sample`). When the projected load exceeds the ceiling,
+one warning covers both active-ask thresholds. The sample appears as `active now N`
 or `active now ?` when unavailable, with `active_now` set to the count or `null` in JSON.
 When the selected store has settled or uncertain tasks from the manifest for the same batch ID,
 `replay: N settled, M uncertain` appears before the warnings. JSON includes both
@@ -180,3 +181,5 @@ If a provider throttles, reduce concurrency; do not reroute the same work to ano
 3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.
 4. Wave size n = as many tasks as quota and load allow (not a fixed 3): one per usable pool top-down, then more on the same pool while the peer stays under its limit (cc 3 / cx 3 / ag 1) and the total under the active-ask limit (4, ceiling 6, manual asks count; 3 keeps one slot free): `peerhub batch run tasks.json --batch-id ID --max-parallel n`.
 5. After each wave run `peerhub observation refresh`, then `peerhub diag --plan` again; asks still running are in-flight spend the readings do not show yet, so keep a margin; a task refused for quota is reported per task and the rest of that manifest still runs (one wave per manifest); the same batch ID replays settled tasks; a pool that turned `rest` or `blocked` drops out. No usable pool: defer.
+   The load line names in-flight pools with applicable table rows. `n/a pools N` counts
+   the other mapped pools, and JSON `load.by_pool` includes all mapped pools.
