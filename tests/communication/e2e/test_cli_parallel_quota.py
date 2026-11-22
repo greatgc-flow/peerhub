@@ -179,7 +179,7 @@ def test_readme_upgrade_makes_the_backup_a_checked_step_before_the_install():
 
 def test_topic_explains_the_unmapped_count():
     text = _text()
-    assert "unmapped" in text and "in flight" in text
+    assert "unmapped" in text and "in flight" in text and L.PLAN_NA_POOLS_LABEL in text
 
 
 def test_topic_says_a_profile_under_several_pools_spends_each_of_them():

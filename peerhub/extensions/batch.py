@@ -57,6 +57,7 @@ _WARNING_MESSAGES = {
 }
 UNKNOWN_ACTIVE_SAMPLE = "?"
 DEFAULT_PROFILE_DISPLAY = "(peer default)"
+RESOLVED_DEFAULT_PROFILE_DISPLAY = "(default: {profile})"
 REPLAY_LINE = "replay: {settled} settled, {uncertain} uncertain"
 _NOT_EXECUTED = "not_executed"
 _QUOTA_REFUSAL_REASONS = {f"{_NOT_EXECUTED}:{reason}" for reason in ("quota_exhausted", "usage_limit")}

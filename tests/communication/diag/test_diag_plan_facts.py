@@ -12,6 +12,7 @@ import pytest
 from peerhub.cli.app import main
 from peerhub.cli.monitor_view import FAMILIES
 from peerhub.cli.view import PLAN_FAST_TAG, PLAN_GATE_TAG, PLAN_TAG_LEGEND, plan_data, render_plan
+from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, load_snapshot
 from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION, epoch_to_iso
@@ -181,8 +182,25 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     hidden_pools = by_pool.keys() - table_pools
     assert named_pools and len(hidden_pools) == 2
     assert f"in flight {named_pools} unmapped {data['load']['unmapped']}" in load
-    assert all(pool not in load for pool in hidden_pools)
-    assert load.count(f"n/a pools {len(hidden_pools)}") == 1
+    assert load.endswith(f" | {PLAN_NA_POOLS_LABEL} {', '.join(sorted(hidden_pools))}")
+
+
+@pytest.mark.parametrize("overflow", [None, 0, 2])
+def test_load_names_only_mapped_in_flight_na_pools_and_caps_the_list(overflow):
+    cap = PLAN_NA_POOLS_LIMIT
+    count = 1 if overflow is None else cap + overflow
+    pools = sorted(f"X-{i}H" for i in range(1, count + 1))
+    idle_pool = "X-7D"
+    report = _report(*(_item("cx", pool, None, span=SHORT, elapsed=HOUR, state="ABSENT",
+                             reason="not reported by provider", age=FRESH_AGE) for pool in [*pools, idle_pool]))
+    load = load_snapshot({"cx": 1}, None, dict.fromkeys(reversed(pools), 1))
+    names = ", ".join(pools[:cap])
+    suffix = f" +{overflow}" if overflow else ""
+    load_line = render_plan(report, load=load, width=180).splitlines()[-1]
+    assert load_line.startswith("load: ")
+    assert load_line.endswith(f" | {PLAN_NA_POOLS_LABEL} {names}{suffix}")
+    assert idle_pool not in load_line
+    assert plan_data(report, {}, load=load)["load"] == load
 
 
 def test_explain_parallel_quota_names_the_json_row_facts(capsys):

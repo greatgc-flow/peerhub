@@ -1352,7 +1352,20 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
         workspaces = batch.validate_tasks(tasks, kind_of=kind_of, warnings=warnings)
         tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
         if warnings is not None:
-            from peerhub.extensions.ask import read_replay_counts
+            from peerhub.extensions.ask import build_ask_target, read_replay_counts
+            from peerhub.extensions.runtime_contract import PrespawnError
+
+            @cache
+            def default_profile_display(peer: str, workspace: Path, writable: bool) -> str:
+                kind = kind_of(peer)
+                if kind is not None:
+                    try:
+                        resolved = build_ask_target(kind, workspace, writable=writable).session_binding()["profile"]
+                    except (OSError, ValueError, PrespawnError):
+                        resolved = None
+                    if resolved:
+                        return batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=resolved)
+                return batch.DEFAULT_PROFILE_DISPLAY
 
             active, active_by_peer, ram_free_gb = _batch_load_sample(db)
             warnings.extend(batch.load_warnings(tasks, max_parallel=max_parallel, kind_of=kind_of,
@@ -1362,7 +1375,8 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)
                 rows.append(dict(task_id=task.task_id, peer=task.peer, stream=stream,
                                  request_id=request, writable=task.writable, profile=task.profile,
-                                 profile_display=task.profile if task.profile is not None else batch.DEFAULT_PROFILE_DISPLAY,
+                                 profile_display=task.profile or default_profile_display(
+                                     task.peer, task.workspace or Path.cwd(), task.writable),
                                  workspace=workspaces[task.task_id]))
             replay = read_replay_counts(Path(db), ((row["stream"], row["peer"], row["request_id"]) for row in rows))
             if args.json:

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, cast
 
 if TYPE_CHECKING:
-    from peerhub.extensions.accounts import AccountBinding
+    from peerhub.extensions.accounts import AccountBinding, AccountRef
 
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.adapters.api import API_TARGETS, ApiRuntimeTarget, RequestRejected
@@ -252,6 +252,16 @@ def _account_failure(rid: str, sid: str, peer_id: str, exc: Exception) -> dict[s
     return failure
 
 
+def build_ask_target(kind: str, workspace: str | Path, *, account: AccountRef | None = None,
+                     **options: Any) -> CliRuntimeTarget | ApiRuntimeTarget:
+    """Resolve the local runtime settings shared by asks and batch previews."""
+    if kind in API_TARGETS:
+        return API_TARGETS[kind](workspace, **options)
+    if account is not None:
+        options["account"] = account
+    return CliRuntimeTarget(kind, workspace, **options)
+
+
 def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None = None,
         request_id: str | None = None, author: str = _DEFAULT_AUTHOR, workspace: str | Path | None = None,
         model: str | None = None, effort: str | None = None, timeout_s: float = 60,
@@ -319,21 +329,19 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         kind = peer_kind(adapter_ref, peer_id)
         target: RuntimeTarget
         execution_workspace: str | Path | None = None
-        account_args: dict[str, Any] = {}
+        account: AccountRef | None = None
         if account_binding is not None:
             from peerhub.extensions.accounts import AccountRef
             if runtime is not None:
                 raise PrespawnError("runtime injection is forbidden for an account-bound peer")
-            account_args["account"] = AccountRef(account_binding.slot_id)
+            account = AccountRef(account_binding.slot_id)
         if runtime is None:
             if kind is None:
                 raise PeerNotFoundError(f"register this peer with --adapter {BUILTIN_PEER_CHOICES} before asking it")
             execution_workspace = workspace or Path.cwd()
-            options: dict[str, Any] = dict(model=model, effort=effort, profile=profile, silence_timeout_s=silence_timeout_s,
-                                           writable=writable, timeout_s=timeout_s, max_bytes=max_bytes, on_output=on_output,
-                                           notice_alias=notice_alias)
-            target = (API_TARGETS[kind](execution_workspace, **options) if kind in API_TARGETS
-                      else CliRuntimeTarget(kind, execution_workspace, **options, **account_args))
+            target = build_ask_target(kind, execution_workspace, account=account, model=model, effort=effort, profile=profile,
+                                      silence_timeout_s=silence_timeout_s, writable=writable, timeout_s=timeout_s,
+                                      max_bytes=max_bytes, on_output=on_output, notice_alias=notice_alias)
         else:
             target = runtime
         rid = request_id or uuid.uuid4().hex

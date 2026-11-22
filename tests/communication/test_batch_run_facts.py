@@ -245,6 +245,32 @@ def test_dry_run_shows_manifest_profile_and_resolved_workspaces(dry_run, capsys)
     assert defaults_line.endswith(f" {defaults['profile_display']} {defaults['workspace']}")
 
 
+def test_dry_run_displays_the_named_profile_resolved_by_ask(dry_run, monkeypatch, capsys):
+    workspace = Path("docs").resolve()
+    peer = "codex"
+
+    class TargetWithDefault(ask.CliRuntimeTarget):
+        def __init__(self, kind, task_workspace, **options):
+            if Path(task_workspace).resolve() == workspace and options.get("profile") is None:
+                options["profile"] = "effort"
+            super().__init__(kind, task_workspace, **options)
+
+    monkeypatch.setattr(ask, "CliRuntimeTarget", TargetWithDefault)
+    argv = dry_run([_task("resolved", peer, workspace=str(workspace)), _task("unavailable", "oa")])
+    assert main([*argv[:2], "ask", peer, "preview", "--workspace", str(workspace), "--dry-run", "--json"]) == 0
+    resolved = json.loads(capsys.readouterr().out)["profile"]
+    assert resolved
+
+    assert main([*argv, "--dry-run", "--json"]) == 0
+    named, unavailable = json.loads(capsys.readouterr().out)["tasks"]
+    assert named["profile"] is unavailable["profile"] is None
+    assert named["profile_display"] == batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=resolved)
+    assert unavailable["profile_display"] == batch.DEFAULT_PROFILE_DISPLAY
+
+    assert main([*argv, "--dry-run"]) == 0
+    assert capsys.readouterr().out.splitlines()[2].endswith(f" {named['profile_display']} {named['workspace']}")
+
+
 @pytest.mark.parametrize(("projected", "warns_default"), [
     (load_limits.ACTIVE_ASKS_DEFAULT, False),
     (load_limits.ACTIVE_ASKS_DEFAULT + 1, True),

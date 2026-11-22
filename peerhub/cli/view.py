@@ -675,7 +675,7 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
     if profile_groups:
         lines.extend(_wrap(_safe_text("profiles: " + " | ".join(profile_groups)), width))
     if load is not None:
-        from peerhub.core.load_limits import format_load
+        from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, format_load
         if separate_observation_store:
             load_line = format_load(load)
         else:
@@ -684,9 +684,12 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
             in_flight = _obj(load.get("by_pool"))
             shown = {pool: count for pool, count in in_flight.items() if pool in pool_names}
             load_line = format_load({**load, "by_pool": shown})
-            hidden_count = len(in_flight) - len(shown)
-            if hidden_count:
-                load_line += f" | n/a pools {hidden_count}"
+            hidden = sorted(in_flight.keys() - pool_names)
+            if hidden:
+                names = ", ".join(_safe_text(pool) for pool in hidden[:PLAN_NA_POOLS_LIMIT])
+                overflow = len(hidden) - PLAN_NA_POOLS_LIMIT
+                suffix = f" +{overflow}" if overflow > 0 else ""
+                load_line += f" | {PLAN_NA_POOLS_LABEL} {names}{suffix}"
         lines.extend(_wrap(load_line, width))
     return "\n".join(lines)
 
