@@ -172,8 +172,9 @@ def test_batch_doc_lists_the_same_tops_as_the_guide(capsys):
 def test_readme_upgrade_makes_the_backup_a_checked_step_before_the_install():
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     upgrade = readme[readme.index("### Upgrade"):readme.index("### Uninstall")]
-    assert upgrade.index("Back up") < upgrade.index("pip install -U peerhub")
-    assert "new modified time" in upgrade[:upgrade.index("pip install -U peerhub")]
+    backup = upgrade[upgrade.index("Back up"):upgrade.index("pip install -U peerhub")]
+    assert "printed backup command" in backup and "exact path" in backup
+    assert "must exit 0" in backup and "new modified time" in backup
 
 
 def test_topic_explains_the_unmapped_count():

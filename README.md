@@ -451,7 +451,7 @@ peerhub diag --plan
 
 To upgrade PeerHub safely:
 
-0. **Plan and back up**: `peerhub update --plan` lists blocking asks and processes, the backup command, the restore command and the upgrade commands; `peerhub explain store-and-upgrade` has the hazards. Back up first: run the printed backup command (it writes `.peerhub/core.db.pre-update.bak`) the command must exit 0 and the file must show a new modified time before step 2 (an old backup left from an earlier upgrade does not count).
+0. **Plan and back up**. `peerhub update --plan` lists blocking asks and processes and prints the backup, restore and upgrade commands. `peerhub explain store-and-upgrade` covers the hazards. Back up first by running the printed backup command. It writes `.peerhub/core.db.pre-update-<UTC time>.bak` for the default store. Copy the exact path the plan prints. The command must exit 0 and the file must show a new modified time before step 2.
 1. **Stop `peerhub monitor`**: Stop any active monitor process before upgrading. A running monitor locks `peerhub.exe` on Windows and keeps old code running. Also wait for running `peerhub ask` calls to finish: they keep dependency files such as `pydantic_core` loaded, so an in-place upgrade can fail and leave a half-deleted install. If peerhub crashes with `ModuleNotFoundError` after an upgrade, reinstall it and check the result records before re-sending an ask.
 2. **Run upgrade**:
    ```powershell
@@ -467,7 +467,7 @@ To upgrade PeerHub safely:
    ```powershell
    peerhub monitor
    ```
-4. **Check, or restore**: `peerhub diag health` must report OK. If the new version cannot open the store, reinstall the old version, stop every client, copy `.peerhub/core.db.pre-update.bak` over `.peerhub/core.db`, restart the clients (old instances are fenced by `workspace.generation`) and run `peerhub diag health` again.
+4. **Check, or restore**. `peerhub diag health` must report OK. If the new version cannot open the store, reinstall the old version and stop every client. Run the printed restore command in a shell where `python` has that PeerHub version installed. The command validates the backup, fences old clients by rotating `workspace.generation`, and runs `peerhub diag health` after the restore succeeds. Restart the clients after the health check reports OK.
 
 ### Uninstall
 

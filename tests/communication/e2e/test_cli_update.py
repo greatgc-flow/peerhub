@@ -3,18 +3,27 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sqlite3
+import subprocess
 import time
 from contextlib import closing
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from peerhub import _console
 from peerhub.cli.app import main
+from peerhub.core.models import Peer
+from peerhub.core.store import CoreStore, StoreReplacedError
+from peerhub.core.workspace import Workspace
 from peerhub.extensions.bridge_claims import _DDL as CLAIMS_DDL
 from peerhub.extensions.bridge_registry import DDL as SESSION_DDL, POINTER_DDL
 from peerhub.extensions.caller import host_id
+
+_PLAN_TIME = datetime(2026, 11, 22, 1, 2, 3, tzinfo=UTC)
 
 
 def test_update_requires_exactly_one_mode(capsys):
@@ -205,8 +214,11 @@ def test_plan_selected_store(tmp_path, monkeypatch, capsys, active):
 def test_plan_prints_restore_after_backup(shell, monkeypatch, capsys):
     from peerhub.cli import update
 
-    db = Path("a space [and 'quote']") / "core.db"
+    db = Path("a space [and 'quotes' and ’quotes’]") / "core.db"
     monkeypatch.setattr(update, "os", SimpleNamespace(name=shell))
+    monkeypatch.setattr(_console, "os", SimpleNamespace(name=shell, environ=os.environ))
+    clock = SimpleNamespace(time=_PLAN_TIME.timestamp)
+    monkeypatch.setattr(update, "time", clock)
     monkeypatch.setattr(update, "_plan", lambda _: (
         dict(status="READY", db=str(db), running_asks=[], processes=[], commands=update._upgrade_commands(db),
              resume=[], next="Ready"), 0,
@@ -216,17 +228,16 @@ def test_plan_prints_restore_after_backup(shell, monkeypatch, capsys):
     commands = json.loads(capsys.readouterr().out)["commands"]
     backup, upgrade, *_ = commands
     restore = backup["restore"]
-    backup_path = db.with_name(db.name + update.UPDATE_BACKUP_SUFFIX)
-    assert backup["command"].endswith(update._shell(str(db), str(backup_path)))
     health = update._shell("peerhub", "--db", str(db), "diag", "health")
-    if shell == "nt":
-        copy = update._shell("Copy-Item", "-LiteralPath", str(backup_path), "-Destination", str(db))
-        assert restore["command"].startswith(copy)
-        assert restore["command"].endswith(f"; if ($?) {{ {health} }}")
-    else:
-        copy = update._shell("cp", "--", str(backup_path), str(db))
-        assert restore["command"] == f"{copy} && {health}"
+    health_suffix = f"; if ($?) {{ {health} }}" if shell == "nt" else f" && {health}"
+    assert restore["command"].startswith("python -c ")
+    assert restore["command"].endswith(health_suffix)
     assert "stop all clients" in restore["step"].lower()
+    timestamp = _PLAN_TIME.strftime(update.UPDATE_BACKUP_TIMESTAMP_FORMAT)
+    backup_path = str(db) + update.UPDATE_BACKUP_SUFFIX.format(timestamp=timestamp)
+    paths = update._shell(str(db), backup_path)
+    assert backup["command"].endswith(paths)
+    assert restore["command"].removesuffix(health_suffix).endswith(paths)
 
     assert main(argv) == 0
     out = capsys.readouterr().out
@@ -234,6 +245,66 @@ def test_plan_prints_restore_after_backup(shell, monkeypatch, capsys):
     idx = lines.index(backup["command"])
     assert lines[idx + 1:idx + 3] == [restore["step"], restore["command"]]
     assert idx + 3 < lines.index(upgrade["command"])
+
+
+def test_update_plans_use_distinct_utc_backup_paths(monkeypatch):
+    from peerhub.cli import update
+
+    db = Path("core.db")
+    moments = (_PLAN_TIME, _PLAN_TIME + timedelta(seconds=1))
+    times = iter(moment.timestamp() for moment in moments)
+    monkeypatch.setattr(update, "time", SimpleNamespace(time=lambda: next(times)))
+    plans = [update._upgrade_commands(db)[0] for _ in moments]
+    assert plans[0]["command"] != plans[1]["command"]
+    for plan, moment in zip(plans, moments, strict=True):
+        suffix = update.UPDATE_BACKUP_SUFFIX.format(timestamp=moment.strftime(update.UPDATE_BACKUP_TIMESTAMP_FORMAT))
+        quoted_snapshot = update._shell(str(db) + suffix)
+        assert plan["command"].endswith(quoted_snapshot)
+        assert quoted_snapshot in plan["restore"]["command"]
+
+
+def _run_printed_python(command: str) -> subprocess.CompletedProcess[str]:
+    shell = (["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", f"{command}; exit $LASTEXITCODE"]
+             if os.name == "nt" else ["sh", "-c", command])
+    return subprocess.run(shell, capture_output=True, text=True, timeout=30, check=False)
+
+
+@pytest.mark.parametrize("db_name", ["core.db", "core.restore.tmp"])
+def test_printed_backup_and_restore_replace_the_selected_store(tmp_path, monkeypatch, capsys, db_name):
+    from peerhub.cli import update
+
+    monkeypatch.setattr(update, "_blocking_processes", lambda: [])
+    workspace = Workspace(tmp_path / "workspace [with 'quotes' and ’quotes’]")
+    db = workspace.root / db_name
+    store = CoreStore(db)
+    original = store.register_peer(Peer(peer_id="saved", display_name="Before backup"))
+    generation = workspace.generation()
+
+    assert main(["--db", str(db), "update", "--plan", "--json"]) == 0
+    backup = json.loads(capsys.readouterr().out)["commands"][0]
+    separator = "; if ($?) { " if os.name == "nt" else " && "
+    restore, delimiter, _ = backup["restore"]["command"].partition(separator)
+    assert delimiter and restore.startswith("python -c ")
+
+    result = _run_printed_python(backup["command"])
+    assert result.returncode == 0, result.stderr
+    (snapshot,) = workspace.root.glob(db.name + update.UPDATE_BACKUP_SUFFIX.format(timestamp="*"))
+    backup_bytes = snapshot.read_bytes()
+    assert CoreStore(snapshot, readonly=True).get_peer(original.peer_id) == original
+
+    changed = store.register_peer(Peer(peer_id=original.peer_id, display_name="After backup"))
+    assert changed != original
+    rerun = _run_printed_python(backup["command"])
+    assert rerun.returncode != 0 and "FileExistsError" in rerun.stderr
+    assert snapshot.read_bytes() == backup_bytes
+
+    result = _run_printed_python(restore)
+    assert result.returncode == 0, result.stderr
+    assert workspace.generation() != generation
+    with pytest.raises(StoreReplacedError):
+        store.get_peer(original.peer_id)
+    assert CoreStore(db, readonly=True).get_peer(original.peer_id) == original
+    assert snapshot.read_bytes() == backup_bytes
 
 
 def test_plan_reads_committed_wal(tmp_path, monkeypatch, capsys):

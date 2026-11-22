@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pytest
 
+from peerhub.cli import update
+from peerhub.cli.store_select import DEFAULT_DB_PATH
+
 pytestmark = [pytest.mark.unit]
 
 README = (Path(__file__).resolve().parents[3] / "README.md").read_text(encoding="utf-8")
@@ -28,9 +31,13 @@ def test_first_ask_with_an_explicit_store_comes_before_the_core_recipe():
 
 def test_upgrade_says_how_to_back_up_check_and_restore():
     upgrade = _section("### Upgrade")
-    for needle in ("peerhub update --plan", ".pre-update.bak", "peerhub diag health", "peerhub explain store-and-upgrade"):
+    for needle in ("peerhub update --plan", "peerhub diag health", "peerhub explain store-and-upgrade"):
         assert needle in upgrade
-    assert upgrade.index("peerhub update --plan") < upgrade.index("pip install -U peerhub") < upgrade.rindex(".pre-update.bak")
+    backup = DEFAULT_DB_PATH + update.UPDATE_BACKUP_SUFFIX.format(timestamp="<UTC time>")
+    assert upgrade.index("peerhub update --plan") < upgrade.index(backup) < upgrade.index("pip install -U peerhub")
+    restore = upgrade[upgrade.index("**Check, or restore**"):]
+    assert "printed restore command" in restore and "fences old clients" in restore
+    assert "workspace.generation" in restore and "peerhub diag health" in restore
 
 
 def test_readme_does_not_send_ai_sessions_to_the_monitor():

@@ -1,8 +1,8 @@
 """Workspace identity / generation (SQL-009/010, TD-04).
 
-A workspace is a directory holding `core.db` and `workspace.generation`. The generation identifies one lineage of the
-authoritative state; a supported restore/replacement assigns a NEW generation, so every owner/session token minted
-under the previous generation is stale.
+A workspace holds a Core database (normally `core.db`) and `workspace.generation`. The generation identifies one
+lineage of the authoritative state. A supported restore or replacement assigns a new generation, so every owner or
+session token minted under the previous generation is stale.
 """
 from __future__ import annotations
 
@@ -63,11 +63,13 @@ def recover_interrupted_restore(root: Path) -> bool:
 
 
 class Workspace:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, db_name: str = "core.db") -> None:
+        if db_name in ("", ".", "..") or Path(db_name).name != db_name:
+            raise ValueError("db_name must be a filename in the workspace directory")
         recover_interrupted_restore(Path(root))
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
-        self.db_path = self.root / "core.db"
+        self.db_path = self.root / db_name
         self._gen = self.root / "workspace.generation"
         if not self._gen.exists():
             self._write_generation(uuid.uuid4().hex, create_only=True)
@@ -129,9 +131,11 @@ class Workspace:
             if fault is not None:
                 fault(point)
 
-        tmp = self.root / "core.restore.tmp"
+        # Stage beside the selected database without reserving a fixed database filename.
+        tmp = self.root / f"core.restore-{uuid.uuid4().hex}.tmp"
+        output = tmp.open("xb")
         try:
-            with open(snapshot, "rb") as src, open(tmp, "wb") as dst:
+            with output as dst, open(snapshot, "rb") as src:
                 shutil.copyfileobj(src, dst)
                 dst.flush()
                 os.fsync(dst.fileno())
