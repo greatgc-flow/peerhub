@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- `peerhub explain parallel-quota`: the loop for spreading parallel work over the least quota (read POOLS use-first, one task per pool, manifests of at most 3, re-read, defer when every pool is out or fast). The guide names it; no new command.
+
 ## [0.26.5] - 2026-11-21
 
 ### Changed

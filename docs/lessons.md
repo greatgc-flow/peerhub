@@ -205,6 +205,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Splitting one task into several cx asks did not save quota. Have cheap pools (ag) produce drafts and cross-reviews first, then give the scarce peer one consolidated verify-and-integrate pass; check capacity before a big ask and prefer waiting for a reset over stopping mid-task. In-session timers die with the session: for delayed starts use a background job that outlives the wait, or re-check at the next session start.
 - Issue: #288
 
+## Spread parallel work over the least quota (`parallel-quota`)
+
+- Keywords: parallel, quota, pace, pools, batch, loop, distribute, minimal
+- Symptom: Several tasks can run at once and the caller wants them spread over the pools with the most spare quota, spending as little as possible.
+- Fix: Loop: (1) peerhub monitor | head -20 reads POOLS in one frame (quota age over 5m: peerhub monitor --probe | head -20); POOLS is already use-first: lowest 7D PACE first (+ = ahead of even burn; rank a family by its 7D parent, children share it), out last; skip out, fast, aged, stale, unknown, reset and <5% pools; 5H only gates. (2) Split the work into independent tasks (no shared files; each writer gets its own workspace, ag a private empty one), each at the lowest tier that fits, one fresh ask each with facts inline; give each vote a different model; tops only for design and final checks. (3) One task per pool, walking POOLS top-down; put at most 3 tasks in each manifest (cc 3/cx 3/ag 1), so a wave ends before you re-read: peerhub batch run tasks.json --batch-id ID --max-parallel 3 --dry-run, then run it. (4) After each wave read POOLS again: a pool that turned fast or out drops from the next wave; keep tasks small so one wave fits the quota left. (5) Every pool out or fast: defer, do not queue more. Do not resume a stream for a new task (resumed context is re-sent every turn).
+- Issue: owner request 2026-11-22
+
 ## Peer sub-agents inside one ask (`peer-subagents`)
 
 - Keywords: subagent, subagents, sub-agent, sub-agents, Agent, spawn_agent, invoke_subagent, multi_agent, fan-out, loop

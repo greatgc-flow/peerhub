@@ -1,0 +1,61 @@
+"""`peerhub explain parallel-quota`: the loop an AI follows to spread parallel work over the least quota.
+
+Hints only (no new command). Every number and direction is read from its one source, not retyped here.
+"""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+from peerhub.cli.app import main
+from peerhub.cli.lessons import lesson_by_id
+from peerhub.cli.monitor_view import POOLS_USE_FIRST_ASCENDING
+from peerhub.extensions.batch import RECOMMENDED_MAX_PARALLEL
+
+pytestmark = [pytest.mark.unit]
+
+REPO = Path(__file__).resolve().parents[3]
+TOPIC = "parallel-quota"
+
+
+def _text() -> str:
+    (lesson,) = lesson_by_id(TOPIC)
+    return " ".join(" ".join([lesson["title"], lesson["symptom"], lesson["fix"]]).split())
+
+
+def test_topic_exists_and_is_named_by_the_guide(capsys):
+    assert main(["guide"]) == 0
+    guide = capsys.readouterr().out
+    assert TOPIC in re.search(r"peerhub explain <topic> for: ([a-z0-9, -]+?);", guide).group(1).split(", ")
+    assert len(guide.replace("\r\n", "\n").encode("utf-8")) <= 1600
+
+
+def test_topic_is_the_loop_in_order():
+    text = _text()
+    steps = ["peerhub monitor", "POOLS", "independent", "--max-parallel", "again", "defer"]
+    positions = [text.index(step) for step in steps]
+    assert positions == sorted(positions), "read quota, pick pools, split, run a wave, re-read, defer when none"
+
+
+def test_topic_matches_the_pool_order_and_the_batch_cap():
+    text = _text()
+    assert ("lowest 7D PACE first" if POOLS_USE_FIRST_ASCENDING else "highest 7D PACE first") in text
+    assert f"--max-parallel {RECOMMENDED_MAX_PARALLEL}" in text
+    for skip in ("out", "fast", "aged", "stale", "<5%"):
+        assert skip in text
+    assert "5H only gates" in text
+
+
+def test_topic_names_the_cost_rules():
+    text = _text()
+    for rule in ("lowest tier that fits", "fresh", "facts inline", "different model", "no shared files",
+                 "peerhub monitor --probe"):
+        assert rule in text
+
+
+def test_agents_file_and_docs_point_to_the_topic():
+    docs = (REPO / "docs" / "lessons.md").read_text(encoding="utf-8")
+    assert f"(`{TOPIC}`)" in docs
+    assert f"peerhub explain {TOPIC}" in (REPO.parent / "AGENTS.md").read_text(encoding="utf-8")
