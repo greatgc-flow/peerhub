@@ -158,7 +158,7 @@ While 3P is low, explicitly use `ag.argon` only for tasks its measured capabilit
 
 If a provider throttles, reduce concurrency; do not reroute the same work to another peer.
 
-**J. Parallel work over the least quota** (advice only; `peerhub explain parallel-quota` is the same loop)
+**J. Parallel work over the least quota** (advice only; PeerHub gives the facts and the AI decides; `peerhub explain parallel-quota` has the same default plan)
 
 1. `peerhub diag --plan` (about 350 tokens; the AI query: pools from stored evidence, then the `load:` line with active asks, per-peer slots and free RAM, sampled now; `--json` has a `load` object). `peerhub monitor` is the human screen; AIs do not read it. Usable: `spend`, then `hold`; not usable: `rest`, `blocked`, `-` (n/a). Old or `(stale)` evidence: `peerhub observation refresh` (no model tokens), then read again.
 2. Order usable pools by 7D PACE, lowest first (`POOLS_USE_FIRST_ASCENDING` in `peerhub/cli/monitor_view.py` flips it); rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools.

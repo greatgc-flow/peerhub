@@ -35,7 +35,7 @@ def test_topic_exists_and_is_named_by_the_guide(capsys):
 
 def test_topic_is_the_loop_in_order():
     text = _text()
-    steps = ["peerhub diag --plan", "spend (PACE", "independent", "--max-parallel", "diag --plan again", "defer"]
+    steps = ["peerhub diag --plan", "independent", "--max-parallel", "diag --plan again", "defer"]
     positions = [text.index(step) for step in steps]
     assert positions == sorted(positions), "read quota, pick pools, split, run a wave, re-read, defer when none"
 
@@ -45,7 +45,7 @@ def test_topic_matches_the_pool_order_and_the_batch_cap():
     assert ("lowest 7D PACE first" if POOLS_USE_FIRST_ASCENDING else "highest 7D PACE first") in text
     assert "--max-parallel n" in text and "n = " in text, "the wave size n is open, not fixed"
     assert f"{RECOMMENDED_MAX_PARALLEL} keeps one slot free" in text
-    for limit in (f"active asks {L.ACTIVE_ASKS_DEFAULT}, ceiling {L.ACTIVE_ASKS_CEILING}", *(f"{p} {L.PER_PEER_LIMITS[p]}" for p in L.CLI_PEERS)):
+    for limit in (f"active asks {L.ACTIVE_ASKS_DEFAULT} default, ceiling {L.ACTIVE_ASKS_CEILING}", *(f"{p} {L.PER_PEER_LIMITS[p]}" for p in L.CLI_PEERS)):
         assert limit in text
     assert "at most 3 tasks" not in text
     for word in ("spend", "hold", "rest", "blocked", "stale", "<5%"):
@@ -95,3 +95,9 @@ def test_docs_derive_the_limits_from_the_one_source():
     assert f"| Per peer | {per_peer} " in doc
     assert f"| Free RAM | keep at least {L.MIN_FREE_RAM_GB} GB |" in doc
     assert "the `load:` line" in doc and "human screen" in (REPO / "docs" / "monitor.md").read_text(encoding="utf-8")
+
+
+def test_topic_gives_facts_and_leaves_the_decision_to_the_ai():
+    text = _text()
+    assert "You decide" in text and "default" in text
+    assert "must" not in text and "do not start more" not in text
