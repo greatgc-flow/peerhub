@@ -141,7 +141,7 @@ Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepth
    (formatting), `effort` (writing) or `deepthink` (technical claims); code = `effort`, escalate to
    `deepthink`; review = `deepthink` from an independent reviewer; design/debate = `deepthink` or an explicit top.
 2. Drop candidates with any applicable pool that has stale evidence (regardless of `STATE` shown, since a stale pool can display `low` or `fast`; check `AGE` and the `PEERS` `(aged)` tag) or is `?`, `aged`, `reset`, or under 5% LEFT, and prefer candidates without a `fast` pool (see `peerhub monitor`).
-3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`.
+3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`. This rule ranks the candidates for a single ask (the `suggest:` line); a wave of several tasks uses section J (lowest 7D PACE first, then size n), so the two answer different questions.
 
 The monitor's `suggest:` line lists the best eligible profile per tier. Among
 eligible candidates, those without an applicable `fast` pool rank first, then
@@ -166,7 +166,7 @@ For an AI planning a parallel wave, `peerhub explain parallel-quota` is the reci
 
 If a provider throttles, reduce concurrency; do not reroute the same work to another peer.
 
-**J. Parallel work over the least quota** (advice only; PeerHub gives the facts and the AI decides; `peerhub explain parallel-quota` has the same default plan)
+**J. Parallel work over the least quota** (rule H picks the peer for a single ask; J sizes and orders a wave; advice only; PeerHub gives the facts and the AI decides; `peerhub explain parallel-quota` has the same default plan)
 
 1. `peerhub diag --plan` (about 350 tokens; the AI query: pools from stored evidence, then the `load:` line with active asks, per-peer slots and free RAM, sampled now; `--json` has a `load` object). `peerhub monitor` is the human screen; AIs do not read it. Usable: `spend`, then `hold`; not usable: `rest`, `blocked`, `-` (n/a). Old or `(stale)` evidence: `peerhub observation refresh` (no model tokens), then read again.
 2. Order usable pools by 7D PACE, lowest first (`POOLS_USE_FIRST_ASCENDING` in `peerhub/cli/monitor_view.py` flips it); rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools. A weekly JSON row can show `hold` while its `gates` list reports a short window that has reset. See the lesson for the other JSON row fields.

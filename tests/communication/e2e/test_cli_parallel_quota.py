@@ -137,3 +137,11 @@ def _help_top(capsys) -> str:
 def test_topic_says_the_json_rows_name_their_profiles():
     text = _text()
     assert "--json" in text and "profiles" in text and "load object" in text
+
+
+def test_section_h_and_j_say_which_ranking_each_one_is_for():
+    doc = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
+    h = doc[doc.index("**H. Balancing rule**"):doc.index("**I. Concurrency**")]
+    j = doc[doc.index("**J. Parallel work"):]
+    assert "`suggest:`" in h and "single ask" in h and "wave" in h and "lowest 7D PACE" in h
+    assert "rule H" in j and "single ask" in j

@@ -7,7 +7,7 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from peerhub.extensions.diag import ReadonlyDiag
 
@@ -98,16 +98,20 @@ def free_ram_bytes() -> int | None:
         return None
 
 
-def sample_load(db_path: str | Path, *, read_at: float | None = None) -> dict[str, Any]:
+def sample_load(db_path: str | Path, *, read_at: float | None = None,
+                pools_of_profile: Mapping[str, list[str]] | None = None) -> dict[str, Any]:
     """The load now: lease-active asks per peer (the rows `diag running` lists) and free RAM. Read-only."""
     from peerhub.core.load_limits import load_snapshot
     report = running_report(db_path, read_at=read_at, limit=LOAD_ROW_LIMIT)
     if report["status"] != "OK" or report["truncated"]:  # a failed or cut-off read is not a count: show ?, never 0
         return load_snapshot(None, free_ram_bytes())
     counts: dict[str, int] = {}
+    by_pool: dict[str, int] = {}
     for row in report["rows"]:
         counts[row["peer_id"]] = counts.get(row["peer_id"], 0) + 1
-    return load_snapshot(counts, free_ram_bytes())
+        for pool in (pools_of_profile or {}).get(row.get("profile") or "", []):
+            by_pool[pool] = by_pool.get(pool, 0) + 1
+    return load_snapshot(counts, free_ram_bytes(), by_pool)
 
 
 def _secs(value: float | None) -> str:

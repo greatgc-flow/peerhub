@@ -12,6 +12,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- `diag --plan` load line adds `in flight POOL N` (and `by_pool` in `--json`): lease-active asks per quota pool, the spend the readings do not show yet. Docs sections H and J say which ranking answers which question.
 - `diag --plan`: a pool is `rest` only above PACE +20 (was +10; owner: up to +20 ahead of an even burn is fine); `--json` rows add `profiles`; README gets a First ask section and an upgrade plan with a real restore step.
 - `diag --plan --json` reports quota age, TTL, FAST state, family and parent per pool, with unavailable sibling windows listed on weekly rows.
 - `peerhub batch run` reports dry-run workload and workspace warnings, summarizes execution outcomes, and shows the manifest shape in help.

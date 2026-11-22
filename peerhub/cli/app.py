@@ -125,7 +125,7 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 
 class _BatchRunParser(_ArgumentParser):
-    def format_help(self) -> str:
+    def format_help(self, *args: Any, **kwargs: Any) -> str:
         # Core commands build the parser even when extensions are disabled.
         try:
             from peerhub.extensions.batch import manifest_help
@@ -133,7 +133,7 @@ class _BatchRunParser(_ArgumentParser):
             pass
         else:
             self.epilog = manifest_help()
-        return super().format_help()
+        return super().format_help(*args, **kwargs)
 
 
 def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
@@ -610,15 +610,16 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         from peerhub.cli.view import FrameOutput, plan_data, render_plan
         from peerhub.extensions.diag_running import sample_load
         rep = ReadonlyDiag(args.db).render(["resource_pools", "observations"], include_quota_samples=args.json)
-        load = sample_load(args.db)
+        from peerhub.extensions.adapters.profiles import list_profiles
+        pools_of_profile: dict[str, list[str]] = {}
+        for profile in list_profiles(Path.cwd()):
+            pools_of_profile[str(profile["profile"])] = [str(pool) for pool in cast("list[object]", profile["fields"]["pools"]["value"] or [])]
+        load = sample_load(args.db, pools_of_profile=pools_of_profile)
         profiles_by_pool: dict[str, list[str]] = {}
-        if args.json:
-            from peerhub.extensions.adapters.profiles import list_profiles
-            for profile in list_profiles(Path.cwd()):
-                pools = cast("list[object]", profile["fields"]["pools"]["value"] or [])
-                for pool in pools:
-                    profiles_by_pool.setdefault(str(pool), []).append(str(profile["profile"]))
-            profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
+        for name, pools in pools_of_profile.items():
+            for pool in pools:
+                profiles_by_pool.setdefault(pool, []).append(name)
+        profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
         print(json.dumps(plan_data(rep, store, load, profiles_by_pool), indent=2, ensure_ascii=True) if args.json else
               render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
                           store_note=store_note, load=load), flush=True)

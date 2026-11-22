@@ -101,3 +101,22 @@ def test_plan_json_rows_name_the_profiles_that_use_each_pool(plan_store, capsys,
     assert all(isinstance(row["profiles"], list) for row in rows.values())
     assert any(name.startswith("cc.") for name in rows["C-7D"]["profiles"])
     assert rows["C-7D"]["profiles"] == sorted(rows["C-7D"]["profiles"])
+
+
+def test_in_flight_asks_are_counted_per_pool_as_a_fact():
+    load = L.load_snapshot({"cx": 2, "cc": 1}, 12 * GB, {"X-7D": 2, "C-7D": 1})
+    assert load["by_pool"] == {"X-7D": 2, "C-7D": 1}
+    line = L.format_load(load)
+    assert "in flight C-7D 1, X-7D 2" in line and line.index("in flight") < line.index("free RAM")
+    assert "in flight" not in L.format_load(L.load_snapshot({"cx": 0}, 12 * GB, {}))
+    assert L.load_snapshot(None, None)["by_pool"] is None
+
+
+def test_sample_load_maps_running_profiles_to_pools(monkeypatch):
+    from peerhub.extensions import diag_running
+    rows = [{"peer_id": "cx", "profile": "cx.effort"}, {"peer_id": "cx", "profile": "cx.effort"},
+            {"peer_id": "cc", "profile": "cc.standard"}, {"peer_id": "ag", "profile": None}]
+    monkeypatch.setattr(diag_running, "running_report", lambda db, **kw: {"status": "OK", "rows": rows, "truncated": False})
+    monkeypatch.setattr(diag_running, "free_ram_bytes", lambda: 8 * GB)
+    load = diag_running.sample_load("x.db", pools_of_profile={"cx.effort": ["X-7D"], "cc.standard": ["C-7D", "F-7D"]})
+    assert load["by_pool"] == {"X-7D": 2, "C-7D": 1, "F-7D": 1}
