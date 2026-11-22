@@ -201,7 +201,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge",
                                      description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Select --fresh or an exact --session HANDLE. Results include a session handle and mode.")
     ask_parser.add_argument("peer", help=f"Peer ID (built-ins: {', '.join(BUILTIN_PEER_LABELS)})")
-    ask_parser.add_argument("prompt", nargs="?")
+    ask_parser.add_argument("prompt", nargs="?", help="Prompt text (exclusive with --query-file)")
     ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
     ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat; ca, oa and ga: peer:<id>:<request-id>, one ask per stream)")
     ask_parser.add_argument("--request-id", help="Reuse on retries; uncertain execution is never replayed automatically")
@@ -258,8 +258,9 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     profile_show.add_argument("profile")
     profile_show.add_argument("--workspace", type=Path, default=None, help="Workspace whose profile files apply (default: current directory)")
     profile_show.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
-    profile_sub.add_parser("stats", help="Aggregate stored ask measurements by profile")
-    profile_sub.add_parser("check", help="Check installed model IDs and measurement age")
+    for name, text in (("stats", "Aggregate stored ask measurements by profile"), ("check", "Check installed model IDs and measurement age")):
+        profile_sub.add_parser(name, help=text).add_argument(
+            "--workspace", type=Path, default=None, help="Workspace whose profile files apply (default: current directory)")
 
     outcome = subparsers.add_parser("outcome", help="Append an outcome correction to a stored ask")
     outcome.add_argument("ask_id", help="Ask ID from the receipt or requested_record_id in ask JSON")
@@ -289,9 +290,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     register_monitor_parser(subparsers)
 
     # diag
-    diag_parser = subparsers.add_parser("diag", help="Readonly diagnostics")
+    diag_parser = subparsers.add_parser("diag", help="Read-only, low-token diagnostics for AI agents (humans use `peerhub monitor`)")
+    diag_parser.description = "Read-only, low-token diagnostics for AI agents; `diag --plan` is the one command to size parallel work. Humans use `peerhub monitor`."
     diag_parser.add_argument("--json", action="store_true")
-    diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence")
+    diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence (a human fallback: `peerhub monitor` is the human screen)")
     diag_parser.add_argument("--interval-seconds", type=float, default=2, help="Live snapshot interval (positive seconds)")
     diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain", help="Dashboard style: plain (ASCII), rich (bars, pace and alerts). With --live, snapshots every N s: TTY with VT overwrites in place; non-TTY or no VT appends without escapes. Monitor countdown redraw is at most 1 Hz")
     diag_parser.add_argument("--cycles", dest="count", type=int, default=0, help="Live snapshot count; 0 watches until interrupted")
@@ -330,6 +332,8 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                                                 "Claims are matched to the workspace.generation file beside the database; without that file all generations match. "
                                                 "Query cost grows with the delivery history of the live streams themselves (observed: about 45k SQLite VM steps at 9,000 rows in one stream). At most 20 rows, oldest first. Exit: 0 ok, 4 storage fault, 5 database unavailable, 6 schema version.")
     d_running.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    d_running.add_argument("--peer", help="Only this peer (exact match, e.g. cx)")
+    d_running.add_argument("--limit", type=int, default=None, help="Rows to read, 1 or more (default 20)")
     d_running.epilog = "examples: peerhub diag running | peerhub --db ws.db diag running --json"
 
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
@@ -643,7 +647,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         if not Path(args.db).is_file():
             report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source)
             return 5
-        rep = running_report(args.db)
+        rep = running_report(args.db, peer=args.peer, limit=args.limit)
         print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else format_running(rep))
         code = diag_quota.EXIT_BY_STATUS[rep["status"]]
         if code and not args.json:
@@ -892,7 +896,7 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
             if args.action == "check":
                 findings = check_profiles(profiles, stats, workspace)
                 if use_json:
-                    _emit(findings, True)
+                    _emit({**findings, "workspace": str(workspace)}, True)
                 else:
                     missing = ", ".join(f"{name} ({model})" for name, model in findings["missing_models"].items())
                     print("Missing from installed model lists | " + (missing or "-"))

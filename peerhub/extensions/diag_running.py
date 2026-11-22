@@ -71,8 +71,10 @@ def _row(raw: dict[str, Any], now: float) -> dict[str, Any]:
     }
 
 
-def running_report(db_path: str | Path, *, read_at: float | None = None) -> dict[str, Any]:
+def running_report(db_path: str | Path, *, read_at: float | None = None, peer: str | None = None,
+                   limit: int | None = None) -> dict[str, Any]:
     now = time.time() if read_at is None else read_at
+    limit = MAX_ROWS if limit is None or limit < 1 else limit
     # A claim stamped with another workspace generation (after a restore) is not live for the Bridge either (see bridge_claims).
     generation_file = Path(db_path).parent / "workspace.generation"
     try:
@@ -80,9 +82,10 @@ def running_report(db_path: str | Path, *, read_at: float | None = None) -> dict
     except OSError as exc:  # unreadable, or replaced by a restore mid-read: report it, never a traceback
         return {"schema_version": "1.0", "status": "FAILED", "basis": "lease", "read_at": now, "rows": [], "truncated": False,
                 "error": f"{type(exc).__name__}: workspace.generation unreadable"}
-    snap = ReadonlyDiag(db_path).running(read_at=now, limit=MAX_ROWS, workspace_generation=generation)
+    snap = ReadonlyDiag(db_path).running(read_at=now, limit=limit, workspace_generation=generation)
     return {"schema_version": "1.0", "status": snap["status"], "basis": "lease", "read_at": now,
-            "rows": [_row(r, now) for r in snap["rows"]], "truncated": snap["truncated"], "error": snap["error"]}
+            "rows": [_row(r, now) for r in snap["rows"] if peer is None or r["peer_id"] == peer], "truncated": snap["truncated"],
+            "error": snap["error"], "limit": limit, "peer": peer}
 
 
 def free_ram_bytes() -> int | None:
@@ -127,7 +130,7 @@ def format_running(report: dict[str, Any]) -> str:
         widths = [max(len(str(line[i])) for line in table) for i in range(len(table[0]))]
         lines += ["  ".join(str(cell).ljust(w) for cell, w in zip(line, widths)).rstrip() for line in table]
         if report["truncated"]:
-            lines.append(f"(more rows not shown; limit {MAX_ROWS})")
+            lines.append(f"(more rows not shown; limit {report.get('limit', MAX_ROWS)})")
     elif report["status"] == "OK":
         lines.append("(none)")
     return "\n".join(lines)  # a failed read prints its error once, on stderr (see the CLI), never an empty "(none)"

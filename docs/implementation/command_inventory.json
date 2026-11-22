@@ -479,6 +479,26 @@
           "positional": false,
           "required": false,
           "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "limit",
+          "flags": [
+            "--limit"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "peer",
+          "flags": [
+            "--peer"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
         }
       ]
     },
@@ -924,6 +944,16 @@
           "positional": false,
           "required": false,
           "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "workspace",
+          "flags": [
+            "--workspace"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
         }
       ]
     },
@@ -999,6 +1029,16 @@
           "positional": false,
           "required": false,
           "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "workspace",
+          "flags": [
+            "--workspace"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
         }
       ]
     },

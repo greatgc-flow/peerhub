@@ -10,6 +10,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- CLI audit (three peer reviews, #446): `profile stats/check --workspace` (as `list/show`), `diag running --peer/--limit` (its JSON adds `limit` and `peer`), `profile check --json` adds `workspace`; clearer help for `ask` and `diag` (`diag` is the low-token command for AIs, `peerhub monitor` the human screen). Other findings are listed in #446.
 - `peerhub diag --plan` ends with a `load:` line (`--json`: a `load` object): lease-active asks against the limits, per-peer slots and free RAM, sampled at query time; the numbers live in `peerhub/core/load_limits.py`. `peerhub monitor` is documented as the human screen and the guide tells AIs to read `diag --plan`.
 - `peerhub explain parallel-quota`: the loop for spreading parallel work over the least quota (read POOLS use-first, one task per pool, waves of n tasks as quota and load allow, re-read, defer when every pool is out or fast). The guide names it; no new command.
 

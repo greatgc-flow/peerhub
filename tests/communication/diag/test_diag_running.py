@@ -220,7 +220,7 @@ def test_report_has_no_progress_or_staleness_fields(db):
     rep = report(db)
     assert set(rep["rows"][0]) == {"peer_id", "profile", "binding", "stream_id", "request_id", "delivery_id", "certainty",
                                    "started_at", "elapsed_s", "lease_expires_in_s"}
-    assert set(rep) == {"schema_version", "status", "read_at", "rows", "truncated", "error", "basis"}
+    assert set(rep) == {"schema_version", "status", "read_at", "rows", "truncated", "error", "basis", "limit", "peer"}
 
 
 def test_missing_bridge_tables_is_empty_not_an_error(tmp_path):
