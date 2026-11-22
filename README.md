@@ -426,6 +426,8 @@ peerhub diag running
 
 # Per-pool spend/hold/rest/blocked with target %/h until reset (stored observations only)
 peerhub diag --plan
+
+# Spread parallel work over the least quota: peerhub explain parallel-quota (docs/batch.md J)
 ```
 
 ### Upgrade
