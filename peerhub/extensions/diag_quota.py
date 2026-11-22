@@ -115,16 +115,29 @@ def _reset_credit_view(it: dict[str, Any], now: float) -> dict[str, Any]:
             "warn": left_n is not None and left_n < RESET_CREDIT_WARN_SECONDS, "credits": credits}
 
 
-def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | None = None,
+def read_quota_snapshot(db_path: str | Path, *, read_at: float | None = None, policy: FreshnessPolicy | None = None,
+                        include_quota_samples: bool = False) -> DiagnosticReport:
+    """Read pools and observations together on the diagnostic read-only connection."""
+    reader = ReadonlyDiag(db_path, policy=policy)
+    sections = ["resource_pools", "observations"]
+    if include_quota_samples:
+        read_options = {"read_at": read_at} if read_at is not None else {}
+        return reader.render(sections, include_quota_samples=True, **read_options)
+    return reader.render(sections, read_at=read_at)
+
+
+def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | None = None, max_age_seconds: int | None = None,
                  read_at: float | None = None, policy: FreshnessPolicy | None = None) -> dict[str, Any]:
     now = time.time() if read_at is None else read_at
     db = str(db_path)
     out: dict[str, Any] = {"schema_version": SCHEMA_VERSION, "status": "OK", "source_db": db, "read_at": now,
                            "filters": {"peer": peer, "pool": pool}, "overall": "UNKNOWN", "pools": [], "reset_credits": [], "error": None}
+    if max_age_seconds is not None:
+        out["hidden_count"] = 0
     if not Path(db).is_file():  # never open (and thereby never create) a missing database
         out.update(status="UNAVAILABLE", error=f"database not found: {db}")
         return out
-    rep = ReadonlyDiag(db, policy=policy).render(["resource_pools", "observations"], read_at=now)
+    rep = read_quota_snapshot(db, policy=policy, read_at=now)
     status, err = _classify(rep, db)
     if status != "OK":
         out.update(status=status, error=err)
@@ -143,10 +156,18 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
             continue
         if (peer is not None and it["subject_ref"] != peer) or (pool is not None and it["resource_pool_ref"] != pool):
             continue
+        items = groups.setdefault(it["resource_pool_ref"], [])
+        if max_age_seconds is not None:
+            age = _num(it["age_seconds"])
+            if age is None:
+                continue
+            if age > max_age_seconds:
+                out["hidden_count"] += 1
+                continue
         meas = _measurements(it["payload"])
         der = _derived(meas)
         proj = projection(it, now)
-        groups.setdefault(it["resource_pool_ref"], []).append({
+        items.append({
             "subject_ref": it["subject_ref"], "resource_pool_ref": it["resource_pool_ref"], "kind": it["kind"], "state": it["state"],
             "age_seconds": it["age_seconds"], "source": it["source"], "measurements": meas, "derived": der,
             "window": {k: it["payload"][k] for k in ("window_started_at", "resets_at") if k in it["payload"]},
@@ -158,6 +179,8 @@ def quota_report(db_path: str | Path, *, peer: str | None = None, pool: str | No
                 groups[pid] = [{"subject_ref": None, "resource_pool_ref": pid, "kind": p["kind"].lower(), "state": "UNKNOWN", "age_seconds": None,
                                 "source": None, "measurements": {}, "derived": {},
                                 "projection": project_exhaustion(None, None, None, None, now, evidence_state="UNKNOWN")}]
+    # A pool with filtered evidence must not be synthesized as a pool with no evidence.
+    groups = {ref: items for ref, items in groups.items() if items}
     _limit_scoped(groups)
     pools: list[dict[str, Any]] = [{"resource_pool_ref": k, "items": groups[k]} for k in sorted(groups, key=lambda x: (x is None, x or ""))]
     out["pools"] = pools
@@ -214,8 +237,10 @@ def observations_summary(db_path: str | Path, *, read_at: float | None = None) -
     return out
 
 
-def format_quota_table(rep: dict[str, Any]) -> str:
+def format_quota_table(rep: dict[str, Any], *, max_age_seconds: int | None = None) -> str:
     lines = [f"quota/rate-limit evidence (read-only, no refresh) source={rep['source_db']} status={rep['status']} overall={rep['overall']}"]
+    if max_age_seconds is not None:
+        lines[0] += f" | hidden: {rep['hidden_count']} older than {max_age_seconds}s"
     age = oldest_measured_quota_age(i for group in rep["pools"] for i in group["items"])
     if notice := quota_stale_line(age):
         lines.insert(0, notice)

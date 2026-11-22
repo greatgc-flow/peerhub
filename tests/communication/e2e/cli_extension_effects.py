@@ -121,6 +121,44 @@ def diag_plan(e):
     assert db.read_bytes() == before
 
 
+def diag_plan_filter_effect(e, option):
+    from peerhub.extensions.observation import ObservationStore
+    from tests.communication.e2e.test_cli_diag_quota import seed
+
+    db = e.fresh()
+    seed_view_pool(db)
+    baseline = e.j(db, "diag", "--plan")
+    if option == "--peer":
+        result = e.j(db, "diag", "--plan", option, baseline["pools"][0]["peer"] + "-other")
+        assert baseline["pools"] and result["pools"] == []
+        return
+
+    alternate = e.fresh()
+    ObservationStore(alternate)
+    pool, peer, remaining = "alternate-5H", "alternate-peer", 0.25
+    seed(alternate, pools=[(pool, "QUOTA")], rows=[
+        (peer, "quota", pool, "MEASURED", 5, {"remaining_fraction": remaining}, "alternate-fixture"),
+    ])
+    before = (db.read_bytes(), alternate.read_bytes())
+    result = e.j(db, "diag", "--plan", option, str(alternate))
+    assert result["store_selection"] == baseline["store_selection"]
+    assert [(row["peer"], row["pool"], row["left_pct"]) for row in result["pools"]] == [
+        (peer, pool, remaining * 100),
+    ]
+    assert result["pools"] != baseline["pools"]
+    assert (db.read_bytes(), alternate.read_bytes()) == before
+
+
+def diag_quota_age_effect(e):
+    db = e.fresh()
+    seed_view_pool(db)
+    baseline = e.j(db, "diag", "quota")
+    items = [item for group in baseline["pools"] for item in group["items"]]
+    cutoff = min(int(item["age_seconds"]) for item in items) - 1
+    result = e.j(db, "diag", "quota", "--max-age-seconds", str(cutoff))
+    assert result["pools"] == [] and result["hidden_count"] == len(items)
+
+
 def readiness_json(e):
     from peerhub.extensions.observation import ObservationStore
 
@@ -668,6 +706,9 @@ EFFECT.update({f"account {action} {option}": (lambda e, action=action, option=op
 EFFECT["ask --dry-run"] = ask_dry_run_effect
 EFFECT["diag --json"] = diag_json
 EFFECT["diag --plan"] = diag_plan
+EFFECT.update({f"diag {option}": (lambda e, option=option: diag_plan_filter_effect(e, option))
+               for option in ("--peer", "--observation-db")})
+EFFECT["diag quota --max-age-seconds"] = diag_quota_age_effect
 EFFECT["diag readiness --json"] = readiness_json
 EFFECT["diag running --json"] = running_json
 EFFECT.update({f"diag {option}": (lambda e, option=option: diag_live(e, option))

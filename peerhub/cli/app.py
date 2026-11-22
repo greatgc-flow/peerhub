@@ -66,6 +66,17 @@ def _page_limit(value: str) -> int:
     return limit
 
 
+def _nonnegative_seconds(value: str) -> int:
+    message = "seconds must be a non-negative integer"
+    try:
+        seconds = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(message) from exc
+    if seconds < 0:
+        raise argparse.ArgumentTypeError(message)
+    return seconds
+
+
 def _session_page_limit(value: str) -> int:
     try:
         limit = int(value)
@@ -342,6 +353,11 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                              help="Number of live snapshots (default %(default)s, watch until interrupted)")
     diag_parser.add_argument("--plan", action="store_true",
                              help="Per-pool spend/hold/rest/blocked with target %%/h until reset, from stored observations only (no refresh)")
+    diag_parser.add_argument("--peer", dest="plan_peers", action="append", metavar="PEER",
+                             help="With --plan, show only these subjects (exact match, repeatable)")
+    diag_parser.add_argument("--observation-db", dest="plan_obs_db", metavar="PATH",
+                             help="With --plan, read observations from this other workspace database (read-only, never created). "
+                                  "Load still comes from the selected store.")
     diag_parser.epilog = "examples: peerhub diag | peerhub diag --json | peerhub diag --live | peerhub observation refresh | peerhub monitor (collects quota evidence every cycle and draws the dashboard)"
     diag_sub = diag_parser.add_subparsers(dest="action", required=False)
     
@@ -361,6 +377,8 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                          help="Read observations from this OTHER PeerHub workspace database (opened read-only, never created); default: the --db database")
     d_quota.add_argument("--peer", default=None, help="Only this subject_ref (exact match)")
     d_quota.add_argument("--pool", default=None, help="Only this resource_pool_ref (exact match)")
+    d_quota.add_argument("--max-age-seconds", type=_nonnegative_seconds, metavar="N",
+                         help="Show quota and rate-limit observations at most N seconds old (default: any age)")
     d_quota.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
     d_quota.epilog = "examples: peerhub --db ws.db diag quota --json | peerhub --db ws.db diag quota --pool P --observation-db other_ws.db"
     d_readiness = diag_sub.add_parser("readiness", help="Cached profile readiness (read-only; never probes)")
@@ -633,10 +651,16 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         parser.error("--cycles/--interval-seconds require --live")
     if args.plan and (args.live or args.action is not None):
         parser.error("--plan is a one-shot snapshot; it cannot be combined with --live or diag subcommands")
+    if not args.plan and (args.plan_peers is not None or args.plan_obs_db is not None):
+        parser.error("diag --peer and --observation-db require --plan")
     from peerhub.cli.store_select import env_override_note, report_missing_store
     db_source = getattr(args, "db_source", None)
     is_explicit = db_source in ("explicit", "env")
-    if args.action is None and report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
+    obs_db = _resolve_db_path(args.plan_obs_db, use_env=False, discover=False) if args.plan_obs_db else None
+    if args.action is None and report_missing_store(
+        obs_db or args.db, json_output=args.json, selected=is_explicit or obs_db is not None,
+        source="explicit" if obs_db is not None else db_source,
+    ):
         return 5
     try:
         from peerhub.extensions.diag import ReadonlyDiag
@@ -651,7 +675,8 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         from peerhub.extensions.adapters.profiles import list_profiles
         from peerhub.extensions.diag_running import sample_load
 
-        rep = ReadonlyDiag(args.db).render(["resource_pools", "observations"], include_quota_samples=True)
+        rep = diag_quota.read_quota_snapshot(obs_db or args.db, include_quota_samples=True)
+        peers = frozenset(args.plan_peers or ())
         pools_of_profile: dict[str, list[str]] = {}
         for profile in list_profiles(Path.cwd()):
             pools_of_profile[str(profile["profile"])] = [str(pool) for pool in cast("list[object]", profile["fields"]["pools"]["value"] or [])]
@@ -662,10 +687,11 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
                 profiles_by_pool.setdefault(pool, []).append(name)
         profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
         if args.json:
-            plan_output = json.dumps(plan_data(rep, store, load, profiles_by_pool), separators=(",", ":"), ensure_ascii=True)
+            plan_output = json.dumps(plan_data(rep, store, load, profiles_by_pool, peers=peers), separators=(",", ":"), ensure_ascii=True)
         else:
             plan_output = render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
-                                      store_note=store_note, load=load, profiles_by_pool=profiles_by_pool)
+                                      store_note=store_note, load=load, profiles_by_pool=profiles_by_pool,
+                                      peers=peers, separate_observation_store=obs_db is not None and obs_db != args.db)
         print(plan_output, flush=True)
         return 6 if rep.error and rep.error.startswith("SchemaVersionError") else 0 if rep.status == "OK" else 4
     if args.action is None:
@@ -721,9 +747,11 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         return code
     if args.action == "quota":  # pure reader: no CoreStore (it would create/migrate the database)
         report_missing_store(args.obs_db or args.db, selected=is_explicit or bool(args.obs_db), source="explicit" if args.obs_db else db_source)
-        rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool)
+        rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool,
+                                     max_age_seconds=args.max_age_seconds)
         code = {**diag_quota.EXIT_BY_STATUS, "PARTIAL": 4}[rep["status"]]
-        print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else diag_quota.format_quota_table(rep))
+        print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else
+              diag_quota.format_quota_table(rep, max_age_seconds=args.max_age_seconds))
         if code and Path(args.obs_db or args.db).is_file():
             _error_line("diag_unavailable", str(rep.get("error") or rep["status"]), "peerhub observation refresh")
         return code
