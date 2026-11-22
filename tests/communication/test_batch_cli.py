@@ -82,7 +82,9 @@ def test_dry_run_no_spawn_or_store(tmp_path, capsys, monkeypatch, peer, writable
     stream, request = batch.derive_ids("b1", "a")
     assert plan == {"dry_run": True, "batch_id": "b1", "max_parallel": 2, "tasks": [
         {"task_id": "a", "peer": peer, "stream": stream, "request_id": request, "writable": writable,
-         "profile": None, "workspace": os.path.normcase(os.path.realpath(Path.cwd()))}], "warnings": plan["warnings"]}
+         "profile": None, "profile_display": "(peer default)", "workspace": os.path.normcase(os.path.realpath(Path.cwd()))}], "warnings": plan["warnings"],
+        "active_now": plan["active_now"]}
+    assert plan["active_now"] is None or isinstance(plan["active_now"], int)
     assert isinstance(plan["warnings"], list)  # facts only (batch_run_facts); never changes the exit code
     assert not (tmp_path / "missing").exists()
 

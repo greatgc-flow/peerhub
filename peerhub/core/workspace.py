@@ -132,7 +132,7 @@ class Workspace:
                 fault(point)
 
         # Stage beside the selected database without reserving a fixed database filename.
-        tmp = self.root / f"core.restore-{uuid.uuid4().hex}.tmp"
+        tmp = self.root / ("core.restore.tmp" if self.db_path.name == "core.db" else f"{self.db_path.name}.restore.tmp")
         output = tmp.open("xb")
         try:
             with output as dst, open(snapshot, "rb") as src:
