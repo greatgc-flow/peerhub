@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import time
@@ -263,8 +264,17 @@ def test_update_plans_use_distinct_utc_backup_paths(monkeypatch):
         assert quoted_snapshot in plan["restore"]["command"]
 
 
+def _windows_powershell() -> str:
+    """The sandboxed release run strips PATH: find Windows PowerShell by its fixed system location when it is not on PATH."""
+    found = shutil.which("powershell.exe")
+    if found:
+        return found
+    root = os.environ.get("SystemRoot") or os.environ.get("windir") or r"C:\Windows"
+    return str(Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+
+
 def _run_printed_python(command: str) -> subprocess.CompletedProcess[str]:
-    shell = (["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", f"{command}; exit $LASTEXITCODE"]
+    shell = ([_windows_powershell(), "-NoProfile", "-NonInteractive", "-Command", f"{command}; exit $LASTEXITCODE"]
              if os.name == "nt" else ["sh", "-c", command])
     return subprocess.run(shell, capture_output=True, text=True, timeout=30, check=False)
 
