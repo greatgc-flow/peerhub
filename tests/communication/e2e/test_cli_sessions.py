@@ -172,6 +172,92 @@ def test_session_inspection_validates_receipt_identity_usage_and_context(tmp_pat
             assert telemetry["context"]["reason"] == "invalid_or_missing_receipt"
 
 
+
+@pytest.mark.parametrize(("provider", "has_receipt"), [("cc", True), ("cc", False), ("cx", True), ("ag", True)])
+def test_session_context_projection_preserves_zero_and_unknown(provider, has_receipt):
+    from contextlib import closing
+
+    from peerhub.cli.app import _session_public_row
+    from peerhub.extensions.session_receipts import CONTEXT_SOURCE, context_estimate
+
+    handle, generation = "sess_context", 1
+    tokens, window = 1, 200_000
+    estimate = context_estimate(tokens, window)
+    assert estimate is not None
+    observed_at = 100.0
+    detail = json.dumps({
+        "schema_version": 3, "handle": handle, "generation": generation, "provider_kind": provider,
+        "source": CONTEXT_SOURCE, "last_input_tokens": tokens, "context_window": window,
+        "context_pct": estimate[2], "observed_at": observed_at, "window_reported_at": observed_at,
+    }) if has_receipt else None
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT ? AS session_handle, ? AS session_generation, ? AS runtime_kind, ? AS telemetry_detail, "
+            "'stream' AS stream_id, ? AS peer_id, 'ACTIVE' AS state, 1 AS resumable, ? AS last_seen, "
+            "NULL AS context_watermark, NULL AS bootstrap_truncated, 1 AS context_watermark_version, "
+            "? AS created_at, NULL AS tombstoned_at",
+            (handle, generation, provider, detail, provider, observed_at, observed_at),
+        ).fetchone()
+    session = _session_public_row(row, now=observed_at - 1)
+    known = provider == "cc" and has_receipt
+    assert session["ctx_est_pct"] == (0 if known else None)
+    assert session["ctx_est_tokens"] == (tokens if known else None)
+    assert session["ctx_age_seconds"] == (0 if known else None)
+
+
+def test_session_context_estimate_matches_monitor_in_list_and_show(tmp_path, capsys):
+    from peerhub.extensions.monitor_read_model import render_monitor_frame
+
+    db = tmp_path / "core.db"
+    tokens, window = 30_000, 200_000
+    peers = ("cc", "cx", "ag")
+    for peer in peers:
+        runtime = FakeRuntimeTarget()
+        runtime.runtime_kind = peer
+        runtime.script_deliver(("started", "exec"), ("terminal", {
+            "response": "ok", "provider_telemetry": {"context": {"tokens": tokens, "window": window}},
+        }))
+        with patch("peerhub.extensions.ask.CliRuntimeTarget", return_value=runtime):
+            assert main(["--db", str(db), "ask", peer, "context check", "--stream", peer, "--writable", "--json"]) == 0
+        capsys.readouterr()
+
+    frame = render_monitor_frame(str(db), ["context"])
+    monitor_context = {row["peer_id"]: row["context"] for row in frame["groups"]["context"]["data"]["sessions"]}
+    cc_context = monitor_context["cc"]
+    assert cc_context["state"] == "ESTIMATED"
+    assert cc_context["occupancy_tokens"] == tokens
+    age_minutes = 10
+    age_seconds = age_minutes * 60
+    ctx_text = f"ctx {cc_context['percent']}% ({age_minutes}m ago)"
+
+    with patch("peerhub.cli.app.time", return_value=cc_context["observed_at"] + age_seconds):
+        assert main(["--db", str(db), "session", "list", "--json"]) == 0
+        listed = {row["peer_id"]: row for row in json.loads(capsys.readouterr().out)["items"]}
+        assert set(listed) == set(peers)
+        assert main(["--db", str(db), "session", "list"]) == 0
+        table = capsys.readouterr().out
+        assert table.count(ctx_text) == 1
+        for peer, row in listed.items():
+            context = monitor_context[peer]
+            expected = {
+                "ctx_est_pct": context["percent"],
+                "ctx_est_tokens": context["occupancy_tokens"],
+                "ctx_age_seconds": age_seconds if peer == "cc" else None,
+            }
+            show = ["--db", str(db), "session", "show", row["handle"]]
+            assert main([*show, "--json"]) == 0
+            shown = json.loads(capsys.readouterr().out)["session"]
+            assert {key: row[key] for key in expected} == {key: shown[key] for key in expected} == expected
+            assert main(show) == 0
+            text = capsys.readouterr().out
+            assert (ctx_text in text) == (peer == "cc")
+            assert all(key not in text for key in expected)
+
+        assert main(["--db", str(db), "session", "list", "--peer", "cx"]) == 0
+        assert "ctx " not in capsys.readouterr().out
+
+
 def test_session_inspection_refuses_future_schema(tmp_path, capsys):
     import sqlite3
 

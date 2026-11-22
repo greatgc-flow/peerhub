@@ -25,6 +25,7 @@ from peerhub.core.quota_policy import QUOTA_TTL_SECONDS as QUOTA_TTL_SECONDS
 
 from peerhub.core.models import assert_json_value, is_rfc3339
 from peerhub.core.wire import WireValidationError
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION as LOW_QUOTA_FRACTION  # re-exported; one source in core
 
 _SCHEMAS = Path(__file__).parent / "schemas"
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -129,7 +130,6 @@ ACCOUNT_TTL_SECONDS = 6 * 3600.0
 
 QUOTA_MAX_AGE_SECONDS = 15 * 60
 QUOTA_NOTICE_AGE_SECONDS = 60 * 60
-LOW_QUOTA_FRACTION = 0.10
 
 
 def quota_probe_timed_out(reason: object) -> bool:

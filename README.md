@@ -100,6 +100,9 @@ peerhub ask cx "Summarize this repository" --stream review --request-id review-0
 # Recommend a peer and print an ask command that reads review.txt.
 peerhub suggest --tier effort --task review
 
+# Show the tier's candidate profiles and the quota facts behind their eligibility.
+peerhub suggest --tier effort --task review --candidates
+
 # Explicit collection may contact provider CLIs.
 peerhub observation refresh --peers cx cc ag
 peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory
@@ -395,6 +398,7 @@ the handle later expires. Historical asks lacking complete selector identity met
 inspectable as Records but cannot be replayed through the new interface; do not
 retry uncertain work. Use `peerhub session list` and `peerhub session show`
 for bounded, read-only session inspection.
+Both commands show the monitor's stored context estimate and its age when available, with `ctx_est_pct`, `ctx_est_tokens`, and `ctx_age_seconds` in JSON (null when unknown).
 See the [registry contract](docs/implementation/RETAINED_SESSIONS.md).
 
 To create another generation on the same Stream, then return to the first

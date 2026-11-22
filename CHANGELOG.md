@@ -8,8 +8,14 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- `peerhub suggest --candidates` shows profile eligibility, quota facts and reasons for the selected tier, with the same facts in a `candidates` array when using `--json` (#446).
+- `session list` and `session show` report the monitor's stored context estimate and its age, with token count in JSON (#446).
+
 ### Fixed
 
+- `LOW_QUOTA_FRACTION` has one source in `peerhub/core/quota_policy.py` (the monitor, diag and suggest read it; `peerhub suggest` stays importable with the extensions disabled).
 - Monitor account snapshot tests use a fixed terminal width so the failed-probe row keeps its stale marker in parallel CI (#442).
 - `diag --plan` names only applicable table pools in the profiles footer and in-flight list, counts other mapped in-flight pools in an `n/a pools` clause, and keeps all per-pool counts in JSON.
 - `batch run --dry-run` gives one active-ask warning when the projected total exceeds the ceiling.
