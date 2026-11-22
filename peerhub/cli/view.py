@@ -258,7 +258,9 @@ def _eta(at: float, now: float, tz: tzinfo | None) -> str:
 class _Row:
     def __init__(self, item: Obj, read_at: float, tz: tzinfo | None = None) -> None:
         payload = _obj(item.get("payload"))
-        self.peer = _safe_text(item.get("subject_ref") or "?")
+        subject = item.get("subject_ref")
+        self.subject_ref = subject if isinstance(subject, str) else None
+        self.peer = _safe_text(subject or "?")
         self.ref = _safe_text(item.get("resource_pool_ref") or "?")
         self.pool = self.ref.rsplit(":", 1)[-1]
         self.state = _safe_text(item.get("state") or "UNKNOWN")
@@ -573,7 +575,7 @@ def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]], read_
 
 
 def _plan_pools(report: DiagnosticReport, *,
-                profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[dict[str, object]]:
+                profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[tuple[str | None, dict[str, object]]]:
     items = [i for i in _items(_section(report, "observations").get("items")) if i.get("kind") == "quota"]
     pools = [p for p in _items(_section(report, "resource_pools").get("pools")) if p.get("kind") == "QUOTA"]
     rows = _quota_rows(items, pools, report.read_at)
@@ -618,14 +620,15 @@ def _plan_pools(report: DiagnosticReport, *,
     if profiles_by_pool is not None:
         for row in out:
             row["profiles"] = list(profiles_by_pool.get(str(row["pool"]), []))
-    return out
+    return [(window[0].subject_ref, row) for window, row in zip(own, out)]
 
 
 def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
               load: Mapping[str, object] | None = None,
-              profiles_by_pool: Mapping[str, list[str]] | None = None) -> dict[str, object]:
+              profiles_by_pool: Mapping[str, list[str]] | None = None, *, peers: frozenset[str] = frozenset()) -> dict[str, object]:
     """`diag --plan --json`: read-only, from the stored observations of one snapshot."""
-    pools = _plan_pools(report, profiles_by_pool=profiles_by_pool)
+    pools = [row for peer, row in _plan_pools(report, profiles_by_pool=profiles_by_pool)
+             if not peers or peer in peers]
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
                                "store_selection": dict(store_selection), "legend": PLAN_LEGEND, "pools": pools}
     if load is not None:
@@ -635,12 +638,14 @@ def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
 
 def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None = None, store_path: str = "",
                 store_source: str = "", store_note: str = "", load: Mapping[str, Any] | None = None,
-                profiles_by_pool: Mapping[str, list[str]] | None = None) -> str:
+                profiles_by_pool: Mapping[str, list[str]] | None = None, peers: frozenset[str] = frozenset(),
+                separate_observation_store: bool = False) -> str:
     width = max(1, width)
     when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M%z")
     lines = _wrap(f"PeerHub plan {_safe_text(report.status)} {when} {_safe_text(store_path)} ({_safe_text(store_source)})", width)
     lines += _wrap(_safe_text(store_note), width) if store_note else []
-    pools = _plan_pools(report, profiles_by_pool=profiles_by_pool)
+    all_pools = _plan_pools(report, profiles_by_pool=profiles_by_pool)
+    pools = [row for peer, row in all_pools if not peers or peer in peers]
     cells = [[str(p["peer"]), str(p["pool"]),
               "?" if p["left_pct"] is None else f"{cast(float, p['left_pct']):.0f}%",
               human_duration(cast("float | None", p["resets_in_seconds"])),
@@ -669,13 +674,17 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
         lines.extend(_wrap(_safe_text("profiles: " + " | ".join(profile_groups)), width))
     if load is not None:
         from peerhub.core.load_limits import format_load
-        pool_names = {str(p["pool"]) for p in applicable_pools}
-        in_flight = _obj(load.get("by_pool"))
-        shown = {pool: count for pool, count in in_flight.items() if pool in pool_names}
-        load_line = format_load({**load, "by_pool": shown})
-        hidden_count = len(in_flight) - len(shown)
-        if hidden_count:
-            load_line += f" | n/a pools {hidden_count}"
+        if separate_observation_store:
+            load_line = format_load(load)
+        else:
+            # Use the full plan's applicability for this store, independent of the peer filter.
+            pool_names = {str(p["pool"]) for _, p in all_pools if p["action"] != "n/a"}
+            in_flight = _obj(load.get("by_pool"))
+            shown = {pool: count for pool, count in in_flight.items() if pool in pool_names}
+            load_line = format_load({**load, "by_pool": shown})
+            hidden_count = len(in_flight) - len(shown)
+            if hidden_count:
+                load_line += f" | n/a pools {hidden_count}"
         lines.extend(_wrap(load_line, width))
     return "\n".join(lines)
 

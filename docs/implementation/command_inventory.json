@@ -432,6 +432,16 @@
         },
         {
           "default": null,
+          "dest": "max_age_seconds",
+          "flags": [
+            "--max-age-seconds"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
           "dest": "obs_db",
           "flags": [
             "--observation-db"
@@ -1555,6 +1565,26 @@
           "positional": false,
           "required": false,
           "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "plan_obs_db",
+          "flags": [
+            "--observation-db"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "plan_peers",
+          "flags": [
+            "--peer"
+          ],
+          "positional": false,
+          "required": false,
+          "takes_value": true
         },
         {
           "default": false,

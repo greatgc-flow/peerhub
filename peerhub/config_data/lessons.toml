@@ -331,3 +331,31 @@ keywords = ["parallel", "quota", "pace", "pools", "batch", "loop", "distribute",
 symptom = "Several tasks can run at once and the caller wants them spread over the pools with the most spare quota, spending as little as possible."
 fix = "PeerHub gives the facts; You decide how many tasks to start and where. Facts: AIs read quota with peerhub diag --plan, never peerhub monitor (the human screen). About 350 tokens, one command: pools (stored evidence, never refreshes; old or (stale): peerhub observation refresh, no model tokens) plus the load line (active asks, per-peer slots, free RAM, sampled now); --json has a load object and, per pool, the profiles that spend it (profiles; a profile listed under several pools spends each of them, so the worst action of those pools applies). Each JSON pool row also reports age_seconds, ttl_seconds, fast, family, parent and gates. Per pool: LEFT, RESETS, PACE (+ = ahead of even burn; a family follows its 7D parent, children share it), a spend/hold/rest/blocked label (advice) and n/a. 5H only gates. Limits (advice, not enforced): active asks 4 default, ceiling 6, manual asks count; per peer cc 3, cx 3, ag 1; free RAM at least 6 GB. A default plan, change it when the task needs: independent tasks (no shared files; each writer its own workspace, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote, tops for design and final checks; usable pools lowest 7D PACE first (spend, then hold; skip rest, blocked, <5% and fast); wave size n = as many tasks as quota and load allow, 3 keeps one slot free for a manual ask; peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run shows workload warnings and the active ask count when available, then run the batch; after each wave run peerhub observation refresh, then diag --plan again, and drop pools that became rest or blocked; asks already running are in-flight spend of unknown size that the quota readings do not show yet (the load line lists them per pool as in flight, and counts the ones whose profile maps to no pool as unmapped), so keep a margin; a task refused for quota is reported per task and the other tasks of that manifest still run (one wave per manifest); the final report totals outcomes; the same --batch-id replays settled tasks, reconcile uncertain ones before retrying; if a provider throttles, reduce concurrency and do not reroute the same work to another peer; after a timeout or an uncertain task, read peerhub diag running and peerhub diag health --stream STREAM (the batch report prints both) and reconcile the workspace before replaying the batch ID; with no usable pool, defer. Do not resume a stream for a new task (resumed context is re-sent every turn)."
 issue = "owner request 2026-11-22"
+
+[[lessons]]
+id = "exit-codes"
+title = "CLI exit codes and error output"
+keywords = ["exit", "code", "error", "stderr", "json"]
+symptom = "A caller is interpreting a process exit or an error report."
+fix = """\
+Ask returns {ask[delivered]} for delivery, terminal replay or a valid dry run, \
+{ask[uncertain]} for uncertainty or delivery failure (including denied_empty or session_lost), \
+{error[ask_idempotency_conflict]} for syntax, invalid selectors or idempotency conflict, \
+and {error[ask_cas_conflict]} for a compare-and-swap conflict. \
+Batch run returns 0 for a valid dry run or all tasks completed and \
+{error[invalid_manifest]} for an invalid manifest or unsuccessful tasks. \
+An empty terminal reply without an error exits {ask[delivered]} in ask and {error[invalid_manifest]} in batch (UNVERIFIED). \
+Diag health, quota, readiness, running, --plan and integrity use {diag[OK]} for OK, \
+{diag[FAILED]} for a storage/read fault (including PARTIAL reports), {diag[UNAVAILABLE]} for an unavailable store, \
+and {diag[SCHEMA_VERSION]} for an unsupported schema version. \
+A missing alternate --observation-db with a healthy main store gives health {diag[FAILED]} (PARTIAL) and quota {diag[UNAVAILABLE]} (UNAVAILABLE). \
+Diag health returns {error[stream_not_found]} for a missing stream. \
+Update --check returns 0. Update --plan returns 0 when ready, {error[ask_claim_held]} if an ask is or may be running, \
+and {diag[FAILED]}/{diag[UNAVAILABLE]}/{diag[SCHEMA_VERSION]} for an unreadable/missing/incompatible store. \
+Suggest returns 0 for a suggestion or 1 for unavailable. Explain returns 0 for a match or 1 for no match. \
+Monitor snapshot/watch use 0 for success, 1 for invalid defaults, an agy token-use stop or a failed final refresh in finite watch, and the diag store codes. \
+Observation refresh returns 0 for OK or 1 for a non-OK refresh. Shared store errors use the diag store codes as applicable. \
+Coded errors appear on stderr as [code] message; next: ... \
+With --json, ask errors and invalid manifests can include an error object with code and message on stdout. \
+Other reports use command-specific JSON. Run peerhub explain CODE for guidance."""
+issue = "#446"

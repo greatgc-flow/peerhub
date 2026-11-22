@@ -85,7 +85,7 @@ peerhub guide
 peerhub explain ask_blocked_uncertain
 ```
 
-CLI output defaults to compact human text, including when redirected. Use `--json` for scripts; `--format` is a hidden compatibility alias. Errors carry an outcome code and `next:` hint.
+CLI output defaults to compact human text, including when redirected. Use `--json` for scripts; `--format` is a hidden compatibility alias. Errors carry an outcome code and `next:` hint. Run `peerhub explain exit-codes` for the process exit codes and error output by command.
 
 ## Everyday commands
 
@@ -116,6 +116,7 @@ peerhub diag quota --json
 peerhub diag health
 peerhub diag --live --interval-seconds 2
 peerhub diag --view rich
+# Use diag quota --max-age-seconds N for recent readings, or diag --plan --peer PEER (repeatable) and --observation-db PATH to narrow the plan's stored evidence.
 
 # List every monitor group and see what each ID means; --json emits the same catalog.
 peerhub monitor groups

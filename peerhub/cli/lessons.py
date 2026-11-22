@@ -19,7 +19,18 @@ class Lesson(TypedDict):
 
 def load_lessons() -> list[Lesson]:
     data = tomllib.loads(files("peerhub.config_data").joinpath("lessons.toml").read_text(encoding="utf-8"))
-    return sorted(cast(list[Lesson], data["lessons"]), key=lambda lesson: lesson["id"])
+    lessons = cast(list[Lesson], data["lessons"])
+    for lesson in lessons:
+        if lesson["id"] == "exit-codes":
+            from peerhub._exit_codes import DIAG_EXIT_BY_STATUS
+            from peerhub.cli.recovery import REGISTRY, RESULT_STATUS_REGISTRY
+
+            lesson["fix"] = lesson["fix"].format(
+                ask={status: entry.exit_code for status, entry in RESULT_STATUS_REGISTRY.items()},
+                error={code: entry.exit_code for code, entry in REGISTRY.items()},
+                diag=DIAG_EXIT_BY_STATUS,
+            )
+    return sorted(lessons, key=lambda lesson: lesson["id"])
 
 
 def lesson_index() -> list[dict[str, str]]:

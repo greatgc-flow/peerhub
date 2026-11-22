@@ -26,6 +26,7 @@ CONTEXTUAL_DEFAULTS = {
     ("diag health", "--stream"): None,  # inspect the store instead
     ("diag health", "--observation-db"): None,  # inherit --db
     ("diag quota", "--observation-db"): None,  # inherit --db
+    ("diag quota", "--max-age-seconds"): None,  # no age filter
     ("monitor", "--cycles"): None,  # cycle count depends on whether stdout is a TTY
     ("monitor", "--schema-version"): None,  # JSON version is resolved at runtime
     **{(f"profile {action}", "--workspace"): None for action in ("list", "show", "stats", "check")},
