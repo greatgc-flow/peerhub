@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.7] - 2026-11-23
+
 ### Added
 
 - Added CLI aliases `peer show` for `peer get`, `-w` for `--workspace` on all four `profile` commands, and `ask --prompt-file` for `ask --query-file` (#446).

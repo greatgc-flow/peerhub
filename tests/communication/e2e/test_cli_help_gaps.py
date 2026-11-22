@@ -29,7 +29,7 @@ CONTEXTUAL_DEFAULTS = {
     ("diag quota", "--max-age-seconds"): None,  # no age filter
     ("monitor", "--cycles"): None,  # cycle count depends on whether stdout is a TTY
     ("monitor", "--schema-version"): None,  # JSON version is resolved at runtime
-    **{(f"profile {action}", "--workspace"): None for action in ("list", "show", "stats", "check")},
+    **{(f"profile {action}", flag): None for action in ("list", "show", "stats", "check") for flag in ("--workspace", "-w")},
 }
 REQUIRED_DEFAULTS = {
     ("ask", "--effort"),
