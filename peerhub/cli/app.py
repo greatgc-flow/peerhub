@@ -124,6 +124,18 @@ class _ArgumentParser(argparse.ArgumentParser):
         raise exc
 
 
+class _BatchRunParser(_ArgumentParser):
+    def format_help(self) -> str:
+        # Core commands build the parser even when extensions are disabled.
+        try:
+            from peerhub.extensions.batch import manifest_help
+        except ImportError:
+            pass
+        else:
+            self.epilog = manifest_help()
+        return super().format_help()
+
+
 def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     description = "PeerHub CLI"
     parser = _ArgumentParser(prog=prog, description=description, epilog="Advanced: stream, record, offset. Start: AI = peerhub guide, peerhub diag --plan | human = peerhub monitor | first ask: peerhub ask cc \"prompt\" --profile cc.standard --stream ID --request-id R1 | bugs: peerhub explain report-issues")
@@ -240,8 +252,9 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
         account_read.add_argument("--show-root", action="store_true", help="Include stored configuration root paths")
 
     batch_parser = subparsers.add_parser("batch", help="Flat bounded-parallel asks")
-    batch_sub = batch_parser.add_subparsers(dest="action", required=True)
-    batch_run = batch_sub.add_parser("run", help="Run a validated task manifest")
+    batch_sub = batch_parser.add_subparsers(dest="action", required=True, parser_class=_BatchRunParser)
+    batch_run = batch_sub.add_parser("run", help="Run a validated task manifest",
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     batch_run.add_argument("manifest")
     batch_run.add_argument("--batch-id", required=True, help="Batch ID; stream and request IDs derive from it")
     batch_run.add_argument("--max-parallel", required=True, type=int, help="Maximum tasks to run at the same time")
@@ -1191,37 +1204,53 @@ def _peer_kind(db: str | None, peer: str) -> str | None:
     return peer_kind(adapter_ref, peer)
 
 
+def _batch_active_asks(db: str) -> int | None:
+    try:
+        from peerhub.extensions.diag_running import sample_load
+
+        active = sample_load(db)["active"]
+    except Exception:  # diagnostic sampling is best-effort and cannot affect manifest validation
+        return None
+    return active if isinstance(active, int) and not isinstance(active, bool) else None
+
+
 def _run_batch_cli(args: argparse.Namespace) -> int:
     import signal
     import threading
     from dataclasses import replace
+    from functools import cache
 
     from peerhub.extensions import batch
 
     db = os.path.abspath(args.db)
+    warnings: list[str] | None = [] if args.dry_run else None
 
+    @cache
     def kind_of(peer: str) -> str | None:
         return _peer_kind(db, peer)
 
     try:
         max_parallel = batch.check_max_parallel(args.max_parallel)
         tasks = batch.load_manifest(args.manifest, batch_id=args.batch_id)
-        batch.validate_tasks(tasks, kind_of=kind_of)
+        batch.validate_tasks(tasks, kind_of=kind_of, warnings=warnings)
         tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
-        if args.dry_run:
+        if warnings is not None:
+            warnings.extend(batch.load_warnings(tasks, kind_of=kind_of, active=_batch_active_asks(db)))
             rows: list[dict[str, Any]] = []
             for task in tasks:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)
                 rows.append(dict(task_id=task.task_id, peer=task.peer, stream=stream,
                                  request_id=request, writable=task.writable))
             if args.json:
-                print(json.dumps(dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel, tasks=rows),
-                                 indent=2, ensure_ascii=True))
+                print(json.dumps(dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel,
+                                      tasks=rows, warnings=warnings), indent=2, ensure_ascii=True))
             else:
                 print(f"Dry run: {args.batch_id} (max_parallel={max_parallel})")
                 print("TASK PEER STREAM REQUEST_ID WRITABLE")
                 for row in rows:
                     print(f"{row['task_id']} {row['peer']} {row['stream']} {row['request_id']} {row['writable']}")
+                for warning in warnings:
+                    print(warning)
             return 0
         if getattr(args, "db_source", "default") not in ("explicit", "env"):
             from peerhub.cli.store_select import report_missing_store
@@ -1253,8 +1282,13 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
         return batch.exit_code(report)
     except batch.ManifestError as exc:
         if args.json:
-            print(json.dumps(dict(status="error", error=dict(code="invalid_manifest", message=str(exc))), ensure_ascii=True))
+            error: dict[str, Any] = dict(status="error", error=dict(code="invalid_manifest", message=str(exc)))
+            if warnings is not None:
+                error["warnings"] = warnings
+            print(json.dumps(error, ensure_ascii=True))
         _error_line("invalid_manifest", str(exc), "peerhub batch run --help")
+        if not args.json and warnings:
+            _print_warnings({"warnings": warnings})
         return 1
 
 

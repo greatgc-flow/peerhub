@@ -1,6 +1,6 @@
 """Flat, bounded-parallel `peerhub ask` batches: one OS subprocess per task through the public CLI.
 
-Identity, claims and idempotency stay in `ask`; this module only validates a manifest, derives stable stream/request ids,
+Identity, claims and idempotency stay in `ask`; this module validates and describes a manifest, derives stable stream/request ids,
 runs at most N workers, classifies each worker's outcome (default UNCERTAIN) and cancels process trees.
 """
 from __future__ import annotations
@@ -15,10 +15,12 @@ import sys
 import tempfile
 import threading
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, cast
 
+from peerhub.core.load_limits import ACTIVE_ASKS_CEILING, PER_PEER_LIMITS
 from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES
 from peerhub.extensions.process_tree import creation_ticks as _creation_time, kill_process_tree
 
@@ -30,7 +32,28 @@ STDOUT_CAP = 4 * 1024 * 1024
 STDERR_CAP = 64 * 1024
 PROMPT_FILE_CAP = 1024 * 1024
 _ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
-_KEYS = {"task_id", "peer", "prompt", "prompt_file", "workspace", "profile", "writable", "timeout_s"}
+_TASK_FIELDS = {
+    "task_id": "review",
+    "peer": "cc",
+    "prompt": "Review the code",
+    "prompt_file": "prompt.txt",
+    "workspace": ".",
+    "profile": "cc.standard",
+    "writable": False,
+    "timeout_s": DEFAULT_TIMEOUT_S,
+}
+_KEYS = _TASK_FIELDS.keys()
+_PROMPT_CHOICE = "exactly one of prompt or prompt_file"
+_NOT_EXECUTED = "not_executed"
+_QUOTA_REFUSAL_REASONS = {f"{_NOT_EXECUTED}:{reason}" for reason in ("quota_exhausted", "usage_limit")}
+_QUOTA_REFUSED = "quota_refused"
+_OUTCOME_BY_STATUS = {
+    "COMPLETED": "ok",
+    "FAILED": "failed",
+    "BLOCKED": "failed",
+    "UNCERTAIN": "uncertain",
+    "UNVERIFIED": "uncertain",
+}
 
 
 def store_scratch_dir(db: str | Path) -> Path:
@@ -77,6 +100,11 @@ def check_max_parallel(value: object) -> int:
     return value
 
 
+def manifest_help() -> str:
+    shape = json.dumps({"tasks": [_TASK_FIELDS]}, indent=2)
+    return f"Manifest shape (task_id and peer required; give {_PROMPT_CHOICE}):\n{shape}"
+
+
 def load_manifest(path: str | Path, *, batch_id: str) -> list[Task]:
     path = Path(path)
     try:
@@ -103,7 +131,7 @@ def load_manifest(path: str | Path, *, batch_id: str) -> list[Task]:
         if not isinstance(peer, str) or not peer.strip():
             raise ManifestError(f"task {tid}: peer is required")
         if ("prompt" in row) == ("prompt_file" in row):
-            raise ManifestError(f"task {tid}: give exactly one of prompt or prompt_file")
+            raise ManifestError(f"task {tid}: give {_PROMPT_CHOICE}")
         if "prompt" in row:
             prompt = row["prompt"]
         else:
@@ -141,8 +169,9 @@ def _related(a: str, b: str) -> bool:
     return a == b or a.startswith(b.rstrip("\\/") + os.sep) or b.startswith(a.rstrip("\\/") + os.sep)
 
 
-def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None]) -> None:
-    """All-or-nothing checks before any worker exists."""
+def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None],
+                   warnings: list[str] | None = None) -> None:
+    """All-or-nothing checks before any worker exists. Dry runs can collect every writer pair."""
     spaces: list[tuple[Task, str, bool]] = []
     for t in tasks:
         kind = kind_of(t.peer)
@@ -153,10 +182,34 @@ def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None
         if t.workspace is not None and not t.workspace.is_dir():
             raise ManifestError(f"task {t.task_id}: workspace {t.workspace} is not an existing directory")
         spaces.append((t, _real(t.workspace), t.writable or kind == "ag"))  # ag writes regardless of the flag (#140)
+    first_overlap = None
     for i, (ta, pa, wa) in enumerate(spaces):
         for tb, pb, wb in spaces[i + 1:]:
-            if (wa or wb) and _related(pa, pb):
-                raise ManifestError(f"workspace overlap between tasks {ta.task_id} and {tb.task_id}: a writer may not share or nest with another task")
+            if not (wa or wb) or not _related(pa, pb):
+                continue
+            if first_overlap is None:
+                first_overlap = (f"workspace overlap between tasks {ta.task_id} and {tb.task_id}: "
+                                 "a writer may not share or nest with another task")
+                if warnings is None:
+                    raise ManifestError(first_overlap)
+            if warnings is not None and wa and wb:
+                relationship = "equal" if pa == pb else "nested"
+                warnings.append(f"writable tasks {ta.task_id} and {tb.task_id} have {relationship} workspaces")
+    if first_overlap is not None:
+        raise ManifestError(first_overlap)
+
+
+def load_warnings(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None], active: int | None) -> list[str]:
+    warnings: list[str] = []
+    for peer, count in Counter(task.peer for task in tasks).items():
+        limit = PER_PEER_LIMITS.get(kind_of(peer) or peer)
+        if limit is not None and count > limit:
+            warnings.append(f"{peer}: {count} tasks exceed per-peer limit {limit}")
+    if len(tasks) > ACTIVE_ASKS_CEILING:
+        warnings.append(f"batch: {len(tasks)} tasks exceed active-ask ceiling {ACTIVE_ASKS_CEILING}")
+    if active is not None:
+        warnings.append(f"active now {active}")
+    return warnings
 
 
 def _parse_result(stdout: str) -> dict[str, Any] | None:
@@ -202,9 +255,9 @@ def classify_worker(returncode: int | None, stdout: str, *, overflow: bool = Fal
         return "UNVERIFIED", "denied_empty"
     if result.get("certainty") == "NOT_STARTED":
         return "FAILED", "not_started"
-    if status == "not_executed" or result.get("task_outcome") == "NOT_EXECUTED":
+    if status == _NOT_EXECUTED or result.get("task_outcome") == "NOT_EXECUTED":
         reason = result.get("reason")
-        return "FAILED", f"not_executed:{reason}" if isinstance(reason, str) and reason else "not_executed"
+        return "FAILED", f"{_NOT_EXECUTED}:{reason}" if isinstance(reason, str) and reason else _NOT_EXECUTED
     if status == "uncertain":
         return "UNCERTAIN", "uncertain"
     error = result.get("error")
@@ -218,6 +271,17 @@ def classify_worker(returncode: int | None, stdout: str, *, overflow: bool = Fal
 
 def exit_code(report: Mapping[str, Any]) -> int:
     return 0 if all(r["status"] == "COMPLETED" for r in report["tasks"]) else 1
+
+
+def _outcome_counts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    counts = dict.fromkeys((*_OUTCOME_BY_STATUS.values(), _QUOTA_REFUSED), 0)
+    for row in rows:
+        status = row["status"]
+        outcome = _OUTCOME_BY_STATUS[status]
+        if status == "FAILED" and row.get("reason") in _QUOTA_REFUSAL_REASONS:
+            outcome = _QUOTA_REFUSED
+        counts[outcome] += 1
+    return counts
 
 
 def default_argv_builder(t: Task, *, stream: str, request_id: str, db: str, query_file: Path) -> list[str]:
@@ -435,13 +499,18 @@ def run_batch(tasks: Sequence[Task], *, batch_id: str, max_parallel: int, db: st
             results.append(rows[t.task_id])
         except KeyError as exc:
             results.append({**blocked(t, f"missing_worker_result:{type(exc).__name__}"), "status": "UNCERTAIN"})
-    return {"batch_id": batch_id, "max_parallel": max_parallel, "tasks": results}
+    return {"batch_id": batch_id, "max_parallel": max_parallel, "tasks": results, "outcomes": _outcome_counts(results)}
 
 
 def render_text(report: Mapping[str, Any]) -> str:
     lines = [f"batch {report['batch_id']} max-parallel {report['max_parallel']}"]
     for r in report["tasks"]:
         lines.append(f"{r['task_id']:<24} {r['peer']:<8} {r['status']:<10} {r.get('reason') or ''}".rstrip())
+    outcomes = report.get("outcomes")
+    if outcomes is None:
+        outcomes = _outcome_counts(report["tasks"])
+    summary = ", ".join(f"{outcome} {count}" for outcome, count in outcomes.items() if count)
+    lines.append(f"outcomes: {summary}".rstrip())
     for r in report["tasks"]:
         if "response" in r:
             lines += [f"--- {r['task_id']} reply ---", r["response"]]

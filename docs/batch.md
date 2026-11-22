@@ -13,6 +13,12 @@ Dry runs validate without spawning workers or creating the store.
 `--batch-id` and `--max-parallel` are required; parallelism is 1..16. The guide and every example
 recommend 3 (`RECOMMENDED_MAX_PARALLEL` in `peerhub/extensions/batch.py`, the one constant).
 
+Dry-run warnings list task counts above per-peer limits or the active-ask ceiling
+and show `active now N` when the store can supply a lease count. Dry runs also
+report equal or nested workspaces for writable pairs alongside the existing
+validation error. Load warnings are advisory. The execution report totals task
+outcomes as `ok`, `failed`, `uncertain`, and `quota_refused`.
+
 The UTF-8 JSON manifest contains only `tasks` (1..256 entries):
 
 ```json
