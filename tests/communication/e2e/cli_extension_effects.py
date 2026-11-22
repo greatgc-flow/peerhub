@@ -665,7 +665,7 @@ EFFECT.update({f"observation refresh {option}": (lambda e, option=option: refres
 EFFECT.update({f"monitor {option}": (lambda e, option=option: monitor_effect(e, option))
                for option in ("--interval-seconds", "--cycles", "--peers", "--system-dir", "--timeout-seconds", "--json", "--schema-version", "--allow-agy-token-use", "--collect-every", "--view", "--probe")})
 EFFECT.update({f"suggest {option}": (lambda e, option=option: suggest_effect(e, option))
-               for option in ("--tier", "--task", "--json")})
+               for option in ("--tier", "--task", "--json", "--candidates")})
 EFFECT.update({"monitor groups --json": lambda e: monitor_management_effect(e, ["monitor", "groups", "--json"]),
                "monitor defaults show --json": lambda e: monitor_management_effect(e, ["monitor", "defaults", "show", "--json"]),
                "monitor defaults set --global": lambda e: monitor_management_effect(e, ["monitor", "defaults", "set", "--global", "--group", "usage"]),

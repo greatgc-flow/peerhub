@@ -7,8 +7,10 @@ from pathlib import Path
 
 import pytest
 
+from peerhub._console import format_shell_command
 from peerhub.cli.app import main
-from peerhub.extensions.adapters.profiles import _load_layer
+from peerhub.cli.suggest import MAX_5H_USAGE
+from peerhub.extensions.adapters.profiles import _load_layer, list_profiles
 from peerhub.extensions.diag_quota import projection
 from peerhub.extensions.observation_model import QUOTA_MAX_AGE_SECONDS
 
@@ -66,6 +68,96 @@ def quota(monkeypatch):
 
 def suggest(*options):
     return main(["--db", str(Path(__file__)), "suggest", *options])
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_default_output_matches_before_candidates(quota, capsys, monkeypatch, json_output):
+    items, _, _ = quota
+    for peer in WINDOWS:
+        items.extend(readings(peer))
+    db = Path(__file__)
+    monkeypatch.chdir(db.parent)
+    argv = ["peerhub", "--db", str(db), "ask", "ag", "--profile", "ag.standard", "--fresh",
+            "--query-file", "review.txt", "--writable"]
+    command = format_shell_command(argv)
+    reason = "5H usage 40.0%, 7D PACE -10.0 pp"
+    expected = json.dumps({"status": "ok", "profile": "ag.standard", "command": command,
+                           "argv": argv, "reason": reason}) + "\n" if json_output else f"{command}\n{reason}\n"
+    options = ["--json"] if json_output else []
+    assert main(["--db", db.name, "suggest", "--tier", "standard", "--task", "review", *options]) == 0
+    assert capsys.readouterr() == (expected, "")
+
+
+def test_candidates_show_tier_facts_without_changing_the_recommendation(quota, capsys):
+    items, _, calls = quota
+    items.extend(readings("ag", used_5h=MAX_5H_USAGE) + readings("cc", used_7d=.65) + readings("cx"))
+    options = ("--tier", "standard", "--task", "code")
+    assert suggest(*options, "--json") == 0
+    default = json.loads(capsys.readouterr().out)
+    assert suggest(*options, "--candidates", "--json") == 0
+    result = json.loads(capsys.readouterr().out)
+    candidates = {row["profile"]: row for row in result.pop("candidates")}
+    assert result == default
+    assert set(candidates) == {row["profile"] for row in list_profiles(Path(__file__).parent)
+                               if row["profile"].endswith(".standard")}
+    assert candidates["ag.standard"] == {
+        "profile": "ag.standard", "peer": "ag", "eligible": False, "worst_pool": "G-5H",
+        "left_pct": pytest.approx((1 - MAX_5H_USAGE) * 100), "pace_pt": pytest.approx(-10),
+        "fast": False, "reason": f"5H usage >= {MAX_5H_USAGE:.0%}",
+    }
+    cc = candidates["cc.standard"]
+    assert cc["eligible"] is True and cc["fast"] is True and cc["reason"] == "fast pool"
+    assert cc["worst_pool"] == "C-7D" and cc["left_pct"] == pytest.approx(35)
+    assert cc["pace_pt"] == pytest.approx(15)
+    assert candidates["oa.standard"]["reason"] == "not suggested"
+    assert not calls
+
+    assert suggest(*options) == 0
+    default_text, _ = capsys.readouterr()
+    assert suggest(*options, "--candidates") == 0
+    out, err = capsys.readouterr()
+    assert out.startswith(default_text) and not err
+    table = out.removeprefix(default_text)
+    header, *rows = table.splitlines()
+    assert header.split() == ["PROFILE", "PEER", "ELIGIBLE", "WORST", "POOL", "(LEFT", "%)", "PACE", "(7D", "pp)", "FAST", "REASON"]
+    assert len(rows) == len(candidates)
+    cc_text = next(row.split() for row in rows if row.startswith("cc.standard"))
+    assert cc_text == ["cc.standard", "cc", "yes", "C-7D", "35.0%", "+15.0", "yes", "fast", "pool"]
+
+
+@pytest.mark.parametrize("condition", ["stale", "reset", "unknown"])
+def test_candidates_explain_eligible_quota_fallback(quota, capsys, condition):
+    items, _, _ = quota
+    if condition == "stale":
+        items.extend(readings("cx", age=QUOTA_MAX_AGE_SECONDS + 1))
+    elif condition == "reset":
+        items.extend(readings("cx"))
+        items[-1]["projection"]["state"] = "expired"
+    else:
+        items.extend(readings("cx", used_7d=None))
+    assert suggest("--tier", "effort", "--candidates", "--json") == 0
+    value = json.loads(capsys.readouterr().out)
+    rows = {row["profile"]: row for row in value["candidates"]}
+    cx = rows["cx.effort"]
+    assert value["profile"] == cx["profile"]
+    assert cx["eligible"] is True and cx["reason"] == condition and cx["pace_pt"] is None
+    assert rows["ag.effort"]["reason"] == "not suggested"
+
+
+def test_exhausted_candidates_are_visible_when_suggest_is_unavailable(quota, capsys):
+    items, _, _ = quota
+    items.extend(readings("ag", used_7d=1.0, deep=True))
+    options = ("--tier", "deepthink", "--json")
+    assert suggest(*options) == 1
+    default_out, default_err = capsys.readouterr()
+    assert suggest(*options, "--candidates") == 1
+    out, err = capsys.readouterr()
+    value = json.loads(out)
+    rows = {row["profile"]: row for row in value.pop("candidates")}
+    assert value == json.loads(default_out) and err == default_err
+    ag = rows["ag.deepthink"]
+    assert ag["eligible"] is False and ag["reason"] == "exhausted 7D pool"
+    assert ag["worst_pool"] == "3P-7D" and ag["left_pct"] == 0
 
 
 @pytest.mark.parametrize("age,refreshed", [(QUOTA_MAX_AGE_SECONDS, False), (QUOTA_MAX_AGE_SECONDS + 1, True), (None, True)])
@@ -166,6 +258,13 @@ def suggest_effect(e, option):
         elif option == "--task":
             assert "--writable" in e.j(db, "suggest", "--tier", "effort", "--task", "code")["argv"]
             assert "--writable" not in e.j(db, "suggest", "--tier", "effort", "--task", "read")["argv"]
+        elif option == "--candidates":
+            default = e.j(db, "suggest", "--tier", "effort")
+            expanded = e.j(db, "suggest", "--tier", "effort", option)
+            rows = {row["profile"]: row for row in expanded.pop("candidates")}
+            assert expanded == default
+            assert rows["cx.effort"]["eligible"] is True
+            assert rows["ag.effort"]["eligible"] is False
         else:
             assert e.j(db, "suggest", "--tier", "effort")["profile"] == "cx.effort"
 

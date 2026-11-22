@@ -100,6 +100,9 @@ peerhub ask cx "Summarize this repository" --stream review --request-id review-0
 # Recommend a peer and print an ask command that reads review.txt.
 peerhub suggest --tier effort --task review
 
+# Show the tier's candidate profiles and the quota facts behind their eligibility.
+peerhub suggest --tier effort --task review --candidates
+
 # Explicit collection may contact provider CLIs.
 peerhub observation refresh --peers cx cc ag
 peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory

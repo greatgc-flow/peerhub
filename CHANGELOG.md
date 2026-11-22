@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- `peerhub suggest --candidates` shows profile eligibility, quota facts and reasons for the selected tier, with the same facts in a `candidates` array when using `--json` (#446).
+
 ### Fixed
 
 - Monitor account snapshot tests use a fixed terminal width so the failed-probe row keeps its stale marker in parallel CI (#442).
