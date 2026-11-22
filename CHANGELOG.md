@@ -18,6 +18,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- `diag --plan`: the `(stale)` tag leads the reason, so an 80-column terminal cannot cut it off; `suggest --candidates` says `not suggested (profile setting)`; the `update --plan` steps check store health (`diag health`) before the monitor restart; the README upgrade waits for running asks and its restore step names the interpreter that runs PeerHub.
 - CLI help explains positional arguments, option units and defaults, record inputs, and how `suggest --task` builds the suggested ask command (#446).
 
 ### Fixed

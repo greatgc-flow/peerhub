@@ -328,3 +328,15 @@ def test_plan_reads_committed_wal(tmp_path, monkeypatch, capsys):
         assert main(["--db", str(db), "update", "--plan", "--json"]) == 1
         report = json.loads(capsys.readouterr().out)
         assert report["running_asks"] == [{"stream": "ready-stream", "peer": "cx"}] and not report["commands"]
+
+
+def test_the_plan_checks_store_health_before_the_monitor_restart(tmp_path, monkeypatch, capsys):
+    from peerhub.cli import update
+
+    monkeypatch.setattr(update, "_blocking_processes", lambda: [])
+    db = Path(Workspace(tmp_path / "ws").root) / "core.db"
+    CoreStore(db)
+    assert main(["--db", str(db), "update", "--plan", "--json"]) == 0
+    steps = [step["step"] for step in json.loads(capsys.readouterr().out)["commands"]]
+    assert steps.index("Check the upgraded store.") < steps.index("Restart the monitor if you use it.")
+    assert steps.index("Verify the upgraded CLI.") < steps.index("Check the upgraded store.")

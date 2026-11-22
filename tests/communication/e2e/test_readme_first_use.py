@@ -69,3 +69,11 @@ def test_upgrade_requires_a_successful_new_backup_before_the_install():
 def test_batch_doc_keeps_code_constant_names_out_of_the_reader_recipe():
     doc = (Path(__file__).resolve().parents[3] / "docs" / "batch.md").read_text(encoding="utf-8")
     assert "POOLS_USE_FIRST_ASCENDING" not in doc
+
+
+def test_upgrade_waits_for_running_asks_and_restore_uses_the_printed_interpreter():
+    upgrade = _section("### Upgrade")
+    step0 = upgrade[upgrade.index("0. "):upgrade.index("1. ")]
+    assert "exits 0" in step0 and "asks are running" in step0
+    step3 = upgrade[upgrade.index("3. "):upgrade.index("4. ")]
+    assert "python` has that PeerHub version" not in step3 and "interpreter" in step3

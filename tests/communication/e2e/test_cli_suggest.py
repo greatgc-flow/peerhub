@@ -9,6 +9,7 @@ import pytest
 
 from peerhub._console import format_shell_command
 from peerhub.cli.app import main
+from peerhub.cli import suggest as suggest_mod
 from peerhub.cli.suggest import MAX_5H_USAGE
 from peerhub.extensions.adapters.profiles import _load_layer, list_profiles
 from peerhub.extensions.diag_quota import projection
@@ -109,7 +110,8 @@ def test_candidates_show_tier_facts_without_changing_the_recommendation(quota, c
     assert cc["eligible"] is True and cc["fast"] is True and cc["reason"] == "fast pool"
     assert cc["worst_pool"] == "C-7D" and cc["left_pct"] == pytest.approx(35)
     assert cc["pace_pt"] == pytest.approx(15)
-    assert candidates["oa.standard"]["reason"] == "not suggested"
+    assert candidates["oa.standard"]["reason"] == suggest_mod.REASON_PROFILE_NOT_ENABLED
+    assert "profile setting" in suggest_mod.REASON_PROFILE_NOT_ENABLED
     assert not calls
 
     assert suggest(*options) == 0
@@ -141,7 +143,7 @@ def test_candidates_explain_eligible_quota_fallback(quota, capsys, condition):
     cx = rows["cx.effort"]
     assert value["profile"] == cx["profile"]
     assert cx["eligible"] is True and cx["reason"] == condition and cx["pace_pt"] is None
-    assert rows["ag.effort"]["reason"] == "not suggested"
+    assert rows["ag.effort"]["reason"] == suggest_mod.REASON_PROFILE_NOT_ENABLED
 
 
 def test_exhausted_candidates_are_visible_when_suggest_is_unavailable(quota, capsys):
