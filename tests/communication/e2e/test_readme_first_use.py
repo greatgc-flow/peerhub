@@ -31,3 +31,20 @@ def test_upgrade_says_how_to_back_up_check_and_restore():
     for needle in ("peerhub update --plan", ".pre-update.bak", "peerhub diag health", "peerhub explain store-and-upgrade"):
         assert needle in upgrade
     assert upgrade.index("peerhub update --plan") < upgrade.index("pip install -U peerhub") < upgrade.rindex(".pre-update.bak")
+
+
+def test_readme_does_not_send_ai_sessions_to_the_monitor():
+    assert "# For an AI session: line 1" not in README
+    assert "# For a person who wants only the verdict, suggestion and pools" in README
+    assert "`peerhub explain <topic or keywords>`" in README
+
+
+def test_upgrade_requires_a_successful_new_backup_before_the_install():
+    upgrade = _section("### Upgrade")
+    before_install = upgrade[:upgrade.index("pip install -U peerhub")]
+    assert "must exit 0" in before_install and "new modified time" in before_install
+
+
+def test_batch_doc_keeps_code_constant_names_out_of_the_reader_recipe():
+    doc = (Path(__file__).resolve().parents[3] / "docs" / "batch.md").read_text(encoding="utf-8")
+    assert "POOLS_USE_FIRST_ASCENDING" not in doc

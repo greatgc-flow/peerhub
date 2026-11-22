@@ -53,7 +53,7 @@ peerhub --db .peerhub/core.db ask cc "Reply OK" --profile cc.standard --stream s
 
 The reply prints on stdout with a receipt line; use a new `--request-id` for every ask and a new `--stream` for every new task.
 
-- AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, load and free RAM, about 350 tokens). `peerhub explain <words>` finds a lesson.
+- AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, load and free RAM, about 350 tokens). `peerhub explain <topic or keywords>` finds a lesson.
 - People: `peerhub monitor` is the human screen (quota, running asks, recent asks).
 - Something wrong: `peerhub explain report-issues` lists what to include before filing an issue.
 
@@ -129,7 +129,7 @@ peerhub monitor --view plain --cycles 1
 # Read committed evidence during watch.
 peerhub monitor --no-probe --interval-seconds 60
 
-# For an AI session: line 1 (the verdict), the suggestion and the pools only; no text of other sessions.
+# For a person who wants only the verdict, suggestion and pools (AI sessions read `peerhub diag --plan` instead).
 peerhub monitor --snapshot --group capacity
 
 # Keep the schema 1.1 quota/dashboard output for existing scripts.
@@ -451,7 +451,7 @@ peerhub diag --plan
 
 To upgrade PeerHub safely:
 
-0. **Plan and back up**: `peerhub update --plan` lists blocking asks and processes, the backup command, the restore command and the upgrade commands; `peerhub explain store-and-upgrade` has the hazards. Back up first: run the printed backup command (it writes `.peerhub/core.db.pre-update.bak`) and check that the file exists before step 2.
+0. **Plan and back up**: `peerhub update --plan` lists blocking asks and processes, the backup command, the restore command and the upgrade commands; `peerhub explain store-and-upgrade` has the hazards. Back up first: run the printed backup command (it writes `.peerhub/core.db.pre-update.bak`) the command must exit 0 and the file must show a new modified time before step 2 (an old backup left from an earlier upgrade does not count).
 1. **Stop `peerhub monitor`**: Stop any active monitor process before upgrading. A running monitor locks `peerhub.exe` on Windows and keeps old code running. Also wait for running `peerhub ask` calls to finish: they keep dependency files such as `pydantic_core` loaded, so an in-place upgrade can fail and leave a half-deleted install. If peerhub crashes with `ModuleNotFoundError` after an upgrade, reinstall it and check the result records before re-sending an ask.
 2. **Run upgrade**:
    ```powershell
