@@ -598,7 +598,15 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         from peerhub.extensions.diag_running import sample_load
         rep = ReadonlyDiag(args.db).render(["resource_pools", "observations"])
         load = sample_load(args.db)
-        print(json.dumps(plan_data(rep, store, load), indent=2, ensure_ascii=True) if args.json else
+        profiles_by_pool: dict[str, list[str]] = {}
+        if args.json:
+            from peerhub.extensions.adapters.profiles import list_profiles
+            for profile in list_profiles(Path.cwd()):
+                pools = cast("list[object]", profile["fields"]["pools"]["value"] or [])
+                for pool in pools:
+                    profiles_by_pool.setdefault(str(pool), []).append(str(profile["profile"]))
+            profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
+        print(json.dumps(plan_data(rep, store, load, profiles_by_pool), indent=2, ensure_ascii=True) if args.json else
               render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
                           store_note=store_note, load=load), flush=True)
         return 6 if rep.error and rep.error.startswith("SchemaVersionError") else 0 if rep.status == "OK" else 4

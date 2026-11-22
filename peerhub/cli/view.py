@@ -565,10 +565,14 @@ def _plan_pools(report: DiagnosticReport) -> list[dict[str, object]]:
 
 
 def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
-              load: Mapping[str, object] | None = None) -> dict[str, object]:
+              load: Mapping[str, object] | None = None,
+              profiles_by_pool: Mapping[str, list[str]] | None = None) -> dict[str, object]:
     """`diag --plan --json`: read-only, from the stored observations of one snapshot."""
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
                                "store_selection": dict(store_selection), "legend": PLAN_LEGEND, "pools": _plan_pools(report)}
+    if profiles_by_pool is not None:  # additive: which profiles spend each pool, so an AI maps pools to asks without `profile list`
+        for row in cast("list[dict[str, object]]", data["pools"]):
+            row["profiles"] = list(profiles_by_pool.get(str(row["pool"]), []))
     if load is not None:
         data["load"] = dict(load)  # additive: sampled now, unlike the stored pools
     return data

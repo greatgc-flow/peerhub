@@ -90,6 +90,9 @@ peerhub suggest --tier effort --task review
 peerhub observation refresh --peers cx cc ag
 peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory
 
+# AIs read quota with one low-token command (pools + load + free RAM); `peerhub monitor` is the human screen.
+peerhub diag --plan
+
 # Read committed observations without probing or writing.
 peerhub diag
 peerhub diag quota --json

@@ -132,3 +132,8 @@ def _help_top(capsys) -> str:
     with pytest.raises(SystemExit):
         main(["--help"])
     return " ".join(capsys.readouterr().out.split())
+
+
+def test_topic_says_the_json_rows_name_their_profiles():
+    text = _text()
+    assert "--json" in text and "profiles" in text and "load object" in text

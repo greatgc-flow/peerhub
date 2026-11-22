@@ -66,3 +66,38 @@ def test_plan_json_and_text_carry_load(plan_store, capsys, monkeypatch):  # noqa
     out = capsys.readouterr().out
     assert "load: active 0/4 (ceil 6)" in out and "free RAM 8.0 GB (min 6)" in out
 
+
+
+def test_unknown_leases_show_a_question_mark_never_zero():
+    load = L.load_snapshot(None, 12 * GB)
+    assert load["active"] is None and load["slots_free"] is None
+    assert load["peers"]["cx"] == {"active": None, "limit": 3, "free": None}
+    line = L.format_load(load)
+    assert line.startswith("load: active ?/4 (ceil 6) | cc ?/3 cx ?/3 ag ?/1 |") and "free RAM 12.0 GB" in line
+
+
+def test_sample_load_counts_every_active_ask_and_fails_to_unknown(monkeypatch):
+    from peerhub.extensions import diag_running
+    seen = {}
+
+    def fake(db, *, read_at=None, peer=None, limit=None):
+        seen["limit"] = limit
+        return {"status": "OK", "rows": [{"peer_id": "cx"}] * 30, "truncated": False}
+
+    monkeypatch.setattr(diag_running, "running_report", fake)
+    monkeypatch.setattr(diag_running, "free_ram_bytes", lambda: 8 * GB)
+    load = diag_running.sample_load("x.db")
+    assert load["active"] == 30 and seen["limit"] > 20, "a cap of 20 rows would hide load"
+    monkeypatch.setattr(diag_running, "running_report", lambda db, **kw: {"status": "FAILED", "rows": [], "truncated": False})
+    assert diag_running.sample_load("x.db")["active"] is None
+    monkeypatch.setattr(diag_running, "running_report", lambda db, **kw: {"status": "OK", "rows": [], "truncated": True})
+    assert diag_running.sample_load("x.db")["active"] is None, "a cut-off list is not a count"
+
+
+def test_plan_json_rows_name_the_profiles_that_use_each_pool(plan_store, capsys, monkeypatch):  # noqa: F811
+    monkeypatch.chdir(plan_store.parent)
+    assert main(["--db", str(plan_store), "diag", "--plan", "--json"]) == 0
+    rows = {p["pool"]: p for p in json.loads(capsys.readouterr().out)["pools"]}
+    assert all(isinstance(row["profiles"], list) for row in rows.values())
+    assert any(name.startswith("cc.") for name in rows["C-7D"]["profiles"])
+    assert rows["C-7D"]["profiles"] == sorted(rows["C-7D"]["profiles"])

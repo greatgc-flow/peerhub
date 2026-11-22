@@ -12,6 +12,7 @@ from typing import Any
 from peerhub.extensions.diag import ReadonlyDiag
 
 MAX_ROWS = 20
+LOAD_ROW_LIMIT = 500  # the load line counts every lease-active ask, far above any real concurrency
 
 
 def _started_at(detail: object) -> float | None:
@@ -100,8 +101,11 @@ def free_ram_bytes() -> int | None:
 def sample_load(db_path: str | Path, *, read_at: float | None = None) -> dict[str, Any]:
     """The load now: lease-active asks per peer (the rows `diag running` lists) and free RAM. Read-only."""
     from peerhub.core.load_limits import load_snapshot
+    report = running_report(db_path, read_at=read_at, limit=LOAD_ROW_LIMIT)
+    if report["status"] != "OK" or report["truncated"]:  # a failed or cut-off read is not a count: show ?, never 0
+        return load_snapshot(None, free_ram_bytes())
     counts: dict[str, int] = {}
-    for row in running_report(db_path, read_at=read_at)["rows"]:
+    for row in report["rows"]:
         counts[row["peer_id"]] = counts.get(row["peer_id"], 0) + 1
     return load_snapshot(counts, free_ram_bytes())
 
