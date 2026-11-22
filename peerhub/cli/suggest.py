@@ -11,7 +11,7 @@ from typing import Any, TypedDict, cast
 
 from peerhub._console import format_shell_command as _shell_command
 from peerhub.cli.support import quota_expired, quota_items, quota_workspace, try_quota_refresh
-from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION
 
 TIE_ORDER = {"ag": 0, "cx": 1, "cc": 2}
 MAX_5H_USAGE = .90

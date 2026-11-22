@@ -15,6 +15,7 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- `LOW_QUOTA_FRACTION` has one source in `peerhub/core/quota_policy.py` (the monitor, diag and suggest read it; `peerhub suggest` stays importable with the extensions disabled).
 - Monitor account snapshot tests use a fixed terminal width so the failed-probe row keeps its stale marker in parallel CI (#442).
 - `diag --plan` names only applicable table pools in the profiles footer and in-flight list, counts other mapped in-flight pools in an `n/a pools` clause, and keeps all per-pool counts in JSON.
 - `batch run --dry-run` gives one active-ask warning when the projected total exceeds the ceiling.
