@@ -73,7 +73,7 @@ Each scenario gets 0-100 with the exact commands, the number of calls and the ap
 | 3 ([rescore](rounds/r3-rescore.md)) | 87 / 85.8 / 90.2 (third = ag.argon) | 88 / 88 / 91 | 85 / 85 / 88 | 87.7, 89, 86 | 87.6 |
 | 4 ([rescore](rounds/r4-rescore.md)) | 92.2 / 92 / 93.7 (cx / neon / argon) | 93 / 92 / 94 | 92 / 89 / 92 | 92.6, 93.0, 91.0 | 92.2 |
 | 5 ([rescore](rounds/r5-rescore.md)) | 94.8 / 94.8 / 94.8 (cx / neon / argon) | 95.5 / 94.5 / 95 | 93.7 / 92.5 / 93.5 | 94.8, 95.0, 93.2 | 94.3 |
-| 6 | pending | | | | |
+| 6 ([rescore](rounds/r6-rescore.md)) | 94.7 / 95.0 / 96.2 (cx / neon / argon) | 95.8 / 95.5 / 96.3 | 94.8 / 93.8 / 94.8 | 95.3, 95.9, 94.5 | 95.2 |
 
 ### Axis means for the parallel rubric
 

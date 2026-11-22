@@ -230,7 +230,7 @@ def test_plan_prints_restore_after_backup(shell, monkeypatch, capsys):
     restore = backup["restore"]
     health = update._shell("peerhub", "--db", str(db), "diag", "health")
     health_suffix = f"; if ($?) {{ {health} }}" if shell == "nt" else f" && {health}"
-    assert restore["command"].startswith("python -c ")
+    assert restore["command"].startswith(update._python("-c").rsplit("-c", 1)[0] + "-c ")
     assert restore["command"].endswith(health_suffix)
     assert "stop all clients" in restore["step"].lower()
     timestamp = _PLAN_TIME.strftime(update.UPDATE_BACKUP_TIMESTAMP_FORMAT)
@@ -284,7 +284,7 @@ def test_printed_backup_and_restore_replace_the_selected_store(tmp_path, monkeyp
     backup = json.loads(capsys.readouterr().out)["commands"][0]
     separator = "; if ($?) { " if os.name == "nt" else " && "
     restore, delimiter, _ = backup["restore"]["command"].partition(separator)
-    assert delimiter and restore.startswith("python -c ")
+    assert delimiter and restore.startswith(update._python("-c").rsplit("-c", 1)[0] + "-c ")
 
     result = _run_printed_python(backup["command"])
     assert result.returncode == 0, result.stderr

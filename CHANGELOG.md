@@ -12,6 +12,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- `update --plan`: the printed backup and restore commands run the interpreter that runs PeerHub (not a bare `python`, which may lack peerhub for a pipx or uv install); the scoring record `docs/design/scoring-2026-11-22/` (rubric, six rounds, overall 95.2) documents why 0.26.6 ships.
 - `diag --plan`: a stale window keeps its own `(stale)` tag even when a sibling window decides the reason; `explain parallel-quota` says a profile listed under several pools spends each of them.
 - `diag --plan` tags fast pools and family gates in the text table, emits compact JSON, and counts lease-active asks with no quota pool. `update --plan` prints a restore command for the selected store after the backup command.
 - `diag --plan` tags fast pools and family gates in the text table, emits compact JSON, and counts lease-active asks with no quota pool. `update --plan` prints a UTC-stamped backup path followed by a restore command for the selected store. Restoring validates the backup and rotates `workspace.generation`.

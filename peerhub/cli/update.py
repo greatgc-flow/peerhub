@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import re
 import shutil
 import sqlite3
@@ -175,6 +176,11 @@ def _shell(*argv: str) -> str:
     return format_shell_command(list(argv))
 
 
+def _python(*argv: str) -> str:
+    """Run the interpreter that runs this PeerHub (a pipx or uv tool venv has peerhub; a bare `python` may not)."""
+    return ("& " if os.name == "nt" else "") + _shell(sys.executable, *argv)
+
+
 def _caller_cwd(caller: dict[str, Any], host: str | None) -> str | None:
     cwd: object = caller.get("cwd")
     if host and caller.get("v") == 1 and caller.get("host") == host and isinstance(cwd, str) and cwd.isprintable():
@@ -287,12 +293,12 @@ def _upgrade_commands(db: Path) -> list[dict[str, Any]]:
     db_path = str(db)
     timestamp = datetime.fromtimestamp(time.time(), UTC).strftime(UPDATE_BACKUP_TIMESTAMP_FORMAT)
     backup_path = str(db.with_name(db.name + UPDATE_BACKUP_SUFFIX.format(timestamp=timestamp)))
-    restore = _shell("python", "-c", restore_snapshot, db_path, backup_path)
+    restore = _python("-c", restore_snapshot, db_path, backup_path)
     health = _shell("peerhub", "--db", db_path, "diag", "health")
     restore = f"{restore}; if ($?) {{ {health} }}" if os.name == "nt" else f"{restore} && {health}"
     return [
         dict(step="Copy the selected store. Continue after the copy succeeds.",
-             command=_shell("python", "-c", backup, db_path, backup_path),
+             command=_python("-c", backup, db_path, backup_path),
              restore=dict(step="To restore, stop all clients first.", command=restore)),
         dict(step="Upgrade PeerHub with the installer you originally used. Choose one.",
              command="pipx upgrade peerhub", alternatives=["uv tool upgrade peerhub", "python -m pip install -U peerhub"]),
