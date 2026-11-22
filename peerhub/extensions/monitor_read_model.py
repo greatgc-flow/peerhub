@@ -22,6 +22,7 @@ from peerhub.extensions.observation_model import (
     ABSENT_FACT_REASONS,
     NOT_REPORTED_REASON,
     QUOTA_MAX_AGE_SECONDS,
+    QUOTA_PROJECTION_SAMPLE_COUNT_SQL,
     FreshnessPolicy,
     account_text as _account_text,  # stored account strings are display data: re-sanitized when read back
     changed_account_plan,
@@ -227,17 +228,8 @@ def _guarded(json_column: str, path: str, value: str) -> str:
     return f"CASE WHEN json_valid({json_column}) THEN {value.format(c=json_column, p=path)} END"
 
 
-def _payload_resets(alias: str) -> str:
-    return _guarded(f"{alias}.payload_json", "$.resets_at", "json_extract({c},'{p}')")
-
-
-# Distinct MEASURED samples (at most 2) of the same pool and reset window: the two-sample rule of `fast`. Computed inside the
-# capacity statement, so every path (compact, --expand, JSON) gets it without another SELECT; the human export query counts
-# the same way (see `human_observations`). Index: idx_obs_session_quota (subject_ref, kind, resource_pool_ref, effective_at_us).
-_SAMPLES_COLUMN = (",CASE WHEN o.kind='quota' THEN (SELECT COUNT(*) FROM (SELECT DISTINCT s.effective_at_us FROM observations s "
-                   "WHERE s.subject_ref=o.subject_ref AND s.kind='quota' AND s.resource_pool_ref IS o.resource_pool_ref "
-                   "AND s.state='MEASURED' AND " + _payload_resets("s") + " IS " + _payload_resets("o") + " "
-                   "ORDER BY s.effective_at_us DESC LIMIT 2)) END AS projection_samples ")
+# The capacity statement includes sample counts for every quota row without another SELECT.
+_SAMPLES_COLUMN = ",CASE WHEN o.kind='quota' THEN " + QUOTA_PROJECTION_SAMPLE_COUNT_SQL + " END AS projection_samples "
 # Quota rows keep their 100-row cap; account rows ride in the same statement with a cap of their own, so neither starves the other.
 _CAPACITY_SQL = ("SELECT * FROM (SELECT " + _ROW_COLUMNS + _SAMPLES_COLUMN + _ROW_JOINS +
                  "WHERE r.kind IN ('quota','rate_limit','reset_credit') "
@@ -1707,12 +1699,7 @@ def render_monitor_frame(db_path: str, groups: list[str], *, read_at: float | No
             ids = [item["observation_id"] for item in observations]
             evidence = conn.execute(
                 "SELECT o.observation_id, o.capture_seq, o.payload_json, m.payload_json AS prior_payload, "
-                "m.effective_at_us AS prior_at_us, (SELECT COUNT(*) FROM "
-                "(SELECT DISTINCT s.effective_at_us FROM observations s "
-                "WHERE s.subject_ref=o.subject_ref AND s.resource_pool_ref IS o.resource_pool_ref "
-                "AND s.kind='quota' AND s.state='MEASURED' "
-                "AND " + _payload_resets("s") + " IS " + _payload_resets("o") + " "  # guarded: a malformed sample never aborts
-                "ORDER BY s.effective_at_us DESC LIMIT 2)) AS samples "
+                "m.effective_at_us AS prior_at_us, " + QUOTA_PROJECTION_SAMPLE_COUNT_SQL + " AS samples "
                 "FROM observations o LEFT JOIN observations m ON m.capture_seq=(SELECT s.capture_seq FROM observations s "
                 "WHERE o.state='ERROR' AND o.kind='quota' AND o.resource_pool_ref IS NOT NULL "
                 "AND s.subject_ref=o.subject_ref AND s.resource_pool_ref=o.resource_pool_ref AND s.kind='quota' "

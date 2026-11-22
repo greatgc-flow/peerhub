@@ -13,6 +13,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, tzinfo
 from typing import Any, cast
 
+from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import DiagnosticReport, Section
 from peerhub.extensions.diag_quota import projection, quota_stale_line
 from peerhub.extensions.observation_model import oldest_measured_quota_age
@@ -264,7 +265,8 @@ class _Row:
         self.age = _num(item.get("age_seconds"))
         self.ttl = _num(item.get("ttl_seconds"))
         self.reason = _safe_text(payload.get("reason") or "")
-        rf = _num(payload.get("remaining_fraction"))
+        rf = self.remaining = _num(payload.get("remaining_fraction"))
+        self.projection_samples = _num(item.get("projection_samples"))
         self.used = 1 - rf if rf is not None and 0 <= rf <= 1 and self.state in ("MEASURED", "STALE") else None
         start, reset = _num(payload.get("window_started_at")), _num(payload.get("resets_at"))
         self.span = reset - start if reset is not None and start is not None and reset > start else float("inf")
@@ -502,6 +504,7 @@ PLAN_REST_PACE_PT = 20.0  # rest only above PACE +20: owner 2026-11-22, up to +2
 PLAN_LEGEND = (f"spend PACE<=-{PLAN_SPEND_PACE_PT:.0f} | hold | rest PACE>+{PLAN_REST_PACE_PT:.0f}/exhausts early | "
                "blocked 0%/unknown | - n/a | TARGET=left%/h")
 _PLAN_RANK = {"spend": 0, "hold": 1, "rest": 2, "blocked": 3}
+_PlanWindow = tuple[_Row, float | None, str, str]
 
 
 def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) -> tuple[str, str]:
@@ -524,13 +527,55 @@ def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) ->
     return "hold", "on pace" + stale
 
 
-def _plan_pools(report: DiagnosticReport) -> list[dict[str, object]]:
+def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]], read_at: float,
+                     profiles_by_pool: Mapping[str, list[str]]) -> None:
+    # Reuse the monitor's classifier and pool tree rules here so the two CLI views agree.
+    from peerhub.cli.monitor_view import _compact_pool, _parse_window, _scoped_weekly_parents, _WEEK  # pyright: ignore[reportPrivateUsage]
+
+    consumers: dict[str, list[str]] = {}
+    for pool, profiles in profiles_by_pool.items():
+        for profile in profiles:
+            peer, _, _ = profile.partition(".")
+            consumers.setdefault(f"{peer}:{pool}", []).append(profile)
+
+    def family_key(row: _Row) -> tuple[str, str, str]:
+        return row.peer, row.ref.rpartition(":")[0], _family(row.pool)
+
+    families: dict[tuple[str, str, str], list[_PlanWindow]] = {}
+    monitor_rows: list[dict[str, Any]] = []
+    for entry in own:
+        r = entry[0]
+        families.setdefault(family_key(r), []).append(entry)
+        monitor_rows.append(_compact_pool({
+            "peer_id": r.peer, "pool_ref": r.ref, "state": r.state, "reason": r.reason,
+            "measurements": {"remaining_fraction": r.remaining}, "reset_in_seconds": r.left,
+            "age_seconds": r.age, "ttl_seconds": r.ttl, "projection": r.projection,
+            "projection_samples": r.projection_samples,
+        }, read_at, 0, consumers))
+
+    scoped_parents = _scoped_weekly_parents(monitor_rows)
+    for (r, _, _, _), row, monitor in zip(own, out, monitor_rows):
+        siblings = families[family_key(r)]
+        window = _parse_window(r.pool)[0]
+        parent = scoped_parents.get(id(monitor), {}).get("pool")
+        if parent is None and window < _WEEK and monitor["family"] != "?":
+            parent = next((s.pool for s, _, _, _ in siblings if _parse_window(s.pool)[0] == _WEEK), None)
+        row.update(age_seconds=r.age, ttl_seconds=r.ttl if r.ttl is not None else QUOTA_TTL_SECONDS,
+                   fast=monitor["state"] == "fast", family=monitor["meaning"], parent=parent,
+                   gates=[{"pool": s.pool, "action": action,
+                           "reason": "reset" if s.projection["state"] == "expired" else reason}
+                          for s, _, action, reason in siblings if s is not r and action in {"rest", "blocked"}]
+                   if window == _WEEK else [])
+
+
+def _plan_pools(report: DiagnosticReport, *, include_facts: bool = False,
+                profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[dict[str, object]]:
     items = [i for i in _items(_section(report, "observations").get("items")) if i.get("kind") == "quota"]
     pools = [p for p in _items(_section(report, "resource_pools").get("pools")) if p.get("kind") == "QUOTA"]
     rows = _quota_rows(items, pools, report.read_at)
     from peerhub.cli.monitor_view import not_applicable
     from peerhub.extensions.observation_model import DISABLED_REASON
-    own: list[tuple[_Row, float | None, str, str]] = []
+    own: list[_PlanWindow] = []
     for r in rows:
         left = None if r.used is None else 100.0 * (1.0 - r.used)
         if not_applicable(r.state, r.reason, aged=r.age is not None and r.ttl is not None and r.age >= r.ttl):
@@ -538,7 +583,7 @@ def _plan_pools(report: DiagnosticReport) -> list[dict[str, object]]:
             own.append((r, None, "n/a", "n/a (disabled by provider)" if r.reason.startswith(DISABLED_REASON) else "n/a (plan omits)"))
         else:
             own.append((r, left, *plan_action(left, r.diff, r.projection["state"])))
-    families: dict[tuple[str, str], list[tuple[_Row, float | None, str, str]]] = {}
+    families: dict[tuple[str, str], list[_PlanWindow]] = {}
     for entry in own:  # a peer's windows of one family (G-5H, G-7D): known windows share the most restrictive action
         if entry[2] != "n/a":
             families.setdefault((entry[0].peer, _family(entry[0].pool)), []).append(entry)
@@ -563,6 +608,8 @@ def _plan_pools(report: DiagnosticReport) -> list[dict[str, object]]:
                     "resets_in_seconds": r.left, "target_pct_per_hour": left / hours if left is not None and hours else None,
                     "pace_pt": r.diff, "forecast": r.projection["state"], "binding": binding,
                     "action": decided[2], "reason": reason})
+    if include_facts:
+        _plan_pool_facts(own, out, report.read_at, profiles_by_pool or {})
     return out
 
 
@@ -570,10 +617,11 @@ def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
               load: Mapping[str, object] | None = None,
               profiles_by_pool: Mapping[str, list[str]] | None = None) -> dict[str, object]:
     """`diag --plan --json`: read-only, from the stored observations of one snapshot."""
+    pools = _plan_pools(report, include_facts=True, profiles_by_pool=profiles_by_pool)
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
-                               "store_selection": dict(store_selection), "legend": PLAN_LEGEND, "pools": _plan_pools(report)}
+                               "store_selection": dict(store_selection), "legend": PLAN_LEGEND, "pools": pools}
     if profiles_by_pool is not None:  # additive: which profiles spend each pool, so an AI maps pools to asks without `profile list`
-        for row in cast("list[dict[str, object]]", data["pools"]):
+        for row in pools:
             row["profiles"] = list(profiles_by_pool.get(str(row["pool"]), []))
     if load is not None:
         data["load"] = dict(load)  # additive: sampled now, unlike the stored pools

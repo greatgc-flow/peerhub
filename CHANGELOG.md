@@ -13,6 +13,7 @@ they do not claim new validation or publication evidence.
 ### Added
 
 - `diag --plan`: a pool is `rest` only above PACE +20 (was +10; owner: up to +20 ahead of an even burn is fine); `--json` rows add `profiles`; README gets a First ask section and an upgrade plan with a real restore step.
+- `diag --plan --json` reports quota age, TTL, FAST state, family and parent per pool, with unavailable sibling windows listed on weekly rows.
 - `diag --plan` load line: a failed or cut-off lease read shows `?` (it counted at most 20 rows before and could show 0); the limit is 500.
 - `explain parallel-quota` and `docs/batch.md` J cover in-flight spend, per-task quota refusal, one wave per manifest and batch-ID replay; the top-level `--help` epilog gives a start line (AI, human, first ask, bugs).
 - `peerhub explain <words>`: one match prints in full, several print one `id: title` line each (`vote` was 6 KB, now about 0.3 KB; `--json` is unchanged); everyday words (`model`, `ram`, `free ram`, `memory`, `slots`, `diag plan`) now find a topic.

@@ -596,7 +596,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     if args.plan:  # #339: read-only, stored observations only (no refresh, no provider call)
         from peerhub.cli.view import FrameOutput, plan_data, render_plan
         from peerhub.extensions.diag_running import sample_load
-        rep = ReadonlyDiag(args.db).render(["resource_pools", "observations"])
+        rep = ReadonlyDiag(args.db).render(["resource_pools", "observations"], include_quota_samples=args.json)
         load = sample_load(args.db)
         profiles_by_pool: dict[str, list[str]] = {}
         if args.json:

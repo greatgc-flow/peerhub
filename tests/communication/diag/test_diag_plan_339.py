@@ -15,6 +15,7 @@ import pytest
 
 from peerhub.cli.app import main
 from peerhub.cli.view import plan_action, plan_data, render_plan
+from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import DiagnosticReport, Section
 from tests.communication.harness.observation import ObservationHarness
 
@@ -57,7 +58,7 @@ def _item(peer, pool, remaining, *, span, elapsed, state="MEASURED", reason=None
     if reason is not None:
         payload = {"reason": reason}
     return {"kind": "quota", "subject_ref": peer, "resource_pool_ref": f"quota:{peer}:{pool}", "state": state,
-            "age_seconds": age, "ttl_seconds": 300.0, "observed_at": datetime.fromtimestamp(measured, timezone.utc).isoformat(),
+            "age_seconds": age, "ttl_seconds": QUOTA_TTL_SECONDS, "observed_at": datetime.fromtimestamp(measured, timezone.utc).isoformat(),
             "payload": payload}
 
 
@@ -160,8 +161,8 @@ def test_json_shape():
     assert set(data) == {"schema_version", "status", "read_at", "store_selection", "legend", "pools"}
     assert data["store_selection"] == {"path": "p", "source": "env"}
     (row,) = data["pools"]
-    assert set(row) == {"peer", "pool", "resource_pool_ref", "left_pct", "resets_in_seconds", "target_pct_per_hour",
-                        "pace_pt", "forecast", "binding", "action", "reason"}
+    assert {"peer", "pool", "resource_pool_ref", "left_pct", "resets_in_seconds", "target_pct_per_hour",
+            "pace_pt", "forecast", "binding", "action", "reason"} <= row.keys()
     assert row["action"] in {"spend", "hold", "rest", "blocked"}
     json.dumps(data)
 
@@ -226,7 +227,7 @@ def test_cli_plan_table(plan_store, capsys):
 @pytest.mark.parametrize("status,error,code", [("PARTIAL", None, 4), ("FAILED", "SchemaVersionError: v99", 6)])
 def test_cli_plan_exit_codes(plan_store, capsys, monkeypatch, status, error, code):
     from peerhub.extensions.diag import ReadonlyDiag
-    monkeypatch.setattr(ReadonlyDiag, "render", lambda self, sections, read_at=None: DiagnosticReport(status, NOW, {}, {}, error))
+    monkeypatch.setattr(ReadonlyDiag, "render", lambda self, sections, **kw: DiagnosticReport(status, NOW, {}, {}, error))
     assert main(["--db", str(plan_store), "diag", "--plan", "--json"]) == code
     assert json.loads(capsys.readouterr().out)["status"] == status
     assert main(["--db", str(plan_store), "diag", "--plan"]) == code
