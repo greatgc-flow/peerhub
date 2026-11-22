@@ -156,6 +156,8 @@ peerhub profile check
 peerhub outcome ASK_ID accepted
 ```
 
+`peerhub peer show` aliases `peer get`. For `ask`, `--prompt-file` aliases `--query-file`. For `profile list`, `show`, `stats`, and `check`, `-w` aliases `--workspace`.
+
 The two `ask` examples require the corresponding vendor CLI to be installed and
 authenticated, and spend provider quota. See the [adapter guide](docs/adapters/README.md).
 Add `--dry-run` to an ask to preview its resolved settings, stream, session and replay status without provider calls or store writes.

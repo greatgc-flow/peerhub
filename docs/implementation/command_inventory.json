@@ -192,7 +192,8 @@
           "default": null,
           "dest": "query_file",
           "flags": [
-            "--query-file"
+            "--query-file",
+            "--prompt-file"
           ],
           "positional": false,
           "required": false,
@@ -969,6 +970,7 @@
           "default": null,
           "dest": "workspace",
           "flags": [
+            "-w",
             "--workspace"
           ],
           "positional": false,
@@ -994,6 +996,7 @@
           "default": null,
           "dest": "workspace",
           "flags": [
+            "-w",
             "--workspace"
           ],
           "positional": false,
@@ -1019,6 +1022,7 @@
           "default": null,
           "dest": "workspace",
           "flags": [
+            "-w",
             "--workspace"
           ],
           "positional": false,
@@ -1054,6 +1058,7 @@
           "default": null,
           "dest": "workspace",
           "flags": [
+            "-w",
             "--workspace"
           ],
           "positional": false,

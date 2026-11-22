@@ -10,6 +10,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- Added CLI aliases `peer show` for `peer get`, `-w` for `--workspace` on all four `profile` commands, and `ask --prompt-file` for `ask --query-file` (#446).
 - `diag quota --max-age-seconds N` filters quota readings by age and reports how many older readings it hid. `diag --plan` accepts repeatable `--peer` and a read-only `--observation-db` while load remains global to the selected store (#446).
 - `peerhub ask --dry-run` previews the resolved settings, stream, session and replay status offline without writing to the store (#446).
 - `peerhub suggest --candidates` shows profile eligibility, quota facts and reasons for the selected tier, with the same facts in a `candidates` array when using `--json` (#446).

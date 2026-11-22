@@ -163,6 +163,10 @@ class _DiagRunningHelpFormatter(argparse.HelpFormatter):
         super().add_argument(action)
 
 
+_WORKSPACE_OPTIONS = ("-w", "--workspace")
+_ASK_QUERY_FILE_OPTIONS = ("--query-file", "--prompt-file")
+
+
 def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     description = "PeerHub CLI"
     parser = _ArgumentParser(prog=prog, description=description, epilog="Advanced: stream, record, offset. Start: AI = peerhub guide, peerhub diag --plan | human = peerhub monitor | first ask: peerhub ask cc \"prompt\" --profile cc.standard --stream ID --request-id R1 | bugs: peerhub explain report-issues")
@@ -180,7 +184,12 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     p_reg.add_argument("--name", dest="display_name", help="Display name for the peer")
     p_reg.add_argument("--adapter", dest="adapter_ref", help=f"Adapter the peer runs on: {BUILTIN_PEER_CHOICES}")
 
-    p_get = peer_sub.add_parser("get", help="Get a peer")
+    peer_get, peer_show = "get", "show"
+    peer_alias_help = f"{peer_show} is an alias of {peer_get}"
+    p_get = peer_sub.add_parser(peer_get, aliases=[peer_show],
+                                help=f"Get a peer ({peer_alias_help})", description=peer_alias_help)
+    # Keep the action canonical even when argparse matches the alias.
+    p_get.set_defaults(action=peer_get)
     p_get.add_argument("--peer", required=True, dest="peer_id", help="Peer ID")
 
     p_list = peer_sub.add_parser("list", help="List peers (read-only, bounded)")
@@ -243,14 +252,14 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge",
                                      description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Select --fresh or an exact --session HANDLE. Results include a session handle and mode.")
     ask_parser.add_argument("peer", help=f"Peer ID (built-ins: {', '.join(BUILTIN_PEER_LABELS)})")
-    ask_parser.add_argument("prompt", nargs="?", help="Prompt text (exclusive with --query-file)")
-    ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
+    ask_parser.add_argument("prompt", nargs="?", help=f"Prompt text (exclusive with {' or '.join(_ASK_QUERY_FILE_OPTIONS)})")
+    ask_parser.add_argument(*_ASK_QUERY_FILE_OPTIONS, help="UTF-8 prompt file; exclusive with prompt")
     ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat; ca, oa and ga: peer:<id>:<request-id>, one ask per stream)")
     ask_parser.add_argument("--request-id", help="Reuse on retries; uncertain execution is never replayed automatically")
     ask_parser.add_argument("--fresh", action="store_true", help="Allocate a fresh session with bounded Stream catch-up")
     ask_parser.add_argument("--session", metavar="HANDLE", help="Reuse this exact retained handle; incompatible sessions are rejected")
     ask_parser.add_argument("--author-peer", dest="author", default="user", help="Peer ID recorded as the prompt author (auto-registered)")
-    ask_parser.add_argument("-w", "--workspace", help="Provider working directory; default: current directory")
+    ask_parser.add_argument(*_WORKSPACE_OPTIONS, help="Provider working directory; default: current directory")
     ask_parser.add_argument("--model", help="Model to run; overrides the profile model")
     ask_parser.add_argument("--effort", help="Provider-specific reasoning effort override (default %(default)s, use the selected profile's effort if set)")
     ask_parser.add_argument("-p", "--profile", help="Explicit Runtime Target profile; model/effort override its defaults")
@@ -298,15 +307,15 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     profile_parser = subparsers.add_parser("profile", help="Inspect effective local model profiles (read-only)")
     profile_sub = profile_parser.add_subparsers(dest="action", required=True)
     profile_list = profile_sub.add_parser("list", help="List configured profiles")
-    profile_list.add_argument("--workspace", type=Path, default=None, help="Workspace whose profile files apply (default: current directory)")
     profile_list.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
     profile_show = profile_sub.add_parser("show", help="Show effective profile values and source layers")
     profile_show.add_argument("profile", help="Profile ID to inspect (for example, cx.standard)")
-    profile_show.add_argument("--workspace", type=Path, default=None, help="Workspace whose profile files apply (default: current directory)")
     profile_show.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
-    for name, text in (("stats", "Aggregate stored ask measurements by profile"), ("check", "Check installed model IDs and measurement age")):
-        profile_sub.add_parser(name, help=text).add_argument(
-            "--workspace", type=Path, default=None, help="Workspace whose profile files apply (default: current directory)")
+    profile_stats = profile_sub.add_parser("stats", help="Aggregate stored ask measurements by profile")
+    profile_check = profile_sub.add_parser("check", help="Check installed model IDs and measurement age")
+    for profile_action in (profile_list, profile_show, profile_stats, profile_check):
+        profile_action.add_argument(*_WORKSPACE_OPTIONS, type=Path, default=None,
+                                    help="Workspace whose profile files apply (default: current directory)")
 
     outcome = subparsers.add_parser("outcome", help="Append an outcome correction to a stored ask")
     outcome.add_argument("ask_id", help="Ask ID from the receipt or requested_record_id in ask JSON")
@@ -1544,7 +1553,7 @@ def main(argv: list[str] | None = None, prog: str = "peerhub") -> int:
             from peerhub.extensions.bridge import normalize_session_selector
             normalize_session_selector(fresh=args.fresh, session=args.session)
             if (args.prompt is None) == (args.query_file is None):
-                parser.error("ask requires exactly one of prompt or --query-file")
+                parser.error(f"ask requires exactly one of prompt or {_ASK_QUERY_FILE_OPTIONS[0]}")
         if hasattr(args, "db") and args.db and not getattr(args, "update_check", False):
             workspace = Path(args.workspace) if args.subcommand in ("ask", "profile") and getattr(args, "workspace", None) else None
             if args.subcommand == "ask" and args.dry_run:
