@@ -8,6 +8,25 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.6] - 2026-11-22
+
+### Added
+
+- `update --plan`: the printed backup and restore commands run the interpreter that runs PeerHub (not a bare `python`, which may lack peerhub for a pipx or uv install); the scoring record `docs/design/scoring-2026-11-22/` (rubric, six rounds, overall 95.2) documents why 0.26.6 ships.
+- `diag --plan`: a stale window keeps its own `(stale)` tag even when a sibling window decides the reason; `explain parallel-quota` says a profile listed under several pools spends each of them.
+- `diag --plan` tags fast pools and family gates in the text table, emits compact JSON, and counts lease-active asks with no quota pool. `update --plan` prints a restore command for the selected store after the backup command.
+- `diag --plan` tags fast pools and family gates in the text table, emits compact JSON, and counts lease-active asks with no quota pool. `update --plan` prints a UTC-stamped backup path followed by a restore command for the selected store. Restoring validates the backup and rotates `workspace.generation`.
+- `diag --plan` load line adds `in flight POOL N` (and `by_pool` in `--json`): lease-active asks per quota pool, the spend the readings do not show yet. Docs sections H and J say which ranking answers which question.
+- `diag --plan`: a pool is `rest` only above PACE +20 (was +10; owner: up to +20 ahead of an even burn is fine); `--json` rows add `profiles`; README gets a First ask section and an upgrade plan with a real restore step. A `profiles:` footer before the load line lists the profiles that spend each applicable pool in table order.
+- `diag --plan --json` reports quota age, TTL, FAST state, family and parent per pool, with unavailable sibling windows listed on weekly rows.
+- `peerhub batch run` dry runs show task profiles, including `(peer default)`, and resolved workspaces, report writable workspace overlaps and low free RAM, and compare concurrent batch tasks plus sampled active asks against the default and ceiling. An unavailable active-ask count displays as `active now ?`, and dry runs report settled and uncertain counts for replayed batch IDs. Help includes a valid manifest example, the warning kinds, batch-ID replay and reconciliation guidance, and the full-reply behavior of `--responses`. Final reports summarize outcomes and include diagnostic commands for the selected store on failed or uncertain tasks.
+- `diag --plan` load line: a failed or cut-off lease read shows `?` (it counted at most 20 rows before and could show 0); the limit is 500.
+- `explain parallel-quota` and `docs/batch.md` J cover in-flight spend, per-task quota refusal, one wave per manifest and batch-ID replay; the top-level `--help` epilog gives a start line (AI, human, first ask, bugs).
+- `peerhub explain <words>`: one match prints in full, several print one `id: title` line each (`vote` was 6 KB, now about 0.3 KB; `--json` is unchanged); everyday words (`model`, `ram`, `free ram`, `memory`, `slots`, `diag plan`) now find a topic.
+- CLI audit (three peer reviews, #446): `profile stats/check --workspace` (as `list/show`), `diag running --peer/--limit` (its JSON adds `limit` and `peer`), `profile check --json` adds `workspace`; clearer help for `ask` and `diag` (`diag` is the low-token command for AIs, `peerhub monitor` the human screen). Other findings are listed in #446.
+- `peerhub diag --plan` ends with a `load:` line (`--json`: a `load` object): lease-active asks against the limits, per-peer slots and free RAM, sampled at query time; the numbers live in `peerhub/core/load_limits.py`. `peerhub monitor` is documented as the human screen and the guide tells AIs to read `diag --plan`.
+- `peerhub explain parallel-quota` (named by `peerhub guide`): facts first, the AI decides. AIs read `peerhub diag --plan` (pools, the `load:` line, `--json` rows with the `profiles` that spend each pool) and never `peerhub monitor`; a default plan with a wave size n as quota and load allow; `docs/batch.md` J has the same recipe.
+
 ## [0.26.5] - 2026-11-21
 
 ### Changed

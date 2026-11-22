@@ -568,7 +568,7 @@ class Bridge:
             if row is None:
                 raise NoDeliveryError(delivery_id)
             self._check_scope(row, token)
-            if row["certainty"] != NOT_STARTED or self._open_invocation(conn, delivery_id) is not None:
+            if row["certainty"] != NOT_STARTED or self.open_invocation(conn, delivery_id) is not None:
                 raise InvocationMarkerError(f"cannot mark an invocation for a {row['certainty']} delivery or one with an unresolved marker")
             n = conn.execute("SELECT COALESCE(MAX(invocation_no),0)+1 FROM bridge_invocations WHERE delivery_id=?", (delivery_id,)).fetchone()[0]
             conn.execute("INSERT INTO bridge_invocations (delivery_id, invocation_no, stream_id, peer_id, claim_generation, "
@@ -607,7 +607,8 @@ class Bridge:
         return any(newest[key] != self.caller[key] for key in self._CALLER_IDENTITY)
 
     @staticmethod
-    def _open_invocation(conn: sqlite3.Connection, delivery_id: str) -> int | None:
+    def open_invocation(conn: sqlite3.Connection, delivery_id: str) -> int | None:
+        """Read the latest unresolved invocation marker in the caller's snapshot."""
         r = conn.execute("SELECT i.invocation_no FROM bridge_invocations i WHERE i.delivery_id=? AND NOT EXISTS ("
                          "SELECT 1 FROM bridge_invocation_resolutions r WHERE r.delivery_id=i.delivery_id AND r.invocation_no=i.invocation_no) "
                          "ORDER BY i.invocation_no DESC LIMIT 1", (delivery_id,)).fetchone()
@@ -620,7 +621,7 @@ class Bridge:
             if row is None:
                 raise NoDeliveryError(delivery_id)
             self._check_scope(row, token)
-            n = self._open_invocation(conn, delivery_id)
+            n = self.open_invocation(conn, delivery_id)
             if row["certainty"] != NOT_STARTED or n is None or row["execution_id"] is not None:
                 raise InvocationMarkerError(f"no unresolved invocation marker to resolve on a {row['certainty']} delivery")
             self._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, NOT_STARTED, error=error, invocation_no=n)
@@ -1258,7 +1259,7 @@ class Bridge:
             if row is None:
                 raise NoDeliveryError(did)
             self._check_scope(row, token)
-            if row["certainty"] != NOT_STARTED or self._open_invocation(conn, did) is not None:
+            if row["certainty"] != NOT_STARTED or self.open_invocation(conn, did) is not None:
                 raise InvocationMarkerError("selector failure cannot be consumed after possible execution")
             result = dict(response=None, error=error, session=session_receipts.snapshot(row))
             if row["result_digest"] is None:

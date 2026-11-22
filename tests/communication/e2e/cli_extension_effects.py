@@ -686,6 +686,23 @@ EFFECT.update({f"profile list {option}": (lambda e, option=option: profile_effec
 EFFECT.update({"profile show profile": lambda e: profile_effect(e, "show", "profile"),
                "profile show --workspace": lambda e: profile_effect(e, "show", "--workspace"),
                "profile show --format": lambda e: profile_effect(e, "show", "--format")})
+def profile_store_workspace_effect(e, command):
+    workspace = e.tmp / f"profiles-{command}"
+    workspace.mkdir(exist_ok=True)
+    result = e.j(e.fresh(), "profile", command, "--workspace", str(workspace), "--json")
+    assert result["workspace"] == str(workspace)
+
+
+def running_option_effect(e, option):
+    value = {"--peer": "cx", "--limit": "5"}[option]
+    result = e.j(e.fresh(), "diag", "running", option, value, "--json")
+    assert result[option[2:]] == (value if option == "--peer" else int(value)) and result["rows"] == []
+
+
+EFFECT.update({"profile stats --workspace": lambda e: profile_store_workspace_effect(e, "stats"),
+               "profile check --workspace": lambda e: profile_store_workspace_effect(e, "check"),
+               "diag running --peer": lambda e: running_option_effect(e, "--peer"),
+               "diag running --limit": lambda e: running_option_effect(e, "--limit")})
 EFFECT.update({f"session list {option}": (lambda e, option=option: session_inspection_effect(e, "list", option))
                for option in ("--stream", "--peer", "--limit", "--cursor", "--format")})
 EFFECT.update({"session show handle": lambda e: session_inspection_effect(e, "show", "handle"),

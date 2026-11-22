@@ -4,14 +4,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import re
-import shlex
 import shutil
 import sqlite3
 import subprocess
 import time
 import tomllib
 from contextlib import closing
+from datetime import UTC, datetime
 from http.client import HTTPException
 from importlib.resources import files
 from pathlib import Path
@@ -20,6 +21,7 @@ from urllib.request import Request, urlopen
 
 import psutil
 
+from peerhub._console import format_shell_command
 from peerhub._version import __version__
 from peerhub.cli.support import error_line
 from peerhub.core.connection import create_connection
@@ -40,6 +42,8 @@ _VERSION = re.compile(r"(?<![0-9])[0-9]{1,12}\.[0-9]{1,12}\.[0-9]{1,12}(?:[-+][0
 _LEAD_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _BATCH_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 _METADATA_LIMIT = 2 * 1024 * 1024
+UPDATE_BACKUP_SUFFIX = ".pre-update-{timestamp}.bak"
+UPDATE_BACKUP_TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
 _PROVIDERS = {"codex": "cx", "claude": "cc", "agy": "ag", "ant": "ca"}
 
 
@@ -169,11 +173,12 @@ def _blocking_processes() -> list[dict[str, Any]]:
 
 
 def _shell(*argv: str) -> str:
-    if os.name != "nt":
-        return shlex.join(argv)
-    # PowerShell literals also recognize typographic single quotes.
-    return " ".join(arg if re.fullmatch(r"[a-zA-Z0-9@._/-]+", arg)
-                    else "'" + re.sub(r"['‘’]", lambda m: m[0] * 2, arg) + "'" for arg in argv)
+    return format_shell_command(list(argv))
+
+
+def _python(*argv: str) -> str:
+    """Run the interpreter that runs this PeerHub (a pipx or uv tool venv has peerhub; a bare `python` may not)."""
+    return ("& " if os.name == "nt" else "") + _shell(sys.executable, *argv)
 
 
 def _caller_cwd(caller: dict[str, Any], host: str | None) -> str | None:
@@ -283,13 +288,22 @@ def _upgrade_commands(db: Path) -> list[dict[str, Any]]:
     backup = ("import sqlite3,sys; from pathlib import Path; dest=Path(sys.argv[2]); "
               "dest.touch(exist_ok=False); sqlite3.connect(Path(sys.argv[1]).as_uri()+'?mode=ro',uri=True)"
               ".backup(sqlite3.connect(dest))")
+    restore_snapshot = ("import sys; from pathlib import Path; from peerhub.core.workspace import Workspace; "
+                        "db=Path(sys.argv[1]); Workspace(db.parent, db_name=db.name).restore_snapshot(Path(sys.argv[2]))")
+    db_path = str(db)
+    timestamp = datetime.fromtimestamp(time.time(), UTC).strftime(UPDATE_BACKUP_TIMESTAMP_FORMAT)
+    backup_path = str(db.with_name(db.name + UPDATE_BACKUP_SUFFIX.format(timestamp=timestamp)))
+    restore = _python("-c", restore_snapshot, db_path, backup_path)
+    health = _shell("peerhub", "--db", db_path, "diag", "health")
+    restore = f"{restore}; if ($?) {{ {health} }}" if os.name == "nt" else f"{restore} && {health}"
     return [
         dict(step="Copy the selected store. Continue after the copy succeeds.",
-             command=_shell("python", "-c", backup, str(db), str(db.with_name(db.name + ".pre-update.bak")))),
+             command=_python("-c", backup, db_path, backup_path),
+             restore=dict(step="To restore, stop all clients first.", command=restore)),
         dict(step="Upgrade PeerHub with the installer you originally used. Choose one.",
              command="pipx upgrade peerhub", alternatives=["uv tool upgrade peerhub", "python -m pip install -U peerhub"]),
         dict(step="Verify the upgraded CLI.", command="peerhub --version"),
-        dict(step="Restart the monitor if you use it.", command=_shell("peerhub", "--db", str(db), "monitor")),
+        dict(step="Restart the monitor if you use it.", command=_shell("peerhub", "--db", db_path, "monitor")),
     ]
 
 
@@ -343,6 +357,8 @@ def run_update(args: argparse.Namespace) -> int:
             print(report["next"])
         for num, step in enumerate(report["commands"], 1):
             print(f"{num}. {step['step']}\n   {step['command']}")
+            if restore := step.get("restore"):
+                print(f"   {restore['step']}\n   {restore['command']}")
             for alternative in step.get("alternatives", []):
                 print(f"   or {alternative}")
         for row in report["resume"]:

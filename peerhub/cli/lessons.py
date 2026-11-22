@@ -71,7 +71,7 @@ def render_lessons_reference() -> str:
         "```",
         "",
         "Use `peerhub explain <free words>` for offline, case-insensitive AND-token lookup over titles and keywords.",
-        "Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then `lessons` (an index: one `id: title` line per lesson), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order.",
+        "Known guidance codes and aliases take priority, then an exact profile ID (for example `cc.effort`), then `lessons` (an index: one `id: title` line per lesson), then an exact lesson ID (the IDs below) before keyword lookup. Keyword matches list recipes first, then lesson ID order; one match prints in full, several print one `id: title` line each (open one with `peerhub explain <id>`).",
     ]
     for lesson in load_lessons():
         lines.extend([

@@ -13,6 +13,17 @@ Dry runs validate without spawning workers or creating the store.
 `--batch-id` and `--max-parallel` are required; parallelism is 1..16. The guide and every example
 recommend 3 (`RECOMMENDED_MAX_PARALLEL` in `peerhub/extensions/batch.py`, the one constant).
 
+Dry-run warnings cover equal or nested workspaces for writable pairs
+(`workspace_overlap`), per-peer limits (`per_peer_limit`), the active-ask ceiling
+and default (`active_asks_ceiling`, `active_asks_default`), low free RAM (`free_ram`),
+and the sampled lease count (`active_asks_sample`). The sample appears as `active now N`
+or `active now ?` when unavailable, with `active_now` set to the count or `null` in JSON.
+When the selected store has settled or uncertain tasks from the manifest for the same batch ID,
+`replay: N settled, M uncertain` appears before the warnings. JSON includes both
+counts in `replay`. Workspace overlap can invalidate a manifest. Load warnings are advisory.
+
+The execution report totals task outcomes as `ok`, `failed`, `uncertain`, and `quota_refused`.
+
 The UTF-8 JSON manifest contains only `tasks` (1..256 entries):
 
 ```json
@@ -22,6 +33,8 @@ The UTF-8 JSON manifest contains only `tasks` (1..256 entries):
 Each task requires `task_id`, `peer`, and exactly one of `prompt` or `prompt_file`.
 Optional keys: `workspace`, `profile`, `writable` (default false), `timeout_s`
 (finite positive seconds, default 600). Unknown keys, including `stream`, fail.
+Dry runs show the profile in the table and in JSON `profile_display`. Tasks without a
+profile display `(peer default)` and retain `null` in JSON `profile`.
 IDs match `[A-Za-z0-9._-]{1,64}`; task IDs must be unique. Prompt files are UTF-8,
 at most 1 MiB, and resolved relative to the manifest; workspaces must exist and
 relative workspace paths use the current directory. Peers must be builtin aliases
@@ -127,7 +140,7 @@ check available quota before execution. COMPLETED proves delivery, not task succ
 
 Both rules are advice for the caller; PeerHub never selects a profile or throttles for you.
 Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepthink` = quality,
-`<peer>.<top>` (`cc.fable`, `cx.astra`, `ag.argon`) = top: opt-in, never a default.
+`<peer>.<top>` (`cx.astra`, `ag.neon`, `ag.argon`, `cc.fable`) = top: opt-in, never a default.
 
 **H. Balancing rule**
 
@@ -135,7 +148,7 @@ Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepth
    (formatting), `effort` (writing) or `deepthink` (technical claims); code = `effort`, escalate to
    `deepthink`; review = `deepthink` from an independent reviewer; design/debate = `deepthink` or an explicit top.
 2. Drop candidates with any applicable pool that has stale evidence (regardless of `STATE` shown, since a stale pool can display `low` or `fast`; check `AGE` and the `PEERS` `(aged)` tag) or is `?`, `aged`, `reset`, or under 5% LEFT, and prefer candidates without a `fast` pool (see `peerhub monitor`).
-3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`.
+3. Break ties across pool families by the highest `LEFT% / max(days_to_reset, 0.2)`. This rule ranks the candidates for a single ask (the `suggest:` line); a wave of several tasks uses section J (lowest 7D PACE first, then size n), so the two answer different questions.
 
 The monitor's `suggest:` line lists the best eligible profile per tier. Among
 eligible candidates, those without an applicable `fast` pool rank first, then
@@ -145,6 +158,8 @@ example `eco=cc.standard|ag.standard`. With no eligible alternative, only the
 primary appears. These suggestions do not execute asks or reroute work.
 
 While 3P is low, explicitly use `ag.argon` only for tasks its measured capabilities support; otherwise defer.
+
+For an AI planning a parallel wave, `peerhub explain parallel-quota` is the recipe (order by 7D PACE, size n by quota and load); this section is the manual reference.
 
 **I. Concurrency** (counted across batches and manual asks together)
 
@@ -157,3 +172,11 @@ While 3P is low, explicitly use `ag.argon` only for tasks its measured capabilit
 | Free RAM | keep at least 6 GB |
 
 If a provider throttles, reduce concurrency; do not reroute the same work to another peer.
+
+**J. Parallel work over the least quota** (rule H picks the peer for a single ask; J sizes and orders a wave; advice only; PeerHub gives the facts and the AI decides; `peerhub explain parallel-quota` has the same default plan)
+
+1. `peerhub diag --plan` (about 350 tokens; the AI query: pools from stored evidence, then the `load:` line with active asks, per-peer slots and free RAM, sampled now; `--json` has a `load` object). `peerhub monitor` is the human screen; AIs do not read it. Usable: `spend`, then `hold`; not usable: `rest`, `blocked`, `-` (n/a). Old or `(stale)` evidence: `peerhub observation refresh` (no model tokens), then read again.
+2. Order usable pools by 7D PACE, lowest first; rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools. A weekly JSON row can show `hold` while its `gates` list reports a short window that has reset. See the lesson for the other JSON row fields.
+3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.
+4. Wave size n = as many tasks as quota and load allow (not a fixed 3): one per usable pool top-down, then more on the same pool while the peer stays under its limit (cc 3 / cx 3 / ag 1) and the total under the active-ask limit (4, ceiling 6, manual asks count; 3 keeps one slot free): `peerhub batch run tasks.json --batch-id ID --max-parallel n`.
+5. After each wave run `peerhub observation refresh`, then `peerhub diag --plan` again; asks still running are in-flight spend the readings do not show yet, so keep a margin; a task refused for quota is reported per task and the rest of that manifest still runs (one wave per manifest); the same batch ID replays settled tasks; a pool that turned `rest` or `blocked` drops out. No usable pool: defer.

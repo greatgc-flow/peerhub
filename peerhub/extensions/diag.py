@@ -21,6 +21,7 @@ from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     ObservationCorruptError,
     ObservationView,
+    quota_projection_sample_count,
     effective_us,
     evaluate,
     read_only_authorizer,
@@ -231,7 +232,7 @@ class ReadonlyDiag:
         return Section("resource_pools", "OK", {"pools": [
             {"resource_pool_id": r[0], "provider": r[1], "kind": r[2], "metadata_json": r[3], "observation_count": counts.get(r[0], 0)} for r in rows]})
 
-    def _observations(self, conn: sqlite3.Connection, read_us: int) -> Section:
+    def _observations(self, conn: sqlite3.Connection, read_us: int, *, include_quota_samples: bool = False) -> Section:
         has_rollups = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='observation_rollups'"
         ).fetchone() is not None
@@ -268,6 +269,8 @@ class ReadonlyDiag:
                           "source": o.source, "stored_state": v.stored_state.value, "state": v.state.value, "age_seconds": v.age_seconds,
                           "ttl_seconds": v.ttl_seconds, "basis": v.basis, "skew_seconds": v.skew_seconds, "capture_seq": v.capture_seq,
                           "observed_at": o.observed_at, "captured_at": o.captured_at, "payload": o.payload})
+            if include_quota_samples and o.kind == "quota" and o.resource_pool_ref is not None and v.state.value == "MEASURED":
+                items[-1]["projection_samples"] = quota_projection_sample_count(conn, v.capture_seq)
         return Section("observations", "ERROR" if errors else "OK", {"items": items}, tuple(errors))
 
     @staticmethod
@@ -428,7 +431,8 @@ class ReadonlyDiag:
             if conn is not None:
                 conn.close()
 
-    def render(self, sections: list[str] | tuple[str, ...] | None = None, read_at: float | None = None) -> DiagnosticReport:
+    def render(self, sections: list[str] | tuple[str, ...] | None = None, read_at: float | None = None, *,
+               include_quota_samples: bool = False) -> DiagnosticReport:
         names = list(SECTION_ORDER) if sections is None else list(sections)
         unknown = [n for n in names if n not in SECTION_ORDER and n not in OPTIONAL_SECTIONS]
         if unknown:
@@ -439,7 +443,10 @@ class ReadonlyDiag:
             conn = self._open()
         except (sqlite3.Error, OSError, DiagReadOnlyError, SchemaVersionError) as e:
             return DiagnosticReport("FAILED", now, {}, {}, f"{type(e).__name__}: {e}")
-        impl: dict[str, Callable[[sqlite3.Connection, int], Section]] = {"peers": self._peers, "streams": self._streams, "resource_pools": self._pools, "observations": self._observations, "activity": self._activity, "log": self._log}
+        impl: dict[str, Callable[[sqlite3.Connection, int], Section]] = {
+            "peers": self._peers, "streams": self._streams, "resource_pools": self._pools, "activity": self._activity, "log": self._log,
+            "observations": lambda c, t: self._observations(c, t, include_quota_samples=include_quota_samples),
+        }
         out: dict[str, Section] = {}
         try:
             snapshot: dict[str, Any] = {}

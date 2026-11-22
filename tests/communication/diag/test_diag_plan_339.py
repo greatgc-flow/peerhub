@@ -14,12 +14,16 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.view import plan_action, plan_data, render_plan
+from peerhub.cli.view import PLAN_TAG_LEGEND, plan_action, plan_data, render_plan, visible_len
+from peerhub.core.load_limits import format_load, load_snapshot
+from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import DiagnosticReport, Section
 from tests.communication.harness.observation import ObservationHarness
 
 NOW = 1794134880.0  # 2026-11-08 10:48Z
 DAY, HOUR = 86400.0, 3600.0
+PLAN_TEXT_TOKEN_BUDGET = 450
+PLAN_TEXT_CHARS_PER_TOKEN = 3  # Character budget proxy for the sample's punctuation-heavy output.
 
 
 # --- action classification (pure) ----------------------------------------------------------------
@@ -31,8 +35,9 @@ DAY, HOUR = 86400.0, 3600.0
     (55.0, -5.0, "expired", "blocked"),        # window already reset: left is not current
     (40.0, 2.0, "threat", "rest"),             # forecast exhausts before reset
     (40.0, -12.0, "threat", "rest"),           # forecast wins over a spend-sized PACE
-    (40.0, 10.0001, "on_pace", "rest"),        # just above +10
-    (40.0, 10.0, "on_pace", "hold"),           # boundary +10 is still hold
+    (40.0, 20.0001, "on_pace", "rest"),        # just above +20 (owner 2026-11-22: up to +20 is fine)
+    (40.0, 20.0, "on_pace", "hold"),           # boundary +20 is still hold
+    (40.0, 10.0001, "on_pace", "hold"),        # +10 used to be rest
     (40.0, 0.0, "on_pace", "hold"),
     (40.0, -9.9999, "on_pace", "hold"),        # just above -10
     (40.0, -10.0, "on_pace", "spend"),         # boundary -10 is spend
@@ -56,7 +61,7 @@ def _item(peer, pool, remaining, *, span, elapsed, state="MEASURED", reason=None
     if reason is not None:
         payload = {"reason": reason}
     return {"kind": "quota", "subject_ref": peer, "resource_pool_ref": f"quota:{peer}:{pool}", "state": state,
-            "age_seconds": age, "ttl_seconds": 300.0, "observed_at": datetime.fromtimestamp(measured, timezone.utc).isoformat(),
+            "age_seconds": age, "ttl_seconds": QUOTA_TTL_SECONDS, "observed_at": datetime.fromtimestamp(measured, timezone.utc).isoformat(),
             "payload": payload}
 
 
@@ -159,8 +164,8 @@ def test_json_shape():
     assert set(data) == {"schema_version", "status", "read_at", "store_selection", "legend", "pools"}
     assert data["store_selection"] == {"path": "p", "source": "env"}
     (row,) = data["pools"]
-    assert set(row) == {"peer", "pool", "resource_pool_ref", "left_pct", "resets_in_seconds", "target_pct_per_hour",
-                        "pace_pt", "forecast", "binding", "action", "reason"}
+    assert {"peer", "pool", "resource_pool_ref", "left_pct", "resets_in_seconds", "target_pct_per_hour",
+            "pace_pt", "forecast", "binding", "action", "reason"} <= row.keys()
     assert row["action"] in {"spend", "hold", "rest", "blocked"}
     json.dumps(data)
 
@@ -174,6 +179,28 @@ def test_plain_table_columns_and_legend():
     assert "D:/w/.peerhub/core.db (explicit)" in lines[0]
     assert all(word in lines[-1] for word in ("spend", "hold", "rest", "blocked", "PACE"))
     assert all(len(line) <= 120 for line in lines)
+
+
+def test_plan_profiles_footer_wraps_within_the_sample_text_budget():
+    families = {"ag": "G", "cc": "C", "cx": "X"}
+    windows = {"5H": 5 * HOUR, "7D": 7 * DAY}
+    items = [_item(peer, f"{family}-{window}", .8, span=span, elapsed=span / 2)
+             for peer, family in families.items() for window, span in windows.items()]
+    profiles = {f"{family}-{window}": [f"{peer}.effort", f"{peer}.standard"]
+                for peer, family in families.items() for window in windows}
+    width = 100
+    load = load_snapshot({}, None)
+    out = render_plan(_report(*reversed(items)), width=width, store_path="D:/w/.peerhub/core.db",
+                      store_source="explicit", load=load, profiles_by_pool=profiles)
+    lines = out.splitlines()
+    legend_end = next(i for i, line in enumerate(lines) if line.endswith(PLAN_TAG_LEGEND))
+    footer = lines[legend_end + 1:-1]
+    assert len(footer) > 1
+    assert " ".join(footer) == "profiles: " + " | ".join(
+        f"{pool} {','.join(names)}" for pool, names in profiles.items())
+    assert lines[-1] == format_load(load)
+    assert all(visible_len(line) <= width for line in lines)
+    assert len(out) < PLAN_TEXT_TOKEN_BUDGET * PLAN_TEXT_CHARS_PER_TOKEN
 
 
 # --- CLI: read-only, no refresh, no provider call -------------------------------------------------
@@ -225,7 +252,7 @@ def test_cli_plan_table(plan_store, capsys):
 @pytest.mark.parametrize("status,error,code", [("PARTIAL", None, 4), ("FAILED", "SchemaVersionError: v99", 6)])
 def test_cli_plan_exit_codes(plan_store, capsys, monkeypatch, status, error, code):
     from peerhub.extensions.diag import ReadonlyDiag
-    monkeypatch.setattr(ReadonlyDiag, "render", lambda self, sections, read_at=None: DiagnosticReport(status, NOW, {}, {}, error))
+    monkeypatch.setattr(ReadonlyDiag, "render", lambda self, sections, **kw: DiagnosticReport(status, NOW, {}, {}, error))
     assert main(["--db", str(plan_store), "diag", "--plan", "--json"]) == code
     assert json.loads(capsys.readouterr().out)["status"] == status
     assert main(["--db", str(plan_store), "diag", "--plan"]) == code
@@ -236,3 +263,12 @@ def test_cli_plan_rejects_live_and_subcommands(plan_store, extra):
     with pytest.raises(SystemExit) as exc:
         main(["--db", str(plan_store), "diag", "--plan", *extra])
     assert exc.value.code == 2
+
+
+def test_plan_thresholds_have_one_source_and_the_legend_and_docs_derive_from_it():
+    from peerhub.cli import view
+    assert (view.PLAN_SPEND_PACE_PT, view.PLAN_REST_PACE_PT) == (10.0, 20.0)
+    assert f"spend PACE<=-{view.PLAN_SPEND_PACE_PT:.0f}" in view.PLAN_LEGEND
+    assert f"rest PACE>+{view.PLAN_REST_PACE_PT:.0f}" in view.PLAN_LEGEND
+    index = (Path(__file__).resolve().parents[3] / "docs" / "index.md").read_text(encoding="utf-8")
+    assert f"(PACE <= -{view.PLAN_SPEND_PACE_PT:.0f})" in index and f"(PACE > +{view.PLAN_REST_PACE_PT:.0f} or" in index

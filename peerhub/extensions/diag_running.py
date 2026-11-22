@@ -7,11 +7,12 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from peerhub.extensions.diag import ReadonlyDiag
 
 MAX_ROWS = 20
+LOAD_ROW_LIMIT = 500  # the load line counts every lease-active ask, far above any real concurrency
 
 
 def _started_at(detail: object) -> float | None:
@@ -71,8 +72,10 @@ def _row(raw: dict[str, Any], now: float) -> dict[str, Any]:
     }
 
 
-def running_report(db_path: str | Path, *, read_at: float | None = None) -> dict[str, Any]:
+def running_report(db_path: str | Path, *, read_at: float | None = None, peer: str | None = None,
+                   limit: int | None = None) -> dict[str, Any]:
     now = time.time() if read_at is None else read_at
+    limit = MAX_ROWS if limit is None or limit < 1 else limit
     # A claim stamped with another workspace generation (after a restore) is not live for the Bridge either (see bridge_claims).
     generation_file = Path(db_path).parent / "workspace.generation"
     try:
@@ -80,9 +83,40 @@ def running_report(db_path: str | Path, *, read_at: float | None = None) -> dict
     except OSError as exc:  # unreadable, or replaced by a restore mid-read: report it, never a traceback
         return {"schema_version": "1.0", "status": "FAILED", "basis": "lease", "read_at": now, "rows": [], "truncated": False,
                 "error": f"{type(exc).__name__}: workspace.generation unreadable"}
-    snap = ReadonlyDiag(db_path).running(read_at=now, limit=MAX_ROWS, workspace_generation=generation)
+    snap = ReadonlyDiag(db_path).running(read_at=now, limit=limit, workspace_generation=generation)
     return {"schema_version": "1.0", "status": snap["status"], "basis": "lease", "read_at": now,
-            "rows": [_row(r, now) for r in snap["rows"]], "truncated": snap["truncated"], "error": snap["error"]}
+            "rows": [_row(r, now) for r in snap["rows"] if peer is None or r["peer_id"] == peer], "truncated": snap["truncated"],
+            "error": snap["error"], "limit": limit, "peer": peer}
+
+
+def free_ram_bytes() -> int | None:
+    """Available memory now (psutil `available`: reclaimable cache counts), or None when it cannot be read."""
+    try:
+        import psutil
+        return int(psutil.virtual_memory().available)
+    except Exception:  # missing module or an OS refusal: the load line shows "?", never a traceback
+        return None
+
+
+def sample_load(db_path: str | Path, *, read_at: float | None = None,
+                pools_of_profile: Mapping[str, list[str]] | None = None) -> dict[str, Any]:
+    """Sample lease-active asks per peer and pool, asks without a pool, and free RAM. Read-only."""
+    from peerhub.core.load_limits import load_snapshot
+    report = running_report(db_path, read_at=read_at, limit=LOAD_ROW_LIMIT)
+    if report["status"] != "OK" or report["truncated"]:  # a failed or cut-off read is not a count: show ?, never 0
+        return load_snapshot(None, free_ram_bytes())
+    counts: dict[str, int] = {}
+    by_pool: dict[str, int] = {}
+    unmapped = 0
+    pool_mapping = pools_of_profile or {}
+    for row in report["rows"]:
+        counts[row["peer_id"]] = counts.get(row["peer_id"], 0) + 1
+        pools = pool_mapping.get(row.get("profile") or "", [])
+        if not pools:
+            unmapped += 1
+        for pool in pools:
+            by_pool[pool] = by_pool.get(pool, 0) + 1
+    return load_snapshot(counts, free_ram_bytes(), by_pool, unmapped=unmapped)
 
 
 def _secs(value: float | None) -> str:
@@ -109,7 +143,7 @@ def format_running(report: dict[str, Any]) -> str:
         widths = [max(len(str(line[i])) for line in table) for i in range(len(table[0]))]
         lines += ["  ".join(str(cell).ljust(w) for cell, w in zip(line, widths)).rstrip() for line in table]
         if report["truncated"]:
-            lines.append(f"(more rows not shown; limit {MAX_ROWS})")
+            lines.append(f"(more rows not shown; limit {report.get('limit', MAX_ROWS)})")
     elif report["status"] == "OK":
         lines.append("(none)")
     return "\n".join(lines)  # a failed read prints its error once, on stderr (see the CLI), never an empty "(none)"

@@ -124,9 +124,21 @@ class _ArgumentParser(argparse.ArgumentParser):
         raise exc
 
 
+class _BatchRunParser(_ArgumentParser):
+    def format_help(self, *args: Any, **kwargs: Any) -> str:
+        # Core commands build the parser even when extensions are disabled.
+        try:
+            from peerhub.extensions.batch import manifest_help
+        except ImportError:
+            pass
+        else:
+            self.epilog = manifest_help()
+        return super().format_help(*args, **kwargs)
+
+
 def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     description = "PeerHub CLI"
-    parser = _ArgumentParser(prog=prog, description=description, epilog="Advanced: stream, record, offset")
+    parser = _ArgumentParser(prog=prog, description=description, epilog="Advanced: stream, record, offset. Start: AI = peerhub guide, peerhub diag --plan | human = peerhub monitor | first ask: peerhub ask cc \"prompt\" --profile cc.standard --stream ID --request-id R1 | bugs: peerhub explain report-issues")
     from peerhub._version import __version__
     parser.add_argument("--version", "-v", "-V", action="version", version=f"peerhub {__version__}")
     parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Path to SQLite database")
@@ -201,7 +213,7 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     ask_parser = subparsers.add_parser("ask", help="Deliver one prompt through the durable Session Bridge",
                                      description="Reuse the latest compatible retained session of this peer/stream; otherwise start fresh with bounded catch-up. Select --fresh or an exact --session HANDLE. Results include a session handle and mode.")
     ask_parser.add_argument("peer", help=f"Peer ID (built-ins: {', '.join(BUILTIN_PEER_LABELS)})")
-    ask_parser.add_argument("prompt", nargs="?")
+    ask_parser.add_argument("prompt", nargs="?", help="Prompt text (exclusive with --query-file)")
     ask_parser.add_argument("--query-file", help="UTF-8 prompt file; exclusive with prompt")
     ask_parser.add_argument("--stream", dest="stream_id", help="Conversation Stream (default: peer:<id>:chat; ca, oa and ga: peer:<id>:<request-id>, one ask per stream)")
     ask_parser.add_argument("--request-id", help="Reuse on retries; uncertain execution is never replayed automatically")
@@ -240,8 +252,9 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
         account_read.add_argument("--show-root", action="store_true", help="Include stored configuration root paths")
 
     batch_parser = subparsers.add_parser("batch", help="Flat bounded-parallel asks")
-    batch_sub = batch_parser.add_subparsers(dest="action", required=True)
-    batch_run = batch_sub.add_parser("run", help="Run a validated task manifest")
+    batch_sub = batch_parser.add_subparsers(dest="action", required=True, parser_class=_BatchRunParser)
+    batch_run = batch_sub.add_parser("run", help="Run a validated task manifest",
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     batch_run.add_argument("manifest")
     batch_run.add_argument("--batch-id", required=True, help="Batch ID; stream and request IDs derive from it")
     batch_run.add_argument("--max-parallel", required=True, type=int, help="Maximum tasks to run at the same time")
@@ -258,8 +271,9 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     profile_show.add_argument("profile")
     profile_show.add_argument("--workspace", type=Path, default=None, help="Workspace whose profile files apply (default: current directory)")
     profile_show.add_argument("--format", choices=["auto", "table", "json"], default="auto", help=argparse.SUPPRESS)
-    profile_sub.add_parser("stats", help="Aggregate stored ask measurements by profile")
-    profile_sub.add_parser("check", help="Check installed model IDs and measurement age")
+    for name, text in (("stats", "Aggregate stored ask measurements by profile"), ("check", "Check installed model IDs and measurement age")):
+        profile_sub.add_parser(name, help=text).add_argument(
+            "--workspace", type=Path, default=None, help="Workspace whose profile files apply (default: current directory)")
 
     outcome = subparsers.add_parser("outcome", help="Append an outcome correction to a stored ask")
     outcome.add_argument("ask_id", help="Ask ID from the receipt or requested_record_id in ask JSON")
@@ -289,9 +303,10 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     register_monitor_parser(subparsers)
 
     # diag
-    diag_parser = subparsers.add_parser("diag", help="Readonly diagnostics")
+    diag_parser = subparsers.add_parser("diag", help="Read-only, low-token diagnostics for AI agents (humans use `peerhub monitor`)")
+    diag_parser.description = "Read-only, low-token diagnostics for AI agents; `diag --plan` is the one command to size parallel work. Humans use `peerhub monitor`."
     diag_parser.add_argument("--json", action="store_true")
-    diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence")
+    diag_parser.add_argument("--live", action="store_true", help="Watch read-only snapshots; never refresh provider evidence (a human fallback: `peerhub monitor` is the human screen)")
     diag_parser.add_argument("--interval-seconds", type=float, default=2, help="Live snapshot interval (positive seconds)")
     diag_parser.add_argument("--view", choices=["plain", "rich"], default="plain", help="Dashboard style: plain (ASCII), rich (bars, pace and alerts). With --live, snapshots every N s: TTY with VT overwrites in place; non-TTY or no VT appends without escapes. Monitor countdown redraw is at most 1 Hz")
     diag_parser.add_argument("--cycles", dest="count", type=int, default=0, help="Live snapshot count; 0 watches until interrupted")
@@ -330,6 +345,8 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
                                                 "Claims are matched to the workspace.generation file beside the database; without that file all generations match. "
                                                 "Query cost grows with the delivery history of the live streams themselves (observed: about 45k SQLite VM steps at 9,000 rows in one stream). At most 20 rows, oldest first. Exit: 0 ok, 4 storage fault, 5 database unavailable, 6 schema version.")
     d_running.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    d_running.add_argument("--peer", help="Only this peer (exact match, e.g. cx)")
+    d_running.add_argument("--limit", type=int, default=None, help="Rows to read, 1 or more (default 20)")
     d_running.epilog = "examples: peerhub diag running | peerhub --db ws.db diag running --json"
 
     d_integrity = diag_sub.add_parser("integrity", help="Run the explicit full SQLite integrity check (read-only; may take time)")
@@ -591,10 +608,25 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
     store_note = env_override_note(store["path"], store["source"])
     if args.plan:  # #339: read-only, stored observations only (no refresh, no provider call)
         from peerhub.cli.view import FrameOutput, plan_data, render_plan
-        rep = ReadonlyDiag(args.db).render(["resource_pools", "observations"])
-        print(json.dumps(plan_data(rep, store), indent=2, ensure_ascii=True) if args.json else
-              render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
-                          store_note=store_note), flush=True)
+        from peerhub.extensions.adapters.profiles import list_profiles
+        from peerhub.extensions.diag_running import sample_load
+
+        rep = ReadonlyDiag(args.db).render(["resource_pools", "observations"], include_quota_samples=True)
+        pools_of_profile: dict[str, list[str]] = {}
+        for profile in list_profiles(Path.cwd()):
+            pools_of_profile[str(profile["profile"])] = [str(pool) for pool in cast("list[object]", profile["fields"]["pools"]["value"] or [])]
+        load = sample_load(args.db, pools_of_profile=pools_of_profile)
+        profiles_by_pool: dict[str, list[str]] = {}
+        for name, pools in pools_of_profile.items():
+            for pool in pools:
+                profiles_by_pool.setdefault(pool, []).append(name)
+        profiles_by_pool = {pool: sorted(names) for pool, names in profiles_by_pool.items()}
+        if args.json:
+            plan_output = json.dumps(plan_data(rep, store, load, profiles_by_pool), separators=(",", ":"), ensure_ascii=True)
+        else:
+            plan_output = render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
+                                      store_note=store_note, load=load, profiles_by_pool=profiles_by_pool)
+        print(plan_output, flush=True)
         return 6 if rep.error and rep.error.startswith("SchemaVersionError") else 0 if rep.status == "OK" else 4
     if args.action is None:
         from peerhub.extensions.diag_watch import dashboard_snapshots
@@ -641,7 +673,7 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         if not Path(args.db).is_file():
             report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source)
             return 5
-        rep = running_report(args.db)
+        rep = running_report(args.db, peer=args.peer, limit=args.limit)
         print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else format_running(rep))
         code = diag_quota.EXIT_BY_STATUS[rep["status"]]
         if code and not args.json:
@@ -890,7 +922,7 @@ def _run_profile_cli(args: argparse.Namespace) -> int:
             if args.action == "check":
                 findings = check_profiles(profiles, stats, workspace)
                 if use_json:
-                    _emit(findings, True)
+                    _emit({**findings, "workspace": str(workspace)}, True)
                 else:
                     missing = ", ".join(f"{name} ({model})" for name, model in findings["missing_models"].items())
                     print("Missing from installed model lists | " + (missing or "-"))
@@ -1177,37 +1209,73 @@ def _peer_kind(db: str | None, peer: str) -> str | None:
     return peer_kind(adapter_ref, peer)
 
 
+def _batch_load_sample(db: str) -> tuple[int | None, dict[str, int], float | None]:
+    try:
+        from peerhub.extensions.diag_running import sample_load
+
+        sample = sample_load(db)
+        ram_free_gb = cast(float | None, sample.get("ram_free_gb"))
+        active = sample["active"]
+        if isinstance(active, int) and not isinstance(active, bool):
+            peers = cast(dict[str, dict[str, int | None]], sample["peers"])
+            counts = {peer: count for peer, load in peers.items() if (count := load["active"]) is not None}
+            return active, counts, ram_free_gb
+        return None, {}, ram_free_gb
+    except Exception:  # diagnostic sampling is best-effort and cannot affect manifest validation
+        return None, {}, None
+
+
 def _run_batch_cli(args: argparse.Namespace) -> int:
     import signal
     import threading
     from dataclasses import replace
+    from functools import cache
 
     from peerhub.extensions import batch
 
     db = os.path.abspath(args.db)
+    warnings: list[str] | None = [] if args.dry_run else None
 
+    @cache
     def kind_of(peer: str) -> str | None:
         return _peer_kind(db, peer)
 
     try:
         max_parallel = batch.check_max_parallel(args.max_parallel)
         tasks = batch.load_manifest(args.manifest, batch_id=args.batch_id)
-        batch.validate_tasks(tasks, kind_of=kind_of)
+        workspaces = batch.validate_tasks(tasks, kind_of=kind_of, warnings=warnings)
         tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
-        if args.dry_run:
+        if warnings is not None:
+            from peerhub.extensions.ask import read_replay_counts
+
+            active, active_by_peer, ram_free_gb = _batch_load_sample(db)
+            warnings.extend(batch.load_warnings(tasks, max_parallel=max_parallel, kind_of=kind_of,
+                                                active=active, active_by_peer=active_by_peer, ram_free_gb=ram_free_gb))
             rows: list[dict[str, Any]] = []
             for task in tasks:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)
                 rows.append(dict(task_id=task.task_id, peer=task.peer, stream=stream,
-                                 request_id=request, writable=task.writable))
+                                 request_id=request, writable=task.writable, profile=task.profile,
+                                 profile_display=task.profile if task.profile is not None else batch.DEFAULT_PROFILE_DISPLAY,
+                                 workspace=workspaces[task.task_id]))
+            replay = read_replay_counts(Path(db), ((row["stream"], row["peer"], row["request_id"]) for row in rows))
             if args.json:
-                print(json.dumps(dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel, tasks=rows),
-                                 indent=2, ensure_ascii=True))
+                dry_report: dict[str, Any] = dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel,
+                                                  tasks=rows, active_now=active)
+                if replay is not None:
+                    dry_report["replay"] = replay
+                dry_report["warnings"] = warnings
+                print(json.dumps(dry_report, indent=2, ensure_ascii=True))
             else:
                 print(f"Dry run: {args.batch_id} (max_parallel={max_parallel})")
-                print("TASK PEER STREAM REQUEST_ID WRITABLE")
+                print("TASK PEER STREAM REQUEST_ID WRITABLE PROFILE WORKSPACE")
                 for row in rows:
-                    print(f"{row['task_id']} {row['peer']} {row['stream']} {row['request_id']} {row['writable']}")
+                    print(f"{row['task_id']} {row['peer']} {row['stream']} {row['request_id']} {row['writable']} "
+                          f"{row['profile_display']} {row['workspace']}")
+                if replay is not None:
+                    print(batch.REPLAY_LINE.format(**replay))
+                for warning in warnings:
+                    print(warning)
             return 0
         if getattr(args, "db_source", "default") not in ("explicit", "env"):
             from peerhub.cli.store_select import report_missing_store
@@ -1239,8 +1307,13 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
         return batch.exit_code(report)
     except batch.ManifestError as exc:
         if args.json:
-            print(json.dumps(dict(status="error", error=dict(code="invalid_manifest", message=str(exc))), ensure_ascii=True))
+            error: dict[str, Any] = dict(status="error", error=dict(code="invalid_manifest", message=str(exc)))
+            if warnings is not None:
+                error["warnings"] = warnings
+            print(json.dumps(error, ensure_ascii=True))
         _error_line("invalid_manifest", str(exc), "peerhub batch run --help")
+        if not args.json and warnings:
+            _print_warnings({"warnings": warnings})
         return 1
 
 

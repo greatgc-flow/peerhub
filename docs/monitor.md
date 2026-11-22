@@ -1,5 +1,7 @@
 # Reading the PeerHub monitor
 
+`peerhub monitor` is the human screen. An AI reads `peerhub diag --plan` instead (pools plus the load line, about 350 tokens).
+
 This page is the target of the `Guide` link at the top right of `peerhub monitor` (rich view, on a terminal) and of the optional
 `Guide:` line that ends `peerhub monitor --view plain --expand`. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).

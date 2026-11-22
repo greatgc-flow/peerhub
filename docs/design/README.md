@@ -22,7 +22,9 @@ Most entries below are shipped; they are kept for provenance. The latest plan is
 - [Deepthink Debate Ledger](peerhub-deepthink-debate-2026-10-14.md): Debate provenance, corrections, and pre-TDD gates.
 - [Retained Session Contract](../implementation/RETAINED_SESSIONS.md): Registry, retention, replay, and `--session`/`--fresh` selectors (PRs 1-3 shipped in v0.16.0).
 - [Remote Ask Guide](../remote-ask.md): Running a peer on a remote server via SSH.
+- [Scoring record 2026-11-22](scoring-2026-11-22/README.md): rubric (six parallel axes, twelve scenarios), protocol, score history and the verbatim peer replies behind every score.
 
+## 2. Deferred Proposals
 ## 2. Deferred Proposals
 
 - [Inbound A2A Server](a2a-inbound-server.md): PROPOSED, NOT IMPLEMENTED (deferred on 2026-10-10).

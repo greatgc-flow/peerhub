@@ -4,12 +4,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
-import shlex
 import sys
 from pathlib import Path
 from typing import Any, cast
 
+from peerhub._console import format_shell_command as _shell_command
 from peerhub.cli.support import quota_expired, quota_items, quota_workspace, try_quota_refresh
 
 TIE_ORDER = {"ag": 0, "cx": 1, "cc": 2}
@@ -48,13 +47,6 @@ def _usable(item: dict[str, Any]) -> bool:
 def _short_usage(item: dict[str, Any]) -> float | None:
     remaining = _number(item["measurements"].get("remaining_fraction")) if _usable(item) else None
     return 1 - remaining if remaining is not None and 0 <= remaining <= 1 else None
-
-
-def _shell_command(argv: list[str]) -> str:
-    if os.name == "nt":
-        return " ".join(arg if arg.replace(".", "").replace("-", "").isalnum()
-                        else "'" + arg.replace("'", "''") + "'" for arg in argv)
-    return shlex.join(argv)
 
 
 def _unavailable(reason: str, *, json_output: bool) -> int:

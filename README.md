@@ -43,6 +43,20 @@ peerhub --version
 
 See [STATUS](docs/STATUS.md) for current source and release status. The public command is `peerhub`; the temporary milestone-specific entrypoint has been retired. `python -m peerhub` and `python -m peerhub.cli` use the same public CLI.
 
+## First ask
+
+After installing and signing in to one peer's tool (table above), pick the store explicitly and ask:
+
+```powershell
+peerhub --db .peerhub/core.db ask cc "Reply OK" --profile cc.standard --stream smoke --request-id smoke-1
+```
+
+The reply prints on stdout with a receipt line; use a new `--request-id` for every ask and a new `--stream` for every new task.
+
+- AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, load and free RAM, about 350 tokens). `peerhub explain <topic or keywords>` finds a lesson.
+- People: `peerhub monitor` is the human screen (quota, running asks, recent asks).
+- Something wrong: `peerhub explain report-issues` lists what to include before filing an issue.
+
 ## Core recipe
 
 The Core stores Peers, Streams, immutable Records, and per-peer Offsets.
@@ -90,6 +104,9 @@ peerhub suggest --tier effort --task review
 peerhub observation refresh --peers cx cc ag
 peerhub observation refresh --peers cc --system-dir D:\tools\portable  # explicit provider installation directory
 
+# AIs read quota with one low-token command (pools + load + free RAM); `peerhub monitor` is the human screen.
+peerhub diag --plan
+
 # Read committed observations without probing or writing.
 peerhub diag
 peerhub diag quota --json
@@ -112,7 +129,7 @@ peerhub monitor --view plain --cycles 1
 # Read committed evidence during watch.
 peerhub monitor --no-probe --interval-seconds 60
 
-# For an AI session: line 1 (the verdict), the suggestion and the pools only; no text of other sessions.
+# For a person who wants only the verdict, suggestion and pools (AI sessions read `peerhub diag --plan` instead).
 peerhub monitor --snapshot --group capacity
 
 # Keep the schema 1.1 quota/dashboard output for existing scripts.
@@ -426,12 +443,15 @@ peerhub diag running
 
 # Per-pool spend/hold/rest/blocked with target %/h until reset (stored observations only)
 peerhub diag --plan
+
+# Spread parallel work over the least quota: peerhub explain parallel-quota (docs/batch.md J)
 ```
 
 ### Upgrade
 
 To upgrade PeerHub safely:
 
+0. **Plan and back up**. `peerhub update --plan` lists blocking asks and processes and prints the backup, restore and upgrade commands. `peerhub explain store-and-upgrade` covers the hazards. Back up first by running the printed backup command. It writes `.peerhub/core.db.pre-update-<UTC time>.bak` for the default store. Copy the exact path the plan prints. The command must exit 0 and the file must show a new modified time before step 2.
 1. **Stop `peerhub monitor`**: Stop any active monitor process before upgrading. A running monitor locks `peerhub.exe` on Windows and keeps old code running. Also wait for running `peerhub ask` calls to finish: they keep dependency files such as `pydantic_core` loaded, so an in-place upgrade can fail and leave a half-deleted install. If peerhub crashes with `ModuleNotFoundError` after an upgrade, reinstall it and check the result records before re-sending an ask.
 2. **Run upgrade**:
    ```powershell
@@ -447,6 +467,7 @@ To upgrade PeerHub safely:
    ```powershell
    peerhub monitor
    ```
+4. **Check, or restore**. `peerhub diag health` must report OK. If the new version cannot open the store, reinstall the old version and stop every client. Run the printed restore command in a shell where `python` has that PeerHub version installed. The command validates the backup, fences old clients by rotating `workspace.generation`, and runs `peerhub diag health` after the restore succeeds. Restart the clients after the health check reports OK.
 
 ### Uninstall
 

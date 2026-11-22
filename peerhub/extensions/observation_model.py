@@ -278,6 +278,23 @@ def evaluate(obs: Observation, capture_seq: int, read_us: int, policy: Freshness
 
 COLUMNS = ("capture_seq", "observation_id", "subject_ref", "resource_pool_ref", "kind", "source", "state", "payload_json", "observed_at", "captured_at")
 
+# Two distinct MEASURED captures of the same pool and reset window are enough for the monitor's FAST classification.
+# Guard the JSON extraction so an unreadable historical payload cannot abort the quota read.
+QUOTA_PROJECTION_SAMPLE_COUNT_SQL = (
+    "(SELECT COUNT(*) FROM (SELECT DISTINCT s.effective_at_us FROM observations s "
+    "WHERE s.subject_ref=o.subject_ref AND s.kind='quota' AND s.resource_pool_ref IS o.resource_pool_ref "
+    "AND s.state='MEASURED' "
+    "AND CASE WHEN json_valid(s.payload_json) THEN json_extract(s.payload_json,'$.resets_at') END "
+    "IS CASE WHEN json_valid(o.payload_json) THEN json_extract(o.payload_json,'$.resets_at') END "
+    "ORDER BY s.effective_at_us DESC LIMIT 2))"
+)
+
+
+def quota_projection_sample_count(conn: Any, capture_seq: int) -> int:
+    """Read-only: the number of distinct MEASURED captures of one quota row's pool and reset window (the SELECT above)."""
+    row = conn.execute("SELECT " + QUOTA_PROJECTION_SAMPLE_COUNT_SQL + " FROM observations o WHERE o.capture_seq=?", (capture_seq,)).fetchone()
+    return int(row[0])
+
 
 def row_to_observation(row: Any) -> tuple[Observation, int]:
     """Parse one stored row (mapping by COLUMNS); raises ObservationCorruptError when it is not valid evidence."""

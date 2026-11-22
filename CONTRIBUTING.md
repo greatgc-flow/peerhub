@@ -96,7 +96,7 @@ When filing or triaging an issue that alters a safety or caution fact (peer writ
 - Do not add a `peerhub feedback` command; the issue templates and `diag --json`
   provide enough feedback and diagnostic context.
 - Do not provide a winget package; pipx, uv and pip installation are documented.
-- `--workspace` is ask-only. Use global `--db` to select the store for `monitor`
+- `--workspace` belongs to `ask`, `profile list/show/stats/check`. Use global `--db` to select the store for `monitor`
   and `observation refresh`.
 - PEP 740 attestations are published by the pinned pypa publishing action;
   publication was verified on PyPI for 0.13.0.
