@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- Monitor account snapshot tests use a fixed terminal width so the failed-probe row keeps its stale marker in parallel CI (#442).
+
 ## [0.26.6] - 2026-11-22
 
 ### Added

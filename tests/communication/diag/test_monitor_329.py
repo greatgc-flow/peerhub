@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +19,7 @@ from tests.communication.diag.test_monitor_328 import Store, iso
 pytestmark = [pytest.mark.unit, pytest.mark.diag]
 
 DAY = 86400
+SNAPSHOT_COLUMNS = "120"
 
 
 def account(store: Store, peer, *, age=30, state="MEASURED", **fields):
@@ -51,7 +54,10 @@ def populated(store: Store, *, expires_in=12 * DAY):
 
 
 def snapshot(store, capsys, *flags):
-    main(["--db", str(store.db), "monitor", "--snapshot", *flags])  # exit 4: no Bridge tables in this fixture; quota still renders
+    # Account assertions inspect full rows. Captured snapshots still honor COLUMNS (#442).
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setenv("COLUMNS", SNAPSHOT_COLUMNS)
+        main(["--db", str(store.db), "monitor", "--snapshot", *flags])  # exit 4: no Bridge tables in this fixture; quota still renders
     return capsys.readouterr().out
 
 
@@ -226,6 +232,25 @@ def test_a_failed_probe_keeps_the_last_good_reading_as_aged_with_an_error_note(s
     assert item["probe_error"] == "timeout" and 3590 < item["age_seconds"] < 3700  # the age is the good reading's
     expanded = snapshot(store, capsys, "--expand")
     assert "plan pro" in expanded and "probe error: timeout" in expanded and "login ?" not in expanded
+
+
+def test_failed_probe_account_row_is_independent_of_terminal_width(monkeypatch, capsys):
+    from peerhub.extensions import monitor_read_model
+
+    narrow_columns = "80"
+    monkeypatch.setenv("COLUMNS", narrow_columns)
+    expires = datetime(2026, 11, 26, tzinfo=timezone.utc)
+    reading = {
+        "peer_id": "cc", "logged_in": True, "plan": "pro", "plan_status": "reported",
+        "login_token_expires_at": expires.timestamp(), "login_expiry_status": "reported",
+        "state": "STALE", "stored_state": "MEASURED", "probe_error": "timeout", "age_seconds": 3600,
+    }
+    payload = {"status": "OK", "groups": {"capacity": {"status": "OK", "data": {"accounts": [reading]}}}}
+    # Supply the read model directly so only the snapshot layout is under test.
+    monkeypatch.setattr(monitor_read_model, "render_monitor_frame", lambda *args, **kwargs: payload)
+    row = account_row(SimpleNamespace(db=__file__), capsys)
+    assert row.endswith("[STALE]"), row
+    assert os.environ["COLUMNS"] == narrow_columns
 
 
 def test_a_later_good_probe_clears_the_error_note(store, capsys):
