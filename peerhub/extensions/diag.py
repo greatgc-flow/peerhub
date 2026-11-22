@@ -21,7 +21,7 @@ from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     ObservationCorruptError,
     ObservationView,
-    QUOTA_PROJECTION_SAMPLE_COUNT_SQL,
+    quota_projection_sample_count,
     effective_us,
     evaluate,
     read_only_authorizer,
@@ -270,10 +270,7 @@ class ReadonlyDiag:
                           "ttl_seconds": v.ttl_seconds, "basis": v.basis, "skew_seconds": v.skew_seconds, "capture_seq": v.capture_seq,
                           "observed_at": o.observed_at, "captured_at": o.captured_at, "payload": o.payload})
             if include_quota_samples and o.kind == "quota" and o.resource_pool_ref is not None and v.state.value == "MEASURED":
-                items[-1]["projection_samples"] = conn.execute(
-                    "SELECT " + QUOTA_PROJECTION_SAMPLE_COUNT_SQL + " FROM observations o WHERE o.capture_seq=?",
-                    (v.capture_seq,),
-                ).fetchone()[0]
+                items[-1]["projection_samples"] = quota_projection_sample_count(conn, v.capture_seq)
         return Section("observations", "ERROR" if errors else "OK", {"items": items}, tuple(errors))
 
     @staticmethod

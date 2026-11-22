@@ -290,6 +290,12 @@ QUOTA_PROJECTION_SAMPLE_COUNT_SQL = (
 )
 
 
+def quota_projection_sample_count(conn: Any, capture_seq: int) -> int:
+    """Read-only: the number of distinct MEASURED captures of one quota row's pool and reset window (the SELECT above)."""
+    row = conn.execute("SELECT " + QUOTA_PROJECTION_SAMPLE_COUNT_SQL + " FROM observations o WHERE o.capture_seq=?", (capture_seq,)).fetchone()
+    return int(row[0])
+
+
 def row_to_observation(row: Any) -> tuple[Observation, int]:
     """Parse one stored row (mapping by COLUMNS); raises ObservationCorruptError when it is not valid evidence."""
     try:
