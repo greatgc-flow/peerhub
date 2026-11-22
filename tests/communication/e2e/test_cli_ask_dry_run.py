@@ -118,35 +118,37 @@ def test_retained_session_and_settled_replay(monkeypatch, capsys, tmp_path):
         yield ("terminal", {"response": "ok", "vendor_session": {"id": "offline-native"}})
 
     db = tmp_path / "core.db"
-    command = ["--db", str(db), "ask", "cx", "--json", "--profile", "cx.standard"]
-    first = ["--request-id", "first", "first prompt"]
-    second = ["--request-id", "second", "second prompt"]
+    def argv(prompt, *extra):  # the prompt stays right after the peer (an option before a positional parses differently on 3.11)
+        return ["--db", str(db), "ask", "cx", prompt, "--json", "--profile", "cx.standard", *extra]
+
+    first = ("first prompt", "--request-id", "first")
+    second = ("second prompt", "--request-id", "second")
     _offline(monkeypatch)
     with monkeypatch.context() as dispatch:
         dispatch.setattr(CliRuntimeTarget, "deliver", deliver)
-        assert main([*command, *first]) == 0
+        assert main(argv(*first)) == 0
         handle = json.loads(capsys.readouterr().out)["session"]["handle"]
         assert handle
 
     before = _tree_bytes(tmp_path)
 
-    def preview(*args):
-        assert main([*command, "--dry-run", *args]) == 0
+    def preview(prompt, *extra):
+        assert main(argv(prompt, "--dry-run", *extra)) == 0
         return json.loads(capsys.readouterr().out)
 
     latest = preview(*second)
     assert latest["store_exists"] and latest["stream_exists"] and not latest["replay"]
     assert (latest["session_mode"], latest["session_handle"]) == ("resumed", handle)
-    exact = preview("--session", handle, *second)
+    exact = preview(*second, "--session", handle)
     assert (exact["session_mode"], exact["session_handle"]) == ("resumed", handle)
     for flag in ("--fresh", "--writable"):
-        fresh = preview(flag, *second)
+        fresh = preview(*second, flag)
         assert (fresh["session_mode"], fresh["session_handle"]) == ("fresh", None)
     replay = preview(*first)
     assert replay["replay"] and replay["session_mode"] is None
     assert replay["session_handle"] is None
 
-    assert main([*command, "--dry-run", "--request-id", "first", "different prompt"]) == 2
+    assert main(argv("different prompt", "--dry-run", "--request-id", "first")) == 2
     assert json.loads(capsys.readouterr().out)["error"]["code"] == "idempotency_conflict"
     assert _tree_bytes(tmp_path) == before
 
@@ -157,15 +159,15 @@ def test_stateless_second_request_refusal_matches_real_ask(monkeypatch, capsys, 
         yield ("terminal", {"response": "ok"})
 
     db = tmp_path / "core.db"
-    command = ["--db", str(db), "ask", "oa", "--profile", "oa.standard",
-               "--stream", "api-review", "--json"]
+    base = ["--db", str(db), "ask", "oa"]
+    options = ["--profile", "oa.standard", "--stream", "api-review", "--json"]
     _offline(monkeypatch)
     with monkeypatch.context() as dispatch:
         dispatch.setattr(API_TARGETS["oa"], "deliver", deliver)
-        assert main([*command, "first", "--request-id", "first"]) == 0
+        assert main([*base, "first", *options, "--request-id", "first"]) == 0
     capsys.readouterr()
 
-    second = [*command, "second", "--request-id", "second"]
+    second = [*base, "second", *options, "--request-id", "second"]
     before = db.read_bytes()
     code = main(second)
     original = capsys.readouterr()
@@ -183,15 +185,14 @@ def test_uncertain_prior_invocation_blocks_preview(monkeypatch, capsys, tmp_path
         yield ("timeout", 1)
 
     db = tmp_path / "core.db"
-    command = ["--db", str(db), "ask", "cx", "--json"]
     _offline(monkeypatch)
     with monkeypatch.context() as dispatch:
         dispatch.setattr(CliRuntimeTarget, "deliver", timeout)
-        assert main([*command, "first", "--request-id", "first"]) == 1
+        assert main(["--db", str(db), "ask", "cx", "first", "--json", "--request-id", "first"]) == 1
     assert json.loads(capsys.readouterr().out)["status"] == "uncertain"
     before = db.read_bytes()
 
-    next_ask = [*command, "second", "--request-id", "second"]
+    next_ask = ["--db", str(db), "ask", "cx", "second", "--json", "--request-id", "second"]
     assert main([*next_ask, "--dry-run"]) == 1
     preview = capsys.readouterr()
     assert json.loads(preview.out)["processed_status"] == "blocked_uncertain"
