@@ -2,9 +2,10 @@
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
-from contextlib import nullcontext
+from contextlib import closing, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -13,8 +14,8 @@ import pytest
 
 from peerhub.cli import suggest
 from peerhub.cli.app import main
-from peerhub.core import load_limits
-from peerhub.extensions import batch, diag_running
+from peerhub.core import load_limits, migrations
+from peerhub.extensions import ask, batch, bridge, diag_running
 from tests.communication.test_batch_run import builder, write
 
 
@@ -66,6 +67,7 @@ def test_dry_run_reports_load_facts_after_the_task_table(dry_run, monkeypatch, c
     assert main([*argv, "--dry-run", "--json"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert len(report["tasks"]) == count
+    assert "replay" not in report
     warnings = report["warnings"]
     assert len(warnings) == 4
     assert any(peer in line and f"{parallel} concurrent batch tasks + {limit} active asks" in line
@@ -119,7 +121,82 @@ def test_dry_run_distinguishes_zero_from_unavailable_load(dry_run, monkeypatch, 
 
     monkeypatch.setattr(diag_running, "sample_load", sample)
     assert main([*argv, "--dry-run", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["warnings"] == ([f"active now {active}"] if active == 0 else [])
+    report = json.loads(capsys.readouterr().out)
+    line = batch._WARNING_MESSAGES["active_asks_sample"].format(active=active if active == 0 else batch.UNKNOWN_ACTIVE_SAMPLE)
+    assert report["warnings"] == [line]
+    assert report["active_now"] == (0 if active == 0 else None)
+    assert main([*argv, "--dry-run"]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == line
+
+
+def test_dry_run_reports_replay_counts_from_the_selected_store(dry_run, monkeypatch, capsys):
+    dangling = "dangling-invocation"
+    cases = {
+        "settled": (bridge.TERMINAL, True),
+        "settled-refusal": (bridge.STARTED, True),
+        "uncertain": (bridge.MAY_HAVE_STARTED, False),
+        "pending": (bridge.NOT_STARTED, False),
+        dangling: (bridge.NOT_STARTED, False),
+        "new": None,
+    }
+    argv = dry_run([_task(task_id) for task_id in cases])
+    batch_id = argv[argv.index("--batch-id") + 1]
+    connect = sqlite3.connect
+    memory = "file:batch-replay-facts?mode=memory&cache=shared"
+    with closing(connect(memory, uri=True)) as store:
+        migrations.get_migration_registry()[0].apply(store)
+        for statement in bridge._DDL:
+            if statement.startswith("CREATE TABLE"):
+                store.execute(statement)
+        for task_id, state in cases.items():
+            if state is None:
+                continue
+            stream, request = batch.derive_ids(batch_id, task_id)
+            store.execute("INSERT INTO records (record_id, stream_id, position, author_peer_id, kind, targets_json, "
+                          "idempotency_key, payload_digest, created_at, appended_at) "
+                          "VALUES (?, ?, 1, ?, 'prompt', ?, ?, '', '', '')",
+                          (task_id, stream, ask._DEFAULT_AUTHOR, json.dumps(["cc"]), f"{ask._ASK_KEY_PREFIX}{request}"))
+            certainty, acked = state
+            store.execute("INSERT INTO bridge_deliveries (delivery_id, seq, stream_id, peer_id, record_id, "
+                          "record_position, attempt, certainty, claim_generation, result_json, acked) "
+                          "VALUES (?, 1, ?, 'cc', ?, 1, 1, ?, 1, ?, ?)",
+                          (task_id, stream, task_id, certainty, "{}" if acked else None, acked))
+            if task_id == dangling:
+                store.execute("INSERT INTO bridge_invocations (delivery_id, invocation_no, stream_id, peer_id, "
+                              "claim_generation) VALUES (?, 1, ?, 'cc', 1)", (task_id, stream))
+        store.commit()
+
+        def open_read_only(database, *, uri, **kwargs):
+            assert database == Path(argv[1]).as_uri() + "?mode=ro"
+            assert uri
+            conn = connect(memory, uri=True)
+            conn.execute("PRAGMA query_only = ON")
+            return conn
+
+        monkeypatch.setattr(sqlite3, "connect", open_read_only)
+        assert main([*argv, "--dry-run", "--json"]) == 0
+        report = json.loads(capsys.readouterr().out)
+        assert report["replay"] == {"settled": 2, "uncertain": 2}
+
+        assert main([*argv, "--dry-run"]) == 0
+        lines = capsys.readouterr().out.splitlines()
+        assert lines[2 + len(cases):] == [batch.REPLAY_LINE.format(**report["replay"]), *report["warnings"]]
+
+        argv[argv.index("--batch-id") + 1] = "unseen"
+        assert main([*argv, "--dry-run", "--json"]) == 0
+        assert "replay" not in json.loads(capsys.readouterr().out)
+        assert main([*argv, "--dry-run"]) == 0
+        assert capsys.readouterr().out.splitlines()[2 + len(cases):] == report["warnings"]
+
+
+def test_batch_docs_list_all_dry_run_warning_kinds():
+    docs = Path(__file__).resolve().parents[2] / "docs" / "batch.md"
+    paragraph = next(part for part in docs.read_text(encoding="utf-8").split("\n\n")
+                     if part.startswith("Dry-run warnings"))
+    documented = {kind for kind in batch._WARNING_MESSAGES if f"`{kind}`" in paragraph}
+    assert documented == set(batch._WARNING_MESSAGES)
+    assert f"`{batch.REPLAY_LINE.format(settled='N', uncertain='M')}`" in paragraph
+    assert f'`{batch._WARNING_MESSAGES["active_asks_sample"].format(active=batch.UNKNOWN_ACTIVE_SAMPLE)}`' in paragraph
 
 
 @pytest.mark.parametrize("peer", ["ag", "agy"])
@@ -157,12 +234,14 @@ def test_dry_run_shows_manifest_profile_and_resolved_workspaces(dry_run, capsys)
     configured, defaults = json.loads(capsys.readouterr().out)["tasks"]
     assert (configured["profile"], configured["workspace"]) == (profile, os.path.normcase(str(workspace.resolve())))
     assert (defaults["profile"], defaults["workspace"]) == (None, os.path.normcase(str(Path.cwd().resolve())))
+    assert configured["profile_display"] == profile
+    assert defaults["profile_display"] == batch.DEFAULT_PROFILE_DISPLAY
 
     assert main([*argv, "--dry-run"]) == 0
-    _, headings, configured_line, defaults_line = capsys.readouterr().out.splitlines()
+    _, headings, configured_line, defaults_line, *_ = capsys.readouterr().out.splitlines()
     assert headings.split()[-2:] == ["PROFILE", "WORKSPACE"]
     assert configured_line.endswith(f" {profile} {configured['workspace']}")
-    assert defaults_line.endswith(f" - {defaults['workspace']}")
+    assert defaults_line.endswith(f" {defaults['profile_display']} {defaults['workspace']}")
 
 
 @pytest.mark.parametrize(("projected", "ceiling_status"), [
@@ -201,6 +280,7 @@ def test_dry_run_reports_low_sampled_ram_even_without_lease_counts(dry_run, monk
 
     assert main([*argv, "--dry-run", "--json"]) == 0
     warnings = json.loads(capsys.readouterr().out)["warnings"]
+    warnings.remove(batch._WARNING_MESSAGES["active_asks_sample"].format(active=batch.UNKNOWN_ACTIVE_SAMPLE))
     if ram_delta_gb == -1:
         (warning,) = warnings
         assert f"free RAM {available_gb:.1f} GB" in warning

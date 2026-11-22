@@ -13,11 +13,16 @@ Dry runs validate without spawning workers or creating the store.
 `--batch-id` and `--max-parallel` are required; parallelism is 1..16. The guide and every example
 recommend 3 (`RECOMMENDED_MAX_PARALLEL` in `peerhub/extensions/batch.py`, the one constant).
 
-Dry-run warnings list task counts above per-peer limits or the active-ask ceiling
-and show `active now N` when the store can supply a lease count. Dry runs also
-report equal or nested workspaces for writable pairs alongside the existing
-validation error. Load warnings are advisory. The execution report totals task
-outcomes as `ok`, `failed`, `uncertain`, and `quota_refused`.
+Dry-run warnings cover equal or nested workspaces for writable pairs
+(`workspace_overlap`), per-peer limits (`per_peer_limit`), the active-ask ceiling
+and default (`active_asks_ceiling`, `active_asks_default`), low free RAM (`free_ram`),
+and the sampled lease count (`active_asks_sample`). The sample appears as `active now N`
+or `active now ?` when unavailable, with `active_now` set to the count or `null` in JSON.
+When the selected store has settled or uncertain tasks from the manifest for the same batch ID,
+`replay: N settled, M uncertain` appears before the warnings. JSON includes both
+counts in `replay`. Workspace overlap can invalidate a manifest. Load warnings are advisory.
+
+The execution report totals task outcomes as `ok`, `failed`, `uncertain`, and `quota_refused`.
 
 The UTF-8 JSON manifest contains only `tasks` (1..256 entries):
 
@@ -28,6 +33,8 @@ The UTF-8 JSON manifest contains only `tasks` (1..256 entries):
 Each task requires `task_id`, `peer`, and exactly one of `prompt` or `prompt_file`.
 Optional keys: `workspace`, `profile`, `writable` (default false), `timeout_s`
 (finite positive seconds, default 600). Unknown keys, including `stream`, fail.
+Dry runs show the profile in the table and in JSON `profile_display`. Tasks without a
+profile display `(peer default)` and retain `null` in JSON `profile`.
 IDs match `[A-Za-z0-9._-]{1,64}`; task IDs must be unique. Prompt files are UTF-8,
 at most 1 MiB, and resolved relative to the manifest; workspaces must exist and
 relative workspace paths use the current directory. Peers must be builtin aliases

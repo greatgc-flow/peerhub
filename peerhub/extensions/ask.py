@@ -9,7 +9,7 @@ import uuid
 from contextlib import closing
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, cast
 
 if TYPE_CHECKING:
     from peerhub.extensions.accounts import AccountBinding
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 from peerhub.extensions.adapters import CliRuntimeTarget
 from peerhub.extensions.adapters.api import API_TARGETS, RequestRejected
 from peerhub.core.peer_kinds import ALIASES as ALIASES, BUILTIN_PEER_CHOICES, peer_kind  # ALIASES: re-exported
-from peerhub.extensions.bridge import PrespawnError, Bridge, CycleResult, RuntimeTarget, normalize_session_selector
+from peerhub.extensions.bridge import MAY_HAVE_STARTED, NOT_STARTED, STARTED, PrespawnError, Bridge, CycleResult, RuntimeTarget, normalize_session_selector
 from peerhub.extensions.caller import detect_caller
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, StaleClaimError
 from peerhub.core.models import Peer, Stream, utc_now_iso
@@ -25,6 +25,9 @@ from peerhub.core.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionE
 from peerhub.core.store import AlreadyExistsError, CoreStore, IdempotencyConflictError, StorageCorruptError, storage_errors
 from peerhub.core.workspace import Workspace
 
+
+_DEFAULT_AUTHOR = "user"
+_ASK_KEY_PREFIX = "ask:"
 
 
 class LegacySelectorUnsupported(ValueError):
@@ -52,6 +55,50 @@ def _refuse_second_ask(conn: sqlite3.Connection, target: RuntimeTarget, stream_i
             "(SELECT 1 FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?) LIMIT 1",
             (stream_id, stream_id, author, key)).fetchone():
         raise RequestRejected(f"{target.runtime_kind} is stateless; use a new stream")
+
+
+def _request_record(conn: sqlite3.Connection, stream: str, author: str, key: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?",
+                        (stream, author, key)).fetchone()
+
+
+def _settled_delivery(conn: sqlite3.Connection, stream: str, peer: str, record: str) -> sqlite3.Row | None:
+    return conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND record_id=? "
+                        "AND acked=1 AND result_json IS NOT NULL ORDER BY attempt DESC LIMIT 1",
+                        (stream, peer, record)).fetchone()
+
+
+def read_replay_counts(db: Path, requests: Iterable[tuple[str, str, str]]) -> dict[str, int] | None:
+    """Sample stored ask state for (stream, peer, request) tuples without preparing a replay."""
+    settled = uncertain = 0
+    try:
+        with closing(sqlite3.connect(db.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute("BEGIN")
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"records", "bridge_deliveries"} <= tables:
+                return None
+            has_invocations = {"bridge_invocations", "bridge_invocation_resolutions"} <= tables
+            for stream, peer, request in requests:
+                previous = _request_record(conn, stream, _DEFAULT_AUTHOR, f"{_ASK_KEY_PREFIX}{request}")
+                if previous is None or previous["kind"] != "prompt":
+                    continue
+                record = previous["record_id"]
+                if _settled_delivery(conn, stream, peer, record) is not None:
+                    settled += 1
+                    continue
+                latest = conn.execute("SELECT delivery_id, certainty, acked FROM bridge_deliveries "
+                                      "WHERE stream_id=? AND peer_id=? AND record_id=? ORDER BY attempt DESC LIMIT 1",
+                                      (stream, peer, record)).fetchone()
+                if latest is not None and not latest["acked"] and (
+                    latest["certainty"] in (STARTED, MAY_HAVE_STARTED)
+                    or (latest["certainty"] == NOT_STARTED and has_invocations
+                        and Bridge.open_invocation(conn, latest["delivery_id"]) is not None)
+                ):
+                    uncertain += 1
+    except (OSError, sqlite3.Error):
+        return None  # Replay evidence is optional when a selected store cannot be read.
+    return {"settled": settled, "uncertain": uncertain} if settled or uncertain else None
 
 
 def _read_delivery_result(conn: sqlite3.Connection, delivery: sqlite3.Row, peer_id: str | None = None) -> dict[str, Any]:
@@ -140,7 +187,7 @@ def _packaged_cx_binding_change(saved: object, current: str, workspace: str | Pa
 
 
 def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None = None,
-        request_id: str | None = None, author: str = "user", workspace: str | Path | None = None,
+        request_id: str | None = None, author: str = _DEFAULT_AUTHOR, workspace: str | Path | None = None,
         model: str | None = None, effort: str | None = None, timeout_s: float = 60,
         profile: str | None = None, silence_timeout_s: float | None = None, writable: bool = False,
         max_bytes: int = 1_000_000, runtime: RuntimeTarget | None = None,
@@ -208,7 +255,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
         target = runtime
     rid = request_id or uuid.uuid4().hex
     sid = stream_id or cast(str, default_stream(peer_id, rid, stateless=getattr(target, "stateless", False)))  # rid is known here
-    key = f"ask:{rid}"
+    key = f"{_ASK_KEY_PREFIX}{rid}"
     prompt_metadata = {"runtime_kind": target.runtime_kind, "binding": target.binding(), "session_selector": selector}
     generation_path = db.parent / "workspace.generation"
     identity_metadata = {"adapter_fingerprint": target.fingerprint(),
@@ -218,7 +265,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
     if db.is_file() and db.stat().st_size:
         with storage_errors(), closing(sqlite3.connect(db.as_uri() + "?mode=ro", uri=True)) as conn:
             conn.row_factory = sqlite3.Row
-            previous = conn.execute("SELECT * FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?", (sid, author, key)).fetchone()
+            previous = _request_record(conn, sid, author, key)
             _refuse_second_ask(conn, target, sid, author, key)
             if previous is not None:
                 previous_metadata = json.loads(previous["metadata_json"])
@@ -237,8 +284,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                 if any(previous_metadata[name] != value for name, value in identity_metadata.items()):
                     raise IdempotencyConflictError(f"request {rid!r} conflicts with its stored fingerprint or workspace lineage")
                 if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bridge_deliveries'").fetchone():
-                    settled = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND record_id=? AND acked=1 AND result_json IS NOT NULL ORDER BY attempt DESC LIMIT 1",
-                                           (sid, peer_id, previous["record_id"])).fetchone()
+                    settled = _settled_delivery(conn, sid, peer_id, previous["record_id"])
                 else:
                     settled = None
                 current_binding = prompt_metadata["binding"]
@@ -306,7 +352,7 @@ def ask(db_path: str | Path, peer_id: str, prompt: str, *, stream_id: str | None
                 "SELECT targets_json, metadata_json, idempotency_key FROM records WHERE stream_id=? AND kind='prompt'",
                 (sid,),
             ):
-                if not (isinstance(row_key, str) and row_key.startswith("ask:")):
+                if not (isinstance(row_key, str) and row_key.startswith(_ASK_KEY_PREFIX)):
                     continue
                 try:
                     row_meta: Any = json.loads(row_meta_json or "{}")

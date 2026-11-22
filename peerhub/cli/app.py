@@ -1246,6 +1246,8 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
         workspaces = batch.validate_tasks(tasks, kind_of=kind_of, warnings=warnings)
         tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
         if warnings is not None:
+            from peerhub.extensions.ask import read_replay_counts
+
             active, active_by_peer, ram_free_gb = _batch_load_sample(db)
             warnings.extend(batch.load_warnings(tasks, max_parallel=max_parallel, kind_of=kind_of,
                                                 active=active, active_by_peer=active_by_peer, ram_free_gb=ram_free_gb))
@@ -1254,16 +1256,24 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)
                 rows.append(dict(task_id=task.task_id, peer=task.peer, stream=stream,
                                  request_id=request, writable=task.writable, profile=task.profile,
+                                 profile_display=task.profile if task.profile is not None else batch.DEFAULT_PROFILE_DISPLAY,
                                  workspace=workspaces[task.task_id]))
+            replay = read_replay_counts(Path(db), ((row["stream"], row["peer"], row["request_id"]) for row in rows))
             if args.json:
-                print(json.dumps(dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel,
-                                      tasks=rows, warnings=warnings), indent=2, ensure_ascii=True))
+                dry_report: dict[str, Any] = dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel,
+                                                  tasks=rows, active_now=active)
+                if replay is not None:
+                    dry_report["replay"] = replay
+                dry_report["warnings"] = warnings
+                print(json.dumps(dry_report, indent=2, ensure_ascii=True))
             else:
                 print(f"Dry run: {args.batch_id} (max_parallel={max_parallel})")
                 print("TASK PEER STREAM REQUEST_ID WRITABLE PROFILE WORKSPACE")
                 for row in rows:
                     print(f"{row['task_id']} {row['peer']} {row['stream']} {row['request_id']} {row['writable']} "
-                          f"{row['profile'] or '-'} {row['workspace']}")
+                          f"{row['profile_display']} {row['workspace']}")
+                if replay is not None:
+                    print(batch.REPLAY_LINE.format(**replay))
                 for warning in warnings:
                     print(warning)
             return 0

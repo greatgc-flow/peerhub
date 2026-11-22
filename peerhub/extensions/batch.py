@@ -55,6 +55,9 @@ _WARNING_MESSAGES = {
     "free_ram": "free RAM {free:.1f} GB is below minimum {minimum} GB",
     "workspace_overlap": "writable tasks {first} and {second} have {relationship} workspaces",
 }
+UNKNOWN_ACTIVE_SAMPLE = "?"
+DEFAULT_PROFILE_DISPLAY = "(peer default)"
+REPLAY_LINE = "replay: {settled} settled, {uncertain} uncertain"
 _NOT_EXECUTED = "not_executed"
 _QUOTA_REFUSAL_REASONS = {f"{_NOT_EXECUTED}:{reason}" for reason in ("quota_exhausted", "usage_limit")}
 _QUOTA_REFUSED = "quota_refused"
@@ -243,8 +246,7 @@ def load_warnings(tasks: Sequence[Task], *, max_parallel: int, kind_of: Callable
         warnings.append(_WARNING_MESSAGES["active_asks_default"].format(
             load=describe_load(parallel, active or 0), limit=ACTIVE_ASKS_DEFAULT,
             position="above" if above_ceiling else "within", ceiling=ACTIVE_ASKS_CEILING))
-    if active is not None:
-        warnings.append(_WARNING_MESSAGES["active_asks_sample"].format(active=active))
+    warnings.append(_WARNING_MESSAGES["active_asks_sample"].format(active=UNKNOWN_ACTIVE_SAMPLE if active is None else active))
     if ram_free_gb is not None and ram_free_gb < MIN_FREE_RAM_GB:
         warnings.append(_WARNING_MESSAGES["free_ram"].format(free=ram_free_gb, minimum=MIN_FREE_RAM_GB))
     return warnings
