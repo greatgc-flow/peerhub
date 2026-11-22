@@ -54,6 +54,7 @@ def windows(monkeypatch):
         return {"kernel32": kernel, "ntdll": Ntdll()}[name]
 
     proc = Mock(
+        spec=subprocess.Popen,
         _handle=PROCESS_HANDLE,
         returncode=None,
         poll=lambda: proc.returncode,
@@ -103,6 +104,38 @@ def test_windows_probe_assigns_before_resume_and_preserves_flags(windows):
     assert length == ctypes.sizeof(limits._obj)
     windows.kernel.AssignProcessToJobObject.assert_called_once_with(JOB_HANDLE, PROCESS_HANDLE)
     windows.resume.assert_called_once_with(PROCESS_HANDLE)
+
+
+@pytest.mark.parametrize("finish_twice", [False, True])
+def test_synchronous_windows_probe_owns_job_until_finish(windows, finish_twice):
+    proc = quota_probes._spawn_probe(None, COMMAND)
+    assert proc is windows.proc
+    windows.kernel.AssignProcessToJobObject.assert_called_once_with(JOB_HANDLE, PROCESS_HANDLE)
+    windows.resume.assert_called_once_with(PROCESS_HANDLE)
+    windows.kernel.CloseHandle.assert_not_called()
+
+    proc.returncode = 0
+    quota_probes._finish_probe(proc, None)
+    if finish_twice:
+        quota_probes._finish_probe(proc, None)
+
+    windows.kernel.TerminateJobObject.assert_called_once()
+    windows.kernel.CloseHandle.assert_called_once_with(JOB_HANDLE)
+    windows.proc.kill.assert_not_called()
+
+
+def test_windows_probe_registers_a_process_double_without_a_handle(windows, monkeypatch):
+    proc = Mock(spec=["poll", "kill", "wait"], poll=Mock(return_value=None))
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
+    cancellation = quota_probes.ProbeCancellation()
+
+    assert cancellation.spawn(COMMAND) is proc
+    cancellation.finish(proc)
+
+    windows.kernel.CreateJobObjectW.assert_not_called()
+    windows.resume.assert_not_called()
+    proc.kill.assert_called_once_with()
+    assert cancellation.take_warnings() == []
 
 
 @pytest.mark.parametrize("api_name,attempted", [

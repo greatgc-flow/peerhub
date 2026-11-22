@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- On Windows, synchronous `peerhub observation refresh` uses Job Objects to clean up Claude and Codex probe subprocesses and their children (#453).
+
 ## [0.26.7] - 2026-11-23
 
 ### Added

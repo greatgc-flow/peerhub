@@ -361,6 +361,7 @@ real_command = _real_command
 PROBE_TREE_KILL_TIMEOUT_SECONDS = .25
 PROBE_EXIT_WAIT_SECONDS = .25
 AGY_USAGE_EXIT_GRACE_SECONDS = 2.0
+_POPEN_TYPE = subprocess.Popen
 
 
 class ProbeCancellation:
@@ -404,6 +405,10 @@ class ProbeCancellation:
         proc: subprocess.Popen[str] = subprocess.Popen(command, **options)
         job = None
         try:
+            # A substituted launcher can return a process double that was never suspended.
+            if not isinstance(cast(object, proc), _POPEN_TYPE) and not hasattr(proc, "_handle"):
+                self._processes[proc] = None
+                return proc
             try:
                 handle = int(getattr(proc, "_handle"))
             except (AttributeError, TypeError, ValueError, OverflowError):
@@ -472,9 +477,17 @@ class ProbeCancellation:
                 self._terminate(proc, job)
 
 
+_synchronous_probe_owners: dict[subprocess.Popen[str], ProbeCancellation] = {}
+
+
 def _spawn_probe(cancellation: ProbeCancellation | None, command: Sequence[str], **options: Any) -> subprocess.Popen[str]:
     if cancellation is not None:
         return cancellation.spawn(command, **options)
+    if os.name == "nt":
+        owner = ProbeCancellation()
+        proc = owner.spawn(command, **options)
+        _synchronous_probe_owners[proc] = owner
+        return proc
     return subprocess.Popen(command, **options)
 
 
@@ -492,6 +505,8 @@ def run_text_probe(command: Sequence[str], *, timeout: float, cancellation: Prob
 
 
 def _finish_probe(proc: subprocess.Popen[str], cancellation: ProbeCancellation | None) -> None:
+    if cancellation is None and os.name == "nt":
+        cancellation = _synchronous_probe_owners.pop(proc, None)
     if cancellation is None:
         _cleanup_probe(proc)
     else:
@@ -501,7 +516,8 @@ def _finish_probe(proc: subprocess.Popen[str], cancellation: ProbeCancellation |
 def _cleanup_probe(proc: subprocess.Popen[str]) -> None:
     with suppress(Exception):  # best-effort cleanup preserves the probe result
         if os.name == "nt":
-            proc.kill()
+            if getattr(proc, "returncode", None) is None:
+                proc.kill()
         else:
             kill_process_tree(proc)
 
