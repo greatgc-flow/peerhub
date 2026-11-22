@@ -218,7 +218,7 @@ _OBSERVATION_DIAG = ("observation.py", "observation_model.py", "quota_capture.py
                      "diag.py", "diag_quota.py", "diag_watch.py", "schema_guard.py", "quota_projection.py")
 _ALLOWED_EXTENSION_IMPORTS = {"peerhub.extensions.observation", "peerhub.extensions.observation_model", "peerhub.extensions.quota_types",
                               "peerhub.extensions.schema_guard", "peerhub.extensions.diag", "peerhub.extensions.quota_probes",
-                              "peerhub.extensions.binary_resolution", "peerhub.extensions.process_tree",
+                              "peerhub.extensions.binary_resolution", "peerhub.extensions.process_tree", "peerhub.extensions.win_job",
                               "peerhub.extensions.quota_projection"}  # shared, dependency-free helpers inside the M1 trio
 
 

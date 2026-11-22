@@ -241,3 +241,21 @@ def test_windows_probe_cancel_kills_child_after_wrapper_exit_and_reaches_eof():
         proc.stdin.close()
         if not reader.is_alive():
             proc.stdout.close()
+
+
+def test_a_cancel_during_job_setup_never_resumes_the_probe(windows):
+    cancellation = quota_probes.ProbeCancellation()
+
+    def stop_while_setting_up(*args, **kwargs):
+        windows.events.append("set")
+        cancellation._stopped.set()  # stop() sets the event before it waits for the lock this spawn holds
+        return True
+
+    windows.kernel.SetInformationJobObject.side_effect = stop_while_setting_up
+    with pytest.raises(OSError, match="cancelled"):
+        cancellation.spawn(COMMAND)
+
+    assert "resume" not in windows.events
+    assert "terminate" in windows.events and windows.events.count("close") == 1
+    windows.proc.kill.assert_called()
+

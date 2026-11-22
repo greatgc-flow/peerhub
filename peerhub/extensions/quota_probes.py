@@ -18,7 +18,7 @@ from typing import Sequence, Optional, TypedDict, Callable, cast, Any, TypeGuard
 from peerhub.extensions.binary_resolution import CLAUDE_CMD, CODEX_CMD
 from peerhub.extensions.process_tree import kill_process_tree
 from peerhub.extensions.quota_types import account_text as _account_text, valid_epoch_seconds, DISABLED_REASON, NOT_REPORTED_REASON, IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement, ResetCreditObserved
-from peerhub.extensions import win_job
+import peerhub.extensions.win_job as win_job
 
 AGY_QUOTA_FAMILIES = (
     ("gemini-5h", "G-5H"),
@@ -414,6 +414,8 @@ class ProbeCancellation:
                 job = win_job.Job(handle)
             except OSError as exc:
                 self._warnings.append(f"Windows quota probe has no tree containment ({exc})")
+            if self.cancelled():  # stop() sets the event before it takes the lock this spawn holds: never start a cancelled probe
+                raise OSError("quota collection cancelled")
             resume(handle)
             self._processes[proc] = job
             return proc

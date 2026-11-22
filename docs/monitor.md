@@ -17,6 +17,7 @@ With `--cycles N` and `N > 0`, scripted runs keep synchronous refresh and the sa
 
 On Windows, background quota refresh puts each probe in a Job Object before it can start children.
 Cancellation, timeouts and normal completion clean up that job even if its wrapper has already exited.
+If a job cannot be created or joined (a restricted runner), the probe still runs and cleanup kills only the wrapper through its handle, with a warning; no PID matching is used. The synchronous `peerhub observation refresh` has no cancellation owner and also kills only the wrapper (#453).
 If Windows refuses containment, the refresh result includes a warning with the API and WinError, and cleanup can stop only the process that PeerHub started.
 
 Continuous watch, automatic collection in scripted watch, suggest, and ask dispatch share the PID lock
