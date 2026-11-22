@@ -497,8 +497,10 @@ def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
     return data
 
 
-PLAN_PACE_PT = 10.0
-PLAN_LEGEND = "spend PACE<=-10 | hold | rest PACE>+10/exhausts early | blocked 0%/unknown | - n/a | TARGET=left%/h"
+PLAN_SPEND_PACE_PT = 10.0  # spend at PACE <= -10: well behind an even burn
+PLAN_REST_PACE_PT = 20.0  # rest only above PACE +20: owner 2026-11-22, up to +20 ahead of an even burn is fine to use
+PLAN_LEGEND = (f"spend PACE<=-{PLAN_SPEND_PACE_PT:.0f} | hold | rest PACE>+{PLAN_REST_PACE_PT:.0f}/exhausts early | "
+               "blocked 0%/unknown | - n/a | TARGET=left%/h")
 _PLAN_RANK = {"spend": 0, "hold": 1, "rest": 2, "blocked": 3}
 
 
@@ -515,9 +517,9 @@ def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) ->
         return "rest", "forecast exhausts before reset" + stale
     if pace_pt is None:
         return "hold", "PACE unknown" + stale
-    if pace_pt > PLAN_PACE_PT:
-        return "rest", f"PACE {pace_pt:+.1f} > {PLAN_PACE_PT:+.0f}" + stale
-    if pace_pt <= -PLAN_PACE_PT:
+    if pace_pt > PLAN_REST_PACE_PT:
+        return "rest", f"PACE {pace_pt:+.1f} > {PLAN_REST_PACE_PT:+.0f}" + stale
+    if pace_pt <= -PLAN_SPEND_PACE_PT:
         return "spend", f"{-pace_pt:.0f}pp above even share" + stale
     return "hold", "on pace" + stale
 

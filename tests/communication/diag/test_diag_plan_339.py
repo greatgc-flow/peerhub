@@ -31,8 +31,9 @@ DAY, HOUR = 86400.0, 3600.0
     (55.0, -5.0, "expired", "blocked"),        # window already reset: left is not current
     (40.0, 2.0, "threat", "rest"),             # forecast exhausts before reset
     (40.0, -12.0, "threat", "rest"),           # forecast wins over a spend-sized PACE
-    (40.0, 10.0001, "on_pace", "rest"),        # just above +10
-    (40.0, 10.0, "on_pace", "hold"),           # boundary +10 is still hold
+    (40.0, 20.0001, "on_pace", "rest"),        # just above +20 (owner 2026-11-22: up to +20 is fine)
+    (40.0, 20.0, "on_pace", "hold"),           # boundary +20 is still hold
+    (40.0, 10.0001, "on_pace", "hold"),        # +10 used to be rest
     (40.0, 0.0, "on_pace", "hold"),
     (40.0, -9.9999, "on_pace", "hold"),        # just above -10
     (40.0, -10.0, "on_pace", "spend"),         # boundary -10 is spend
@@ -236,3 +237,12 @@ def test_cli_plan_rejects_live_and_subcommands(plan_store, extra):
     with pytest.raises(SystemExit) as exc:
         main(["--db", str(plan_store), "diag", "--plan", *extra])
     assert exc.value.code == 2
+
+
+def test_plan_thresholds_have_one_source_and_the_legend_and_docs_derive_from_it():
+    from peerhub.cli import view
+    assert (view.PLAN_SPEND_PACE_PT, view.PLAN_REST_PACE_PT) == (10.0, 20.0)
+    assert f"spend PACE<=-{view.PLAN_SPEND_PACE_PT:.0f}" in view.PLAN_LEGEND
+    assert f"rest PACE>+{view.PLAN_REST_PACE_PT:.0f}" in view.PLAN_LEGEND
+    index = (Path(__file__).resolve().parents[3] / "docs" / "index.md").read_text(encoding="utf-8")
+    assert f"(PACE <= -{view.PLAN_SPEND_PACE_PT:.0f})" in index and f"(PACE > +{view.PLAN_REST_PACE_PT:.0f} or" in index

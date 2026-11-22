@@ -43,6 +43,20 @@ peerhub --version
 
 See [STATUS](docs/STATUS.md) for current source and release status. The public command is `peerhub`; the temporary milestone-specific entrypoint has been retired. `python -m peerhub` and `python -m peerhub.cli` use the same public CLI.
 
+## First ask
+
+After installing and signing in to one peer's tool (table above), pick the store explicitly and ask:
+
+```powershell
+peerhub --db .peerhub/core.db ask cc "Reply OK" --profile cc.standard --stream smoke --request-id smoke-1
+```
+
+The reply prints on stdout with a receipt line; use a new `--request-id` for every ask and a new `--stream` for every new task.
+
+- AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, load and free RAM, about 350 tokens). `peerhub explain <words>` finds a lesson.
+- People: `peerhub monitor` is the human screen (quota, running asks, recent asks).
+- Something wrong: `peerhub explain report-issues` lists what to include before filing an issue.
+
 ## Core recipe
 
 The Core stores Peers, Streams, immutable Records, and per-peer Offsets.
@@ -437,6 +451,7 @@ peerhub diag --plan
 
 To upgrade PeerHub safely:
 
+0. **Plan first**: `peerhub update --plan` lists blocking asks and processes, the backup command (it writes `.peerhub/core.db.pre-update.bak`) and the upgrade commands; `peerhub explain store-and-upgrade` has the hazards.
 1. **Stop `peerhub monitor`**: Stop any active monitor process before upgrading. A running monitor locks `peerhub.exe` on Windows and keeps old code running. Also wait for running `peerhub ask` calls to finish: they keep dependency files such as `pydantic_core` loaded, so an in-place upgrade can fail and leave a half-deleted install. If peerhub crashes with `ModuleNotFoundError` after an upgrade, reinstall it and check the result records before re-sending an ask.
 2. **Run upgrade**:
    ```powershell
@@ -452,6 +467,7 @@ To upgrade PeerHub safely:
    ```powershell
    peerhub monitor
    ```
+4. **Check, or restore**: `peerhub diag health` must report OK. If the new version cannot open the store, reinstall the old version, stop every client, copy `.peerhub/core.db.pre-update.bak` over `.peerhub/core.db`, restart the clients (old instances are fenced by `workspace.generation`) and run `peerhub diag health` again.
 
 ### Uninstall
 
