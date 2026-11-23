@@ -11,12 +11,16 @@ import textwrap
 import unicodedata
 from collections.abc import Mapping, Sequence
 from datetime import datetime, tzinfo
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
-from peerhub.extensions.diag import DiagnosticReport, Section
-from peerhub.extensions.diag_quota import projection, quota_stale_line
-from peerhub.extensions.observation_model import oldest_measured_quota_age
+from peerhub.core.quota_policy import (
+    PLAN_REST_PACE_PT as PLAN_REST_PACE_PT,
+    PLAN_SPEND_PACE_PT as PLAN_SPEND_PACE_PT,
+    QUOTA_TTL_SECONDS,
+)
+if TYPE_CHECKING:
+    from peerhub.extensions.diag import DiagnosticReport, Section
+    from peerhub.extensions.pool_health import PaceGaps, PoolHealth
 
 RESET, RED, YELLOW, CYAN = "\033[0m", "\033[31m", "\033[33m", "\033[36m"
 _ANSI = re.compile(r"\033\[[0-9;]*m|\033\]8;[^\a\033]*(?:\033\\|\a)")  # SGR, and OSC 8 (a hyperlink's open and close)
@@ -257,6 +261,9 @@ def _eta(at: float, now: float, tz: tzinfo | None) -> str:
 
 class _Row:
     def __init__(self, item: Obj, read_at: float, tz: tzinfo | None = None) -> None:
+        from peerhub.extensions.diag_quota import projection
+
+        self.item = item
         payload = _obj(item.get("payload"))
         subject = item.get("subject_ref")
         self.subject_ref = subject if isinstance(subject, str) else None
@@ -267,8 +274,7 @@ class _Row:
         self.age = _num(item.get("age_seconds"))
         self.ttl = _num(item.get("ttl_seconds"))
         self.reason = _safe_text(payload.get("reason") or "")
-        rf = self.remaining = _num(payload.get("remaining_fraction"))
-        self.projection_samples = _num(item.get("projection_samples"))
+        rf = _num(payload.get("remaining_fraction"))
         self.used = 1 - rf if rf is not None and 0 <= rf <= 1 and self.state in ("MEASURED", "STALE") else None
         start, reset = _num(payload.get("window_started_at")), _num(payload.get("resets_at"))
         self.span = reset - start if reset is not None and start is not None and reset > start else float("inf")
@@ -436,6 +442,8 @@ def _serialize_obs_item(item: object, read_at: float) -> dict[str, object]:
     }
     obs["payload"] = _scrub_payload(kind, it.get("payload"))
     if kind in ("quota", "rate_limit"):
+        from peerhub.extensions.diag_quota import projection
+
         obs["projection"] = projection(obs, read_at)
     return obs
 
@@ -502,16 +510,20 @@ def dashboard_data(report: DiagnosticReport) -> dict[str, object]:
 
 
 PLAN_STALE_TAG = "(stale)"  # one spelling, shown first in the reason of a stale window
-PLAN_SPEND_PACE_PT = 10.0  # spend at PACE <= -10: well behind an even burn
-PLAN_REST_PACE_PT = 20.0  # rest only above PACE +20: owner 2026-11-22, up to +20 ahead of an even burn is fine to use
 _PLAN_PACE_LEGEND = f"spend PACE<=-{PLAN_SPEND_PACE_PT:.0f} | hold | rest PACE>+{PLAN_REST_PACE_PT:.0f}"
 PLAN_LEGEND = _PLAN_PACE_LEGEND + "/exhausts early | blocked 0%/unknown | - n/a | TARGET=left%/h"
 PLAN_FAST_TAG = "fast"
 PLAN_GATE_TAG = "gate"
 PLAN_TAG_LEGEND = f"{PLAN_FAST_TAG}/{PLAN_GATE_TAG} tags"
-_PLAN_TEXT_LEGEND = f"{_PLAN_PACE_LEGEND}/runs out | blocked 0%/? | - n/a | TARGET=%/h | {PLAN_TAG_LEGEND}"
+PLAN_BUDGET_COLUMN = "BUDGET%/h"
+_PLAN_COLUMNS = ("PEER", "POOL", "LEFT", "PACE(pp)", "EXH/RESET", PLAN_BUDGET_COLUMN, "ACTION", "REASON")
+_PLAN_TEXT_LEGEND = f"{_PLAN_PACE_LEGEND}/early | blocked 0%/? | - n/a | {PLAN_BUDGET_COLUMN} | {PLAN_TAG_LEGEND}"
+PLAN_EARLY_TAG = "!early"
+_MISSING_FACT = "—"
+_PLAN_ZERO_REASONS = {"out": "out", "aged": "stale zero; refresh", "reset": "window reset; refresh"}
 _PLAN_RANK = {"spend": 0, "hold": 1, "rest": 2, "blocked": 3}
 _PlanWindow = tuple[_Row, float | None, str, str]
+_PlanPool = tuple[str | None, dict[str, object], "PoolHealth"]
 
 
 def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) -> tuple[str, str]:
@@ -520,9 +532,9 @@ def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) ->
     if left_pct is None:
         return "blocked", "left unknown; refresh"
     if left_pct <= 0 or forecast == "exhausted":
-        return "blocked", "out"
+        return "blocked", _PLAN_ZERO_REASONS["out"]
     if forecast == "expired":
-        return "blocked", "window reset; refresh"
+        return "blocked", _PLAN_ZERO_REASONS["reset"]
     if forecast == "threat":
         return "rest", stale + "forecast exhausts before reset"
     if pace_pt is None:
@@ -534,10 +546,9 @@ def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) ->
     return "hold", stale + "on pace"
 
 
-def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]], read_at: float,
-                     profiles_by_pool: Mapping[str, list[str]]) -> None:
-    # Reuse the monitor's classifier and pool tree rules here so the two CLI views agree.
-    from peerhub.cli.monitor_view import _compact_pool, _parse_window, _scoped_weekly_parents, _WEEK  # pyright: ignore[reportPrivateUsage]
+def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]],
+                     profiles_by_pool: Mapping[str, list[str]]) -> dict[str, _Row]:
+    from peerhub.cli.monitor_view import FAMILIES, _pool_family, _parse_window, _scoped_weekly_parents, _WEEK  # pyright: ignore[reportPrivateUsage]
 
     consumers: dict[str, list[str]] = {}
     for pool, profiles in profiles_by_pool.items():
@@ -549,45 +560,55 @@ def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]], read_
         return row.peer, row.ref.rpartition(":")[0], _family(row.pool)
 
     families: dict[tuple[str, str, str], list[_PlanWindow]] = {}
-    monitor_rows: list[dict[str, Any]] = []
+    descriptors: list[dict[str, Any]] = []
+    rows_by_ref: dict[str, _Row] = {}
     for entry in own:
         r = entry[0]
         families.setdefault(family_key(r), []).append(entry)
-        monitor_rows.append(_compact_pool({
-            "peer_id": r.peer, "pool_ref": r.ref, "state": r.state, "reason": r.reason,
-            "measurements": {"remaining_fraction": r.remaining}, "reset_in_seconds": r.left,
-            "age_seconds": r.age, "ttl_seconds": r.ttl, "projection": r.projection,
-            "projection_samples": r.projection_samples,
-        }, read_at, 0, consumers))
+        rows_by_ref[r.ref] = r
+        descriptors.append({"peer": r.peer, "pool": r.pool, "pool_ref": r.ref,
+                            "profiles": ",".join(consumers.get(f"{r.peer}:{r.pool}", []))})
 
-    scoped_parents = _scoped_weekly_parents(monitor_rows)
-    for (r, _, _, _), row, monitor in zip(own, out, monitor_rows):
+    scoped_parents = _scoped_weekly_parents(descriptors)
+    parents: dict[str, _Row] = {}
+    for (r, _, _, _), row, descriptor in zip(own, out, descriptors):
         siblings = families[family_key(r)]
+        family = _pool_family(r.pool)
         window = _parse_window(r.pool)[0]
-        parent = scoped_parents.get(id(monitor), {}).get("pool")
-        if parent is None and window < _WEEK and monitor["family"] != "?":
+        scoped = scoped_parents.get(id(descriptor))
+        parent = None
+        if scoped is not None:
+            parents[r.ref] = rows_by_ref[scoped["pool_ref"]]
+            parent = scoped["pool"]
+        elif window < _WEEK and family != "?":
             parent = next((s.pool for s, _, _, _ in siblings if _parse_window(s.pool)[0] == _WEEK), None)
         row.update(age_seconds=r.age, ttl_seconds=r.ttl if r.ttl is not None else QUOTA_TTL_SECONDS,
-                   fast=monitor["state"] == "fast", family=monitor["meaning"], parent=parent,
+                   family=FAMILIES.get(family, "?"), parent=parent,
                    gates=[{"pool": s.pool, "action": action,
                            "reason": "reset" if s.projection["state"] == "expired" else reason}
                           for s, _, action, reason in siblings if s is not r and action in {"rest", "blocked"}]
                    if window == _WEEK else [])
+    return parents
 
 
 def _plan_pools(report: DiagnosticReport, *,
-                profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[tuple[str | None, dict[str, object]]]:
+                profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[_PlanPool]:
+    from peerhub.extensions.observation_model import DISABLED_REASON
+    from peerhub.extensions.pool_health import pool_health
+
     items = [i for i in _items(_section(report, "observations").get("items")) if i.get("kind") == "quota"]
     pools = [p for p in _items(_section(report, "resource_pools").get("pools")) if p.get("kind") == "QUOTA"]
     rows = _quota_rows(items, pools, report.read_at)
-    from peerhub.cli.monitor_view import not_applicable
-    from peerhub.extensions.observation_model import DISABLED_REASON
+    healths = {r.ref: pool_health(r.item, None, report.read_at) for r in rows}
     own: list[_PlanWindow] = []
     for r in rows:
-        left = None if r.used is None else 100.0 * (1.0 - r.used)
-        if not_applicable(r.state, r.reason, aged=r.age is not None and r.ttl is not None and r.age >= r.ttl):
+        facts = healths[r.ref]
+        left, state = facts["left_pct"], facts["state"]
+        if state == "n/a":
             # The monitor's n/a: the plan omits the window or the provider disabled it; not a budget, never a gate.
             own.append((r, None, "n/a", "n/a (disabled by provider)" if r.reason.startswith(DISABLED_REASON) else "n/a (plan omits)"))
+        elif left == 0:
+            own.append((r, left, "blocked", _PLAN_ZERO_REASONS[state]))
         else:
             own.append((r, left, *plan_action(left, r.diff, r.projection["state"])))
     families: dict[tuple[str, str], list[_PlanWindow]] = {}
@@ -603,7 +624,7 @@ def _plan_pools(report: DiagnosticReport, *,
             continue
         # A sibling counts only with current evidence: an unknown, reset (expired) or n/a window blocks only its own row.
         known = [e for e in families[(r.peer, _family(r.pool))]
-                 if e[1] is not None and e[0].projection["state"] != "expired"]
+                 if e[1] is not None and healths[e[0].ref]["state"] != "reset"]
         voters = [e for e in known if e[0] is not r] + [(r, left, action, why)]
         decided = max(voters, key=lambda e: (_PLAN_RANK[e[2]], e[0].span))
         binding = min(known, key=lambda e: (e[1], -e[0].span))[0].pool if known else decided[0].pool
@@ -611,76 +632,139 @@ def _plan_pools(report: DiagnosticReport, *,
         if binding not in (r.pool, decided[0].pool):  # the decided window is already named in the reason
             reason += f"; binding {binding}"
         reason = reason.replace(PLAN_STALE_TAG + " ", "")
-        if r.projection["state"] == "stale":  # this window's own freshness, whichever window decided the reason
+        if left == 0:
+            reason = why
+        elif healths[r.ref]["stale"] and r.used is not None:  # this window's own freshness
             reason = f"{PLAN_STALE_TAG} {reason}"
         hours = r.left / 3600 if r.left is not None and r.left > 0 else None
         out.append({"peer": r.peer, "pool": r.pool, "resource_pool_ref": r.ref, "left_pct": left,
                     "resets_in_seconds": r.left, "target_pct_per_hour": left / hours if left is not None and hours else None,
                     "pace_pt": r.diff, "forecast": r.projection["state"], "binding": binding,
                     "action": decided[2], "reason": reason})
-    _plan_pool_facts(own, out, report.read_at, profiles_by_pool or {})
-    if profiles_by_pool is not None:
-        for row in out:
-            row["profiles"] = list(profiles_by_pool.get(str(row["pool"]), []))
-    return [(window[0].subject_ref, row) for window, row in zip(own, out)]
+    parents = _plan_pool_facts(own, out, profiles_by_pool or {})
+    result: list[_PlanPool] = []
+    for r, row in zip(rows, out):
+        own_health = healths[r.ref]
+        parent = parents.get(r.ref)
+        facts = own_health if parent is None else pool_health(r.item, parent.item, report.read_at)
+        row.update(
+            fast=own_health["state"] == "fast",
+            even_left_pct=facts["even_left_pct"], exhaust_in_seconds=facts["exhaust_in_seconds"],
+            exhaust_before_reset=facts["exhaust_before_reset"], stale=facts["stale"],
+            limited_by=facts["limited_by"], own_left_pct=facts["own_left_pct"],
+            health={"state": facts["state"], "pace_band": facts["pace_band"], "reserve": facts["reserve"],
+                    "effective_pace_pt": facts["pace_pt"], "effective_reset_in_seconds": facts["reset_in_seconds"]},
+        )
+        if profiles_by_pool is not None:
+            row["profiles"] = list(profiles_by_pool.get(r.pool, []))
+        result.append((r.subject_ref, row, facts))
+    return result
+
+
+def _plan_gaps(pools: list[_PlanPool]) -> PaceGaps:
+    from peerhub.extensions.pool_health import pace_gaps
+
+    by_name: dict[str, PoolHealth | None] = {}
+    for _, row, health in pools:
+        name = str(row["pool"])
+        by_name[name] = None if name in by_name else health  # duplicate account names are ambiguous
+    return pace_gaps({name: health for name, health in by_name.items() if health is not None})
 
 
 def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
               load: Mapping[str, object] | None = None,
               profiles_by_pool: Mapping[str, list[str]] | None = None, *, peers: frozenset[str] = frozenset()) -> dict[str, object]:
     """`diag --plan --json`: read-only, from the stored observations of one snapshot."""
-    pools = [row for peer, row in _plan_pools(report, profiles_by_pool=profiles_by_pool)
-             if not peers or peer in peers]
+    pools = [pool for pool in _plan_pools(report, profiles_by_pool=profiles_by_pool)
+             if not peers or pool[0] in peers]
     data: dict[str, object] = {"schema_version": "1.0", "status": report.status, "read_at": report.read_at,
-                               "store_selection": dict(store_selection), "legend": PLAN_LEGEND, "pools": pools}
+                               "store_selection": dict(store_selection), "legend": PLAN_LEGEND,
+                               "pools": [row for _, row, _ in pools], "gaps": _plan_gaps(pools)}
     if load is not None:
         data["load"] = dict(load)  # additive: sampled now, unlike the stored pools
     return data
+
+
+def _plan_pace(pace: float | None) -> str:
+    if pace is None:
+        return _MISSING_FACT
+    return f"{pace:+.1f}" if round(pace, 1) else "0.0"
+
+
+def _plan_exhaust_reset(health: PoolHealth) -> str:
+    from peerhub.cli.monitor_view import _format_duration  # pyright: ignore[reportPrivateUsage]
+
+    def duration(seconds: float) -> str:
+        return _format_duration(seconds).removesuffix("00m")
+
+    reset, exhaust = health["reset_in_seconds"], health["exhaust_in_seconds"]
+    reset_text = _MISSING_FACT if reset is None else "passed" if reset <= 0 else duration(reset)
+    if health["reserve"] == "out":
+        exhaust_text = "OUT"
+    elif exhaust is None:
+        exhaust_text = _MISSING_FACT
+    else:
+        exhaust_text = "past est." if exhaust < 0 else duration(exhaust)
+    return f"{exhaust_text}/{reset_text}" + ("!" if health["exhaust_before_reset"] else "")
+
+
+def _plan_cells(row: Obj, health: PoolHealth) -> list[str]:
+    peer_pool = [str(row["peer"]), str(row["pool"])]
+    if row["action"] == "n/a":
+        return [*peer_pool, "-", "-", "-", "-", "-"]
+    left_pct = health["left_pct"]
+    left = "?" if left_pct is None else f"{left_pct:.0f}%"
+    pace = _plan_pace(health["pace_pt"])
+    budget = _num(row["target_pct_per_hour"])
+    return [*peer_pool, left + ("!" if health["reserve"] == "low" else ""),
+            pace + ("!" if health["pace_band"] == "rest" else ""), _plan_exhaust_reset(health),
+            "?" if budget is None else f"{budget:.2f}", str(row["action"])]
 
 
 def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None = None, store_path: str = "",
                 store_source: str = "", store_note: str = "", load: Mapping[str, Any] | None = None,
                 profiles_by_pool: Mapping[str, list[str]] | None = None, peers: frozenset[str] = frozenset(),
                 separate_observation_store: bool = False) -> str:
+    from peerhub.extensions.pool_health import PACE_GAP_BASELINE
+
     width = max(1, width)
     when = _local(report.read_at, tz).strftime("%Y-%m-%d %H:%M%z")
     lines = _wrap(f"PeerHub plan {_safe_text(report.status)} {when} {_safe_text(store_path)} ({_safe_text(store_source)})", width)
     lines += _wrap(_safe_text(store_note), width) if store_note else []
     all_pools = _plan_pools(report, profiles_by_pool=profiles_by_pool)
-    pools = [row for peer, row in all_pools if not peers or peer in peers]
-    cells = [[str(p["peer"]), str(p["pool"]),
-              "?" if p["left_pct"] is None else f"{cast(float, p['left_pct']):.0f}%",
-              human_duration(cast("float | None", p["resets_in_seconds"])),
-              "?" if p["pace_pt"] is None else f"{cast(float, p['pace_pt']):+.1f}",
-              "?" if p["target_pct_per_hour"] is None else f"{cast(float, p['target_pct_per_hour']):.2f}",
-              str(p["action"])] if p["action"] != "n/a" else [str(p["peer"]), str(p["pool"]), "-", "-", "-", "-", "-"]
-             for p in pools]
-    head = ["PEER", "POOL", "LEFT", "RESETS", "PACE", "TARGET%/h", "ACTION"]
+    pools = [pool for pool in all_pools if not peers or pool[0] in peers]
+    cells = [_plan_cells(row, health) for _, row, health in pools]
+    head = _PLAN_COLUMNS[:-1]
     widths = [max(visible_len(row[i]) for row in [head, *cells]) for i in range(len(head))]
-    def lead(row: list[str]) -> str:
+    def lead(row: Sequence[str]) -> str:
         return " ".join(_pad(c, w) if i < 2 or i == 6 else " " * (w - visible_len(c)) + c
                         for i, (c, w) in enumerate(zip(row, widths))) + " "
-    lines.append(_ellipsis(lead(head) + "REASON", width, False))
-    for row, p in zip(cells, pools):
+    lines.append(_ellipsis(lead(head) + _PLAN_COLUMNS[-1], width, False))
+    for row, (_, p, health) in zip(cells, pools):
         reason = lead(row) + _safe_text(p["reason"])
-        tags = [f"({PLAN_FAST_TAG})"] if p["fast"] else []
+        tags = [PLAN_EARLY_TAG] if health["exhaust_before_reset"] else []
+        if p["fast"]:
+            tags.append(f"({PLAN_FAST_TAG})")
         tags.extend(f"({PLAN_GATE_TAG}: {_safe_text(gate['pool'])})" for gate in _items(p["gates"]))
         lines.extend(_wrap(" ".join([reason, *tags]), width) if tags else [_ellipsis(reason, width, False)])
     if not pools:
         lines.append("no quota evidence; next: peerhub observation refresh")
     lines.extend(_wrap(_PLAN_TEXT_LEGEND, width))
-    applicable_pools = [p for p in pools if p["action"] != "n/a"]
+    applicable_pools = [p for _, p, _ in pools if p["action"] != "n/a"]
     profile_groups = [f"{p['pool']} {','.join(cast(list[str], p['profiles']))}"
                       for p in applicable_pools if p.get("profiles")]
     if profile_groups:
         lines.extend(_wrap(_safe_text("profiles: " + " | ".join(profile_groups)), width))
+    gaps = _plan_gaps(pools)["pools"]
+    values = ", ".join(f"{name} {_plan_pace(pace)}" for name, pace in gaps.items())
+    lines.extend(_wrap(f"gap: gap vs {PACE_GAP_BASELINE} (pp): {values}", width))
     if load is not None:
         from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, format_load
         if separate_observation_store:
             load_line = format_load(load)
         else:
             # Use the full plan's applicability for this store, independent of the peer filter.
-            pool_names = {str(p["pool"]) for _, p in all_pools if p["action"] != "n/a"}
+            pool_names = {str(p["pool"]) for _, p, _ in all_pools if p["action"] != "n/a"}
             in_flight = _obj(load.get("by_pool"))
             shown = {pool: count for pool, count in in_flight.items() if pool in pool_names}
             load_line = format_load({**load, "by_pool": shown})
@@ -871,8 +955,12 @@ def render_view(report: DiagnosticReport, *, width: int = 100, color: bool = Fal
     if credit_alerts:
         alert += "; credit expiry<72h " + ", ".join(credit_alerts)
     lines = [_paint(line, CYAN, color) for line in _wrap(header, width)]
-    if show_quota_age and (notice := quota_stale_line(oldest_measured_quota_age(items))):
-        lines.extend(_wrap(notice, width))
+    if show_quota_age:
+        from peerhub.extensions.diag_quota import quota_stale_line
+        from peerhub.extensions.observation_model import oldest_measured_quota_age
+
+        if notice := quota_stale_line(oldest_measured_quota_age(items)):
+            lines.extend(_wrap(notice, width))
     lines += [_paint(line, YELLOW, color) for line in _wrap(_safe_text(store_note), width)] if store_note else []
     lines += [_paint(line, RED if threats or exhausted else YELLOW if credit_alerts else '', color) for line in _wrap(alert, width)]
     # Wrap before adding colour so no escape sequence can be split.

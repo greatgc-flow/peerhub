@@ -108,6 +108,8 @@ def diag_json(e):
 
 
 def diag_plan(e):
+    from peerhub.cli.view import PLAN_BUDGET_COLUMN
+
     db = e.fresh()
     seed_view_pool(db)
     before = db.read_bytes()
@@ -118,7 +120,7 @@ def diag_plan(e):
         dash = e.j(db, "diag", "--json")
     assert result["schema_version"] == "1.0" and [p["pool"] for p in result["pools"]] == ["view-5H"]
     assert result["pools"][0]["action"] in {"spend", "hold", "rest", "blocked"} and "pools" not in dash
-    assert code == 0 and not err and "TARGET%/h" in table and "TARGET%/h" not in e.run(db, "diag")[1]
+    assert code == 0 and not err and PLAN_BUDGET_COLUMN in table and PLAN_BUDGET_COLUMN not in e.run(db, "diag")[1]
     assert db.read_bytes() == before
 
 

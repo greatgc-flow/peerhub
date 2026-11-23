@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- `diag --plan` shows quota exhaustion alongside reset and weekly pace gaps against `X-7D`, with pool health, freshness, and parent limits in JSON.
+
 ### Fixed
 
 - The live monitor's "oldest quota age" counted a measured reading of a pool the peer no longer needs (for example an old `X-30D` window), so it showed days while every shown pool was fresh; it now counts only the pools the peer requires.

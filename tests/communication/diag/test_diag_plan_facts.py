@@ -11,7 +11,7 @@ import pytest
 
 from peerhub.cli.app import main
 from peerhub.cli.monitor_view import FAMILIES
-from peerhub.cli.view import PLAN_FAST_TAG, PLAN_GATE_TAG, PLAN_TAG_LEGEND, plan_data, render_plan
+from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_GATE_TAG, PLAN_TAG_LEGEND, plan_data, render_plan
 from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, load_snapshot
 from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import ReadonlyDiag
@@ -23,6 +23,7 @@ AGED = QUOTA_TTL_SECONDS * 2
 SHORT = 5 * HOUR
 WEEK = 7 * DAY
 FACT_FIELDS = {"age_seconds", "ttl_seconds", "fast", "family", "parent", "gates"}
+HEALTH_FIELDS = {"even_left_pct", "exhaust_in_seconds", "exhaust_before_reset", "stale", "limited_by", "own_left_pct"}
 
 
 def _rows(report, profiles=None):
@@ -49,7 +50,7 @@ def test_reset_gate_is_visible_alongside_a_weekly_hold():
     out = render_plan(_report(*_flash_windows()), width=100)
     line = next(line for line in out.splitlines() if line.split()[:2] == [weekly["peer"], weekly["pool"]])
     assert line.endswith(f"{weekly['reason']} ({PLAN_GATE_TAG}: {short['pool']})")
-    assert PLAN_TAG_LEGEND in out.splitlines()[-1]
+    assert any(line.endswith(PLAN_TAG_LEGEND) for line in out.splitlines())
 
 
 def test_weekly_gates_use_each_siblings_own_action_and_skip_na_and_other_accounts():
@@ -126,7 +127,10 @@ def test_fast_matches_monitor_state_from_stored_samples(history, remaining, age,
     assert row["fast"] is fast
     line = next(line for line in render_plan(report, width=100).splitlines()
                 if line.split()[:2] == [row["peer"], row["pool"]])
-    assert line.endswith(row["reason"] + (f" ({PLAN_FAST_TAG})" if fast else ""))
+    tags = [PLAN_EARLY_TAG] if age != AGED else []
+    if fast:
+        tags.append(f"({PLAN_FAST_TAG})")
+    assert line.endswith(" ".join([row["reason"], *tags]))
 
 
 def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
@@ -154,7 +158,8 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     assert main([*argv, "--json"]) == 0
     out = capsys.readouterr().out
     data = json.loads(out)
-    assert data["pools"] and all(FACT_FIELDS <= row.keys() for row in data["pools"])
+    assert data["pools"] and all(FACT_FIELDS | HEALTH_FIELDS | {"health"} <= row.keys() for row in data["pools"])
+    assert data["gaps"]["baseline"] is None
     assert out == json.dumps(data, separators=(",", ":"), ensure_ascii=True) + "\n"
     assert profile_reads == [Path.cwd()]
     for row in data["pools"]:
@@ -173,9 +178,10 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     assert profile_reads == [Path.cwd(), Path.cwd()]
     groups = [f"{row['pool']} {','.join(row['profiles'])}" for row in data["pools"]
               if row["action"] != "n/a" and row["profiles"]]
-    legend, footer, load = out.splitlines()[-3:]
+    legend, footer, gaps, load = out.splitlines()[-4:]
     assert legend.endswith(PLAN_TAG_LEGEND)
     assert footer == "profiles: " + " | ".join(groups)
+    assert gaps.startswith("gap: ")
     assert load.startswith("load: ")
     table_pools = {row["pool"] for row in data["pools"] if row["action"] != "n/a"}
     named_pools = ", ".join(f"{pool} {by_pool[pool]}" for pool in sorted(table_pools & by_pool.keys()))
@@ -225,3 +231,88 @@ def test_the_stale_tag_leads_the_reason_so_a_narrow_terminal_cannot_cut_it_off()
     row = next(line for line in lines if " G-5H " in line)
     assert len(row) <= 80 and "(stale)" in row
     assert row.split(maxsplit=7)[-1].startswith("(stale)")
+
+
+@pytest.mark.parametrize("age,remaining_time,expected_state,expected_reason", [
+    (FRESH_AGE, HOUR, "out", "out"),
+    (QUOTA_TTL_SECONDS, HOUR, "aged", "stale zero; refresh"),
+    (FRESH_AGE, -FRESH_AGE / 2, "reset", "window reset; refresh"),
+])
+def test_zero_reason_uses_shared_state(age, remaining_time, expected_state, expected_reason):
+    item = _item("cc", "C-7D", 0, span=WEEK, elapsed=WEEK - age - remaining_time, age=age)
+    row = _rows(_report(item))[item["resource_pool_ref"]]
+    assert row["reason"] == expected_reason and row["action"] == "blocked"
+    assert row["health"]["state"] == expected_state
+
+
+def test_limited_child_agrees_with_health_and_keeps_own_pace_and_reset():
+    from peerhub.extensions.diag_quota import projection
+    from peerhub.extensions.pool_health import pool_health
+    from tests.communication.diag.test_pool_health import CHILD_LEFT
+
+    parent = _item("cc", "C-7D", 0, span=WEEK, elapsed=WEEK * 3 / 4)
+    child = _item("cc", "F-7D", CHILD_LEFT, span=WEEK, elapsed=WEEK / 2)
+    report = _report(parent, child)
+    profiles = {"C-7D": ["cc.standard", "cc.fable"], "F-7D": ["cc.fable"]}
+    row = _rows(report, profiles)[child["resource_pool_ref"]]
+    facts = pool_health(child, parent, report.read_at)
+    assert row["pace_pt"] == projection(child, NOW)["pace_pt"] != facts["pace_pt"]
+    assert row["resets_in_seconds"] == child["payload"]["resets_at"] - NOW != facts["reset_in_seconds"]
+    assert {field: row[field] for field in HEALTH_FIELDS} == {field: facts[field] for field in HEALTH_FIELDS}
+    assert row["health"] == {
+        "state": "blocked", "pace_band": facts["pace_band"], "reserve": "out",
+        "effective_pace_pt": facts["pace_pt"], "effective_reset_in_seconds": facts["reset_in_seconds"],
+    }
+    text_row = next(line.split() for line in render_plan(report, profiles_by_pool=profiles).splitlines()
+                    if line.startswith("cc   F-7D"))
+    assert text_row[2:4] == ["0%", f"{facts['pace_pt']:+.1f}!"]
+    assert text_row[4].startswith("OUT/")
+
+
+def test_plan_formats_pace_exhaustion_and_gaps_from_health():
+    from peerhub.cli.view import PLAN_REST_PACE_PT
+    from tests.communication.diag.test_pool_health import HALF, OVER_BOUNDARY
+
+    def item(peer, pool, pace):
+        return _item(peer, pool, HALF, span=WEEK, elapsed=WEEK * (HALF - pace / 100), age=0)
+
+    report = _report(item("ag", "G-7D", PLAN_REST_PACE_PT + OVER_BOUNDARY),
+                     item("cx", "X-7D", -OVER_BOUNDARY),
+                     item("cc", "C-7D", PLAN_REST_PACE_PT))
+    gaps = plan_data(report, {})["gaps"]
+    assert gaps["baseline"] == "X-7D"
+    lines = render_plan(report, width=100).splitlines()
+    assert "gap: gap vs X-7D (pp): C-7D +20.0, G-7D +20.0, A-7D —, 3P-7D —" in lines
+    table = {line.split()[1]: line.split() for line in lines if line[:2] in {"ag", "cc", "cx"}}
+    assert table["G-7D"][3:5] == ["+20.0!", "2d02h/4d21h!"]
+    assert table["C-7D"][3] == "+20.0"
+    assert table["X-7D"][3] == "0.0"
+    assert PLAN_EARLY_TAG in table["G-7D"] and PLAN_EARLY_TAG not in table["X-7D"]
+
+
+def test_exhaustion_and_reset_cells_keep_independent_fallbacks():
+    item = _item("cc", "C-7D", .5, span=WEEK, elapsed=HOUR)
+    row = next(line.split() for line in render_plan(_report(item)).splitlines() if line.startswith("cc "))
+    assert row[4].startswith("—/") and not row[4].endswith("!")
+    unavailable = {**item, "payload": {"remaining_fraction": .5}}
+    row = next(line.split() for line in render_plan(_report(unavailable)).splitlines() if line.startswith("cc "))
+    assert row[4] == "—/—"
+
+
+def test_exhaustion_cell_formats_whole_hours_and_tags_early_forecasts():
+    from tests.communication.diag.test_pool_health import HALF
+
+    hours_to_exhaust, hours_to_reset = 20, 34
+    item = _item("cc", "C-7D", HALF, span=(hours_to_exhaust + hours_to_reset) * HOUR,
+                 elapsed=hours_to_exhaust * HOUR, age=0)
+    row = next(line.split() for line in render_plan(_report(item)).splitlines() if line.startswith("cc "))
+    assert row[4] == "20h/1d10h!" and PLAN_EARLY_TAG in row
+
+
+def test_early_fact_keeps_existing_hold_advice_below_projection_threat_threshold():
+    from tests.communication.diag.test_pool_health import HALF
+
+    item = _item("cc", "C-7D", HALF, span=WEEK, elapsed=WEEK * (HALF - .01))
+    row = _rows(_report(item))[item["resource_pool_ref"]]
+    assert row["action"] == "hold" and row["forecast"] == "on_pace"
+    assert row["exhaust_before_reset"]
