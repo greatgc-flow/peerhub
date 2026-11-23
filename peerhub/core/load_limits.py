@@ -15,11 +15,13 @@ CLI_PEERS = ("cc", "cx", "ag")  # always shown; API peers appear only while acti
 MIN_FREE_RAM_GB = 6
 PLAN_NA_POOLS_LABEL = "n/a pools"
 PLAN_NA_POOLS_LIMIT = 4
+MINE, OTHER, UNKNOWN = CALLER_RELATIONS = ("mine", "other", "unknown")
 _GB = 1024 ** 3
 
 
 def load_snapshot(active_by_peer: Mapping[str, int] | None, ram_available_bytes: int | None,
-                  by_pool: Mapping[str, int] | None = None, *, unmapped: int = 0) -> dict[str, Any]:
+                  by_pool: Mapping[str, int] | None = None, *, unmapped: int = 0,
+                  active_by_relation: Mapping[str, int] | None = None) -> dict[str, Any]:
     """Counts of lease-active asks against the limits; slots_free is measured against the default limit, never below 0.
 
     `active_by_peer=None` means the leases could not be counted: every count is None (shown as ?), never 0."""
@@ -38,7 +40,18 @@ def load_snapshot(active_by_peer: Mapping[str, int] | None, ram_available_bytes:
             "slots_free": None if active is None else max(0, ACTIVE_ASKS_DEFAULT - active), "peers": peers,
             "ram_free_gb": ram, "ram_min_gb": MIN_FREE_RAM_GB, "ram_ok": None if ram is None else ram >= MIN_FREE_RAM_GB,
             "by_pool": dict(by_pool) if known and by_pool is not None else None,
-            "unmapped": unmapped if known else None}
+            "unmapped": unmapped if known else None,
+            "active_by_relation": {
+                relation: active_by_relation.get(relation, 0) if known and active_by_relation is not None else None
+                for relation in CALLER_RELATIONS
+            }}
+
+
+def format_active_split(counts: Mapping[str, int | None] | None) -> str:
+    """The optional ownership suffix shared by plan and batch load summaries."""
+    if counts is None or not (counts.get(OTHER) or counts.get(UNKNOWN)):
+        return ""
+    return " (" + ", ".join(f"{relation} {counts[relation]}" for relation in CALLER_RELATIONS) + ")"
 
 
 def format_load(load: Mapping[str, Any]) -> str:
@@ -57,5 +70,6 @@ def format_load(load: Mapping[str, Any]) -> str:
     if unmapped > 0:
         flight_parts.append(f"unmapped {unmapped}")
     flight = " ".join(flight_parts) + " | " if len(flight_parts) > 1 else ""
-    return (f"load: active {count(load['active'])}/{load['limit_default']} (ceil {load['limit_ceiling']}) | {peers} | "
+    split = format_active_split(load.get("active_by_relation"))
+    return (f"load: active {count(load['active'])}/{load['limit_default']}{split} (ceil {load['limit_ceiling']}) | {peers} | "
             f"{flight}free RAM {ram} GB (min {load['ram_min_gb']}) | sampled now")

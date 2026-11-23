@@ -164,6 +164,7 @@ def test_ask_writes_the_detected_caller_once_and_replay_adds_none(tmp_path, monk
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PEERHUB_LEAD", "lead-x")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-x")
+    monkeypatch.setenv("PEERHUB_OWNER", "session-owner")
     monkeypatch.setenv("PEERHUB_BATCH_ID", "nightly")
     monkeypatch.setenv("PEERHUB_BATCH_TASK", "t1")
     db = tmp_path / "ask.db"
@@ -178,6 +179,7 @@ def test_ask_writes_the_detected_caller_once_and_replay_adds_none(tmp_path, monk
     got = json.loads(detail)
     assert did == first["delivery_id"]
     assert (got["v"], got["tool"], got["label"], got["session"], got["batch"], got["task"]) == (1, "cc", "lead-x", "sess-x", "nightly", "t1")
+    assert got["owner"] == "session-owner"
     assert got["ask_pid"] == os.getpid() and got["cwd"] == str(tmp_path)
     assert not any(k in first for k in ("caller", "ask_pid", "ask_created"))
 

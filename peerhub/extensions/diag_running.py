@@ -4,11 +4,14 @@ from __future__ import annotations
 import json
 import math
 import re
+import textwrap
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from peerhub.core.load_limits import CALLER_RELATIONS, UNKNOWN, load_snapshot
+from peerhub.extensions.caller import OWNER_ENV, caller_facts, caller_relation, detect_caller
 from peerhub.extensions.diag import ReadonlyDiag
 
 MAX_ROWS = 20
@@ -54,10 +57,12 @@ def _profile(binding: str | None) -> str | None:
     return parts[0] if len(parts) == 3 and _PROFILE_ID.fullmatch(parts[0]) else None
 
 
-def _row(raw: dict[str, Any], now: float) -> dict[str, Any]:
+def _row(raw: dict[str, Any], now: float, reader: Mapping[str, object]) -> dict[str, Any]:
     binding = _binding(raw["metadata_json"])
     key = raw["idempotency_key"]
     started = _started_at(raw["start_detail"])
+    caller = caller_facts(raw.get("caller_detail"))
+    relation, basis = caller_relation(reader, caller or {})
     return {
         "peer_id": raw["peer_id"],
         "profile": _profile(binding),
@@ -69,6 +74,9 @@ def _row(raw: dict[str, Any], now: float) -> dict[str, Any]:
         "started_at": started,
         "elapsed_s": None if started is None else round(max(0.0, now - started), 3),
         "lease_expires_in_s": round(float(raw["expires_at"]) - now, 3),
+        "caller": caller,
+        "relation": relation,
+        "relation_basis": basis,
     }
 
 
@@ -76,17 +84,20 @@ def running_report(db_path: str | Path, *, read_at: float | None = None, peer: s
                    limit: int | None = None) -> dict[str, Any]:
     now = time.time() if read_at is None else read_at
     limit = MAX_ROWS if limit is None or limit < 1 else limit
+    reader = detect_caller()
+    identified = bool(reader["owner"] or reader["session"])
     # A claim stamped with another workspace generation (after a restore) is not live for the Bridge either (see bridge_claims).
     generation_file = Path(db_path).parent / "workspace.generation"
     try:
         generation = generation_file.read_text(encoding="utf-8") if generation_file.is_file() else None
     except OSError as exc:  # unreadable, or replaced by a restore mid-read: report it, never a traceback
         return {"schema_version": "1.0", "status": "FAILED", "basis": "lease", "read_at": now, "rows": [], "truncated": False,
-                "error": f"{type(exc).__name__}: workspace.generation unreadable"}
+                "error": f"{type(exc).__name__}: workspace.generation unreadable", "reader_identified": identified}
     snap = ReadonlyDiag(db_path).running(read_at=now, limit=limit, workspace_generation=generation)
     return {"schema_version": "1.0", "status": snap["status"], "basis": "lease", "read_at": now,
-            "rows": [_row(r, now) for r in snap["rows"] if peer is None or r["peer_id"] == peer], "truncated": snap["truncated"],
-            "error": snap["error"], "limit": limit, "peer": peer}
+            "rows": [_row(r, now, reader) for r in snap["rows"] if peer is None or r["peer_id"] == peer],
+            "truncated": snap["truncated"], "error": snap["error"], "limit": limit, "peer": peer,
+            "reader_identified": identified}
 
 
 def free_ram_bytes() -> int | None:
@@ -100,23 +111,24 @@ def free_ram_bytes() -> int | None:
 
 def sample_load(db_path: str | Path, *, read_at: float | None = None,
                 pools_of_profile: Mapping[str, list[str]] | None = None) -> dict[str, Any]:
-    """Sample lease-active asks per peer and pool, asks without a pool, and free RAM. Read-only."""
-    from peerhub.core.load_limits import load_snapshot
+    """Sample lease-active asks per peer, pool and caller relation, and free RAM. Read-only."""
     report = running_report(db_path, read_at=read_at, limit=LOAD_ROW_LIMIT)
     if report["status"] != "OK" or report["truncated"]:  # a failed or cut-off read is not a count: show ?, never 0
         return load_snapshot(None, free_ram_bytes())
     counts: dict[str, int] = {}
     by_pool: dict[str, int] = {}
+    by_relation: dict[str, int] = dict.fromkeys(CALLER_RELATIONS, 0)
     unmapped = 0
     pool_mapping = pools_of_profile or {}
     for row in report["rows"]:
         counts[row["peer_id"]] = counts.get(row["peer_id"], 0) + 1
+        by_relation[row.get("relation", UNKNOWN)] += 1
         pools = pool_mapping.get(row.get("profile") or "", [])
         if not pools:
             unmapped += 1
         for pool in pools:
             by_pool[pool] = by_pool.get(pool, 0) + 1
-    return load_snapshot(counts, free_ram_bytes(), by_pool, unmapped=unmapped)
+    return load_snapshot(counts, free_ram_bytes(), by_pool, unmapped=unmapped, active_by_relation=by_relation)
 
 
 def _secs(value: float | None) -> str:
@@ -133,17 +145,36 @@ def _stamp(started_at: float | None) -> str:
         return "?"
 
 
-def format_running(report: dict[str, Any]) -> str:
+def _caller_suffix(row: Mapping[str, Any]) -> str:
+    facts: Mapping[str, str | int] = row["caller"] or {}
+    basis = row["relation_basis"]
+    parts = [f"{row['relation']}({basis})" if basis else str(row["relation"])]
+    for key, value in facts.items():
+        text = str(value)
+        if not text.isascii() or not text.isprintable() or any(ch.isspace() for ch in text):
+            text = json.dumps(text, ensure_ascii=True)
+        parts.append(f"{key}={text}")
+    return " ".join(parts)
+
+
+def format_running(report: dict[str, Any], *, width: int | None = None) -> str:
     lines = ["Lease-active deliveries: a lease is not proof a process is alive (read-only; no provider was contacted)"]
+    if report.get("reader_identified") is False:
+        lines.append(f"reader: unidentified (export {OWNER_ENV}=<unique token> to classify asks)")
     rows: list[dict[str, Any]] = report["rows"]
     if rows:
         table = [("PEER", "PROFILE", "STREAM", "REQUEST", "DELIVERY", "CERTAINTY", "STARTED", "ELAPSED", "LEASE")]
         table += [(r["peer_id"], r["profile"] or "-", r["stream_id"], r["request_id"] or "-", r["delivery_id"],
                    r["certainty"], _stamp(r["started_at"]), _secs(r["elapsed_s"]), _secs(r["lease_expires_in_s"])) for r in rows]
         widths = [max(len(str(line[i])) for line in table) for i in range(len(table[0]))]
-        lines += ["  ".join(str(cell).ljust(w) for cell, w in zip(line, widths)).rstrip() for line in table]
+        formatted = ["  ".join(str(cell).ljust(w) for cell, w in zip(line, widths)) for line in table]
+        lines.append(formatted[0] + "  CALLER")
+        lines.extend(f"{line}  {_caller_suffix(row)}" for line, row in zip(formatted[1:], rows))
         if report["truncated"]:
             lines.append(f"(more rows not shown; limit {report.get('limit', MAX_ROWS)})")
     elif report["status"] == "OK":
         lines.append("(none)")
+    if width is not None:
+        lines = [part for line in lines for part in textwrap.wrap(
+            line, width=width, break_on_hyphens=False, subsequent_indent="  " if width > 2 else "")]
     return "\n".join(lines)  # a failed read prints its error once, on stderr (see the CLI), never an empty "(none)"

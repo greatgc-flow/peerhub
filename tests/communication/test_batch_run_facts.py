@@ -84,6 +84,22 @@ def test_dry_run_reports_load_facts_after_the_task_table(dry_run, monkeypatch, c
     assert lines[2 + count:] == warnings
 
 
+def test_dry_run_displays_the_same_ownership_split_as_plan(dry_run, monkeypatch, capsys):
+    from peerhub.core.load_limits import format_load
+
+    argv = dry_run([_task("a", "cx")])
+    counts = {"mine": 1, "other": 1, "unknown": 1}
+    sample = {**load_limits.load_snapshot({"cx": sum(counts.values())}, None), "active_by_relation": counts}
+    monkeypatch.setattr(diag_running, "sample_load", lambda _db: sample)
+    assert main([*argv, "--dry-run", "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["active_by_relation"] == counts
+    suffix = format_load(sample).split("(mine", 1)[1].split(")", 1)[0]
+    assert f"active now {sum(counts.values())} (mine{suffix})" in result["warnings"]
+    assert main([*argv, "--dry-run"]) == 0
+    assert result["warnings"][-1] in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("extra_tasks", [0, 1])
 def test_dry_run_capped_parallelism_allows_long_queue(dry_run, monkeypatch, capsys, extra_tasks):
     peer = "cx"

@@ -77,7 +77,73 @@ def test_started_delivery_row_fields(db):
     assert rep["rows"] == [{
         "peer_id": "cx", "profile": "cx.standard", "binding": BINDING, "stream_id": "s1", "request_id": "req-1",
         "delivery_id": "d1", "certainty": "STARTED", "started_at": NOW - 30.0, "elapsed_s": 30.0,
-        "lease_expires_in_s": 60.0}]
+        "lease_expires_in_s": 60.0, "caller": None, "relation": "unknown", "relation_basis": None}]
+
+
+@pytest.fixture
+def lease_store(monkeypatch):
+    from peerhub.extensions.diag import ReadonlyDiag
+
+    with closing(sqlite3.connect(":memory:")) as store:
+        store.execute("CREATE TABLE records (record_id TEXT PRIMARY KEY, idempotency_key TEXT, metadata_json TEXT)")
+        for statement in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+            store.execute(statement)
+        store.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
+
+        def open_snapshot(self):
+            snapshot = sqlite3.connect(":memory:")
+            store.backup(snapshot)
+            snapshot.row_factory = sqlite3.Row
+            return snapshot
+
+        monkeypatch.setattr(ReadonlyDiag, "_open", open_snapshot)
+        yield store
+
+
+def seed_leases(store, count):
+    with store:
+        store.executemany(
+            "INSERT INTO bridge_claims VALUES (?, 'cx', 'claim-owner', 1, ?, 60, 'test')",
+            [(f"s{i}", NOW + 60) for i in range(count)],
+        )
+        store.executemany(
+            "INSERT INTO bridge_deliveries "
+            "(delivery_id,seq,stream_id,peer_id,record_id,record_position,attempt,certainty,claim_generation) "
+            "VALUES (?, ?, ?, 'cx', ?, 1, 1, 'NOT_STARTED', 1)",
+            [(f"d{i}", i, f"s{i}", f"r{i}") for i in range(count)],
+        )
+
+
+def test_reports_newest_caller_evidence_and_classifies_against_each_reader(lease_store, monkeypatch):
+    from peerhub.extensions import caller
+
+    monkeypatch.setenv("PEERHUB_OWNER", "reader-one")
+    first = caller.detect_caller()
+    second = {**first, "owner": "reader-two"}
+    seed_leases(lease_store, 3)
+    with lease_store:
+        lease_store.executemany(
+            "INSERT INTO bridge_evidence (delivery_id,stream_id,peer_id,kind,certainty,detail) "
+            "VALUES (?, ?, 'cx', 'caller', 'NOT_STARTED', ?)",
+            [("d0", "s0", json.dumps(second)), ("d0", "s0", json.dumps(first)), ("d1", "s1", json.dumps(second)),
+             ("d2", "s2", "malformed")],
+        )
+    rows = report(__file__)["rows"]
+    assert [(row["caller"]["owner"], row["relation"]) for row in rows[:2]] == [
+        (first["owner"], "mine"), (second["owner"], "other")]
+    assert rows[2]["caller"] is None and rows[2]["relation"] == "unknown"
+    monkeypatch.setenv("PEERHUB_OWNER", second["owner"])
+    assert [row["relation"] for row in report(__file__)["rows"]] == ["other", "mine", "unknown"]
+
+
+def test_load_discards_all_counts_when_the_lease_read_is_truncated(lease_store):
+    from peerhub.extensions.diag_running import LOAD_ROW_LIMIT, sample_load
+
+    seed_leases(lease_store, LOAD_ROW_LIMIT + 1)
+    assert report(__file__, limit=LOAD_ROW_LIMIT)["truncated"]
+    load = sample_load(__file__, read_at=NOW)
+    assert load["active"] is None
+    assert load["active_by_relation"] == dict.fromkeys(("mine", "other", "unknown"))
 
 
 def test_expired_claim_is_excluded(db):
@@ -219,8 +285,8 @@ def test_report_has_no_progress_or_staleness_fields(db):
     add(db, 1)
     rep = report(db)
     assert set(rep["rows"][0]) == {"peer_id", "profile", "binding", "stream_id", "request_id", "delivery_id", "certainty",
-                                   "started_at", "elapsed_s", "lease_expires_in_s"}
-    assert set(rep) == {"schema_version", "status", "read_at", "rows", "truncated", "error", "basis", "limit", "peer"}
+                                   "started_at", "elapsed_s", "lease_expires_in_s", "relation", "relation_basis", "caller"}  # M10: ownership facts
+    assert set(rep) == {"schema_version", "status", "read_at", "rows", "truncated", "error", "basis", "limit", "peer", "reader_identified"}
 
 
 def test_missing_bridge_tables_is_empty_not_an_error(tmp_path):

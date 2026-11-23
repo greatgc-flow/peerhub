@@ -11,7 +11,7 @@ from peerhub.extensions import caller
 pytestmark = pytest.mark.unit
 
 KEYS = {"v", "tool", "label", "session", "host", "ns", "ask_pid", "ask_created", "cwd", "batch", "task",
-        "workspace", "query_file", "stream_file"}
+        "workspace", "query_file", "stream_file", "owner"}
 
 
 @pytest.mark.parametrize("bad", ["//server/share/query.txt", r"\\?\C:\query.txt", r"\\.\NUL",
@@ -223,6 +223,44 @@ def test_an_account_bound_provider_does_not_inherit_the_batch_ids(tmp_path, monk
     assert "PEERHUB_BATCH_ID" not in env and "PEERHUB_BATCH_TASK" not in env
     assert env["PEERHUB_LEAD"] == "lead-x"
     assert "PEERHUB_BATCH_ID" not in target.env_scrubbed  # not an account secret: no claim of scrubbing
+
+
+@pytest.mark.parametrize(("reader", "stored", "expected"), [
+    ({"host": "a", "owner": "same"}, {"host": "b", "owner": "same"}, ("other", "host")),
+    ({"host": "a", "owner": "same"}, {"host": "", "owner": "same"}, ("mine", "owner")),
+    ({"ns": "pid:[1]", "owner": "same"}, {"ns": "pid:[2]", "owner": "same"}, ("other", "ns")),
+    ({"owner": "same", "session": "a"}, {"owner": "same", "session": "b"}, ("mine", "owner")),
+    ({"owner": "a", "session": "same"}, {"owner": "b", "session": "same"}, ("other", "owner")),
+    ({"owner": "a", "session": "same"}, {"session": "same"}, ("mine", "session")),
+    ({"session": "a"}, {"session": "b"}, ("other", "session")),
+    ({"session": "bad id"}, {"session": "bad id"}, ("unknown", None)),
+    ({"label": "same", "batch": "same"}, {"label": "same", "batch": "same"}, ("unknown", None)),
+    ({}, {}, ("unknown", None)),
+])
+def test_ownership_precedence(reader, stored, expected):
+    assert caller.caller_relation(reader, stored) == expected
+
+
+def test_owner_and_session_share_validation():
+    for value in ("lead-01_a.b", "not valid", "", "a" * 129):
+        detail = caller.detect_caller({"PEERHUB_OWNER": value, "CLAUDE_CODE_SESSION_ID": value})
+        assert detail["owner"] == detail["session"]
+    assert caller.detect_caller({"PEERHUB_OWNER": "lead-01_a.b"})["owner"] == "lead-01_a.b"
+    assert caller.detect_caller({})["owner"] is None
+
+
+def test_provider_environment_makes_a_nested_ask_mine(monkeypatch):
+    from peerhub.extensions.adapters import base
+
+    _provider_env_case(monkeypatch)
+    monkeypatch.setenv("PEERHUB_OWNER", "this-lead")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "this-session")
+    reader = caller.detect_caller()
+    env = base.CliRuntimeTarget("cc", Path.cwd(), command=["fake.exe"])._env  # pyright: ignore[reportPrivateUsage]
+    nested = caller.detect_caller(env)
+    assert nested["owner"] == reader["owner"] and nested["session"] == reader["session"]
+    assert nested["batch"] is None and nested["task"] is None
+    assert caller.caller_relation(reader, nested) == ("mine", "owner")
 
 
 def test_never_raises(monkeypatch):
