@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, cast
 
 from peerhub._console import format_shell_command
-from peerhub.core.load_limits import ACTIVE_ASKS_CEILING, ACTIVE_ASKS_DEFAULT, MIN_FREE_RAM_GB, PER_PEER_LIMITS
+from peerhub.core.load_limits import ACTIVE_ASKS_CEILING, ACTIVE_ASKS_DEFAULT, MIN_FREE_RAM_GB, PER_PEER_LIMITS, format_active_split
 from peerhub.core.peer_kinds import BUILTIN_PEER_CHOICES
 from peerhub.extensions.process_tree import creation_ticks as _creation_time, kill_process_tree
 
@@ -224,7 +224,8 @@ def validate_tasks(tasks: Sequence[Task], *, kind_of: Callable[[str], str | None
 
 
 def load_warnings(tasks: Sequence[Task], *, max_parallel: int, kind_of: Callable[[str], str | None],
-                  active: int | None, active_by_peer: Mapping[str, int], ram_free_gb: float | None = None) -> list[str]:
+                  active: int | None, active_by_peer: Mapping[str, int], ram_free_gb: float | None = None,
+                  active_by_relation: Mapping[str, int | None] | None = None) -> list[str]:
     def describe_load(parallel: int, active_count: int) -> str:
         batch_load = f"{parallel} concurrent batch tasks"
         return f"{batch_load} + {active_count} active asks" if active is not None else batch_load
@@ -243,7 +244,8 @@ def load_warnings(tasks: Sequence[Task], *, max_parallel: int, kind_of: Callable
         warning = "active_asks_ceiling" if projected > ACTIVE_ASKS_CEILING else "active_asks_default"
         warnings.append(_WARNING_MESSAGES[warning].format(
             load=describe_load(parallel, active or 0), default=ACTIVE_ASKS_DEFAULT, ceiling=ACTIVE_ASKS_CEILING))
-    warnings.append(_WARNING_MESSAGES["active_asks_sample"].format(active=UNKNOWN_ACTIVE_SAMPLE if active is None else active))
+    active_line = _WARNING_MESSAGES["active_asks_sample"].format(active=UNKNOWN_ACTIVE_SAMPLE if active is None else active)
+    warnings.append(active_line + format_active_split(active_by_relation))
     if ram_free_gb is not None and ram_free_gb < MIN_FREE_RAM_GB:
         warnings.append(_WARNING_MESSAGES["free_ram"].format(free=ram_free_gb, minimum=MIN_FREE_RAM_GB))
     return warnings

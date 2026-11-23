@@ -334,13 +334,28 @@ def test_guidance_code_beats_lesson_id_and_keywords_still_work(capsys):
 def test_catalog_and_rendering():
     lessons = load_lessons()
     ids = {lesson["id"] for lesson in lessons}
-    assert len(lessons) == len(ids) == 41
-    assert {"ask-metrics", "suggest"} <= ids
+    assert len(lessons) == len(ids)
+    assert {"ask-metrics", "caller-ownership", "suggest"} <= ids
     assert not {"ag-empty-reply-causes", "ag-permission-limit"} & ids
     for lesson in lessons:
         assert all(lesson.values())
         assert len(render_lesson(lesson).splitlines()) <= 5
         assert lesson["issue"] in render_lesson(lesson)
+
+
+def test_caller_ownership_explain_matches_reference_and_is_indexed(capsys):
+    from tools.command_inventory import derive
+
+    topic = "caller-ownership"
+    assert main(["explain", "lessons"]) == 0
+    assert topic in capsys.readouterr().out
+    assert main(["explain", topic, "--json"]) == 0
+    (lesson,) = json.loads(capsys.readouterr().out)["lessons"]
+    assert all(word in lesson["fix"] for word in ("mine", "other", "unknown", "PEERHUB_OWNER", "cancel", "reuse"))
+    assert f'- Fix: {lesson["fix"]}' in Path("docs/lessons.md").read_text(encoding="utf-8")
+    assert topic in derive()["explain_topics"]
+    assert main(["guide"]) == 0
+    assert len(capsys.readouterr().out.encode("utf-8")) <= 1600
 
 
 def test_lessons_generation_drift():

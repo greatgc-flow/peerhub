@@ -9,6 +9,7 @@ Start with [README.md](README.md) for commands and the doc map, and
 - Full suite: `python -m pytest -q -n 8` (about 8 minutes when measured 2026-11-14; serial 15-17 min). The passed count grows with every release and depends on the installed extras: take it from the last line of your own run, not from a document.
   Missing-module errors for yaml or setuptools warrant checking the dev extras in a disposable venv. Other collection or setup failures require diagnosis.
 - In the cx Windows sandbox, tests that use `tmp_path` cannot run (pytest creates owner-only temp directories, also with `--basetemp`; measured 2026-11-14 on Python 3.15): run the other targeted tests, report `tmp_path` tests as NOT RUN for the lead, and never add shims or temp folders to the repo.
+- For shared stores, export a unique `PEERHUB_OWNER` per lead session, a readable `PEERHUB_LEAD`, and `PEERHUB_BATCH_ID`/`PEERHUB_BATCH_TASK` for lanes. See `peerhub explain caller-ownership`.
 - Use LF for new and edited text; preserve the frozen CSV exceptions in
   `.gitattributes`.
 - After any edit under `docs/m1_spec`, run

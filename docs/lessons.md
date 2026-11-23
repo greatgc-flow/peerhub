@@ -86,6 +86,13 @@ Known guidance codes and aliases take priority, then an exact profile ID (for ex
 - Fix: Prefer peerhub batch run with --dry-run (it validates profiles first). If looping in a shell: strip CR from the list (tr -d CR), read with while read -r k p || [ -n "$k" ], use one unique stream per job and check each output status instead of trusting wait.
 - Issue: #289
 
+## Identify your session's running asks (`caller-ownership`)
+
+- Keywords: caller, ownership, running, owner, session, PEERHUB_OWNER
+- Symptom: A shared store shows running asks from several lead sessions.
+- Fix: Generate a random PEERHUB_OWNER once at the start of each lead session and export it to every shell that runs PeerHub for that session. In PowerShell, run `$env:PEERHUB_OWNER = (python -c "import uuid; print(uuid.uuid4().hex)")`. In a POSIX shell, run `export PEERHUB_OWNER=$(python -c 'import uuid; print(uuid.uuid4().hex)')`. Keep the value for the entire session. Never share it or set it in a shell profile. Set PEERHUB_LEAD to a readable label and use PEERHUB_BATCH_ID and PEERHUB_BATCH_TASK for batch work. `peerhub diag running` reports how the stored caller relates to the current reader. The first applicable rule wins. A difference in known hosts or PID namespaces takes precedence and means other. If both owner tokens are valid, equality means mine and a difference means other. Otherwise, two valid CLAUDE_CODE_SESSION_ID values are compared the same way. With insufficient evidence the result is unknown. Labels, paths, batch IDs and task IDs are descriptive. Mine includes asks started by this session and by processes it launched, including nested provider asks that inherit its identity. For other and unknown asks, only observe and report them. Never cancel them or reuse their streams.
+- Issue: Monitor design record M10
+
 ## A cut-off reply usually means your tool timed out, not peerhub (`caller-timeout-claim-held`)
 
 - Keywords: claim, claim_held, ask_claim_held, preamble, cut off, partial, timeout, timed out, background, request-id, replay, cx, long

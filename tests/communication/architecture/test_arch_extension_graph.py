@@ -34,7 +34,7 @@ ALLOWED: dict[str, set[str]] = {
     # M1 Diag
     "diag": {"observation_model"},
     "diag_readiness": {"adapters", "diag", "observation_model", "quota_projection"},
-    "diag_running": {"diag"},
+    "diag_running": {"caller", "diag"},
     "diag_quota": {"diag", "observation_model", "quota_projection"},
     "diag_watch": {"diag"},
     "pool_health": {"diag_quota", "observation_model", "quota_projection"},

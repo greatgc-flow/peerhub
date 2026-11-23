@@ -16,6 +16,7 @@ they do not claim new validation or publication evidence.
 
 ### Added
 
+- `diag running` reports caller evidence and session ownership, with ownership counts in `diag --plan` and batch dry runs and setup guidance in `peerhub explain caller-ownership`.
 - `diag --plan` shows quota exhaustion alongside reset and weekly pace gaps against `X-7D`, with pool health, freshness, and parent limits in JSON.
 
 ### Fixed

@@ -94,7 +94,25 @@ def test_sample_load_counts_every_active_ask_and_fails_to_unknown(monkeypatch):
     monkeypatch.setattr(diag_running, "running_report", lambda db, **kw: {"status": "FAILED", "rows": [], "truncated": False})
     assert diag_running.sample_load("x.db")["active"] is None
     monkeypatch.setattr(diag_running, "running_report", lambda db, **kw: {"status": "OK", "rows": [], "truncated": True})
-    assert diag_running.sample_load("x.db")["active"] is None, "a cut-off list is not a count"
+    cutoff = diag_running.sample_load("x.db")
+    assert seen["limit"] == diag_running.LOAD_ROW_LIMIT
+    assert cutoff["active"] is None, "a cut-off list is not a count"
+    assert cutoff["active_by_relation"] == dict.fromkeys(("mine", "other", "unknown"))
+    assert "(mine" not in L.format_load(cutoff)
+
+
+@pytest.mark.parametrize("relations", [("mine",), ("mine", "other", "unknown")])
+def test_load_counts_each_relation_and_formats_only_a_non_mine_split(monkeypatch, relations):
+    from peerhub.extensions import diag_running
+
+    rows = [{"peer_id": "cx", "relation": relation} for relation in relations]
+    monkeypatch.setattr(diag_running, "running_report",
+                        lambda *args, **kwargs: {"status": "OK", "rows": rows, "truncated": False})
+    load = diag_running.sample_load("x.db")
+    counts = {relation: relations.count(relation) for relation in ("mine", "other", "unknown")}
+    assert load["active"] == sum(counts.values()) and load["active_by_relation"] == counts
+    split = " (" + ", ".join(f"{relation} {count}" for relation, count in counts.items()) + ")"
+    assert (split in L.format_load(load)) == (len(relations) > 1)
 
 
 def test_plan_json_rows_name_the_profiles_that_use_each_pool(plan_store, capsys, monkeypatch):  # noqa: F811

@@ -141,7 +141,8 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     running_profile = "ag.standard"
     profile_pools = {running_profile: ("G-7D", "G-5H", "G-1D", "G-2D"), "ag.fast": ("G-7D",)}
     profile_reads = []
-    running = [{"peer_id": "ag", "profile": running_profile}] * 2 + [{"peer_id": "ag", "profile": None}]
+    running = [{"peer_id": "ag", "profile": running_profile, "relation": relation} for relation in ("mine", "other")]
+    running.append({"peer_id": "ag", "profile": None, "relation": "unknown"})
 
     def render(self, sections, *, include_quota_samples):
         assert include_quota_samples
@@ -170,6 +171,7 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     by_pool = dict.fromkeys(profile_pools[running_profile], len(running) - 1)
     assert data["load"]["by_pool"] == by_pool
     assert data["load"]["unmapped"] == 1
+    assert data["load"]["active_by_relation"] == {"mine": 1, "other": 1, "unknown": 1}
 
     monkeypatch.setenv("COLUMNS", "180")
     assert main(argv) == 0
@@ -184,7 +186,7 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     assert legend.endswith(PLAN_TAG_LEGEND)
     assert footer == "profiles: " + " | ".join(groups)
     assert gaps.startswith("gap: ")
-    assert load.startswith("load: ")
+    assert load.startswith("load: ") and "(mine 1, other 1, unknown 1)" in load
     table_pools = {row["pool"] for row in data["pools"] if row["action"] != "n/a"}
     named_pools = ", ".join(f"{pool} {by_pool[pool]}" for pool in sorted(table_pools & by_pool.keys()))
     hidden_pools = by_pool.keys() - table_pools

@@ -744,12 +744,13 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         print(json.dumps(rep, separators=(",", ":"), ensure_ascii=True) if args.json else format_readiness(rep))
         return diag_quota.EXIT_BY_STATUS[rep["status"]]
     if args.action == "running":  # pure reader: no CoreStore, no provider, no refresh
+        from peerhub.cli.view import FrameOutput
         from peerhub.extensions.diag_running import format_running, running_report
         if not Path(args.db).is_file():
             report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source)
             return 5
         rep = running_report(args.db, peer=args.peer, limit=args.limit)
-        print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else format_running(rep))
+        print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else format_running(rep, width=FrameOutput.width()))
         code = diag_quota.EXIT_BY_STATUS[rep["status"]]
         if code and not args.json:
             _error_line("diag_unavailable", str(rep["error"] or rep["status"]), "peerhub diag health")
@@ -1315,20 +1316,23 @@ def _peer_kind(db: str | None, peer: str, *, offline: bool = False) -> str | Non
     return peer_kind(adapter_ref, peer)
 
 
-def _batch_load_sample(db: str) -> tuple[int | None, dict[str, int], float | None]:
+def _batch_load_sample(db: str) -> tuple[int | None, dict[str, int], float | None, dict[str, int | None]]:
     try:
         from peerhub.extensions.diag_running import sample_load
 
         sample = sample_load(db)
         ram_free_gb = cast(float | None, sample.get("ram_free_gb"))
         active = sample["active"]
+        relations = cast(dict[str, int | None], sample["active_by_relation"])
         if isinstance(active, int) and not isinstance(active, bool):
             peers = cast(dict[str, dict[str, int | None]], sample["peers"])
             counts = {peer: count for peer, load in peers.items() if (count := load["active"]) is not None}
-            return active, counts, ram_free_gb
-        return None, {}, ram_free_gb
+            return active, counts, ram_free_gb, relations
+        return None, {}, ram_free_gb, relations
     except Exception:  # diagnostic sampling is best-effort and cannot affect manifest validation
-        return None, {}, None
+        from peerhub.core.load_limits import CALLER_RELATIONS
+
+        return None, {}, None, dict.fromkeys(CALLER_RELATIONS)
 
 
 def _run_batch_cli(args: argparse.Namespace) -> int:
@@ -1367,9 +1371,10 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
                         return batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=resolved)
                 return batch.DEFAULT_PROFILE_DISPLAY
 
-            active, active_by_peer, ram_free_gb = _batch_load_sample(db)
+            active, active_by_peer, ram_free_gb, active_by_relation = _batch_load_sample(db)
             warnings.extend(batch.load_warnings(tasks, max_parallel=max_parallel, kind_of=kind_of,
-                                                active=active, active_by_peer=active_by_peer, ram_free_gb=ram_free_gb))
+                                                active=active, active_by_peer=active_by_peer, ram_free_gb=ram_free_gb,
+                                                active_by_relation=active_by_relation))
             rows: list[dict[str, Any]] = []
             for task in tasks:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)
@@ -1381,7 +1386,7 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
             replay = read_replay_counts(Path(db), ((row["stream"], row["peer"], row["request_id"]) for row in rows))
             if args.json:
                 dry_report: dict[str, Any] = dict(dry_run=True, batch_id=args.batch_id, max_parallel=max_parallel,
-                                                  tasks=rows, active_now=active)
+                                                  tasks=rows, active_now=active, active_by_relation=active_by_relation)
                 if replay is not None:
                     dry_report["replay"] = replay
                 dry_report["warnings"] = warnings
