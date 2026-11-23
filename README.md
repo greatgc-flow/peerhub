@@ -54,6 +54,7 @@ peerhub --db .peerhub/core.db ask cc "Reply OK" --profile cc.standard --stream s
 The reply prints on stdout with a receipt line; use a new `--request-id` for every ask and a new `--stream` for every new task.
 
 - AI agents: `peerhub guide` (decisions, about 400 tokens), then `peerhub diag --plan` (quota pools, load and free RAM, about 350 tokens). `peerhub explain <topic or keywords>` finds a lesson.
+- Shared stores: follow `peerhub explain caller-ownership` to export a unique `PEERHUB_OWNER` per lead session, a readable `PEERHUB_LEAD` and batch lane identifiers.
 - People: `peerhub monitor` is the human screen (quota, running asks, recent asks).
 - Something wrong: `peerhub explain report-issues` lists what to include before filing an issue.
 

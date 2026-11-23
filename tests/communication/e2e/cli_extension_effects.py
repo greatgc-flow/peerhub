@@ -107,19 +107,45 @@ def diag_json(e):
     assert not e.run(db, "diag")[1].lstrip().startswith("{")
 
 
+def seed_running_caller(db):
+    import time
+    from contextlib import closing
+
+    from peerhub.extensions import bridge, bridge_claims, caller
+    from tests.communication.diag.test_diag_running import add
+
+    facts = {**caller.detect_caller(), "label": "shared-folder", "owner": "other-lead"}
+    generation = db.parent / "workspace.generation"
+    with closing(sqlite3.connect(db)) as conn, conn:
+        for statement in bridge._DDL:  # pyright: ignore[reportPrivateUsage]
+            conn.execute(statement)
+        conn.execute(bridge_claims._DDL)  # pyright: ignore[reportPrivateUsage]
+    add(db, 1, claim_expires=time.time() + 60, workspace_generation=(
+        generation.read_text(encoding="utf-8") if generation.is_file() else "effect-proof"),
+        evidence_rows=[("caller", "NOT_STARTED", json.dumps(facts))])
+    return facts
+
+
 def diag_plan(e):
     from peerhub.cli.view import PLAN_BUDGET_COLUMN
+    from peerhub.core.load_limits import format_active_split
+    from peerhub.extensions.caller import OWNER_ENV
 
     db = e.fresh()
     seed_view_pool(db)
+    seed_running_caller(db)
     before = db.read_bytes()
     # --plan replaces the dashboard with the per-pool action table, read from stored observations only.
-    with patch("subprocess.Popen", side_effect=AssertionError("diag --plan must not spawn providers")):
+    with patch.dict(os.environ, {OWNER_ENV: "current-lead", "COLUMNS": "180"}), \
+         patch("subprocess.Popen", side_effect=AssertionError("diag --plan must not spawn providers")):
         result = e.j(db, "diag", "--plan", "--json")
         code, table, err = e.run(db, "diag", "--plan")
         dash = e.j(db, "diag", "--json")
     assert result["schema_version"] == "1.0" and [p["pool"] for p in result["pools"]] == ["view-5H"]
     assert result["pools"][0]["action"] in {"spend", "hold", "rest", "blocked"} and "pools" not in dash
+    counts = result["load"]["active_by_relation"]
+    assert result["load"]["active"] == counts["other"] == 1
+    assert format_active_split(counts).strip() in table
     assert code == 0 and not err and PLAN_BUDGET_COLUMN in table and PLAN_BUDGET_COLUMN not in e.run(db, "diag")[1]
     assert db.read_bytes() == before
 
@@ -182,6 +208,8 @@ def readiness_json(e):
 
 
 def running_json(e):
+    from peerhub.extensions.caller import OWNER_ENV
+
     db = e.fresh()
     before = db.read_bytes()
     # The command reads stored lease facts; --json changes its representation.
@@ -191,6 +219,14 @@ def running_json(e):
     assert result["schema_version"] == "1.0" and result["status"] == "OK" and result["rows"] == [] and result["truncated"] is False
     assert code == 0 and not err and table.rstrip().endswith("(none)")
     assert not table.lstrip().startswith("{") and db.read_bytes() == before
+    facts = seed_running_caller(db)
+    before = db.read_bytes()
+    with patch.dict(os.environ, {OWNER_ENV: "current-lead", "COLUMNS": "180"}):
+        (row,) = e.j(db, "diag", "running")["rows"]
+        code, table, err = e.run(db, "diag", "running")
+    assert row["relation"] == "other" and row["caller"]["label"] == facts["label"]
+    assert code == 0 and not err and f"label={facts['label']}" in table and row["relation"] in table
+    assert db.read_bytes() == before
     missing = e.tmp / "missing-running" / "core.db"
     assert e.run(missing, "diag", "running", "--json")[0] == 5
     assert not missing.parent.exists()
@@ -661,7 +697,9 @@ def batch_effect(e, option):
             raise AssertionError("dry run executed")
 
         with patch.object(batch, "run_batch", forbidden):
-            assert e.j(db, *argv)["dry_run"] is True
+            result = e.j(db, *argv)
+        assert result["dry_run"] is True
+        assert result["active_by_relation"] == dict.fromkeys(("mine", "other", "unknown"))
     elif option == "--responses":  # a dry run ran nothing, so it has no replies to show
         code, out, err = e.run(db, *argv, "--responses")
         assert code == 0 and json.loads(out)["dry_run"] and "response" not in out and not err
@@ -686,10 +724,14 @@ def explain_effect(e, option):
         payload = json.loads(out)
         assert payload["code"] == "ask_uncertain" and "meaning" in payload
     else:
+        from peerhub.cli.lessons import lesson_by_id, render_lesson
+
+        topic = "caller-ownership"
         code1, out1, err1 = e.run(db, "explain", "ask_uncertain")
-        code2, out2, err2 = e.run(db, "explain", "ask_claim_held")
+        code2, out2, err2 = e.run(db, "explain", topic)
         assert code1 == code2 == 0 and not err1 and not err2 and not db.exists()
-        assert "ask_uncertain" in out1 and "ask_claim_held" in out2 and out1 != out2
+        assert "ask_uncertain" in out1 and out1 != out2
+        assert out2.strip() == render_lesson(lesson_by_id(topic)[0])
 
 
 EFFECT = {f"ask {option}": (lambda e, option=option: ask_effect(e, option)) for option in (

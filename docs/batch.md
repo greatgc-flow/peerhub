@@ -21,6 +21,9 @@ and default (`active_asks_ceiling`, `active_asks_default`), low free RAM (`free_
 and the sampled lease count (`active_asks_sample`). When the projected load exceeds the ceiling,
 one warning covers both active-ask thresholds. The sample appears as `active now N`
 or `active now ?` when unavailable, with `active_now` set to the count or `null` in JSON.
+When other or unknown asks are active, the line includes the ownership split. JSON
+provides `active_by_relation` with null counts for an unavailable sample. See
+`peerhub explain caller-ownership` for session setup.
 When the selected store has settled or uncertain tasks from the manifest for the same batch ID,
 `replay: N settled, M uncertain` appears before the warnings. JSON includes both
 counts in `replay`. Workspace overlap can invalidate a manifest. Load warnings are advisory.

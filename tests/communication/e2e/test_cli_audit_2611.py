@@ -42,7 +42,7 @@ def test_diag_running_filters_by_peer_and_takes_a_limit(monkeypatch):
             return {"status": "OK", "rows": [{"peer_id": "cx"}, {"peer_id": "ag"}, {"peer_id": "cx"}], "truncated": False, "error": None}
 
     monkeypatch.setattr(diag_running, "ReadonlyDiag", Stub)
-    monkeypatch.setattr(diag_running, "_row", lambda raw, now: raw)
+    monkeypatch.setattr(diag_running, "_row", lambda raw, now, reader: raw)
     report = diag_running.running_report("x.db", peer="cx", limit=5)
     assert [r["peer_id"] for r in report["rows"]] == ["cx", "cx"] and seen["limit"] == 5 and report["limit"] == 5
     assert len(diag_running.running_report("x.db")["rows"]) == 3 and seen["limit"] == diag_running.MAX_ROWS
@@ -53,6 +53,41 @@ def test_diag_running_cli_options(tmp_path, capsys):
     assert main(["--db", str(db), "diag", "running", "--peer", "cx", "--limit", "5", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["rows"] == [] and data["limit"] == 5
+
+
+def test_diag_running_caller_facts_agree_in_json_and_text(monkeypatch, capsys):
+    from peerhub.extensions import caller
+
+    monkeypatch.setenv("PEERHUB_OWNER", "current-owner")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "same-session")
+    width = 100
+    monkeypatch.setenv("COLUMNS", str(width))
+    facts = {**caller.detect_caller(), "owner": "foreign-owner", "tool": "cc", "session": "same-session",
+             "label": "lead-x", "workspace": "work-root", "cwd": "work-cwd", "batch": "batch-x", "task": "task-x"}
+    row = dict(peer_id="cx", metadata_json="{}", idempotency_key="ask:req", stream_id="stream",
+               delivery_id="d1", certainty="STARTED", start_detail=None, expires_at=4_000_000_000,
+               caller_detail=json.dumps(facts))
+
+    def running(*args, **kwargs):
+        return dict(status="OK", rows=[row], truncated=False, error=None)
+
+    monkeypatch.setattr(diag_running.ReadonlyDiag, "running", running)
+    argv = ["--db", str(Path(__file__).resolve()), "diag", "running"]
+    assert main([*argv, "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)["rows"][0]
+    assert result["relation"] == "other" and result["relation_basis"] == "owner"
+    assert main(argv) == 0
+    out = capsys.readouterr().out
+    assert f"{result['relation']}({result['relation_basis']})" in out
+    assert all(len(line) <= width for line in out.splitlines())
+    for key in ("tool", "label", "session", "host", "workspace", "cwd", "batch", "task"):
+        assert result["caller"][key] == facts[key]
+        assert f"{key}={facts[key]}" in out
+
+    monkeypatch.delenv("PEERHUB_OWNER")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    assert main(argv) == 0
+    assert capsys.readouterr().out.count("reader: unidentified") == 1
 
 
 def test_help_says_who_each_command_is_for(capsys):

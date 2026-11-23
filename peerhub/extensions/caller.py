@@ -5,6 +5,7 @@ stored raw; cleaning for display is the reader's job. Nothing in this module rai
 """
 from __future__ import annotations
 
+import json
 import os
 import platform
 import re
@@ -12,7 +13,9 @@ import sys
 import unicodedata
 from collections.abc import Mapping
 from pathlib import Path, PurePath
-from typing import Any
+from typing import Any, cast
+
+from peerhub.core.load_limits import MINE, OTHER, UNKNOWN
 
 SCHEMA_VERSION = 1
 LABEL_MAX = 40
@@ -22,6 +25,10 @@ BATCH_ID_MAX = 128
 _SESSION = re.compile(r"[A-Za-z0-9._-]{1,128}")
 _WINDOWS_DEVICE = re.compile(r"CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|(?:COM|LPT)[1-9¹²³]", re.IGNORECASE)
 NO_PID_NAMESPACE = "-"
+OWNER_ENV = "PEERHUB_OWNER"
+SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
+_IDENTITY_FIELDS = ("owner", "session")
+_CALLER_TEXT_FIELDS = ("tool", "label", "session", "owner", "host", "ns", "workspace", "cwd", "batch", "task")
 
 
 def _without_controls(text: str) -> str:
@@ -116,12 +123,56 @@ def local_workspace_file(value: object, workspace: object, *, from_cwd: bool = F
     return None
 
 
+def _identity_token(value: object) -> str | None:
+    return value if isinstance(value, str) and _SESSION.fullmatch(value) else None
+
+
+def caller_facts(detail: object) -> dict[str, str | int] | None:
+    """Read the caller facts available in a stored v1 detail."""
+    if not isinstance(detail, str):
+        return None
+    try:
+        parsed: object = json.loads(detail)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    item = cast(dict[str, object], parsed)
+    if item.get("v") != SCHEMA_VERSION:
+        return None
+    facts: dict[str, str | int] = {}
+    for field in _CALLER_TEXT_FIELDS:
+        value = item.get(field)
+        if field in _IDENTITY_FIELDS:
+            value = _identity_token(value)
+        if isinstance(value, str) and value:
+            facts[field] = value
+    pid = item.get("ask_pid")
+    if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
+        facts["ask_pid"] = pid
+    return facts or None
+
+
+def caller_relation(reader: Mapping[str, object], stored: Mapping[str, object]) -> tuple[str, str | None]:
+    """Compare the stored caller to the reader and return the relation and its first applicable evidence field."""
+    for key in ("host", "ns"):
+        left, right = reader.get(key), stored.get(key)
+        if (isinstance(left, str) and isinstance(right, str) and left and right
+                and left.isprintable() and right.isprintable() and left != right):
+            return OTHER, key
+    for key in _IDENTITY_FIELDS:
+        left, right = _identity_token(reader.get(key)), _identity_token(stored.get(key))
+        if left is not None and right is not None:
+            return (MINE if left == right else OTHER), key
+    return UNKNOWN, None
+
+
 def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Path | None = None,
                   workspace: str | Path | None = None) -> dict[str, Any]:
     """The v1 caller detail, with an eligible query file and its execution workspace when available."""
     try:
         source: Mapping[str, str] = os.environ if env is None else env
-        session_raw = source.get("CLAUDE_CODE_SESSION_ID")
+        session_raw = source.get(SESSION_ENV)
         cwd = _cwd()
         file = (local_workspace_file(str(query_file), str(workspace), from_cwd=True)
                 if query_file is not None and workspace is not None else None)
@@ -129,7 +180,8 @@ def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Pat
             "v": SCHEMA_VERSION,
             "tool": "cc" if session_raw else "?",
             "label": _label(source, cwd),
-            "session": session_raw if isinstance(session_raw, str) and _SESSION.fullmatch(session_raw) else None,
+            "session": _identity_token(session_raw),
+            "owner": _identity_token(source.get(OWNER_ENV)),
             "host": host_id(),
             "ns": pid_namespace(),
             "ask_pid": os.getpid(),
@@ -142,6 +194,6 @@ def detect_caller(env: Mapping[str, str] | None = None, *, query_file: str | Pat
             "stream_file": None,
         }
     except Exception:  # never raises: an unreadable environment still yields the schema
-        return {"v": SCHEMA_VERSION, "tool": "?", "label": "?", "session": None, "host": None, "ns": None,
+        return {"v": SCHEMA_VERSION, "tool": "?", "label": "?", "session": None, "owner": None, "host": None, "ns": None,
                 "ask_pid": None, "ask_created": None, "cwd": None, "batch": None, "task": None,
                 "workspace": None, "query_file": None, "stream_file": None}

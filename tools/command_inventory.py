@@ -56,8 +56,15 @@ def derive(parser: argparse.ArgumentParser | None = None) -> dict[str, Any]:
     leaves: list[dict[str, Any]] = []
     groups: list[dict[str, Any]] = []
     _walk(parser, (), leaves, groups)
-    return {"program": parser.prog, "global_options": _options(parser), "groups": sorted(groups, key=lambda c: c["command"]),
-            "commands": sorted(leaves, key=lambda c: c["command"])}
+    inventory: dict[str, Any] = {
+        "program": parser.prog, "global_options": _options(parser), "groups": sorted(groups, key=lambda c: c["command"]),
+        "commands": sorted(leaves, key=lambda c: c["command"]),
+    }
+    if any(leaf["command"] == "explain" for leaf in leaves):
+        from peerhub.cli.lessons import lesson_index
+
+        inventory["explain_topics"] = [lesson["id"] for lesson in lesson_index()]
+    return inventory
 
 
 def option_keys(inv: dict[str, Any]) -> list[str]:

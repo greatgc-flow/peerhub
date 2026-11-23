@@ -397,7 +397,7 @@ class ReadonlyDiag:
     def running(self, *, read_at: float, limit: int, workspace_generation: str | None = None) -> dict[str, Any]:
         """Lease-active, unacknowledged deliveries (NOT_STARTED/STARTED) from one read-only snapshot; at most `limit` raw rows.
 
-        A lease is not proof of a live process. The start evidence is the newest session_call/STARTED row per delivery.
+        A lease is not proof of a live process. Read the newest session_call/STARTED and caller evidence per delivery.
         """
         out: dict[str, Any] = dict(status="OK", rows=[], truncated=False, error=None)
         if not Path(self.db_path).is_file():
@@ -416,7 +416,9 @@ class ReadonlyDiag:
             rows = [dict(r) for r in conn.execute(
                 "SELECT d.delivery_id,d.peer_id,d.stream_id,d.certainty,c.expires_at,r.idempotency_key,r.metadata_json,"
                 "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='session_call' "
-                "AND e.certainty='STARTED' ORDER BY e.seq DESC LIMIT 1) AS start_detail "
+                "AND e.certainty='STARTED' ORDER BY e.seq DESC LIMIT 1) AS start_detail,"
+                "(SELECT e.detail FROM bridge_evidence e WHERE e.delivery_id=d.delivery_id AND e.kind='caller' "
+                "ORDER BY e.seq DESC LIMIT 1) AS caller_detail "
                 "FROM bridge_claims c CROSS JOIN bridge_deliveries d ON d.stream_id=c.stream_id AND d.peer_id=c.peer_id "
                 "AND d.claim_generation=c.generation LEFT JOIN records r ON r.record_id=d.record_id "
                 "WHERE c.expires_at>? AND (? IS NULL OR c.workspace_generation=?) AND d.acked=0 "
