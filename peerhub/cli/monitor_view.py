@@ -8,6 +8,7 @@ import unicodedata
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, cast
 
 from peerhub.cli.monitor_preferences import GROUPS, MONITOR_LEGEND
@@ -2048,6 +2049,8 @@ def verdict_line(payload: dict[str, Any], width: int, unicode: bool, keep: str |
     if low:
         state = _clean(low.get("state") or "?")
         aged = " (aged)" if low.get("aged") is True and state != "aged" else ""  # A6: the pool's observation is stale
+        if url := payload.get("_guide_url"):
+            state = osc_link(f"{url.partition('#')[0]}#{STATE_WORDS_ANCHOR}", state)
         right.append(f"min quota {_count(low.get('left_pct'))}% {_clean(low.get('pool') or '?')} {state}{aged}")
     if not unicode:
         right = [_ascii(item, keep) for item in right]
@@ -2811,19 +2814,31 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
               else oldest_measured_quota_age(quota))
     age = oldest + elapsed if oldest is not None else None
     age_label = _compact_age(age)
-    title = f"PeerHub Monitor {stamp} | DB:{source} | quota age {age_label}"
+    guide_url = payload.get("_guide_url")
+    guide_room = _width(GUIDE_TEXT) + 1
+    title_width = width - guide_room if guide_url and width > guide_room else width
     refresh_state = _clean(payload.get("refresh_state") or "")
     next_refresh = _number(payload.get("next_refresh_in"))
     live_refresh = _obj(payload.get("_live_refresh"))
-    if live_refresh:
-        title, cut = _fit_live_quota_title(live_refresh, refresh_state, stamp, source, width, unicode)
-    elif refresh_state or next_refresh is not None:
-        title, cut = _fit_live_title(refresh_state, next_refresh, stamp, [f"DB:{source}", f"quota age {age_label}"],
-                                     width, unicode, inline_note=False)
-    else:
-        cut = _width(title) > width
-        title = _fit_fields(title, width, unicode, inline_note=False)
+
+    def fit_title(room: int) -> tuple[str, bool]:
+        if live_refresh:
+            return _fit_live_quota_title(live_refresh, refresh_state, stamp, source, room, unicode)
+        details = [f"DB:{source}", f"quota age {age_label}"]
+        if refresh_state or next_refresh is not None:
+            return _fit_live_title(refresh_state, next_refresh, stamp, details, room, unicode, inline_note=False)
+        title = " | ".join([f"PeerHub Monitor {stamp}", *details])
+        return _fit_fields(title, room, unicode, inline_note=False), _width(title) > room
+
+    title, cut = fit_title(title_width)
     title = title.replace(" | ", sep)  # the rich view's separator; line 2 is structure, so its colour is dim
+    if guide_url and title_width < width:
+        if not unicode:
+            title = _ascii(title.replace(" · ", " | ").replace("·", "|"), keep)
+        title += " " * (width - _width(title) - _width(GUIDE_TEXT)) + osc_link(guide_url, GUIDE_TEXT)
+        if cut and not expand:
+            # Reserving the Guide may shorten the title, but it must not consume another row in the viewport.
+            _, cut = fit_title(width)
     # Fields dropped from line 2 are disclosed on a line of their own, so a narrow terminal keeps the timestamp.
     header = [_paint(title, RICH_SGR["dim"]) if paint else title]
     if (selected_ids & {"capacity", "peers"} or "_quota_age_seconds" in payload) and (notice := quota_stale_line(age)):
@@ -2838,7 +2853,7 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
     read_errors = any(value != "truncated" for value in errors.values())
     if ((not same_store or payload.get("status") in {"FAILED", "ERROR"} or read_errors) and store.get("path")
             and not expand):  # expanded frames include the full path in their header
-        header.extend(_compact_wrap(f"DB: {_clean(store['path'])}", width))
+        header.extend(_location_lines(f"DB: {_clean(store['path'])}", width, payload.get("_db_url")))
     if payload.get("_store_note") and not expand:  # #338: --db overrides a PEERHUB_DB that points elsewhere
         header.extend(_compact_wrap(str(payload["_store_note"]), width))
     header.extend(_fit(f"Warning: {warning}", width, unicode)
@@ -2885,6 +2900,8 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
     if "capacity" in selected_ids:
         suggestion = _compact_suggestions(configured_profiles, rows)
         frame.suggest = _compact_wrap(suggestion, width) if expand else _suggest_lines(suggestion, width, unicode)
+        if profile_urls := _obj(payload.get("_profile_urls")):
+            frame.suggest = [_link_profiles(line, profile_urls) for line in frame.suggest]
         if rows:
             frame.pools, frame.pools_total = _pool_section(rows, width, unicode, keep, rich=rich, paint=paint,
                                                            every=expand)
@@ -2951,8 +2968,9 @@ def _display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
         **({"_human_observations": replace(observations)} if "_human_observations" in payload else {})}
 
 
-GUIDE_TEXT = "Guide"  # the rich view's link at the right end of line 2 (#414)
+GUIDE_TEXT = "Guide"  # the link at the right end of line 2
 GUIDE_DOC = "docs/monitor.md"
+STATE_WORDS_ANCHOR = "state-words"
 _GUIDE_BLOB = "https://github.com/greatgc-flow/peerhub/blob/"
 
 
@@ -2973,11 +2991,11 @@ def _guide_released(version: str | None) -> str | None:
 
 
 def guide_link_url(env: Mapping[str, str], version: str | None = None) -> str | None:
-    """The target of the Guide link, or None when the link is not drawn: PEERHUB_NO_LINKS set (not empty or 0), or a dev
-    build without a tag (PEERHUB_GUIDE_URL overrides that for tests)."""
-    if not _links_enabled(env):
+    """HTTPS target for the terminal link when enabled, with a release tag as the default."""
+    if not monitor_links_enabled(env):
         return None
-    return _guide_override(env) or _guide_released(version)
+    override = _guide_override(env)
+    return override if override and override.startswith("https://") else _guide_released(version)
 
 
 def guide_text_url(env: Mapping[str, str], version: str | None = None) -> str:
@@ -2985,12 +3003,42 @@ def guide_text_url(env: Mapping[str, str], version: str | None = None) -> str:
     return _guide_override(env) or _guide_released(version) or f"{_GUIDE_BLOB}main/{GUIDE_DOC}"
 
 
-def _links_enabled(env: Mapping[str, str]) -> bool:
+def monitor_links_enabled(env: Mapping[str, str]) -> bool:
+    return "NO_COLOR" not in env and _guide_enabled(env)
+
+
+def _guide_enabled(env: Mapping[str, str]) -> bool:
     return env.get("PEERHUB_NO_LINKS", "").strip().lower() in {"", "0", "false", "no", "off"}
 
 
-def _osc_link(url: str, label: str) -> str:
+def osc_link(url: str, label: str) -> str:
+    if not url.startswith(("file:///", "https://")) or not url.isascii() or not url.isprintable() or " " in url:
+        return label
     return f"\x1b]8;;{url}\x1b\\{label}\x1b]8;;\x1b\\"
+
+
+def file_link_url(path: object) -> str | None:
+    """An existing local file, encoded as a URI with no raw terminal controls."""
+    if not isinstance(path, (str, Path)) or not path:
+        return None
+    try:
+        file = Path(path)
+        if not file.drive.startswith("\\\\") and file.is_file():
+            url = file.absolute().as_uri()
+            if url.startswith("file:///"):
+                return url
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _location_lines(text: str, width: int, url: str | None) -> list[str]:
+    lines = _compact_wrap(text, width)
+    return [osc_link(url, line) for line in lines] if url else lines
+
+
+def _link_profiles(text: str, urls: Mapping[str, Any]) -> str:
+    return re.sub(r"[\w.-]+", lambda match: osc_link(url, match[0]) if (url := urls.get(match[0])) else match[0], text)
 
 
 def _query_link(row: dict[str, Any], label: str) -> str:
@@ -2998,7 +3046,7 @@ def _query_link(row: dict[str, Any], label: str) -> str:
     if facts and isinstance(facts.get("host"), str) and facts["host"] == host_id():
         file = local_workspace_file(facts.get("query_file"), facts.get("workspace"))
         if file is not None:
-            return _osc_link(file[0].as_uri(), label)
+            return osc_link(file[0].as_uri(), label)
     return label
 
 
@@ -3012,34 +3060,23 @@ def _query_painter(rows: list[dict[str, Any]], column: int,
     return decorate
 
 
-def _with_guide_link(screen: str, width: int, url: str | None, paint: bool) -> str:
-    """The Guide link at the right end of line 2, right-aligned to `width` (the columns the frame uses). It is added to the
-    finished frame, so no data is ever dropped for it; it is simply not drawn when line 2 leaves no room (one blank at
-    least), and never cut: it is whole, opened and closed (OSC 8), or absent. Layout and truncation ignore its bytes."""
-    lines = screen.split("\n")
-    if url is None or len(lines) < 2 or not _ANSI.sub("", lines[1]).startswith("PeerHub Monitor"):
-        return screen
-    gap = width - _width(lines[1]) - len(GUIDE_TEXT)
-    if gap < 1:
-        return screen
-    link = _osc_link(url, GUIDE_TEXT)
-    lines[1] += " " * gap + (_paint(link, RICH_SGR["dim"]) if paint else link)
-    return "\n".join(lines)
-
-
 def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: bool = False,
                          unicode: bool = True, width: int = 100, height: int | None = None,
                          expand: bool = False, text_encoding: str | None = None, show_quota_notes: bool = False,
                          links: bool = False, tty: bool = False) -> str:
     """Compact human default; the established renderer supplies expanded detail.
 
-    `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5). `links` (the
-    rich view on a VT terminal only; the caller decides) enables Guide and query file links (OSC 8).
+    `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5).
+    `links` indicates a VT terminal for the rich view. The link opt-out applies to both views.
     The plain Guide trailer requires an unbounded TTY."""
-    file_links = (links and view == "rich" and color and "NO_COLOR" not in os.environ and _links_enabled(os.environ)
-                  and os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off")
+    enabled = view == "rich" and links and monitor_links_enabled(os.environ)
+    guide_url = guide_link_url(os.environ) if enabled else None
+    store = _obj(payload.get("store_selection"))
     payload = {**_with_retained_quota(_display_plan_omissions(payload)),
-               "_show_quota_notes": show_quota_notes, "_file_links": file_links}
+               "_show_quota_notes": show_quota_notes, "_guide_url": guide_url,
+               "_db_url": file_link_url(store.get("path")) if enabled else None,
+               "_profile_urls": payload.get("_profile_urls") if enabled else None,
+               "_file_links": enabled and os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off"}
     if expand:
         screen = _render_expanded_frame(payload, view=view, color=color, unicode=unicode,
                                         width=width, height=height, expand=True, keep=text_encoding)
@@ -3048,11 +3085,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         screen = _render_compact_frame(payload, view=view, color=color, unicode=unicode,
                                        width=width, height=height, keep=text_encoding)
         columns = max(1, min(100, width) - 1)
-    if links and view == "rich":
-        linked = _with_guide_link(screen, columns, guide_link_url(os.environ), color and "NO_COLOR" not in os.environ)
-        if expand or len(linked.encode("utf-8")) <= COMPACT_MAX_BYTES:
-            return linked
-    if expand and view == "plain" and height is None and tty and _links_enabled(os.environ):
+    if expand and view == "plain" and height is None and tty and _guide_enabled(os.environ):
         guide = f"{GUIDE_TEXT}: {guide_text_url(os.environ)}"
         if _width(guide) <= columns:
             return screen + guide + "\n"
@@ -3181,7 +3214,7 @@ def _render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color
             peer: f"plan {plan}: no {', '.join(windows)} window" for peer, (plan, windows) in plan_windows.items()}}}
     display = {**payload, "selected_groups": selected, "groups": display_groups}
     # #338: the store path and the --db/PEERHUB_DB note wrap; a truncated path cannot name the store.
-    store_lines = [*(_compact_wrap(db_line, max(1, width - 1)) if db_line else []),
+    store_lines = [*(_location_lines(db_line, max(1, width - 1), payload.get("_db_url")) if db_line else []),
                    *(_compact_wrap(str(payload["_store_note"]), max(1, width - 1)) if payload.get("_store_note") else [])]
     report = _obj(_obj(_obj(groups.get("peers")).get("data")).get("facts_report"))
     # Every facts_report reason is a drift reason ("ag: unknown_pool", "cc: version_drift").
@@ -3315,6 +3348,7 @@ def _plain_activity(group: dict[str, Any], payload: dict[str, Any], now: float |
 
 
 _PLAIN_QUOTA_LEGEND = "STATE: INSUFF=insufficient projection data; THREAT=exhausts before reset"
+_PROFILE_DETAIL_GROUPS = ("peers", "sessions", "runtime")
 
 
 def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: str, store_lines: list[str], *,
@@ -3349,6 +3383,7 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
     top = next(ladder)
     detail_groups = [gid for gid in _FRAME_DETAIL_ORDER if gid in selected]
     detail_groups.extend(gid for gid in selected if gid != "activity" and gid not in _FRAME_DETAIL_ORDER)
+    profile_urls = _obj(payload.get("_profile_urls"))
     for group_id in detail_groups:
         group = _obj(groups.get(group_id))
         status = _clean(group.get("status") or "UNKNOWN").upper()
@@ -3363,16 +3398,18 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
             rows.insert(0, _group_error(payload, group_id))
         label = _group_label(group_id, group, status, read_at, elapsed)
         if rich:
-            lines.extend(_rich_section(label, rows, target, unicode, paint))
-            continue
-        if group_id == "capacity" and _width(_PLAIN_QUOTA_LEGEND) <= target and any(
-                "PEER" in row and "POOL" in row for row in rows):
-            rows.append(_PLAIN_QUOTA_LEGEND)
-        lines.append(_section_rule(label, target, unicode))
-        if height is None:  # the append-only frame cuts a long row; a viewport drops whole trailing fields and says so
-            lines.extend(_fit(row, target, unicode, indent=group_id == "capacity") for row in rows)
+            section = _rich_section(label, rows, target, unicode, paint)
         else:
-            lines.extend(_fit_fields(row, target, unicode, indent=group_id == "capacity") for row in rows)
+            if group_id == "capacity" and _width(_PLAIN_QUOTA_LEGEND) <= target and any(
+                    "PEER" in row and "POOL" in row for row in rows):
+                rows.append(_PLAIN_QUOTA_LEGEND)
+            # The append-only frame cuts a long row; a viewport drops whole trailing fields and says so.
+            fit_row = _fit if height is None else _fit_fields
+            section = [_section_rule(label, target, unicode),
+                       *(fit_row(row, target, unicode, indent=group_id == "capacity") for row in rows)]
+        if profile_urls and group_id in _PROFILE_DETAIL_GROUPS:
+            section = [_link_profiles(line, profile_urls) for line in section]
+        lines.extend(section)
 
     def fit(line: str) -> str:  # the one exit of every line: the glyph set of the stream, and never past the width
         if not unicode:  # A5: text the output encoding can show stays; the decoration is ASCII

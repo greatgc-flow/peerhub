@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import tomllib
 from pathlib import Path
@@ -137,7 +138,21 @@ def run_preferences(args: Any) -> int:
             for group in GROUP_IDS:
                 selected = "unknown" if preference["status"] != "OK" else "yes" if group in preference["selected_groups"] else "no"
                 print(f"{group:<10} {selected}")
-            print(f"Defaults: {preference['source']} ({preference['status']})")
+            source = preference["source"]
+            if sys.stdout.isatty() and source in ("workspace", "global"):
+                from peerhub.cli.monitor_view import file_link_url, monitor_links_enabled, osc_link
+                from peerhub.cli.view import FrameOutput
+
+                if monitor_links_enabled(env):
+                    workspace, global_path = _preference_paths(cwd, env)
+                    path = workspace if source == "workspace" else global_path
+                    output = FrameOutput(overwrite=False)
+                    try:
+                        if output.vt and (url := file_link_url(path)):
+                            source = osc_link(url, source)
+                    finally:
+                        output.close()
+            print(f"Defaults: {source} ({preference['status']})")
             if preference.get("reason"):
                 print(f"Reason: {preference['reason']}")
         return int(preference["status"] != "OK")

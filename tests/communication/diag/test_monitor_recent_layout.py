@@ -42,7 +42,8 @@ def build(rows: list[dict[str, Any]], base: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("expand", [False, True])
-def test_query_file_osc_is_gated_and_closed_at_narrow_widths(frame, monkeypatch, expand):
+@pytest.mark.parametrize("style", ["rich", "plain"])
+def test_query_file_osc_is_gated_and_closed_at_narrow_widths(frame, monkeypatch, expand, style):
     query = Path(__file__).resolve()
     facts = {"query_file": str(query), "workspace": str(query.parent), "host": host_id()}
     running = ask(name="running-file")
@@ -55,22 +56,24 @@ def test_query_file_osc_is_gated_and_closed_at_narrow_widths(frame, monkeypatch,
     open_file = f"\x1b]8;;{query.as_uri()}\x1b\\"
     close = "\x1b]8;;\x1b\\"
     file_osc = re.compile(r"\x1b\]8;;file:[^\x1b]*\x1b\\([^\x1b]+)\x1b\]8;;\x1b\\")
-    screen = render_grouped_frame(payload, expand=expand, color=True, links=True, width=100)
-    assert screen.count(open_file) == 2
+    options = {"view": style, "unicode": style == "rich", "expand": expand, "color": style == "rich", "links": True}
+    screen = render_grouped_frame(payload, width=100, **options)
+    assert screen.count(open_file) == (2 if style == "rich" else 0)
+    if style == "plain":
+        assert "\x1b" not in screen
     for width in range(16, 60):
-        screen = render_grouped_frame(payload, expand=expand, color=True, links=True, width=width)
+        screen = render_grouped_frame(payload, width=width, **options)
         assert all(_width(line) <= width - 1 for line in screen.splitlines())
         assert screen.count(open_file) == len(file_osc.findall(screen))
         assert screen.count("\x1b]8;;") == 2 * screen.count(close)
-    for kwargs in ({"links": False}, {"color": False}, {"view": "plain"}):
-        assert open_file not in render_grouped_frame(payload, expand=expand, **({"color": True, "links": True} | kwargs))
+    assert open_file not in render_grouped_frame(payload, **(options | {"links": False}))
     for name in ("NO_COLOR", "PEERHUB_NO_LINKS", "PEERHUB_MONITOR_TEXT"):
         with monkeypatch.context() as m:
             m.setenv(name, "off" if name == "PEERHUB_MONITOR_TEXT" else "1")
-            assert open_file not in render_grouped_frame(payload, expand=expand, color=True, links=True)
+            assert open_file not in render_grouped_frame(payload, **options)
     facts = payload["groups"]["activity"]["data"]["asks"][0]["_caller_file"]
     facts["host"] = "other-host"
-    assert open_file not in render_grouped_frame(payload, expand=expand, color=True, links=True)
+    assert open_file not in render_grouped_frame(payload, **options)
 
 
 @pytest.fixture

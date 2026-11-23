@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from unittest.mock import patch
 
 import pytest
@@ -66,6 +67,11 @@ def test_query_file_links_from_a_separate_monitor_process(tmp_path, monkeypatch,
                               cwd=root, env=env, capture_output=True, encoding="utf-8", check=True, timeout=10).stdout
 
     file_link = f"\x1b]8;;{query.resolve().as_uri()}\x1b\\"
+    db_target = Path(db).resolve().as_uri()
+
+    def file_targets(screen):
+        return set(re.findall(r"\x1b\]8;;(file://[^\x1b]+)\x1b\\", screen))
+
     with ThreadPoolExecutor(max_workers=1) as executor:
         pending = executor.submit(main, [*ask_args, "--query-file", query.name])
         try:
@@ -81,13 +87,15 @@ def test_query_file_links_from_a_separate_monitor_process(tmp_path, monkeypatch,
     assert file_link in monitor(watch=True)
     recent = monitor("--expand")
     assert file_link in recent and "RECENT 1" in recent
+    assert file_targets(recent) == {db_target, query.resolve().as_uri()}
     assert f"peerhub outcome {result['requested_record_id']}" in recent
     assert "accepted|rejected|retried" in recent
     for tty, vt in ((False, True), (True, False)):
         assert "file://" not in monitor(tty=tty, vt=vt)
-    assert "file://" not in monitor("--view", "plain")
+    plain = monitor("--view", "plain")
+    assert "\x1b" not in plain and "file://" not in plain
     env["PEERHUB_MONITOR_TEXT"] = "off"
-    assert "file://" not in monitor() and "same prompt" not in monitor("--expand")
+    assert file_targets(monitor()) == {db_target} and "same prompt" not in monitor("--expand")
     del env["PEERHUB_MONITOR_TEXT"]
     assert main([*ask_args, "--query-file", alias.name]) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "recovered_terminal"
@@ -110,7 +118,7 @@ def test_query_file_links_from_a_separate_monitor_process(tmp_path, monkeypatch,
     assert json.dumps(str(query.resolve()), ensure_ascii=False)[1:-1] not in public and all(f'"{key}"' not in public for key in ("query_file", "stream_file", "caller_file"))
 
     query.unlink()
-    assert "file://" not in monitor()
+    assert file_targets(monitor()) == {db_target}
     for metadata in ({}, {"workspace": facts["workspace"], "query_file": None, "stream_file": None},
                      {"workspace": facts["workspace"], "query_file": str(outside)}):
         legacy = {key: value for key, value in facts.items() if key not in ("workspace", "query_file", "stream_file")}
@@ -118,14 +126,14 @@ def test_query_file_links_from_a_separate_monitor_process(tmp_path, monkeypatch,
             conn.execute("INSERT INTO bridge_evidence (delivery_id, stream_id, peer_id, kind, certainty, detail) "
                          "SELECT delivery_id, stream_id, peer_id, kind, certainty, ? FROM bridge_evidence "
                          "WHERE kind='caller' AND stream_id='review' LIMIT 1", (json.dumps(legacy | metadata),))
-        assert "file://" not in monitor()
+        assert file_targets(monitor()) == {db_target}
     assert main([*base_ask[:4], "inline prompt", *base_ask[4:], "--stream", "inline", "--request-id", "q2"]) == 0
     assert main([*base_ask, "--stream", "outside", "--request-id", "q3", "--query-file", str(outside)]) == 0
     with closing(sqlite3.connect(db)) as conn:
         rows = conn.execute("SELECT stream_id, detail FROM bridge_evidence WHERE kind='caller' AND stream_id != 'review'").fetchall()
     assert {stream for stream, _ in rows} == {"inline", "outside"}
     assert all(json.loads(raw)["query_file"] is None for _, raw in rows)
-    assert "file://" not in monitor()
+    assert file_targets(monitor()) == {db_target}
 
 
 def test_child_peerhub_environments_read_no_real_claude_folder(tmp_path, monkeypatch):

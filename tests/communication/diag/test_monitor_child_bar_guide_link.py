@@ -181,10 +181,10 @@ def test_no_link_without_the_links_flag_or_with_the_opt_out(monkeypatch: pytest.
     assert "\x1b]8" in render(tree(), links=True)  # only a set value opts out
 
 
-def test_plain_view_has_no_osc_bytes_even_when_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_plain_view_has_no_osc_bytes_even_on_a_supported_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PEERHUB_GUIDE_URL", URL)
     for expand in (False, True):
-        screen = render(tree(), view="plain", unicode=False, links=True, expand=expand)
+        screen = render(tree(), view="plain", unicode=False, links=True, tty=True, expand=expand)
         assert "\x1b" not in screen and "Guide" not in title_line(screen)
 
 
@@ -192,6 +192,10 @@ def test_plain_expand_ends_with_one_plain_guide_line(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("PEERHUB_GUIDE_URL", URL)
     screen = render(tree(), view="plain", unicode=False, expand=True, tty=True, width=120)
     assert screen.splitlines()[-1] == f"Guide: {URL}" and screen.count("Guide:") == 1
+    with monkeypatch.context() as disabled:
+        disabled.setenv("PEERHUB_NO_LINKS", "1")
+        screen = render(tree(), view="plain", unicode=False, expand=True, tty=True, links=True, width=120)
+        assert "Guide:" not in screen and "\x1b" not in screen
     bounded = render(tree(), view="plain", unicode=False, expand=True, tty=True, height=60, width=120)  # a bounded frame keeps its rows
     assert "Guide:" not in bounded and bounded.splitlines()[-1].startswith("Coverage:")
     assert "Guide:" not in render(tree(), view="plain", unicode=False, width=120)  # the compact frame has none
@@ -251,31 +255,22 @@ def test_truncation_never_cuts_inside_a_link() -> None:
 
 
 @pytest.mark.parametrize("expand", [False, True])
-def test_narrow_width_drops_the_link_first_never_data(monkeypatch: pytest.MonkeyPatch, expand: bool) -> None:
+def test_narrow_width_fits_the_status_around_the_whole_link(monkeypatch: pytest.MonkeyPatch, expand: bool) -> None:
     monkeypatch.setenv("PEERHUB_GUIDE_URL", URL)
-    shown = hidden = 0
     for width in range(12, 130):
         plain = render(tree(), expand=expand, width=width)
         linked = render(tree(), links=True, expand=expand, width=width)
         flat = OSC.sub("", linked).splitlines()
         base = plain.splitlines()
         assert [line for i, line in enumerate(flat) if i != 1] == [line for i, line in enumerate(base) if i != 1], width
-        assert linked.count("\x1b]8;;" + URL) == linked.count(CLOSE) <= 1
-        if "\x1b]8" in linked:
-            shown += 1
-            assert flat[1].endswith("Guide") and flat[1][:-5].rstrip() == base[1]  # the title is what it was
-            assert mv._width(flat[1]) == mv._width(base[0]) or mv._width(flat[1]) <= width - 1
-            assert mv._width(base[1]) + 1 + len("Guide") <= (min(100, width) - 1 if not expand else width - 1)
-        else:
-            hidden += 1
-            assert flat == base
-    assert shown and hidden
+        assert linked.count(OPEN) == linked.count(CLOSE) == 1
+        assert flat[1].endswith(" " + mv.GUIDE_TEXT)
+        assert mv._width(flat[1]) == (min(100, width) if not expand else width) - 1
 
 
-def test_link_is_dropped_when_it_does_not_fit_the_title_line(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_link_requires_room_for_the_status_separator_and_label(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PEERHUB_GUIDE_URL", URL)
-    base = render(tree(), width=60).splitlines()[1]
-    width = mv._width(base) + 1 + 5  # one column short: compact frames leave the last column free
+    width = mv._width(mv.GUIDE_TEXT) + 2  # separator and autowrap column, but no status column yet
     assert "\x1b]8" not in render(tree(), links=True, width=width)
     assert "\x1b]8" in render(tree(), links=True, width=width + 1)
 

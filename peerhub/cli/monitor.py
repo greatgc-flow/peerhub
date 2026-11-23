@@ -22,6 +22,7 @@ from peerhub.cli.support import (MONITOR_TICK_SECONDS, agy_token_command, agy_to
 from peerhub.cli.monitor_preferences import GROUP_IDS, MONITOR_LEGEND
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
 
+RUNNING_REFRESH_SECONDS = 5
 
 
 def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -135,36 +136,39 @@ def _legacy_alias_available(version: str | None = None) -> bool:
 
 
 @lru_cache(maxsize=32)
-def _cached_profiles(workspace: str, fingerprints: tuple[tuple[str, int, int], ...]) -> list[dict[str, Any]]:
+def _cached_profiles(workspace: str, fingerprints: tuple[tuple[str, str, int, int], ...]) -> list[dict[str, Any]]:
     from peerhub.extensions.adapters.profiles import META_KEYS, list_profiles
 
     profiles = list_profiles(Path(workspace), include_meta=True)
     for profile in profiles:
-        fields = profile["fields"]
+        fields: dict[str, dict[str, Any]] = profile["fields"]
+        card: dict[str, dict[str, Any]] | None = profile["card"]
+        sources = {field["source"] for field in (*fields.values(), *(card or {}).values())}
+        profile["_definition_layer"] = next((layer for layer, *_ in reversed(fingerprints) if layer in sources), None)
         profile["suggest"] = fields["suggest"]["value"]
         for key in META_KEYS:
             fields.pop(key)
     return profiles
 
 
-def _profile_fingerprints(workspace: Path) -> tuple[tuple[str, int, int], ...]:
-    paths = [Path(str(resources.files("peerhub.config_data").joinpath("model-defaults.toml"))),
-             Path(os.environ.get("PEERHUB_CONFIG_HOME") or Path.home() / ".peerhub/config") / "models.toml",
-             workspace / ".peerhub/config/models.toml"]
-    result: list[tuple[str, int, int]] = []
-    for path in paths:
+def _profile_fingerprints(workspace: Path) -> tuple[tuple[str, str, int, int], ...]:
+    global_root = Path(os.environ.get("PEERHUB_CONFIG_HOME") or Path.home() / ".peerhub/config")
+    paths = [("packaged", Path(str(resources.files("peerhub.config_data").joinpath("model-defaults.toml")))),
+             ("global", global_root / "models.toml"), ("workspace", workspace / ".peerhub/config/models.toml")]
+    result: list[tuple[str, str, int, int]] = []
+    for layer, path in paths:
         try:
             stat = path.stat()
-            result.append((str(path), stat.st_mtime_ns, stat.st_size))
+            result.append((layer, str(path), stat.st_mtime_ns, stat.st_size))
         except FileNotFoundError:
-            result.append((str(path), 0, 0))
+            result.append((layer, str(path), 0, 0))
     return tuple(result)
 
 
 def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
                         height: int | None, color: bool, expand: bool = False, show_quota_notes: bool = False,
                         links: bool = False) -> str:
-    from peerhub.cli.monitor_view import FRAME_TRAILING_ROWS, render_grouped_frame
+    from peerhub.cli.monitor_view import FRAME_TRAILING_ROWS, file_link_url, monitor_links_enabled, render_grouped_frame
 
     unicode_ok = view != "plain" and (sys.stdout.encoding or "").lower().startswith("utf")
     # A5: separately from the decoration, text cells keep every character this stream can encode (not only on UTF).
@@ -173,12 +177,18 @@ def _render_human_frame(payload: dict[str, Any], *, view: str, width: int,
     selection = payload.get("store_selection", {})
     store_path = Path(str(selection.get("path") or ".peerhub/core.db")).resolve()
     workspace = store_path.parent.parent if store_path.parent.name == ".peerhub" else store_path.parent
+    profile_urls: dict[str, str] = {}
     try:
-        profiles = _cached_profiles(str(workspace), _profile_fingerprints(workspace))
+        fingerprints = _profile_fingerprints(workspace)
+        profiles = _cached_profiles(str(workspace), fingerprints)
+        if view == "rich" and links and monitor_links_enabled(os.environ):
+            urls = {layer: file_link_url(path) for layer, path, _, _ in fingerprints}
+            profile_urls = {profile["profile"]: url for profile in profiles
+                            if (url := urls.get(profile.get("_definition_layer") or ""))}
     except (OSError, ValueError):
         profiles = []
     nearest = select_store(DEFAULT_DB_PATH, use_env=False)
-    payload = {**payload, "configured_profiles": profiles,
+    payload = {**payload, "configured_profiles": profiles, "_profile_urls": profile_urls,
                "_nearest_store_path": nearest.path if nearest.source == "discovered" else None,
                "_store_note": env_override_note(str(store_path), selection.get("source"))}
     return render_grouped_frame(payload, view="plain" if view == "plain" else "rich",
@@ -257,21 +267,23 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     auto_probe = monitor_auto_probe(args)
     effective_view = ("rich" if output.live else "plain") if args.view == "auto" else args.view
     color = effective_view == "rich" and use_color(output.live, os.environ)
-    links = color and output.live
+    links = color and output.vt
     expand = bool(getattr(args, "expand", False))
     show_quota_notes = bool(getattr(args, "show_quota_notes", False))
     last_payload: dict[str, Any] | None = None
     last_frame_monotonic = 0.0
 
+    def read_groups(groups: list[str]) -> dict[str, Any]:
+        try:
+            return render_monitor_frame(args.db, groups, human=not args.json,
+                                        preference_source=preference.get("source"), lead_reader=_lead_reader)
+        except SchemaVersionError:
+            return {"schema_version": "2.0", "status": "FAILED", "groups": {},
+                    "errors": {"schema": "SchemaVersionError"}}
+
     def read_frame() -> dict[str, Any]:
         nonlocal last_payload, last_frame_monotonic
-        try:
-            payload: dict[str, Any] = render_monitor_frame(args.db, selected, human=not args.json,
-                                                           preference_source=preference.get("source"),
-                                                           lead_reader=_lead_reader)
-        except SchemaVersionError:
-            payload = {"schema_version": "2.0", "status": "FAILED", "groups": {},
-                       "errors": {"schema": "SchemaVersionError"}}
+        payload = read_groups(selected)
         payload.update({"selected_groups": selected, "available_groups": list(GROUP_IDS),
                        "preference": {key: preference.get(key) for key in ("status", "source", "reason")},
                        "store_selection": {"path": str(args.db), "source": getattr(args, "db_source", "unknown")}})
@@ -308,8 +320,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         return read_code(payload)
 
     def redraw(state: str | None = None, next_in: float | None = None, *, live_refresh: dict[str, Any] | None = None) -> None:
-        """Draw the last payload again between two reads. Every such frame is that one payload aged by the time since
-        its read, so line 1 and POOLS always show the same moment (P9)."""
+        """Redraw the latest activity and age the quota facts since their full read, consistently in line 1 and POOLS."""
         if last_payload is None:
             return
         display = dict(last_payload)
@@ -335,23 +346,38 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
         schedule = RefreshSchedule(required, forced_interval=args.interval * args.collect_every if args.probe else None)
         job: RefreshJob | None = None
         job_started = 0.0
-        next_read = monotonic()
+        next_read = next_tick = monotonic()
+        activity_interval = min(RUNNING_REFRESH_SECONDS, args.interval)
+        next_activity = next_tick if "activity" in selected else math.inf
         heartbeat = 0
         warnings: list[str] = []
         try:
             while True:
                 tick = monotonic()
-                completed = job if job is not None and job.done() else None
+                redraw_due = tick >= next_tick
+                completed = job if redraw_due and job is not None and job.done() else None
                 payload = None
-                if completed is not None or tick >= next_read:
+                if redraw_due and (completed is not None or tick >= next_read):
                     if report_missing_store(args.db, json_output=False, selected=is_explicit, source=db_source):
                         return 5
                     payload = read_frame()
                     readings = read_quota_readings(args.db)
                     now = monotonic()
                     schedule.update(readings, now)
+                    if next_activity != math.inf:
+                        next_activity = tick + activity_interval
                     if tick >= next_read:
                         next_read = tick + args.interval
+                elif tick >= next_activity:
+                    activity = read_groups(["activity"])
+                    if "schema" in activity.get("errors", {}):
+                        return 6
+                    if last_payload is not None:
+                        last_payload["groups"]["activity"] = activity["groups"]["activity"]
+                    next_activity = tick + activity_interval
+                if not redraw_due:
+                    sleep(max(0.0, min(next_tick, next_activity) - monotonic()))
+                    continue
                 now = monotonic()
                 stop = False
                 if completed is not None:
@@ -380,7 +406,8 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                 if payload is not None and read_code(payload) == 6:
                     return 6
                 heartbeat += 1
-                sleep(max(0.0, tick + MONITOR_TICK_SECONDS - monotonic()))
+                next_tick = tick + MONITOR_TICK_SECONDS
+                sleep(max(0.0, min(next_tick, next_activity) - monotonic()))
         finally:
             if job is not None:
                 job.stop()
@@ -528,7 +555,7 @@ def _print_grouped_snapshot(payload: dict[str, Any], view: str, expand: bool = F
     try:
         effective_view = ("rich" if output.vt else "plain") if view == "auto" else view
         color = effective_view == "rich" and use_color(output.vt, os.environ)
-        links = color and output.vt  # the Guide link (OSC 8): the rich, coloured view on a VT terminal only (NO_COLOR: none)
+        links = color and output.vt
         bounded = tty and (expand or output.vt)
         width, height = output.geometry() if bounded else (output.width(), 24)
         effective_height = _live_rows(height) if bounded else None

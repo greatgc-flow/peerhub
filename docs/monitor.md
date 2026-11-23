@@ -2,7 +2,7 @@
 
 `peerhub monitor` is the human screen. An AI reads `peerhub diag --plan` instead (pools plus the load line, about 350 tokens).
 
-This page is the target of the `Guide` link at the top right of `peerhub monitor` (rich view, on a terminal) and of the optional
+This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the optional
 `Guide:` line that ends `peerhub monitor --view plain --expand`. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
 
@@ -54,8 +54,8 @@ narrow terminal; the rich view puts the snapshot time at the right edge when it 
   `--expand` the full path is directly below the title (`DB:env (<path>)`); the compact frame names it under line 2 only
   when it is not the nearest store or the read had errors.
 - In snapshots and scripted frames, `quota age` is the age of the oldest quota evidence of a shown pool.
-- Fields that do not fit are dropped from the right, and a line `Fields hidden · --expand` says so.
-- The `Guide` link is the right end of this line, rich view on a terminal only (see [The Guide link](#the-guide-link)).
+- Fields that do not fit are dropped from the right. If the status needs more than a full line, the compact view adds
+  `Fields hidden · --expand`.
 
 Below the title, both layouts show `quota 5h old -> peerhub observation refresh` when the oldest quota reading is more
 than an hour old. Ages of a day or more use days. Without quota readings, the line says `quota: no reading -> peerhub observation refresh`.
@@ -77,6 +77,8 @@ counted). The compact frame shows at most eight rows, `--expand` shows all of th
 | RESET | time until the window resets (`passed` when it has). |
 | PACE | used% minus elapsed% of the window, in points. `+` is ahead of an even burn (over-use), `-` behind it. A direction glyph `▲` / `▼` (ASCII `^` / `v`) comes before a non-zero number. |
 | FAMILY | the pool's meaning, and for a child pool its dependency note (`limited by C-7D (own 26%)`, `C-7D out`, `needs C-7D`). |
+
+<a id="state-words"></a>
 
 **State words.** The word is always shown; colour and glyph never tell a state alone.
 
@@ -167,6 +169,9 @@ row is the elapsed time, profile, lead, the ask's first words and the stream. A 
 normally, `!overdue` (the lease ran out), `!gone` / `×` (the caller process is gone) and `?` (liveness unknown).
 `--expand` lists every field of every running ask.
 
+Continuous terminal watch reads activity every `min(5 s, --interval-seconds)` using `RUNNING_REFRESH_SECONDS`.
+Full reads and quota probes keep their existing schedules. Scripted cycles still use `--interval-seconds`.
+
 ## ALERTS
 
 Alerts reach line 1 as `ATTN n` and are listed in the `--expand` frame under `ALERTS n`, most severe first. The window
@@ -223,8 +228,8 @@ is `Coverage: complete|partial; peerhub explain <code>`.
 
 - **Width.** A table drops whole columns from the right, FAMILY first (it shrinks down to its widest family name
   before it goes). The POOLS bar shrinks from 20 cells to 4 and then goes, before any column drops. A state glyph stays
-  only while the columns of the plain table stay. Line 2 drops fields from the right and says `Fields hidden`. The
-  `Guide` link is the first thing to go, before any data, and it is never shown when it does not fit.
+  only while the columns of the plain table stay. Line 2 drops status fields from the right and reserves room for
+  the `Guide` link when enabled.
 - **Height.** Short frames shrink and drop sections from the bottom up in both layouts. Expanded RECENT switches to
   single-line rows before giving up rows. POOLS keeps its heading and a row as long as space allows, and the title
   and verdict have the highest priority.
@@ -240,24 +245,23 @@ A terminal without VT (or `TERM=dumb`) appends each frame. A pipe receives one c
 
 ## The Guide link
 
-The word `Guide` at the right end of line 2 is an OSC 8 hyperlink to this page for the version you run:
-`https://github.com/greatgc-flow/peerhub/blob/v<version>/docs/monitor.md`.
+In the rich view on a terminal with OSC 8 enabled, `Guide` stays at the right end of line 2 during watch and in
+snapshots, in both layouts. The status fields on the left yield room to the link. It opens this page for the release
+you run. An unbounded plain `--expand` frame on a terminal can end with `Guide: <url>` if links are enabled and the
+line fits. That URL uses `main` for development builds.
 
-- It is drawn in the rich view on a terminal only, in the compact and the `--expand` frame. The plain view and any
-  output that is not a terminal have no link bytes.
-- A development build (a version with `dev` or a `+local` part) has no tag to point at, so the link is not drawn.
-- It is added after the layout: widths and truncation ignore its bytes, it is never cut, and it is dropped before any
-  data when line 2 has no room.
-- An unbounded plain `--expand` frame can end with `Guide: <url>` when stdout is a terminal, links are enabled and
-  the trailer fits. A development build links to the page on `main`.
+The rich view also links the database path and profile names to their files, and recorded query text to its local file.
+The quota state in the verdict links to the state descriptions. On supported terminals, the source shown by
+`peerhub monitor defaults show` links to its config file. Local destinations must exist. These details keep the same
+visible text when links are unavailable, and commands remain copyable text.
 
 ## Environment
 
 | Variable | Effect |
 |---|---|
 | `PEERHUB_MONITOR_VIEW` | `auto`, `rich` or `plain`: the default of `--view` (an explicit `--view` wins). `plain` is the fix for a terminal that draws the glyphs two cells wide. |
-| `PEERHUB_NO_LINKS` | `1` (any value except empty, `0`, `false`, `no`, `off`) leaves the `Guide` link out. `NO_COLOR` does too (no escape bytes at all). |
-| `PEERHUB_GUIDE_URL` | tests and mirrors: an `http(s)` URL used instead of the version's page (a control character or space makes it ignored). |
+| `PEERHUB_NO_LINKS` | `1` (any value except empty, `0`, `false`, `no`, `off`) hides terminal links and the plain Guide trailer. `NO_COLOR` also disables OSC 8 links. |
+| `PEERHUB_GUIDE_URL` | Tests and mirrors can point the Guide to an HTTPS URL. The plain trailer also accepts HTTP. An override with controls or spaces is ignored. |
 | `NO_COLOR` | no colour; the rich layout and its glyphs stay. |
 | `PEERHUB_MONITOR_TEXT` | `off` hides the session name, the title and the conversation lines. |
 | `PEERHUB_LEAD_DIRS` | extra folders that LEADS reads. |
