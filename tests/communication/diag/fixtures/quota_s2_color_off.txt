@@ -15,15 +15,15 @@ gap vs X-7D (pp): C-7D —, G-7D —, A-7D —, 3P-7D —
 PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | EVN=even-burn remaining
 suggest: no eligible profiles; next: peerhub observation refresh
 ── QUOTA [OK] | measured remaining | soonest exhaust: ag P-4H 0% exhausted ────────────────────────────────────────────
-PEER POOL  STATE               LEFT  PACE(pp)  EXH/RESET  FAMILY  AGE
-ag P-1H    ok     ████████     100%         —  —/2h       ?       30s
-   P-2H    ok     ████░░░░      50%         —  —/2h       ?       30s
-   P-3H    low    |░░░░░░░      1%!      +2.8  30m/2h!    ?       30s
-   P-4H    out    ░░░░░░░░       0%         —  OUT/2h     ?       30s
-   P-5H    ?      ────────        —         —  —/2h       ?       30s
-   P-6H    ?      ────────        —         —  —/2h       ?       30s
-   P-7H    aged   ██████░░  80% ~0m         —  —/2h       ?       30s
-   P-8H    ok     ███████░      90%         —  —/2h       ?       30s
+PEER POOL  STATE                                                                LEFT  PACE(pp)  EXH/RESET  FAMILY  AGE
+ag P-1H    ok     █████████████████████████████████████████████████████████     100%         —  —/2h       ?       30s
+   P-2H    ok     █████████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░      50%         —  —/2h       ?       30s
+   P-3H    low    █░|░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░      1%!      +2.8  30m/2h!    ?       30s
+   P-4H    out    ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░       0%         —  OUT/2h     ?       30s
+   P-5H    ?      ─────────────────────────────────────────────────────────        —         —  —/2h       ?       30s
+   P-6H    ?      ─────────────────────────────────────────────────────────        —         —  —/2h       ?       30s
+   P-7H    aged   ██████████████████████████████████████████████░░░░░░░░░░░  80% ~0m         —  —/2h       ?       30s
+   P-8H    ok     ███████████████████████████████████████████████████░░░░░░      90%         —  —/2h       ?       30s
 ag P-5H evidence ERROR; next: peerhub observation refresh --peers ag
 ag P-6H evidence UNKNOWN; next: peerhub observation refresh --peers ag
 ag PROBE:34m STALE:window; next: peerhub observation refresh --peers ag

@@ -1529,14 +1529,8 @@ def _pool_reading(item: dict[str, Any], read_at: float, elapsed: float) -> dict[
     resets_at = _number(item.get("resets_at"))
     if resets_at is None:
         resets_at = _number(measurements.get("resets_at"))
-    if resets_at is None:
-        reset_in = _number(item.get("reset_in_seconds"))
-        if reset_in is None:
-            reset_in = _number(measurements.get("reset_in_seconds"))
-        if reset_in is not None:
-            resets_at = read_at + reset_in
     age = _number(item.get("age_seconds"))
-    return {**item, "resource_pool_ref": item.get("pool_ref"),
+    return {**item, "resource_pool_ref": item.get("pool_ref"), "read_at": read_at,
             "age_seconds": None if age is None else max(0, age + elapsed),
             "payload": {**measurements, "resets_at": resets_at, "reason": item.get("reason", measurements.get("reason"))}}
 
@@ -2355,13 +2349,14 @@ def _ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
 
 _POOL_COLUMNS = ("STATE", "BAR", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY", "AGE")
 _POOL_COLUMN_GAP = "  "
-_MISSING_POOL_FACT = "—"
+_MISSING_POOL_FACT_UNICODE = "—"
+_MISSING_POOL_FACT_ASCII = "?"
 _STATE_COLOURS = {"ok": "ok", "low": "warn", "fast": "warn", "out": "out", "blocked": "out"}
 _PACE_COLOURS = {"spend": "spend", "ok": "ok", "rest": "warn"}
 
 
 def missing_pool_fact(unicode: bool = True) -> str:
-    return _MISSING_POOL_FACT if unicode else _ascii(_MISSING_POOL_FACT)
+    return _MISSING_POOL_FACT_UNICODE if unicode else _MISSING_POOL_FACT_ASCII
 
 
 def format_pool_pace(pace: float | None, *, unicode: bool = True) -> str:
@@ -2481,7 +2476,7 @@ def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width
                 head: str = "PEER POOL", guide_url: str | None = None,
                 profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], list[list[str]], list[str]]:
     """Use the same column budget and cell formatting in POOLS and QUOTA."""
-    width = max(1, min(width, COMPACT_WIDTH - 2))
+    width = max(1, width if details else min(width, COMPACT_WIDTH - 2))
     active = [row for row in all_rows if row["state"] != QUOTA_NA]
     common = [_pool_cells(row, unicode, rich) for row in active]
     sizes = {name: max([_width(name), *(_width(cells[name]) for cells in common)]) for name in _POOL_COLUMNS}
@@ -2517,8 +2512,8 @@ def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width
             columns.append("AGE")
         sizes["FAMILY"] += min(full - sizes["FAMILY"], family_room, max(0, room(columns)))
         if details:
-            # Extra detail uses the space from the bar before a data column gives way.
-            sizes["BAR"] = min(BAR_CELLS, max(0, room(columns) - len(_POOL_COLUMN_GAP)))
+            suffix_width = max((_width(" " + marker) for _, _, _, marker in entries if marker), default=0)
+            sizes["BAR"] = max(0, room(columns) - len(_POOL_COLUMN_GAP) - suffix_width)
             bar_fits = sizes["BAR"] > 0
         if bar_fits:
             columns.insert(1, "BAR")
@@ -2992,7 +2987,7 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
                                        width=width, height=height, keep=text_encoding)
         columns = max(1, min(COMPACT_WIDTH, width) - 1)
     guide_rendered = guide_url is not None and osc_link(guide_url, GUIDE_TEXT) in screen
-    if screen and not guide_rendered and (tty or view == "plain"):
+    if screen and not guide_rendered:
         guide = f"{GUIDE_TEXT}: {guide_text_url(os.environ)}"
         line_count = screen.count("\n")
         room = height is None or line_count < height - FRAME_TRAILING_ROWS

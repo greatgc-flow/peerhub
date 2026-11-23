@@ -117,6 +117,15 @@ def test_parent_forecast_is_compared_to_the_nearer_reset():
     assert not facts["exhaust_before_reset"]
 
 
+def test_relative_reset_is_anchored_at_observation_time():
+    item = reading(HALF, age=FRESH_AGE)
+    del item["payload"]["resets_at"]
+    item["payload"]["reset_in_seconds"] = HOUR
+    facts = health(item)
+    assert facts["reset_in_seconds"] == HOUR - FRESH_AGE
+    assert facts["pace_pt"] is not None
+
+
 @pytest.mark.parametrize("baseline", [
     None,
     {"pace_pt": None, "measured": True, "stale": False},

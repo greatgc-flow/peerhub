@@ -177,7 +177,8 @@ def test_cli_plan_json_facts_are_compact(capsys, monkeypatch):
     assert main(argv) == 0
     out = capsys.readouterr().out
     assert all(field not in out for field in FACT_FIELDS - {"fast"})
-    weekly = next(row for row in data["pools"] if row["gates"])
+    weekly = next(row for row in data["pools"] if row["pool"] == "G-7D")
+    assert weekly["gates"]
     assert all(f"({PLAN_GATE_TAG}: {gate['pool']})" in out for gate in weekly["gates"])
     assert profile_reads == [Path.cwd(), Path.cwd()]
     groups = [f"{row['pool']} {','.join(row['profiles'])}" for row in data["pools"]
@@ -370,6 +371,44 @@ def test_exhausted_profile_window_gates_all_its_pools_in_its_account_only():
         row = rows[item["resource_pool_ref"]]
         assert row["action"] == "spend" and row["binding"] == unblocked[item["resource_pool_ref"]]["binding"]
         assert gate not in row["reason"]
+
+
+@pytest.mark.parametrize("parent_left,gate_left,gate_action,expected_action", [
+    (.7, .8, "spend", "spend"),
+    (.2, .8, "spend", "rest"),
+    (.7, .5, "hold", "hold"),
+    (.7, .2, "rest", "rest"),
+    (.7, 0, "blocked", "blocked"),
+])
+def test_limited_weekly_pool_combines_scoped_gates(parent_left, gate_left, gate_action, expected_action):
+    parent, child, gate, sibling = "C-7D", "F-7D", "F-5H", "F-3H"
+    other_profile, other_account_pool = "F-2H", "F-1H"
+    fable, standard = "cc.fable", "cc.standard"
+    profiles = {parent: [fable, standard], child: [fable], gate: [fable],
+                sibling: [fable], other_profile: [standard], other_account_pool: [fable]}
+    common = _item("cc", parent, parent_left, span=WEEK, elapsed=WEEK / 2)
+    limited = _item("cc", child, .8, span=WEEK, elapsed=WEEK / 2)
+    short = _item("cc", gate, gate_left, span=SHORT, elapsed=SHORT / 2)
+    spare = _item("cc", sibling, .8, span=3 * HOUR, elapsed=1.5 * HOUR)
+    unrelated = _item("cc", other_profile, 0, span=2 * HOUR, elapsed=HOUR)
+    other_account = {**short, "resource_pool_ref": f"quota:another-account:{other_account_pool}",
+                     "payload": {**short["payload"], "remaining_fraction": 0}}
+    report = _report(common, limited, short, spare, unrelated, other_account)
+
+    row = _rows(report, profiles)[limited["resource_pool_ref"]]
+    assert row["limited_by"] == common["resource_pool_ref"]
+    assert row["action"] == expected_action
+    winning_pool = parent if gate_action == "spend" else gate
+    assert row["binding"] == winning_pool and winning_pool in row["reason"]
+    gates = {entry["pool"]: entry for entry in row["gates"]}
+    assert gates[gate]["action"] == gate_action
+    assert gates[sibling]["action"] == "spend"
+    if winning_pool == gate:
+        assert row["reason"] == f"{PLAN_GATE_TAG}: {gate} {gates[gate]['reason']}"
+    assert {other_profile, other_account_pool}.isdisjoint(gates)
+    line = next(line.split(maxsplit=7) for line in render_plan(report, profiles_by_pool=profiles, width=140).splitlines()
+                if line.split()[:2] == [row["peer"], child])
+    assert line[6] == expected_action and line[7].startswith(row["reason"])
 
 
 @pytest.mark.parametrize("age,elapsed", [(AGED, HOUR), (FRESH_AGE, SHORT - FRESH_AGE / 2)])
