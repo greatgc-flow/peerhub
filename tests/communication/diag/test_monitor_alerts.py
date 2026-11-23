@@ -12,6 +12,7 @@ from tests.communication.harness.core import CoreHarness
 pytestmark = [pytest.mark.unit, pytest.mark.diag]
 
 NOW = 1_790_812_800.0
+QUOTA_FIXTURE_RESET_SECONDS = 86_400
 
 
 def ask(state: str, name: str = "s", **kw: Any) -> dict[str, Any]:
@@ -210,12 +211,12 @@ def test_a_frame_whose_only_seven_day_pool_is_unknown_reports_unknown_capacity(t
     assert (pool["state"], pool["reason"], pool["measurements"]) == ("UNAVAILABLE", "probe_failed", None)
 
 
-def _quota_store(tmp_path, fraction):
+def _quota_store(tmp_path, fraction, **measurements):
     from tests.communication.fakes.observation import FakeObservationSource, measured
     from tests.communication.harness.observation import ObservationHarness
     h = ObservationHarness(tmp_path / "quota")
     h.register_pool({"schema_version": "1.0", "resource_pool_id": "cx:X-7D", "provider": "openai", "kind": "QUOTA", "metadata": {}})
-    h.capture("cx", "quota", FakeObservationSource(measured({"remaining_fraction": fraction})), resource_pool_ref="cx:X-7D")
+    h.capture("cx", "quota", FakeObservationSource(measured({"remaining_fraction": fraction, **measurements})), resource_pool_ref="cx:X-7D")
     return h
 
 
@@ -264,7 +265,7 @@ def test_fast_needs_two_samples_on_every_path_without_another_statement(tmp_path
     for n in range(captures):
         if n:
             h.clock.advance(5)
-        h.capture("cx", "quota", FakeObservationSource(measured({"remaining_fraction": 0.42, "resets_at": T0 + 86_400})),
+        h.capture("cx", "quota", FakeObservationSource(measured({"remaining_fraction": 0.42, "resets_at": T0 + QUOTA_FIXTURE_RESET_SECONDS})),
                   resource_pool_ref="cx:X-7D")
     statements: list[str] = []
     out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 20, preference_source="command", human=human,
@@ -273,12 +274,15 @@ def test_fast_needs_two_samples_on_every_path_without_another_statement(tmp_path
     assert out["query_families"] == (2 if human else 1)  # the count rides in the capacity statement; human adds its export only
 
 
-def test_a_malformed_older_sample_does_not_abort_the_human_export(tmp_path):
-    """#376 P8: the export's sample count guards its JSON functions, exactly as the capacity statement does."""
+@pytest.mark.parametrize("has_reset,expected_samples", [(False, 0), (True, 1)], ids=["unknown-window", "known-window"])
+def test_a_malformed_older_sample_does_not_abort_the_human_export(tmp_path, has_reset, expected_samples):
+    """#376 P8: corrupt JSON is skipped, and only a sample with a known window counts."""
     import sqlite3
     from contextlib import closing
     from tests.communication.harness.observation import T0
-    h = _quota_store(tmp_path, 0.42)
+    fraction = 0.42
+    anchors = {"resets_at": T0 + QUOTA_FIXTURE_RESET_SECONDS} if has_reset else {}
+    h = _quota_store(tmp_path, fraction, **anchors)
     with closing(sqlite3.connect(h.db_path)) as c:  # an older MEASURED row of the same pool whose payload is not JSON
         c.execute("INSERT INTO observations (observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, "
                   "observed_at, captured_at, effective_at_us) VALUES ('bad-json','cx','cx:X-7D','quota','s','MEASURED','{not json',"
@@ -287,9 +291,10 @@ def test_a_malformed_older_sample_does_not_abort_the_human_export(tmp_path):
     plain = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10, preference_source="command")
     out = mrm.render_monitor_frame(h.db_path, ["capacity"], read_at=T0 + 10, preference_source="command", human=True)
     (item,) = out["_human_observations"]
-    assert item["last_measurements"] == {"remaining_fraction": 0.42} and item["projection_samples"] == 2
+    assert item["last_measurements"] == {"remaining_fraction": fraction, **anchors}
+    assert item["projection_samples"] == expected_samples
     assert out["errors"] == {} and out["min_quota"] == plain["min_quota"] == {
-        "pool": "cx X-7D", "left_pct": 42, "state": "ok", "aged": False}
+        "pool": "cx X-7D", "left_pct": round(fraction * 100), "state": "ok", "aged": False}
 
 
 def test_fresh_frame_reads_capacity_and_alerts_on_an_out_pool(tmp_path):

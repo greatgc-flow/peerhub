@@ -21,6 +21,8 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- A fresh zero from any reporter gates configured pools on the same account. Monitor and plan count only samples from the same reset window for `fast` and agree at the pace band boundaries.
+
 - `diag --plan` ranks each pool's own action alongside its effective parent and applicable gates, and keeps the refresh reason for stale zero readings. Quota projections accept both `Z` and `z` timestamp suffixes.
 
 - `diag --plan` uses the most restrictive applicable gate for pool advice. Monitor and plan share relative reset handling and missing quota markers. Expanded QUOTA uses spare width for its bar, and redirected rich frames show the Guide trailer when it fits.
@@ -35,7 +37,7 @@ they do not claim new validation or publication evidence.
 
 ### Documentation
 
-- Design record `docs/design/monitor-pace-health-2026-11-23.md` documents the monitor pace-health and caller ownership work implemented in PRs #460-#467. The nine debate rounds and scoring are in `docs/design/monitor-pace-health-2026-11-23/`.
+- Design record `docs/design/monitor-pace-health-2026-11-23.md` documents the monitor pace-health and caller ownership work implemented in PRs #460-#468. The nine debate rounds and scoring through round 5 are in `docs/design/monitor-pace-health-2026-11-23/`.
 
 ## [0.26.8] - 2026-11-23
 

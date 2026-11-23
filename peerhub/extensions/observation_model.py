@@ -278,14 +278,27 @@ def evaluate(obs: Observation, capture_seq: int, read_us: int, policy: Freshness
 
 COLUMNS = ("capture_seq", "observation_id", "subject_ref", "resource_pool_ref", "kind", "source", "state", "payload_json", "observed_at", "captured_at")
 
+def _quota_reset_sql(alias: str) -> str:
+    """Window identity in epoch seconds, including relative resets anchored at observation time."""
+    payload, observed = f"{alias}.payload_json", f"{alias}.observed_at"
+    # Parse the whole second separately so SQLite preserves the observed fractional seconds.
+    zone = f"CASE WHEN upper(substr({observed}, -1)) = 'Z' THEN 'Z' ELSE substr({observed}, -6) END"
+    whole = f"strftime('%s', upper(substr({observed}, 1, 19)) || ({zone}))"
+    fraction = f"CASE WHEN substr({observed}, 20, 1) = '.' THEN CAST(substr({observed}, 20, 7) AS REAL) ELSE 0 END"
+    return (
+        f"CASE WHEN json_valid({payload}) THEN CASE "
+        f"WHEN json_type({payload}, '$.resets_at') IN ('integer', 'real') THEN json_extract({payload}, '$.resets_at') "
+        f"WHEN json_type({payload}, '$.reset_in_seconds') IN ('integer', 'real') "
+        f"THEN {whole} + (({fraction}) + json_extract({payload}, '$.reset_in_seconds')) END END"
+    )
+
+
 # Two distinct MEASURED captures of the same pool and reset window are enough for the monitor's FAST classification.
-# Guard the JSON extraction so an unreadable historical payload cannot abort the quota read.
 QUOTA_PROJECTION_SAMPLE_COUNT_SQL = (
     "(SELECT COUNT(*) FROM (SELECT DISTINCT s.effective_at_us FROM observations s "
     "WHERE s.subject_ref=o.subject_ref AND s.kind='quota' AND s.resource_pool_ref IS o.resource_pool_ref "
     "AND s.state='MEASURED' "
-    "AND CASE WHEN json_valid(s.payload_json) THEN json_extract(s.payload_json,'$.resets_at') END "
-    "IS CASE WHEN json_valid(o.payload_json) THEN json_extract(o.payload_json,'$.resets_at') END "
+    f"AND ({_quota_reset_sql('s')}) = ({_quota_reset_sql('o')}) "
     "ORDER BY s.effective_at_us DESC LIMIT 2))"
 )
 

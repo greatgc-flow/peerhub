@@ -13,7 +13,7 @@ from peerhub.cli.app import main
 from peerhub.cli.monitor_view import FAMILIES
 from peerhub.cli.view import PLAN_EARLY_TAG, PLAN_FAST_TAG, PLAN_GATE_TAG, PLAN_TAG_LEGEND, plan_data, render_plan
 from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, load_snapshot
-from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
+from peerhub.core.quota_policy import PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION, epoch_to_iso
 from tests.communication.diag.test_diag_plan_339 import DAY, HOUR, NOW, _item, _report
@@ -101,6 +101,15 @@ def test_scoped_weekly_parent_follows_configured_consumers():
                           "C-7D": ["cc.effort", "cc.fable", "cc.standard"]})[ref]["parent"] is None
 
 
+def _observation_connection():
+    conn = sqlite3.connect(":memory:", isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE observations (capture_seq INTEGER PRIMARY KEY, observation_id TEXT, subject_ref TEXT, "
+                 "resource_pool_ref TEXT, kind TEXT, source TEXT, state TEXT, payload_json TEXT, observed_at TEXT, "
+                 "captured_at TEXT, effective_at_us INTEGER)")
+    return conn
+
+
 @pytest.mark.parametrize("history,remaining,age,fast", [
     ("distinct", .4, FRESH_AGE, True),
     ("duplicate", .4, FRESH_AGE, False),
@@ -109,11 +118,7 @@ def test_scoped_weekly_parent_follows_configured_consumers():
     ("distinct", .4, AGED, False),
 ])
 def test_fast_matches_monitor_state_from_stored_samples(history, remaining, age, fast):
-    conn = sqlite3.connect(":memory:", isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("CREATE TABLE observations (capture_seq INTEGER PRIMARY KEY, observation_id TEXT, subject_ref TEXT, "
-                 "resource_pool_ref TEXT, kind TEXT, source TEXT, state TEXT, payload_json TEXT, observed_at TEXT, "
-                 "captured_at TEXT, effective_at_us INTEGER)")
+    conn = _observation_connection()
     ref = "quota:ag:G-5H"
     latest = NOW - age
     for seq, at in enumerate((latest if history == "duplicate" else latest - 1, latest), 1):
@@ -494,3 +499,84 @@ def test_stale_or_reset_zero_does_not_gate_the_profile(age, elapsed):
     assert rows[empty["resource_pool_ref"]]["action"] == "blocked"
     weekly = rows[available["resource_pool_ref"]]
     assert weekly["action"] == "spend" and weekly["binding"] == pool
+
+
+REPORTER_TIME_GAP = 5
+SPARE_WEEKLY_LEFT = .8
+
+
+@pytest.mark.parametrize("reporter_offset,own_left,shared_left", [
+    (-REPORTER_TIME_GAP, 0, 0),
+    (REPORTER_TIME_GAP, 0, 0),
+    (-REPORTER_TIME_GAP, SPARE_WEEKLY_LEFT, 0),
+    (REPORTER_TIME_GAP, 0, SPARE_WEEKLY_LEFT),
+], ids=["older-reporter", "newer-reporter", "only-other-out", "newer-nonzero"])
+def test_shared_pool_reporters_keep_a_fresh_profile_gate(reporter_offset, own_left, shared_left):
+    gate, pool = "C-5H", "C-7D"
+    profiles = dict.fromkeys((gate, pool), ["cc.standard"])
+    own = _item("cc", gate, own_left, span=SHORT, elapsed=HOUR, age=FRESH_AGE)
+    shared = _item("other", gate, shared_left, span=SHORT, elapsed=HOUR, age=FRESH_AGE - reporter_offset)
+    shared["resource_pool_ref"] = own["resource_pool_ref"]
+    weekly = _item("cc", pool, SPARE_WEEKLY_LEFT, span=WEEK, elapsed=WEEK / 2)
+    report = _report(own, shared, weekly)
+
+    row = _rows(report, profiles)[weekly["resource_pool_ref"]]
+    assert (row["action"], row["binding"], row["reason"]) == ("blocked", gate, f"{PLAN_GATE_TAG}: {gate} out")
+    assert row["gates"] == [{"pool": gate, "action": "blocked", "reason": "out"}]
+    line = next(line.split(maxsplit=7) for line in render_plan(report, profiles_by_pool=profiles, width=120).splitlines()
+                if line.split()[:2] == [row["peer"], pool])
+    assert line[6] == row["action"] and line[7].startswith(row["reason"])
+
+
+@pytest.mark.parametrize("window_offset,earlier_age,expected_state", [
+    (0, 1, "fast"),
+    (0, 1.125, "fast"),
+    (SHORT, SHORT, "ok"),
+], ids=["same-window", "fractional-observation-clock", "next-window"])
+def test_relative_reset_samples_only_count_within_one_window(window_offset, earlier_age, expected_state):
+    from peerhub.cli.monitor_view import render_grouped_frame
+    from tests.communication.diag.test_monitor_pool_health import frame, pool_cells
+
+    peer, pool = "ag", "G-5H"
+    latest = _item(peer, pool, .4, span=SHORT, elapsed=HOUR, age=0)
+    earlier = _item(peer, pool, .4, span=SHORT, elapsed=HOUR + window_offset - earlier_age, age=earlier_age)
+    conn = _observation_connection()
+    for seq, item in enumerate((earlier, latest), 1):
+        payload = item["payload"]
+        at = NOW - item["age_seconds"]
+        payload["reset_in_seconds"] = payload.pop("resets_at") - at
+        observed, captured_at = epoch_to_iso(at), at
+        if item is earlier and not float(earlier_age).is_integer():
+            observed = observed.replace("T", "t").replace("Z", "z")
+            captured_at += .25
+        conn.execute("INSERT INTO observations VALUES (?, ?, ?, ?, 'quota', 'test', 'MEASURED', ?, ?, ?, ?)",
+                     (seq, str(seq), peer, item["resource_pool_ref"], json.dumps(payload), observed,
+                      epoch_to_iso(captured_at), round(captured_at * 1e6)))
+
+    diag = ReadonlyDiag(":memory:", connection_factory=lambda _: conn)
+    report = diag.render(["observations"], NOW, include_quota_samples=True)
+    row = _rows(report)[latest["resource_pool_ref"]]
+    assert row["forecast"] == "threat"
+    assert row["health"]["state"] == expected_state
+    assert row["fast"] is (expected_state == "fast")
+    plan_line = next(line for line in render_plan(report, width=120).splitlines()
+                     if line.split()[:2] == [peer, pool])
+    assert (f"({PLAN_FAST_TAG})" in plan_line) is row["fast"]
+    monitor_frame = frame(*report.sections["observations"].data["items"])
+    for expand in (False, True):
+        cells = pool_cells(render_grouped_frame(monitor_frame, view="plain", width=120, expand=expand), pool)
+        assert cells and all(cell[0] == expected_state for cell in cells)
+
+
+def test_plan_and_health_agree_at_spend_boundary_with_float_noise():
+    pool = "C-7D"
+    left = .45
+    elapsed = WEEK * (1 - left + PLAN_SPEND_PACE_PT / 100)
+    item = _item("cc", pool, left, span=WEEK, elapsed=elapsed, age=0)
+    report = _report(item)
+    row = _rows(report)[item["resource_pool_ref"]]
+    assert row["pace_pt"] == pytest.approx(-PLAN_SPEND_PACE_PT)
+    assert row["health"]["pace_band"] == row["action"] == "spend"
+    cells = next(line.split() for line in render_plan(report, width=120).splitlines()
+                 if line.split()[:2] == [row["peer"], pool])
+    assert cells[3] == f"{-PLAN_SPEND_PACE_PT:+.1f}" and cells[6] == row["action"]
