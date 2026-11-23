@@ -132,13 +132,14 @@ def test_every_pool_state_link_targets_an_anchor_in_the_monitor_doc(monkeypatch:
 
 @pytest.mark.parametrize("expand", [False, True])
 @pytest.mark.parametrize("unicode", [False, True])
+@pytest.mark.parametrize("opt_out", ["PEERHUB_NO_LINKS", "NO_COLOR"])
 def test_pool_state_links_preserve_visible_table_cells(monkeypatch: pytest.MonkeyPatch,
-                                                      expand: bool, unicode: bool) -> None:
+                                                      expand: bool, unicode: bool, opt_out: str) -> None:
     pool, state = "G-7D", "ok"
     data = frame(reading("ag", pool, .5, 0))
-    options = {"view": "rich", "width": 100, "expand": expand, "unicode": unicode}
+    options = {"view": "rich", "width": 100, "expand": expand, "unicode": unicode, "tty": True}
     linked = monitor_view.render_grouped_frame(data, links=True, **options)
-    monkeypatch.setenv("PEERHUB_NO_LINKS", "1")
+    monkeypatch.setenv(opt_out, "1")
     disabled = monitor_view.render_grouped_frame(data, links=True, **options)
     linked_rows = [line for line in linked.splitlines() if f"{pool}  " in line]
     disabled_rows = [line for line in disabled.splitlines() if f"{pool}  " in line]

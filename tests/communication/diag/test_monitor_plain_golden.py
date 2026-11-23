@@ -99,7 +99,8 @@ def golden_cases() -> Iterator[tuple[str, dict[str, Any], dict[str, Any]]]:
             for height in HEIGHTS:
                 for encoding in ENCODINGS if name == "full" else (None,):
                     yield (f"{name}-w{width}-h{height}-{encoding}", build(),
-                           {"view": "plain", "unicode": False, "width": width, "height": height, "text_encoding": encoding})
+                           {"view": "plain", "unicode": False, "width": width, "height": height, "text_encoding": encoding,
+                            "tty": True})
 
 
 def blocks(screen: str, *, expanded: bool = False) -> dict[str, list[str]]:

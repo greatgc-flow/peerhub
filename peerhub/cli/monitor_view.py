@@ -2951,10 +2951,10 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
 
     `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5).
     `links` indicates a VT terminal for the rich view. The link opt-out applies to both views.
-    The plain Guide trailer uses a spare line when it fits."""
-    enabled = view == "rich" and links and monitor_links_enabled(os.environ)
+    The plain Guide trailer uses a spare line on a TTY."""
+    links_enabled = monitor_links_enabled(os.environ)
+    enabled = view == "rich" and links and links_enabled
     guide_url = guide_link_url(os.environ) if enabled else None
-    guide_text = guide_text_url(os.environ)
     store = _obj(payload.get("store_selection"))
     payload = {**_with_retained_quota(_display_plan_omissions(payload)),
                "_show_quota_notes": show_quota_notes, "_guide_url": guide_url,
@@ -2970,8 +2970,8 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         screen = _render_compact_frame(payload, view=view, color=color, unicode=unicode,
                                        width=width, height=height, keep=text_encoding)
         columns = max(1, min(COMPACT_WIDTH, width) - 1)
-    if screen and (view == "plain" or not _guide_enabled(os.environ)):
-        guide = f"{GUIDE_TEXT}: {guide_text}"
+    if tty and screen and (view == "plain" or not links_enabled):
+        guide = f"{GUIDE_TEXT}: {guide_text_url(os.environ)}"
         line_count = screen.count("\n")
         room = height is None or line_count < height - FRAME_TRAILING_ROWS
         if not expand:

@@ -195,7 +195,7 @@ def test_plain_expand_ends_with_one_plain_guide_line(monkeypatch: pytest.MonkeyP
         assert screen.splitlines()[-1] == f"Guide: {URL}" and "\x1b" not in screen
     bounded = render(tree(), view="plain", unicode=False, expand=True, tty=True, height=60, width=120)
     assert bounded.splitlines()[-1] == f"Guide: {URL}" and bounded.splitlines()[-2].startswith("Coverage:")
-    compact = render(tree(), view="plain", unicode=False, width=120)
+    compact = render(tree(), view="plain", unicode=False, width=120, tty=True)
     assert compact.splitlines()[-1] == f"Guide: {URL}"
     assert "Guide:" not in render(tree(), view="rich", expand=True, links=True)  # rich has the link instead
     monkeypatch.delenv("PEERHUB_GUIDE_URL")

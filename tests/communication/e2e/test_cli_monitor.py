@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from peerhub.cli.app import main
+from peerhub.cli.view import _ANSI
 from tests.communication.e2e.cli_extension_effects import lead_isolated_env
 
 
@@ -311,7 +312,7 @@ def test_schema_11_watch_is_explicit_legacy_ndjson(tmp_path, monkeypatch, capsys
 
 
 def _assert_monitor_reset_countdown(rendered):
-    lines = re.sub(r"\x1b\[[0-9;]*m", "", rendered).splitlines()
+    lines = _ANSI.sub("", rendered).splitlines()
     # G.3–4: the POOLS row keeps a reset when the forecast is unavailable.
     header = next(line for line in lines if re.search(r"\bPOOLS \d+\b", line))
     assert "EXH/RESET" in header.split()

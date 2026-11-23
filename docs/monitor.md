@@ -3,7 +3,7 @@
 `peerhub monitor` is the human screen. An AI reads `peerhub diag --plan` instead (pools plus the load line, about 350 tokens).
 
 This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the
-`Guide:` line in plain frames. It describes what the screen shows. The same facts are
+`Guide:` line in plain terminal frames. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
 
 Continuous terminal watch checks each selected peer every second and refreshes it in the background when its oldest
@@ -93,15 +93,15 @@ PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = earl
 
 | State | Glyph | Meaning |
 |---|---|---|
-| <a id="state-ok"></a>`ok` | `●` | enough left. |
-| <a id="state-low"></a>`low` | `▼` | more than 0% and at most 10% left. |
-| <a id="state-fast"></a>`fast` | `▲` | more than 10% left, but the projection says `threat` (it would run out before the reset) with at least two samples. |
-| <a id="state-out"></a>`out` | `×` | fresh evidence shows 0% left. |
-| <a id="state-blocked"></a>`blocked` | `×` | a child pool whose parent is out; LEFT shows the parent's 0%, its own value is in FAMILY. |
-| <a id="state-aged"></a>`aged` | `○` | the evidence has reached its time to live, or is marked stale if it has no TTL. `low` and `fast` win over `aged`. |
-| <a id="state-reset"></a>`reset` | `○` | the reset time has passed, so the number is no longer true; refresh. |
-| <a id="state-na"></a>`n/a` | | the plan no longer reports this window (or the provider switched it off). POOLS includes the window in its count and names it inline. QUOTA also gives the reason. |
-| <a id="state-unknown"></a>`?` | `○` | unknown: no number. |
+| `ok` | `●` | enough left. <a id="state-ok"></a> |
+| `low` | `▼` | more than 0% and at most 10% left. <a id="state-low"></a> |
+| `fast` | `▲` | more than 10% left, but the projection says `threat` (it would run out before the reset) with at least two samples. <a id="state-fast"></a> |
+| `out` | `×` | fresh evidence shows 0% left. <a id="state-out"></a> |
+| `blocked` | `×` | a child pool whose parent is out; LEFT shows the parent's 0%, its own value is in FAMILY. <a id="state-blocked"></a> |
+| `aged` | `○` | the evidence has reached its time to live, or is marked stale if it has no TTL. `low` and `fast` win over `aged`. <a id="state-aged"></a> |
+| `reset` | `○` | the reset time has passed, so the number is no longer true; refresh. <a id="state-reset"></a> |
+| `n/a` | | the plan no longer reports this window (or the provider switched it off). POOLS includes the window in its count and names it inline. QUOTA also gives the reason. <a id="state-na"></a> |
+| `?` | `○` | unknown: no number. <a id="state-unknown"></a> |
 
 **Order.** POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools.
 Ties sort by peer and pool name. The most negative PACE shows the most under-used weekly pool. The heading shows
@@ -245,8 +245,8 @@ A terminal without VT (or `TERM=dumb`) appends each frame. A pipe receives one c
 
 In the rich view on a terminal with OSC 8 enabled, `Guide` stays at the right end of line 2 during watch and in
 snapshots, in both layouts. The status fields on the left yield room to the link. It opens this page for the release
-you run. Plain frames and frames with `PEERHUB_NO_LINKS=1` end with a copyable `Guide: <url>` line when it fits.
-That URL uses `main` for development builds.
+you run. On a TTY, plain frames and frames with links disabled end with a copyable `Guide: <url>` line when it fits.
+That URL uses `main` for development builds. Redirected frames omit the trailer.
 
 The rich view also links the database path and profile names to their files, and recorded query text to its local file.
 The quota state in the verdict and the STATE words in POOLS and QUOTA link to the state descriptions. On supported terminals, the source shown by
@@ -258,7 +258,7 @@ visible text when links are unavailable, and commands remain copyable text.
 | Variable | Effect |
 |---|---|
 | `PEERHUB_MONITOR_VIEW` | `auto`, `rich` or `plain`: the default of `--view` (an explicit `--view` wins). `plain` is the fix for a terminal that draws the glyphs two cells wide. |
-| `PEERHUB_NO_LINKS` | `1` (any value except empty, `0`, `false`, `no`, `off`) disables OSC 8 and uses the plain Guide trailer. `NO_COLOR` also disables OSC 8 links. |
+| `PEERHUB_NO_LINKS` | `1` (any value except empty, `0`, `false`, `no`, `off`) disables OSC 8 and uses the plain Guide trailer on a TTY. `NO_COLOR` also disables OSC 8 links. |
 | `PEERHUB_GUIDE_URL` | Tests and mirrors can point the Guide to an HTTPS URL. The plain trailer also accepts HTTP. An override with controls or spaces is ignored. |
 | `NO_COLOR` | no colour; the rich layout and its glyphs stay. |
 | `PEERHUB_MONITOR_TEXT` | `off` hides the session name, the title and the conversation lines. |

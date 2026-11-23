@@ -613,7 +613,7 @@ def plain_cases() -> Iterator[tuple[str, dict[str, Any], dict[str, Any]]]:
         for width in PLAIN_WIDTHS:
             for height in PLAIN_HEIGHTS:
                 yield (f"{name}-w{width}-h{height}", build(),
-                       {"view": "plain", "unicode": False, "width": width, "height": height, "expand": True})
+                       {"view": "plain", "unicode": False, "width": width, "height": height, "expand": True, "tty": True})
 
 
 GOLDENS: dict[str, str] = json.loads(GOLDEN.read_text(encoding="utf-8")) if GOLDEN.exists() else {}

@@ -455,7 +455,7 @@ def test_poolless_probe_does_not_poison_quota_age_or_refresh(compact_frame):
 
 def test_missing_configured_pool_requests_refresh(compact_frame):
     compact_frame["groups"]["capacity"]["data"]["observations"] = []
-    screen = render_grouped_frame(compact_frame, view="plain")
+    screen = render_grouped_frame(compact_frame, view="plain", tty=True)
     assert "POOLS 0" in screen.splitlines() and "no quota evidence; next: peerhub observation refresh" in screen
     rich = render_grouped_frame(compact_frame).splitlines()  # P21: the head is a rule; the notes are the same lines
     assert rich[2] == screen.splitlines()[2] == "quota: no reading -> peerhub observation refresh"
@@ -610,7 +610,7 @@ def test_peers_only_uses_snapshot_capacity_support(compact_frame):
     compact_frame["configured_profiles"].append({**standard, "profile": "ag.effort"})
     compact_frame["selected_groups"] = ["peers"]
     compact_frame["_human_observations"] = compact_frame["groups"].pop("capacity")["data"]["observations"]
-    screen = render_grouped_frame(compact_frame, view="plain")
+    screen = render_grouped_frame(compact_frame, view="plain", tty=True)
     # #374: `peers` owns no compact section any more (its summaries are --expand only): lines 1-2 and the refresh hint.
     assert "POOLS" not in screen and "suggest:" not in screen and "argon" not in screen
     lines = screen.splitlines()

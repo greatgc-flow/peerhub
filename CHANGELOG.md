@@ -21,7 +21,7 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
-- Monitor and `diag --plan` agree on displayed quota, including small positive balances, reset windows and parent-limited budgets. The monitor keeps even-burn ticks at the filled edge and weekly gaps with POOLS, links STATE and FAMILY details, and prints a plain Guide when space permits.
+- Monitor and `diag --plan` agree on displayed quota, including small positive balances, reset windows and parent-limited budgets. The monitor keeps even-burn ticks at the filled edge and weekly gaps with POOLS, links STATE and FAMILY details, and prints a plain Guide on a terminal when space permits.
 
 - `diag --plan` identifies scoped weekly parents using complete configured profile IDs and shows the effective quota of limited children.
 

@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, RECENT_CAP, RECENT_EXPAND, render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, GUIDE_TEXT, RECENT_CAP, RECENT_EXPAND, render_grouped_frame, _width
 from peerhub.extensions.caller import host_id
 from tests.communication.diag.test_monitor_activity_view import NOW, activity_data, ask, frame  # noqa: F401
 
@@ -89,11 +89,14 @@ def lines(screen: str) -> list[str]:
 
 SPEC_ORDER = list(FRAME_SECTIONS.values())
 _HEAD = re.compile(r"(?:ATTN|OK\??|PeerHub|" + "|".join(map(re.escape, SPEC_ORDER)) + r")(?![A-Za-z])")
+_GUIDE_TRAILER = f"{GUIDE_TEXT}:"
 
 
 def _head(line: str) -> str | None:
     """A section head: a line (or a rule) that starts with a section word; the plain --expand frame indents the
     ACTIVITY heads by two cells. A row never starts with one of these upper-case words."""
+    if line.startswith(_GUIDE_TRAILER):
+        return _GUIDE_TRAILER
     match = _HEAD.match(re.sub(r"^(── |-- )", "", line.strip()))
     return match[0] if match else None
 
@@ -102,7 +105,7 @@ def head_names(screen: str) -> list[str]:
     """The section heads in the order they print (the legend at the end of an unbounded frame repeats a few words)."""
     names: list[str] = []
     for name in map(_head, lines(screen)):
-        if name and name not in names:
+        if name and name != _GUIDE_TRAILER and name not in names:
             names.append(name)
     return names
 
@@ -220,21 +223,23 @@ def test_the_leads_context_never_leaks_into_a_recent_row(busy):
 
 
 @pytest.mark.parametrize("sess", [None, {}, session(mode=None, uses=None, generation=None, pct=None, tokens=None, window=None)])
-def test_missing_join_shows_dashes_never_zero_or_a_crash(busy, sess):
+@pytest.mark.parametrize("tty", [False, True])
+def test_missing_join_shows_dashes_never_zero_or_a_crash(busy, sess, tty):
     frame = build([ended("lonely", 60, sess=sess, tokens=None)], busy)
-    compact = recent_rows(render_grouped_frame(frame, view="plain", unicode=False, width=100))
+    compact = recent_rows(render_grouped_frame(frame, view="plain", unicode=False, width=100, tty=tty))
     assert len(compact) == 1 and re.fullmatch(r' ok +1m +cc\.effort +lead7 +lonely +- +- +- +- +"VERDICT: OK"', compact[0]), compact
-    wide = recent_rows(render_grouped_frame(frame, view="plain", unicode=False, width=140, expand=True))
+    wide = recent_rows(render_grouped_frame(frame, view="plain", unicode=False, width=140, expand=True, tty=tty))
     assert "gen- - u- ctx -" in wide[0] and "now" not in wide[0] and wide[1].lstrip().startswith("in - out - cache -")
     assert " 0" not in compact[0].replace("0m", "")
 
 
-def test_a_row_without_any_session_key_still_renders(busy):
+@pytest.mark.parametrize("tty", [False, True])
+def test_a_row_without_any_session_key_still_renders(busy, tty):
     rows = [ended("old-payload", 60)]
     for row in rows:
         row.pop("session")
         row.pop("tokens")
-    compact = recent_rows(render_grouped_frame(build(rows, busy), view="plain", unicode=False, width=100))
+    compact = recent_rows(render_grouped_frame(build(rows, busy), view="plain", unicode=False, width=100, tty=tty))
     assert len(compact) == 1 and "old-payload" in compact[0]
 
 
@@ -328,11 +333,12 @@ def section_rows(screen: str, head: str) -> int:
 
 
 @pytest.mark.parametrize("height", [14, 16, 18, 20, 22, 24, 30, 50])
-def test_rows_shrink_before_lower_sections_go(busy, height):
-    screen = render_grouped_frame(busy, view="plain", unicode=False, width=100, height=height)
+@pytest.mark.parametrize("tty", [False, True])
+def test_rows_shrink_before_lower_sections_go(busy, height, tty):
+    screen = render_grouped_frame(busy, view="plain", unicode=False, width=100, height=height, tty=tty)
     recent = section_rows(screen, "RECENT")
     assert 0 <= recent <= RECENT_CAP and len(lines(screen)) <= height - 1
-    taller = render_grouped_frame(busy, view="plain", unicode=False, width=100, height=height + 1)
+    taller = render_grouped_frame(busy, view="plain", unicode=False, width=100, height=height + 1, tty=tty)
     assert section_rows(taller, "RECENT") >= recent
     assert section_rows(screen, "RUNNING") <= section_rows(taller, "RUNNING") <= 2
     if recent:
