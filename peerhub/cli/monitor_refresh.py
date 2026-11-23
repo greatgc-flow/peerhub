@@ -59,7 +59,8 @@ class RefreshSchedule:
                 if age is None:
                     continue
                 if item["stored_state"] == "MEASURED" and payload.get("remaining_fraction") is not None:
-                    oldest.append(now - age)
+                    if not required or pool in required:  # a pool the peer no longer needs must not age the title
+                        oldest.append(now - age)
                     usable[pool] = age
                 elif item["stored_state"] == "ABSENT" and str(payload.get("reason", "")).startswith(ABSENT_FACT_REASONS):
                     usable[pool] = age

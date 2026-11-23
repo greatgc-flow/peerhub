@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.view import PLAN_TAG_LEGEND, plan_action, plan_data, render_plan, visible_len
+from peerhub.cli.view import PLAN_BUDGET_COLUMN, PLAN_TAG_LEGEND, plan_action, plan_data, render_plan, visible_len
 from peerhub.core.load_limits import format_load, load_snapshot
 from peerhub.core.quota_policy import QUOTA_TTL_SECONDS
 from peerhub.extensions.diag import DiagnosticReport, Section
@@ -144,7 +144,8 @@ def test_aged_not_applicable_evidence_stays_blocked():
 
 def test_legend_fits_default_width():
     out = render_plan(_report(), width=100, store_path="p", store_source="default")
-    assert all(word in out.splitlines()[-1] for word in ("spend", "hold", "rest", "blocked", "- n/a", "TARGET"))
+    legend = next(line for line in out.splitlines() if line.endswith(PLAN_TAG_LEGEND))
+    assert all(word in legend for word in ("spend", "hold", "rest", "blocked", "- n/a", PLAN_BUDGET_COLUMN))
 
 
 def test_5h_never_drives_spend_over_a_holding_7d():
@@ -161,7 +162,7 @@ def test_unrelated_families_do_not_bind_each_other():
 
 def test_json_shape():
     data = plan_data(_report(_item("cx", "X-7D", .15, span=7 * DAY, elapsed=4 * DAY)), {"path": "p", "source": "env"})
-    assert set(data) == {"schema_version", "status", "read_at", "store_selection", "legend", "pools"}
+    assert set(data) == {"schema_version", "status", "read_at", "store_selection", "legend", "pools", "gaps"}
     assert data["store_selection"] == {"path": "p", "source": "env"}
     (row,) = data["pools"]
     assert {"peer", "pool", "resource_pool_ref", "left_pct", "resets_in_seconds", "target_pct_per_hour",
@@ -175,9 +176,10 @@ def test_plain_table_columns_and_legend():
                       store_path="D:/w/.peerhub/core.db", store_source="explicit")
     lines = out.splitlines()
     head = next(line for line in lines if line.startswith("PEER"))
-    assert head.split() == ["PEER", "POOL", "LEFT", "RESETS", "PACE", "TARGET%/h", "ACTION", "REASON"]
+    assert head.split() == "PEER POOL LEFT PACE(pp) EXH/RESET BUDGET%/h ACTION REASON".split()
     assert "D:/w/.peerhub/core.db (explicit)" in lines[0]
-    assert all(word in lines[-1] for word in ("spend", "hold", "rest", "blocked", "PACE"))
+    legend = next(line for line in lines if line.endswith(PLAN_TAG_LEGEND))
+    assert all(word in legend for word in ("spend", "hold", "rest", "blocked", "PACE"))
     assert all(len(line) <= 120 for line in lines)
 
 
@@ -194,11 +196,12 @@ def test_plan_profiles_footer_wraps_within_the_sample_text_budget():
                       store_source="explicit", load=load, profiles_by_pool=profiles)
     lines = out.splitlines()
     legend_end = next(i for i, line in enumerate(lines) if line.endswith(PLAN_TAG_LEGEND))
-    footer = lines[legend_end + 1:-1]
+    footer = lines[legend_end + 1:-2]
     assert len(footer) > 1
     assert " ".join(footer) == "profiles: " + " | ".join(
         f"{pool} {','.join(names)}" for pool, names in profiles.items())
     assert lines[-1] == format_load(load)
+    assert lines[-2].startswith("gap: ")
     assert all(visible_len(line) <= width for line in lines)
     assert len(out) < PLAN_TEXT_TOKEN_BUDGET * PLAN_TEXT_CHARS_PER_TOKEN
 
@@ -246,7 +249,7 @@ def test_cli_plan_json_is_read_only(plan_store, capsys):
 def test_cli_plan_table(plan_store, capsys):
     assert main(["--db", str(plan_store), "diag", "--plan"]) == 0
     out = capsys.readouterr().out
-    assert "TARGET%/h" in out and "C-7D" in out and "spend" in out
+    assert PLAN_BUDGET_COLUMN in out and "C-7D" in out and "spend" in out
 
 
 @pytest.mark.parametrize("status,error,code", [("PARTIAL", None, 4), ("FAILED", "SchemaVersionError: v99", 6)])

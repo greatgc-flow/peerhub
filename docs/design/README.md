@@ -23,6 +23,7 @@ Most entries below are shipped; they are kept for provenance. The latest plan is
 - [Retained Session Contract](../implementation/RETAINED_SESSIONS.md): Registry, retention, replay, and `--session`/`--fresh` selectors (PRs 1-3 shipped in v0.16.0).
 - [Remote Ask Guide](../remote-ask.md): Running a peer on a remote server via SSH.
 - [Scoring record 2026-11-22](scoring-2026-11-22/README.md): rubric (six parallel axes, twelve scenarios), protocol, score history and the verbatim peer replies behind every score.
+- [Monitor pace health and caller ownership (2026-11-23)](monitor-pace-health-2026-11-23.md): decided, not implemented. Ten decisions (health vs reserve, no per-pool target, even burn, exhaustion forecast, labels, RUNNING refresh, Guide link, clickable details, status extras, caller ownership) with purpose, evidence and reason; nine debate rounds in `monitor-pace-health-2026-11-23/rounds/`.
 
 ## 2. Deferred Proposals
 ## 2. Deferred Proposals
