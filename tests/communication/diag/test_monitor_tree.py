@@ -127,7 +127,7 @@ def test_g_flat_fallback_uses_shared_cells(expand: bool) -> None:
                 ("F-7D", "ok", "30%", "fable: cc.b,cc.c")]
     assert len(rows) == len(expected)
     for row, (pool, state, left, family) in zip(rows, expected):
-        assert {pool, state, left, "-/2h30m"} <= set(row.split()) and family in row
+        assert {pool, state, left, f"{mv.missing_pool_fact(False)}/2h30m"} <= set(row.split()) and family in row
 
 
 @pytest.mark.parametrize("expand", [False, True])

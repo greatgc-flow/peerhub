@@ -1812,7 +1812,7 @@ def verdict_line(payload: dict[str, Any], width: int, unicode: bool, keep: str |
     if low:
         state = _clean(low.get("state") or "?")
         aged = " (aged)" if low.get("aged") is True and state != "aged" else ""  # A6: the pool's observation is stale
-        if url := payload.get("_guide_url"):
+        if url := payload.get("_state_doc_url"):
             state = osc_link(f"{url.partition('#')[0]}#{STATE_WORDS_ANCHOR}", state)
         right.append(f"min quota {_count(low.get('left_pct'))}% {_clean(low.get('pool') or '?')} {state}{aged}")
     if not unicode:
@@ -2354,21 +2354,26 @@ def _ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
 
 
 _POOL_COLUMNS = ("STATE", "BAR", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY", "AGE")
+_POOL_COLUMN_GAP = "  "
 _MISSING_POOL_FACT = "—"
 _STATE_COLOURS = {"ok": "ok", "low": "warn", "fast": "warn", "out": "out", "blocked": "out"}
 _PACE_COLOURS = {"spend": "spend", "ok": "ok", "rest": "warn"}
 
 
-def format_pool_pace(pace: float | None) -> str:
+def missing_pool_fact(unicode: bool = True) -> str:
+    return _MISSING_POOL_FACT if unicode else _ascii(_MISSING_POOL_FACT)
+
+
+def format_pool_pace(pace: float | None, *, unicode: bool = True) -> str:
     if pace is None:
-        return _MISSING_POOL_FACT
+        return missing_pool_fact(unicode)
     return f"{pace:+.1f}" if round(pace, 1) else "0.0"
 
 
-def format_pool_left(facts: PoolHealth, age: float | None) -> str:
+def format_pool_left(facts: PoolHealth, age: float | None, *, unicode: bool = True) -> str:
     left = facts["left_pct"]
     if left is None or facts["state"] == "reset":
-        text = _MISSING_POOL_FACT
+        text = missing_pool_fact(unicode)
     else:
         text = _pct(left / 100) + ("!" if facts["reserve"] == "low" else "")
     if facts["stale"] and age is not None:
@@ -2376,22 +2381,27 @@ def format_pool_left(facts: PoolHealth, age: float | None) -> str:
     return text
 
 
-def format_exhaust_reset(facts: PoolHealth) -> str:
+def format_exhaust_reset(facts: PoolHealth, *, unicode: bool = True) -> str:
     def duration(seconds: float) -> str:
         return _format_duration(seconds).removesuffix("00m")
 
     reset, exhaust = facts["reset_in_seconds"], facts["exhaust_in_seconds"]
-    reset_text = _MISSING_POOL_FACT if reset is None else "passed" if reset <= 0 else duration(reset)
+    missing = missing_pool_fact(unicode)
+    reset_text = missing if reset is None else "passed" if reset <= 0 else duration(reset)
     if facts["reserve"] == "out":
         exhaust_text = "OUT"
     elif exhaust is None:
-        exhaust_text = _MISSING_POOL_FACT
+        exhaust_text = missing
     else:
         exhaust_text = "past est." if exhaust < 0 else duration(exhaust)
         if exhaust_text == reset_text and reset is not None and exhaust != reset:
             exhaust_text = _format_duration(exhaust, extra_unit=True)
             reset_text = _format_duration(reset, extra_unit=True)
-    return f"{exhaust_text}/{reset_text}" + ("!" if facts["exhaust_before_reset"] else "")
+    alert = "!" if facts["exhaust_before_reset"] else ""
+    if alert and exhaust_text == reset_text and reset is not None and exhaust is not None:
+        margin = math.floor(reset - exhaust)
+        alert += f"{margin}s" if margin else "<1s"
+    return f"{exhaust_text}/{reset_text}{alert}"
 
 
 def _pool_bar(row: dict[str, Any], cells: int, unicode: bool, child: bool = False) -> str:
@@ -2434,14 +2444,12 @@ def _pool_cells(row: dict[str, Any], unicode: bool, glyph: bool, guide_url: str 
     cells: tuple[str, ...] = (
         f"{glyphs.get(state, glyphs['aged'])} {state_text}" if glyph else state_text,
         "",
-        format_pool_left(facts, age),
-        format_pool_pace(facts["pace_pt"]) + ("!" if facts["pace_band"] == "rest" else ""),
-        format_exhaust_reset(facts),
+        format_pool_left(facts, age, unicode=unicode),
+        format_pool_pace(facts["pace_pt"], unicode=unicode) + ("!" if facts["pace_band"] == "rest" else ""),
+        format_exhaust_reset(facts, unicode=unicode),
         "",
-        _MISSING_POOL_FACT if age is None else _compact_age(age),
+        missing_pool_fact(unicode) if age is None else _compact_age(age),
     )
-    if not unicode:
-        cells = tuple(cell.replace(_MISSING_POOL_FACT, "-") for cell in cells)
     return dict(zip(_POOL_COLUMNS, cells))
 
 
@@ -2491,23 +2499,29 @@ def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width
     columns: list[str] = [column for column in _POOL_COLUMNS if column not in {"BAR", "AGE"}]
 
     def room(names: Sequence[str]) -> int:
-        return width - name_width - sum(sizes[name] + 2 for name in names)
+        return width - name_width - sum(sizes[name] + len(_POOL_COLUMN_GAP) for name in names)
 
     while room(columns) < 0 and len(columns) > 3:
         columns.pop()
     name_width = min(name_width, width)
-    if "FAMILY" in columns and room([*columns, "BAR"]) >= 0:
-        columns.insert(1, "BAR")
     if "FAMILY" in columns:
+        bar_fits = room([*columns, "BAR"]) >= 0
+        family_room = room([*columns, "BAR"]) if bar_fits else room(columns)
         full = sizes["FAMILY"]
         for row in active:
             family = _pool_family_cell(row, width, unicode, keep)
             if dependency := _pool_dependency(row):
                 family += f"; {dependency}"
             full = max(full, _width(family))
-        sizes["FAMILY"] += min(full - sizes["FAMILY"], max(0, room(columns)))
-    if details and len(columns) >= 5 and room([*columns, "AGE"]) >= 0:
-        columns.append("AGE")
+        if details and room([*columns, "AGE"]) >= 0:
+            columns.append("AGE")
+        sizes["FAMILY"] += min(full - sizes["FAMILY"], family_room, max(0, room(columns)))
+        if details:
+            # Extra detail uses the space from the bar before a data column gives way.
+            sizes["BAR"] = min(BAR_CELLS, max(0, room(columns) - len(_POOL_COLUMN_GAP)))
+            bar_fits = sizes["BAR"] > 0
+        if bar_fits:
+            columns.insert(1, "BAR")
 
     def line(name: str, cells: dict[str, str], row: dict[str, Any] | None = None) -> str:
         name = _fit(name, name_width, unicode, indent=True)
@@ -2517,7 +2531,7 @@ def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width
             pad = " " * max(0, sizes[column] - _width(value))
             ink = _paint_pool_cell(column, value, row) if paint and row and value else value
             fields.append(pad + ink if column in {"LEFT", "PACE(pp)", "AGE"} else ink + pad)
-        return "  ".join(fields).rstrip()
+        return _POOL_COLUMN_GAP.join(fields).rstrip()
 
     header = line(head, {name: name if name != "BAR" else "" for name in columns})
     headers = [header] if _width(header) <= width else _compact_wrap(header, width)
@@ -2527,7 +2541,7 @@ def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width
         cells = _pool_cells(row, unicode, rich, guide_url) if row else {}
         dependency = _pool_dependency(row)
         if row and "BAR" in columns:
-            cells["BAR"] = _pool_bar(row, BAR_CELLS, unicode, child)
+            cells["BAR"] = _pool_bar(row, sizes["BAR"], unicode, child)
         if row and "FAMILY" in columns:
             cells["FAMILY"] = _pool_family_cell(row, sizes["FAMILY"], unicode, keep)
             if profile_urls:
@@ -2606,9 +2620,7 @@ def _pool_gap(rows: list[dict[str, Any]], width: int, unicode: bool) -> list[str
             pool = str(row["pool"])
             healths[pool] = None if pool in healths else row["health"]
     gaps = pace_gaps({pool: facts for pool, facts in healths.items() if facts is not None})["pools"]
-    values = ", ".join(f"{name} {format_pool_pace(pace)}" for name, pace in gaps.items())
-    if not unicode:
-        values = values.replace(_MISSING_POOL_FACT, "-")
+    values = ", ".join(f"{name} {format_pool_pace(pace, unicode=unicode)}" for name, pace in gaps.items())
     return _compact_wrap(f"gap vs {PACE_GAP_BASELINE} (pp): {values}", width)
 
 
@@ -2790,33 +2802,30 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
     return frame
 
 
-def _display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
-    """Retire old windows only behind fresh successful quota evidence from the same source.
+def omitted_plan_windows(observations: list[dict[str, Any]], plans: Mapping[str, str],
+                         elapsed: float = 0) -> dict[tuple[str, str], dict[str, Any]]:
+    """Retire stale windows behind a newer successful quota report from the same account and source."""
+    def account_key(item: dict[str, Any]) -> tuple[str, str]:
+        ref = str(item.get("pool_ref") or "")
+        return str(item.get("peer_id")), ref.rpartition(":")[0]
 
-    This is a presentation copy. Failures, partial reports, other sources, and
-    missing plan evidence preserve the old row and its refresh guidance.
-    """
-    groups = _obj(payload.get("groups"))
-    cap = _obj(groups.get("capacity"))
-    data = _obj(cap.get("data"))
-    observations = _items(payload.get("_human_observations")) if "_human_observations" in payload else _items(data.get("observations"))
-    plans = {str(item.get("peer_id")): _clean(item["plan"]) for item in _items(data.get("accounts"))
-             if item.get("state") == "MEASURED" and item.get("plan") and not item.get("probe_error")}
-    elapsed = _number(payload.get("display_elapsed_seconds")) or 0
-    latest: dict[str, list[dict[str, Any]]] = {}
+    latest: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for item in observations:
         if item.get("kind", "quota") != "quota" or _number(item.get("effective_at_us")) is None:
             continue
-        peer = str(item.get("peer_id"))
-        previous = latest.get(peer, [])
+        account = account_key(item)
+        previous = latest.get(account, [])
         if not previous or item["effective_at_us"] > previous[0]["effective_at_us"]:
-            latest[peer] = [item]
+            latest[account] = [item]
         elif item["effective_at_us"] == previous[0]["effective_at_us"]:
             previous.append(item)
     replacements: dict[tuple[str, str], dict[str, Any]] = {}
     for item in observations:
         peer = str(item.get("peer_id"))
-        report = latest.get(peer, [])
+        report = latest.get(account_key(item), [])
+        unscoped = latest.get((peer, ""), [])
+        if report and unscoped and unscoped[0]["effective_at_us"] >= report[0]["effective_at_us"]:
+            continue
         if (peer not in plans or not report or item.get("state") != "STALE" or not item.get("pool_ref")
                 or _clean(item.get("reason") or "").startswith(DISABLED_REASON)):
             continue
@@ -2834,6 +2843,19 @@ def _display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
             "reason": f"{NOT_REPORTED_REASON}; plan={plans[peer]}", "display_plan": plans[peer], "display_retired": True,
             "age_seconds": report[0].get("age_seconds"), "ttl_seconds": report[0].get("ttl_seconds"),
             "measurements": None, "last_measurements": None, "projection": {}, "resets_at": None, "reset_in_seconds": None}
+    return replacements
+
+
+def _display_plan_omissions(payload: dict[str, Any]) -> dict[str, Any]:
+    """Mark omitted quota rows on a copy of the monitor payload."""
+    groups = _obj(payload.get("groups"))
+    cap = _obj(groups.get("capacity"))
+    data = _obj(cap.get("data"))
+    observations = _items(payload.get("_human_observations")) if "_human_observations" in payload else _items(data.get("observations"))
+    plans = {str(item.get("peer_id")): _clean(item["plan"]) for item in _items(data.get("accounts"))
+             if item.get("state") == "MEASURED" and item.get("plan") and not item.get("probe_error")}
+    elapsed = _number(payload.get("display_elapsed_seconds")) or 0
+    replacements = omitted_plan_windows(observations, plans, elapsed)
     if not replacements:
         return payload
 
@@ -2951,14 +2973,13 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
 
     `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5).
     `links` indicates a VT terminal for the rich view. The link opt-out applies to both views.
-    The plain Guide trailer uses a spare line on a TTY."""
-    links_enabled = monitor_links_enabled(os.environ)
-    enabled = view == "rich" and links and links_enabled
+    The plain Guide trailer uses a spare line when the header has no Guide link."""
+    enabled = view == "rich" and links and monitor_links_enabled(os.environ)
     guide_url = guide_link_url(os.environ) if enabled else None
     store = _obj(payload.get("store_selection"))
     payload = {**_with_retained_quota(_display_plan_omissions(payload)),
                "_show_quota_notes": show_quota_notes, "_guide_url": guide_url,
-               "_state_doc_url": (guide_url or _GUIDE_MAIN_URL) if enabled else None,
+               "_state_doc_url": (_guide_released(None) or _GUIDE_MAIN_URL) if enabled else None,
                "_db_url": file_link_url(store.get("path")) if enabled else None,
                "_profile_urls": payload.get("_profile_urls") if enabled else None,
                "_file_links": enabled and os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off"}
@@ -2970,7 +2991,8 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         screen = _render_compact_frame(payload, view=view, color=color, unicode=unicode,
                                        width=width, height=height, keep=text_encoding)
         columns = max(1, min(COMPACT_WIDTH, width) - 1)
-    if tty and screen and (view == "plain" or not links_enabled):
+    guide_rendered = guide_url is not None and osc_link(guide_url, GUIDE_TEXT) in screen
+    if screen and not guide_rendered and (tty or view == "plain"):
         guide = f"{GUIDE_TEXT}: {guide_text_url(os.environ)}"
         line_count = screen.count("\n")
         room = height is None or line_count < height - FRAME_TRAILING_ROWS

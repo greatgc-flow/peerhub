@@ -38,17 +38,28 @@ def pool_cells(screen: str, pool: str) -> list[list[str]]:
 
 
 def test_cross_view_health_equivalence() -> None:
-    parent, child, expired, tiny = "C-7D", "F-7D", "X-7D", "G-7D"
+    parent, child, expired, tiny = "C-7D", "F-7D", "3P-7D", "G-7D"
     standard, fable = "cc.standard", "cc.fable"
     profiles = {standard: [parent], fable: [parent, child]}
     by_pool = {pool: [name for name, pools in profiles.items() if pool in pools] for pool in (parent, child)}
     exhausted = reading("cc", parent, 0, PLAN_SPEND_PACE_PT + 1)
     limited = reading("cc", child, CHILD_LEFT, -PLAN_SPEND_PACE_PT - 1)
-    passed = _item("cx", expired, .25, span=WEEK, elapsed=WEEK - 30, age=60)
+    passed = _item("ag", expired, .25, span=WEEK, elapsed=WEEK - 30, age=60)
     small = reading("ag", tiny, .004, 0)
-    items = (exhausted, limited, passed, small)
+    old_pool, stale_pool = "X-30D", "A-7D"
+    old = reading("cx", old_pool, .93, 25, age=2 * QUOTA_TTL_SECONDS, span=30 * DAY)
+    stale = reading("ag", stale_pool, .45, 0, age=QUOTA_TTL_SECONDS)
+    for item in (old, stale):
+        item.update(state="STALE", source="fixture", effective_at_us=int((NOW - item["age_seconds"]) * 1e6))
+    current_pool = PACE_GAP_BASELINE
+    current = reading("cx", current_pool, .65, -PLAN_SPEND_PACE_PT - 1)
+    current.update(source="fixture", effective_at_us=int(NOW * 1e6))
+    items = (exhausted, limited, passed, small, old, stale, current)
     data = frame(*items, profiles=profiles)
-    report = _report(*items)
+    plan_name = "pro"
+    data["groups"]["capacity"]["data"]["accounts"] = [{"peer_id": "cx", "plan": plan_name, "state": "MEASURED"}]
+    report = _report(*items, {"kind": "account", "subject_ref": "cx", "state": "MEASURED",
+                              "payload": {"plan": plan_name, "plan_status": "reported"}})
     options = {"view": "plain", "width": 120}
     compact = mv.render_grouped_frame(data, **options)
     expanded = mv.render_grouped_frame(data, expand=True, **options)
@@ -83,8 +94,19 @@ def test_cross_view_health_equivalence() -> None:
     assert child_json["resets_in_seconds"] != child_json["health"]["effective_reset_in_seconds"]
     assert child_json["target_pct_per_hour"] == pytest.approx(CHILD_LEFT * 100 / (child_json["resets_in_seconds"] / HOUR))
     assert child_json["action"] == "blocked" and child_json["binding"] == parent
-    assert child_json["reason"] == f"{parent}: out"
-    assert plan_rows[child][3:] == ["0.00", "blocked", child_json["reason"]]
+    assert child_json["reason"] == f"gate: {parent} out"
+    assert plan_rows[child][3].startswith("0.00")
+    assert plan_rows[child][4:] == ["blocked", child_json["reason"]]
+    for screen in (compact, expanded):
+        assert old_pool in screen and "n/a" in screen and "(stale)" not in screen
+        assert all(f"~{QUOTA_TTL_SECONDS // 60}m" in " ".join(cells) for cells in pool_cells(screen, stale_pool))
+    retired = json_rows[old_pool]
+    assert retired["action"] == retired["health"]["state"] == "n/a"
+    assert retired["left_pct"] is None
+    assert json_rows[current_pool]["binding"] == current_pool and json_rows[current_pool]["action"] == "spend"
+    assert "plan omits" in " ".join(plan_rows[old_pool]) and old_pool not in " ".join(plan_rows[current_pool])
+    assert json_rows[stale_pool]["stale"] and json_rows[stale_pool]["health"]["state"] == "aged"
+    assert f"~{QUOTA_TTL_SECONDS // 60}m" in " ".join(plan_rows[stale_pool])
 
 
 def test_even_burn_tick_replaces_filled_cell_on_collision() -> None:
@@ -153,7 +175,7 @@ def test_g_same_columns_and_cell_text_in_pools_and_quota(view: str, width: int) 
     [compact_cells] = pool_cells(compact, pool)
     expanded_top, quota = pool_cells(expanded, pool)
     assert compact_cells == expanded_top
-    assert quota[:len(compact_cells)] == compact_cells
+    assert [quota[0], *quota[2:len(compact_cells)]] == [compact_cells[0], *compact_cells[2:]]
     assert {"17%", "+3.8"} <= set(quota)
     assert "|" in quota[1]  # M3/G: the even-burn tick in both bars
     assert any("ag.neon" in cell for cell in quota)
@@ -249,3 +271,41 @@ def test_m9_and_g_gap_order_and_single_legend_match_docs() -> None:
         assert screen.count(mv.POOL_LEGEND) == 1
         assert screen.index(line) < screen.index(mv.POOL_LEGEND) < screen.index("suggest:")
     assert mv.POOL_LEGEND in Path("docs/monitor.md").read_text(encoding="utf-8")
+
+
+def test_early_margin_when_exhaustion_and_reset_display_the_same_minute() -> None:
+    pool = "G-7D"
+    exhaust = 3 * DAY + 13 * HOUR + 5 * 60
+    margin_seconds = 30
+    reset = exhaust + margin_seconds
+    item = _item("ag", pool, HALF, span=exhaust + reset, elapsed=exhaust, age=0)
+    expected = f"3d13h05m/3d13h05m!{margin_seconds}s"
+    for expand in (False, True):
+        rows = pool_cells(mv.render_grouped_frame(frame(item), width=120, expand=expand), pool)
+        assert rows and all(expected in cells for cells in rows)
+    assert expected in render_plan(_report(item), width=120)
+
+
+@pytest.mark.parametrize("unicode,placeholder", [(False, "?"), (True, "—")])
+def test_gap_and_exhaustion_use_the_same_missing_fact_marker(unicode: bool, placeholder: str) -> None:
+    pool = "G-7D"
+    item = _item("ag", pool, HALF, span=WEEK, elapsed=HOUR, age=0)
+    for expand in (False, True):
+        screen = mv.render_grouped_frame(frame(item), width=100, unicode=unicode, expand=expand)
+        assert f"{pool} {placeholder}" in next(line for line in screen.splitlines() if line.startswith("gap vs "))
+        rows = pool_cells(screen, pool)
+        assert rows and all(any(cell.startswith(f"{placeholder}/") for cell in cells) for cells in rows)
+
+
+def test_quota_bar_yields_before_age() -> None:
+    pool = "G-7D"
+    data = frame(reading("ag", pool, .17, 3.8), profiles={"ag.neon": [pool]})
+    def quota(width: int) -> tuple[str, list[str]]:
+        screen = mv.render_grouped_frame(data, expand=True, width=width, view="plain", unicode=False)
+        return next(line for line in screen.splitlines() if line.startswith("PEER POOL")), pool_cells(screen, pool)[-1]
+    wide, full = quota(100)
+    narrow, reduced = quota(69)
+    assert "AGE" in wide and "AGE" in narrow
+    assert len(full[1]) == mv.BAR_CELLS
+    assert not any(re.fullmatch(r"[=.|]+", cell) and len(cell) == mv.BAR_CELLS for cell in reduced)
+    assert "AGE" not in quota(45)[0]

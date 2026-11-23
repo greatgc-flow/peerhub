@@ -9,6 +9,7 @@ from typing import Any, get_args
 
 import pytest
 
+from peerhub import __version__
 from peerhub.cli import monitor, monitor_preferences, monitor_refresh, monitor_view, support, view
 from peerhub.extensions import monitor_read_model
 from peerhub.extensions.pool_health import PoolState
@@ -110,16 +111,17 @@ def test_header_quota_state_links_to_its_documented_vocabulary(expand: bool) -> 
     linked = monitor_view.render_grouped_frame(payload, links=True, expand=expand)
     [(url, label)] = OSC_LINK.findall(linked.splitlines()[0])
     base, anchor = url.split("#")
-    assert (base, label) == (DOC_URL, payload["min_quota"]["state"])
+    assert (base, label) == (monitor_view.guide_link_url({}), payload["min_quota"]["state"])
     assert f'id="{anchor}"' in MONITOR_DOC.read_text(encoding="utf-8")
 
 
-def test_every_pool_state_link_targets_an_anchor_in_the_monitor_doc(monkeypatch: pytest.MonkeyPatch) -> None:
-    version = "1.2.3"
-    monkeypatch.delenv("PEERHUB_GUIDE_URL")
-    monkeypatch.setattr("peerhub._version.__version__", version)
-    base = monitor_view.guide_link_url({}, version)
-    assert base is not None and base.endswith(f"/blob/v{version}/{monitor_view.GUIDE_DOC}")
+def test_every_pool_state_link_targets_an_anchor_in_the_monitor_doc() -> None:
+    pool, state = "G-7D", "ok"
+    display = frame(reading("ag", pool, .5, 0))
+    screen = monitor_view.render_grouped_frame(display, links=True, expand=True)
+    [(url, _), *_] = [(url, label) for url, label in OSC_LINK.findall(screen) if label == state]
+    base = url.split("#")[0]
+    assert base.endswith(f"/blob/v{__version__}/{monitor_view.GUIDE_DOC}")
     doc = MONITOR_DOC.read_text(encoding="utf-8")
     anchors = set()
     for state in get_args(PoolState):
@@ -127,7 +129,7 @@ def test_every_pool_state_link_targets_an_anchor_in_the_monitor_doc(monkeypatch:
         target, anchor = url.split("#")
         assert target == base and label == state and f'id="{anchor}"' in doc
         anchors.add(anchor)
-    assert len(anchors) == len(get_args(PoolState))
+    assert len(anchors) == 9
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -144,7 +146,9 @@ def test_pool_state_links_preserve_visible_table_cells(monkeypatch: pytest.Monke
     linked_rows = [line for line in linked.splitlines() if f"{pool}  " in line]
     disabled_rows = [line for line in disabled.splitlines() if f"{pool}  " in line]
     assert len(linked_rows) == (2 if expand else 1)
-    target = monitor_view.link_pool_state(DOC_URL, state)
+    base = monitor_view.guide_link_url({})
+    assert base is not None
+    target = monitor_view.link_pool_state(base, state)
     assert all(target in line for line in linked_rows)
     assert [monitor_view._ANSI.sub("", line) for line in linked_rows] == disabled_rows
     assert "\x1b]8" not in disabled and f"Guide: {DOC_URL}" in disabled
@@ -237,3 +241,18 @@ def test_live_activity_reads_do_not_advance_quota_reads_or_probes(monkeypatch: p
     ]
     assert probes == [full_interval]
     assert any("RUNNING 1" in frame for frame in frames)
+
+
+@pytest.mark.parametrize("expand", [False, True])
+@pytest.mark.parametrize("style,tty", [("rich", True), ("plain", False)])
+def test_guide_trailer_when_snapshot_has_no_guide_link(monkeypatch: pytest.MonkeyPatch,
+                                                      capsys: pytest.CaptureFixture[str], expand: bool,
+                                                      style: str, tty: bool) -> None:
+    monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: (120, 50)))
+    monkeypatch.setattr(view.FrameOutput, "width", staticmethod(lambda: 120))
+    monkeypatch.setattr(view, "enable_vt", lambda: False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: tty)
+    monitor._print_grouped_snapshot(_payload([], []), style, expand)
+    screen = capsys.readouterr().out
+    assert OSC_LINK.findall(screen) == []
+    assert screen.splitlines()[-1] == f"{monitor_view.GUIDE_TEXT}: {DOC_URL}"

@@ -96,14 +96,14 @@ def test_only_newest_ask_uses_live_session_context(width, style, expand, peer):
 @pytest.mark.parametrize("tty", [False, True])
 @pytest.mark.parametrize("no_links", [False, True])
 @pytest.mark.parametrize("expand", [False, True])
-def test_plain_guide_respects_terminal_and_opt_out(monkeypatch, tty, no_links, expand):
+def test_plain_guide_stays_visible_with_or_without_terminal_or_opt_out(monkeypatch, tty, no_links, expand):
     url = "https://example.test/monitor"
     monkeypatch.setenv("PEERHUB_NO_LINKS", str(int(no_links)))
     monkeypatch.setenv("PEERHUB_GUIDE_URL", url)
     payload = full_payload() if expand else quiet_payload()
     screen = mv.render_grouped_frame(payload, view="plain", width=118, expand=expand, tty=tty)
     guides = [line for line in screen.splitlines() if line.startswith(f"{mv.GUIDE_TEXT}:")]
-    assert guides == ([f"{mv.GUIDE_TEXT}: {url}"] if tty else [])
+    assert guides == [f"{mv.GUIDE_TEXT}: {url}"]
     assert "\x1b" not in screen
 
 

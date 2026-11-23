@@ -311,14 +311,16 @@ def test_schema_11_watch_is_explicit_legacy_ndjson(tmp_path, monkeypatch, capsys
     assert [normalize(frame) for frame in frames] == expected
 
 
-def _assert_monitor_reset_countdown(rendered):
+def _assert_monitor_reset_countdown(rendered, *, unicode):
+    from peerhub.cli.monitor_view import missing_pool_fact
+
     lines = _ANSI.sub("", rendered).splitlines()
     # G.3–4: the POOLS row keeps a reset when the forecast is unavailable.
     header = next(line for line in lines if re.search(r"\bPOOLS \d+\b", line))
     assert "EXH/RESET" in header.split()
     row = next(line.split() for line in lines if line.split()[:2] == ["cx", "5h"])
     pair, = (cell for cell in row if "/" in cell)
-    assert pair.replace("—", "-") == "-/4h58m"
+    assert pair == f"{missing_pool_fact(unicode)}/4h58m"
 
 
 @pytest.mark.parametrize("tty", [False, True])
@@ -340,19 +342,29 @@ def test_monitor_reset_countdown_tty_plain_parity(tmp_path, monkeypatch, tty):
     ))
 
     class Output(io.StringIO):
+        def __init__(self, encoding):
+            super().__init__()
+            self._encoding = encoding
+
+        @property
+        def encoding(self):
+            return self._encoding
+
         def isatty(self):
             return tty
 
-    output = Output()
-    monkeypatch.setattr("sys.stdout", output)
     monkeypatch.setattr("peerhub.cli.view.enable_vt", lambda: True)
+    monkeypatch.setenv("TERM", "xterm")
     monkeypatch.setenv("COLUMNS", "120")
     monkeypatch.setenv("LINES", "24")
     monkeypatch.setattr("peerhub.extensions.monitor_read_model.render_monitor_frame",
                         lambda db, groups, **kw: render_monitor_frame(db, groups, read_at=T0 + 120, **kw))
 
-    assert main(["--db", str(h.db_path), "monitor", "--snapshot", "--group", "capacity"]) in (0, 4)
-    _assert_monitor_reset_countdown(output.getvalue())
+    for encoding in ("ascii", "utf-8"):
+        output = Output(encoding)
+        monkeypatch.setattr("sys.stdout", output)
+        assert main(["--db", str(h.db_path), "monitor", "--snapshot", "--view", "auto", "--group", "capacity"]) in (0, 4)
+        _assert_monitor_reset_countdown(output.getvalue(), unicode=tty and encoding == "utf-8")
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX PTY parity; simulated TTY parity runs on Windows")
@@ -379,8 +391,8 @@ def test_monitor_reset_countdown_posix_pty_plain_parity(tmp_path):
         payload={"remaining_fraction": 0.75, "resets_at": now + 17910},
     ))
     command = [sys.executable, "-m", "peerhub", "--db", str(h.db_path),
-               "monitor", "--snapshot", "--group", "capacity"]
-    env = _child_env(tmp_path, TERM="xterm", NO_COLOR="1", COLUMNS="120", LINES="24")
+               "monitor", "--snapshot", "--view", "auto", "--group", "capacity"]
+    env = _child_env(tmp_path, TERM="xterm", NO_COLOR="1", PYTHONIOENCODING="utf-8", COLUMNS="120", LINES="24")
     plain = subprocess.run(command, capture_output=True, text=True, env=env, timeout=30)
     assert plain.returncode in (0, 4)
     master, slave = pty.openpty()
@@ -403,8 +415,8 @@ def test_monitor_reset_countdown_posix_pty_plain_parity(tmp_path):
         if process.poll() is None:
             process.kill()
             process.wait(timeout=5)
-    for rendered in (plain.stdout, output.decode("utf-8")):
-        _assert_monitor_reset_countdown(rendered)
+    _assert_monitor_reset_countdown(plain.stdout, unicode=False)
+    _assert_monitor_reset_countdown(output.decode("utf-8"), unicode=True)
 
 
 def test_bare_monitor_default_tty_uses_grouped_sections(tmp_path, monkeypatch):

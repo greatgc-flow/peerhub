@@ -1,6 +1,6 @@
 # Monitor pace health and caller ownership: decision record (2026-11-23)
 
-Status: implemented in PRs #460-#463 (scored in scoring/s1.md)
+Status: implemented in PRs #460-#465 (scored in scoring/s1.md and s2.md)
 
 Three independent peers (cx.astra, ag.neon, ag.argon) signed the decision in round 9. The implementation order is at the end. The record of every round is in `monitor-pace-health-2026-11-23/rounds/`.
 

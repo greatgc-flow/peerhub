@@ -360,3 +360,11 @@ def test_caller_ownership_explain_matches_reference_and_is_indexed(capsys):
 
 def test_lessons_generation_drift():
     assert Path("docs/lessons.md").read_text(encoding="utf-8") == render_lessons_reference()
+
+
+def test_monitor_view_explains_guide_trailer_and_matches_reference(capsys):
+    assert main(["explain", "monitor-view", "--json"]) == 0
+    (lesson,) = json.loads(capsys.readouterr().out)["lessons"]
+    guide_rule = next(sentence for sentence in lesson["fix"].split(". ") if "PEERHUB_NO_LINKS" in sentence)
+    assert all(word in guide_rule for word in ("OSC 8", "Guide:", "fits"))
+    assert f'- Fix: {lesson["fix"]}' in Path("docs/lessons.md").read_text(encoding="utf-8")
