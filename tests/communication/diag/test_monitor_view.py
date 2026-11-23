@@ -788,7 +788,8 @@ def test_g_expand_quota_bar_tick_and_painted_pace_preserve_plain_facts(monkeypat
     payload = frame(reading("ag", "G-7D", .50, 12.5))
     plain = mv.render_grouped_frame(payload, view="plain", color=True, unicode=False, width=120, expand=True)
     compact, quota = pool_cells(plain, "G-7D")
-    assert compact == quota[:len(compact)]
+    assert compact[0] == quota[0] and compact[2:] == quota[2:len(compact)]
+    assert len(quota[1]) > len(compact[1]) == mv.BAR_CELLS and "|" in quota[1]
     assert compact[:4] == ["ok", "####.|..", "50%", "+12.5"]
     assert "\x1b" not in plain
     rich = mv.render_grouped_frame(payload, view="rich", color=True, width=120, expand=True)

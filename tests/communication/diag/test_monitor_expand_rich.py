@@ -235,7 +235,8 @@ def test_one_db_line_at_100_columns_then_the_sections_in_the_agreed_order():
     assert lines[suggest + 1].startswith("── ALERTS 2 ─")
     assert sum(line.startswith("PeerHub Monitor") for line in lines) == 1  # the grouped frame's own title line is gone
     assert not any("ACTIVITY [" in line or "PeerHub Monitor | " in line for line in lines)
-    assert lines[-1] == "Coverage: partial; peerhub explain <code>"
+    assert lines[-2] == "Coverage: partial; peerhub explain <code>"
+    assert lines[-1].startswith(f"{mv.GUIDE_TEXT}: ")
     legend = lines.index(next(line for line in lines if line.startswith("ok enough · low >0-10%")))
     assert legend > lines.index(next(line for line in lines if line.startswith("── STORE ")))  # the legend ends the frame
 
@@ -301,7 +302,8 @@ def test_g_quota_details_match_pools_vocabulary_and_bar():
         row = next(line for line in block(screen, "pools")[1:]
                    if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ )?{name} +", line))
         actual = row.split()[row.split().index(name) + 1:]
-        assert cells[:6] == actual[:6], name  # G: state, bar, left, pace and pair
+        assert (cells[:2], cells[3:6]) == (actual[:2], actual[3:6]), name  # G: state, left, pace and pair
+        assert len(cells[2]) > len(actual[2]) == mv.BAR_CELLS
     assert rows["X-7D"][:2] == [U["fast"], "fast"]
     assert rows["X-7D"][3:5] == ["42%", "+31.0!"]
 
@@ -548,8 +550,9 @@ def test_every_line_fits_every_width(build, width):
 @pytest.mark.parametrize("width", [60, 100, 140])
 def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
     payload = detail_payload()
-    whole = expand(payload, width=width, height=10_000).splitlines()
-    unbounded = expand(payload, width=width).splitlines()
+    guide = f"{mv.GUIDE_TEXT}: "
+    whole = [line for line in expand(payload, width=width, height=10_000).splitlines() if not line.startswith(guide)]
+    unbounded = [line for line in expand(payload, width=width).splitlines() if not line.startswith(guide)]
     assert whole[-1].startswith("Coverage: ") and "rows hidden" not in "\n".join(whole)
     assert unbounded[:len(whole) - 1] == whole[:-1] and unbounded[-1] == whole[-1] and len(unbounded) > len(whole)
     assert not any(line.startswith("ok enough") for line in whole) and any(line.startswith("ok enough") for line in unbounded)

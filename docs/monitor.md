@@ -3,7 +3,7 @@
 `peerhub monitor` is the human screen. An AI reads `peerhub diag --plan` instead (pools plus the load line, about 350 tokens).
 
 This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the
-`Guide:` line in plain snapshots and terminal frames without a Guide link. It describes what the screen shows. The same facts are
+`Guide:` line in snapshots and terminal frames without a Guide link, including redirected rich output. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
 
 Continuous terminal watch checks each selected peer every second and refreshes it in the background when its oldest
@@ -73,7 +73,7 @@ counted). The compact frame shows at most eight rows, `--expand` shows all of th
 | POOL | peer and pool, for example `cc C-7D`. A child pool is indented under its parent with `└─` / `├─` (ASCII `` `- `` / `\|-`). |
 | STATE | a glyph and the state word, see below. |
 | bar | remaining quota and its even-burn tick. See [Bar glyphs](#bar-glyphs). |
-| LEFT | remaining quota rounded to the nearest whole percent. Positive values that would round to zero show `<1%`. An actual zero in the sampled window shows `0%`. Missing values and readings from a window that has reset show `—` (ASCII `-`). A low reserve has a trailing `!`. Stale evidence has a `~Xm` badge. |
+| LEFT | remaining quota rounded to the nearest whole percent. Positive values that would round to zero show `<1%`. An actual zero in the sampled window shows `0%`. Missing values and readings from a window that has reset show `—` (ASCII `?`). A low reserve has a trailing `!`. Stale evidence has a `~Xm` badge. |
 | PACE(pp) | percentage points ahead of (`+`) or behind (`-`) even burn. A trailing `!` marks the rest band. |
 | EXH/RESET | forecast time until exhaustion and time until reset. Different times that display the same way gain one unit of precision, for example `3d13h05m/3d13h40m!`. A `!` means the forecast is earlier than reset. When the displayed times still tie, the margin follows it (for example `!30s`). Either side can show `—` when unavailable (`?` in ASCII), as can a weekly pace gap. `OUT` marks a fresh zero and `past est.` marks a forecast that has already passed while measured quota remains positive. |
 | FAMILY | the family label and configured profiles using the pool, including child pools. For example, `flash: ag.effort,ag.neon +1` shows two profiles and counts one more. A child pool also shows its dependency, for example `limited by C-7D (own 26%)`. |
@@ -127,7 +127,7 @@ PEERS, `suggest:` and `peerhub diag quota`.
 - The `|` tick marks even-burn remaining when that fact is available, including when it covers a filled cell.
 - PACE and the bar use cyan for spend, green for ok and yellow for rest. Fresh zero uses bold red.
   LEFT uses neutral text, a yellow low-reserve `!` at 10% or less, or bold red at fresh zero.
-- The fixed-width bar gives way first on narrow terminals. Data columns give way in order of AGE,
+- The bar gives way first on narrow terminals. Data columns give way in order of AGE,
   FAMILY and EXH/RESET. STATE, LEFT and PACE stay.
 
 `suggest:` (under POOLS) is advisory: `suggest: eco=cc.standard normal=cc.effort|cx.effort ...`. `a|b` is the best
@@ -203,7 +203,7 @@ unknown; `!` after the percentage means 80% or more (a mark, not an alert). The 
 
 | Section | What it shows |
 |---|---|
-| QUOTA | the same STATE, bar, LEFT, PACE(pp), EXH/RESET and FAMILY as POOLS, plus AGE when it fits. Reset credits and evidence notes follow. |
+| QUOTA | the same STATE, bar, LEFT, PACE(pp), EXH/RESET and FAMILY as POOLS, plus AGE when it fits. The bar uses the space left after the data columns. Reset credits and evidence notes follow. |
 | PEERS | per peer: its quota, profile, session reuse, context and the account plan (display text, not billing). Up to eight peers. |
 | EXECUTION | bridge delivery certainty (not started, may have started, started, terminal), session reuse and delivery latency. It measures delivery, not task success. |
 | SESSIONS | retained sessions: lifecycle, fresh or reused, profile, model, effort. |
@@ -245,7 +245,7 @@ A terminal without VT (or `TERM=dumb`) appends each frame. A pipe receives one c
 
 In the rich view on a terminal with OSC 8 enabled, `Guide` stays at the right end of line 2 during watch and in
 snapshots, in both layouts. The status fields on the left yield room to the link. It opens this page for the release
-you run. Plain snapshots and terminal frames without a Guide link end with a copyable `Guide: <url>` line when it fits.
+you run. Snapshots and terminal frames without a Guide link end with a copyable `Guide: <url>` line when it fits.
 That URL uses `main` for development builds.
 
 The rich view also links the database path and profile names to their files, and recorded query text to its local file.

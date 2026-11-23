@@ -143,8 +143,11 @@ def test_g_child_and_parent_bars_use_one_fixed_width_or_yield(unicode: bool) -> 
 def test_expand_plain_quota_bar_distinguishes_child_from_parent() -> None:
     screen = render(tree(), view="plain", unicode=False, expand=True, width=180)
     child, parent = row(screen[screen.index("PEER"):], "C-5H"), row(screen[screen.index("PEER"):], "C-7D")
-    assert re.search(r"(?<![=|:-])[=|:-]{8}(?![=|:-])", child) and "=" in child and "#" not in child
-    assert re.search(rf"(?<![#|:.])[#|:.]{{{mv.BAR_CELLS}}}(?![#|:.])", parent) and "#" in parent and "=" not in parent
+    child_bar = re.search(r"\blow +([=|:-]+)(?= )", child)
+    parent_bar = re.search(r"(?<= )[#|:.]+(?= )", parent)
+    assert child_bar and parent_bar
+    assert len(child_bar[1]) == len(parent_bar[0]) > mv.BAR_CELLS
+    assert "=" in child_bar[1] and "#" in parent_bar[0]
     uni = render(tree(), view="plain", unicode=True, expand=True, width=180)
     uni_child = row(uni[uni.index("PEER"):], "C-5H")
     assert "▬" in uni_child and "█" not in uni_child
@@ -259,7 +262,7 @@ def test_narrow_width_fits_the_status_around_the_whole_link(monkeypatch: pytest.
         plain = render(tree(), expand=expand, width=width)
         linked = render(tree(), links=True, expand=expand, width=width)
         flat = OSC.sub("", linked).splitlines()
-        base = plain.splitlines()
+        base = [line for line in plain.splitlines() if not line.startswith(f"{mv.GUIDE_TEXT}: ")]
         assert [line for i, line in enumerate(flat) if i != 1] == [line for i, line in enumerate(base) if i != 1], width
         assert title_line(linked).count(OPEN) == title_line(linked).count(CLOSE) == 1
         assert linked.count("\x1b]8;;") == 2 * linked.count(CLOSE)

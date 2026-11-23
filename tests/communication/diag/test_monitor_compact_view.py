@@ -459,7 +459,7 @@ def test_missing_configured_pool_requests_refresh(compact_frame):
     assert "POOLS 0" in screen.splitlines() and "no quota evidence; next: peerhub observation refresh" in screen
     rich = render_grouped_frame(compact_frame).splitlines()  # P21: the head is a rule; the notes are the same lines
     assert rich[2] == screen.splitlines()[2] == "quota: no reading -> peerhub observation refresh"
-    assert rich[3] == "── POOLS 0 " + "─" * 88 and rich[4:] == screen.splitlines()[4:-1]
+    assert rich[3] == "── POOLS 0 " + "─" * 88 and rich[4:] == screen.splitlines()[4:]
     assert screen.splitlines()[-1].startswith("Guide: ")
     compact_frame["selected_groups"] = ["peers"]
     assert "next: peerhub observation refresh" in render_grouped_frame(compact_frame)

@@ -700,7 +700,8 @@ def _run_diag_cli(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         else:
             plan_output = render_plan(rep, width=FrameOutput.width(), store_path=store["path"], store_source=store["source"],
                                       store_note=store_note, load=load, profiles_by_pool=profiles_by_pool,
-                                      peers=peers, separate_observation_store=obs_db is not None and obs_db != args.db)
+                                      peers=peers, separate_observation_store=obs_db is not None and obs_db != args.db,
+                                      unicode=(sys.stdout.encoding or "").lower().startswith("utf"))
         print(plan_output, flush=True)
         return 6 if rep.error and rep.error.startswith("SchemaVersionError") else 0 if rep.status == "OK" else 4
     if args.action is None:

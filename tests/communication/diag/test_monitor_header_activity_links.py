@@ -244,7 +244,7 @@ def test_live_activity_reads_do_not_advance_quota_reads_or_probes(monkeypatch: p
 
 
 @pytest.mark.parametrize("expand", [False, True])
-@pytest.mark.parametrize("style,tty", [("rich", True), ("plain", False)])
+@pytest.mark.parametrize("style,tty", [("rich", True), ("plain", False), ("rich", False)])
 def test_guide_trailer_when_snapshot_has_no_guide_link(monkeypatch: pytest.MonkeyPatch,
                                                       capsys: pytest.CaptureFixture[str], expand: bool,
                                                       style: str, tty: bool) -> None:
