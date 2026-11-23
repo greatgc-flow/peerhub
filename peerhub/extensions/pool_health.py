@@ -6,7 +6,7 @@ import math
 from collections.abc import Mapping
 from typing import Literal, TypedDict, cast
 
-from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PACE_BAND_ROUNDING_DIGITS, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
 from peerhub.extensions.diag_quota import projection
 from peerhub.extensions.observation_model import ABSENT_FACT_REASONS, instant_us
 from peerhub.extensions.quota_projection import ProjectionState, limit_by_parent
@@ -54,9 +54,11 @@ def _num(value: object) -> float | None:
     return number if math.isfinite(number) else None
 
 
-def _pace_band(pace: float | None) -> PaceBand | None:
+def pace_band(pace: float | None) -> PaceBand | None:
+    """Classify pace at policy precision while keeping the measured pace intact."""
     if pace is None:
         return None
+    pace = round(pace, PACE_BAND_ROUNDING_DIGITS)
     if pace <= -PLAN_SPEND_PACE_PT:
         return "spend"
     return "rest" if pace > PLAN_REST_PACE_PT else "ok"
@@ -130,7 +132,7 @@ def _reading_health(reading: Reading, frame_time: float) -> PoolHealth:
     exhaust_at = proj["exhaustion_at"] if proj["state"] in ("threat", "on_pace") else None
     exhaust = None if exhaust_at is None else exhaust_at - frame_time
     return PoolHealth(
-        state=state, pace_band=_pace_band(pace), reserve=reserve,
+        state=state, pace_band=pace_band(pace), reserve=reserve,
         even_left_pct=None if left is None or pace is None else left + pace,
         exhaust_in_seconds=exhaust, exhaust_before_reset=_before_reset(exhaust, reset),
         forecast=proj["state"],
