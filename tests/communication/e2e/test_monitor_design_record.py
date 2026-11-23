@@ -1,0 +1,48 @@
+"""The monitor design record (docs/design/monitor-pace-health-2026-11-23): every decision states purpose, evidence and reason."""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+
+pytestmark = [pytest.mark.unit]
+
+DESIGN = Path(__file__).resolve().parents[3] / "docs" / "design"
+RECORD = DESIGN / "monitor-pace-health-2026-11-23.md"
+ROUNDS = DESIGN / "monitor-pace-health-2026-11-23" / "rounds"
+TEXT = RECORD.read_text(encoding="utf-8")
+
+
+def _sections() -> dict[str, str]:
+    parts = re.split(r"(?m)^## ", TEXT)
+    return {part.split("\n", 1)[0]: part for part in parts[1:]}
+
+
+def test_every_decision_states_purpose_evidence_and_reason():
+    sections = _sections()
+    names = ["C1", *[f"M{i}" for i in range(1, 11)], "AI SURFACE"]
+    for name in names:
+        (title,) = [key for key in sections if key.startswith(name + " ") or key == name]
+        body = sections[title]
+        for label in ("Purpose", "Evidence", "Reason"):
+            assert label in body, (title, label)
+        assert "Decision" in body, title
+
+
+def test_the_evidence_facts_are_listed_and_the_rounds_are_kept():
+    for fact in [f"F{i}" for i in range(1, 11)]:
+        assert re.search(rf"(?m)^{fact} ", TEXT), fact
+    assert sorted(path.name for path in ROUNDS.glob("r*.md")) == [f"r{i}.md" for i in range(1, 10)]
+    for path in ROUNDS.glob("r*.md"):
+        text = path.read_text(encoding="utf-8")
+        assert "## Prompt" in text and "## Replies" in text and "reply ---" in text, path.name
+
+
+def test_the_design_index_links_the_record_and_nothing_leaks_local_paths():
+    index = (DESIGN / "README.md").read_text(encoding="utf-8")
+    assert "monitor-pace-health-2026-11-23.md" in index
+    for path in [RECORD, *ROUNDS.glob("r*.md")]:
+        text = path.read_text(encoding="utf-8")
+        assert not re.search(r"[A-Za-z]:[\/]+(PkgDev|Users)", text), path.name
+        assert "sess_" not in text, path.name
