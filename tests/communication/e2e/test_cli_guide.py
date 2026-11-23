@@ -200,7 +200,7 @@ def test_every_topic_is_one_short_explain_entry(capsys):
 
 def test_guide_separates_batch_validation_from_quota_spend(capsys):
     batch = next(line for line in _guide(capsys).splitlines() if line.startswith("Batch: "))
-    assert "--dry-run (validates only)" in batch
+    assert "--dry-run (checks profiles; no calls)" in batch
     assert "execution spends quota" in batch
 
 

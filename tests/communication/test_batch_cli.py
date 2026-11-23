@@ -97,6 +97,72 @@ def test_unknown_peer(tmp_path, capsys):
     assert not (tmp_path / "missing").exists()
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("profile", ["cx.nonexistent-review", "cc.standard"])
+def test_invalid_profile_aborts_entire_batch_before_dispatch(tmp_path, monkeypatch, capsys, dry_run, profile):
+    """A later invalid task must not let an earlier valid task spend quota."""
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global"))
+    monkeypatch.setattr(batch, "run_batch", lambda *a, **kw: pytest.fail("no worker may start"))
+    monkeypatch.setattr(batch.subprocess, "Popen", lambda *a, **kw: pytest.fail("no provider probe"))
+    path = manifest(tmp_path, rows=[
+        {"task_id": "valid", "peer": "cx", "prompt": "first", "profile": "cx.standard", "workspace": str(tmp_path)},
+        {"task_id": "invalid", "peer": "cx", "prompt": "second", "profile": profile, "workspace": str(tmp_path)},
+    ])
+    assert main(argv(tmp_path, path, "--json", *(["--dry-run"] if dry_run else []))) == 1
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "invalid_manifest" and "task invalid:" in error["message"]
+    assert "profile" in error["message"]
+    assert not (tmp_path / "missing").exists()
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("peer", ["ca", "oa", "ga"])
+def test_api_profile_is_required_before_any_batch_worker(tmp_path, monkeypatch, capsys, dry_run, peer):
+    monkeypatch.setattr(batch, "run_batch", lambda *a, **kw: pytest.fail("no worker may start"))
+    monkeypatch.setattr(batch.subprocess, "Popen", lambda *a, **kw: pytest.fail("no provider probe"))
+    assert main(argv(tmp_path, manifest(tmp_path, peer=peer), "--json", *(["--dry-run"] if dry_run else []))) == 1
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert error["code"] == "invalid_manifest" and "task a:" in error["message"]
+    assert f"{peer} needs --profile" in error["message"]
+    assert not (tmp_path / "missing").exists()
+
+
+@pytest.mark.parametrize("peer", ["ca", "oa", "ga"])
+def test_api_profile_validation_is_offline(tmp_path, monkeypatch, capsys, peer):
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global"))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setattr(batch, "run_batch", lambda *a, **kw: pytest.fail("dry run has no workers"))
+    monkeypatch.setattr(batch.subprocess, "Popen", lambda *a, **kw: pytest.fail("no provider probe"))
+    path = manifest(tmp_path, rows=[{
+        "task_id": "api", "peer": peer, "prompt": "offline", "profile": f"{peer}.standard", "workspace": str(tmp_path),
+    }])
+    assert main(argv(tmp_path, path, "--dry-run", "--json")) == 0
+    row = json.loads(capsys.readouterr().out)["tasks"][0]
+    assert row["profile_display"] == f"{peer}.standard"
+    assert not (tmp_path / "missing").exists()
+
+
+def test_batch_profile_resolution_uses_each_task_workspace(tmp_path, monkeypatch, capsys):
+    """The same named profile can be valid in one task's workspace and invalid in another."""
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global"))
+    monkeypatch.setattr(batch, "run_batch", lambda *a, **kw: pytest.fail("dry run has no workers"))
+    configured, other = tmp_path / "configured", tmp_path / "other"
+    policy = configured / ".peerhub" / "config" / "models.toml"
+    policy.parent.mkdir(parents=True)
+    other.mkdir()
+    policy.write_text('[profiles."cx.review-local"]\nselection_mode = "pinned"\nmodel = "gpt-review"\n', encoding="utf-8")
+    row = {"task_id": "local", "peer": "codex", "prompt": "offline", "profile": "cx.review-local",
+           "workspace": str(configured)}
+    assert main(argv(tmp_path, manifest(tmp_path, rows=[row]), "--dry-run", "--json")) == 0
+    assert json.loads(capsys.readouterr().out)["tasks"][0]["profile_display"] == "cx.review-local"
+    rows = [row, {**row, "task_id": "other", "workspace": str(other)}]
+    assert main(argv(tmp_path, manifest(tmp_path, rows=rows), "--dry-run", "--json")) == 1
+    error = json.loads(capsys.readouterr().out)["error"]
+    assert "task other:" in error["message"] and "unknown model profile" in error["message"]
+    assert not (tmp_path / "missing").exists()
+
+
 @pytest.mark.parametrize("adapter", ["codex", "agy", "unsupported", None])
 def test_registered_peer_readonly_lookup(tmp_path, capsys, adapter):
     db = tmp_path / "missing" / "core.db"

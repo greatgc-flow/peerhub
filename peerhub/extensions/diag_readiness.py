@@ -14,6 +14,7 @@ from peerhub.extensions.adapters.profiles import inspect_model_pools, list_profi
 from peerhub.extensions.adapters.base import classify_refusal_text
 from peerhub.extensions.diag import ReadonlyDiag
 from peerhub.extensions.observation_model import instant_us
+from peerhub.extensions.pool_health import pool_health
 from peerhub.extensions.quota_projection import limit_by_parent, scoped_parent_ref
 
 
@@ -89,11 +90,15 @@ def compose(profiles: list[dict[str, Any]], observations: list[dict[str, Any]],
         if item:
             view.update(state=item["state"], age=item["age_seconds"], evidence=f"observation:{item['observation_id']}")
             if item["state"] == "MEASURED":
-                remaining, reset = item["payload"].get("remaining_fraction"), item["payload"].get("resets_at")
-                if _number(remaining) and 0 <= remaining <= 1:
+                health = pool_health(item, None, now)
+                remaining = item["payload"].get("remaining_fraction")
+                # Evidence can remain within its TTL after its quota window ends.
+                # A new window needs a new measurement before it can grant or deny readiness.
+                if _number(remaining) and 0 <= remaining <= 1 and health["state"] != "reset":
                     view["remaining"] = remaining
-                if _number(reset):
-                    view["reset_in"] = max(0, reset - now)
+                reset = health["reset_in_seconds"]
+                if reset is not None:
+                    view["reset_in"] = max(0, reset)
         pools[ref] = view
     # A scoped weekly pool (cc F-7D) is limited by its parent (C-7D) as the monitor's POOLS shows it: both configured, the
     # child's profiles a strict subset of the parent's, both MEASURED, the parent with less left (#394).

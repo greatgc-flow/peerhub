@@ -1,12 +1,15 @@
 """README first-use path (scenario review 2026-11-22): a first ask, who reads what, safe upgrade with a real restore recipe."""
 from __future__ import annotations
 
+import re
+import shlex
 from pathlib import Path
 
 import pytest
 
-from peerhub.cli import update
+from peerhub.cli import app, update
 from peerhub.cli.store_select import DEFAULT_DB_PATH
+from peerhub.core.store import CoreStore
 
 pytestmark = [pytest.mark.unit]
 
@@ -27,6 +30,60 @@ def test_first_ask_with_an_explicit_store_comes_before_the_core_recipe():
     assert 'peerhub --db .peerhub/core.db ask cc "Reply OK" --profile cc.standard --stream smoke --request-id smoke-1' in first
     assert "peerhub diag --plan" in first and "peerhub monitor" in first and "human" in first
     assert "peerhub guide" in first and "peerhub explain report-issues" in first
+
+
+def _powershell_commands(section: str) -> list[list[str]]:
+    block = re.search(r"```powershell\n(.*?)\n```", section, re.DOTALL)
+    assert block, "the documented recipe contains a PowerShell command block"
+    return [shlex.split(line)[1:] for line in block[1].splitlines() if line.startswith("peerhub ")]
+
+
+@pytest.mark.parametrize("ambient_store", [False, True])
+def test_core_recipe_writes_only_its_explicit_store(tmp_path, monkeypatch, capsys, ambient_store):
+    """Run the documented commands, including a conflicting shared-store setting."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "no-global"))
+    monkeypatch.delenv("PEERHUB_DB", raising=False)
+    other_db = tmp_path / "shared" / "core.db"
+    if ambient_store:
+        # The shared peer makes an accidentally redirected command succeed,
+        # so the database assertions detect a silent write to the wrong store.
+        assert app.main(["--db", str(other_db), "peer", "register", "--peer", "reader"]) == 0
+        monkeypatch.setenv("PEERHUB_DB", str(other_db))
+    capsys.readouterr()
+    for argv in _powershell_commands(_section("## Core recipe")):
+        assert app.main(argv) == 0
+    local = CoreStore(tmp_path / DEFAULT_DB_PATH, readonly=True)
+    assert [stream.stream_id for stream in local.list_streams()] == ["core-demo"]
+    assert [record.body for record in local.read_records("core-demo")] == ["Hello"]
+    assert local.get_offset("reader", "core-demo").read_through_position == 1
+    if ambient_store:
+        other = CoreStore(other_db, readonly=True)
+        assert other.list_streams() == []
+        assert other.get_peer("reader").display_name is None
+
+
+def test_account_recipe_selects_one_store_despite_environment(tmp_path, monkeypatch):
+    """Exercise CLI selection for bind/list/show/ask without calling a provider."""
+    doc = (Path(__file__).resolve().parents[3] / "docs" / "accounts.md").read_text(encoding="utf-8")
+    commands = _powershell_commands(doc)
+    selected = []
+
+    def inspect(args, parser):
+        selected.append((args.subcommand, args.db, args.db_source))
+        return 0
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PEERHUB_DB", str(tmp_path / "other.db"))
+    monkeypatch.setattr(app, "_dispatch_command", inspect)
+    for argv in commands:
+        assert app.main(argv) == 0
+    assert len(selected) == len(commands) == 4
+    assert {command for command, _, _ in selected} == {"account", "ask"}
+    assert {(db, source) for _, db, source in selected} == {
+        (str(tmp_path / DEFAULT_DB_PATH), "explicit"),
+    }
+    assert not (tmp_path / DEFAULT_DB_PATH).exists()
 
 
 def test_upgrade_says_how_to_back_up_check_and_restore():

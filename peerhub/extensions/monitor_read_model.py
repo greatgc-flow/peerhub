@@ -964,7 +964,7 @@ def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None
     provider says it does not have or has disabled (ABSENT with one of ABSENT_FACT_REASONS, also when aged).
 
     `shown` is what the POOLS table shows (precedence n/a ? reset out low fast aged ok): `state` for a fresh row; for a STALE
-    row out at 0, low at `LOW_QUOTA_FRACTION` or less, fast on a threat projection, else aged. `fast` needs two projection
+    row aged at 0, low above 0 through `LOW_QUOTA_FRACTION`, fast on a threat projection, else aged. `fast` needs two projection
     samples, as in the view (monitor_view `_compact_pool`): the item's `projection_samples`, else `samples[observation_id]`, else 0."""
     pools: list[dict[str, Any]] = []
     for item in observations:
@@ -995,7 +995,7 @@ def pool_states(observations: list[dict[str, Any]], last_known: LastKnown | None
             remaining, resets_at = known
             passed = resets_at is not None and now is not None and resets_at <= now
             state, remaining = ("reset", None) if passed else ("aged", remaining)
-            shown = state if remaining is None else graded(remaining, "aged")
+            shown = state if remaining is None or remaining == 0 else graded(remaining, "aged")
         elif remaining is None:
             state = shown = "?"
         elif reset_in is not None and reset_in <= 0:
@@ -1077,6 +1077,35 @@ def build_alerts(*, asks: list[dict[str, Any]] | None, pools: list[dict[str, Any
         reasons = [str(r) for r in cast(list[object], raw_reasons)] if isinstance(raw_reasons, list) else []
         facts.append(_alert("a6", "facts", _fit_line(", ".join(reasons) or "needs_recheck", 120), None, "low"))
     return failed + gone + overdue + ended_badly + login + out_pools + expiring + facts
+
+
+def merge_activity_frame(snapshot: dict[str, Any], activity: dict[str, Any]) -> dict[str, Any]:
+    """Replace activity evidence and its derived alerts without advancing the quota snapshot's age or sources."""
+    errors = {key: value for key, value in snapshot["errors"].items() if key != "activity"}
+    if "activity" in activity["errors"]:
+        errors["activity"] = activity["errors"]["activity"]
+    sources = {**snapshot["alert_sources"], "activity": activity["alert_sources"]["activity"]}
+    reasons = {key: value for key, value in sources.get("reasons", {}).items() if key != "activity"}
+    if "activity" in activity["alert_sources"].get("reasons", {}):
+        reasons["activity"] = activity["alert_sources"]["reasons"]["activity"]
+    if reasons:
+        sources["reasons"] = reasons
+    else:
+        sources.pop("reasons", None)
+
+    def owned(alert: dict[str, Any]) -> bool:
+        return alert["code"] in ("a1", "a2") or (
+            alert["code"] == "a6" and alert["kind"] == "store" and alert["subject"].startswith("activity: "))
+
+    retained = [alert for alert in snapshot["alerts"] if not owned(alert)]
+    refreshed = [alert for alert in activity["alerts"] if owned(alert)]
+    # Keep build_alerts' severity order: all store failures, activity incidents,
+    # then account/quota/facts alerts. Do not carry resolved activity incidents.
+    failures = [alert for alert in retained if alert["code"] == "a6" and alert["kind"] == "store"]
+    others = [alert for alert in retained if not (alert["code"] == "a6" and alert["kind"] == "store")]
+    return {**snapshot, "groups": {**snapshot["groups"], "activity": activity["groups"]["activity"]},
+            "status": "PARTIAL" if errors else "OK", "errors": errors, "alert_sources": sources,
+            "alerts": failures + refreshed + others}
 
 
 _OBSERVATION_TABLES = ("observations", "observation_rollups", "resource_pools")

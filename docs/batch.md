@@ -11,7 +11,11 @@ peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --json
 
 Use global `--db PATH` before `batch` to select a store. The parent resolves one
 absolute store path for every worker, including tasks with different workspaces.
-Dry runs validate without spawning workers or creating the store.
+Dry runs validate without spawning workers or creating the store. Both dry runs and
+execution resolve every task's effective local profile in its workspace before any
+worker starts. An unknown or incompatible profile, or invalid local configuration,
+rejects the entire manifest with `invalid_manifest` (exit 1), naming the task.
+This checks local configuration; it does not check provider installation, login or quota.
 `--batch-id` and `--max-parallel` are required; parallelism is 1..16. The guide and every example
 recommend 3 (`RECOMMENDED_MAX_PARALLEL` in `peerhub/extensions/batch.py`, the one constant).
 
@@ -41,8 +45,11 @@ Optional keys: `workspace`, `profile`, `writable` (default false), `timeout_s`
 (finite positive seconds, default 600). Unknown keys, including `stream`, fail.
 Dry runs show the profile in the table and in JSON `profile_display`. Tasks without a
 manifest profile retain `null` in JSON `profile`. They display `(default: PROFILE)`
-when `ask --dry-run` resolves a named profile, or `(peer default)` when it cannot.
-IDs match `[A-Za-z0-9._-]{1,64}`; task IDs must be unique. Prompt files are UTF-8,
+when the effective default is a named profile, or `(peer default)` when the valid
+default has no profile name. API peers (`ca`, `oa`, `ga`) require a `profile` in the
+manifest; their model cannot be selected separately through a batch task.
+IDs match `[A-Za-z0-9._-]{1,64}`; task IDs must be unique and are case-sensitive,
+including on Windows (`Review` and `review` are separate tasks). Prompt files are UTF-8,
 at most 1 MiB, and resolved relative to the manifest; workspaces must exist and
 relative workspace paths use the current directory. Peers must be builtin aliases
 or registered with a supported adapter. Prompts must contain non-whitespace text.

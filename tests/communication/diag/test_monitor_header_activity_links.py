@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from peerhub import __version__
 from peerhub.cli import monitor, monitor_preferences, monitor_refresh, monitor_view, support, view
 from peerhub.extensions import monitor_read_model
 from peerhub.extensions.pool_health import PoolState
+from tests.communication.diag.test_monitor_activity_view import NOW, ask, pool
 from tests.communication.diag.test_monitor_plain_golden import _payload
 from tests.communication.diag.test_monitor_pool_health import frame, reading
 from tests.communication.diag.test_monitor_tree import frame_for
@@ -241,6 +243,105 @@ def test_live_activity_reads_do_not_advance_quota_reads_or_probes(monkeypatch: p
     ]
     assert probes == [full_interval]
     assert any("RUNNING 1" in frame for frame in frames)
+
+
+@pytest.mark.parametrize("retained_alerts", [False, True])
+@pytest.mark.parametrize("expand", [False, True])
+def test_live_activity_refresh_updates_alerts_sources_and_recovers(monkeypatch: pytest.MonkeyPatch,
+                                                                  retained_alerts: bool, expand: bool) -> None:
+    now = 0.0
+    reads: list[tuple[float, tuple[str, ...]]] = []
+    quota_reads: list[float] = []
+    snapshots: dict[float, dict[str, Any]] = {}
+    frames: dict[float, str] = {}
+    selected = ["activity", "capacity", "execution"]
+    observations = [pool("cx", "X-7D", 0 if retained_alerts else .5)]
+    persistent_errors = {"execution": "OperationalError"} if retained_alerts else {}
+    persistent = monitor_read_model.build_alerts(
+        asks=None, pools=monitor_read_model.pool_states(observations),
+        accounts=[{"peer_id": "cc", "logged_in": False}] if retained_alerts else [],
+        facts_report={"status": "needs_recheck", "reasons": ["version drift"]} if retained_alerts else None,
+        failures=list(persistent_errors.items()), now=NOW)
+    original_render = monitor._render_human_frame
+
+    def sleep(seconds: float) -> None:
+        nonlocal now
+        now += seconds
+        if now >= 46:
+            raise KeyboardInterrupt
+
+    def read(db: str, groups: list[str], **kwargs: Any) -> dict[str, Any]:
+        reads.append((now, tuple(groups)))
+        phase = int(now // monitor.RUNNING_REFRESH_SECONDS)
+        row = (ask(alive=False) if phase == 1 else ask("overdue", lease=-5) if phase == 2 else
+               ask("empty", age=5, exact=True) if phase == 3 else ask("ok", age=1, exact=True))
+        payload = _payload([row], observations, read_at=NOW + now)
+        payload["groups"]["execution"] = {"status": "ERROR" if persistent_errors else "OK", "data": {}}
+        payload["groups"] = {group: payload["groups"][group] for group in groups}
+        errors = {"activity": "OperationalError"} if phase == 5 else {}
+        if phase == 5:
+            payload["groups"]["activity"] = {"status": "ERROR", "data": None}
+        elif phase == 6:
+            payload["groups"]["activity"]["data"]["reason"] = "generation unreadable"
+        elif phase == 8:
+            payload["groups"]["activity"]["data"]["scopes_total"] = monitor_read_model.ACTIVITY_SCOPE_CAP + 1
+        payload["alert_sources"] = {key: "not_selected" if groups == ["activity"] else "read"
+                                    for key in ("activity", "capacity", "accounts", "facts")}
+        payload["alert_sources"]["activity"] = "error" if phase in (5, 6) else "truncated" if phase == 8 else "read"
+        payload["alerts"] = monitor_read_model.build_alerts(
+            asks=None if errors else [row], pools=None, accounts=None, facts_report=None,
+            failures=list(errors.items()), now=NOW + now)
+        if groups != ["activity"]:
+            errors.update(persistent_errors)
+            payload["alerts"] = persistent + payload["alerts"]
+        payload.update(errors=errors, status="PARTIAL" if errors else "OK")
+        return payload
+
+    def render(payload: dict[str, Any], **kwargs: Any) -> str:
+        snapshots[now] = deepcopy(payload)
+        return original_render(payload, **kwargs)
+
+    def read_quota(db: str) -> list[dict[str, Any]]:
+        quota_reads.append(now)
+        return []
+
+    monkeypatch.setattr(monitor, "sleep", sleep)
+    monkeypatch.setattr(monitor, "monotonic", lambda: now)
+    monkeypatch.setattr(monitor, "_render_human_frame", render)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr(view, "enable_vt", lambda: True)
+    monkeypatch.setattr(view.FrameOutput, "geometry", staticmethod(lambda: (160, 80)))
+    monkeypatch.setattr(view.FrameOutput, "write", lambda self, text: frames.update({now: text}))
+    monkeypatch.setattr("peerhub.cli.store_select.report_missing_store", lambda *a, **kw: False)
+    monkeypatch.setattr(monitor_read_model, "render_monitor_frame", read)
+    monkeypatch.setattr(monitor_refresh, "read_quota_readings", read_quota)
+    monkeypatch.setattr(monitor_refresh.RefreshJob, "start", lambda *a, **kw: pytest.fail("quota probe"))
+    monkeypatch.setattr(monitor, "_cached_profiles", lambda *a: [])
+    monkeypatch.setattr(monitor, "monitor_auto_probe", lambda args: False)
+    args = argparse.Namespace(db=__file__, db_source="env", json=False, view="plain", cycles=0, expand=expand,
+                              interval=60, collect_every=1, peers=["cx"], probe=False, no_probe=True,
+                              allow_agy_token_use=False)
+    assert monitor._run_monitor_grouped_watch(args, selected, {}) == 0
+    assert [at for at, groups in reads if groups == tuple(selected)] == quota_reads == [0]
+    assert [at for at, groups in reads if groups == ("activity",)] == list(range(5, 46, 5))
+    for at, kinds in ((0, []), (5, ["gone"]), (10, ["overdue"]), (15, ["empty"]), (20, []),
+                      (25, ["store"]), (30, []), (35, []), (40, []), (45, [])):
+        payload = snapshots[at]
+        added = [alert for alert in payload["alerts"] if alert not in persistent]
+        assert [alert["kind"] for alert in added] == kinds
+        assert [alert for alert in payload["alerts"] if alert in persistent] == persistent
+        assert payload["errors"] == {**persistent_errors, **({"activity": "OperationalError"} if at == 25 else {})}
+        assert payload["status"] == ("PARTIAL" if persistent_errors or at == 25 else "OK")
+        assert payload["alert_sources"] == {
+            "activity": "error" if at in (25, 30) else "truncated" if at == 40 else "read",
+            "capacity": "read", "accounts": "read", "facts": "read"}
+        assert payload["read_at"] == NOW and payload["display_elapsed_seconds"] == at
+        assert payload["groups"]["capacity"] == snapshots[0]["groups"]["capacity"]
+        if not retained_alerts:
+            expected = "ATTN 1" if added else "OK?" if at in (30, 40) else "OK"
+            assert frames[at].startswith(expected)
+    assert "gone" in frames[5] and "overdue" in frames[10] and "empty" in frames[15]
+    assert "activity: OperationalError" in frames[25]
 
 
 @pytest.mark.parametrize("expand", [False, True])
