@@ -37,6 +37,8 @@ Decision: the reference is the even burn (0 pp) for every pool; no key, no file.
 Tests: none new (a docs test states the rejected alternatives).
 
 ## M3 Show the even burn
+Amended by the column-grammar decision G below (owner request after seeing the live screen): the even burn is the `|` tick in the bar of compact AND `--expand`; the cell shows `LEFT` alone. The text below is kept as the history of the first decision.
+
 Purpose (owner Q1): see the window progress next to what is left. Evidence: F2. Reason: one `LEFT/EVN` cell (`17/21%`) keeps both numbers in the same unit at no extra column; a separate EVEN column costs width needed by M4, and `^+4=21%` mixes points with percent.
 Decision: both modes show `LEFT/EVN`, `even = left + pace` from unrounded values, `—` when unavailable; composite order `LEFT/EVN`, the low `!`, then the stale badge (`8/21%! ~15m`); the bar's `|` stays.
 Tests: `17/21%` equals left + pace at the measurement time; fallbacks `17/—`.
@@ -69,6 +71,8 @@ Decision: clickable only where the terminal supports and has enabled OSC 8 (plai
 Tests: link targets exist; no escapes without a TTY or with `PEERHUB_NO_LINKS`.
 
 ## M9 Risk and status extras
+Amended by G: the stale badge sits next to `LEFT`, not `LEFT/EVN`.
+
 Purpose (owner Q9): see stale evidence, the owner's balance goal and limited children at a glance. Evidence: F8 and the owner's goal. Reason: facts for the human beat a composite score (opaque, rejected) or a history sparkline (needs a time series).
 Decision: a stale badge `~Xm` next to `LEFT/EVN`; the limited-by-parent marker stays (computation is C1); one balance line in the POOLS block after the pool rows and before `suggest:`: `gap vs X-7D (pp): C-7D +2.2, G-7D -1.0, A-7D +20.4` = each other weekly parent pool's UNROUNDED 7D `pace_pt` (cc C-7D, every ag 7D pool listed separately) minus cx X-7D's, in that order; `—` when either operand is missing, stale or not measured; the line is evicted with the POOLS block.
 Tests: the pairing and order; `—` rules.
@@ -87,6 +91,23 @@ Tests: an ask nested in a provider run (the same `owner`/`session` in its enviro
 ## AI SURFACE (`diag --plan`)
 Purpose: give an AI every fact above without more tokens in the table. Evidence: the plan text is about 350 tokens and the JSON is free to grow. Reason: JSON additions are additive; table columns are paid on every call.
 Decision: JSON rows gain `even_left_pct`, `exhaust_in_seconds`, `exhaust_before_reset`, `stale`, `limited_by`, `own_left_pct` and `health` = {state, pace_band (spend|ok|rest|null), reserve (ok|low|out|null), effective_pace_pt, effective_reset_in_seconds (the reset the forecast is compared with)}; the existing `pace_pt` and `resets_in_seconds` keep their meaning (the pool's own values); the document gains `gaps` = {"baseline": "X-7D" or null, "pools": {"C-7D": number|null, then each ag 7D pool by name}} in fixed key order; the text table gains no column: one `gap:` line (the M9 content, after the profiles line and before the load line) and an `!early` tag in the REASON when `exhaust_before_reset`; `action`, `binding`, `reason` keep their semantics, except that the reason of a zero is derived from C1's state (fresh zero `out`; stale zero `stale zero; refresh`; a zero whose window has reset `window reset; refresh`; the action stays the conservative `blocked` in all three, also for a zero read after the reset but before its TTL expires); no terminal escapes; no `config_paths`.
+
+## G Column grammar (owner request 2026-11-23, three rounds, unanimous)
+Request: "think the whole column grammar through; maybe give consistency around PACE" (and `LEFT/EVN`, `EXH/RESET` pair order). Rounds: `rounds/c1.md` (independent proposals), `c2.md` (attack and resolve), `c3.md` (vote); all three peers signed YES.
+
+Verified facts: G-F1 `PACE = used% - elapsed% = EVN - LEFT` (identity): LEFT, EVN and PACE are two independent numbers plus one derived. G-F2 the owner's balance goal (cc <= ag == cx), the colour bands (-10, +20) and the gap line are all stated in PACE, never in EVN. G-F3 the same facts had three names and three PACE formats (`LEFT`/`REM`, `RESET`/`RESET-IN`/`RESETS`, `^+4`/`^+3.8pp`/`+3.8`). G-F4 the owner's live screen (rich compact POOLS) already draws a bar per row, but `_pool_bar` has no even-burn tick; only the `--expand` `_bar_quota(even_burn=...)` draws `|`: this is why "even burn is not shown" (answer to Q1). G-F5 `TARGET%/h` = left% / hours to reset, plan only.
+
+Decisions (each: purpose / evidence / reason):
+1. Two primaries, one derived. Purpose: one reading per fact. Evidence: G-F1, G-F2. Reason: showing `LEFT/EVN` beside `PACE` prints three numbers for two degrees of freedom and rounds visibly wrong (`17/21%` next to `+3.2`). Decision: the cells are `LEFT` and `PACE(pp)`; EVN is the `|` tick in the bar of compact and `--expand` (G-F4), JSON `even_left_pct`, and the legend states `0 = even burn`. Rejected: `LEFT/EVN` cell (cx's round-1 view, withdrawn after the tick answered Q1), `USED/ELAPSED` (hides the remaining quota).
+2. PACE is one cell everywhere: a signed one-decimal number (`+3.8`, `-12.4`, `0.0`, never `-0.0`), no arrow glyph (the sign carries it; the state glyph stays a STATE concern), the unit in the header `PACE(pp)`, a trailing `!` only in the rest band; the bands use the unrounded value (exactly +20 is ok). Purpose: one rendering in compact, `--expand` and `diag --plan`. Evidence: G-F3; integer `+20` would be shown for both +19.8 (ok) and +20.3 (rest). Rejected: integer in the monitor, `pp` per cell.
+3. One pair grammar: `my value / its reference`, used only where no column carries the difference: `EXH/RESET` (`20h/1d10h!`, `!` when the first is smaller). The gap line stays a list of signed PACE differences, not a pair. `LEFT/EVN` is no longer a pair (decision 1).
+4. One vocabulary and order for monitor and plan: `LEFT`, `PACE(pp)`, `EXH/RESET`; never `REM`, `RESET-IN`, `RESETS`. Compact and `--expand` share one row formatter: same columns and cell formats; `--expand` only adds child rows and the bar. The width ladder drops AGE, then FAMILY, then EXH/RESET, never STATE, LEFT, PACE; the bar yields width first (fixed bar width), so `--expand` never hides a column compact shows.
+5. `TARGET%/h` is renamed `BUDGET%/h` in the plan text (the average rate that lands at 0% on reset; not a ceiling, not the owner's "target pace"); JSON `target_pct_per_hour` stays. Rejected: `MAX%/h` (reads as a hard cap), `ALLOW%/h` (reads as a permission), keeping `TARGET` (collides with the owner's word for PACE).
+6. JSON: no aliases (they double three numbers per row for the AI view); old keys keep their names; new keys follow the existing suffixes: `even_left_pct`, `exhaust_in_seconds`, `exhaust_before_reset`, plus the `health` and `gaps` objects above.
+7. One `!` glyph, the column says which alert: `LEFT` at or below 10% (low reserve), `PACE` in the rest band, `EXH/RESET` early. A tied or unknown forecast gets no flag. Rejected: three glyphs (a symbol table to learn).
+8. One legend line below the pool block and gap line, one code constant, rendered by compact and `--expand`, checked against the docs by a test; wording: `PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early`. Defect found in the vote and fixed here: the legend must define EVN (even-burn remaining) so that `PACE = EVN - LEFT` is not misread as used-based.
+9. Plan header: `PEER POOL LEFT PACE(pp) EXH/RESET BUDGET%/h ACTION REASON` (STATE and FAMILY are not in the token-light plan); compact header: `STATE LEFT PACE(pp) EXH/RESET FAMILY` after the bar.
+Tests: header, cell and legend strings come from one constant per table; compact and `--expand` rows have equal cells; `-0.0` clamps to `0.0`; the bar tick exists in compact and `--expand`; `+20.0` is ok and `+20.3` is rest.
 
 ## Rejected alternatives (one place)
 Per-pool target config in monitor defaults or model-defaults; a composite risk score; a second status dot; dual-coloured bars; click-to-run commands; moving Guide to line 1 or wrapping line 2; a 1 Hz store poll; a new `--running-interval-seconds` flag; replacing FAMILY by PROFILES; moving family labels into TOML; matching ownership by label, cwd or batch ID alone; `config_paths` in the plan JSON.
