@@ -63,7 +63,9 @@ def test_record_and_unreleased_changelog_report_implementation():
     assert status is not None
     scoring = sorted(ROUNDS.with_name("scoring").glob("s*.md"))
     assert status[2] == f"scoring/{scoring[0].name} to {scoring[-1].name}"
-    unreleased = (root / "CHANGELOG.md").read_text(encoding="utf-8").split("## [Unreleased]", 1)[1].split("\n## ", 1)[0]
+    # The section carrying the record's Documentation bullet: Unreleased until a release moves it under its version.
+    sections = (root / "CHANGELOG.md").read_text(encoding="utf-8").replace("\r\n", "\n").split("\n## [")
+    unreleased = next(s for s in sections if "### Documentation" in s and f"docs/design/{RECORD.name}" in s)
     documentation = unreleased.split("### Documentation", 1)[1]
     assert "not implemented" not in unreleased
     assert f"`docs/design/{RECORD.name}`" in documentation and status[1] in documentation

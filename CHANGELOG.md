@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.9] - 2026-11-23
+
 ### Changed
 
 - Compact and expanded monitor tables share pace colours, even-burn ticks, exhaustion and reset times, configured profiles, and weekly pace gaps.
