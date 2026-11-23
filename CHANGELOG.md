@@ -21,6 +21,8 @@ they do not claim new validation or publication evidence.
 
 ### Fixed
 
+- `diag --plan` ranks each pool's own action alongside its effective parent and applicable gates, and keeps the refresh reason for stale zero readings. Quota projections accept both `Z` and `z` timestamp suffixes.
+
 - `diag --plan` uses the most restrictive applicable gate for pool advice. Monitor and plan share relative reset handling and missing quota markers. Expanded QUOTA uses spare width for its bar, and redirected rich frames show the Guide trailer when it fits.
 
 - `diag --plan` applies exhausted gates to all configured pools for the same profile and account and shares the monitor's plan-omission rule. Monitor frames show an early margin for tied display times, keep AGE ahead of the bar, and show a Guide trailer when the link is unavailable.
@@ -33,7 +35,7 @@ they do not claim new validation or publication evidence.
 
 ### Documentation
 
-- Design record `docs/design/monitor-pace-health-2026-11-23.md` documents the monitor pace-health and caller ownership work implemented in PRs #460-#465. The nine debate rounds and scoring are in `docs/design/monitor-pace-health-2026-11-23/`.
+- Design record `docs/design/monitor-pace-health-2026-11-23.md` documents the monitor pace-health and caller ownership work implemented in PRs #460-#467. The nine debate rounds and scoring are in `docs/design/monitor-pace-health-2026-11-23/`.
 
 ## [0.26.8] - 2026-11-23
 

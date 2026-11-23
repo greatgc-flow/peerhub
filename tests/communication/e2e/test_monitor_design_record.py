@@ -59,9 +59,11 @@ def test_monitor_docs_name_both_rejected_pool_target_forms():
 
 def test_record_and_unreleased_changelog_report_implementation():
     root = DESIGN.parents[1]
-    status = "Status: implemented in PRs #460-#465 (scored in scoring/s1.md and s2.md)"
-    assert TEXT.splitlines()[2] == status
+    status = re.fullmatch(r"Status: implemented in PRs (#460-#467) \(scored in (.*)\)", TEXT.splitlines()[2])
+    assert status is not None
+    scoring = sorted(ROUNDS.with_name("scoring").glob("s*.md"))
+    assert status[2] == f"scoring/{scoring[0].name} to {scoring[-1].name}"
     unreleased = (root / "CHANGELOG.md").read_text(encoding="utf-8").split("## [Unreleased]", 1)[1].split("\n## ", 1)[0]
     documentation = unreleased.split("### Documentation", 1)[1]
     assert "not implemented" not in unreleased
-    assert f"`docs/design/{RECORD.name}`" in documentation and "#460-#465" in documentation
+    assert f"`docs/design/{RECORD.name}`" in documentation and status[1] in documentation

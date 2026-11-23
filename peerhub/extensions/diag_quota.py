@@ -19,6 +19,7 @@ from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     MEASUREMENT_KEYS,
     QUOTA_NOTICE_AGE_SECONDS,
+    instant_us,
     oldest_measured_quota_age,
 )
 from peerhub.extensions.quota_projection import ExhaustionProjection, limit_by_parent, project_exhaustion, scoped_parent_ref
@@ -64,7 +65,7 @@ def projection(item: Mapping[str, Any], now: float) -> ExhaustionProjection:
     measured_at = None
     if item.get("observed_at"):
         try:
-            measured_at = datetime.fromisoformat(str(item["observed_at"]).replace("Z", "+00:00")).timestamp()
+            measured_at = instant_us(str(item["observed_at"])) / 1_000_000
         except (ValueError, OverflowError):
             pass
     return project_exhaustion(

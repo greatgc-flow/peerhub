@@ -636,9 +636,57 @@ def _plan_gate_windows(own: list[_PlanWindow], consumers: Mapping[str, list[str]
     return gates
 
 
+def _plan_advice(window: _PlanWindow, parent: _Row | None, facts: PoolHealth, own_health: PoolHealth,
+                 windows: list[_PlanWindow], exhausted: set[str], *, use_family: bool) -> dict[str, object]:
+    from peerhub.cli.monitor_view import _parse_window, _WEEK  # pyright: ignore[reportPrivateUsage]
+
+    r, left, own_action, own_reason = window
+    if own_action == "n/a":
+        return {"action": own_action, "reason": own_reason, "binding": None, "gates": []}
+
+    # When the parent only changes the state, the effective pace is still the child's.
+    # The parent's own reading votes through the gate list in that case.
+    effective_parent_ref = facts["limited_by"] if facts["left_pct"] != left else None
+    applicable = [entry for entry in windows if entry[0].ref in exhausted
+                  or (entry[0].ref != effective_parent_ref and entry[2] != "blocked")]
+    gate = max(applicable, key=lambda entry: (_PLAN_RANK[entry[2]], entry[0].span), default=None)
+    parent_vote = None
+    if parent is not None and effective_parent_ref and parent.ref not in exhausted:
+        forecast = facts["forecast"]
+        if forecast == "threat" and not facts["exhaust_before_reset"]:
+            forecast = "on_pace"
+        parent_vote = (parent, facts["left_pct"], *plan_action(facts["left_pct"], facts["pace_pt"], forecast))
+
+    # Equal actions prefer the effective parent, then the pool's own evidence.
+    # In particular, another exhausted gate cannot replace a zero's refresh reason.
+    decided = max((vote for vote in (parent_vote, window, gate) if vote is not None),
+                  key=lambda vote: _PLAN_RANK[vote[2]])
+    source, _, action, why = decided
+    if source is r:
+        reason = why.removeprefix(f"{PLAN_STALE_TAG} ")
+    elif decided is parent_vote or (use_family and action != "blocked"):
+        reason = f"{source.pool}: {why}"
+    else:
+        reason = _plan_gate_reason(source.pool, why)
+    if left != 0 and own_health["state"] != "reset" and own_health["stale"] and r.used is not None:
+        reason = f"{PLAN_STALE_TAG} {reason}"
+
+    shown = [entry for entry in applicable if not use_family or entry[0].ref in exhausted]
+    if _parse_window(r.pool)[0] == _WEEK:
+        # Reset and unknown windows remain weekly evidence. Their block applies only to their own row.
+        shown.extend(entry for entry in windows if entry not in shown
+                     and _plan_family(r) == _plan_family(entry[0]) and entry[2] in {"rest", "blocked"})
+    if parent_vote is not None:
+        shown.append(parent_vote)
+    if decided is gate and decided not in shown:
+        shown.append(decided)
+    return {"action": action, "reason": reason, "binding": source.pool,
+            "gates": [{"pool": other.pool, "action": action, "reason": "reset" if why == _PLAN_ZERO_REASONS["reset"] else why}
+                      for other, _, action, why in shown]}
+
+
 def _plan_pools(report: DiagnosticReport, *,
                 profiles_by_pool: Mapping[str, list[str]] | None = None) -> list[_PlanPool]:
-    from peerhub.cli.monitor_view import _parse_window, _WEEK  # pyright: ignore[reportPrivateUsage]
     from peerhub.extensions.observation_model import DISABLED_REASON
     from peerhub.extensions.pool_health import pool_health
 
@@ -661,69 +709,23 @@ def _plan_pools(report: DiagnosticReport, *,
             own.append((r, left, "blocked", _PLAN_ZERO_REASONS[state]))
         else:
             own.append((r, left, *plan_action(left, facts["pace_pt"], facts["forecast"])))
-    families: dict[tuple[str | None, str, str], list[_PlanWindow]] = {}
-    if use_family:
-        for entry in own:
-            row, left, action, _ = entry
-            if left is not None and action not in {"n/a", "blocked"}:
-                families.setdefault(_plan_family(row), []).append(entry)
     out: list[dict[str, object]] = []
-    for r, left, action, why in own:
+    for r, left, _, _ in own:
         facts = healths[r.ref]
-        if action == "n/a":
-            out.append({"peer": r.peer, "pool": r.pool, "resource_pool_ref": r.ref, "left_pct": None, "resets_in_seconds": None,
-                        "target_pct_per_hour": None, "pace_pt": None, "forecast": facts["forecast"], "binding": None,
-                        "action": action, "reason": why})
-            continue
-        known = families.get(_plan_family(r), [])
-        voters = [e for e in known if e[0] is not r] + [(r, left, action, why)]
-        decided = max(voters, key=lambda e: (_PLAN_RANK[e[2]], e[0].span))
-        binding = min(known, key=lambda e: (e[1], -e[0].span))[0].pool if known and action != "blocked" else r.pool
-        reason = decided[3] if decided[0] is r else f"{decided[0].pool}: {decided[3]}"
-        if binding not in (r.pool, decided[0].pool):  # the decided window is already named in the reason
-            reason += f"; binding {binding}"
-        reason = reason.replace(PLAN_STALE_TAG + " ", "")
-        if left == 0 or facts["state"] == "reset":
-            reason = why
-        elif facts["stale"] and r.used is not None:  # this window's own freshness
-            reason = f"{PLAN_STALE_TAG} {reason}"
-        reset = facts["reset_in_seconds"]
+        reset = None if facts["state"] == "n/a" else facts["reset_in_seconds"]
         out.append({"peer": r.peer, "pool": r.pool, "resource_pool_ref": r.ref, "left_pct": left,
                     "resets_in_seconds": reset, "target_pct_per_hour": _plan_budget(left, reset),
-                    "pace_pt": facts["pace_pt"], "forecast": facts["forecast"], "binding": binding,
-                    "action": decided[2], "reason": reason})
+                    "pace_pt": facts["pace_pt"], "forecast": facts["forecast"]})
     parents = _plan_pool_facts(own, out, consumers)
     gates = _plan_gate_windows(own, consumers, use_family=use_family)
     result: list[_PlanPool] = []
-    for r, row in zip(rows, out):
+    for window, row in zip(own, out):
+        r = window[0]
         own_health = healths[r.ref]
         parent = parents.get(r.ref)
         facts = own_health if parent is None else pool_health(r.item, parent.item, report.read_at)
-        if limited_by := facts["limited_by"]:
-            forecast = facts["forecast"]
-            if forecast == "threat" and not facts["exhaust_before_reset"]:
-                forecast = "on_pace"
-            action, reason = plan_action(facts["left_pct"], facts["pace_pt"], forecast)
-            binding = limited_by.rsplit(":", 1)[-1]
-            row.update(action=action, binding=binding, reason=f"{binding}: {reason}")
-        windows = gates.get(r.ref, [])
-        applicable = [entry for entry in windows if entry[0].ref in exhausted
-                      or (not use_family and entry[0].ref != facts["limited_by"] and entry[2] != "blocked")]
-        # Reset and unknown windows remain weekly evidence. Their block applies only to their own row.
-        weekly_evidence = []
-        if _parse_window(r.pool)[0] == _WEEK:
-            weekly_evidence = [entry for entry in windows if entry not in applicable
-                               and _plan_family(r) == _plan_family(entry[0]) and entry[2] in {"rest", "blocked"}]
-        row["gates"] = [{"pool": gate.pool, "action": action,
-                         "reason": "reset" if healths[gate.ref]["state"] == "reset" else reason}
-                        for gate, _, action, reason in [*applicable, *weekly_evidence]]
-        if r.ref not in exhausted and applicable:
-            gate, _, action, why = max(applicable, key=lambda entry: (_PLAN_RANK[entry[2]], entry[0].span))
-            if action == "blocked" or _PLAN_RANK[action] > _PLAN_RANK[cast(str, row["action"])]:
-                reason = _plan_gate_reason(gate.pool, why)
-                if own_health["stale"] and r.used is not None:
-                    reason = f"{PLAN_STALE_TAG} {reason}"
-                row.update(action=action, binding=gate.pool, reason=reason)
+        row.update(_plan_advice(window, parent, facts, own_health, gates.get(r.ref, []), exhausted,
+                                use_family=use_family))
         row.update(
             fast=own_health["state"] == "fast",
             even_left_pct=facts["even_left_pct"], exhaust_in_seconds=facts["exhaust_in_seconds"],
@@ -803,7 +805,8 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
             tags.append(f"({PLAN_FAST_TAG})")
         tags.extend(f"({PLAN_GATE_TAG}: {_safe_text(gate['pool'])})" for gate in _items(p["gates"])
                     if gate["action"] in {"rest", "blocked"}
-                    and not str(p["reason"]).endswith(_plan_gate_reason(gate["pool"], gate["reason"])))
+                    and not str(p["reason"]).endswith(_plan_gate_reason(gate["pool"], gate["reason"]))
+                    and not (p["limited_by"] and gate["pool"] == p["binding"] == p["parent"]))
         lines.extend(_wrap(" ".join([reason, *tags]), width) if tags else [_ellipsis(reason, width, False)])
     if not pools:
         lines.append("no quota evidence; next: peerhub observation refresh")
