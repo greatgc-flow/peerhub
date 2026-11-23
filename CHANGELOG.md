@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- `peerhub monitor` reads activity more often during terminal watch, keeps the Guide visible in the header, and links to existing local files and documentation on supported terminals.
+
 ### Added
 
 - `diag running` reports caller evidence and session ownership, with ownership counts in `diag --plan` and batch dry runs and setup guidance in `peerhub explain caller-ownership`.

@@ -607,7 +607,7 @@ def test_peers_only_uses_snapshot_capacity_support(compact_frame):
     assert screen.splitlines()[1].startswith("PeerHub Monitor") and len(screen.splitlines()) <= 3
 
 
-def test_cached_profiles_add_only_the_suggest_flag(monkeypatch):
+def test_cached_profiles_keep_public_fields_and_add_suggest_and_link_provenance(monkeypatch):
     from peerhub.cli.monitor import _cached_profiles, _profile_fingerprints
     from peerhub.extensions.adapters.profiles import list_profiles
 
@@ -615,7 +615,8 @@ def test_cached_profiles_add_only_the_suggest_flag(monkeypatch):
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(workspace))
     disabled = {"cc.deepthink", "cx.deepthink", "ag.effort"}
     assert _cached_profiles(str(workspace), _profile_fingerprints(workspace)) == [
-        {**profile, "suggest": profile["profile"] not in disabled} for profile in list_profiles(workspace)
+        {**profile, "suggest": profile["profile"] not in disabled, "_definition_layer": "packaged"}
+        for profile in list_profiles(workspace)
     ]
 
 
