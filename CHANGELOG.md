@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- `diag --plan` shows quota exhaustion alongside reset and weekly pace gaps against `X-7D`, with pool health, freshness, and parent limits in JSON.
+
 ## [0.26.8] - 2026-11-23
 
 ### Fixed
