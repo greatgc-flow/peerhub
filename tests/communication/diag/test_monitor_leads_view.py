@@ -48,6 +48,8 @@ def with_leads(payload: dict[str, Any], leads: list[dict[str, Any]], read: dict[
 
 
 def screen(payload: dict[str, Any], width: int = 100, unicode: bool = False, **kw: Any) -> list[str]:
+    # M9/G8 give quota its own notes. Test LEADS formatting in its activity group.
+    payload = {**payload, "selected_groups": [g for g in payload["selected_groups"] if g == "activity"]}
     return render_grouped_frame(payload, view="plain", unicode=unicode, width=width, **kw).splitlines()
 
 
@@ -60,7 +62,7 @@ def test_leads_come_after_recent_and_running_with_the_column_order(frame):
     with_leads(frame, [lead("docs-site", session=sess())])
     lines = screen(frame)
     heads = [line.split()[0] for line in lines if line.startswith(FRAME_HEADS)]
-    assert heads == [head for head in FRAME_HEADS if head != "ALERTS"]
+    assert heads == ["RUNNING", "RECENT", "LEADS"]
     block = leads_block(lines)
     assert block[0] == "LEADS 1 entry | 1 session found"
     assert block[1].split() == ["docs-site", "busy", "12s", "ctx", "10%", "0", "run", "fable-5-2", *TITLE.split()]
@@ -304,7 +306,7 @@ def test_the_worst_case_frame_with_leads_stays_within_the_bounds(frame, width, u
     assert all(_width(line) <= min(100, width) - 1 for line in lines)
     head = ("── LEADS 12 entries · partial (9 unreadable, 99 not read)" if unicode else
             "LEADS 12 entries | partial (9 unreadable, 99 not read)")
-    assert any("RUNNING " in line for line in lines)
+    assert lines[0].startswith("ATTN 5") and any("POOLS " in line for line in lines)  # M9/G8 compete for rows.
     if any("LEADS " in line for line in lines):
         assert any(line.startswith(head) for line in lines)
 

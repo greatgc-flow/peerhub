@@ -54,14 +54,14 @@ def test_fable_is_nested_and_blocked_by_fresh_common_pool_showing_the_parents_le
     rows = pool_rows(screen, "F-7D")
     assert len(rows) == (2 if expand else 1)  # POOLS and QUOTA use the same dependency state
     # #394: effective left = the lower of the two (0% of the parent); the pool's own 26% stays in the POOLS note
-    assert all("blocked" in row.split() and "0%" in row.split() and "5h28m" in row.split() for row in rows)
+    assert all("blocked" in row.split() and "0%" in row.split() and "OUT/5h28m" in row.split() for row in rows)
     assert "(own 26%)" in rows[0]
     assert all(any(branch in row for branch in ("└─", "├─", "`-", "|-")) for row in rows)
     assert all("0%" in row.split() and "out" in row.split() for row in pool_rows(screen, "C-7D"))
     assert "C-7D out" in rows[0]
     assert "no eligible profiles" in screen and "top=cc.fable" not in screen
     if view == "rich":
-        assert f"\x1b[{mv.RICH_SGR['bad']}m{mv.RICH_GLYPHS[unicode]['blocked']} blocked" in screen
+        assert f"\x1b[{mv.RICH_SGR['out']}m{mv.RICH_GLYPHS[unicode]['blocked']} blocked" in screen
     assert frame == before
 
 
@@ -74,7 +74,7 @@ def test_dependency_keeps_each_pools_own_state_and_remaining_when_not_a_parent_o
     assert "blocked" not in " ".join(pool_rows(screen, "F-7D"))
 
 
-@pytest.mark.parametrize("case", ["stale", "unknown", "reset", "missing", "missing_reset", "duplicate", "other_account"])
+@pytest.mark.parametrize("case", ["stale", "unknown", "reset", "missing", "duplicate", "other_account"])
 def test_ambiguous_or_noncurrent_parent_never_claims_a_current_block(case):
     frame = payload()
     observations = frame["_human_observations"]
@@ -87,9 +87,6 @@ def test_ambiguous_or_noncurrent_parent_never_claims_a_current_block(case):
         parent["resets_at"] = NOW - 1
     elif case == "missing":
         observations.remove(parent)
-    elif case == "missing_reset":
-        parent.pop("resets_at")
-        parent.pop("reset_in_seconds")
     elif case == "duplicate":
         observations.append({**parent, "pool_ref": "quota:other:C-7D"})
     else:

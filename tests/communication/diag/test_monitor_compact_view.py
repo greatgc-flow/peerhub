@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_SECTIONS, POOLS_USE_FIRST_HINT, render_grouped_frame, _width
+from peerhub.cli.monitor_view import (
+    BAR_CELLS, FRAME_SECTIONS, POOL_LEGEND, POOLS_USE_FIRST_HINT, _bar_quota, render_grouped_frame, _width,
+)
+from tests.communication.diag.test_monitor_activity_view import anchor_pool
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
 
 NOW = 1794134880.0  # 2026-11-08 10:48Z
@@ -70,19 +73,19 @@ def _solo(frame, drop=":G-7D", **kw):
 
 
 def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_frame):
-    # #374: the POOLS table has POOL STATE LEFT RESET PACE FAMILY; a 5-hour row shows only when it binds.
+    # G4: POOLS uses the shared columns. A 5-hour row shows only when it binds.
     screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=100)
     assert screen.splitlines()[1] == "PeerHub Monitor 2026-11-08 10:48Z | DB:discovered | quota age 9m"
     assert "/work/.peerhub/core.db" not in screen
     assert "next: peerhub observation refresh" in screen
-    assert _header(screen).split() == ["POOLS", "7", "STATE", "LEFT", "RESET", "PACE", "FAMILY", *POOLS_USE_FIRST_HINT.split()]
-    for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "out", "0%"),
+    assert _header(screen).split() == ["POOLS", "7", *COMPACT_COLUMNS, *POOLS_USE_FIRST_HINT.split()]
+    for name, state, value in (("3P-5H", "low", "1%"), ("3P-7D", "aged", "0%!"),
                                 ("A-7D", "aged", "55%"), ("G-7D", "reset", None), ("F-7D", "?", None),
                                 ("X-7D", "ok", "89%")):
         row = _row(screen, name)
         assert state in row.split()
         assert "%" not in row if value is None else value in row
-    assert screen.index(_row(screen, "X-7D")) < screen.index(_row(screen, "3P-7D")) < screen.index(_row(screen, "3P-5H"))
+    assert screen.index(_row(screen, "3P-7D")) < screen.index(_row(screen, "3P-5H")) < screen.index(_row(screen, "X-7D"))
     assert "G-5H" not in screen and "(X-5H n/a)" in screen
     assert "claude-via-ag" in _row(screen, "3P-7D")
     for old in ("EXECUTION [", "SESSIONS [", "USAGE [", "EXHAUST-IN", "Columns omitted", "latest session:", "ok enough",
@@ -92,18 +95,18 @@ def test_eight_pool_screen_layout_state_precedence_and_no_number_reset(compact_f
 
 @pytest.mark.parametrize("width", [80, 100])
 @pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True)])
-@pytest.mark.parametrize("pace,expected", [(46.4, "+46"), (-12.4, "-12"), (0, "0"), (-.1, "0")])
+@pytest.mark.parametrize("pace,expected", [(19.4, "+19.4"), (-12.4, "-12.4"), (0, "0.0"), (-.1, "-0.1")])
 @pytest.mark.parametrize("aged", [False, True])
 def test_compact_pace_cells_keep_signed_measurement_for_aged_rows(
         compact_frame, width, view, unicode_mode, pace, expected, aged):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(projection={"state": "stale" if aged else "on_pace", "pace_pt": pace},
                state="STALE" if aged else "MEASURED", age_seconds=540 if aged else 60)
+    anchor_pool(row, NOW, pace)  # C1 uses the raw anchors. G2 shows signed tenths without arrows.
     screen = _solo(compact_frame, width=width, view=view, unicode=unicode_mode)
     header = _header(screen)
-    assert header.index("RESET") < header.index("PACE") < header.index("FAMILY")
-    glyph = ("▲" if unicode_mode else "^") if expected.startswith("+") else ("▼" if unicode_mode else "v") if expected.startswith("-") else ""
-    assert _row(screen, "G-5H")[header.index("PACE"):header.index("FAMILY")].strip() == glyph + expected
+    assert header.index("PACE(pp)") < header.index("EXH/RESET") < header.index("FAMILY")
+    assert expected in _row(screen, "G-5H").split()
     assert "80%" in _row(screen, "G-5H")
 
 
@@ -123,7 +126,7 @@ def test_compact_pace_is_dash_without_usable_evidence(compact_frame, width, unus
     header = _header(screen)
     pool = row["pool_ref"].split(":")[-1]
     line = next(line for line in screen.splitlines() if f" {pool} " in line)
-    assert line[header.index("PACE"):header.index("FAMILY")].strip() == "-"
+    assert "—" in line.split() and "PACE(pp)" in header  # C1/G: unavailable pace
 
 
 @pytest.mark.parametrize("width", [80, 100])
@@ -142,7 +145,7 @@ def test_exact_reset_expires_state_pace_and_suggestion(compact_frame, width, ela
     header = _header(screen)
     pool = _row(screen, "G-5H")
     assert "reset" in pool.split() and "80%" not in pool
-    assert pool[header.index("PACE"):header.index("FAMILY")].strip() == "-"
+    assert "—" in pool.split() and "PACE(pp)" in header  # G2: no past-window pace
     assert "suggest: no eligible profiles; next: peerhub observation refresh" in screen
 
 
@@ -158,11 +161,11 @@ def test_suggestions_reject_zero_reset_seconds():
 @pytest.mark.parametrize("width", [60, 70])
 def test_narrow_pool_table_keeps_pace_and_quota_facts(compact_frame, width):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
-    row["projection"] = {"pace_pt": 46}
+    anchor_pool(row, NOW, 5)
     screen = _solo(compact_frame, width=width, view="plain", unicode=False)
     pool = _row(screen, "G-5H")
     assert "80%" in pool and "ok" in pool.split()
-    assert "1h00m" in pool.split() and "^+46" in pool.split()
+    assert any(cell.endswith("/1h!") for cell in pool.split()) and "+5.0" in pool.split()  # G2–3
     assert all(_width(line) <= width for line in screen.splitlines())
 
 
@@ -188,7 +191,8 @@ def test_ten_pool_compact_frame_stays_within_1800_bytes(ten_pool_frame, width):
 @pytest.mark.parametrize("samples, expected", [(None, "ok"), (1, "ok"), (2, "fast")])
 def test_projection_fast_requires_two_samples(compact_frame, samples, expected):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
-    row.update(projection={"state": "threat"}, projection_samples=samples)
+    row.update(projection_samples=samples)
+    anchor_pool(row, NOW, 5)
     assert expected in _row(_solo(compact_frame, width=100), "G-5H").split()
 
 
@@ -196,10 +200,10 @@ def test_projection_fast_requires_two_samples(compact_frame, samples, expected):
     (LOW_QUOTA_FRACTION, "safe", 0, 60, 3600, "low"),
     (LOW_QUOTA_FRACTION, "threat", 2, 301, 3600, "low"),
     (LOW_QUOTA_FRACTION + .000001, "threat", 2, 60, 3600, "fast"),
-    (.8, "threat", 2, 301, 3600, "fast"),
+    (.8, "threat", 2, 301, 3600, "aged"),
     (.8, "threat", 1, 301, 3600, "aged"),
     (.8, "safe", 2, 60, 3600, "ok"),
-    (0, "threat", 2, 301, 3600, "out"),
+    (0, "threat", 2, 301, 3600, "aged"),
     (.05, "threat", 2, 301, -1, "reset"),
     (None, "threat", 2, 60, -1, "?"),
 ])
@@ -207,6 +211,8 @@ def test_low_fast_and_higher_priority_states(compact_frame, remaining, projectio
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
     row.update(last_measurements={"remaining_fraction": remaining}, projection={"state": projection},
                projection_samples=samples, age_seconds=age, resets_at=NOW + reset)
+    if remaining is not None:
+        anchor_pool(row, NOW, min(15, (1 - remaining) * 50) if projection == "threat" else 0)
     original = deepcopy(compact_frame)
     assert render_grouped_frame(compact_frame, view="plain", width=100) and compact_frame == original
     assert expected in _row(_solo(compact_frame, view="plain", width=100), "G-5H").split()
@@ -223,33 +229,32 @@ def test_stale_row_without_number_is_aged_only_for_absent(compact_frame, stored_
 @pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True)])
 @pytest.mark.parametrize("width", [48, 80, 100])
 def test_compact_legend_explains_states_and_fits_width(compact_frame, view, unicode_mode, width):
-    # #374: the legend left the compact frame; --expand prints it whole, wrapped to the width.
+    # M9/G8: both modes render the shared quota legend.
     legend = "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan no longer reports it (diag quota may keep an older value) | ? unknown"
     screen = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width)
-    assert "ok enough" not in screen and "PACE=" not in screen
+    assert "ok enough" not in screen and POOL_LEGEND in " ".join(screen.split())
     expanded = render_grouped_frame(compact_frame, view=view, unicode=unicode_mode, width=width, expand=True)
     flat = " ".join(expanded.split())
     assert (legend if view == "plain" else legend.replace(" | ", " · ")) in flat  # the rich view's separator
-    assert ("BAR=remaining, | marks the even-burn level" in flat) == (view == "plain")  # no 8-cell bar in the rich view
-    assert "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable" in flat
+    assert POOL_LEGEND in flat
     assert "the header time is the snapshot time" in flat
     assert "precedence:" not in screen
     assert all(_width(line) <= min(99, width - 1) for line in screen.splitlines())
     assert all(_width(line) <= width - 1 for line in expanded.splitlines())
 
 
-def test_fast_with_threat_forecast_is_red_on_state_in_rich_output(compact_frame, monkeypatch):
+def test_m1_fast_with_threat_forecast_uses_state_warning_colour(compact_frame, monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
-    row.update(projection={"state": "threat"}, projection_samples=2)
+    row.update(projection_samples=2)
+    anchor_pool(row, NOW, 5)
     from peerhub.cli.monitor_view import RICH_SGR
 
     screen = _solo(compact_frame, view="rich", color=True, width=100)
     line = next(line for line in screen.splitlines() if "G-5H" in line and "fast" in line)
-    bad = f"\x1b[{RICH_SGR['bad']}m"
-    assert not line.startswith("\x1b") and f"{bad}▲ fast\x1b[0m" in line
-    assert line.count(bad) == 2  # P21: the state cell and the bar take the row's colour; the pace cell is '-' here
-    assert f"{bad}████████████████░░░░\x1b[0m   80%" in line
+    warn = f"\x1b[{RICH_SGR['warn']}m"
+    assert not line.startswith("\x1b") and f"{warn}▲ fast\x1b[0m" in line
+    assert f"\x1b[{RICH_SGR['ok']}m+5.0\x1b[0m" in line  # M1: the pace band is independent of STATE.
 
 
 def test_ttl_boundary_and_next_absent_when_fresh(compact_frame):
@@ -292,7 +297,7 @@ def test_width_and_narrow_path_never_cut_numbers(compact_frame, width):
     head = re.escape(FRAME_SECTIONS["pools"])
     pools = re.split(rf"\n(?:-- )?{head} ", screen, maxsplit=1)[1]  # P21: rich with ASCII glyphs draws a rule
     pools = pools.split("\nsuggest:", 1)[0]  # P21: the suggestion and the activity follow POOLS
-    assert ("55%" in pools and "89%" in pools) if width >= 26 else "%" not in pools and "~" not in pools
+    assert "55%" in pools and ("89%" in pools or re.search(r"(?m)^\+\d+ pools", pools))  # G4: LEFT stays.
     if width < 48:
         assert "PEER  POOL" not in screen  # labelled vertical pool rows on narrow terminals
 
@@ -307,7 +312,8 @@ def test_unknown_and_all_absent_are_never_zero_or_unlimited(compact_frame):
 
 def test_human_render_does_not_mutate_json_and_expand_keeps_details(compact_frame):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][3]
-    row.update(projection={"state": "threat"}, projection_samples=2)
+    row.update(projection_samples=2)
+    anchor_pool(row, NOW, 5)
     compact_frame["configured_profiles"].extend([
         {"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
             ("ag.effort", ["G-5H"]), ("cx.standard", ["X-7D"]))])
@@ -318,7 +324,7 @@ def test_human_render_does_not_mutate_json_and_expand_keeps_details(compact_fram
     assert "normal=cx.effort|ag.effort" in screen
     for view in ("plain", "rich"):
         expanded = render_grouped_frame(compact_frame, view=view, width=100, expand=True)
-        assert "EXHAUST-IN" in expanded or "Columns omitted" in expanded
+        assert "EXH/RESET" in expanded  # G3
         assert "SESSIONS [" in expanded and "USAGE [" in expanded
     assert json.dumps(compact_frame, ensure_ascii=True, separators=(",", ":")).encode() == before
     assert compact_frame == original
@@ -458,11 +464,11 @@ def test_missing_configured_pool_requests_refresh(compact_frame):
     assert "next: peerhub observation refresh" in render_grouped_frame(compact_frame)
 
 
-def test_prefix_free_profiles_and_unknown_family(compact_frame):
+def test_m5_configured_family_profiles_and_unknown_family(compact_frame):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][7]
     row["pool_ref"] = "quota:cx:X-UNK"
     screen = render_grouped_frame(compact_frame, view="plain")
-    assert "ag.standard" not in screen
+    assert "ag.standard" in screen
     assert "?" in _row(screen, "X-UNK").split()
 
 
@@ -540,9 +546,11 @@ def test_suggestions_prefer_non_fast_but_still_pick_when_all_fast(compact_frame,
     # ag has the better H score; its second applicable pool makes it fast.
     rows[2].update(state="MEASURED", age_seconds=60, resets_at=NOW + 86400,
                    last_measurements={"remaining_fraction": .8})
-    rows[3].update(projection={"state": "threat"}, projection_samples=2)
+    rows[3].update(projection_samples=2)
+    anchor_pool(rows[3], NOW, 5)
     rows[7].update(resets_at=NOW + 86400, last_measurements={"remaining_fraction": .5},
-                   projection={"state": "threat" if all_fast else "on_pace"}, projection_samples=2)
+                   projection_samples=2)
+    anchor_pool(rows[7], NOW, 15 if all_fast else 0)
     compact_frame["configured_profiles"] = [
         {"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
             ("ag.effort", ["A-7D", "G-5H"]), ("cx.effort", ["X-5H", "X-7D"]))]
@@ -674,46 +682,23 @@ def test_compact_and_expand_each_keep_their_pool_order(compact_frame):
     # Unknown-PACE roots tie by peer and name in POOLS. The QUOTA detail lists the most urgent peer first.
     compact = _compact_pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
     expanded = _pool_order(render_grouped_frame(compact_frame, view="plain", unicode=False, width=120, expand=True))
-    assert compact == [*sorted(["ag G-7D", "cc F-7D", "cx X-7D", "ag A-7D"]), "ag 3P-7D", "ag 3P-5H"]
+    assert compact == ["ag 3P-7D", "ag 3P-5H", *sorted(["ag G-7D", "cc F-7D", "cx X-7D", "ag A-7D"])]
     assert expanded[:5] == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "ag G-5H"]
 
 
-COMPACT_COLUMNS = ["STATE", "LEFT", "RESET", "PACE", "FAMILY"]  # after `POOLS n`, the POOL column's title
+COMPACT_COLUMNS = ["STATE", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY"]
 
 
-@pytest.mark.parametrize("width", [20, 30, 40, 60])
-def test_narrow_pools_table_drops_whole_columns_from_the_right(compact_frame, width):
+@pytest.mark.parametrize("width", [40, 60, 80, 100])
+def test_g_pools_columns_drop_in_order_after_the_core_columns(compact_frame, width):
     screen = render_grouped_frame(compact_frame, view="plain", unicode=False, width=width)
-    pools = screen.split("\nPOOLS ", 1)[1].split("\nsuggest:", 1)[0]  # P21: the suggestion follows the POOLS rows
-    assert "~" not in pools and "Columns omitted" not in screen
-    header = _header(screen)
-    shown = header.removesuffix(POOLS_USE_FIRST_HINT).split()[2:]
-    assert shown == COMPACT_COLUMNS[:len(shown)] and len(shown) >= 1
-    for pool in ("3P-5H", "3P-7D", "X-7D"):  # every row shows the same columns
-        row = _row(screen, pool)
-        assert len(re.sub(r" \([^)]* n/a\)", "", row[header.index("STATE"):]).split()) == len(shown)
-
-
-@pytest.mark.parametrize("width,dropped", [(30, ["RESET", "PACE", "FAMILY"]), (40, ["FAMILY"]), (60, [])])
-def test_pools_columns_drop_by_priority_and_state_survives(compact_frame, width, dropped):
-    header = _header(render_grouped_frame(compact_frame, view="plain", unicode=False, width=width))
-    header = header.removesuffix(POOLS_USE_FIRST_HINT).split()[2:]
-    assert header == [name for name in COMPACT_COLUMNS if name not in dropped]
-    assert "STATE" in header and "LEFT" in header
-
-
-@pytest.mark.parametrize("unicode_mode", [True, False])
-def test_pool_bar_left_the_compact_frame_and_stays_in_expand(compact_frame, unicode_mode):
-    # #374: no bar in the compact frame; --expand keeps the [BAR] column (_bar_quota is pinned below).
-    screen = render_grouped_frame(compact_frame, view="plain", unicode=unicode_mode, width=100)
-    assert "[--------]" not in screen and "BAR" not in screen
-    expanded = render_grouped_frame(compact_frame, view="plain", unicode=unicode_mode, width=140, expand=True)
-    assert "[BAR]" in expanded and "[--------]" in expanded
+    columns = _header(screen).removesuffix(POOLS_USE_FIRST_HINT).split()[2:]
+    assert columns == COMPACT_COLUMNS[:len(columns)] and len(columns) >= 3
+    assert "55% ~9m" in " ".join(screen.split())  # M9 badge stays with LEFT
+    assert "Columns omitted" not in screen
 
 
 def test_bar_even_burn_tick_positions_and_unknown():
-    from peerhub.cli.monitor_view import _bar_quota
-
     assert _bar_quota(.5, 8, True, .25) == "[██|█░░░░]"
     assert _bar_quota(.5, 8, False, .25) == "[##|#....]"
     assert _bar_quota(.25, 8, True, .75) == "[██░░░░|░]"
@@ -722,21 +707,15 @@ def test_bar_even_burn_tick_positions_and_unknown():
     assert _bar_quota(1.0, 8, False, 1.0) == "[########]"
     assert _bar_quota(0.0, 8, False, 0.9) == "[.......|]"
     assert _bar_quota(.5, 8, False, None) == "[####....]"
-    assert _bar_quota(None, 8, True, .5) == _bar_quota(None, 8, False) == "[--------]"
-
-
-def test_pace_glyph_marks_direction_and_keeps_the_number():
-    from peerhub.cli.monitor_view import _pace_glyph
-
-    assert [_pace_glyph(text, True) for text in ("+26", "-89", "0", "-", "+1.2pp", "-28.7pp", "+0.0pp", "-0.0pp")] == [
-        "▲+26", "▼-89", "0", "-", "▲+1.2pp", "▼-28.7pp", "+0.0pp", "-0.0pp"]
-    assert [_pace_glyph(text, False) for text in ("+26", "-89", "0", "-")] == ["^+26", "v-89", "0", "-"]
+    assert _bar_quota(None, BAR_CELLS, True, .5) == "[" + "─" * BAR_CELLS + "]"
+    assert _bar_quota(None, BAR_CELLS, False) == "[" + "-" * BAR_CELLS + "]"
 
 
 def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_frame, monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     fast = compact_frame["groups"]["capacity"]["data"]["observations"][3]
-    fast.update(projection={"state": "threat"}, projection_samples=2)
+    fast.update(projection_samples=2)
+    anchor_pool(fast, NOW, 5)
     from peerhub.cli.monitor_view import RICH_SGR
 
     colored = _solo(compact_frame, view="rich", color=True, width=100)
@@ -745,21 +724,12 @@ def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_fram
     bare = re.sub(r"\x1b\[[0-9;]*m", "", colored).splitlines()
     assert bare[1:] == plain.splitlines()[1:]  # colour never changes the text or the widths
     assert bare[0].split() == plain.splitlines()[0].split() and bare[0].startswith(" OK? ")  # line 1: the pill's padding
-    # P21: the state cell (glyph and word) and the bar take the row's one colour: evidence that is stale is dim
-    # whatever is left, a threat is bad, and a valid pool takes the colour of what is left (89%: ok).
-    for pool, state, colour in (("3P-5H", "▼ low", "dim"), ("3P-7D", "× out", "dim"), ("A-7D", "○ aged", "dim"),
-                                ("G-5H", "▲ fast", "bad"), ("X-7D", "● ok", "ok")):
+    # C1/M1: the state uses its own colour and the bar/pace use the shared band's colour.
+    for pool, state, colour in (("3P-5H", "▼ low", "warn"), ("3P-7D", "○ aged", "dim"),
+                                ("A-7D", "○ aged", "dim"), ("G-5H", "▲ fast", "warn"), ("X-7D", "● ok", "ok")):
         line = _row(colored, pool)
         assert f"\x1b[{RICH_SGR[colour]}m{state}\x1b[0m" in line
-        if pool.startswith("3P-5H"):  # a child pool (#414): filled in the row's colour, empty in SGR dim
-            assert re.search(r"\x1b\[" + RICH_SGR[colour] + r"m▬+\x1b\[0m\x1b\[2m╌+\x1b\[0m", line) or re.search(
-                r"\x1b\[2m╌{20}\x1b\[0m", line), line
-            assert {code for code in re.findall(r"\x1b\[([0-9;]*)m", line)} == {RICH_SGR[colour], RICH_SGR["dim"], "2", "0"}
-        else:
-            assert re.search(r"\x1b\[" + RICH_SGR[colour] + r"m[█░]{20}\x1b\[0m", line)
-            assert {code for code in re.findall(r"\x1b\[([0-9;]*)m", line)} == {RICH_SGR[colour], RICH_SGR["dim"], "0"}
-        assert not line.startswith("\x1b")
-        assert _width(line) <= 99
+        assert not line.startswith("\x1b") and _width(line) <= 99
     assert "\x1b" not in _solo(compact_frame, view="plain", color=True, width=100)
     monkeypatch.setenv("NO_COLOR", "1")
     assert "\x1b" not in _solo(compact_frame, view="rich", color=True, width=100)
@@ -768,9 +738,7 @@ def test_compact_state_uses_evidence_colours_only_when_colour_is_on(compact_fram
 def test_expand_and_compact_keep_the_column_priority_order(compact_frame):
     expanded = render_grouped_frame(compact_frame, view="plain", unicode=False, width=140, expand=True)
     header = next(line for line in expanded.splitlines() if line.startswith("PEER "))
-    slots = ["PEER", "POOL", "STATE", "REM", "RESET-IN", "PACE", "[BAR]", "EXHAUST-IN", "AGE", "PROFILES (configured)"]
-    positions = [header.index(name) for name in slots]
-    assert positions == sorted(positions) and len(set(positions)) == len(slots)
+    assert header.split()[2:2 + len(COMPACT_COLUMNS)] == COMPACT_COLUMNS  # G4
     compact = _header(render_grouped_frame(compact_frame, view="plain", unicode=False, width=100))
     assert compact.removesuffix(POOLS_USE_FIRST_HINT).split()[2:] == COMPACT_COLUMNS  # STATE directly after POOL (#374 F5)
 

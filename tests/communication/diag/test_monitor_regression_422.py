@@ -24,7 +24,7 @@ def test_active_work_survives_history_pressure(width, style, expand):
     payload = full_payload()
     activity = payload["groups"]["activity"]["data"]
     activity["asks"].extend(ended(f"history-{i}", i) for i in range(mv.RECENT_EXPAND * 2))
-    screen = mv.render_grouped_frame(payload, view=style, unicode=style == "rich", width=width, height=28, expand=expand)
+    screen = mv.render_grouped_frame(payload, view=style, unicode=style == "rich", width=width, height=32, expand=expand)  # M9/G8 add quota lines.
     heads = head_names(screen)
     assert heads.index("ALERTS") < heads.index("RUNNING")
     after_running = screen.split("RUNNING", 1)[1]

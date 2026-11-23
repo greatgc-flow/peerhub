@@ -133,7 +133,7 @@ def test_an_ok_facts_report_uses_the_same_version_check_label():
 
 # ---- 6: n/a is the plan's answer -----------------------------------------------------------------------------------
 def test_the_legend_says_that_na_is_the_plan_and_that_diag_quota_may_keep_an_older_value():
-    assert "n/a plan no longer reports it (diag quota may keep an older value)" in " ".join(mv._rich_legend(" | "))
+    assert "n/a plan no longer reports it (diag quota may keep an older value)" in " ".join(mv.MONITOR_LEGEND)
     assert "n/a plan no longer reports it" in " ".join(mv.MONITOR_LEGEND)
 
 
@@ -158,20 +158,20 @@ def test_parent_lower_the_child_shows_the_parent_left_the_nearer_reset_and_the_w
     pools_shown = True  # #412: --expand (plain too) has POOLS on top of the QUOTA details
     assert len(rows) == (2 if expand else 1)
     for row in rows:
-        assert "8%" in row and "26%" not in row  # effective left = the lower of the two
-        assert "5h28m" in row and not {"1d1h", "1d01h"} & set(row)  # the nearer reset: the parent's
+        assert "8%!" in row and "26%" not in row  # effective left = the lower of the two
+        assert any(cell.rstrip("!").endswith("/5h28m") for cell in row) and not {"1d1h", "1d01h"} & set(row)  # the nearer reset: the parent's
         assert "low" in [word.lower() for word in row]  # the worse state of the two
     if pools_shown:
-        assert "own 26%" in pool_rows(screen, "F-7D")[0]  # the pool's own number stays visible
+        assert "own 26%" in screen  # the pool's own number stays visible
     for row in cells(screen, "C-7D"):
-        assert "8%" in row
+        assert "8%!" in row
 
 
 @pytest.mark.parametrize("view,expand", [("plain", False), ("rich", True)])
 def test_parent_lower_with_the_childs_reset_nearer_keeps_the_childs_reset(view, expand):
     screen = strip(mv.render_grouped_frame(scoped(.08, .26, parent_reset=90000, child_reset=19680), view=view,
                                            expand=expand, unicode=False, width=160))
-    assert all("5h28m" in row for row in cells(screen, "F-7D"))
+    assert all(any(cell.rstrip("!").endswith("/5h28m") for cell in row) for row in cells(screen, "F-7D"))
 
 
 @pytest.mark.parametrize("view,expand", [("plain", False), ("rich", False), ("plain", True), ("rich", True)])
@@ -179,7 +179,7 @@ def test_parent_higher_the_child_keeps_its_own_left_reset_and_state(view, expand
     frame = scoped(.80, .26, parent_reset=19680, child_reset=90000)
     screen = strip(mv.render_grouped_frame(frame, view=view, expand=expand, unicode=False, width=160))
     for row in cells(screen, "F-7D"):
-        assert "26%" in row and any(word in {"1d1h", "1d01h"} for word in row) and "5h28m" not in row
+        assert "26%" in row and any(word.endswith("/1d01h") for word in row)
         assert "ok" in [word.lower() for word in row] or "insuff" in [word.lower() for word in row]
     assert "own" not in " ".join(pool_rows(screen, "F-7D"))
 
@@ -217,5 +217,5 @@ def test_rendering_a_limited_child_does_not_change_the_payload():
 def test_the_legend_defines_the_limit():
     screen = " ".join(strip(mv.render_grouped_frame(scoped(.08, .26), view="rich", expand=True, unicode=False,
                                                     width=160)).split())
-    assert "a pool under its parent shows the parent's LEFT, PACE and state when the parent has less left" in screen
+    assert "limited by C-7D (own 26%)" in screen  # M5
     assert "LEFT and the bar keep this pool's own remaining quota" not in screen

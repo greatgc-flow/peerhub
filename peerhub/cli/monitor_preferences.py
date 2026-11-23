@@ -9,6 +9,8 @@ import tomllib
 from pathlib import Path
 from typing import Any, cast
 
+from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
+
 GROUPS: tuple[dict[str, Any], ...] = (
     {"id": "overview", "order": 1, "description": "Cross-group peer summary and highest-priority state.", "collection_effect": "read_only"},
     {"id": "activity", "order": 2, "description": "Running and recent asks (state, request and reply lines) and the leads that launched them.", "collection_effect": "read_only"},
@@ -25,10 +27,16 @@ GROUPS: tuple[dict[str, Any], ...] = (
 GROUP_IDS = tuple(str(item["id"]) for item in GROUPS)
 DEFAULT_GROUPS = ("overview", "activity", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage")
 
+POOL_LEGEND = (
+    "PACE(pp)=EVN-LEFT, 0=even burn (|), "
+    f"<=-{PLAN_SPEND_PACE_PT:g} spend, >+{PLAN_REST_PACE_PT:g} rest! | EXH/RESET ! = early"
+    " | EVN=even-burn remaining"
+)
+
 MONITOR_LEGEND = (
-    "ok enough | low >0-10% | fast >10% + threat (2+ samples) | out 0% | aged stale | reset passed | n/a plan no longer reports it (diag quota may keep an older value) | ? unknown",
-    "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable",
-    "BAR=remaining, | marks the even-burn level (^ ahead, v behind)",
+    f"ok enough | low >0-{LOW_QUOTA_FRACTION:.0%} | fast >{LOW_QUOTA_FRACTION:.0%} + threat (2+ samples)"
+    " | out 0% | aged stale | reset passed | n/a plan no longer reports it (diag quota may keep an older value)"
+    " | ? unknown",
     "TIME: the header time is the snapshot time (when the store was read), not the time quota was measured",
     "LEADS: label | state (?busy = alive not confirmed, - = no session) | age of the last activity"
     " | ctx = context of the model's maximum input (! 80% or more; 106k = window unknown; ? unknown) | running asks | model | title",

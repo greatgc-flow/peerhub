@@ -72,11 +72,18 @@ counted). The compact frame shows at most eight rows, `--expand` shows all of th
 |---|---|
 | POOL | peer and pool, for example `cc C-7D`. A child pool is indented under its parent with `└─` / `├─` (ASCII `` `- `` / `\|-`). |
 | STATE | a glyph and the state word, see below. |
-| bar | what is left, 20 cells (rich view only); see [Bar glyphs](#bar-glyphs). |
-| LEFT | remaining quota in percent (`<1%` for a tiny rest; `-` when there is no number). |
-| RESET | time until the window resets (`passed` when it has). |
-| PACE | used% minus elapsed% of the window, in points. `+` is ahead of an even burn (over-use), `-` behind it. A direction glyph `▲` / `▼` (ASCII `^` / `v`) comes before a non-zero number. |
-| FAMILY | the pool's meaning, and for a child pool its dependency note (`limited by C-7D (own 26%)`, `C-7D out`, `needs C-7D`). |
+| bar | remaining quota and its even-burn tick. See [Bar glyphs](#bar-glyphs). |
+| LEFT | remaining quota in percent, with `<1%` for a small positive value and `—` when unavailable. A low reserve has a trailing `!`. Stale evidence has a `~Xm` badge. |
+| PACE(pp) | percentage points ahead of (`+`) or behind (`-`) even burn. A trailing `!` marks the rest band. |
+| EXH/RESET | forecast time until exhaustion and time until reset. A trailing `!` means the forecast is earlier than reset. Either side can show `—` when unavailable. `OUT` marks a fresh zero and `past est.` marks a forecast that has already passed while measured quota remains positive. |
+| FAMILY | the family label and configured profiles using the pool, including child pools. For example, `flash: ag.effort,ag.neon +1` shows two profiles and counts one more. A child pool also shows its dependency, for example `limited by C-7D (own 26%)`. |
+
+The gap line compares each weekly parent pool's pace with `X-7D` in percentage points. It shows `—` when either reading
+is unavailable, stale or unmeasured. The legend under that line reads:
+
+```text
+PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | EVN=even-burn remaining
+```
 
 <a id="state-words"></a>
 
@@ -87,15 +94,12 @@ counted). The compact frame shows at most eight rows, `--expand` shows all of th
 | `ok` | `●` | enough left. |
 | `low` | `▼` | more than 0% and at most 10% left. |
 | `fast` | `▲` | more than 10% left, but the projection says `threat` (it would run out before the reset) with at least two samples. |
-| `out` | `×` | 0% left. |
+| `out` | `×` | fresh evidence shows 0% left. |
 | `blocked` | `×` | a child pool whose parent is out; LEFT shows the parent's 0%, its own value is in FAMILY. |
-| `aged` | `○` | the evidence is older than its time to live. `low` and `fast` win over `aged`. |
+| `aged` | `○` | the evidence has reached its time to live, or is marked stale if it has no TTL. `low` and `fast` win over `aged`. |
 | `reset` | `○` | the reset time has passed, so the number is no longer true; refresh. |
 | `n/a` | | the plan no longer reports this window (or the provider switched it off). POOLS includes the window in its count and names it inline. QUOTA also gives the reason. |
 | `?` | `○` | unknown: no number. |
-
-`threat` is a projection, not a POOLS word: it is the FORECAST of the QUOTA details (`threat`, `on_pace`, `safe`,
-`insuff` for insufficient data), and a `threat` with two samples makes the row `fast`.
 
 **Order.** POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools.
 Ties sort by peer and pool name. The most negative PACE shows the most under-used weekly pool. The heading shows
@@ -112,24 +116,17 @@ PEERS, `suggest:` and `peerhub diag quota`.
 
 ### Bar glyphs
 
-| View | Parent pool (filled / empty) | Child pool (filled / empty) |
+| Output | Parent pool (filled / empty) | Child pool (filled / empty) |
 |---|---|---|
-| rich, Unicode | `█░` | `▬╌` |
-| rich, ASCII output | `#.` | `=-` |
-| plain `--expand` QUOTA `[BAR]` (8 cells) | `#.` (`█░` on a Unicode stream) | `=-` (`▬╌`) |
+| Unicode | `█░` | `▬╌` |
+| ASCII | `#.` | `=-` |
 
-- The filled part is what is left. A pool with something left always shows at least one filled cell, so `<1%` is not an
-  empty bar.
-- A child's filled cells have the state colour and its empty cells are dim (SGR `2`), so a child never looks like its
-  parent, even without colour (`NO_COLOR` keeps the glyphs). An empty cell is never a space, so 0% still draws.
-- A row without a number draws `─` (ASCII `-`) in the bar's width. In ASCII a child at 0% and a row without a number
-  both draw dashes; the state word tells them apart.
-- Colour of the bar, the state and the PACE arrow: green above 50% left, yellow above 25%, orange above 10%, red at
-  10% or less, out or threatened, dim for `aged`, `?` and `reset`.
-- The bar is 20 cells; when the terminal is narrower it shrinks to 4 cells, then goes. This happens before a data
-  column drops. The plain view's QUOTA bar has 8 cells and a `|` that marks the even-burn level.
-- `▬` and `╌` are East Asian Narrow, one cell wide, like `█` and `░`. A terminal that draws such glyphs two cells wide
-  should use `--view plain` or `PEERHUB_MONITOR_VIEW=plain`.
+- The filled part shows remaining quota. A pool with something left always shows at least one filled cell.
+- The `|` tick marks even-burn remaining when that fact is available and the tick falls off the filled edge.
+- PACE and the bar use cyan for spend, green for ok and yellow for rest. Fresh zero uses bold red.
+  LEFT uses neutral text, a yellow low-reserve `!` at 10% or less, or bold red at fresh zero.
+- The fixed-width bar gives way first on narrow terminals. Data columns give way in order of AGE,
+  FAMILY and EXH/RESET. STATE, LEFT and PACE stay.
 
 `suggest:` (under POOLS) is advisory: `suggest: eco=cc.standard normal=cc.effort|cx.effort ...`. `a|b` is the best
 eligible pick and the best eligible alternative from another peer. Like `peerhub suggest`, this line skips profiles
@@ -204,7 +201,7 @@ unknown; `!` after the percentage means 80% or more (a mark, not an alert). The 
 
 | Section | What it shows |
 |---|---|
-| QUOTA | one row per pool: STATE (as POOLS), FORECAST (`threat`, `on_pace`, `safe`, `insuff`), REM, RESET-IN, PACE, EXHAUST-IN, AGE and the profiles that use the pool. The plain view adds the 8-cell `[BAR]`. `reset credits` rows and the notes for pools that are `n/a` or whose evidence is not usable follow. |
+| QUOTA | the same STATE, bar, LEFT, PACE(pp), EXH/RESET and FAMILY as POOLS, plus AGE when it fits. Reset credits and evidence notes follow. |
 | PEERS | per peer: its quota, profile, session reuse, context and the account plan (display text, not billing). Up to eight peers. |
 | EXECUTION | bridge delivery certainty (not started, may have started, started, terminal), session reuse and delivery latency. It measures delivery, not task success. |
 | SESSIONS | retained sessions: lifecycle, fresh or reused, profile, model, effort. |
@@ -226,10 +223,9 @@ is `Coverage: complete|partial; peerhub explain <code>`.
 
 ## Narrow and small terminals
 
-- **Width.** A table drops whole columns from the right, FAMILY first (it shrinks down to its widest family name
-  before it goes). The POOLS bar shrinks from 20 cells to 4 and then goes, before any column drops. A state glyph stays
-  only while the columns of the plain table stay. Line 2 drops status fields from the right and reserves room for
-  the `Guide` link when enabled.
+- **Width.** POOLS and QUOTA use the same width budget for their shared columns. The bar gives way before
+  FAMILY and EXH/RESET. AGE is optional in QUOTA. Line 2 drops status fields from the right and reserves room
+  for the `Guide` link when enabled.
 - **Height.** Short frames shrink and drop sections from the bottom up in both layouts. Expanded RECENT switches to
   single-line rows before giving up rows. POOLS keeps its heading and a row as long as space allows, and the title
   and verdict have the highest priority.

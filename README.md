@@ -192,7 +192,7 @@ and cc default accounts also attempts a refresh when quota is missing or older
 than 15 minutes and waits at most one second for it. Run `peerhub explain suggest`
 for details.
 
-`--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its forecast and `EXHAUST-IN`, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
+`--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its `EXH/RESET` pair, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
 
 `diag --live` repeatedly reads committed snapshots only and keeps its `--cycles 0` default (until interrupted, including non-TTY stdout). `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
@@ -212,8 +212,8 @@ The compact monitor starts with the verdict and header, followed by POOLS, the s
 The compact frame has two views with the same lines and rows. The plain view (`--view plain`, and the default when the output is not a VT terminal, for example a pipe or an AI session) keeps ASCII frame lines and no colour. Its sections follow the order above, and the LEADS header distinguishes list entries from found sessions. The rich view (`--view rich`, the default on a VT terminal) draws the same frame in a new look:
 
 - Line 1 starts with a status pill: ` OK ` on green, ` OK? ` on yellow, ` ATTN 3 ` on red. The facts are separated by a dim ` · `, and the time (`23:46Z`) stands at the right edge when there is room. Line 2 is dim.
-- A section head is a rule on its own line, never an extra line, and keeps its content: `── POOLS 5 ─ STATE ─── LEFT  RESET  PACE  FAMILY ───`, `── RUNNING 2 · ag 1 cx 1 ───`, `── LEADS 1 entry · partial (...) · 1 session found ───`, `── RECENT 130 (2 running) ───`. The line is dim and the title bold.
-- A POOLS row has the pool, a glyph beside the state word (`●` ok, `▲` fast, `▼` low, `×` out, `○` aged, reset or `?`), a bar of 20 cells (`█` left, `░` used; `─` when there is no number), LEFT, RESET, PACE and the family (dim). The state, the bar and the PACE arrow share one colour: green above 50 % left, yellow above 25 %, orange above 10 %, red at 10 % or less and for a pool that is out or threatened, dim for an aged, unknown or reset pool (never green). On a narrow terminal the bar shrinks to 4 cells, then goes, before any column drops.
+- A section head is a rule on its own line, never an extra line, and keeps its content: `── POOLS 5 ─ STATE ─── LEFT  PACE(pp)  EXH/RESET  FAMILY ───`, `── RUNNING 2 · ag 1 cx 1 ───`, `── LEADS 1 entry · partial (...) · 1 session found ───`, `── RECENT 130 (2 running) ───`. The line is dim and the title bold.
+- POOLS and expanded QUOTA share STATE, LEFT, PACE(pp), EXH/RESET and FAMILY. The fixed-width bar marks even burn with a `|` tick. PACE and the bar use cyan for spend, green for ok, yellow for rest and bold red at fresh zero. LEFT shows remaining quota and its reserve flag. FAMILY lists configured profiles. A gap line compares weekly pace with X-7D.
 - A RUNNING row starts with `►` (green), `× gone` (red), `! overdue` (yellow) or `?` (yellow). A LEADS row shows the context as a meter of five cells: `ctx ■■□□□ 46%`, red with `!` at 80 % or more, and a dim `ctx ───── 106k` or `ctx ───── ?` when the percentage is unknown. A RECENT row starts with a dot and its state: green `● ok`, yellow for unsure, red for empty or error.
 - No state is shown by colour or glyph alone: the words of the plain view stay. The colours come from the 256-colour palette (semicolon SGR codes only; `COLORTERM` changes nothing). `NO_COLOR` keeps the rich layout with its Unicode glyphs and prints no colour. Output that cannot show Unicode gets the same layout with ASCII glyphs (`--`, `#`, `.`, `*`, `^`, `v`, `x`, `o`, `>`). A terminal that draws these glyphs two cells wide should use `--view plain` (or `PEERHUB_MONITOR_VIEW=plain`).
 - `--expand` keeps the full DB path in the header and explains unavailable quota windows. Pipe it to see the finished history and sampled superseded asks. Continuous VT watches print their final frame back on the normal screen. Finite watches stay there throughout.
@@ -225,12 +225,15 @@ An example of the rich view, shown here without colour (the uncoloured frame, as
 ```text
 OK · 2 running · 1 lead · min quota 18% cx X-7D ok                                           23:46Z
 PeerHub Monitor 2026-11-14 23:46Z · DB:env · quota age 10s
-── POOLS 5 ─ STATE ────────────────────── LEFT  RESET  PACE  FAMILY  use first ───────────────────
- cc C-7D     ● ok   █████████████░░░░░░░   63%  1d00h  ▼-20  claude
-    └─ C-5H  ● ok   ██████░░░░░░░░░░░░░░   30%  1d00h     -  claude
- ag G-7D     ● ok   ██████████████░░░░░░   71%  1d00h   ▼-6  flash
-    └─ G-5H  ● ok   ████████░░░░░░░░░░░░   40%  1d00h     -  flash
- cx X-7D     ● ok   ████░░░░░░░░░░░░░░░░   18%  1d00h   ▲+9  codex
+── POOLS 5 ──── STATE ────────── LEFT  PACE(pp)  EXH/RESET ──── FAMILY  use first ─────────────────
+ cc C-7D     ● ok   ███|█░░░   63%     -20.0  2d06h/1d00h    claude: cc.effort
+    └─ C-5H  ● ok   ▬▬╌╌╌╌╌╌   30%         —  —/3h           claude: cc.effort
+ ag G-7D     ● ok   ██████░░   71%      -6.0  1d07h/1d00h    flash: ag.standard
+    └─ G-5H  ● ok   ▬▬▬╌╌╌╌╌   40%         —  —/2h           flash: ag.standard
+ cx X-7D     ● ok   █░|░░░░░   18%      +9.0  14h14m/1d00h!  codex: cx.effort
+gap vs X-7D (pp): C-7D -29.0, G-7D -15.0, A-7D —, 3P-7D —
+PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | EVN=even-burn
+remaining
 suggest: eco=ag.standard normal=cc.effort|cx.effort quality=- top=-
 ── RUNNING 2 · ag 1 cx 1 ──────────────────────────────────────────────────────────────────────────
  ►  16m  cx.effort    docs-site  Review the importer change and its tests  review-api
@@ -242,7 +245,7 @@ suggest: eco=ag.standard normal=cc.effort|cx.effort quality=- top=-
  docs-site  busy  12s  ctx ■■□□□ 46%  2 run  fable-5-2  Importer docs
 ```
 
-The plain view of the same frame starts `OK | 2 running | 1 lead | min quota 18% cx X-7D ok`, has `POOLS 5      STATE  LEFT  RESET  PACE  FAMILY  use first` as its head and ` cc C-7D     ok      63%  1d00h  v-20  claude` as a row.
+The plain view uses the same quota columns and values. Its heading begins `POOLS 5      STATE            LEFT  PACE(pp)  EXH/RESET      FAMILY  use first`.
 
 The context of a cc ask is an estimate and never live data. On a RECENT row it is the estimate of the newest session of the ask's stream at the time of the read (`62k/6%` in the compact frame, `ctx 62k/1M 6% now` in `--expand`): the read model joins each of the newest ended asks to that session in the activity statement, so the value does not depend on the `SESSIONS` sample and needs no `sessions` group; a stream without a session shows `-`. In the sessions, context and peers sections of `--expand` it reads `<percent>% est, <age> ago`, for example `2% est, 3m ago`: `est` means an estimate of the context at the end of that session's last ask, as a share of the model's maximum input, and the age is counted from that ask's end to the time of the frame. The estimate appears as the last field of a SESSIONS row (dropped whole when the line is too narrow), as a CONTEXT row (`cc 2% est, 3m ago ... | 20,113 of 1,000,000 tokens`, never with the word `MEASURED`) and on the PEERS line (`-> context: 2% est, 3m ago`); in these three places it reads `2% est, age ?` when its time is unknown. The legend explains `CTX est`. `--expand` also lists `source capacity: unknown (no 7-day pool has a number)` for `OK? (quota unknown)`, and `source capacity: no quota evidence` for a store that never had a quota refresh.
 
@@ -272,7 +275,7 @@ What was measured and what was not. Measured on Windows 11 with Claude Code 2.1.
 
 `low`/`fast` take precedence over `aged`; staleness still shows in the line-2 quota age and, with `--expand`, in AGE and the PEERS `(aged)` tag. See `peerhub explain monitor-states` for state meanings and precedence.
 
-The bare `monitor` command shows the compact human dashboard (with `PACE`), redrawing in place on a VT TTY and printing one completed frame per cycle when redirected; use `--expand` for every pool, the forecast, `EXHAUST-IN` and detailed `sessions`/group sections. `--view rich` gives the rich look described above (colour only on a terminal), also for `--expand`, whose plain view has the 8-cell bars with the even-burn mark;
+The bare `monitor` command shows the compact human dashboard (with `PACE`), redrawing in place on a VT TTY and printing one completed frame per cycle when redirected; use `--expand` for every pool and detailed session and group sections. Both layouts show the `EXH/RESET` pair and the even-burn mark. `--view rich` adds colour on terminals.
 `--view plain` selects ASCII-safe output: the frame's own lines and marks are ASCII, while request, reply, lead and alert text keeps every character the output encoding can show (Korean, Kana and CJK stay readable; ambiguous-width characters become `?`; the cut mark is `~`). Add repeatable `--group` options to
 watch one or more groups, or `--group all` to include all eleven. `monitor groups`
 lists group IDs and meanings; `monitor defaults show|set|reset` inspects and

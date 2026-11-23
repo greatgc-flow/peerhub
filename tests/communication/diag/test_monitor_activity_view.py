@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 import re
 from typing import Any
 
 import pytest
 
 from peerhub.cli.monitor_view import (
-    FRAME_HEADS, FRAME_SECTIONS, POOLS_USE_FIRST_HINT, render_grouped_frame, _width,
+    FRAME_HEADS, FRAME_SECTIONS, POOL_LEGEND, POOLS_USE_FIRST_HINT, render_grouped_frame, _width,
 )
 
 NOW = 1_794_700_000.0  # 2026-11-14 23:46:40Z
@@ -38,11 +39,25 @@ def ask(state: str = "run", *, peer: str = "cc", profile: str | None = "cc.effor
 
 def pool(peer: str, name: str, remaining: float | None, *, fast: bool = False, pace: float | None = None,
          reset: float = 86400.0) -> dict[str, Any]:
-    return {"observation_id": f"{peer}-{name}", "peer_id": peer, "pool_ref": f"quota:{peer}:{name}", "kind": "quota",
+    row = {"observation_id": f"{peer}-{name}", "peer_id": peer, "pool_ref": f"quota:{peer}:{name}", "kind": "quota",
             "state": "MEASURED", "stored_state": "MEASURED", "age_seconds": 10, "ttl_seconds": 300,
             "measurements": {"remaining_fraction": remaining}, "last_measurements": {"remaining_fraction": remaining},
             "resets_at": NOW + reset, "projection_samples": 2 if fast else 0,
             "projection": {"state": "threat" if fast else "insufficient", "pace_pt": pace}}
+    if pace is not None:
+        anchor_pool(row, NOW, pace)
+    return row
+
+
+def anchor_pool(row: dict[str, Any], read_at: float, pace: float) -> None:
+    """C1 fixtures supply measurement anchors to exercise the shared projection."""
+    raw = row["last_measurements"]
+    measured_at = read_at - row["age_seconds"]
+    elapsed_fraction = 1 - raw["remaining_fraction"] - pace / 100
+    if 0 <= elapsed_fraction < 1 and row["resets_at"] > measured_at:
+        span = (row["resets_at"] - measured_at) / (1 - elapsed_fraction)
+        raw["window_started_at"] = measured_at - elapsed_fraction * span
+        row["observed_at"] = datetime.fromtimestamp(measured_at, timezone.utc).isoformat()
 
 
 def activity_data(asks: list[dict[str, Any]]) -> dict[str, Any]:
@@ -119,7 +134,7 @@ def test_compact_frame_order_and_width_with_korean_text(frame, width, unicode_mo
     assert lines[0] == "OK | 3 running | 2 leads | min quota 1% ag 3P-7D low"
     assert lines[1] == "PeerHub Monitor 2026-11-14 23:46Z | DB:env | quota age 10s"
     heads = [line.split()[0] for line in lines if line.startswith(FRAME_HEADS)]
-    assert heads == [head for head in FRAME_HEADS if head != "ALERTS"]
+    assert heads == [head for head in FRAME_HEADS if head not in {"ALERTS", "LEADS"}]  # M9/G8
     assert any(line.startswith("POOLS 8 ") for line in lines) and "RUNNING 3 | cc 2 cx 1" in lines
     assert all(_width(line) <= width - 1 for line in lines), screen
     korean = next(line for line in lines if "activity-374-cc" in line or "평가" in line or "?? ??" in line)
@@ -427,17 +442,17 @@ def test_missing_alert_sources_never_claim_ok(frame):
 def test_pools_five_hour_rule_and_columns(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     pools = section(lines, "POOLS")
-    assert pools[0].split() == ["POOLS", "8", "STATE", "LEFT", "RESET", "PACE", "FAMILY", *POOLS_USE_FIRST_HINT.split()]
-    rows = {re.search(r"\b((?:3P|[A-Z])-\d+[HD])\b", line)[1]: line for line in pools[1:]}
-    assert rows["3P-7D"].split() == ["ag", "3P-7D", "low", "1%", "1d00h", "^+71", "claude-via-ag"]
+    assert pools[0].split() == ["POOLS", "8", "STATE", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY", *POOLS_USE_FIRST_HINT.split()]  # G4
+    rows = {re.search(r"\b((?:3P|[A-Z])-\d+[HD])\b", line)[1]: line for line in pools[1:] if line.startswith(" ")}
+    assert {"low", "1%!", "+71.0!"} <= set(rows["3P-7D"].split()) and "claude-via-ag" in rows["3P-7D"]
     for parent, child in (("G-7D", "G-5H"), ("X-7D", "X-5H")):
         assert rows[child].lstrip().startswith(f"`- {child}")
         assert pools.index(rows[child]) == pools.index(rows[parent]) + 1
-    assert rows["X-5H"].split()[1:4] == ["X-5H", "out", "0%"]
+    assert {"X-5H", "out", "0%"} <= set(rows["X-5H"].split())
     assert "fast" in rows["X-7D"].split()
     assert "" not in pools and "3P-5H" not in "".join(pools) and "C-5H" not in "".join(pools)
     header = pools[0]
-    assert header.index("STATE") < header.index("LEFT") < header.index("RESET") < header.index("PACE")
+    assert header.index("STATE") < header.index("LEFT") < header.index("PACE(pp)") < header.index("EXH/RESET")
 
 
 @pytest.mark.parametrize("child,other", [
@@ -448,7 +463,7 @@ def test_a_five_hour_child_stays_under_its_weekly_pool_when_low_or_out(frame, ch
     frame["groups"]["capacity"]["data"]["observations"] = [
         pool("ag", "G-7D", .50), pool("ag", "G-5H", child), pool("cc", "C-7D", other)]
     pools = section(lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100)), "POOLS")
-    assert [re.search(r"\b((?:3P|[A-Z])-\d+[HD])\b", line)[1] for line in pools[1:]] == ["G-7D", "G-5H", "C-7D"]
+    assert [re.search(r"\b((?:3P|[A-Z])-\d+[HD])\b", line)[1] for line in pools[1:] if line.startswith(" ")] == ["G-7D", "G-5H", "C-7D"]
 
 
 def test_pools_cap_at_eight_rows_with_an_overflow_line(frame):
@@ -456,14 +471,15 @@ def test_pools_cap_at_eight_rows_with_an_overflow_line(frame):
     observations.extend(pool("zz", f"F-{i}D", .5) for i in (1, 2, 3))
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     pools = section(lines, "POOLS")
-    assert pools[0].startswith("POOLS 11 ") and len(pools) == 10 and pools[-1] == "+3 pools (--expand)"
+    assert pools[0].startswith("POOLS 11 ") and sum(row.startswith(" ") for row in pools) == 8
+    assert "+3 pools (--expand)" in pools and POOL_LEGEND in " ".join(pools)  # M9/G8
 
 
 def test_suggestion_belongs_to_capacity_and_wraps_to_two_lines(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=50))
     start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
     assert lines[start + 1].lstrip().startswith("quality=") and lines[start + 2].startswith(FRAME_HEADS)
-    assert lines[start - 1].startswith((" ", "+"))  # P21: the suggestion follows the POOLS rows
+    assert POOL_LEGEND in " ".join(lines[:start])  # M9/G8: suggest follows the pool notes.
     frame["selected_groups"] = ["activity"]
     assert "suggest:" not in render_grouped_frame(frame, view="plain", unicode=False, width=100)
 
@@ -475,8 +491,8 @@ def test_group_capacity_prints_lines_1_2_the_suggestion_and_pools(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     assert lines[0] == "OK? (asks not read) | min quota 1% ag 3P-7D low"
     assert lines[1].startswith("PeerHub Monitor")
-    assert lines[2].startswith("POOLS 8") and lines[11].startswith("suggest:")  # P21: POOLS, then the suggestion
-    assert len(lines) == 12
+    assert lines[2].startswith("POOLS 8") and lines[-1].startswith("suggest:")
+    assert POOL_LEGEND in " ".join(lines[11:-1])  # G8
     assert not any(line.startswith(("RUNNING", "RECENT")) for line in lines)
 
 
@@ -515,7 +531,7 @@ def test_expand_lists_every_field_of_asks_leads_and_alerts(frame):
                  # #412: an ended ask is two lines (the note stands in for a missing reply); the superseded ones are counted
                  "(denied: command)", "RECENT 3 (3 running) | superseded 1",
                  "reply \"VERDICT: ALL CLOSED (C1-C5 100) (long)\"",
-                 "LEADS 2", "PACE=used%-elapsed% pp", "header time is the snapshot time"):
+                 "LEADS 2", POOL_LEGEND, "header time is the snapshot time"):
         assert text in flat, text
     # #376: the lead line is longer than the width and wraps between whole fields, so compare without separators
     assert ("QA cc 9f9f9f9f no session found (ended, or its Claude folder is not in PEERHUB_LEAD_DIRS) running 1"

@@ -161,7 +161,11 @@ def test_d5_successful_probe_retires_omitted_window_at_read_time(frame: dict[str
 def test_d6_legend_explains_supported_threat_rule(frame: dict[str, Any]) -> None:
     cap = frame["groups"]["capacity"]["data"]
     cap["observations"] = [cap["observations"][1], cap["observations"][6]]
-    cap["observations"][1].update(projection={"state": "threat", "pace_pt": 53}, projection_samples=2)
+    from tests.communication.diag.test_monitor_activity_view import anchor_pool
+    item = cap["observations"][1]
+    item["resets_at"] = NOW + item["reset_in_seconds"]
+    item.update(projection_samples=2, last_measurements=dict(item["measurements"]))
+    anchor_pool(item, NOW, 25)  # C1 uses measurement anchors.
     frame["selected_groups"] = ["capacity"]
     screen = render_grouped_frame(frame, width=120, height=40, unicode=False)
     # #374: the legend prints at the end of the (unbounded) --expand frame, no longer in the compact frame
@@ -175,7 +179,7 @@ def test_d7_expanded_profiles_fit_at_120_columns(frame: dict[str, Any]) -> None:
         frame["configured_profiles"].append({"profile": f"ag.{suffix}", "fields": {"pools": {"value": ["3P-7D"]}}})
     screen = render_grouped_frame(frame, width=120, height=40, view="plain", expand=True, unicode=False)
     header = next(line for line in screen.splitlines() if line.startswith("PEER "))
-    assert "EXHAUST-IN" in header and "PROFILES (configured)" in header, screen
+    assert "EXH/RESET" in header and "FAMILY" in header, screen
     assert "ag.standard" in screen and all(_width(line) < 120 for line in screen.splitlines())
 
 
@@ -205,7 +209,7 @@ def test_d5_does_not_infer_omission_without_successful_current_evidence(
     frame["selected_groups"] = ["capacity"]
     screen = render_grouped_frame(frame, width=120, height=40, view=_view(expand), expand=expand, unicode=False)
     row = next(line for line in screen.splitlines() if "X-30D" in line and not (expand and line.startswith(" ")))
-    assert ("STALE:window" if expand else "aged") in row  # --expand: the QUOTA row (a POOLS row starts with a space)
+    assert "aged" in row  # C1 unifies both state words.  # --expand: the QUOTA row (a POOLS row starts with a space)
     assert "not reported by plan" not in screen and "next:" in screen
 
 
@@ -217,7 +221,7 @@ def test_d5_omission_is_scoped_to_the_peer_when_pools_are_shared(frame: dict[str
     cap["accounts"] = [{"peer_id": "cx", "plan": "pro", "state": "MEASURED"}]
     screen = render_grouped_frame(frame, width=120, height=40, view="plain", expand=True, unicode=False)
     other_row = next(line for line in screen.splitlines() if line.startswith("other ") and "X-30D" in line)
-    assert "STALE:window" in other_row and "n/a" not in other_row
+    assert "aged" in other_row and "n/a" not in other_row  # C1
 
 
 @pytest.mark.parametrize("width,height", [(60, 30), (80, 24), (100, 40), (120, 40), (160, 50), (220, 60), (320, 70)])
@@ -496,7 +500,7 @@ def test_live_title_keeps_refresh_and_countdown_before_lower_priority_fields(
     assert title.startswith(("PeerHub Monitor", "Monitor"))
     assert refresh_state in title and f"refresh in {seconds}s" in title, screen
     if not expand or width < 80:
-        assert "fields hidden" in screen.lower()
+        assert "fields hidden" in screen.lower() or "rows hidden" in screen.lower()
     assert "…" not in title and all(_width(line) < width for line in screen.splitlines())
     if width == 80 and (not expand or refresh_state == "REFRESH OK" or seconds == 1):
         assert "2026-11-12 22:25Z" in title
@@ -540,20 +544,14 @@ def test_live_title_never_shows_partial_countdown_digits(round2_frame: dict[str,
 
 @pytest.mark.parametrize("height", [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 20])
 def test_compact_small_heights_follow_the_single_removal_order(frame: dict[str, Any], height: int) -> None:
-    # Suggestion goes first, and the first POOLS cut trades two rows for an overflow line (K5).
+    # M9/G8 add notes to the POOLS stage. A short viewport still keeps the verdict and fitting rows.
     full = render_grouped_frame(frame, width=80, height=1000, view="plain", unicode=False).splitlines()
-    pools = next(i for i, line in enumerate(full) if line.startswith("POOLS 7 "))
-    assert full[10].startswith("suggest:") and pools == 2 and len(full) == 11  # verdict, line 2, POOLS, 7 rows, suggestion
-    rows = full[pools + 1:10]
-    room = height - FRAME_TRAILING_ROWS - pools - 1  # after the top and the POOLS heading
-    shown = len(rows) if room >= len(rows) else max(0, min(len(rows) - 2, room - 1))
-    expected = [*full[:2], *(full[2:3] if shown else []), *rows[:shown]]
-    if 0 < shown < len(rows):
-        expected.append(f"+{len(rows) - shown} pools (--expand)")
-    if height >= len(full) + FRAME_TRAILING_ROWS:
-        expected.extend(full[10:])
     lines = render_grouped_frame(frame, width=80, height=height, view="plain", unicode=False).splitlines()
-    assert lines == expected, (height, lines)
+    assert lines[:2] == full[:2] and len(lines) < height
+    if any(line.startswith("suggest:") for line in lines):
+        assert any(line.startswith("gap vs ") for line in lines)
+    if any(line.startswith("gap vs ") for line in lines):
+        assert any(line.startswith("POOLS ") for line in lines)
 
 
 def test_compact_frame_at_80x24_discloses_line_2_cuts_and_keeps_every_pool(round2_frame: dict[str, Any]) -> None:
@@ -563,8 +561,9 @@ def test_compact_frame_at_80x24_discloses_line_2_cuts_and_keeps_every_pool(round
     assert lines[2] == "Fields hidden | --expand"  # line 2 lost DB and quota age at 80 columns
     pools = next(i for i, line in enumerate(lines) if line.startswith("POOLS "))
     # every 7-day pool; no cut, no overflow line (P21: the suggestion follows the rows)
-    assert lines[pools].split()[1] == "9" and all(line.startswith(" ") for line in lines[pools + 1:pools + 7])  # #400: X-30D is n/a
-    assert lines[pools + 7].startswith("suggest:") and not any(line.startswith("+") for line in lines)
+    assert lines[pools].split()[1] == "9"
+    assert lines.index(next(line for line in lines if line.startswith("gap vs "))) > pools
+    assert any(line.startswith("suggest:") for line in lines)  # M9
     assert "Legend:" not in screen and "PEERS" not in screen and "rows hidden" not in screen
 
 

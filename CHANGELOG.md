@@ -10,6 +10,8 @@ they do not claim new validation or publication evidence.
 
 ### Changed
 
+- Compact and expanded monitor tables share pace colours, even-burn ticks, exhaustion and reset times, configured profiles, and weekly pace gaps.
+
 - `peerhub monitor` reads activity more often during terminal watch, keeps the Guide visible in the header, and links to existing local files and documentation on supported terminals.
 
 ### Added
@@ -17,6 +19,8 @@ they do not claim new validation or publication evidence.
 - `diag --plan` shows quota exhaustion alongside reset and weekly pace gaps against `X-7D`, with pool health, freshness, and parent limits in JSON.
 
 ### Fixed
+
+- `diag --plan` identifies scoped weekly parents using complete configured profile IDs and shows the effective quota of limited children.
 
 - The live monitor's "oldest quota age" counted a measured reading of a pool the peer no longer needs (for example an old `X-30D` window), so it showed days while every shown pool was fresh; it now counts only the pools the peer requires.
 

@@ -310,6 +310,16 @@ def test_schema_11_watch_is_explicit_legacy_ndjson(tmp_path, monkeypatch, capsys
     assert [normalize(frame) for frame in frames] == expected
 
 
+def _assert_monitor_reset_countdown(rendered):
+    lines = re.sub(r"\x1b\[[0-9;]*m", "", rendered).splitlines()
+    # G.3–4: the POOLS row keeps a reset when the forecast is unavailable.
+    header = next(line for line in lines if re.search(r"\bPOOLS \d+\b", line))
+    assert "EXH/RESET" in header.split()
+    row = next(line.split() for line in lines if line.split()[:2] == ["cx", "5h"])
+    pair, = (cell for cell in row if "/" in cell)
+    assert pair.replace("—", "-") == "-/4h58m"
+
+
 @pytest.mark.parametrize("tty", [False, True])
 def test_monitor_reset_countdown_tty_plain_parity(tmp_path, monkeypatch, tty):
     import io
@@ -341,8 +351,7 @@ def test_monitor_reset_countdown_tty_plain_parity(tmp_path, monkeypatch, tty):
                         lambda db, groups, **kw: render_monitor_frame(db, groups, read_at=T0 + 120, **kw))
 
     assert main(["--db", str(h.db_path), "monitor", "--snapshot", "--group", "capacity"]) in (0, 4)
-    assert " RESET " in output.getvalue()  # #374: the compact column is RESET
-    assert "4h58m" in output.getvalue()
+    _assert_monitor_reset_countdown(output.getvalue())
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX PTY parity; simulated TTY parity runs on Windows")
@@ -394,8 +403,7 @@ def test_monitor_reset_countdown_posix_pty_plain_parity(tmp_path):
             process.kill()
             process.wait(timeout=5)
     for rendered in (plain.stdout, output.decode("utf-8")):
-        assert " RESET " in rendered  # #374: the compact column is RESET
-        assert "4h58m" in rendered
+        _assert_monitor_reset_countdown(rendered)
 
 
 def test_bare_monitor_default_tty_uses_grouped_sections(tmp_path, monkeypatch):
