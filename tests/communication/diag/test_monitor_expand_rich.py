@@ -16,7 +16,7 @@ from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_plain_golden import _payload, blocks, full_payload, quiet_payload
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
-OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values(), mv.CHILD_EMPTY_SGR}  # #414: a child bar's empty cells
+OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values()}  # #414: a child bar's empty cells
 GUIDE_URL = "https://github.com/greatgc-flow/peerhub/blob/main/docs/monitor.md"  # pinned: the plain frame's `Guide:` line
 U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_expand_sections.json"
@@ -260,7 +260,7 @@ def test_the_expanded_section_rules_match_the_compact_style():
     texts = [strip(line) for line in rules]
     assert any(text.startswith("── RUNNING 4 · ag 1 cc 2 cx 1 ─") for text in texts)
     assert any(text.startswith("── LEADS 4 entries · partial (1 unreadable, 2 not read) · 3 sessions found ─") for text in texts)
-    assert any(text.startswith("── QUOTA [OK] · measured remaining ─") for text in texts)
+    assert any(text.startswith("── QUOTA [OK] · measured remaining") for text in texts)
     assert any(text.startswith("── PEERS [OK] ─") for text in texts) and any(text.startswith("── RECENT 4 (4 running) ─") for text in texts)
     assert f"\x1b[{title}mQUOTA [OK]\x1b[0m\x1b[{dim}m · \x1b[0mmeasured remaining" in screen  # title, dim separator
 
@@ -268,7 +268,7 @@ def test_the_expanded_section_rules_match_the_compact_style():
 def test_section_lines_use_the_dot_separator_never_a_pipe():
     screen = expand(detail_payload(), width=160)
     body = screen.split(DB_LINE)[1]
-    assert " | " not in body.replace("--expand | more", "")
+    assert " | " not in body.replace("--expand | more", "").replace(mv.POOL_LEGEND, "")  # G8 uses pipes.
     lines = screen.splitlines()
     assert " gone: cc.fable activity-view · age 5m · high · a2" in lines
     assert " pool_out: cx X-5H · age - · high · a3" in lines
@@ -292,27 +292,19 @@ def quota_rows(screen: str) -> dict[str, list[str]]:
     return rows
 
 
-def test_quota_details_have_the_compact_state_and_a_forecast_column_and_no_bar():
+def test_g_quota_details_match_pools_vocabulary_and_bar():
     screen = expand(detail_payload(), width=140)
     table = block(screen, "capacity")
-    assert table[1].split() == ["PEER", "POOL", "STATE", "FORECAST", "REM", "RESET-IN", "PACE", "EXHAUST-IN", "AGE",
-                                "PROFILES", "(configured)"]
-    assert "[BAR]" not in screen and not re.search(r"\[[█░▏|#.:-]{8}\]", screen)
-    pools: dict[str, list[str]] = {}  # pool name -> [glyph, word] of its POOLS row (a sub-row has no peer cell)
-    for row in block(screen, "pools")[1:]:
-        cells = re.sub(r" \([^)]* n/a\)", "", row.replace("└─ ", "")).split()
-        at = next(i for i, cell in enumerate(cells[:2]) if re.fullmatch(r"[0-9A-Z]+-\d+[HD]", cell))
-        pools[cells[at]] = cells[at + 1:at + 3]
+    assert table[1].split()[:7] == ["PEER", "POOL", "STATE", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY"]
     rows = quota_rows(screen)
-    assert set(rows) == set(pools) and len(rows) == 10  # #400: no row for the n/a X-30D, in either block
-    for name, state in pools.items():  # the same glyph and word as the POOLS row
-        assert rows[name][:2] == state, name
-    assert {name: cells[2] for name, cells in rows.items()} == {
-        "3P-7D": "insuff", "3P-5H": "insuff", "A-7D": "-", "G-7D": "insuff", "G-5H": "insuff", "C-7D": "insuff",
-        "C-5H": "insuff", "F-7D": "-", "X-7D": "threat", "X-5H": "insuff"}
-    assert rows["X-7D"][:2] == [U["fast"], "fast"] and rows["X-5H"][:2] == [U["out"], "out"]
-    assert rows["A-7D"][:2] == [U["aged"], "aged"]
-    assert rows["X-7D"][3] == "42%" and rows["X-7D"][5] == f"{U['up']}+31.0pp"  # REM and PACE stay
+    assert len(rows) == 10  # X-30D remains a folded note.
+    for name, cells in rows.items():
+        row = next(line for line in block(screen, "pools")[1:]
+                   if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ )?{name} +", line))
+        actual = row.split()[row.split().index(name) + 1:]
+        assert cells[:6] == actual[:6], name  # G: state, bar, left, pace and pair
+    assert rows["X-7D"][:2] == [U["fast"], "fast"]
+    assert rows["X-7D"][3:5] == ["42%", "+31.0!"]
 
 
 @pytest.mark.parametrize("unicode", [True, False])
@@ -342,22 +334,14 @@ def test_quota_remaining_matches_pools_after_reset_passes(elapsed):
     pool_cells = block(screen, "pools")[1].split()
     quota_cells = quota_rows(screen)["C-7D"]
     assert pool_cells[2:4] == quota_cells[:2] == [U["aged"], "reset"]
-    assert pool_cells[5] == "-"
-    assert quota_cells[3] == pool_cells[5]
-    assert quota_cells[5] == pool_cells[7] == "-"  # PACE too: no old pace after the reset time
+    assert quota_cells[3:6] == pool_cells[5:8] == ["—", "—", "—/passed"]  # G3: expired window
 
 
-def test_the_forecast_legend_replaces_the_state_legend_and_the_even_burn_sentence_goes():
-    screen = expand(detail_payload(), width=140)
-    quota = block(screen, "capacity")
-    legend = " FORECAST: insuff=insufficient projection data; threat=exhausts before reset"
-    assert legend in quota and quota.index(legend) > quota.index(next(line for line in quota if "X-30D" in line))
-    assert "STATE: INSUFF" not in screen and "INSUFF" not in screen and "THREAT" not in screen
-    assert "even-burn" not in screen and "BAR=remaining" in screen.splitlines()
-    assert "PACE=used%-elapsed% pp, + ahead of even burn, - behind; '-' cell = unavailable" in screen.splitlines()
-    plain = render_grouped_frame(detail_payload(), view="plain", unicode=False, width=140, expand=True)
-    assert "STATE: INSUFF=insufficient projection data; THREAT=exhausts before reset" in plain.splitlines()
-    assert "BAR=remaining, | marks the even-burn level (^ ahead, v behind)" in plain.splitlines()
+def test_g_one_even_burn_legend_follows_pools_and_gap():
+    for view in ("plain", "rich"):
+        screen = render_grouped_frame(detail_payload(), view=view, width=140, expand=True)
+        assert screen.index("gap vs ") < screen.index(mv.POOL_LEGEND) < screen.index("suggest:")
+        assert "FORECAST" not in screen
 
 
 def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns():
@@ -368,12 +352,10 @@ def test_quota_details_keep_notes_credits_and_accounts_and_name_dropped_columns(
                 " cx reset credits: 0 · soonest - [MEASURED]",
                 " ACCOUNTS (plan is display data; the expiry is the login token's, not billing)"):
         assert row in quota, row
-    assert "Columns omitted" not in screen and "cc.effort" in next(line for line in quota if " C-7D " in line)
+    assert "cc.effort" in next(line for line in quota if " C-7D " in line)
     narrow = block(expand(detail_payload(), show_quota_notes=True, width=60), "capacity")
-    assert narrow[1].split()[:4] == ["PEER", "POOL", "STATE", "FORECAST"] and "PROFILES" not in narrow[1]
-    omitted = flat(" ".join(line for line in narrow if "omitted" in line.lower() or line.strip() in {
-        "profiles", "(configured)", "profiles (configured)", "age", "exhaust-in"}))
-    assert omitted.startswith("Columns omitted:") and omitted.endswith("profiles (configured)") and "bar" not in omitted
+    assert next(line for line in narrow if "PEER POOL" in line).split()[:5] == ["PEER", "POOL", "STATE", "LEFT", "PACE(pp)"]
+    assert any("Columns omitted: age" in line for line in narrow)  # G4
 
 
 def test_quota_details_take_their_colour_from_the_pool_colour():
@@ -382,8 +364,9 @@ def test_quota_details_take_their_colour_from_the_pool_colour():
     start = next(i for i, line in enumerate(lines) if "QUOTA [" in line)
     first = next(i for i, line in enumerate(lines) if strip(line).startswith("── POOLS "))
     pools = lines[first + 1:next(i for i, line in enumerate(lines) if strip(line).startswith("suggest:"))]
+    pools = [line for line in pools if re.match(r"^\s*(?:\w+ +)?(?:[└├]─ )?[0-9A-Z]+-\d+[HD] +", strip(line))]
     assert len(pools) == 10
-    details = [line for line in lines[start:] if re.search(r"-\d+[HD] ", strip(line)) and "FORECAST" not in line]
+    details = [line for line in lines[start + 1:] if re.match(r"^\s*(?:\w+ +)?(?:[└├]─ )?[0-9A-Z]+-\d+[HD] {2,}", strip(line))]
 
     def state_code(line: str) -> tuple[str, str]:
         match = re.search(r"\x1b\[([0-9;]+)m(. \S+)\x1b\[0m", line)
@@ -396,12 +379,12 @@ def test_quota_details_take_their_colour_from_the_pool_colour():
         if name is None or "next:" in line or "n/a not" in strip(line):
             continue
         assert state_code(line) == top[name[0]], line
-    assert state_code(next(line for line in details if " X-7D " in strip(line))) == (f"{U['fast']} fast", mv.RICH_SGR["bad"])
+    assert state_code(next(line for line in details if " X-7D " in strip(line))) == (f"{U['fast']} fast", mv.RICH_SGR["warn"])
     assert state_code(next(line for line in details if " C-7D " in strip(line))) == (f"{U['ok']} ok", mv.RICH_SGR["ok"])
-    assert set(SGR.findall(screen)) <= OUR_CODES and not {"32", "33", "31", "1;31"} & set(SGR.findall(screen))
+    assert set(SGR.findall(screen)) <= OUR_CODES and not {"32", "33", "31"} & set(SGR.findall(screen))
     assert all(chunk.startswith(U["cempty"]) for chunk in screen.split("\x1b[2m")[1:])  # SGR 2 only dims a child bar's empty cells
     x7d = next(line for line in details if " X-7D " in strip(line))
-    assert f"\x1b[{mv.RICH_SGR['bad']}m{U['up']}\x1b[0m+31.0pp" in x7d and span(x7d, "threat") is None
+    assert span(x7d, "+31.0!") == mv.RICH_SGR["warn"]  # M1/G2
 
 
 def span(line: str, text: str) -> str | None:
@@ -535,7 +518,7 @@ def test_the_ascii_fallback_keeps_the_layout_with_ascii_decoration(width):
     if width == 100:
         assert "ctx #.... 106,137 of 1,000,000 model max (10%)" in screen and "ctx ----- 106,137 (window unknown)" in screen
         assert " gone: cc.fable activity-view | age 5m | high | a2" in lines
-    assert f"{A['fast']} fast" in " ".join(block(screen, "capacity")) and "FORECAST: insuff=" in screen
+    assert f"{A['fast']} fast" in " ".join(block(screen, "capacity")) and mv.POOL_LEGEND in " ".join(screen.split())  # G8 wraps the legend.
     kept = expand(detail_payload(), unicode=False, width=width, text_encoding="utf-8")
     assert "결론: " in kept and "─" not in kept and "·" not in kept and "●" not in kept  # A5: text stays (cut at 60 columns)
     # the same layout line for line once the text has the same widths (without an encoding, Korean becomes `?`)
@@ -599,8 +582,8 @@ def test_the_narrow_hint_keeps_the_count_and_the_command():
 def test_short_narrow_frame_fits_the_hint_on_one_line_to_keep_a_second_pool(style):
     lines = render_grouped_frame(detail_payload(), view=style, expand=True, width=60, height=9).splitlines()
     assert len(lines) == 8
-    assert "C-7D" in lines[-3] and "C-5H" in lines[-2]
-    assert re.fullmatch(r"\+\d+ rows hidden (?:\||·) --expand \| more", lines[-1])
+    assert any("C-7D" in line for line in lines)  # G4: the remaining row keeps its core columns.
+    assert any(re.match(r"\+\d+ rows hidden", line) for line in lines) and "--expand" in lines[-1]
 
 
 # ---- the documents say what --expand is --------------------------------------------------------------------------------
@@ -641,6 +624,8 @@ def test_the_plain_expand_goldens_cover_every_case():
 
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in plain_cases()])
 def test_plain_expand_matches_its_golden(case, payload, kwargs):
+    # C1, M3–M5 and G: QUOTA shares POOLS' state, tick, durations and profile labels.
+    # M9/G8 add the same gap and legend above suggest, moving the height cut.
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
     actual, expected = blocks(screen, expanded=True), blocks(GOLDENS[case], expanded=True)
     pools = FRAME_SECTIONS["pools"]
@@ -658,13 +643,13 @@ def test_plain_expand_matches_its_golden(case, payload, kwargs):
 
 
 def test_the_plain_expand_frame_has_the_one_order_of_the_compact_frame():
-    """The plain expanded frame follows the compact order and keeps its 8-cell quota bar and upper-case states."""
+    """The plain expanded frame follows the compact order and shows the shared quota bar and state words (G)."""
     screen = render_grouped_frame(detail_payload(), view="plain", unicode=False, width=120, expand=True)
     lines = screen.splitlines()
     assert lines[0].startswith("ATTN 2 | gone: cc.fable activity-view 5m | pool_out: cx X-5H")
     assert lines[1].startswith("PeerHub Monitor 2026-11-14 23:46Z | DB:env | quota age")
     assert heads(screen) == ORDER
-    assert any("[BAR]" in line for line in lines) and not any("FORECAST" in line for line in lines)
+    assert any("PACE(pp)" in line and "EXH/RESET" in line for line in lines)  # G4
     assert any(line.startswith("- flag none (caller alive) | state run") for line in lines)  # RUNNING keeps every field
     assert lines.index(DB_LINE) == 2
 

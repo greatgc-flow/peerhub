@@ -20,7 +20,7 @@ def test_pools_use_parent_pace_keep_the_tree_and_cap_the_tail(view: str, expand:
     # The binding C-5H puts its family in the out bucket, regardless of weekly PACE.
     known = [
         ("ag", "B-7D", .40, -20.24), ("ag", "A-7D", .40, -20.24), ("zz", "Z-7D", .40, -20.24),
-        ("cx", "X-7D", .90, 15), ("ag", "G-7D", .02, 30),
+        ("cx", "X-7D", .80, 15), ("ag", "G-7D", .02, 30),
     ]
     payload = _payload([], [pool(peer, name, left, pace=pace) for peer, name, left, pace in reversed(known)] + [
         pool("cc", "C-7D", .60, pace=-20.49), pool("cc", "F-7D", .30, pace=-60),
@@ -57,7 +57,7 @@ def test_pools_hint_only_uses_spare_heading_width(view: str, expand: bool) -> No
         heading = next(line for line in screen.splitlines() if mv.FRAME_SECTIONS["pools"] in line)
         assert (hint in heading) == (width == 100)
         assert screen.count(hint) == (width == 100)
-        assert "FAMILY" in heading and mv._width(heading) < width
+        assert ("FAMILY" in heading) == (width == 100) and mv._width(heading) < width  # G4
 
 
 @pytest.mark.parametrize("expand", [False, True], ids=["compact", "expand"])

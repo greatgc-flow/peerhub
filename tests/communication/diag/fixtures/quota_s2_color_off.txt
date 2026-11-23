@@ -2,27 +2,30 @@ OK
 PeerHub Monitor 1970-01-01 00:16Z | DB:unknown | quota age 30s
 cc probe error (?)
 next: peerhub observation refresh
-POOLS 8   STATE  LEFT  RESET  PACE  FAMILY  use first
- ag P-1H  ok     100%  2h00m     -  ?
- ag P-2H  ok      50%  2h00m     -  ?
- ag P-3H  low      1%  2h00m     -  ?
- ag P-5H  ?         -  -         -  ?
- ag P-6H  ?         -  -         -  ?
- ag P-7H  aged    80%  2h00m     -  ?
- ag P-8H  ok      90%  2h00m     -  ?
- ag P-4H  out      0%  2h00m     -  ?
+POOLS 8    STATE               LEFT  PACE(pp)  EXH/RESET  FAMILY  use first
+ ag P-3H   low    ▏░░░░░░░      1%!      +2.8  30m/2h!    ?
+ ag P-1H   ok     ████████     100%         —  —/2h       ?
+ ag P-2H   ok     ████░░░░      50%         —  —/2h       ?
+ ag P-5H   ?      ────────        —         —  —/2h       ?
+ ag P-6H   ?      ────────        —         —  —/2h       ?
+ ag P-7H   aged   ██████░░  80% ~0m         —  —/2h       ?
+ ag P-8H   ok     ███████░      90%         —  —/2h       ?
+ ag P-4H   out    ░░░░░░░░       0%         —  OUT/2h     ?
+gap vs X-7D (pp): C-7D —, G-7D —, A-7D —, 3P-7D —
+PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | EVN=even-burn remaining
 suggest: no eligible profiles; next: peerhub observation refresh
-── QUOTA [OK] | measured remaining | soonest exhaust: ag P-3H 1% in 30m ───────────────────────────────────────────────
-PEER  POOL  STATE          REM  RESET-IN  PACE  [BAR]       EXHAUST-IN  AGE  PROFILES (configured)
-ag    P-1H  ON_PACE       100%  2h00m     -     [████████]  -           30s  unmapped
-      P-2H  WATCH          50%  2h00m     -     [████░░░|]  -           30s  unmapped
-      P-3H  THREAT          1%  2h00m     -     [▏░░░░|░░]  30m         30s  unmapped
-      P-4H  EXHAUSTED       0%  2h00m     -     [░░░░|░░░]  -           30s  unmapped
-      P-5H  ERROR            -  -         -     [--------]  -           30s  unmapped
-      P-6H  UNKNOWN          -  -         -     [--------]  -           30s  unmapped
-      P-7H  STALE:window     -  -         -     [--------]  -           30s  unmapped
-      P-8H  INSUFF         90%  2h00m     -     [██|████░]  -           30s  unmapped
+── QUOTA [OK] | measured remaining | soonest exhaust: ag P-4H 0% exhausted ────────────────────────────────────────────
+PEER POOL  STATE               LEFT  PACE(pp)  EXH/RESET  FAMILY  AGE
+ag P-1H    ok     ████████     100%         —  —/2h       ?       30s
+   P-2H    ok     ████░░░░      50%         —  —/2h       ?       30s
+   P-3H    low    ▏░░░░░░░      1%!      +2.8  30m/2h!    ?       30s
+   P-4H    out    ░░░░░░░░       0%         —  OUT/2h     ?       30s
+   P-5H    ?      ────────        —         —  —/2h       ?       30s
+   P-6H    ?      ────────        —         —  —/2h       ?       30s
+   P-7H    aged   ██████░░  80% ~0m         —  —/2h       ?       30s
+   P-8H    ok     ███████░      90%         —  —/2h       ?       30s
+ag P-5H evidence ERROR; next: peerhub observation refresh --peers ag
+ag P-6H evidence UNKNOWN; next: peerhub observation refresh --peers ag
 ag PROBE:34m STALE:window; next: peerhub observation refresh --peers ag
-cc PROBE:2h PROBE:unknown; next: peerhub observation refresh --peers cc
-STATE: INSUFF=insufficient projection data; THREAT=exhausts before reset
+cc PROBE:2h57m PROBE:unknown; next: peerhub observation refresh --peers cc
 Coverage: partial; peerhub explain <code>

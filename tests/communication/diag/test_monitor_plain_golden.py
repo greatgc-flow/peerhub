@@ -152,6 +152,8 @@ def test_the_goldens_cover_every_case():
 
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in golden_cases()])
 def test_plain_frame_matches_its_golden(case, payload, kwargs):
+    # C1 and G1–4 use the shared anchored pace, fixed bar and EXH/RESET columns.
+    # M5 adds profile names. M9 and G8 add the gap and legend within the POOLS height budget.
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
     assert in_order(screen, ORDER) == screen  # the sections print in the one order
     assert "\x1b" not in screen
@@ -172,6 +174,7 @@ def test_plain_frame_matches_its_golden(case, payload, kwargs):
 def test_the_golden_payloads_show_what_they_claim(name):
     golden = in_order(GOLDENS[f"{name}-w100-hNone-None"], ORDER)
     heads = [key for key in blocks(golden) if key != "top"]
-    absent = {"full": set(), "quiet": {"ALERTS", "LEADS", "RECENT"}, "empty": {"ALERTS"}}[name]
+    # M9/G8: in the 24-line full frame the gap and legend fit before RECENT and LEADS.
+    absent = {"full": {"RECENT", "LEADS"}, "quiet": {"ALERTS", "LEADS", "RECENT"}, "empty": {"ALERTS"}}[name]
     expected = [head for head in ORDER if head not in absent]
     assert heads == expected

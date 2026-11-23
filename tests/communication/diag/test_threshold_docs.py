@@ -29,7 +29,9 @@ LOW_PERCENT = f"{LOW_QUOTA_FRACTION * 100:g}%"
     (LESSONS, "flag quota older than ", f"{NOTICE_MINUTES} minutes or missing"),
     (MONITOR_DOC, "more than 0% and at most ", f"{LOW_PERCENT} left."),
     (MONITOR_DOC, "| `fast` | `▲` | more than ", f"{LOW_PERCENT} left, but the projection"),
-    (MONITOR_DOC, "orange above ", f"{LOW_PERCENT}, red at {LOW_PERCENT} or less"),
+    # G.7: LEFT flags low reserve at the threshold, inclusive.
+    (MONITOR_DOC, "LEFT uses neutral text, a yellow low-reserve `!` at ",
+     f"{LOW_PERCENT} or less, or bold red at fresh zero."),
     (LESSONS, "low = positive remaining <=", f"{LOW_PERCENT};"),
     (LESSONS, "fast = >", f"{LOW_PERCENT} remaining"),
 ])

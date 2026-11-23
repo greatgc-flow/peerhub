@@ -19,7 +19,7 @@ from typing import Any, cast
 
 from peerhub.cli.support import (MONITOR_TICK_SECONDS, agy_token_command, agy_token_stop_message, error_line, monitor_auto_probe,
                                  print_warnings, refresh_monitor_quota, refresh_with_profile_pools)
-from peerhub.cli.monitor_preferences import GROUP_IDS, MONITOR_LEGEND
+from peerhub.cli.monitor_preferences import GROUP_IDS, MONITOR_LEGEND, POOL_LEGEND
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
 
 RUNNING_REFRESH_SECONDS = 5
@@ -33,7 +33,7 @@ def _lead_reader(**facts: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
 
 def register_monitor_parser(subparsers: Any) -> None:
     p = subparsers.add_parser("monitor", help="Watch committed quota evidence and diagnostics",
-                             epilog="\n".join(MONITOR_LEGEND), formatter_class=argparse.RawDescriptionHelpFormatter)
+                             epilog="\n".join((POOL_LEGEND, *MONITOR_LEGEND)), formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--interval-seconds", dest="interval", type=float, default=60.0,
                    help="Run watch cycles every N s (positive seconds, default %(default)s). "
                         "On supported TTYs, the countdown redraws at most 1 Hz.")

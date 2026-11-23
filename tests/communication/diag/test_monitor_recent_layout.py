@@ -125,7 +125,7 @@ def recent_rows(screen: str) -> list[str]:
 def test_compact_order_puts_running_ahead_of_recent(busy, view, unicode_mode):
     screen = render_grouped_frame(busy, view=view, unicode=unicode_mode, width=100)
     names = [name for name in head_names(screen) if name in FRAME_HEADS]
-    assert names == [head for head in FRAME_HEADS if head != "ALERTS"]
+    assert names == [head for head in FRAME_HEADS if head not in {"ALERTS", "LEADS"}]  # M9/G8
 
 
 def detailed(busy: dict[str, Any]) -> dict[str, Any]:
@@ -288,7 +288,9 @@ def test_heights_stay_within_the_bound_and_keep_the_top(busy, height, width, vie
     assert len(out) <= height - 1, (height, len(out), screen)
     assert re.match(r"^\W*(OK|ATTN)", out[0]) and "PeerHub" in head_names(screen)
     names = [name for name in head_names(screen) if name in SPEC_ORDER]
-    assert names == SPEC_ORDER[:len(names)] and "ALERTS" in names
+    assert names == SPEC_ORDER[:len(names)]
+    if height > 20:  # M9/G8: notes consume space in the tightest viewport.
+        assert "ALERTS" in names
 
 @pytest.mark.parametrize("view,unicode_mode", [("plain", False), ("rich", True)])
 def test_the_expand_ladder_drops_the_sections_from_the_bottom(busy, view, unicode_mode):

@@ -20,7 +20,6 @@ OPEN = f"\x1b]8;;{URL}\x1b\\"
 CLOSE = "\x1b]8;;\x1b\\"
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OSC = re.compile(r"\x1b\]8;[^\x07\x1b]*(?:\x1b\\|\x07)")
-DIM = "\x1b[2m"
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +61,7 @@ def test_glyphs_are_one_cell_narrow() -> None:
 @pytest.mark.parametrize("cells", [20, 12, 4])
 @pytest.mark.parametrize("unicode", [True, False])
 def test_pool_bar_child_and_parent_use_distinct_glyphs(cells: int, unicode: bool) -> None:
-    item = {"state": "ok", "remaining": 0.5}
+    item = {"state": "ok", "remaining": 0.5, "health": {"even_left_pct": None}}
     full, empty = ("█", "░") if unicode else ("#", ".")
     cfull, cempty = ("▬", "╌") if unicode else ("=", "-")
     half = int(0.5 * cells + 0.5)
@@ -76,58 +75,56 @@ def test_pool_bar_child_and_parent_use_distinct_glyphs(cells: int, unicode: bool
                                               (0.5, 10), (0.974, 19), (0.975, 20), (1.0, 20)])
 def test_pool_bar_child_edges_never_use_a_space_and_keep_one_cell(remaining: float, filled: int, unicode: bool) -> None:
     cfull, cempty = ("▬", "╌") if unicode else ("=", "-")
-    bar = mv._pool_bar({"state": "ok", "remaining": remaining}, 20, unicode, child=True)
+    bar = mv._pool_bar({"state": "ok", "remaining": remaining, "health": {"even_left_pct": None}}, 20, unicode, child=True)
     assert bar == cfull * filled + cempty * (20 - filled) and " " not in bar and len(bar) == 20
 
 
 def test_pool_bar_child_without_a_value_is_the_none_bar() -> None:
-    assert mv._pool_bar({"state": "?", "remaining": None}, 6, True, child=True) == "─" * 6
-    assert mv._pool_bar({"state": "n/a", "remaining": None}, 6, False, child=True) == "-" * 6
+    assert mv._pool_bar({"state": "?", "remaining": None, "health": {"even_left_pct": None}}, 6, True, child=True) == "─" * 6
+    assert mv._pool_bar({"state": "n/a", "remaining": None, "health": {"even_left_pct": None}}, 6, False, child=True) == "-" * 6
 
 
-def test_rich_child_bar_is_filled_in_the_state_colour_and_empty_in_sgr_dim() -> None:
+def test_m1_rich_child_bar_uses_one_pace_colour() -> None:
     screen = render(tree(), color=True, expand=True)
     child, parent = row(screen, "C-5H"), row(screen, "C-7D")
-    # C-5H has 10% left: bad (red), two filled cells, eighteen empty ones.
-    assert f"\x1b[{mv.RICH_SGR['bad']}m▬▬\x1b[0m{DIM}{'╌' * 18}\x1b[0m" in child
-    # the parent is unchanged: one span, `█░`
-    assert re.search(r"\x1b\[[0-9;]+m█{4}░{16}\x1b\[0m", parent)
-    assert "▬" not in parent and "╌" not in parent and "█" not in child and "░" not in child
+    dim = mv.RICH_SGR["dim"]  # the fixture has no anchored pace for either pool
+    assert f"\x1b[{dim}m▬{'╌' * (mv.BAR_CELLS - 1)}\x1b[0m" in child
+    assert f"\x1b[{dim}m██{'░' * (mv.BAR_CELLS - 2)}\x1b[0m" in parent
 
 
-def test_rich_child_at_zero_percent_is_all_dim_empty_cells() -> None:
+def test_m1_rich_child_at_zero_percent_is_bold_red() -> None:
     frame = tree()
     frame["groups"]["capacity"]["data"]["observations"][0]["measurements"]["remaining_fraction"] = 0
     child = row(render(frame, color=True, expand=True), "C-5H")
-    assert f"{DIM}{'╌' * 20}\x1b[0m" in child and "▬" not in child
+    assert f"\x1b[{mv.RICH_SGR['out']}m{'╌' * mv.BAR_CELLS}\x1b[0m" in child and "▬" not in child
 
 
-def test_rich_child_at_full_has_no_empty_span() -> None:
+def test_g_rich_child_at_full_has_no_empty_cells() -> None:
     frame = tree()
     frame["groups"]["capacity"]["data"]["observations"][0]["measurements"]["remaining_fraction"] = 1
     child = row(render(frame, color=True, expand=True), "C-5H")
-    assert "▬" * 20 in child and "╌" not in child and DIM not in child.replace(f"\x1b[{mv.RICH_SGR['dim']}m", "")
+    assert "▬" * mv.BAR_CELLS in child and "╌" not in child
 
 
 def test_no_color_keeps_the_glyphs_and_prints_no_escape() -> None:
     screen = render(tree(), color=False, expand=True)
     assert "\x1b" not in screen
-    assert bars(row(screen, "C-5H"), "▬", "╌") == "▬▬" + "╌" * 18
-    assert bars(row(screen, "C-7D"), "█", "░") == "█" * 4 + "░" * 16
+    assert bars(row(screen, "C-5H"), "▬", "╌") == "▬" + "╌" * (mv.BAR_CELLS - 1)
+    assert bars(row(screen, "C-7D"), "█", "░") == "██" + "░" * (mv.BAR_CELLS - 2)
 
 
 def test_ascii_child_bar_is_equals_and_dash_parent_stays_hash_and_dot() -> None:
     screen = render(tree(), color=False, unicode=False, expand=True)
-    assert "=" * 2 + "-" * 18 in row(screen, "C-5H")
-    assert "#" * 4 + "." * 16 in row(screen, "C-7D")
+    assert "=" + "-" * (mv.BAR_CELLS - 1) in row(screen, "C-5H")
+    assert "##" + "." * (mv.BAR_CELLS - 2) in row(screen, "C-7D")
 
 
 @pytest.mark.parametrize("unicode", [True, False])
-def test_child_bar_shrinks_like_the_parent_bar_20_to_4_to_hidden(unicode: bool) -> None:
+def test_g_child_and_parent_bars_use_one_fixed_width_or_yield(unicode: bool) -> None:
     full, empty = ("█", "░") if unicode else ("#", ".")
     cfull, cempty = ("▬", "╌") if unicode else ("=", "-")
     seen: set[int] = set()
-    for width in range(22, 110):
+    for width in range(32, 110):
         screen = render(tree(), color=True, unicode=unicode, expand=True, width=width)
         top = screen.split("suggest:", 1)[0]
         child, parent = mv._ANSI.sub("", row(top, "C-5H")), mv._ANSI.sub("", row(top, "C-7D"))
@@ -135,19 +132,19 @@ def test_child_bar_shrinks_like_the_parent_bar_20_to_4_to_hidden(unicode: bool) 
         parent_bar = re.findall(f"[{re.escape(full)}{re.escape(empty)}]{{4,}}", parent)
         assert len(child_bar) == len(parent_bar) <= 1, (width, child, parent)
         if parent_bar:
-            assert len(child_bar[0]) == len(parent_bar[0]) and 4 <= len(parent_bar[0]) <= 20
+            assert len(child_bar[0]) == len(parent_bar[0]) and len(parent_bar[0]) == mv.BAR_CELLS
             seen.add(len(parent_bar[0]))
         else:
             seen.add(0)
         assert all(mv._width(line) <= width - 1 for line in screen.splitlines())
-    assert {0, 4, 20} <= seen and any(4 < size < 20 for size in seen)
+    assert seen == {0, mv.BAR_CELLS}
 
 
 def test_expand_plain_quota_bar_distinguishes_child_from_parent() -> None:
     screen = render(tree(), view="plain", unicode=False, expand=True, width=180)
     child, parent = row(screen[screen.index("PEER"):], "C-5H"), row(screen[screen.index("PEER"):], "C-7D")
-    assert re.search(r"\[[=|:-]{8}\]", child) and "=" in child and "#" not in child
-    assert re.search(r"\[[#|:.]{8}\]", parent) and "#" in parent and "=" not in parent
+    assert re.search(r"(?<![=|:-])[=|:-]{8}(?![=|:-])", child) and "=" in child and "#" not in child
+    assert re.search(rf"(?<![#|:.])[#|:.]{{{mv.BAR_CELLS}}}(?![#|:.])", parent) and "#" in parent and "=" not in parent
     uni = render(tree(), view="plain", unicode=True, expand=True, width=180)
     uni_child = row(uni[uni.index("PEER"):], "C-5H")
     assert "▬" in uni_child and "█" not in uni_child

@@ -97,6 +97,8 @@ def test_scoped_weekly_parent_follows_configured_consumers():
     profiles = {"C-7D": ["cc.standard", "cc.fable"], "F-7D": ["cc.fable"]}
     assert _rows(report, profiles)[ref]["parent"] == "C-7D"
     assert _rows(report, {**profiles, "C-7D": ["cc.fable"]})[ref]["parent"] is None
+    assert _rows(report, {**profiles, "F-7D": ["cc.eff"],
+                          "C-7D": ["cc.effort", "cc.fable", "cc.standard"]})[ref]["parent"] is None
 
 
 @pytest.mark.parametrize("history,remaining,age,fast", [

@@ -519,7 +519,6 @@ PLAN_BUDGET_COLUMN = "BUDGET%/h"
 _PLAN_COLUMNS = ("PEER", "POOL", "LEFT", "PACE(pp)", "EXH/RESET", PLAN_BUDGET_COLUMN, "ACTION", "REASON")
 _PLAN_TEXT_LEGEND = f"{_PLAN_PACE_LEGEND}/early | blocked 0%/? | - n/a | {PLAN_BUDGET_COLUMN} | {PLAN_TAG_LEGEND}"
 PLAN_EARLY_TAG = "!early"
-_MISSING_FACT = "—"
 _PLAN_ZERO_REASONS = {"out": "out", "aged": "stale zero; refresh", "reset": "window reset; refresh"}
 _PLAN_RANK = {"spend": 0, "hold": 1, "rest": 2, "blocked": 3}
 _PlanWindow = tuple[_Row, float | None, str, str]
@@ -567,7 +566,8 @@ def _plan_pool_facts(own: list[_PlanWindow], out: list[dict[str, object]],
         families.setdefault(family_key(r), []).append(entry)
         rows_by_ref[r.ref] = r
         descriptors.append({"peer": r.peer, "pool": r.pool, "pool_ref": r.ref,
-                            "profiles": ",".join(consumers.get(f"{r.peer}:{r.pool}", []))})
+                            "profiles": tuple(consumers.get(f"{r.peer}:{r.pool}", [])),
+                            "retired": bool(r.item.get("display_retired"))})
 
     scoped_parents = _scoped_weekly_parents(descriptors)
     parents: dict[str, _Row] = {}
@@ -685,39 +685,18 @@ def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
     return data
 
 
-def _plan_pace(pace: float | None) -> str:
-    if pace is None:
-        return _MISSING_FACT
-    return f"{pace:+.1f}" if round(pace, 1) else "0.0"
-
-
-def _plan_exhaust_reset(health: PoolHealth) -> str:
-    from peerhub.cli.monitor_view import _format_duration  # pyright: ignore[reportPrivateUsage]
-
-    def duration(seconds: float) -> str:
-        return _format_duration(seconds).removesuffix("00m")
-
-    reset, exhaust = health["reset_in_seconds"], health["exhaust_in_seconds"]
-    reset_text = _MISSING_FACT if reset is None else "passed" if reset <= 0 else duration(reset)
-    if health["reserve"] == "out":
-        exhaust_text = "OUT"
-    elif exhaust is None:
-        exhaust_text = _MISSING_FACT
-    else:
-        exhaust_text = "past est." if exhaust < 0 else duration(exhaust)
-    return f"{exhaust_text}/{reset_text}" + ("!" if health["exhaust_before_reset"] else "")
-
-
 def _plan_cells(row: Obj, health: PoolHealth) -> list[str]:
+    from peerhub.cli.monitor_view import format_exhaust_reset, format_pool_pace
+
     peer_pool = [str(row["peer"]), str(row["pool"])]
     if row["action"] == "n/a":
         return [*peer_pool, "-", "-", "-", "-", "-"]
     left_pct = health["left_pct"]
     left = "?" if left_pct is None else f"{left_pct:.0f}%"
-    pace = _plan_pace(health["pace_pt"])
+    pace = format_pool_pace(health["pace_pt"])
     budget = _num(row["target_pct_per_hour"])
     return [*peer_pool, left + ("!" if health["reserve"] == "low" else ""),
-            pace + ("!" if health["pace_band"] == "rest" else ""), _plan_exhaust_reset(health),
+            pace + ("!" if health["pace_band"] == "rest" else ""), format_exhaust_reset(health),
             "?" if budget is None else f"{budget:.2f}", str(row["action"])]
 
 
@@ -725,6 +704,7 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
                 store_source: str = "", store_note: str = "", load: Mapping[str, Any] | None = None,
                 profiles_by_pool: Mapping[str, list[str]] | None = None, peers: frozenset[str] = frozenset(),
                 separate_observation_store: bool = False) -> str:
+    from peerhub.cli.monitor_view import format_pool_pace
     from peerhub.extensions.pool_health import PACE_GAP_BASELINE
 
     width = max(1, width)
@@ -756,7 +736,7 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
     if profile_groups:
         lines.extend(_wrap(_safe_text("profiles: " + " | ".join(profile_groups)), width))
     gaps = _plan_gaps(pools)["pools"]
-    values = ", ".join(f"{name} {_plan_pace(pace)}" for name, pace in gaps.items())
+    values = ", ".join(f"{name} {format_pool_pace(pace)}" for name, pace in gaps.items())
     lines.extend(_wrap(f"gap: gap vs {PACE_GAP_BASELINE} (pp): {values}", width))
     if load is not None:
         from peerhub.core.load_limits import PLAN_NA_POOLS_LABEL, PLAN_NA_POOLS_LIMIT, format_load

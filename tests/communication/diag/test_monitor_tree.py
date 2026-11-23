@@ -31,7 +31,7 @@ def pool_lines(screen: str) -> list[str]:
     """The pool lines of a frame; in an --expand frame the QUOTA details (below the compact POOLS block, #412)."""
     lines = screen.splitlines()
     start = next((i for i, line in enumerate(lines) if "QUOTA [" in line), 0)
-    return [line for line in lines[start:] if re.search(r"\b(?:C|F|X)-\d+[HD]\b", line)
+    return [line for line in lines[start:] if re.search(r"^\s*(?:\w+ +)?(?:[└├]─ |[`|]- )?(?:C|F|X)-\d+[HD] {2,}", mv._ANSI.sub("", line))
             and not line.lstrip().startswith(("Columns", "STATE", "cc STALE"))]
 
 
@@ -118,19 +118,16 @@ def test_minimal_profile_superset_wins_before_shorter_window(expand: bool) -> No
 
 
 @EXPAND_ONLY
-def test_flat_fallback_preserves_02410_cells(expand: bool) -> None:
+def test_g_flat_fallback_uses_shared_cells(expand: bool) -> None:
     frame = frame_for({"cc.a": ["C-7D", "C-5H"], "cc.b": ["C-7D", "F-7D"], "cc.c": ["F-7D"]})
     rows = pool_lines(mv.render_grouped_frame(frame, view="plain", unicode=False, width=180, expand=expand))
-    # Frozen 0.24.10 row cells, allowing the mandated first-row-only peer and
-    # POOL padding and measurement-reset fallback changes. Capacities, pace
-    # values and flat ordering stay unchanged.
-    expected = (["C-5H low 10% 2h30m v-2 [#...|...] claude 10s a",
-                 "C-7D ok 20% 2h30m v-2 [|#......] claude 10s a,b",
-                 "F-7D ok 30% 2h30m v-2 [|#......] fable 10s b,c"] if not expand else
-                ["C-5H ON_PACE 10% 2h30m v-2.5pp [#...|...] - 10s cc.a",
-                 "C-7D ON_PACE 20% 2h30m v-2.5pp [|#......] - 10s cc.a,cc.b",
-                 "F-7D ON_PACE 30% 2h30m v-2.5pp [|#......] - 10s cc.b,cc.c"])
-    assert [" ".join(row.removeprefix("cc ").split()) for row in rows] == expected
+    # C1/G: the unanchored fixture has reserve and reset. M5 lists configured profiles.
+    expected = [("C-5H", "low", "10%!", "claude: cc.a"),
+                ("C-7D", "ok", "20%", "claude: cc.a,cc.b"),
+                ("F-7D", "ok", "30%", "fable: cc.b,cc.c")]
+    assert len(rows) == len(expected)
+    for row, (pool, state, left, family) in zip(rows, expected):
+        assert {pool, state, left, "-/2h30m"} <= set(row.split()) and family in row
 
 
 @pytest.mark.parametrize("expand", [False, True])
@@ -140,8 +137,8 @@ def test_tree_keeps_each_pools_own_capacity_and_encoding_width(expand: bool) -> 
     rich_rows = pool_lines(mv.render_grouped_frame(frame, view=_view(expand), unicode=True, width=180, expand=expand))
     for pool, value in (("C-30D", "10%"), ("C-5H", "20%"), ("C-7D", "30%")):
         row = next(row for row in ascii_rows if pool in row)
-        assert value in row.split()
-        assert value in next(row for row in rich_rows if pool in row).split()
+        assert value in [cell.rstrip("!") for cell in row.split()]
+        assert value in [cell.rstrip("!") for cell in next(row for row in rich_rows if pool in row).split()]
     # P21: the compact rich rows carry the state glyph and the bar, so the width parity of the two glyph sets is
     # checked inside one view (the plain --expand rows are the same with either glyph set).
     same_view = pool_lines(mv.render_grouped_frame(frame, view=_view(expand), unicode=False, width=180, expand=expand))
@@ -158,7 +155,7 @@ def test_retired_pools_form_one_dim_note_per_peer(expand: bool, monkeypatch: pyt
         if not item["pool_ref"].endswith("C-7D"):
             item.update(state="ABSENT", reason="not reported by provider", display_retired=True, display_plan="pro")
     screen = mv.render_grouped_frame(frame, show_quota_notes=True, view="rich", color=True, width=180, expand=expand)
-    notes = [line for line in detail_lines(screen) if "not reported by plan" in line]
+    notes = [line for line in screen.splitlines() if "not reported by plan" in line]
     assert len(notes) == 1 and "C-5H,C-30D" in notes[0]  # one note in the QUOTA details (POOLS has a row per pool)
     assert notes[0].strip().startswith(f"\x1b[{mv.RICH_SGR['dim']}m") and notes[0].endswith("\x1b[0m")
     plain = mv.render_grouped_frame(frame, show_quota_notes=True, view="plain", color=True, unicode=False, width=180, expand=expand)
@@ -228,90 +225,27 @@ def test_expanded_folded_pool_keeps_identity_and_reason(reason: str, detail: str
     assert f"cc F-7D n/a {detail}" in screen
 
 
-@pytest.mark.parametrize("state,remaining,aged,expected", [
-    ("OUT", .8, False, "1;31"), ("EXHAUSTED", .8, False, "1;31"),
-    ("THREAT", 0, False, "1;31"), ("THREAT", .05, False, "31"),
-    ("INSUFF", LOW_QUOTA_FRACTION, False, "33"), ("FAST", .8, False, "33"),
-    ("INSUFF", .8, False, None), ("OK", .8, False, "32"),
-    ("ON_PACE", .8, False, "32"), ("SAFE", .8, False, "32"),
-    ("OUT", 0, True, "2"), ("STALE", 0, False, "2"),
-    ("AGED", 0, False, "2"), ("n/a", 0, False, "2"),
-    ("UNKNOWN", 0, False, "2"), ("reset", 0, False, "2"),
-])
-def test_colour_precedence(state: str, remaining: float, aged: bool, expected: str | None) -> None:
-    assert mv._quota_color(state, remaining, aged=aged) == expected
-
-
-@pytest.mark.parametrize("remaining,projection,samples,aged,word,code,colour", [
-    (0, "threat", 2, False, "out", "1;31", "bad"),
-    (.05, "threat", 2, False, "low", "31", "bad"),
-    (.5, "threat", 2, False, "fast", "31", "bad"),
-    (.5, "threat", 1, False, "ok", "31", "bad"),
-    (.05, "insufficient", 2, False, "low", "33", "bad"),    # 10% or less left is bad, whatever the state's colour
-    (.5, "watch", 2, False, "ok", "33", "warn"),
-    (.8, "watch", 2, False, "ok", "33", "warn"),            # never milder than the state's colour
-    (.5, "fast", 2, False, "ok", "33", "warn"),
-    (.5, "insufficient", 2, False, "ok", None, "warn"),     # a valid pool takes the colour of what is left
-    (.5, "on_pace", 2, False, "ok", "32", "warn"),
-    (.8, "on_pace", 2, False, "ok", "32", "ok"),
-    (.2, "on_pace", 2, False, "ok", "32", "hot"),
-    (0, "threat", 2, True, "out", "2", "dim"),
-    (.05, "threat", 2, True, "low", "2", "dim"),
-])
-def test_compact_colour_precedence_matches_expanded_without_changing_words(
-        remaining: float, projection: str, samples: int, aged: bool, word: str,
-        code: str | None, colour: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """`code` is what `_quota_color` decides first. P21: the rich POOLS row has one colour from the 256-colour palette
-    (`colour`): `_quota_color` first (dim for aged evidence, bad for a threat), then what is left. The QUOTA details
-    row of the rich --expand frame has the same state cell in the same colour, and names the forecast."""
+@pytest.mark.parametrize("state", ["mystery", "UNAVAILABLE"])
+def test_c1_unmeasured_zero_uses_unknown_state_and_dim_colour(state: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-5H"]})
-    item = frame["groups"]["capacity"]["data"]["observations"][0]
-    item.update(age_seconds=400 if aged else 10, projection_samples=samples,
-                reset_in_seconds=9000, projection={"state": projection, "pace_pt": 12.5})
-    item["measurements"]["remaining_fraction"] = remaining
-    before = deepcopy(frame)
-    summary = mv._compact_pool(item, 1000, 0, {})
-    assert mv._quota_color(str(summary["color_state"]), summary["remaining"], aged=bool(summary["aged"])) == code
-    sgr = mv.RICH_SGR[colour]
-    glyph = mv.RICH_GLYPHS[False].get(word, "o")
-    for expand in (False, True):
-        screen = mv.render_grouped_frame(frame, view="rich", color=True, unicode=False, width=180, expand=expand)
-        rows = [line for line in screen.splitlines() if line.lstrip().startswith("cc ")]
-        row = rows[0]  # the POOLS row: the same row in the compact frame and at the top of --expand
-        assert word in mv._ANSI.sub("", row).split()
-        assert f"\x1b[{sgr}m{glyph} {word}\x1b[0m" in row and f"\x1b[{sgr}m^\x1b[0m+12" in row
-        assert re.search(r"\x1b\[" + sgr + r"m[#.]{20}\x1b\[0m", row)  # P21: the bar, in the row's colour
-        assert set(re.findall(r"\x1b\[([0-9;]*)m", row)) == {sgr, mv.RICH_SGR["dim"], "0"}
-        if not expand:
-            assert len(rows) == 1
-            continue
-        detail = rows[1]
-        assert f"\x1b[{sgr}m{glyph} {word}\x1b[0m" in detail and f"\x1b[{sgr}m^\x1b[0m+12.5pp" in detail
-        assert ("insuff" if projection == "insufficient" else projection) in mv._ANSI.sub("", detail).split()
-        assert set(re.findall(r"\x1b\[([0-9;]*)m", detail)) == {sgr, "0"} and "[" not in mv._ANSI.sub("", detail)
-    assert frame == before
-
-
-@pytest.mark.parametrize("state", ["mystery", "UNAVAILABLE"])
-def test_unknown_evidence_is_dim_even_with_zero_remaining(state: str) -> None:
-    assert mv._quota_color(state, 0) == "2"
+    frame["groups"]["capacity"]["data"]["observations"][0].update(
+        state=state, last_measurements={"remaining_fraction": 0})
+    screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=True)
+    assert screen.count(f"\x1b[{mv.RICH_SGR['dim']}m○ ?\x1b[0m") == 2
 
 
 @pytest.mark.parametrize("expand", [False, True])
-def test_stale_out_is_dim_even_before_ttl(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_c1_explicit_stale_without_ttl_keeps_the_stale_reserve(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     frame = frame_for({"cc.a": ["C-5H"]})
     item = frame["groups"]["capacity"]["data"]["observations"][0]
-    item.update(state="STALE", last_measurements={"remaining_fraction": 0})
+    item.update(state="STALE", ttl_seconds=None, last_measurements={"remaining_fraction": 0})
     screen = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
-    assert "\x1b[1;31m" not in screen and f"\x1b[{mv.RICH_SGR['bad']}m" not in screen
-    # P21: the POOLS row is dim in the palette's dim, state cell and (empty) bar alike; so is the QUOTA details row
-    assert screen.count(f"\x1b[{mv.RICH_SGR['dim']}m× out\x1b[0m") == (2 if expand else 1)
-    assert f"\x1b[{mv.RICH_SGR['dim']}m{'░' * 20}\x1b[0m" in screen
+    assert f"\x1b[{mv.RICH_SGR['out']}m" not in screen
+    assert screen.count(f"\x1b[{mv.RICH_SGR['dim']}m○ aged\x1b[0m") == (2 if expand else 1)
     if expand:
-        assert "STALE:window" not in screen.split("QUOTA [")[1].splitlines()[2]  # the state cell is the compact word
-        assert "cc STALE:window; next: peerhub observation refresh --peers cc" in screen  # the note keeps the code
+        assert "cc STALE:window; next: peerhub observation refresh --peers cc" in screen
 
 
 @pytest.mark.parametrize("reset,elapsed", [(0, 0), (10, 10), (-1, 0)])
@@ -340,26 +274,8 @@ def test_na_root_is_counted_and_its_peer_gets_a_marker(expand: bool, monkeypatch
     dim = mv.RICH_SGR["dim"]
     assert not any("○ n/a" in line for line in screen.splitlines())
     if expand:
-        rows = [line for line in detail_lines(screen) if "C-5H" in line]
+        rows = [line for line in screen.splitlines() if "C-5H" in line]
         assert any(line.startswith(f" \x1b[{dim}mcc C-5H n/a") and "not reported" in line for line in rows)
-
-
-@pytest.mark.parametrize("expand", [False, True])
-def test_pace_glyph_uses_row_colour_and_missing_pace_stays_dash(expand: bool, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    frame = frame_for({"cc.a": ["C-5H"]})
-    item = frame["groups"]["capacity"]["data"]["observations"][0]
-    item["measurements"]["remaining_fraction"] = .5
-    colored = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
-    code = mv.RICH_SGR["warn"]  # P21: 50% left is the palette's warn, in the POOLS row and in the QUOTA details row
-    assert colored.count(f"\x1b[{code}m▼\x1b[0m-") == (2 if expand else 1)
-    assert f"\x1b[{code}m{'█' * 10}{'░' * 10}\x1b[0m" in colored
-    assert "\x1b[32m" not in colored and "[█" not in colored  # no 8-cell bar and no second palette in the rich view
-    item["projection"].pop("pace_pt")
-    assert "▼" not in "\n".join(pool_lines(mv.render_grouped_frame(frame, view="rich", color=True, width=180,
-                                                                   expand=expand)))
-    monkeypatch.setenv("NO_COLOR", "1")
-    assert "\x1b" not in mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
 
 
 def parse_monitor(argv: list[str]) -> tuple[argparse.ArgumentParser, argparse.Namespace]:
@@ -440,7 +356,7 @@ def test_duplicate_pool_names_keep_each_observations_capacity(expand: bool, monk
     rich = mv.render_grouped_frame(frame, view="rich", color=True, width=180, expand=expand)
     quota_rows = [row for row in detail_lines(rich) if "C-7D" in row]
     assert len(quota_rows) == 2
-    for row, state, left, colour in zip(quota_rows, ("▼ low", "● ok"), ("5%", "87%"), ("bad", "ok")):
+    for row, state, left, colour in zip(quota_rows, ("▼ low", "● ok"), ("5%", "87%"), ("warn", "ok")):
         assert re.search(rf"{state}.*{left}", mv._ANSI.sub("", row))
         assert f"\x1b[{mv.RICH_SGR[colour]}m{state}\x1b[0m" in row
     assert frame == before
@@ -466,22 +382,16 @@ def test_error_evidence_keeps_alarm_colour(expand: bool, monkeypatch: pytest.Mon
         assert "cc C-5H evidence ERROR; next: peerhub observation refresh --peers cc" in mv._ANSI.sub("", screen)
         plain = mv.render_grouped_frame(frame, view="plain", color=True, unicode=False, width=180, expand=True)
         assert "\x1b" not in plain
-        assert " ERROR " in next(line for line in plain.splitlines() if "C-5H" in line and line.startswith("cc "))
+        assert "cc C-5H evidence ERROR" in plain  # C1 keeps the evidence in the QUOTA notes.
 
 
-def test_fast_and_low_intentionally_share_warning_colour() -> None:
-    assert mv._quota_color("FAST", .5) == mv._quota_color("LOW", .05) == "33"
-
-
-@pytest.mark.parametrize("remaining,code", [(.05, "33"), (LOW_QUOTA_FRACTION, "33"), (LOW_QUOTA_FRACTION + .01, "32")])
-def test_remaining_is_a_fraction_before_colour_threshold(remaining: float, code: str) -> None:
-    left = f"{remaining:.0%}"
+@pytest.mark.parametrize("remaining,low", [(.05, True), (LOW_QUOTA_FRACTION, True), (LOW_QUOTA_FRACTION + .01, False)])
+def test_m1_remaining_fraction_marks_reserve_at_the_shared_threshold(remaining: float, low: bool) -> None:
     frame = frame_for({"cc.a": ["C-5H"]})
     item = frame["groups"]["capacity"]["data"]["observations"][0]
     item["measurements"]["remaining_fraction"] = remaining
-    summary = mv._compact_pool(item, 1000, 0, {})
-    assert summary["remaining"] == remaining and summary["left"] == left
-    assert mv._quota_color(summary["color_state"], summary["remaining"]) == code
+    screen = mv.render_grouped_frame(frame, view="plain", width=180, expand=True)
+    assert all((f"{remaining:.0%}" + ("!" if low else "")) in row.split() for row in pool_lines(screen))
 
 
 def test_empty_view_env_defaults_to_auto(monkeypatch: pytest.MonkeyPatch) -> None:
