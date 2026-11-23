@@ -272,7 +272,7 @@ def test_limited_child_agrees_with_health_and_keeps_own_pace_and_reset():
     assert text_row[2:4] == ["0%", f"{facts['pace_pt']:+.1f}!"]
     assert text_row[4].startswith("OUT/")
     assert text_row[5:7] == ["0.00", "blocked"]
-    assert row["action"] == "blocked" and row["reason"] == f"{parent['resource_pool_ref'].rsplit(':', 1)[1]}: out"
+    assert row["action"] == "blocked" and row["reason"] == f"gate: {parent['resource_pool_ref'].rsplit(':', 1)[1]} out"
 
 
 def test_limited_child_budget_uses_effective_left_and_nearer_reset():
@@ -305,7 +305,7 @@ def test_plan_formats_pace_exhaustion_and_gaps_from_health():
     gaps = plan_data(report, {})["gaps"]
     assert gaps["baseline"] == "X-7D"
     lines = render_plan(report, width=100).splitlines()
-    assert "gap: gap vs X-7D (pp): C-7D +20.0, G-7D +20.0, A-7D —, 3P-7D —" in lines
+    assert "gap: vs X-7D (pp): C-7D +20.0, G-7D +20.0, A-7D —, 3P-7D —" in lines
     table = {line.split()[1]: line.split() for line in lines if line[:2] in {"ag", "cc", "cx"}}
     assert table["G-7D"][3:5] == ["+20.0!", "2d02h/4d21h!"]
     assert table["C-7D"][3] == "+20.0"
@@ -339,3 +339,46 @@ def test_early_fact_keeps_existing_hold_advice_below_projection_threat_threshold
     row = _rows(_report(item))[item["resource_pool_ref"]]
     assert row["action"] == "hold" and row["forecast"] == "on_pace"
     assert row["exhaust_before_reset"]
+
+
+def test_exhausted_profile_window_gates_all_its_pools_in_its_account_only():
+    gate, parent, child, sibling, unrelated = "C-5H", "C-7D", "F-7D", "F-5H", "C-1H"
+    profile, standard = "cc.fable", "cc.standard"
+    profiles = {gate: [profile], parent: [profile, standard], child: [profile], sibling: [profile],
+                unrelated: [standard]}
+    empty = _item("cc", gate, 0, span=SHORT, elapsed=2 * HOUR)
+    pairs = [(parent, WEEK), (child, WEEK), (sibling, SHORT), (unrelated, HOUR)]
+    items = [_item("cc", pool, .8, span=span, elapsed=span / 2) for pool, span in pairs]
+    other_account = {**items[0], "resource_pool_ref": f"quota:another-account:{parent}"}
+    other_peer = _item("ag", parent, .8, span=WEEK, elapsed=WEEK / 2)
+    unmapped_gate = _item("ag", "G-5H", 0, span=SHORT, elapsed=2 * HOUR)
+    unmapped_week = _item("ag", "G-7D", .8, span=WEEK, elapsed=WEEK / 2)
+    report = _report(empty, *items, other_account, other_peer, unmapped_gate, unmapped_week)
+    rows = _rows(report, profiles)
+    alone = _rows(_report(*items), profiles)
+    text = render_plan(report, profiles_by_pool=profiles, width=140)
+    reason = f"{PLAN_GATE_TAG}: {gate} out"
+    for item in items[:3]:
+        ref = item["resource_pool_ref"]
+        row = rows[ref]
+        assert (row["action"], row["binding"], row["reason"]) == ("blocked", gate, reason)
+        assert any(line.split()[:2] == [row["peer"], row["pool"]] and reason in line for line in text.splitlines())
+        for field in ("left_pct", "resets_in_seconds", "pace_pt", "target_pct_per_hour"):
+            assert row[field] == alone[ref][field]
+    unblocked = _rows(_report(*items, other_account, other_peer, unmapped_week), profiles)
+    for item in (items[-1], other_account, other_peer, unmapped_week):
+        row = rows[item["resource_pool_ref"]]
+        assert row["action"] == "spend" and row["binding"] == unblocked[item["resource_pool_ref"]]["binding"]
+        assert gate not in row["reason"]
+
+
+@pytest.mark.parametrize("age,elapsed", [(AGED, HOUR), (FRESH_AGE, SHORT - FRESH_AGE / 2)])
+def test_stale_or_reset_zero_does_not_gate_the_profile(age, elapsed):
+    gate, pool = "G-5H", "G-7D"
+    empty = _item("ag", gate, 0, span=SHORT, elapsed=elapsed, age=age)
+    available = _item("ag", pool, .8, span=WEEK, elapsed=WEEK / 2)
+    profiles = dict.fromkeys((gate, pool), ["ag.neon"])
+    rows = _rows(_report(empty, available), profiles)
+    assert rows[empty["resource_pool_ref"]]["action"] == "blocked"
+    weekly = rows[available["resource_pool_ref"]]
+    assert weekly["action"] == "spend" and weekly["binding"] == pool

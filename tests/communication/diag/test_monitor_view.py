@@ -112,12 +112,13 @@ def test_soonest_exhaustion_ignores_stale_and_counts_down(quota_visual_frame):
 
 
 @pytest.mark.parametrize(("state", "seconds", "expected"), [
-    ("MEASURED", 17880, "4h58m"), ("MEASURED", None, "-"),
+    ("MEASURED", 17880, "4h58m"), ("MEASURED", None, None),
     ("STALE", 17880, "4h58m"), ("UNKNOWN", 17880, "4h58m"),  # C1/G3: reset is independent
 ])
 @pytest.mark.parametrize("elapsed", [0, 60])
 def test_quota_reset_countdown_plain_and_tty_parity(frame, state, seconds, expected, elapsed):
     from peerhub.cli.monitor_view import _render_expanded_frame as render_grouped_frame
+    from peerhub.cli.monitor_view import missing_pool_fact
 
     frame["selected_groups"] = ["capacity"]
     item = frame["groups"]["capacity"]["data"]["observations"][0]
@@ -131,8 +132,8 @@ def test_quota_reset_countdown_plain_and_tty_parity(frame, state, seconds, expec
         lines = rendered.splitlines()
         quota = lines[next(i for i, line in enumerate(lines) if "PEER POOL" in line):]
         row = next(line for line in quota if "cx 5h" in line)
-        marker = "—" if unicode_mode else "-"
-        assert f"{marker}/{marker if expected == '-' else expected}" in row  # G3
+        marker = missing_pool_fact(unicode_mode)
+        assert f"{marker}/{marker if expected is None else expected}" in row  # G3
 
 
 @pytest.fixture

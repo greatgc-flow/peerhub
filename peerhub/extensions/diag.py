@@ -21,6 +21,7 @@ from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     ObservationCorruptError,
     ObservationView,
+    changed_account_plan,
     quota_projection_sample_count,
     effective_us,
     evaluate,
@@ -261,6 +262,13 @@ class ReadonlyDiag:
             prev = best.get(key)
             if prev is None or self._newer(view, prev):
                 best[key] = view
+        latest_quota: dict[str, ObservationView] = {}
+        if include_quota_samples:
+            for view in best.values():
+                peer = view.observation.subject_ref
+                previous = latest_quota.get(peer)
+                if view.observation.kind == "quota" and (previous is None or self._newer(view, previous)):
+                    latest_quota[peer] = view
         items: list[dict[str, Any]] = []
         for key in sorted(best, key=lambda k: (k[0], k[1], k[2] or "")):
             v = best[key]
@@ -269,8 +277,13 @@ class ReadonlyDiag:
                           "source": o.source, "stored_state": v.stored_state.value, "state": v.state.value, "age_seconds": v.age_seconds,
                           "ttl_seconds": v.ttl_seconds, "basis": v.basis, "skew_seconds": v.skew_seconds, "capture_seq": v.capture_seq,
                           "observed_at": o.observed_at, "captured_at": o.captured_at, "payload": o.payload})
-            if include_quota_samples and o.kind == "quota" and o.resource_pool_ref is not None and v.state.value == "MEASURED":
-                items[-1]["projection_samples"] = quota_projection_sample_count(conn, v.capture_seq)
+            if include_quota_samples:
+                if o.kind == "quota":
+                    items[-1]["effective_at_us"] = effective_us(o)
+                    if o.resource_pool_ref is not None and v.state.value == "MEASURED":
+                        items[-1]["projection_samples"] = quota_projection_sample_count(conn, v.capture_seq)
+                elif o.kind == "account" and (quota := latest_quota.get(o.subject_ref)) is not None:
+                    items[-1]["plan_changed"] = changed_account_plan(o, quota.observation) is not None
         return Section("observations", "ERROR" if errors else "OK", {"items": items}, tuple(errors))
 
     @staticmethod

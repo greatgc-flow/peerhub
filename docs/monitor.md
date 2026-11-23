@@ -3,7 +3,7 @@
 `peerhub monitor` is the human screen. An AI reads `peerhub diag --plan` instead (pools plus the load line, about 350 tokens).
 
 This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the
-`Guide:` line in plain terminal frames. It describes what the screen shows. The same facts are
+`Guide:` line in plain snapshots and terminal frames without a Guide link. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
 
 Continuous terminal watch checks each selected peer every second and refreshes it in the background when its oldest
@@ -75,7 +75,7 @@ counted). The compact frame shows at most eight rows, `--expand` shows all of th
 | bar | remaining quota and its even-burn tick. See [Bar glyphs](#bar-glyphs). |
 | LEFT | remaining quota rounded to the nearest whole percent. Positive values that would round to zero show `<1%`. An actual zero in the sampled window shows `0%`. Missing values and readings from a window that has reset show `—` (ASCII `-`). A low reserve has a trailing `!`. Stale evidence has a `~Xm` badge. |
 | PACE(pp) | percentage points ahead of (`+`) or behind (`-`) even burn. A trailing `!` marks the rest band. |
-| EXH/RESET | forecast time until exhaustion and time until reset. Different times that display the same way gain one unit of precision, for example `3d13h05m/3d13h40m!`. A trailing `!` means the forecast is earlier than reset. Either side can show `—` when unavailable. `OUT` marks a fresh zero and `past est.` marks a forecast that has already passed while measured quota remains positive. |
+| EXH/RESET | forecast time until exhaustion and time until reset. Different times that display the same way gain one unit of precision, for example `3d13h05m/3d13h40m!`. A `!` means the forecast is earlier than reset. When the displayed times still tie, the margin follows it (for example `!30s`). Either side can show `—` when unavailable (`?` in ASCII), as can a weekly pace gap. `OUT` marks a fresh zero and `past est.` marks a forecast that has already passed while measured quota remains positive. |
 | FAMILY | the family label and configured profiles using the pool, including child pools. For example, `flash: ag.effort,ag.neon +1` shows two profiles and counts one more. A child pool also shows its dependency, for example `limited by C-7D (own 26%)`. |
 
 The gap line compares each weekly parent pool's pace with `X-7D` in percentage points. It shows `—` when either reading
@@ -245,11 +245,11 @@ A terminal without VT (or `TERM=dumb`) appends each frame. A pipe receives one c
 
 In the rich view on a terminal with OSC 8 enabled, `Guide` stays at the right end of line 2 during watch and in
 snapshots, in both layouts. The status fields on the left yield room to the link. It opens this page for the release
-you run. On a TTY, plain frames and frames with links disabled end with a copyable `Guide: <url>` line when it fits.
-That URL uses `main` for development builds. Redirected frames omit the trailer.
+you run. Plain snapshots and terminal frames without a Guide link end with a copyable `Guide: <url>` line when it fits.
+That URL uses `main` for development builds.
 
 The rich view also links the database path and profile names to their files, and recorded query text to its local file.
-The quota state in the verdict and the STATE words in POOLS and QUOTA link to the state descriptions. On supported terminals, the source shown by
+The quota state in the verdict and the STATE words in POOLS and QUOTA link to the state descriptions for the package version. On supported terminals, the source shown by
 `peerhub monitor defaults show` links to its config file. Local destinations must exist. These details keep the same
 visible text when links are unavailable, and commands remain copyable text.
 
@@ -258,7 +258,7 @@ visible text when links are unavailable, and commands remain copyable text.
 | Variable | Effect |
 |---|---|
 | `PEERHUB_MONITOR_VIEW` | `auto`, `rich` or `plain`: the default of `--view` (an explicit `--view` wins). `plain` is the fix for a terminal that draws the glyphs two cells wide. |
-| `PEERHUB_NO_LINKS` | `1` (any value except empty, `0`, `false`, `no`, `off`) disables OSC 8 and uses the plain Guide trailer on a TTY. `NO_COLOR` also disables OSC 8 links. |
+| `PEERHUB_NO_LINKS` | `1` (any value except empty, `0`, `false`, `no`, `off`) disables OSC 8 and uses the plain Guide trailer when it fits. `NO_COLOR` also disables OSC 8 links. |
 | `PEERHUB_GUIDE_URL` | Tests and mirrors can point the Guide to an HTTPS URL. The plain trailer also accepts HTTP. An override with controls or spaces is ignored. |
 | `NO_COLOR` | no colour; the rich layout and its glyphs stay. |
 | `PEERHUB_MONITOR_TEXT` | `off` hides the session name, the title and the conversation lines. |

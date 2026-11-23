@@ -499,7 +499,7 @@ def test_scripted_monitor_bytes_match_main(monkeypatch, capsys, mode):
     args.db, args.db_source = db, "explicit"
     assert monitor.run_monitor(args, parser) == 0
 
-    # Pinned from main with a fixed read time and store selection. M7 adds a plain Guide on the finite TTY.
+    # Pinned from main with a fixed read time and store selection. M7 keeps the plain Guide in snapshots and watches.
     frame = (
         b"OK? (alerts not read)\n"
         b"PeerHub Monitor 2027-01-15 08:00Z | DB:explicit | quota age ?\n"
@@ -515,8 +515,8 @@ def test_scripted_monitor_bytes_match_main(monkeypatch, capsys, mode):
     )
     terminal_frame = frame + f"{monitor_view.GUIDE_TEXT}: {GOLDEN_GUIDE_URL}\n".encode("utf-8")
     expected = {
-        "snapshot": frame,
-        "redirected": frame + b"\n",
+        "snapshot": terminal_frame,
+        "redirected": terminal_frame + b"\n",
         "finite": (terminal_frame + b"\n") * 2,
         "json": b'{"schema_version":"2.0","cycle":0,"phase":"initial","refresh":{"status":"NOT_STARTED"},"snapshot":'
                 + snapshot + b'}\n{"schema_version":"2.0","cycle":0,"phase":"complete","refresh":{"skipped":true},"snapshot":'
