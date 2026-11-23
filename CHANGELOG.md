@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- `peerhub monitor` reads activity more often during terminal watch, keeps the Guide visible in the header, and links to existing local files and documentation on supported terminals.
+
 ### Added
 
 - `diag --plan` shows quota exhaustion alongside reset and weekly pace gaps against `X-7D`, with pool health, freshness, and parent limits in JSON.
