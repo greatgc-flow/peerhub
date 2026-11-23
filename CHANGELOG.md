@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- The live monitor's "oldest quota age" counted a measured reading of a pool the peer no longer needs (for example an old `X-30D` window), so it showed days while every shown pool was fresh; it now counts only the pools the peer requires.
+
 ## [0.26.8] - 2026-11-23
 
 ### Fixed

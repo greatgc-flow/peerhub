@@ -27,6 +27,18 @@ def _result(peer: str, pool: str) -> dict[str, str]:
     return {"kind": "quota", "subject_ref": peer, "resource_pool_ref": f"quota:{peer}:{pool}", "state": "MEASURED"}
 
 
+def test_oldest_age_ignores_pools_that_are_not_required():
+    """A measured reading of a pool the peer no longer needs (a retired window) must not age the live title."""
+    from peerhub.cli.monitor_refresh import RefreshSchedule
+
+    schedule = RefreshSchedule({"cx": {"quota:cx:X-7D"}})
+    schedule.update([_reading("cx", "X-7D", 20), _reading("cx", "X-30D", 900000)], 500.0)
+    assert schedule.oldest_age(500.0) == 20
+    schedule = RefreshSchedule({"cx": set()})  # no configured list: every measured pool counts
+    schedule.update([_reading("cx", "X-7D", 20), _reading("cx", "X-30D", 900000)], 500.0)
+    assert schedule.oldest_age(500.0) == 900000
+
+
 def test_per_peer_due_at_lead_with_missing_and_partial_pools():
     from peerhub.cli.monitor_refresh import RefreshSchedule
     from peerhub.extensions.observation_model import QUOTA_TTL_SECONDS, FreshnessPolicy
