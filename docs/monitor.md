@@ -65,8 +65,10 @@ such as `cc probe timeout (value 3m old)`.
 
 ## POOLS
 
-`POOLS n` counts the pools the table can show (a pool that the plan no longer reports is never a row and is not
-counted). The compact frame shows at most eight rows, `--expand` shows all of them.
+`POOLS n` counts pools selected for the current view before row limits are applied. Each unavailable (`n/a`) pool
+also counts once and is named inline. The compact view applies `POOLS_CAP` and omits nonbinding short
+windows unless they have a scoped parent. The expanded view includes all short windows, with visible rows limited by
+the frame height.
 
 | Column | Meaning |
 |---|---|

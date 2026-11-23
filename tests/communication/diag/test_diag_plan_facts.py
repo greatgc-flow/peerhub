@@ -411,6 +411,79 @@ def test_limited_weekly_pool_combines_scoped_gates(parent_left, gate_left, gate_
     assert line[6] == expected_action and line[7].startswith(row["reason"])
 
 
+@pytest.mark.parametrize("parent_left,parent_elapsed,child_left,child_elapsed,child_age,gate_left,winner,expected", [
+    (.7, WEEK / 2, .75, WEEK / 5, FRESH_AGE, .8, "child", "rest"),
+    (.2, WEEK / 2, .75, WEEK / 2, FRESH_AGE, .8, "parent", "rest"),
+    (.4, WEEK * .7, .5, WEEK / 2, FRESH_AGE, .2, "gate", "rest"),
+    (.7, WEEK / 2, 0, WEEK / 2, AGED, 0, "child", "blocked"),
+], ids=["child-rest", "parent-rest", "gate-rest", "stale-zero"])
+def test_child_action_ranks_its_own_parent_and_gate_actions(
+    parent_left, parent_elapsed, child_left, child_elapsed, child_age, gate_left, winner, expected,
+):
+    parent, child, gate = "C-7D", "F-7D", "F-5H"
+    profile = "cc.fable"
+    profiles = {parent: ["cc.standard", profile], child: [profile], gate: [profile]}
+    items = {
+        "parent": _item("cc", parent, parent_left, span=WEEK, elapsed=parent_elapsed, age=FRESH_AGE),
+        "child": _item("cc", child, child_left, span=WEEK, elapsed=child_elapsed, age=child_age),
+        "gate": _item("cc", gate, gate_left, span=SHORT, elapsed=SHORT / 2, age=FRESH_AGE),
+    }
+    report = _report(*items.values())
+    rows = _rows(report, profiles)
+    child_ref = items["child"]["resource_pool_ref"]
+    parent_ref = items["parent"]["resource_pool_ref"]
+    winner_ref = items[winner]["resource_pool_ref"]
+    own_winner = _rows(_report(items[winner]))[winner_ref]
+    row = rows[child_ref]
+    assert row["limited_by"] == (None if child_age == AGED else parent_ref)
+    assert row["action"] == own_winner["action"] == expected
+    assert row["binding"] == own_winner["pool"]
+    if winner == "child":
+        assert row["reason"] == own_winner["reason"]
+        if child_age == AGED:
+            assert row["stale"] and "refresh" in row["reason"]
+            assert any(entry["pool"] == gate and entry["action"] == "blocked" for entry in row["gates"])
+        else:
+            assert {"pool": child, "action": row["action"], "reason": row["reason"]} in rows[parent_ref]["gates"]
+    else:
+        binding_gate = next(entry for entry in row["gates"] if entry["pool"] == row["binding"])
+        assert binding_gate["action"] == row["action"]
+        assert binding_gate["reason"] == own_winner["reason"]
+        prefix = f"{parent}:" if winner == "parent" else f"{PLAN_GATE_TAG}: {gate}"
+        assert row["reason"] == f"{prefix} {binding_gate['reason']}"
+    line = next(line for line in render_plan(report, profiles_by_pool=profiles, width=140).splitlines()
+                if line.split()[:2] == [row["peer"], child])
+    cells, reason, _ = line.partition(row["reason"])
+    assert reason and cells.split()[-1] == expected
+
+
+def test_family_gate_binding_agrees_with_the_action_even_when_another_pool_has_less_left():
+    weekly = _item("ag", "G-7D", .7, span=WEEK, elapsed=WEEK / 2)
+    short = _item("ag", "G-5H", .75, span=SHORT, elapsed=SHORT / 5)
+    rows = _rows(_report(weekly, short))
+    row = rows[weekly["resource_pool_ref"]]
+    own_gate = _rows(_report(short))[short["resource_pool_ref"]]
+    assert row["action"] == own_gate["action"] == "rest"
+    assert row["binding"] == own_gate["pool"]
+    assert f"{row['binding']}: {own_gate['reason']}" == row["reason"]
+    assert {"pool": row["binding"], "action": row["action"], "reason": own_gate["reason"]} in row["gates"]
+
+
+def test_parent_forecast_votes_when_only_its_state_limits_the_child():
+    parent, child = "C-7D", "F-7D"
+    common = _item("cc", parent, .6, span=WEEK, elapsed=WEEK / 4)
+    common["projection_samples"] = 2
+    limited = _item("cc", child, .5, span=WEEK, elapsed=WEEK * .7)
+    profiles = {parent: ["cc.standard", "cc.fable"], child: ["cc.fable"]}
+    row = _rows(_report(common, limited), profiles)[limited["resource_pool_ref"]]
+    assert row["health"]["state"] == "fast" and row["limited_by"] == common["resource_pool_ref"]
+    assert row["health"]["effective_pace_pt"] == row["pace_pt"]
+    assert row["action"] == "rest" and row["binding"] == parent
+    (gate,) = row["gates"]
+    assert gate["action"] == row["action"] and gate["pool"] == row["binding"]
+    assert row["reason"] == f"{PLAN_GATE_TAG}: {parent} {gate['reason']}"
+
+
 @pytest.mark.parametrize("age,elapsed", [(AGED, HOUR), (FRESH_AGE, SHORT - FRESH_AGE / 2)])
 def test_stale_or_reset_zero_does_not_gate_the_profile(age, elapsed):
     gate, pool = "G-5H", "G-7D"

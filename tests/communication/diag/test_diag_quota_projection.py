@@ -62,9 +62,10 @@ def test_quota_json_projection_parity(monkeypatch, used, measured, frame, eviden
     assert all(missing[k] is None for k in ("pace_pt", "projected_at_reset", "exhaustion_at", "measured_at", "anchor_basis"))
 
 
-def test_observed_time_is_not_reconstructed_from_capture_age():
+@pytest.mark.parametrize("suffix", ["Z", "z"])
+def test_observed_time_is_not_reconstructed_from_capture_age(suffix):
     # Freshness may use captured_at; window-average math must use observed_at.
-    item = {"state": "MEASURED", "observed_at": "1970-01-01T00:03:20Z", "age_seconds": 0,
+    item = {"state": "MEASURED", "observed_at": f"1970-01-01T00:03:20{suffix}", "age_seconds": 0,
             "payload": {"remaining_fraction": 0.6, "window_started_at": 0, "resets_at": 1000,
                         "anchor_basis": "provider_fixed_window"}}
     result = diag_quota.projection(item, 250)
