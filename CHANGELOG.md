@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Documentation
+
+- Design record `docs/design/monitor-pace-health-2026-11-23.md` (decided by a unanimous vote of three peers, not implemented): remaining quota vs pace health, even burn, exhaustion forecast, labels from one source, RUNNING cadence, the lost Guide link (root cause found), clickable details, caller ownership for AIs; the nine debate rounds are in `docs/design/monitor-pace-health-2026-11-23/rounds/`.
+
 ## [0.26.8] - 2026-11-23
 
 ### Fixed
