@@ -12,6 +12,10 @@ they do not claim new validation or publication evidence.
 
 - The live monitor's "oldest quota age" counted a measured reading of a pool the peer no longer needs (for example an old `X-30D` window), so it showed days while every shown pool was fresh; it now counts only the pools the peer requires.
 
+### Documentation
+
+- Design record `docs/design/monitor-pace-health-2026-11-23.md` (decided by a unanimous vote of three peers, not implemented): remaining quota vs pace health, even burn, exhaustion forecast, labels from one source, RUNNING cadence, the lost Guide link (root cause found), clickable details, caller ownership for AIs; the nine debate rounds are in `docs/design/monitor-pace-health-2026-11-23/rounds/`.
+
 ## [0.26.8] - 2026-11-23
 
 ### Fixed
