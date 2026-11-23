@@ -8,7 +8,8 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_SECTIONS, FRAME_TRAILING_ROWS, render_grouped_frame, _width
+from peerhub.cli.monitor_view import FRAME_SECTIONS, FRAME_TRAILING_ROWS, GUIDE_TEXT, render_grouped_frame, _width
+from peerhub.extensions.pool_health import PACE_GAP_BASELINE
 
 NOW = 1_794_522_324.0
 
@@ -428,7 +429,8 @@ def _data_rows(screen: str) -> Counter[str]:
     rows = []
     for raw in screen.splitlines():
         line = re.sub(r"\x1b\[[0-9;]*m", "", raw).strip()
-        if (not line or line.startswith(("PeerHub Monitor", "DB:", "Coverage:", "STATE:", "── ", "-- ", "peerhub monitor"))
+        if (not line or line.startswith(("PeerHub Monitor", "DB:", "Coverage:", "STATE:", "── ", "-- ", "peerhub monitor",
+                                         f"{GUIDE_TEXT}: "))
                 or re.match(r"^\+\d+ (?:more|rows hidden|--expand|pools)", line)):
             continue
         rows.append(line)
@@ -442,7 +444,8 @@ def test_r3_height_3_through_60_sweep_has_exact_cuts_and_peer_priority(
         payload = deepcopy(round2_frame)
         peers = payload["groups"]["peers"]["data"]["peers"]
         peers.extend({**deepcopy(peers[0]), "peer_id": f"worker{i}"} for i in range(peer_count - 3))
-        whole = render_grouped_frame(payload, width=width, height=1000, view="plain", expand=True).splitlines()
+        roomy = render_grouped_frame(payload, width=width, height=1000, view="plain", expand=True)
+        whole = [line for line in roomy.splitlines() if not line.startswith(f"{GUIDE_TEXT}: ")]
         all_rows = _data_rows("\n".join(whole))
         # The verdict and title are the last lines to give way.
         tiny = render_grouped_frame(payload, width=width, height=3, view="plain", expand=True).splitlines()
@@ -455,9 +458,11 @@ def test_r3_height_3_through_60_sweep_has_exact_cuts_and_peer_priority(
             assert not shown - all_rows, (width, height, shown - all_rows, screen)  # nothing is invented
             # #412: the frame is cut from the bottom; the count is exactly the lines left out (the coverage line aside)
             cut = next(((i, match) for i, line in enumerate(lines) if (match := re.match(r"\+(\d+) ", line))), None)
-            if height != 5:  # the verdict, title and final pool row leave no room for the hint
-                assert cut is not None and "--expand | more" in screen
-            if cut is not None:
+            if cut is None:  # the final pool row and its gap take priority over the hint
+                assert len(lines) == height - FRAME_TRAILING_ROWS
+                assert any(line.startswith(f"gap vs {PACE_GAP_BASELINE}") for line in lines)
+            else:
+                assert "--expand | more" in screen
                 at, match = cut
                 assert int(match[1]) == len(whole) - 1 - at, (width, height, screen)
                 if "rows hidden" in lines[at]:

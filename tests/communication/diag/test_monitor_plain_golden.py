@@ -9,11 +9,12 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame
+from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, guide_text_url, render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import NOW, SOURCES_READ, activity_data, ask, pool
 from tests.communication.diag.test_monitor_leads_view import lead, sess
 
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_compact_sections.json"
+GOLDEN_GUIDE_URL = guide_text_url({}, version="0.0.1.dev0")
 ORDER = FRAME_HEADS
 _HEAD = re.compile(r"^(?:-- )?(" + "|".join(map(re.escape, FRAME_SECTIONS.values())) + r")(?= |$)")
 _TRAILER = re.compile(r"^(?:\+\d+ (?:rows hidden|--expand \| more)|Coverage: )")
@@ -98,7 +99,8 @@ def golden_cases() -> Iterator[tuple[str, dict[str, Any], dict[str, Any]]]:
             for height in HEIGHTS:
                 for encoding in ENCODINGS if name == "full" else (None,):
                     yield (f"{name}-w{width}-h{height}-{encoding}", build(),
-                           {"view": "plain", "unicode": False, "width": width, "height": height, "text_encoding": encoding})
+                           {"view": "plain", "unicode": False, "width": width, "height": height, "text_encoding": encoding,
+                            "tty": True})
 
 
 def blocks(screen: str, *, expanded: bool = False) -> dict[str, list[str]]:
@@ -151,9 +153,10 @@ def test_the_goldens_cover_every_case():
 
 
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in golden_cases()])
-def test_plain_frame_matches_its_golden(case, payload, kwargs):
+def test_plain_frame_matches_its_golden(case, payload, kwargs, monkeypatch):
     # C1 and G1–4 use the shared anchored pace, fixed bar and EXH/RESET columns.
     # M5 adds profile names. M9 and G8 add the gap and legend within the POOLS height budget.
+    monkeypatch.setenv("PEERHUB_GUIDE_URL", GOLDEN_GUIDE_URL)
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)
     assert in_order(screen, ORDER) == screen  # the sections print in the one order
     assert "\x1b" not in screen

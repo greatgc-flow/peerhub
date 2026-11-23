@@ -15,7 +15,7 @@ from peerhub.cli import monitor, monitor_view, support, view
 from peerhub.cli.app import main
 from peerhub.extensions import monitor_read_model, quota_probes
 from tests.communication.diag.test_monitor_activity_view import pool
-from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload
+from tests.communication.diag.test_monitor_plain_golden import GOLDEN_GUIDE_URL, _payload, full_payload
 
 
 def _reading(peer: str, pool: str, age: float) -> dict[str, object]:
@@ -491,6 +491,7 @@ def test_scripted_monitor_bytes_match_main(monkeypatch, capsys, mode):
     monkeypatch.setattr(view.FrameOutput, "width", staticmethod(lambda: 100))
     monkeypatch.setattr("sys.stdout.isatty", lambda: mode == "finite")
     monkeypatch.setattr(view, "enable_vt", lambda: False)
+    monkeypatch.setenv("PEERHUB_GUIDE_URL", GOLDEN_GUIDE_URL)
     parser = argparse.ArgumentParser()
     monitor.register_monitor_parser(parser.add_subparsers())
     options = {"snapshot": ["--snapshot"], "redirected": [], "finite": ["--cycles", "1"], "json": ["--json"]}
@@ -498,7 +499,7 @@ def test_scripted_monitor_bytes_match_main(monkeypatch, capsys, mode):
     args.db, args.db_source = db, "explicit"
     assert monitor.run_monitor(args, parser) == 0
 
-    # Pinned from main with a fixed read time and store selection.
+    # Pinned from main with a fixed read time and store selection. M7 adds a plain Guide on the finite TTY.
     frame = (
         b"OK? (alerts not read)\n"
         b"PeerHub Monitor 2027-01-15 08:00Z | DB:explicit | quota age ?\n"
@@ -512,10 +513,11 @@ def test_scripted_monitor_bytes_match_main(monkeypatch, capsys, mode):
         b'"runtime","coverage","store"],"preference":{"status":"OK","source":"command","reason":null},'
         b'"store_selection":{"path":"README.md","source":"explicit"}}'
     )
+    terminal_frame = frame + f"{monitor_view.GUIDE_TEXT}: {GOLDEN_GUIDE_URL}\n".encode("utf-8")
     expected = {
         "snapshot": frame,
         "redirected": frame + b"\n",
-        "finite": (frame + b"\n") * 2,
+        "finite": (terminal_frame + b"\n") * 2,
         "json": b'{"schema_version":"2.0","cycle":0,"phase":"initial","refresh":{"status":"NOT_STARTED"},"snapshot":'
                 + snapshot + b'}\n{"schema_version":"2.0","cycle":0,"phase":"complete","refresh":{"skipped":true},"snapshot":'
                 + snapshot + b"}\n",

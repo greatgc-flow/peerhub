@@ -7,12 +7,13 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor_view as mv
+from peerhub.cli import monitor, monitor_view as mv
+from peerhub.cli.view import plan_data, render_plan
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT, QUOTA_TTL_SECONDS
 from peerhub.extensions.adapters.profiles import list_profiles
 from peerhub.extensions.pool_health import PACE_GAP_BASELINE, pace_gaps, pool_health
-from tests.communication.diag.test_diag_plan_339 import NOW, _item
-from tests.communication.diag.test_pool_health import WEEK
+from tests.communication.diag.test_diag_plan_339 import DAY, HOUR, NOW, _item, _report
+from tests.communication.diag.test_pool_health import CHILD_LEFT, HALF, WEEK
 
 
 def reading(peer: str, pool: str, left: float, pace: float, *, age: float = 0,
@@ -34,6 +35,112 @@ def pool_cells(screen: str, pool: str) -> list[list[str]]:
     return [re.split(r" {2,}", line.lstrip().split(pool, 1)[1].strip())
             for line in mv._ANSI.sub("", screen).splitlines()
             if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ |[|`]- )?{pool} {{2,}}", line)]
+
+
+def test_cross_view_health_equivalence() -> None:
+    parent, child, expired, tiny = "C-7D", "F-7D", "X-7D", "G-7D"
+    standard, fable = "cc.standard", "cc.fable"
+    profiles = {standard: [parent], fable: [parent, child]}
+    by_pool = {pool: [name for name, pools in profiles.items() if pool in pools] for pool in (parent, child)}
+    exhausted = reading("cc", parent, 0, PLAN_SPEND_PACE_PT + 1)
+    limited = reading("cc", child, CHILD_LEFT, -PLAN_SPEND_PACE_PT - 1)
+    passed = _item("cx", expired, .25, span=WEEK, elapsed=WEEK - 30, age=60)
+    small = reading("ag", tiny, .004, 0)
+    items = (exhausted, limited, passed, small)
+    data = frame(*items, profiles=profiles)
+    report = _report(*items)
+    options = {"view": "plain", "width": 120}
+    compact = mv.render_grouped_frame(data, **options)
+    expanded = mv.render_grouped_frame(data, expand=True, **options)
+    plan = render_plan(report, width=120, profiles_by_pool=by_pool)
+    rows: Any = plan_data(report, {}, profiles_by_pool=by_pool)["pools"]
+    json_rows = {row["pool"]: row for row in rows}
+    plan_rows = {cells[1]: cells[2:] for line in plan.splitlines()
+                 if len(cells := line.split(maxsplit=7)) == 8 and cells[1] in json_rows}
+    for item, name, state, left in zip(items, (parent, child, expired, tiny),
+                                       ("out", "blocked", "reset", "low"), ("0%", "0%", "—", "<1%!")):
+        row = json_rows[name]
+        effective = row["health"]
+        assert effective["state"] == state
+        assert row["left_pct"] == pytest.approx(item["payload"]["remaining_fraction"] * 100)
+        pace_cell = mv.format_pool_pace(effective["effective_pace_pt"]) + (
+            "!" if effective["pace_band"] == "rest" else "")
+        facts = pool_health(item, exhausted if name == child else None, NOW)
+        assert row["exhaust_in_seconds"] == facts["exhaust_in_seconds"]
+        assert row["exhaust_before_reset"] == facts["exhaust_before_reset"]
+        assert effective["effective_reset_in_seconds"] == facts["reset_in_seconds"]
+        exhaust_cell = mv.format_exhaust_reset(facts)
+        assert plan_rows[name][:3] == [left, pace_cell, exhaust_cell]
+        for screen, count in ((compact, 1), (expanded, 2)):
+            cells = pool_cells(screen, name)
+            assert len(cells) == count
+            assert all((row_cells[0], row_cells[2:5]) == (state, [left, pace_cell, exhaust_cell])
+                       for row_cells in cells)
+    child_json = json_rows[child]
+    assert child_json["limited_by"] == exhausted["resource_pool_ref"]
+    assert child_json["left_pct"] == child_json["own_left_pct"] == CHILD_LEFT * 100
+    assert child_json["pace_pt"] != child_json["health"]["effective_pace_pt"]
+    assert child_json["resets_in_seconds"] != child_json["health"]["effective_reset_in_seconds"]
+    assert child_json["target_pct_per_hour"] == pytest.approx(CHILD_LEFT * 100 / (child_json["resets_in_seconds"] / HOUR))
+    assert child_json["action"] == "blocked" and child_json["binding"] == parent
+    assert child_json["reason"] == f"{parent}: out"
+    assert plan_rows[child][3:] == ["0.00", "blocked", child_json["reason"]]
+
+
+def test_even_burn_tick_replaces_filled_cell_on_collision() -> None:
+    pool = "G-7D"
+    data = frame(reading("ag", pool, LOW_QUOTA_FRACTION, 0))
+    for expand in (False, True):
+        rows = pool_cells(mv.render_grouped_frame(data, view="plain", unicode=False, expand=expand), pool)
+        assert len(rows) == (2 if expand else 1)
+        assert all(cells[1] == "|" + "." * (mv.BAR_CELLS - 1) for cells in rows)
+
+
+@pytest.mark.parametrize("exhaust_minutes,reset_minutes,flag", [(5, 40, "!"), (40, 5, "")])
+def test_near_tie_exhaustion_and_reset_show_minutes(exhaust_minutes: int, reset_minutes: int, flag: str) -> None:
+    pool = "G-7D"
+    base = 3 * DAY + 13 * HOUR
+    exhaust, reset = base + exhaust_minutes * 60, base + reset_minutes * 60
+    item = _item("ag", pool, HALF, span=exhaust + reset, elapsed=exhaust, age=0)
+    expected = f"3d13h{exhaust_minutes:02d}m/3d13h{reset_minutes:02d}m{flag}"
+    text = render_plan(_report(item), width=120)
+    plan_row = next(line.split() for line in text.splitlines() if line.startswith("ag "))
+    assert plan_row[4] == expected
+    for expand in (False, True):
+        rows = pool_cells(mv.render_grouped_frame(frame(item), expand=expand), pool)
+        assert len(rows) == (2 if expand else 1)
+        assert all(expected in cells for cells in rows)
+
+
+def test_profile_added_in_models_toml_appears_in_both_family_cells(monkeypatch: pytest.MonkeyPatch) -> None:
+    pool, profile = "G-7D", "ag.aaa"
+    folder = Path(__file__).resolve().parent
+    config = folder.parent / "fixtures" / "monitor" / "models.toml"
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(folder))
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("PEERHUB_NO_LINKS", raising=False)
+    data = frame(reading("ag", pool, .17, 3.8))
+    data["store_selection"] = {"path": str(folder / "store.db"), "source": "env"}
+    options = {"view": "rich", "width": 120, "height": None, "color": False, "expand": True, "links": True}
+    before = pool_cells(monitor._render_human_frame(data, **options), pool)
+    assert len(before) == 2 and all(not any(profile in cell for cell in row) for row in before)
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(config.parent))
+    screen = monitor._render_human_frame(data, **options)
+    after = pool_cells(screen, pool)
+    assert len(after) == 2 and all(any(f"flash: {profile}," in cell for cell in row) for row in after)
+    assert sum(mv.osc_link(config.as_uri(), profile) in line
+               for line in screen.splitlines() if "flash:" in line) == len(after)
+
+
+@pytest.mark.parametrize("expand", [False, True])
+def test_bounded_frame_evicts_gap_with_pools(expand: bool) -> None:
+    data = frame(reading("cx", PACE_GAP_BASELINE, .5, 0))
+    for height in range(3, 20):
+        screen = mv.render_grouped_frame(data, view="plain", width=100, height=height, expand=expand)
+        shown = "\nPOOLS " in screen
+        assert shown == (f"\ngap vs {PACE_GAP_BASELINE}" in screen), (height, screen)
+        if height == 5 + mv.FRAME_TRAILING_ROWS:  # verdict, title, POOLS heading, row and gap
+            assert shown
 
 
 @pytest.mark.parametrize("view", ["rich", "plain"])

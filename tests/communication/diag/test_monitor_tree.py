@@ -198,15 +198,15 @@ def test_peer_spacing_yields_before_data_and_labels_only_first_row(expand: bool,
     # #412: the blank line between peers belongs to the QUOTA details; POOLS (the compact block above) has none, and a
     # bounded height cuts the frame from the bottom, never a separator out of the middle of a table
     full = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=200, expand=expand)
-    lines = full.splitlines()
+    lines = [line for line in full.splitlines() if not line.startswith(f"{mv.GUIDE_TEXT}: ")]
     cx_index = next(i for i, row in enumerate(lines) if row.startswith("cx "))
     assert lines[cx_index - 1] == "" and "\n\n" not in "\n".join(lines[:next(i for i, l in enumerate(lines) if "QUOTA [" in l)])
     for height in range(len(lines) + 2, 3, -1):
         screen = mv.render_grouped_frame(frame, view="plain", unicode=False, width=100, height=height, expand=expand)
         assert len(screen.splitlines()) < height
-        if 5 < height <= len(lines):
+        if 5 + mv.FRAME_TRAILING_ROWS < height <= len(lines):
             assert "rows hidden" in screen
-        kept = [line for line in screen.splitlines() if not line.startswith(("+", "Coverage:"))]
+        kept = [line for line in screen.splitlines() if not line.startswith(("+", "Coverage:", f"{mv.GUIDE_TEXT}: "))]
         original = iter(lines)
         assert all(line in original for line in kept if line)  # optional top rows can shrink
 
@@ -424,9 +424,10 @@ def test_expanded_separators_show_at_exact_full_fit_and_yield_below_it(width: in
     before = deepcopy(frame)
     roomy = mv.render_grouped_frame(frame, view="plain", unicode=unicode, width=width, height=200, expand=True)
     assert "\n\n" in roomy and "rows hidden" not in roomy
-    exact_height = len(roomy.splitlines()) + 1
+    data_lines = [line for line in roomy.splitlines() if not line.startswith(f"{mv.GUIDE_TEXT}: ")]
+    exact_height = len(data_lines) + mv.FRAME_TRAILING_ROWS
     exact = mv.render_grouped_frame(frame, view="plain", unicode=unicode, width=width, height=exact_height, expand=True)
-    assert exact == roomy  # an exact fit hides nothing
+    assert exact.splitlines() == data_lines
     for height in range(exact_height - 2, exact_height):  # below it the bottom goes, with a count (#412)
         screen = mv.render_grouped_frame(frame, view="plain", unicode=unicode, width=width, height=height, expand=True)
         assert len(screen.splitlines()) < height and "rows hidden" in screen

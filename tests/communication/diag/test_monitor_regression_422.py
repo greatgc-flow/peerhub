@@ -11,7 +11,7 @@ import pytest
 from peerhub.cli import monitor, monitor_view as mv, view
 from peerhub.extensions import monitor_read_model
 from tests.communication.diag.test_monitor_na_hidden_400 import na_payload
-from tests.communication.diag.test_monitor_plain_golden import full_payload
+from tests.communication.diag.test_monitor_plain_golden import full_payload, quiet_payload
 from tests.communication.diag.test_monitor_recent_layout import (
     NOW, activity_data, ask, ended, head_names, recent_rows, session,
 )
@@ -93,12 +93,18 @@ def test_only_newest_ask_uses_live_session_context(width, style, expand, peer):
     assert all(value not in prior for value in ("71k", "62k", "u3", "gen2", "now"))
 
 
-@pytest.mark.parametrize("tty,no_links", [(False, False), (True, True), (True, False)])
-def test_plain_guide_respects_terminal_and_opt_out(monkeypatch, tty, no_links):
+@pytest.mark.parametrize("tty", [False, True])
+@pytest.mark.parametrize("no_links", [False, True])
+@pytest.mark.parametrize("expand", [False, True])
+def test_plain_guide_respects_terminal_and_opt_out(monkeypatch, tty, no_links, expand):
+    url = "https://example.test/monitor"
     monkeypatch.setenv("PEERHUB_NO_LINKS", str(int(no_links)))
-    monkeypatch.setenv("PEERHUB_GUIDE_URL", "https://example.test/monitor")
-    screen = mv.render_grouped_frame(full_payload(), view="plain", width=118, expand=True, tty=tty)
-    assert (f"{mv.GUIDE_TEXT}:" in screen) == (tty and not no_links)
+    monkeypatch.setenv("PEERHUB_GUIDE_URL", url)
+    payload = full_payload() if expand else quiet_payload()
+    screen = mv.render_grouped_frame(payload, view="plain", width=118, expand=expand, tty=tty)
+    guides = [line for line in screen.splitlines() if line.startswith(f"{mv.GUIDE_TEXT}:")]
+    assert guides == ([f"{mv.GUIDE_TEXT}: {url}"] if tty else [])
+    assert "\x1b" not in screen
 
 
 @pytest.mark.parametrize("height", [24, 40])

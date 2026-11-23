@@ -13,11 +13,10 @@ import pytest
 from peerhub.cli import monitor_view as mv
 from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, render_grouped_frame, _width
 from tests.communication.diag.test_monitor_activity_view import pool
-from tests.communication.diag.test_monitor_plain_golden import _payload, blocks, full_payload, quiet_payload
+from tests.communication.diag.test_monitor_plain_golden import GOLDEN_GUIDE_URL, _payload, blocks, full_payload, quiet_payload
 
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OUR_CODES = {"0", *mv.RICH_SGR.values(), *mv.PILL_SGR.values()}  # #414: a child bar's empty cells
-GUIDE_URL = "https://github.com/greatgc-flow/peerhub/blob/main/docs/monitor.md"  # pinned: the plain frame's `Guide:` line
 U, A = mv.RICH_GLYPHS[True], mv.RICH_GLYPHS[False]
 GOLDEN = Path(__file__).resolve().parents[1] / "fixtures" / "monitor" / "plain_expand_sections.json"
 ORDER = [*FRAME_SECTIONS.values(), "STORE"]
@@ -30,7 +29,7 @@ DB_LINE = "DB:env (/w/.peerhub/core.db)"
 def _colour_env(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.delenv("COLORTERM", raising=False)
-    monkeypatch.setenv("PEERHUB_GUIDE_URL", GUIDE_URL)  # the goldens must not move with the release number
+    monkeypatch.setenv("PEERHUB_GUIDE_URL", GOLDEN_GUIDE_URL)
 
 
 def strip(text: str) -> str:
@@ -561,7 +560,9 @@ def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
         assert len(lines) <= height - 1
         assert lines[:2] == whole[:2]
         shown = heads(screen)
-        if height != 5:  # the title and one pool row use the four available lines
+        if height == 5 + mv.FRAME_TRAILING_ROWS:
+            assert lines[-1].startswith(f"gap vs {mv.PACE_GAP_BASELINE}")
+        else:
             assert "--expand | more" in screen
         assert shown == ORDER[:len(shown)]
 
@@ -612,7 +613,7 @@ def plain_cases() -> Iterator[tuple[str, dict[str, Any], dict[str, Any]]]:
         for width in PLAIN_WIDTHS:
             for height in PLAIN_HEIGHTS:
                 yield (f"{name}-w{width}-h{height}", build(),
-                       {"view": "plain", "unicode": False, "width": width, "height": height, "expand": True})
+                       {"view": "plain", "unicode": False, "width": width, "height": height, "expand": True, "tty": True})
 
 
 GOLDENS: dict[str, str] = json.loads(GOLDEN.read_text(encoding="utf-8")) if GOLDEN.exists() else {}

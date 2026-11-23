@@ -234,7 +234,7 @@ def test_the_stale_tag_leads_the_reason_so_a_narrow_terminal_cannot_cut_it_off()
     lines = render_plan(report, width=80, store_path="x", store_source="explicit").splitlines()
     row = next(line for line in lines if " G-5H " in line)
     assert len(row) <= 80 and "(stale)" in row
-    assert row.split(maxsplit=7)[-1].startswith("(stale)")
+    assert row.split(maxsplit=8)[-1].startswith("(stale)")  # LEFT also carries its age badge
 
 
 @pytest.mark.parametrize("age,remaining_time,expected_state,expected_reason", [
@@ -271,6 +271,25 @@ def test_limited_child_agrees_with_health_and_keeps_own_pace_and_reset():
                     if line.startswith("cc   F-7D"))
     assert text_row[2:4] == ["0%", f"{facts['pace_pt']:+.1f}!"]
     assert text_row[4].startswith("OUT/")
+    assert text_row[5:7] == ["0.00", "blocked"]
+    assert row["action"] == "blocked" and row["reason"] == f"{parent['resource_pool_ref'].rsplit(':', 1)[1]}: out"
+
+
+def test_limited_child_budget_uses_effective_left_and_nearer_reset():
+    parent_pool, child_pool = "C-7D", "F-7D"
+    parent = _item("cc", parent_pool, .07, span=WEEK, elapsed=WEEK / 2)
+    child = _item("cc", child_pool, .26, span=WEEK, elapsed=WEEK * .75)
+    profiles = {parent_pool: ["cc.standard", "cc.fable"], child_pool: ["cc.fable"]}
+    report = _report(parent, child)
+    rows = _rows(report, profiles)
+    own = rows[child["resource_pool_ref"]]
+    effective = rows[parent["resource_pool_ref"]]
+    text = render_plan(report, width=120, profiles_by_pool=profiles)
+    cells = next(line.split(maxsplit=7) for line in text.splitlines() if line.startswith(f"cc   {child_pool}"))
+    hrs = own["health"]["effective_reset_in_seconds"] / HOUR
+    assert cells[5] == f"{effective['left_pct'] / hrs:.2f}"
+    assert own["target_pct_per_hour"] == pytest.approx(own["left_pct"] / hrs)
+    assert cells[6] == "rest" and cells[7].startswith(f"{parent_pool}: ")
 
 
 def test_plan_formats_pace_exhaustion_and_gaps_from_health():

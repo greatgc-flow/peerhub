@@ -525,6 +525,11 @@ _PlanWindow = tuple[_Row, float | None, str, str]
 _PlanPool = tuple[str | None, dict[str, object], "PoolHealth"]
 
 
+def _plan_budget(left: float | None, reset: float | None) -> float | None:
+    hours = reset / 3600 if reset is not None and reset > 0 else None
+    return left / hours if left is not None and hours else None
+
+
 def plan_action(left_pct: float | None, pace_pt: float | None, forecast: str) -> tuple[str, str]:
     """#339: one window's action from stored evidence and the existing PACE/forecast; never re-derived."""
     stale = PLAN_STALE_TAG + " " if forecast == "stale" else ""  # leads the reason: a narrow terminal cuts the end
@@ -607,7 +612,7 @@ def _plan_pools(report: DiagnosticReport, *,
         if state == "n/a":
             # The monitor's n/a: the plan omits the window or the provider disabled it; not a budget, never a gate.
             own.append((r, None, "n/a", "n/a (disabled by provider)" if r.reason.startswith(DISABLED_REASON) else "n/a (plan omits)"))
-        elif left == 0:
+        elif state == "reset" or left == 0:
             own.append((r, left, "blocked", _PLAN_ZERO_REASONS[state]))
         else:
             own.append((r, left, *plan_action(left, r.diff, r.projection["state"])))
@@ -632,13 +637,12 @@ def _plan_pools(report: DiagnosticReport, *,
         if binding not in (r.pool, decided[0].pool):  # the decided window is already named in the reason
             reason += f"; binding {binding}"
         reason = reason.replace(PLAN_STALE_TAG + " ", "")
-        if left == 0:
+        if left == 0 or healths[r.ref]["state"] == "reset":
             reason = why
         elif healths[r.ref]["stale"] and r.used is not None:  # this window's own freshness
             reason = f"{PLAN_STALE_TAG} {reason}"
-        hours = r.left / 3600 if r.left is not None and r.left > 0 else None
         out.append({"peer": r.peer, "pool": r.pool, "resource_pool_ref": r.ref, "left_pct": left,
-                    "resets_in_seconds": r.left, "target_pct_per_hour": left / hours if left is not None and hours else None,
+                    "resets_in_seconds": r.left, "target_pct_per_hour": _plan_budget(left, r.left),
                     "pace_pt": r.diff, "forecast": r.projection["state"], "binding": binding,
                     "action": decided[2], "reason": reason})
     parents = _plan_pool_facts(own, out, profiles_by_pool or {})
@@ -647,6 +651,13 @@ def _plan_pools(report: DiagnosticReport, *,
         own_health = healths[r.ref]
         parent = parents.get(r.ref)
         facts = own_health if parent is None else pool_health(r.item, parent.item, report.read_at)
+        if limited_by := facts["limited_by"]:
+            forecast = facts["forecast"]
+            if forecast == "threat" and not facts["exhaust_before_reset"]:
+                forecast = "on_pace"
+            action, reason = plan_action(facts["left_pct"], facts["pace_pt"], forecast)
+            binding = limited_by.rsplit(":", 1)[-1]
+            row.update(action=action, binding=binding, reason=f"{binding}: {reason}")
         row.update(
             fast=own_health["state"] == "fast",
             even_left_pct=facts["even_left_pct"], exhaust_in_seconds=facts["exhaust_in_seconds"],
@@ -686,16 +697,15 @@ def plan_data(report: DiagnosticReport, store_selection: Mapping[str, object],
 
 
 def _plan_cells(row: Obj, health: PoolHealth) -> list[str]:
-    from peerhub.cli.monitor_view import format_exhaust_reset, format_pool_pace
+    from peerhub.cli.monitor_view import format_exhaust_reset, format_pool_left, format_pool_pace
 
     peer_pool = [str(row["peer"]), str(row["pool"])]
     if row["action"] == "n/a":
         return [*peer_pool, "-", "-", "-", "-", "-"]
-    left_pct = health["left_pct"]
-    left = "?" if left_pct is None else f"{left_pct:.0f}%"
+    left = format_pool_left(health, _num(row["age_seconds"]))
     pace = format_pool_pace(health["pace_pt"])
-    budget = _num(row["target_pct_per_hour"])
-    return [*peer_pool, left + ("!" if health["reserve"] == "low" else ""),
+    budget = _plan_budget(health["left_pct"], health["reset_in_seconds"])
+    return [*peer_pool, left,
             pace + ("!" if health["pace_band"] == "rest" else ""), format_exhaust_reset(health),
             "?" if budget is None else f"{budget:.2f}", str(row["action"])]
 
@@ -723,7 +733,7 @@ def render_plan(report: DiagnosticReport, *, width: int = 100, tz: tzinfo | None
     for row, (_, p, health) in zip(cells, pools):
         reason = lead(row) + _safe_text(p["reason"])
         tags = [PLAN_EARLY_TAG] if health["exhaust_before_reset"] else []
-        if p["fast"]:
+        if health["state"] == "fast":
             tags.append(f"({PLAN_FAST_TAG})")
         tags.extend(f"({PLAN_GATE_TAG}: {_safe_text(gate['pool'])})" for gate in _items(p["gates"]))
         lines.extend(_wrap(" ".join([reason, *tags]), width) if tags else [_ellipsis(reason, width, False)])

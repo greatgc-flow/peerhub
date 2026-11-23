@@ -455,11 +455,12 @@ def test_poolless_probe_does_not_poison_quota_age_or_refresh(compact_frame):
 
 def test_missing_configured_pool_requests_refresh(compact_frame):
     compact_frame["groups"]["capacity"]["data"]["observations"] = []
-    screen = render_grouped_frame(compact_frame, view="plain")
+    screen = render_grouped_frame(compact_frame, view="plain", tty=True)
     assert "POOLS 0" in screen.splitlines() and "no quota evidence; next: peerhub observation refresh" in screen
     rich = render_grouped_frame(compact_frame).splitlines()  # P21: the head is a rule; the notes are the same lines
     assert rich[2] == screen.splitlines()[2] == "quota: no reading -> peerhub observation refresh"
-    assert rich[3] == "── POOLS 0 " + "─" * 88 and rich[4:] == screen.splitlines()[4:]
+    assert rich[3] == "── POOLS 0 " + "─" * 88 and rich[4:] == screen.splitlines()[4:-1]
+    assert screen.splitlines()[-1].startswith("Guide: ")
     compact_frame["selected_groups"] = ["peers"]
     assert "next: peerhub observation refresh" in render_grouped_frame(compact_frame)
 
@@ -609,10 +610,12 @@ def test_peers_only_uses_snapshot_capacity_support(compact_frame):
     compact_frame["configured_profiles"].append({**standard, "profile": "ag.effort"})
     compact_frame["selected_groups"] = ["peers"]
     compact_frame["_human_observations"] = compact_frame["groups"].pop("capacity")["data"]["observations"]
-    screen = render_grouped_frame(compact_frame, view="plain")
+    screen = render_grouped_frame(compact_frame, view="plain", tty=True)
     # #374: `peers` owns no compact section any more (its summaries are --expand only): lines 1-2 and the refresh hint.
     assert "POOLS" not in screen and "suggest:" not in screen and "argon" not in screen
-    assert screen.splitlines()[1].startswith("PeerHub Monitor") and len(screen.splitlines()) <= 3
+    lines = screen.splitlines()
+    assert lines[1].startswith("PeerHub Monitor") and len(lines[:-1]) <= 3
+    assert lines[-1].startswith("Guide: ")
 
 
 def test_cached_profiles_keep_public_fields_and_add_suggest_and_link_provenance(monkeypatch):
@@ -703,8 +706,8 @@ def test_bar_even_burn_tick_positions_and_unknown():
     assert _bar_quota(.5, 8, False, .25) == "[##|#....]"
     assert _bar_quota(.25, 8, True, .75) == "[██░░░░|░]"
     assert _bar_quota(.5, 8, True, .5) == "[████|░░░]"
-    assert _bar_quota(.5, 8, True, .45) == "[████░░░░]"  # the tick would sit on the filled edge
-    assert _bar_quota(1.0, 8, False, 1.0) == "[########]"
+    assert _bar_quota(.5, 8, True, .45) == "[███|░░░░]"  # the tick sits on the filled edge
+    assert _bar_quota(1.0, 8, False, 1.0) == "[#######|]"
     assert _bar_quota(0.0, 8, False, 0.9) == "[.......|]"
     assert _bar_quota(.5, 8, False, None) == "[####....]"
     assert _bar_quota(None, BAR_CELLS, True, .5) == "[" + "─" * BAR_CELLS + "]"
