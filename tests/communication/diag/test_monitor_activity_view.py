@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from peerhub.cli.monitor_view import (
-    FRAME_HEADS, FRAME_SECTIONS, POOL_LEGEND, POOLS_USE_FIRST_HINT, render_grouped_frame, _width,
+    FRAME_HEADS, FRAME_SECTIONS, GUIDE_TEXT, POOL_LEGEND, POOLS_USE_FIRST_HINT, render_grouped_frame, _width,
 )
 
 NOW = 1_794_700_000.0  # 2026-11-14 23:46:40Z
@@ -119,8 +119,8 @@ def lines_of(screen: str) -> list[str]:
 
 def section(lines: list[str], head: str) -> list[str]:
     start = next(i for i, line in enumerate(lines) if line.startswith(head))
-    end = next((i for i in range(start + 1, len(lines)) if lines[i].removeprefix("-- ").startswith(FRAME_HEADS)),
-               len(lines))
+    end = next((i for i in range(start + 1, len(lines))
+                if lines[i].removeprefix("-- ").startswith((*FRAME_HEADS, f"{GUIDE_TEXT}: "))), len(lines))
     return lines[start:end]
 
 
@@ -491,8 +491,9 @@ def test_group_capacity_prints_lines_1_2_the_suggestion_and_pools(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     assert lines[0] == "OK? (asks not read) | min quota 1% ag 3P-7D low"
     assert lines[1].startswith("PeerHub Monitor")
-    assert lines[2].startswith("POOLS 8") and lines[-1].startswith("suggest:")
-    assert POOL_LEGEND in " ".join(lines[11:-1])  # G8
+    assert lines[2].startswith("POOLS 8")
+    suggest = section(lines, FRAME_SECTIONS["suggest"])
+    assert suggest and POOL_LEGEND in " ".join(lines[:lines.index(suggest[0])])  # G8
     assert not any(line.startswith(("RUNNING", "RECENT")) for line in lines)
 
 

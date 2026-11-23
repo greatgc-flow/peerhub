@@ -9,7 +9,7 @@ from typing import Literal, TypedDict, cast
 from peerhub.core.quota_policy import LOW_QUOTA_FRACTION, PLAN_REST_PACE_PT, PLAN_SPEND_PACE_PT
 from peerhub.extensions.diag_quota import projection
 from peerhub.extensions.observation_model import ABSENT_FACT_REASONS
-from peerhub.extensions.quota_projection import limit_by_parent
+from peerhub.extensions.quota_projection import ProjectionState, limit_by_parent
 
 PoolState = Literal["n/a", "?", "reset", "out", "blocked", "low", "fast", "aged", "ok"]
 PaceBand = Literal["spend", "ok", "rest"]
@@ -29,6 +29,7 @@ class PoolHealth(TypedDict):
     even_left_pct: float | None
     exhaust_in_seconds: float | None
     exhaust_before_reset: bool
+    forecast: ProjectionState
     stale: bool
     limited_by: str | None
     own_left_pct: float | None
@@ -108,6 +109,7 @@ def _reading_health(reading: Reading, frame_time: float) -> PoolHealth:
         state=state, pace_band=_pace_band(pace), reserve=reserve,
         even_left_pct=None if left is None or pace is None else left + pace,
         exhaust_in_seconds=exhaust, exhaust_before_reset=_before_reset(exhaust, reset),
+        forecast=proj["state"],
         stale=stale, limited_by=None, own_left_pct=None, left_pct=left,
         pace_pt=pace, reset_in_seconds=reset, measured=measured,
     )

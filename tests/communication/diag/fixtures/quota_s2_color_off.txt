@@ -3,7 +3,7 @@ PeerHub Monitor 1970-01-01 00:16Z | DB:unknown | quota age 30s
 cc probe error (?)
 next: peerhub observation refresh
 POOLS 8    STATE               LEFT  PACE(pp)  EXH/RESET  FAMILY  use first
- ag P-3H   low    ▏░░░░░░░      1%!      +2.8  30m/2h!    ?
+ ag P-3H   low    |░░░░░░░      1%!      +2.8  30m/2h!    ?
  ag P-1H   ok     ████████     100%         —  —/2h       ?
  ag P-2H   ok     ████░░░░      50%         —  —/2h       ?
  ag P-5H   ?      ────────        —         —  —/2h       ?
@@ -18,7 +18,7 @@ suggest: no eligible profiles; next: peerhub observation refresh
 PEER POOL  STATE               LEFT  PACE(pp)  EXH/RESET  FAMILY  AGE
 ag P-1H    ok     ████████     100%         —  —/2h       ?       30s
    P-2H    ok     ████░░░░      50%         —  —/2h       ?       30s
-   P-3H    low    ▏░░░░░░░      1%!      +2.8  30m/2h!    ?       30s
+   P-3H    low    |░░░░░░░      1%!      +2.8  30m/2h!    ?       30s
    P-4H    out    ░░░░░░░░       0%         —  OUT/2h     ?       30s
    P-5H    ?      ────────        —         —  —/2h       ?       30s
    P-6H    ?      ────────        —         —  —/2h       ?       30s

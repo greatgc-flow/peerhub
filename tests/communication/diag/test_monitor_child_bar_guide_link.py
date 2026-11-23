@@ -192,10 +192,11 @@ def test_plain_expand_ends_with_one_plain_guide_line(monkeypatch: pytest.MonkeyP
     with monkeypatch.context() as disabled:
         disabled.setenv("PEERHUB_NO_LINKS", "1")
         screen = render(tree(), view="plain", unicode=False, expand=True, tty=True, links=True, width=120)
-        assert "Guide:" not in screen and "\x1b" not in screen
-    bounded = render(tree(), view="plain", unicode=False, expand=True, tty=True, height=60, width=120)  # a bounded frame keeps its rows
-    assert "Guide:" not in bounded and bounded.splitlines()[-1].startswith("Coverage:")
-    assert "Guide:" not in render(tree(), view="plain", unicode=False, width=120)  # the compact frame has none
+        assert screen.splitlines()[-1] == f"Guide: {URL}" and "\x1b" not in screen
+    bounded = render(tree(), view="plain", unicode=False, expand=True, tty=True, height=60, width=120)
+    assert bounded.splitlines()[-1] == f"Guide: {URL}" and bounded.splitlines()[-2].startswith("Coverage:")
+    compact = render(tree(), view="plain", unicode=False, width=120)
+    assert compact.splitlines()[-1] == f"Guide: {URL}"
     assert "Guide:" not in render(tree(), view="rich", expand=True, links=True)  # rich has the link instead
     monkeypatch.delenv("PEERHUB_GUIDE_URL")
     monkeypatch.setattr("peerhub._version.__version__", "0.0.1.dev0")  # no tag: the main branch
@@ -260,7 +261,8 @@ def test_narrow_width_fits_the_status_around_the_whole_link(monkeypatch: pytest.
         flat = OSC.sub("", linked).splitlines()
         base = plain.splitlines()
         assert [line for i, line in enumerate(flat) if i != 1] == [line for i, line in enumerate(base) if i != 1], width
-        assert linked.count(OPEN) == linked.count(CLOSE) == 1
+        assert title_line(linked).count(OPEN) == title_line(linked).count(CLOSE) == 1
+        assert linked.count("\x1b]8;;") == 2 * linked.count(CLOSE)
         assert flat[1].endswith(" " + mv.GUIDE_TEXT)
         assert mv._width(flat[1]) == (min(100, width) if not expand else width) - 1
 
@@ -283,11 +285,12 @@ def test_anchored_frame_output_rows_keep_alignment(monkeypatch: pytest.MonkeyPat
     rows = re.findall(r"\x1b\[(\d+);1H(.*?)\x1b\[K", written)
     assert [int(n) for n, _ in rows] == list(range(1, len(screen.splitlines()) + 1))
     assert [text for _, text in rows] == screen.splitlines()  # the frame goes out row for row
-    link_rows = [text for _, text in rows if "\x1b]8" in text]
+    link_rows = [text for _, text in rows if OPEN in text]
     assert len(link_rows) == 1 and link_rows[0].endswith(CLOSE + "\x1b[0m")
     assert all(view.visible_len(text) <= 99 for _, text in rows)
     assert view.visible_len(link_rows[0]) == 99
-    assert written.count(OPEN) == written.count(CLOSE) == 2
+    assert written.count(OPEN) == 2
+    assert written.count("\x1b]8;;") == 2 * written.count(CLOSE)
 
 
 # ---- the doc ---------------------------------------------------------------------------------------------------------

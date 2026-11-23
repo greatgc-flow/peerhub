@@ -5,13 +5,15 @@ import argparse
 import re
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 
 from peerhub.cli import monitor, monitor_preferences, monitor_refresh, monitor_view, support, view
 from peerhub.extensions import monitor_read_model
+from peerhub.extensions.pool_health import PoolState
 from tests.communication.diag.test_monitor_plain_golden import _payload
+from tests.communication.diag.test_monitor_pool_health import frame, reading
 from tests.communication.diag.test_monitor_tree import frame_for
 
 DOC_URL = "https://example.test/docs/monitor.md"
@@ -112,6 +114,41 @@ def test_header_quota_state_links_to_its_documented_vocabulary(expand: bool) -> 
     assert f'id="{anchor}"' in MONITOR_DOC.read_text(encoding="utf-8")
 
 
+def test_every_pool_state_link_targets_an_anchor_in_the_monitor_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+    version = "1.2.3"
+    monkeypatch.delenv("PEERHUB_GUIDE_URL")
+    monkeypatch.setattr("peerhub._version.__version__", version)
+    base = monitor_view.guide_link_url({}, version)
+    assert base is not None and base.endswith(f"/blob/v{version}/{monitor_view.GUIDE_DOC}")
+    doc = MONITOR_DOC.read_text(encoding="utf-8")
+    anchors = set()
+    for state in get_args(PoolState):
+        [(url, label)] = OSC_LINK.findall(monitor_view.link_pool_state(base, state))
+        target, anchor = url.split("#")
+        assert target == base and label == state and f'id="{anchor}"' in doc
+        anchors.add(anchor)
+    assert len(anchors) == len(get_args(PoolState))
+
+
+@pytest.mark.parametrize("expand", [False, True])
+@pytest.mark.parametrize("unicode", [False, True])
+def test_pool_state_links_preserve_visible_table_cells(monkeypatch: pytest.MonkeyPatch,
+                                                      expand: bool, unicode: bool) -> None:
+    pool, state = "G-7D", "ok"
+    data = frame(reading("ag", pool, .5, 0))
+    options = {"view": "rich", "width": 100, "expand": expand, "unicode": unicode}
+    linked = monitor_view.render_grouped_frame(data, links=True, **options)
+    monkeypatch.setenv("PEERHUB_NO_LINKS", "1")
+    disabled = monitor_view.render_grouped_frame(data, links=True, **options)
+    linked_rows = [line for line in linked.splitlines() if f"{pool}  " in line]
+    disabled_rows = [line for line in disabled.splitlines() if f"{pool}  " in line]
+    assert len(linked_rows) == (2 if expand else 1)
+    target = monitor_view.link_pool_state(DOC_URL, state)
+    assert all(target in line for line in linked_rows)
+    assert [monitor_view._ANSI.sub("", line) for line in linked_rows] == disabled_rows
+    assert "\x1b]8" not in disabled and f"Guide: {DOC_URL}" in disabled
+
+
 @pytest.mark.parametrize("expand", [False, True])
 def test_displayed_profile_links_to_its_config_file(monkeypatch: pytest.MonkeyPatch, expand: bool) -> None:
     profile = "cc.effort"
@@ -130,7 +167,10 @@ def test_displayed_profile_links_to_its_config_file(monkeypatch: pytest.MonkeyPa
     options = {"view": "rich", "width": 100, "height": None, "color": False, "expand": expand}
     linked = monitor._render_human_frame(payload, links=True, **options)
     plain = monitor._render_human_frame(payload, **options)
-    assert OSC_LINK.findall(linked).count((config.as_uri(), profile)) == (2 if expand else 1)
+    assert OSC_LINK.findall(linked).count((config.as_uri(), profile)) == (4 if expand else 2)
+    linked_rows = [line for line in linked.splitlines() if f"claude: {monitor_view.osc_link(config.as_uri(), profile)}" in line]
+    assert len(linked_rows) == (2 if expand else 1)
+    assert all(monitor_view._ANSI.sub("", line) in plain.splitlines() for line in linked_rows)
     assert next(line for line in plain.splitlines() if line.startswith("suggest:")) == next(
         monitor_view._ANSI.sub("", line) for line in linked.splitlines() if line.startswith("suggest:")
     )

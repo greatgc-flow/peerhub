@@ -375,21 +375,18 @@ def _bar(used: float, cells: int, unicode: bool) -> str:
 
 def _bar_quota(remaining: float | None, cells: int = BAR_CELLS, unicode: bool = True,
                even_burn: float | None = None, *, child: bool = False) -> str:
-    """Draw remaining quota with an even-burn tick off the filled edge."""
+    """Draw remaining quota with an even-burn tick, including on the filled edge."""
     glyphs = RICH_GLYPHS[unicode]
     if remaining is None or not 0 <= remaining <= 1:
         return f"[{glyphs['none'] * cells}]"
     filled = int(remaining * cells + 0.5)
     full, empty = (glyphs["cfull"], glyphs["cempty"]) if child else (glyphs["full"], glyphs["empty"])
     body = [full] * filled + [empty] * (cells - filled)
-    edge = filled - 1
     if remaining > 0 and filled == 0 and cells > 0:
         body[0] = full if child else ("▏" if unicode else ":")
-        edge = 0
     if even_burn is not None and cells > 0:
         tick = min(cells - 1, max(0, int(even_burn * cells)))
-        if tick != edge:
-            body[tick] = "|"
+        body[tick] = "|"
     return f"[{''.join(body)}]"
 
 
@@ -431,18 +428,14 @@ def _parse_window(pool_ref: str) -> tuple[int, str]:
     return (999999999, token)
 
 
-def _format_duration(seconds: float) -> str:
-    if seconds >= 86400:
-        days = int(seconds // 86400)
-        hours = int((seconds % 86400) // 3600)
-        return f"{days}d{hours:02d}h"
-    elif seconds >= 3600:
-        hours = int(seconds // 3600)
-        mins = int((seconds % 3600) // 60)
-        return f"{hours}h{mins:02d}m"
-    else:
-        mins = int(seconds // 60)
-        return f"{mins}m"
+def _format_duration(seconds: float, *, extra_unit: bool = False) -> str:
+    total_minutes, secs = divmod(math.floor(seconds), 60)
+    hours, minutes = divmod(total_minutes, 60)
+    if hours >= 24:
+        days, hours = divmod(hours, 24)
+        return f"{days}d{hours:02d}h" + (f"{minutes:02d}m" if extra_unit else "")
+    text = f"{hours}h{minutes:02d}m" if hours > 0 else f"{total_minutes}m"
+    return text + (f"{secs:02d}s" if extra_unit else "")
 
 
 def _rule(title: str, rest: str, width: int, unicode: bool, paint: bool) -> str:
@@ -553,7 +546,8 @@ def _estimate(context: dict[str, Any], now: float | None) -> str | None:
 def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: bool,
                  elapsed_seconds: float = 0.0, read_at: float | None = None,
                  expand: bool = False, color: bool = False, bounded: bool = False,
-                 keep: str | None = None, rich: bool = False) -> tuple[list[str], int]:
+                 keep: str | None = None, rich: bool = False, guide_url: str | None = None,
+                 profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], int]:
     """Return rendered data rows and the length of the QUOTA table prefix."""
     data = _obj(group.get("data"))
     if data == {} and group.get("data") is None:
@@ -936,7 +930,8 @@ def _group_lines(group_id: str, group: dict[str, Any], *, width: int, unicode: b
                 for row in layout
             ]
             header, rendered, omitted = _pool_table(entries, list(pool_rows.values()) or available, width - 1,
-                                                    unicode, keep, rich=rich, paint=color, details=True)
+                                                    unicode, keep, rich=rich, paint=color, details=True,
+                                                    guide_url=guide_url, profile_urls=profile_urls)
             rows.extend(header)
             previous_peer = ""
             for row, rendered_entry in zip(layout, rendered):
@@ -1877,9 +1872,11 @@ class CompactFrame:
     recent: list[str] | None = None  # [RECENT header, *rows]; None when there is no ended ask
     recent_short: list[str] | None = None  # --expand: the rows of `recent` (entries of two lines) as one line each
     suggest: list[str] = field(default_factory=lambda: list[str]())
-    pool_notes: list[str] = field(default_factory=lambda: list[str]())
+    pool_gap: list[str] = field(default_factory=lambda: list[str]())
+    pool_legend: list[str] = field(default_factory=lambda: list[str]())
     pools: list[str] | None = None  # [POOLS header, *rows]; None when `capacity` is not selected
     pools_total: int = 0
+    pools_header_lines: int = 1
 
 
 def _overflow(hidden: int, noun: str, width: int, unicode: bool) -> str:
@@ -1941,33 +1938,36 @@ def _frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str
     verdict = fit(frame.verdict)
     header = [fit(line) for line in frame.header]
     parts = {key: fitted(getattr(frame, key)) for key in FRAME_SECTION_ORDER}
-    pool_notes = [fit(line) for line in frame.pool_notes]
+    pool_gap = [fit(line) for line in frame.pool_gap]
+    pool_legend = [fit(line) for line in frame.pool_legend]
     totals = {"running": frame.running_total, "leads": frame.leads_total, "pools": frame.pools_total}
     nouns = {"running": "more", "leads": "leads", "pools": "pools"}
+    header_lines = {"pools": frame.pools_header_lines}
 
     def section(key: str) -> list[str]:
         lines = parts[key]
         if lines is None:
             return []
-        rows = len(lines) - 1
+        rows = len(lines) - header_lines.get(key, 1)
         hidden = totals.get(key, 0) - rows
         overflow = [_overflow(hidden, nouns[key], width, unicode)] if hidden > 0 and rows > 0 else []
-        return [*lines, *overflow, *(pool_notes if key == "pools" else [])]
+        return [*lines, *overflow, *pool_gap, *pool_legend] if key == "pools" else [*lines, *overflow]
 
     def assemble() -> list[str]:
         return [verdict, *header, *(line for key in FRAME_SECTION_ORDER for line in section(key))]
 
     def pop_rows(key: str, floor: int) -> bool:
         lines = parts[key]
-        if lines is None or len(lines) - 1 <= floor:
+        heading = header_lines.get(key, 1)
+        if lines is None or len(lines) - heading <= floor:
             return False
         total = totals.get(key, 0)
-        rows = len(lines) - 1
+        rows = len(lines) - heading
         created = total - rows <= 0 < total  # this removal makes the overflow line
         if created and floor >= 1 and rows <= 2:  # A-3: K5 would leave the header without a row; do nothing
             return False
         lines.pop()
-        if created and len(lines) > 1:  # even below the floor: one row for one overflow line would save nothing (K5)
+        if created and len(lines) > heading:  # one row for one overflow line would save nothing (K5)
             lines.pop()
         return True
 
@@ -1986,9 +1986,8 @@ def _frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str
                 rows.pop()
                 yield assemble()
         if key == "pools":
-            if pool_notes:
-                # On a very short viewport, keep the measured row when there is no room for its notes.
-                pool_notes.clear()
+            if pool_legend:
+                pool_legend.clear()
                 yield assemble()
             while len(header) > 1:  # title details give way before the final pool row
                 header.pop()
@@ -2366,6 +2365,17 @@ def format_pool_pace(pace: float | None) -> str:
     return f"{pace:+.1f}" if round(pace, 1) else "0.0"
 
 
+def format_pool_left(facts: PoolHealth, age: float | None) -> str:
+    left = facts["left_pct"]
+    if left is None or facts["state"] == "reset":
+        text = _MISSING_POOL_FACT
+    else:
+        text = _pct(left / 100) + ("!" if facts["reserve"] == "low" else "")
+    if facts["stale"] and age is not None:
+        text += f" ~{int(age // 60)}m"
+    return text
+
+
 def format_exhaust_reset(facts: PoolHealth) -> str:
     def duration(seconds: float) -> str:
         return _format_duration(seconds).removesuffix("00m")
@@ -2378,6 +2388,9 @@ def format_exhaust_reset(facts: PoolHealth) -> str:
         exhaust_text = _MISSING_POOL_FACT
     else:
         exhaust_text = "past est." if exhaust < 0 else duration(exhaust)
+        if exhaust_text == reset_text and reset is not None and exhaust != reset:
+            exhaust_text = _format_duration(exhaust, extra_unit=True)
+            reset_text = _format_duration(reset, extra_unit=True)
     return f"{exhaust_text}/{reset_text}" + ("!" if facts["exhaust_before_reset"] else "")
 
 
@@ -2412,20 +2425,16 @@ def _pool_dependency(row: dict[str, Any]) -> str:
     return note if own is None else f"{note} (own {_pct(own / 100)})"
 
 
-def _pool_cells(row: dict[str, Any], unicode: bool, glyph: bool) -> dict[str, str]:
+def _pool_cells(row: dict[str, Any], unicode: bool, glyph: bool, guide_url: str | None = None) -> dict[str, str]:
     facts: PoolHealth = row["health"]
     state = facts["state"]
     glyphs = RICH_GLYPHS[unicode]
     age = _number(row["age_seconds"])
-    left = _pct(row["remaining"]) if _has_value(row) else _MISSING_POOL_FACT
-    if facts["reserve"] == "low":
-        left += "!"
-    if facts["stale"] and age is not None:
-        left += f" ~{int(age // 60)}m"
+    state_text = link_pool_state(guide_url, state) if guide_url else state
     cells: tuple[str, ...] = (
-        f"{glyphs.get(state, glyphs['aged'])} {state}" if glyph else state,
+        f"{glyphs.get(state, glyphs['aged'])} {state_text}" if glyph else state_text,
         "",
-        left,
+        format_pool_left(facts, age),
         format_pool_pace(facts["pace_pt"]) + ("!" if facts["pace_band"] == "rest" else ""),
         format_exhaust_reset(facts),
         "",
@@ -2461,7 +2470,8 @@ _PoolEntry = tuple[str, dict[str, Any], bool, str]
 
 def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width: int, unicode: bool,
                 keep: str | None, *, rich: bool, paint: bool, details: bool = False,
-                head: str = "PEER POOL") -> tuple[list[str], list[list[str]], list[str]]:
+                head: str = "PEER POOL", guide_url: str | None = None,
+                profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], list[list[str]], list[str]]:
     """Use the same column budget and cell formatting in POOLS and QUOTA."""
     width = max(1, min(width, COMPACT_WIDTH - 2))
     active = [row for row in all_rows if row["state"] != QUOTA_NA]
@@ -2514,12 +2524,14 @@ def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width
     dim = RICH_SGR["dim"] if paint else None
     rendered: list[list[str]] = []
     for name, row, child, marker in entries:
-        cells = _pool_cells(row, unicode, rich) if row else {}
+        cells = _pool_cells(row, unicode, rich, guide_url) if row else {}
         dependency = _pool_dependency(row)
         if row and "BAR" in columns:
             cells["BAR"] = _pool_bar(row, BAR_CELLS, unicode, child)
         if row and "FAMILY" in columns:
             cells["FAMILY"] = _pool_family_cell(row, sizes["FAMILY"], unicode, keep)
+            if profile_urls:
+                cells["FAMILY"] = _link_profiles(cells["FAMILY"], profile_urls)
             if dependency:
                 family = f"{cells['FAMILY']}; {dependency}"
                 if _width(family) <= sizes["FAMILY"]:
@@ -2550,7 +2562,8 @@ def _pools_heading(head: str, width: int, unicode: bool, rich: bool, paint: bool
 
 
 def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
-                  rich: bool = False, paint: bool = False, every: bool = False) -> tuple[list[str], int]:
+                  rich: bool = False, paint: bool = False, every: bool = False, guide_url: str | None = None,
+                  profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], int, int]:
     """POOLS rows with inline unavailable windows included in the header count."""
     ordered = _ordered_pools([row for row in rows if row["state"] != QUOTA_NA], every=every)
     unavailable = [row for row in rows if row["state"] == QUOTA_NA]
@@ -2579,12 +2592,14 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
         marker = _na_suffix(suffixes[id(row)]) if id(row) in suffixes else ""
         entries.append(((" " + peer if id(row) in marker_rows else " " + name),
                         {} if id(row) in marker_rows else row, depth > 0, marker))
-    headers, table, _ = _pool_table(entries, rows, width - 1, unicode, keep, rich=rich, paint=paint, head=head)
-    lines = [*headers[1:], *(line for entry in table for line in entry)]
-    return [_pools_heading(headers[0], width, unicode, rich, paint), *lines], len(lines) + len(ordered) - len(shown)
+    headers, table, _ = _pool_table(entries, rows, width - 1, unicode, keep, rich=rich, paint=paint, head=head,
+                                    guide_url=guide_url, profile_urls=profile_urls)
+    lines = [line for entry in table for line in entry]
+    headings = [_pools_heading(headers[0], width, unicode, rich, paint), *headers[1:]]
+    return [*headings, *lines], len(lines) + len(ordered) - len(shown), len(headings)
 
 
-def _pool_notes(rows: list[dict[str, Any]], width: int, unicode: bool) -> list[str]:
+def _pool_gap(rows: list[dict[str, Any]], width: int, unicode: bool) -> list[str]:
     healths: dict[str, PoolHealth | None] = {}
     for row in rows:
         if not row["retired"]:
@@ -2594,8 +2609,7 @@ def _pool_notes(rows: list[dict[str, Any]], width: int, unicode: bool) -> list[s
     values = ", ".join(f"{name} {format_pool_pace(pace)}" for name, pace in gaps.items())
     if not unicode:
         values = values.replace(_MISSING_POOL_FACT, "-")
-    return [*_compact_wrap(f"gap vs {PACE_GAP_BASELINE} (pp): {values}", width),
-            *_compact_wrap(POOL_LEGEND, width)]
+    return _compact_wrap(f"gap vs {PACE_GAP_BASELINE} (pp): {values}", width)
 
 
 def _suggest_lines(text: str, width: int, unicode: bool) -> list[str]:
@@ -2759,12 +2773,15 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
     if "capacity" in selected_ids:
         suggestion = _compact_suggestions(configured_profiles, rows)
         frame.suggest = _compact_wrap(suggestion, width) if expand else _suggest_lines(suggestion, width, unicode)
-        if profile_urls := _obj(payload.get("_profile_urls")):
+        profile_urls = _obj(payload.get("_profile_urls"))
+        if profile_urls:
             frame.suggest = [_link_profiles(line, profile_urls) for line in frame.suggest]
         if rows:
-            frame.pool_notes = _pool_notes(rows, width, unicode)
-            frame.pools, frame.pools_total = _pool_section(rows, width, unicode, keep, rich=rich, paint=paint,
-                                                          every=expand)
+            frame.pool_gap = _pool_gap(rows, width, unicode)
+            frame.pool_legend = _compact_wrap(POOL_LEGEND, width)
+            frame.pools, frame.pools_total, frame.pools_header_lines = _pool_section(
+                rows, width, unicode, keep, rich=rich, paint=paint, every=expand,
+                guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls)
         else:
             notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None
                      else _compact_wrap("no quota evidence; next: peerhub observation refresh", width))
@@ -2832,6 +2849,7 @@ GUIDE_TEXT = "Guide"  # the link at the right end of line 2
 GUIDE_DOC = "docs/monitor.md"
 STATE_WORDS_ANCHOR = "state-words"
 _GUIDE_BLOB = "https://github.com/greatgc-flow/peerhub/blob/"
+_GUIDE_MAIN_URL = f"{_GUIDE_BLOB}main/{GUIDE_DOC}"
 
 
 def _guide_override(env: Mapping[str, str]) -> str | None:
@@ -2860,7 +2878,7 @@ def guide_link_url(env: Mapping[str, str], version: str | None = None) -> str | 
 
 def guide_text_url(env: Mapping[str, str], version: str | None = None) -> str:
     """The URL of the plain `Guide:` line: the tag of this version, the main branch for a build without a tag."""
-    return _guide_override(env) or _guide_released(version) or f"{_GUIDE_BLOB}main/{GUIDE_DOC}"
+    return _guide_override(env) or _guide_released(version) or _GUIDE_MAIN_URL
 
 
 def monitor_links_enabled(env: Mapping[str, str]) -> bool:
@@ -2875,6 +2893,11 @@ def osc_link(url: str, label: str) -> str:
     if not url.startswith(("file:///", "https://")) or not url.isascii() or not url.isprintable() or " " in url:
         return label
     return f"\x1b]8;;{url}\x1b\\{label}\x1b]8;;\x1b\\"
+
+
+def link_pool_state(url: str, state: str) -> str:
+    fragment = {"?": "unknown", QUOTA_NA: "na"}.get(state, state)
+    return osc_link(f"{url.partition('#')[0]}#state-{fragment}", state)
 
 
 def file_link_url(path: object) -> str | None:
@@ -2928,12 +2951,14 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
 
     `text_encoding` is the output's encoding: without `unicode`, text cells keep what it can encode (A5).
     `links` indicates a VT terminal for the rich view. The link opt-out applies to both views.
-    The plain Guide trailer requires an unbounded TTY."""
+    The plain Guide trailer uses a spare line when it fits."""
     enabled = view == "rich" and links and monitor_links_enabled(os.environ)
     guide_url = guide_link_url(os.environ) if enabled else None
+    guide_text = guide_text_url(os.environ)
     store = _obj(payload.get("store_selection"))
     payload = {**_with_retained_quota(_display_plan_omissions(payload)),
                "_show_quota_notes": show_quota_notes, "_guide_url": guide_url,
+               "_state_doc_url": (guide_url or _GUIDE_MAIN_URL) if enabled else None,
                "_db_url": file_link_url(store.get("path")) if enabled else None,
                "_profile_urls": payload.get("_profile_urls") if enabled else None,
                "_file_links": enabled and os.environ.get("PEERHUB_MONITOR_TEXT", "").strip().lower() != "off"}
@@ -2945,9 +2970,14 @@ def render_grouped_frame(payload: dict[str, Any], *, view: str = "rich", color: 
         screen = _render_compact_frame(payload, view=view, color=color, unicode=unicode,
                                        width=width, height=height, keep=text_encoding)
         columns = max(1, min(COMPACT_WIDTH, width) - 1)
-    if expand and view == "plain" and height is None and tty and _guide_enabled(os.environ):
-        guide = f"{GUIDE_TEXT}: {guide_text_url(os.environ)}"
-        if _width(guide) <= columns:
+    if screen and (view == "plain" or not _guide_enabled(os.environ)):
+        guide = f"{GUIDE_TEXT}: {guide_text}"
+        line_count = screen.count("\n")
+        room = height is None or line_count < height - FRAME_TRAILING_ROWS
+        if not expand:
+            room = (room and line_count < COMPACT_MAX_LINES
+                    and len((screen + guide).encode("utf-8")) < COMPACT_MAX_BYTES)
+        if room and _width(guide) <= columns:
             return screen + guide + "\n"
     return screen
 
@@ -3240,7 +3270,8 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
         group_width = max(1, target - 1) if rich and group_id != "capacity" else target
         rows, _ = _group_lines(group_id, group, width=group_width, unicode=unicode,
                                 elapsed_seconds=elapsed, read_at=read_at, expand=expand, color=paint, keep=keep, rich=rich,
-                                bounded=height is not None and not rich)
+                                bounded=height is not None and not rich, guide_url=payload.get("_state_doc_url"),
+                                profile_urls=profile_urls)
         if status in {"ERROR", "FAILED"}:
             rows.insert(0, _group_error(payload, group_id))
         label = _group_label(group_id, group, status, read_at, elapsed)
@@ -3285,8 +3316,8 @@ def _expanded_frame(payload: dict[str, Any], display: dict[str, Any], footer: st
             if kept + len(hidden) + len(tail) <= limit:
                 return "\n".join([*every[:kept], *hidden, *tail]) + "\n"
 
-    # Details have given way. Keep the verdict, title and final pool row ahead of the hint.
-    protected = 2 + (SECTION_WITH_DETAIL if frame.pools else 0)
+    # Details have given way. Keep the verdict, title and final pool row with its gap ahead of the hint.
+    protected = 2 + (frame.pools_header_lines + 1 + len(frame.pool_gap) if frame.pools else 0)
     if len(top) <= limit <= protected:
         return "\n".join(top) + "\n"
     for head in ladder:

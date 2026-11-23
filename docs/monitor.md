@@ -2,8 +2,8 @@
 
 `peerhub monitor` is the human screen. An AI reads `peerhub diag --plan` instead (pools plus the load line, about 350 tokens).
 
-This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the optional
-`Guide:` line that ends `peerhub monitor --view plain --expand`. It describes what the screen shows. The same facts are
+This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the
+`Guide:` line in plain frames. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
 
 Continuous terminal watch checks each selected peer every second and refreshes it in the background when its oldest
@@ -73,13 +73,15 @@ counted). The compact frame shows at most eight rows, `--expand` shows all of th
 | POOL | peer and pool, for example `cc C-7D`. A child pool is indented under its parent with `└─` / `├─` (ASCII `` `- `` / `\|-`). |
 | STATE | a glyph and the state word, see below. |
 | bar | remaining quota and its even-burn tick. See [Bar glyphs](#bar-glyphs). |
-| LEFT | remaining quota in percent, with `<1%` for a small positive value and `—` when unavailable. A low reserve has a trailing `!`. Stale evidence has a `~Xm` badge. |
+| LEFT | remaining quota rounded to the nearest whole percent. Positive values that would round to zero show `<1%`. An actual zero in the sampled window shows `0%`. Missing values and readings from a window that has reset show `—` (ASCII `-`). A low reserve has a trailing `!`. Stale evidence has a `~Xm` badge. |
 | PACE(pp) | percentage points ahead of (`+`) or behind (`-`) even burn. A trailing `!` marks the rest band. |
-| EXH/RESET | forecast time until exhaustion and time until reset. A trailing `!` means the forecast is earlier than reset. Either side can show `—` when unavailable. `OUT` marks a fresh zero and `past est.` marks a forecast that has already passed while measured quota remains positive. |
+| EXH/RESET | forecast time until exhaustion and time until reset. Different times that display the same way gain one unit of precision, for example `3d13h05m/3d13h40m!`. A trailing `!` means the forecast is earlier than reset. Either side can show `—` when unavailable. `OUT` marks a fresh zero and `past est.` marks a forecast that has already passed while measured quota remains positive. |
 | FAMILY | the family label and configured profiles using the pool, including child pools. For example, `flash: ag.effort,ag.neon +1` shows two profiles and counts one more. A child pool also shows its dependency, for example `limited by C-7D (own 26%)`. |
 
 The gap line compares each weekly parent pool's pace with `X-7D` in percentage points. It shows `—` when either reading
-is unavailable, stale or unmeasured. The legend under that line reads:
+is unavailable, stale or unmeasured. The gap line leaves the frame with POOLS. All pools use the even-burn reference
+of 0 pp. The design rejected per-pool targets in `[pool_targets]` and `[pools.<ID>]` (spend, rest and priority settings).
+The legend under the gap line reads:
 
 ```text
 PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | EVN=even-burn remaining
@@ -91,15 +93,15 @@ PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = earl
 
 | State | Glyph | Meaning |
 |---|---|---|
-| `ok` | `●` | enough left. |
-| `low` | `▼` | more than 0% and at most 10% left. |
-| `fast` | `▲` | more than 10% left, but the projection says `threat` (it would run out before the reset) with at least two samples. |
-| `out` | `×` | fresh evidence shows 0% left. |
-| `blocked` | `×` | a child pool whose parent is out; LEFT shows the parent's 0%, its own value is in FAMILY. |
-| `aged` | `○` | the evidence has reached its time to live, or is marked stale if it has no TTL. `low` and `fast` win over `aged`. |
-| `reset` | `○` | the reset time has passed, so the number is no longer true; refresh. |
-| `n/a` | | the plan no longer reports this window (or the provider switched it off). POOLS includes the window in its count and names it inline. QUOTA also gives the reason. |
-| `?` | `○` | unknown: no number. |
+| <a id="state-ok"></a>`ok` | `●` | enough left. |
+| <a id="state-low"></a>`low` | `▼` | more than 0% and at most 10% left. |
+| <a id="state-fast"></a>`fast` | `▲` | more than 10% left, but the projection says `threat` (it would run out before the reset) with at least two samples. |
+| <a id="state-out"></a>`out` | `×` | fresh evidence shows 0% left. |
+| <a id="state-blocked"></a>`blocked` | `×` | a child pool whose parent is out; LEFT shows the parent's 0%, its own value is in FAMILY. |
+| <a id="state-aged"></a>`aged` | `○` | the evidence has reached its time to live, or is marked stale if it has no TTL. `low` and `fast` win over `aged`. |
+| <a id="state-reset"></a>`reset` | `○` | the reset time has passed, so the number is no longer true; refresh. |
+| <a id="state-na"></a>`n/a` | | the plan no longer reports this window (or the provider switched it off). POOLS includes the window in its count and names it inline. QUOTA also gives the reason. |
+| <a id="state-unknown"></a>`?` | `○` | unknown: no number. |
 
 **Order.** POOLS sorts families by ascending 7D PACE of the parent, then shows unknown PACE and finally `out` pools.
 Ties sort by peer and pool name. The most negative PACE shows the most under-used weekly pool. The heading shows
@@ -121,8 +123,8 @@ PEERS, `suggest:` and `peerhub diag quota`.
 | Unicode | `█░` | `▬╌` |
 | ASCII | `#.` | `=-` |
 
-- The filled part shows remaining quota. A pool with something left always shows at least one filled cell.
-- The `|` tick marks even-burn remaining when that fact is available and the tick falls off the filled edge.
+- The filled part shows remaining quota. A positive reading reserves at least one fill cell before the tick is drawn.
+- The `|` tick marks even-burn remaining when that fact is available, including when it covers a filled cell.
 - PACE and the bar use cyan for spend, green for ok and yellow for rest. Fresh zero uses bold red.
   LEFT uses neutral text, a yellow low-reserve `!` at 10% or less, or bold red at fresh zero.
 - The fixed-width bar gives way first on narrow terminals. Data columns give way in order of AGE,
@@ -227,8 +229,8 @@ is `Coverage: complete|partial; peerhub explain <code>`.
   FAMILY and EXH/RESET. AGE is optional in QUOTA. Line 2 drops status fields from the right and reserves room
   for the `Guide` link when enabled.
 - **Height.** Short frames shrink and drop sections from the bottom up in both layouts. Expanded RECENT switches to
-  single-line rows before giving up rows. POOLS keeps its heading and a row as long as space allows, and the title
-  and verdict have the highest priority.
+  single-line rows before giving up rows. POOLS keeps its heading, a row and the weekly gap together when space allows.
+  The title and verdict have the highest priority.
 - **Never cut.** A row that does not fit is shortened with `…` (ASCII `~`) or loses whole fields; a link is never cut.
 
 ## The alternate screen and LIVE_ROW_MARGIN
@@ -243,11 +245,11 @@ A terminal without VT (or `TERM=dumb`) appends each frame. A pipe receives one c
 
 In the rich view on a terminal with OSC 8 enabled, `Guide` stays at the right end of line 2 during watch and in
 snapshots, in both layouts. The status fields on the left yield room to the link. It opens this page for the release
-you run. An unbounded plain `--expand` frame on a terminal can end with `Guide: <url>` if links are enabled and the
-line fits. That URL uses `main` for development builds.
+you run. Plain frames and frames with `PEERHUB_NO_LINKS=1` end with a copyable `Guide: <url>` line when it fits.
+That URL uses `main` for development builds.
 
 The rich view also links the database path and profile names to their files, and recorded query text to its local file.
-The quota state in the verdict links to the state descriptions. On supported terminals, the source shown by
+The quota state in the verdict and the STATE words in POOLS and QUOTA link to the state descriptions. On supported terminals, the source shown by
 `peerhub monitor defaults show` links to its config file. Local destinations must exist. These details keep the same
 visible text when links are unavailable, and commands remain copyable text.
 
@@ -256,7 +258,7 @@ visible text when links are unavailable, and commands remain copyable text.
 | Variable | Effect |
 |---|---|
 | `PEERHUB_MONITOR_VIEW` | `auto`, `rich` or `plain`: the default of `--view` (an explicit `--view` wins). `plain` is the fix for a terminal that draws the glyphs two cells wide. |
-| `PEERHUB_NO_LINKS` | `1` (any value except empty, `0`, `false`, `no`, `off`) hides terminal links and the plain Guide trailer. `NO_COLOR` also disables OSC 8 links. |
+| `PEERHUB_NO_LINKS` | `1` (any value except empty, `0`, `false`, `no`, `off`) disables OSC 8 and uses the plain Guide trailer. `NO_COLOR` also disables OSC 8 links. |
 | `PEERHUB_GUIDE_URL` | Tests and mirrors can point the Guide to an HTTPS URL. The plain trailer also accepts HTTP. An override with controls or spaces is ignored. |
 | `NO_COLOR` | no colour; the rich layout and its glyphs stay. |
 | `PEERHUB_MONITOR_TEXT` | `off` hides the session name, the title and the conversation lines. |

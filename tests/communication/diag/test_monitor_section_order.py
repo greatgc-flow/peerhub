@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from peerhub.cli.monitor_view import FRAME_HEADS, FRAME_SECTIONS, FRAME_TRAILING_ROWS, render_grouped_frame
+from peerhub.extensions.pool_health import PACE_GAP_BASELINE
 from tests.communication.diag.test_monitor_expand_rich import detail_payload, heads
 
 
@@ -43,10 +44,10 @@ def test_height_evicts_sections_from_the_bottom(view: str, expand: bool) -> None
         assert shown == catalog[:len(shown)], (height, shown)
         for head in shown:
             smallest_height[head] = height
-        if height == 5 + FRAME_TRAILING_ROWS:  # verdict, title, POOLS head, one row and the overflow line
-            assert shown == (FRAME_SECTIONS["pools"],)
+        assert (FRAME_SECTIONS["pools"] in shown) == any(line.startswith(f"gap vs {PACE_GAP_BASELINE}") for line in lines)
+        if height == 4 + FRAME_TRAILING_ROWS:  # the heading, row and gap cannot fit together
+            assert not shown
             assert lines[0].startswith("ATTN") and lines[1].startswith("PeerHub Monitor")
-            assert any("-7D" in line for line in lines[3:])
 
     for key in ("recent", "running", "alerts"):
         assert smallest_height[FRAME_SECTIONS["pools"]] < smallest_height[FRAME_SECTIONS[key]]

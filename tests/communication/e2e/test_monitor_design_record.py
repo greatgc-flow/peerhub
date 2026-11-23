@@ -46,3 +46,22 @@ def test_the_design_index_links_the_record_and_nothing_leaks_local_paths():
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"[A-Za-z]:[\/]+(PkgDev|Users)", text), path.name
         assert "sess_" not in text, path.name
+
+
+def test_monitor_docs_name_both_rejected_pool_target_forms():
+    root = DESIGN.parents[1]
+    m2 = next(body for title, body in _sections().items() if title.startswith("M2 "))
+    forms = re.findall(r"`(\[(?:pool_targets|pools\.<ID>)\])`", m2)
+    assert len(forms) == 2
+    guide = (root / "docs" / "monitor.md").read_text(encoding="utf-8")
+    assert all(f"`{form}`" in guide for form in forms)
+
+
+def test_record_and_unreleased_changelog_report_implementation():
+    root = DESIGN.parents[1]
+    status = "Status: implemented in PRs #460-#463 (scored in scoring/s1.md)"
+    assert TEXT.splitlines()[2] == status
+    unreleased = (root / "CHANGELOG.md").read_text(encoding="utf-8").split("## [Unreleased]", 1)[1].split("\n## ", 1)[0]
+    documentation = unreleased.split("### Documentation", 1)[1]
+    assert "not implemented" not in unreleased
+    assert f"`docs/design/{RECORD.name}`" in documentation and "#460-#463" in documentation
