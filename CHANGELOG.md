@@ -8,9 +8,12 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.8] - 2026-11-23
+
 ### Fixed
 
 - On Windows, synchronous `peerhub observation refresh` uses Job Objects to clean up Claude and Codex probe subprocesses and their children (#453).
+
 ### Changed
 
 - `batch run --dry-run` previews named defaults using ask's profile resolution, and `diag --plan` identifies other mapped in-flight pools by name in its `n/a pools` clause (#447).
