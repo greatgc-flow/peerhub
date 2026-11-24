@@ -2,19 +2,19 @@
 
 This is the current cross-peer operator reference. The authoritative runtime
 sources are the [adapter implementation](../../peerhub/extensions/adapters/base.py)
-and `peerhub/config_data/model-defaults.toml`; historical snapshots under
+and the [packaged model defaults](../../peerhub/config_data/model-defaults.toml); historical snapshots under
 `checkpoints/` are provenance only.
 
 ## Supported surface
 
-| Peer | Binary / locally observed version | Input / output | Invocation |
+| Peer | Binary | Input / output | Invocation |
 |---|---|---|---|
-| `ag` | `agy.exe` 1.3.5 (local probe, 2026-10-15) | `-p` argument / flat JSON | new |
-| `cc` | `claude.cmd` 2.1.299 (local probe, 2026-10-15) | stdin / stream JSON | new |
-| `cx` | `codex.cmd` 0.162.1 (local probe, 2026-10-15) | stdin / JSONL events | `exec`, `exec resume` |
+| `ag` | `agy.exe` | stdin / stream JSON, or `-p` argument / flat JSON | new |
+| `cc` | `claude.cmd` | stdin / stream JSON | new |
+| `cx` | `codex.cmd` | stdin / JSONL events | `exec`, `exec resume` |
 
-Models and efforts for all providers are defined in the
-[model profile manifest](../model-profiles/model-profiles.json).
+The packaged model defaults record models, efforts, and observed CLI versions.
+The [refresh recipe](../model-profiles/model-profiles.json) describes how to update them.
 
 Ordinary `peerhub ask` calls reuse the latest compatible retained peer/Stream session;
 otherwise they start fresh with bounded catch-up. Adapter resume capability is

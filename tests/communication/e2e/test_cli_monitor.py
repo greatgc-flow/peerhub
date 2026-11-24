@@ -1323,7 +1323,7 @@ def test_monitor_refresh_injects_the_same_profile_pools_as_observation_refresh(t
             return list_profiles(root, include_meta=True)
         return [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
             ("cx.effort", ["X-5H", "X-7D"]), ("cc.fable", ["F-7D"]), ("cc.standard", ["C-5H", "C-7D"]),
-            ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]))]
+            ("ag.standard", ["G-5H", "G-7D"]), ("ag.probe", ["A-7D"]))]
     seen = []
 
     def refresh(*args, **kwargs):

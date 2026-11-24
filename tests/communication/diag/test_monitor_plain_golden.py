@@ -19,7 +19,7 @@ ORDER = FRAME_HEADS
 _HEAD = re.compile(r"^(?:-- )?(" + "|".join(map(re.escape, FRAME_SECTIONS.values())) + r")(?= |$)")
 _TRAILER = re.compile(r"^(?:\+\d+ (?:rows hidden|--expand \| more)|Coverage: )")
 PROFILES = [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
-    ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]), ("ag.deepthink", ["3P-5H", "3P-7D"]),
+    ("ag.standard", ["G-5H", "G-7D"]), ("ag.probe", ["A-7D"]), ("ag.deepthink", ["3P-5H", "3P-7D"]),
     ("cc.effort", ["C-5H", "C-7D"]), ("cc.fable", ["F-7D"]), ("cx.effort", ["X-5H", "X-7D"]))]
 
 

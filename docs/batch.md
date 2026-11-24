@@ -165,6 +165,7 @@ example `eco=cc.standard|ag.standard`. With no eligible alternative, only the
 primary appears. These suggestions do not execute asks or reroute work.
 
 While 3P is low, explicitly use `ag.argon` only for tasks its measured capabilities support; otherwise defer.
+Argon uses the shared Gemini quota shown in `peerhub diag --plan`.
 
 For an AI planning a parallel wave, `peerhub explain parallel-quota` is the recipe (order by 7D PACE, size n by quota and load); this section is the manual reference.
 

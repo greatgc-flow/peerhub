@@ -35,7 +35,7 @@ def compact_frame():
             pool("cx", "X-7D", .89)]
     rows[6].update(stored_state="ABSENT", reason="not reported by provider; plan=prolite")
     profiles = [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
-        ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]),
+        ("ag.standard", ["G-5H", "G-7D"]), ("ag.probe", ["A-7D"]),
         ("ag.deepthink", ["3P-5H", "3P-7D"]), ("cc.effort", ["C-5H", "C-7D"]),
         ("cx.effort", ["X-5H", "X-7D"]))]
     return {"schema_version": "2.0", "status": "PARTIAL", "read_at": NOW,
@@ -601,13 +601,13 @@ def test_suggestions_only_append_eligible_different_peer(alternative):
     rows = [{"peer": "cc", "pool": "F-7D", "remaining": .8, "reset_seconds": 86400,
              "aged": False, "state": "ok"}]
     if alternative != "same-peer":
-        profiles.append({"profile": "ag.argon", "fields": {"pools": {"value": ["A-7D"]}}})
+        profiles.append({"profile": "ag.probe", "fields": {"pools": {"value": ["A-7D"]}}})
     if alternative in {"eligible", "ineligible"}:
         rows.append({"peer": "ag", "pool": "A-7D", "remaining": .5, "reset_seconds": 86400,
                      "aged": alternative == "ineligible", "state": "ok"})
     expected = "suggest: eco=- normal=- quality=- top=cc.fable"
     if alternative == "eligible":
-        expected += "|ag.argon"
+        expected += "|ag.probe"
     assert _compact_suggestions(profiles, rows) == expected
 
 

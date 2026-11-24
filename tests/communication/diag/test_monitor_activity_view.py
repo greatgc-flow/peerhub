@@ -98,7 +98,7 @@ def frame() -> dict[str, Any]:
                     pool("cc", "C-7D", .63, pace=-20), pool("cc", "F-7D", .57, pace=-14),
                     pool("cx", "X-5H", 0.0, reset=3600), pool("cx", "X-7D", .42, fast=True, pace=31)]
     profiles = [{"profile": name, "fields": {"pools": {"value": pools}}} for name, pools in (
-        ("ag.standard", ["G-5H", "G-7D"]), ("ag.argon", ["A-7D"]), ("ag.deepthink", ["3P-5H", "3P-7D"]),
+        ("ag.standard", ["G-5H", "G-7D"]), ("ag.probe", ["A-7D"]), ("ag.deepthink", ["3P-5H", "3P-7D"]),
         ("cc.effort", ["C-5H", "C-7D"]), ("cc.fable", ["F-7D"]), ("cx.effort", ["X-5H", "X-7D"]))]
     return {"schema_version": "2.0", "status": "OK", "read_at": NOW,
             "selected_groups": ["activity", "peers", "capacity"],

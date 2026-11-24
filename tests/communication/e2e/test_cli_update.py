@@ -84,9 +84,12 @@ def test_check_versions_and_bundled_models(monkeypatch, capsys, offline):
     versions = report["versions"]
     assert versions["peerhub"]["latest"] == (None if offline else "9.0.0")
     assert versions["codex"]["latest"] == (None if offline else "0.173.0")
-    assert versions["codex"]["packaged"] == "0.171.0"
+    import tomllib
+    from importlib.resources import files
+    packaged = tomllib.loads(files("peerhub.config_data").joinpath("model-defaults.toml").read_text(encoding="utf-8"))["observed_versions"]["cx"]
+    assert versions["codex"]["packaged"] == packaged  # derived from the bundled defaults, not a literal
     assert versions["codex"]["installed"] == "0.172.0"
-    assert versions["codex"]["differs_from_packaged"] is True
+    assert versions["codex"]["differs_from_packaged"] is (packaged != "0.172.0")
     assert versions["codex"]["update_available"] is (None if offline else True)
     assert versions["agy"]["installed"] is None
     assert report["codex_models"]["missing"]["cx.standard"] == "gpt-6-luna"

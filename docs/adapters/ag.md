@@ -5,7 +5,7 @@ This page documents the current production contract. Historical migration notes 
 
 ## Current contract
 
-- Executable: `agy.exe` (observed version `1.5.11` on 2026-11-18; local probe)
+- Executable: `agy.exe` ([observed version](../../peerhub/config_data/model-defaults.toml))
 - Transport: process pipe; the prompt goes over stdin as one stream-json line when `agy --help` lists `--input-format`; otherwise, or with `PEERHUB_AG_TRANSPORT=argv`, it is passed with `-p`
 - Output: stream-json events on the stdin transport (the terminal `result.response` is the canonical text); flat JSON (`response`) on the argv transport
 - Inline prompt limit: 1,000,000 UTF-8 bytes on the stdin transport; on the argv transport 30,000 on Windows and 120,000 elsewhere
@@ -27,9 +27,9 @@ binding into CLI flags; it does not contain model-selection policy.
 Profile models and efforts live in the packaged `model-defaults.toml`; list the effective ones with
 `peerhub profile list`. The [refresh recipe](../model-profiles/model-profiles.json) explains how to update them. `python -m tools.model_ping` proves the answering model (agy log), not the effort. Each profile has an evidence card: `peerhub explain ag.<profile>`.
 
-`ag.argon` selects `gemini-4-argon-medium` on A-7D. Discover exact slugs and their
-declared pools with `peerhub profile list` (JSON: `known_models`), or vendor slugs
-with `agy models`; choose one with `--model <slug>`. Registry completeness does
+`ag.argon` selects `gemini-4-argon-medium` and draws from the shared Gemini quota.
+Use `peerhub profile list` (JSON: `known_models`) for exact slugs and declared
+pools, or `agy models` for vendor slugs. Choose a slug with `--model <slug>`. Registry completeness does
 not integrate arbitrary model selections into monitor/readiness. Unverified pool
 mappings remain explicit; configured availability is not measured availability.
 
@@ -39,7 +39,26 @@ because headless `agy.exe` (`-p`) does not enforce a read-only sandbox. Cached
 terminal replay remains available without launching the provider. Compatible
 native resume uses `--conversation SESSION_ID` for continuing asks by default.
 
-In 0.24.1, configured pools omitted from a complete, successfully parsed usage report render as `n/a not reported (plan X)` (X is the reported plan or `unknown`).
+## Quota pools
+
+| Pool | What the provider reports |
+|---|---|
+| `G-7D` | Gemini Models weekly quota, shared by Flash and Argon. |
+| `G-5H` | Gemini Models five-hour quota, shared by Flash and Argon. |
+| `3P-7D` | Claude and GPT models weekly quota. |
+| `3P-5H` | Claude and GPT models five-hour quota, reported as disabled in the 2026-11-24 check. |
+| `A-7D` | Legacy Argon weekly bucket. A complete report that omits it shows `n/a`. |
+
+On 2026-11-23 at 20:15Z, the provider stopped reporting the separate Argon group
+and reset the Gemini weekly quota early. Three Argon Medium pings on 2026-11-24
+reduced the Gemini five-hour balance while the legacy bucket stayed absent.
+
+The catalog also lists Gemini 4 Carbon at low, medium and high, plus Orchestrator
+(Carbon). Their quota assignment is unverified. Use `peerhub profile list` to
+look up the exact slugs and pool evidence.
+
+Configured pools omitted from a complete, successfully parsed usage report
+render as `n/a not reported (plan X)` (X is the reported plan or `unknown`).
 
 ## Verify and troubleshoot
 

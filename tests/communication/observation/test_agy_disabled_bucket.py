@@ -5,12 +5,13 @@ import copy
 import json
 import sqlite3
 import subprocess
+from pathlib import Path
 
 import pytest
 
-from peerhub.extensions.observation_model import DISABLED_REASON, EvidenceState
+from peerhub.extensions.observation_model import DISABLED_REASON, NOT_REPORTED_REASON, EvidenceState
 from peerhub.extensions.quota_capture import refresh_quota
-from peerhub.extensions.quota_probes import _agy_report_is_clean, _parse_agy_usage_output, poll_agy_usage  # pyright: ignore[reportPrivateUsage]
+from peerhub.extensions.quota_probes import AGY_QUOTA_FAMILIES, _agy_report_is_clean, _parse_agy_usage_output, poll_agy_usage  # pyright: ignore[reportPrivateUsage]
 from tests.communication.harness.core import CoreHarness
 from tests.communication.observation.test_quota_probes import DummyIdSource
 
@@ -35,11 +36,11 @@ def disabled(**extra):
     return {"id": "3p-5h", "disabled": True, "description": DESC, **extra}
 
 
-def poll(monkeypatch, tmp_path, text):
+def poll(monkeypatch, root, text, **options):
     monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
     monkeypatch.setattr("peerhub.extensions.quota_probes._real_command", lambda peer, _s=None: ["agy.exe"] if peer == "ag" else None)
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(args=["agy.exe"], returncode=0, stdout=text, stderr=""))
-    return poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: OBSERVED, sys_dir=tmp_path / "_sys")
+    return poll_agy_usage(DummyIdSource(), "ag", "standard", clock=lambda: OBSERVED, sys_dir=root / "_sys", **options)
 
 
 def by_pool(res):
@@ -69,8 +70,18 @@ def test_poll_records_disabled_pool_absent_with_reason_and_keeps_other_pools(mon
     assert absent.evidence.state == EvidenceState.ABSENT and absent.evidence.value is None
     assert absent.extra == {"pool_scope": "3P-5H", "reason": f"{DISABLED_REASON}: {DESC}"}
     assert [res[p].evidence.state for p in ("G-5H", "G-7D", "3P-7D")] == [EvidenceState.MEASURED] * 3
-    assert res["A-7D"].extra["reason"].startswith("not reported by provider")  # A-7D is genuinely absent, 3P-5H is not "not reported"
+    assert res["A-7D"].extra["reason"].startswith(NOT_REPORTED_REASON)  # A-7D is genuinely absent, 3P-5H is not "not reported"
     assert absent.evidence.evidence_ref == "probe:ag:usage"
+
+
+def test_unreported_argon_bucket_is_absent_without_a_profile_using_it(monkeypatch):
+    root = Path(__file__).resolve().parents[3]
+    argon_pool = dict(AGY_QUOTA_FAMILIES)["gemini-argon-wtu-weekly"]
+    configured = [pool for _, pool in AGY_QUOTA_FAMILIES if pool != argon_pool]
+    res = by_pool(poll(monkeypatch, root, usage(disabled(), five_h_ok=False), configured_pools=configured))
+
+    assert res[argon_pool].evidence.state == EvidenceState.ABSENT
+    assert res[argon_pool].extra["reason"].startswith(NOT_REPORTED_REASON)
 
 
 def test_poll_without_disabled_flag_still_measures(monkeypatch, tmp_path):
