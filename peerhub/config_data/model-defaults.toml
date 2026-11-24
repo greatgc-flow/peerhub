@@ -7,13 +7,13 @@
 # raise a configuration error. Packaged entries are release-maintained.
 
 schema_version = 1
-defaults_revision = "2026-11-21.1"
-observed_at = "2026-11-21"
+defaults_revision = "2026-11-24.1"
+observed_at = "2026-11-24"
 
 [observed_versions]
-ag = "1.5.14"
-cc = "2.1.330"
-cx = "0.171.0"
+ag = "1.5.16"
+cc = "2.1.331"
+cx = "0.172.0"
 
 [stream_budget]
 prompt_tokens = 128000
@@ -23,7 +23,7 @@ resumed_turns = 12
 selection_mode = "pinned"
 model = "gpt-6-luna"
 reasoning_effort = "low"
-source = "cli:codex debug models@0.171.0 2026-11-21"
+source = "cli:codex debug models@0.172.0 2026-11-24"
 checked = "2026-11-18"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -37,7 +37,7 @@ card_checked = "2026-11-18"
 selection_mode = "pinned"
 model = "gpt-6.2-sol"
 reasoning_effort = "high"
-source = "cli:codex debug models@0.171.0 2026-11-21"
+source = "cli:codex debug models@0.172.0 2026-11-24"
 checked = "2026-11-18"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -57,7 +57,7 @@ card_checked = "2026-11-18"
 alias_of = "cx.effort"
 effort_override = "xhigh"
 suggest = false
-source = "cli:codex debug models@0.171.0 2026-11-21"
+source = "cli:codex debug models@0.172.0 2026-11-24"
 checked = "2026-11-18"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -72,7 +72,7 @@ card_checked = "2026-11-18"
 selection_mode = "pinned"
 model = "gpt-6.2-astra"
 reasoning_effort = "high"
-source = "cli:codex debug models@0.171.0 2026-11-21"
+source = "cli:codex debug models@0.172.0 2026-11-24"
 checked = "2026-11-18"
 pools = ["X-5H", "X-7D"]
 pools_source = "unverified"
@@ -85,7 +85,7 @@ card_checked = "2026-11-18"
 [profiles."cc.standard"]
 selection_mode = "pinned"
 model = "claude-haiku-5-5"
-source = "known-id:claude --help aliases@2.1.330 2026-11-21"
+source = "known-id:claude --help aliases@2.1.331 2026-11-24"
 checked = "2026-11-18"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -99,7 +99,7 @@ card_checked = "2026-11-18"
 selection_mode = "pinned"
 model = "claude-sonnet-5-5"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.330 2026-11-21"
+source = "known-id:claude --help aliases@2.1.331 2026-11-24"
 checked = "2026-11-18"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -114,7 +114,7 @@ selection_mode = "pinned"
 model = "claude-opus-5-5"
 reasoning_effort = "high"
 suggest = false
-source = "known-id:claude --help aliases@2.1.330 2026-11-21"
+source = "known-id:claude --help aliases@2.1.331 2026-11-24"
 checked = "2026-11-18"
 pools = ["C-5H", "C-7D"]
 pools_source = "unverified"
@@ -130,7 +130,7 @@ card_checked = "2026-11-18"
 selection_mode = "pinned"
 model = "claude-fable-5-2"
 reasoning_effort = "high"
-source = "known-id:claude --help aliases@2.1.330 2026-11-21"
+source = "known-id:claude --help aliases@2.1.331 2026-11-24"
 checked = "2026-11-18"
 pools = ["F-7D", "C-7D"]
 pools_source = "claude /usage weekly_scoped_shares (claude 2.1.322, 2026-11-10, #334)"
@@ -143,7 +143,7 @@ card_checked = "2026-11-18"
 [profiles."ag.standard"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-low"
-source = "cli:agy.exe models@1.5.14 2026-11-21"
+source = "cli:agy.exe models@1.5.16 2026-11-24"
 checked = "2026-11-18"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
@@ -157,7 +157,7 @@ card_checked = "2026-11-18"
 selection_mode = "pinned"
 model = "gemini-3.8-flash-high"
 suggest = false
-source = "cli:agy.exe models@1.5.14 2026-11-21"
+source = "cli:agy.exe models@1.5.16 2026-11-24"
 checked = "2026-11-18"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
@@ -170,7 +170,7 @@ card_checked = "2026-11-18"
 [profiles."ag.deepthink"]
 selection_mode = "pinned"
 model = "claude-sonnet-5-5-high"
-source = "cli:agy.exe models@1.5.14 2026-11-21"
+source = "cli:agy.exe models@1.5.16 2026-11-24"
 checked = "2026-11-18"
 pools = ["3P-5H", "3P-7D"]
 pools_source = "unverified"
@@ -183,24 +183,24 @@ card_checked = "2026-11-18"
 [profiles."ag.argon"]
 selection_mode = "pinned"
 model = "gemini-4-argon-medium"
-source = "cli:agy.exe models@1.5.14 2026-11-21"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
-checked = "2026-11-18"
-pools = ["A-7D"]
-pools_source = "agy /usage group (agy 1.4.0)"
+source = "cli:agy.exe models@1.5.16 2026-11-24"  # benchmark tie rule kept medium: docs/benchmarks/profiles-2026-11-08.md
+checked = "2026-11-24"
+pools = ["G-5H", "G-7D"]
+pools_source = "agy /usage groups (agy 1.5.16) + ping measurement 2026-11-24"
 use_for = "opt-in top tier for hard reasoning on ag"
 avoid_for = "tool use (empty replies after tools, #195)"
-traits = ["45/45 at medium; high slower", "empty reply after tool use (#195)"]
-evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#195", "ag-recipe"]
-card_checked = "2026-11-18"
+traits = ["45/45 at medium; high slower", "empty reply after tool use (#195)", "shares Gemini quota with Flash"]
+evidence = ["docs/benchmarks/profiles-2026-11-08.md", "#195", "ag-recipe", "docs/adapters/ag.md"]
+card_checked = "2026-11-24"
 
 [profiles."ag.neon"]
 selection_mode = "pinned"
 model = "gemini-4-neon-high"
-source = "cli:agy.exe models@1.5.14 2026-11-21"
+source = "cli:agy.exe models@1.5.16 2026-11-24"
 checked = "2026-11-20"
 pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
-use_for = "opt-in strong reasoning on ag from the G pool, spreads load off A-7D"
+use_for = "opt-in strong reasoning on ag from the G pool"
 avoid_for = "tool use (follow the ag recipe: inline content, no tools)"
 traits = ["hard 2026-11-20: 100/100 (medium 98)", "pools inferred from ping, unverified"]
 evidence = ["docs/benchmarks/profiles-hard-2026-11-10/runs/results.txt", "ag-recipe"]
@@ -311,19 +311,21 @@ evidence = ["#381"]
 card_checked = "2026-11-16"
 
 [exact_model_pools."gemini-4-argon-low"]
-pools = ["A-7D"]
-pools_source = "agy /usage group (agy 1.4.0)"
-checked = "2026-10-18"
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-24"
+note = "Pools inferred from the measured Argon Medium variant."
 
 [exact_model_pools."gemini-4-argon-medium"]
-pools = ["A-7D"]
-pools_source = "agy /usage group (agy 1.4.0)"
-checked = "2026-10-18"
+pools = ["G-5H", "G-7D"]
+pools_source = "agy /usage groups (agy 1.5.16) + ping measurement 2026-11-24"
+checked = "2026-11-24"
 
 [exact_model_pools."gemini-4-argon-high"]
-pools = ["A-7D"]
-pools_source = "agy /usage group (agy 1.4.0)"
-checked = "2026-10-18"
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-24"
+note = "Pools inferred from the measured Argon Medium variant."
 
 [exact_model_pools."gemini-3.8-flash-low"]
 pools = ["G-5H", "G-7D"]
@@ -394,10 +396,10 @@ checked = "2026-11-18"
 note = "gemini-4-hydrogen-high 2026-11-13, one run each: hard (integer interpreter) 100/100 in 97 s, top (regex matcher) 18/115 in 252 s; pools inferred from agy 1.5.7 /usage group 'Gemini Models: Gemini Flash, Gemini Pro' (hydrogen is not named; not Argon, not Claude/GPT); no profile until a second run of each, a top run >= 100/115 and an idle-account /usage pool attribution"
 
 [exact_model_pools."gemini-pro-orchestrator-g1-pro"]
-pools = ["A-7D"]
+pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 checked = "2026-11-18"
-note = "gemini-pro-orchestrator-g1-pro scored 100/100 on the hard benchmark 2026-11-18 (one run); its pool is declared, not measured"
+note = "Scored 100/100 on the hard benchmark 2026-11-18 (one run). Catalog no longer lists this slug; Gemini pools are inferred."
 
 [exact_model_pools."gemini-4-hydrogen-xhigh"]
 pools = ["G-5H", "G-7D"]
@@ -434,3 +436,33 @@ pools = ["G-5H", "G-7D"]
 pools_source = "unverified"
 checked = "2026-11-20"
 note = "gemini-4-neon: new in agy 1.5.13; hard benchmark 2026-11-20 (one run each): medium 98/100, high 100/100, xhigh 100/100 (383 s); pools inferred from the G-pool quota drop of the ping (G-5H/G-7D), not from an /usage group; no profile yet"
+
+[exact_model_pools."gemini-4-carbon-low"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-24"
+note = "Carbon listed by agy models; Gemini pools are inferred."
+
+[exact_model_pools."gemini-4-carbon-medium"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-24"
+note = "Carbon listed by agy models; Gemini pools are inferred."
+
+[exact_model_pools."gemini-4-carbon-high"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-24"
+note = "Carbon listed by agy models; Gemini pools are inferred."
+
+[exact_model_pools."gemini-pro-orchestrator"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-24"
+note = "Orchestrator (Carbon) listed by agy models; Gemini pools are inferred."
+
+[exact_model_pools."gemini-pro-orchestrator-argon"]
+pools = ["G-5H", "G-7D"]
+pools_source = "unverified"
+checked = "2026-11-24"
+note = "Orchestrator (Argon) listed by agy models; Gemini pools are inferred."

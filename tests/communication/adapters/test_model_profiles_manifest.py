@@ -78,6 +78,17 @@ def test_every_profile_model_is_registered_or_peer_scoped():
             assert p["pools"] == registry[p["model"]]["pools"], pid
 
 
+def test_argon_profile_and_exact_models_share_the_gemini_quota():
+    profiles = packaged_profiles()
+    argon = profiles["ag.argon"]
+    gemini_pools = profiles["ag.standard"]["pools"]
+    assert argon["pools"] == gemini_pools
+    argon_family = argon["model"].rsplit("-", 1)[0]
+    for model, entry in TOML["exact_model_pools"].items():
+        if model.startswith(f"{argon_family}-"):
+            assert entry["pools"] == gemini_pools, model
+
+
 def test_profile_source_matches_recipe_command_and_observation():
     observed_at, versions = TOML["observed_at"], TOML["observed_versions"]
     for pid, p in packaged_profiles().items():

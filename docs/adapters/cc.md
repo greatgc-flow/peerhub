@@ -5,7 +5,7 @@ This page documents the current production contract. Historical migration notes 
 
 ## Current contract
 
-- Executable: `claude.cmd` (observed version `2.1.327` on 2026-11-18; local probe)
+- Executable: `claude.cmd` ([observed version](../../peerhub/config_data/model-defaults.toml))
 - Transport: process pipe; the prompt is written to standard input
 - Output: stream JSON; `result` is canonical text, `is_error` marks vendor
   failure.

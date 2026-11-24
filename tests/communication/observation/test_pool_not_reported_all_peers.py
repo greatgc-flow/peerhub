@@ -115,7 +115,7 @@ def test_ag_absent_follows_the_injected_configured_pools(monkeypatch, tmp_path):
     res = run_ag(monkeypatch, tmp_path, AGY_USAGE_JSON, configured_pools=["G-5H", "A-7D"])
     assert [r.extra["pool_scope"] for r in res if r.evidence.state == EvidenceState.ABSENT] == ["A-7D"]
     undeclared = run_ag(monkeypatch, tmp_path, AGY_USAGE_JSON, configured_pools=["G-5H"])
-    assert EvidenceState.ABSENT not in [r.evidence.state for r in undeclared]
+    assert [r.extra["pool_scope"] for r in undeclared if r.evidence.state == EvidenceState.ABSENT] == ["A-7D"]
 
 
 def test_ag_unknown_bucket_drift_records_no_absent(monkeypatch, tmp_path):

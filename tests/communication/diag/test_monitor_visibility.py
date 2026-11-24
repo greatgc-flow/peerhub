@@ -81,7 +81,7 @@ def test_d2_compact_pools_name_every_peer_without_peers_lines(frame: dict[str, A
     # #374: the PEERS summaries and the legend left the compact frame; every peer still has its POOLS rows.
     frame["configured_profiles"].extend([
         {"profile": "ag.deepthink", "fields": {"pools": {"value": ["3P-5H", "3P-7D"]}}},
-        {"profile": "ag.argon", "fields": {"pools": {"value": ["A-7D"]}}},
+        {"profile": "ag.probe", "fields": {"pools": {"value": ["A-7D"]}}},
         {"profile": "cc.fable", "fields": {"pools": {"value": ["F-7D"]}}}])
     screen = render_grouped_frame(frame, width=width, height=height, unicode=False)
     pools = pools_block(screen)

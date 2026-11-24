@@ -20,12 +20,13 @@ from peerhub.extensions.process_tree import kill_process_tree
 from peerhub.extensions.quota_types import account_text as _account_text, valid_epoch_seconds, DISABLED_REASON, NOT_REPORTED_REASON, IdSource, EvidenceValue, EvidenceState, EvidenceRef, UsageObserved, UsageMeasurement, ResetCreditObserved
 import peerhub.extensions.win_job as win_job
 
+_AGY_ARGON_WEEKLY_POOL = "A-7D"
 AGY_QUOTA_FAMILIES = (
     ("gemini-5h", "G-5H"),
     ("gemini-weekly", "G-7D"),
     ("3p-5h", "3P-5H"),
     ("3p-weekly", "3P-7D"),
-    ("gemini-argon-wtu-weekly", "A-7D"),
+    ("gemini-argon-wtu-weekly", _AGY_ARGON_WEEKLY_POOL),
 )
 
 _CODEX_CLIENT_INFO = {"name": "hub-credit", "version": "1.0"}
@@ -1305,8 +1306,8 @@ def poll_agy_usage(
     Current Agy reports zero input/output/thinking tokens for this operation.
     An explicitly supplied ``log_path`` skips the executable probe.
 
-    A declared pool whose bucket is missing from a fully parsed ``/usage`` report is recorded ABSENT; the statusline
-    fallback, conflicts and any present-but-unusable bucket never produce ABSENT rows.
+    A missing declared bucket or legacy Argon weekly bucket in a complete ``/usage`` report is recorded ABSENT.
+    The statusline fallback, conflicts and any present-but-unusable bucket never infer missing buckets.
     """
     
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
@@ -1522,7 +1523,10 @@ def poll_agy_usage(
     if (source_tag == "agy_cli_usage" and report_clean and not malformed and not unknown_buckets
             and all(r.evidence.state == EvidenceState.MEASURED or r.extra.get("pool_scope") in disabled_pools for r in results)):
         reported = {r.evidence.value.quota_pool_scope for r in results if r.evidence.value is not None} | disabled_pools
-        for pool_scope in (tuple(_AG_QUOTA_LABELS.values()) if configured_pools is None else configured_pools):
+        # Clear past Argon weekly evidence even when no current profile uses the legacy bucket.
+        expected = (_AG_QUOTA_LABELS.values() if configured_pools is None
+                    else dict.fromkeys((*configured_pools, _AGY_ARGON_WEEKLY_POOL)))
+        for pool_scope in expected:
             if pool_scope not in reported:
                 results.append(_absent_pool(ids, instance_id, profile_id, "ag", observed_at_now, freshness_ttl, pool_scope))
 
