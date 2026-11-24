@@ -214,7 +214,7 @@ The compact frame has two views with the same lines and rows. The plain view (`-
 
 - Line 1 starts with a status pill: ` OK ` on green, ` OK? ` on yellow, ` ATTN 3 ` on red. The facts are separated by a dim ` · `, and the time (`23:46Z`) stands at the right edge when there is room. Line 2 is dim.
 - A section head is a rule on its own line, never an extra line, and keeps its content: `── POOLS 5 ─ STATE ─── LEFT  PACE(pp)  EXH/RESET  FAMILY ───`, `── RUNNING 2 · ag 1 cx 1 ───`, `── LEADS 1 entry · partial (...) · 1 session found ───`, `── RECENT 130 (2 running) ───`. The line is dim and the title bold.
-- POOLS and expanded QUOTA share STATE, LEFT, PACE(pp), EXH/RESET and FAMILY. The bar marks even burn with a `|` tick. Expanded QUOTA uses the space left after the data columns. PACE and the bar use cyan for spend, green for ok, yellow for rest and bold red at fresh zero. LEFT shows remaining quota and its reserve flag. FAMILY lists configured profiles. A gap line compares weekly pace with X-7D.
+- POOLS and expanded QUOTA right-align the LEFT value and left-align STATE, PACE(pp), EXH/RESET and FAMILY. Both tables give the bar room to grow before expanding FAMILY with full profile lists and inline notes. The bar uses any further room up to its cap and marks even burn with a `|` tick. PACE and the bar use cyan for spend, green for ok, yellow for rest and bold red at fresh zero. LEFT shows remaining quota and its reserve flag. A gap line compares weekly pace with X-7D.
 - A RUNNING row starts with `►` (green), `× gone` (red), `! overdue` (yellow) or `?` (yellow). A LEADS row shows the context as a meter of five cells: `ctx ■■□□□ 46%`, red with `!` at 80 % or more, and a dim `ctx ───── 106k` or `ctx ───── ?` when the percentage is unknown. A RECENT row starts with a dot and its state: green `● ok`, yellow for unsure, red for empty or error.
 - No state is shown by colour or glyph alone: the words of the plain view stay. The colours come from the 256-colour palette (semicolon SGR codes only; `COLORTERM` changes nothing). `NO_COLOR` keeps the rich layout with its Unicode glyphs and prints no colour. Output that cannot show Unicode gets the same layout with ASCII glyphs (`--`, `#`, `.`, `*`, `^`, `v`, `x`, `o`, `>`). A terminal that draws these glyphs two cells wide should use `--view plain` (or `PEERHUB_MONITOR_VIEW=plain`).
 - `--expand` keeps the full DB path in the header and explains unavailable quota windows. Pipe it to see the finished history and sampled superseded asks. Continuous VT watches print their final frame back on the normal screen. Finite watches stay there throughout.
@@ -226,12 +226,12 @@ An example of the rich view, shown here without colour (the uncoloured frame, as
 ```text
 OK · 2 running · 1 lead · min quota 18% cx X-7D ok                                           23:46Z
 PeerHub Monitor 2026-11-14 23:46Z · DB:env · quota age 10s
-── POOLS 5 ──── STATE ────────── LEFT  PACE(pp)  EXH/RESET ──── FAMILY  use first ─────────────────
- cc C-7D     ● ok   ███|█░░░   63%     -20.0  2d06h/1d00h    claude: cc.effort
-    └─ C-5H  ● ok   ▬▬╌╌╌╌╌╌   30%         —  —/3h           claude: cc.effort
- ag G-7D     ● ok   ██████░░   71%      -6.0  1d07h/1d00h    flash: ag.standard
-    └─ G-5H  ● ok   ▬▬▬╌╌╌╌╌   40%         —  —/2h           flash: ag.standard
- cx X-7D     ● ok   █░|░░░░░   18%      +9.0  14h14m/1d00h!  codex: cx.effort
+── POOLS 5 ─ STATE ──────────────────────── LEFT  PACE(pp)  EXH/RESET ──── FAMILY  use first ──────
+ cc C-7D     ● ok   █████████|████░░░░░░░░   63%  -20.0     2d06h/1d00h    claude: cc.effort
+    └─ C-5H  ● ok   ▬▬▬▬▬▬▬╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌   30%  —         —/3h           claude: cc.effort
+ ag G-7D     ● ok   ██████████████|█░░░░░░   71%  -6.0      1d07h/1d00h    flash: ag.standard
+    └─ G-5H  ● ok   ▬▬▬▬▬▬▬▬▬╌╌╌╌╌╌╌╌╌╌╌╌╌   40%  —         —/2h           flash: ag.standard
+ cx X-7D     ● ok   ████░|░░░░░░░░░░░░░░░░   18%  +9.0      14h14m/1d00h!  codex: cx.effort
 gap vs X-7D (pp): C-7D -29.0, G-7D -15.0, A-7D —, 3P-7D —
 PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | EVN=even-burn
 remaining
@@ -246,7 +246,7 @@ suggest: eco=ag.standard normal=cc.effort|cx.effort quality=- top=-
  docs-site  busy  12s  ctx ■■□□□ 46%  2 run  fable-5-2  Importer docs
 ```
 
-The plain view uses the same quota columns and values. Its heading begins `POOLS 5      STATE            LEFT  PACE(pp)  EXH/RESET      FAMILY  use first`.
+The plain view uses the same quota columns and values. Its heading begins `POOLS 5`.
 
 The context of a cc ask is an estimate and never live data. On a RECENT row it is the estimate of the newest session of the ask's stream at the time of the read (`62k/6%` in the compact frame, `ctx 62k/1M 6% now` in `--expand`): the read model joins each of the newest ended asks to that session in the activity statement, so the value does not depend on the `SESSIONS` sample and needs no `sessions` group; a stream without a session shows `-`. In the sessions, context and peers sections of `--expand` it reads `<percent>% est, <age> ago`, for example `2% est, 3m ago`: `est` means an estimate of the context at the end of that session's last ask, as a share of the model's maximum input, and the age is counted from that ask's end to the time of the frame. The estimate appears as the last field of a SESSIONS row (dropped whole when the line is too narrow), as a CONTEXT row (`cc 2% est, 3m ago ... | 20,113 of 1,000,000 tokens`, never with the word `MEASURED`) and on the PEERS line (`-> context: 2% est, 3m ago`); in these three places it reads `2% est, age ?` when its time is unknown. The legend explains `CTX est`. `--expand` also lists `source capacity: unknown (no 7-day pool has a number)` for `OK? (quota unknown)`, and `source capacity: no quota evidence` for a store that never had a quota refresh.
 

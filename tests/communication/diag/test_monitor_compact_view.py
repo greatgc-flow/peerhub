@@ -105,7 +105,9 @@ def test_compact_pace_cells_keep_signed_measurement_for_aged_rows(
     anchor_pool(row, NOW, pace)  # C1 uses the raw anchors. G2 shows signed tenths without arrows.
     screen = _solo(compact_frame, width=width, view=view, unicode=unicode_mode)
     header = _header(screen)
-    assert header.index("PACE(pp)") < header.index("EXH/RESET") < header.index("FAMILY")
+    assert header.index("PACE(pp)") < header.index("EXH/RESET")
+    if width == 100 or "FAMILY" in header:
+        assert header.index("EXH/RESET") < header.index("FAMILY")
     assert expected in _row(screen, "G-5H").split()
     assert "80%" in _row(screen, "G-5H")
 

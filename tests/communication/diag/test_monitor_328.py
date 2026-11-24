@@ -8,10 +8,13 @@ from datetime import datetime, timezone
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.cli.monitor_view import QUOTA_NA
+from peerhub.cli.monitor_view import QUOTA_NA, render_grouped_frame
 from peerhub.extensions.monitor_read_model import render_monitor_frame
 from peerhub.extensions.observation import ObservationStore
 from peerhub.extensions.observation_model import EvidenceState, Observation, ResourcePool
+from tests.communication.diag.test_monitor_activity_view import pool
+from tests.communication.diag.test_monitor_na_hidden_400 import absent
+from tests.communication.diag.test_monitor_plain_golden import _payload
 from tests.communication.harness.core import CoreHarness
 
 pytestmark = [pytest.mark.unit, pytest.mark.diag]
@@ -217,15 +220,39 @@ def row_with(out, pool):
     return next(line for line in out.splitlines() if pool in line)
 
 
+def assert_disabled_bucket_note(table):
+    marker = f"(3P-5H {QUOTA_NA})"
+    lines = table.splitlines()
+    parent = next(i for i, line in enumerate(lines) if line.lstrip().startswith("ag 3P-7D "))
+    continuation = lines[parent + 1:parent + 2]
+    assert "out" in lines[parent].split()
+    assert marker in lines[parent] or (continuation and continuation[0].strip() == marker)
+    assert table.count(marker) == 1
+    assert "100%" not in table and "3P-5H" not in table.replace(marker, "")
+
+
+@pytest.mark.parametrize("width", [40, 50, 60, 80, 100, 120, 140, 160, 190, 220])
+@pytest.mark.parametrize("expand", [False, True])
+def test_disabled_bucket_layout_shows_only_na(width, expand):
+    disabled = {**absent("ag", "3P-5H"), "reason": DISABLED}
+    payload = _payload([], [pool("ag", "3P-7D", 0.0, pace=66.7, reset=7080), disabled],
+                       selected_groups=["capacity"])
+    text = render_grouped_frame(payload, view="plain", unicode=False, width=width, expand=expand)
+    pools, _, quota = text.split("POOLS ", 1)[1].partition("QUOTA [")
+    assert_disabled_bucket_note(pools)
+    if expand:
+        quota_rows, reason, _ = quota.partition(f"ag 3P-5H {QUOTA_NA} disabled by provider:")
+        assert reason and quota.count("3P-5H") == 2
+        assert_disabled_bucket_note(quota_rows)
+
+
 def test_disabled_bucket_is_na_with_no_capacity_or_reset_in_compact_expanded_and_json(store, capsys):
     disabled_store(store)
     compact = snapshot(store, capsys)
     expanded = snapshot(store, capsys, "--expand", "--show-quota-notes")
     for output in (compact, expanded):
         pools = output.split("POOLS ", 1)[1].split("QUOTA [", 1)[0]
-        line = row_with(pools, "3P-7D")
-        assert "out" in line.split() and f"(3P-5H {QUOTA_NA})" in line
-        assert "100%" not in pools and "3P-5H" not in pools.replace(f"(3P-5H {QUOTA_NA})", "")
+        assert_disabled_bucket_note(pools)
     assert f"ag 3P-5H {QUOTA_NA} disabled by provider:" in expanded
     main(["--db", str(store.db), "monitor", "--snapshot", "--json"])
     items = json.loads(capsys.readouterr().out)["groups"]["capacity"]["data"]["observations"]

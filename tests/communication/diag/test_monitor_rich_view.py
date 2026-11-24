@@ -96,7 +96,8 @@ def row_counts(lines: list[str]) -> dict[str, int]:
 def test_the_fit_order_preserves_running_ahead_of_recent(view):
     seen: list[dict[str, int]] = []
     for height in range(30, 1, -1):
-        screen = plain(full_payload(), height=height) if view == "plain" else strip(rich(full_payload(), height=height))
+        options = {"width": 140, "height": height}
+        screen = plain(full_payload(), **options) if view == "plain" else strip(rich(full_payload(), **options))
         assert len(screen.splitlines()) <= height - 1
         seen.append(row_counts(screen.splitlines()))
     assert seen[0]["RUNNING"] == 4
@@ -145,7 +146,7 @@ def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
     titles = [word for word in line.replace(mv.POOLS_USE_FIRST_HINT, "").split() if word in mv._POOL_COLUMNS]
     assert titles == ["STATE", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY"]
     rows = [text for text in strip(rich(full_payload())).splitlines() if "X-7D" in text]
-    assert line.index("LEFT") + len("LEFT") == rows[0].index("42%") + len("42%")  # titles sit over their columns
+    assert line.index("LEFT") + len("LEFT") == rows[0].index("42%") + len("42%")
 
 
 @pytest.mark.parametrize("head", ["RUNNING 4 · ag 1 cc 2 cx 1",
@@ -164,7 +165,7 @@ def test_read_failed_notes_stay_in_the_rule():
     assert row_of(strip(rich(payload)), "RUNNING").startswith("── RUNNING ? · activity read failed ─")
 
 
-# ---- budget: 24 lines, 100 columns, 8,192 bytes with the SGR codes counted (C1) --------------------------------------
+# ---- budget: 24 lines, terminal width, 8,192 bytes with the SGR codes counted (C1) -----------------------------------
 def worst_payload() -> dict[str, Any]:
     payload = full_payload()
     for item in payload["groups"]["capacity"]["data"]["observations"]:
@@ -190,7 +191,7 @@ def test_rich_frame_stays_within_the_width_line_and_byte_budget(build, width):
             screen = rich(build(), width=width, height=height, unicode=unicode)
             lines = screen.splitlines()
             assert len(lines) <= (24 if height is None else min(24, max(0, height - 1))), (width, height)
-            assert all(_width(line) <= max(1, min(100, width) - 1) for line in lines), (width, height, lines)
+            assert all(_width(line) <= max(1, width - 1) for line in lines), (width, height, lines)
             assert len(screen.encode("utf-8")) <= 8192  # the painted frame: SGR codes are counted
             assert all(code in OUR_CODES for code in SGR.findall(screen))
             assert "\x1b" not in strip(screen)
@@ -203,7 +204,7 @@ def test_one_sgr_span_per_run_of_one_colour():
         assert len(SGR.findall(line)) <= 12, line  # no per-cell gradient: a row has a handful of spans
     # G4 can omit the bar in the crowded frame. Check the span in a fixture where the bar fits.
     bar = row_of(rich(pools_payload(pool("cc", "C-7D", .63, pace=-20))), "C-7D")
-    assert re.search(rf"\x1b\[[0-9;]+m[█░|]{{{mv.BAR_CELLS}}}\x1b\[0m", bar)  # the whole bar is one span
+    assert re.search(rf"\x1b\[[0-9;]+m[█░|]{{{mv.BAR_CELLS},{mv.BAR_MAX_CELLS}}}\x1b\[0m", bar)
 
 
 def test_colour_never_changes_the_text_but_for_the_pill_padding():
@@ -216,9 +217,9 @@ def test_colour_never_changes_the_text_but_for_the_pill_padding():
 
 # ---- NO_COLOR, --view plain and the palette (C6) ---------------------------------------------------------------------
 def test_no_color_keeps_the_rich_layout_with_unicode_and_no_sgr(monkeypatch):
-    bare = rich(full_payload(), color=False)
+    bare = rich(full_payload(), color=False, width=120)
     monkeypatch.setenv("NO_COLOR", "1")
-    screen = rich(full_payload(), color=True)
+    screen = rich(full_payload(), color=True, width=120)
     assert "\x1b" not in screen and screen == bare
     assert f"── {POOLS_HEAD} 9 ─" in screen and "█" in screen and U["ok"] in screen and " · " in screen.splitlines()[0]
     assert screen.splitlines()[0].startswith("ATTN 2 · gone: cc.fable activity-view 5m · pool_out: cx X-5H")
@@ -309,16 +310,19 @@ def pools_payload(*rows: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("remaining", [1.0, .63, .5, .04, .001, 0.0])
-def test_g_bar_draws_a_fixed_width_of_what_is_left(remaining):
+def test_bar_draws_what_is_left_at_its_allocated_width(remaining):
     for unicode in (True, False):
         line = row_of(strip(rich(pools_payload(pool("cc", "C-7D", remaining)), unicode=unicode)), "C-7D")
-        assert mv._bar_quota(remaining, mv.BAR_CELLS, unicode)[1:-1] in line
+        glyphs = mv.RICH_GLYPHS[unicode]
+        chars = re.escape(glyphs["full"] + glyphs["empty"] + ("▏" if unicode else ":"))
+        bar = re.search(rf"[{chars}]{{{mv.BAR_CELLS},{mv.BAR_MAX_CELLS}}}", line)
+        assert bar and bar[0] == mv._bar_quota(remaining, len(bar[0]), unicode)[1:-1]
 
 
 @pytest.mark.parametrize("remaining,pace,colour", [(.8, 3, "ok"), (.5, -12, "spend"), (.25, 21, "warn"), (0, 25, "out")])
 def test_m1_the_bar_colour_is_the_shared_pace_band(remaining, pace, colour):
     line = row_of(rich(pools_payload(pool("cc", "C-7D", remaining, pace=pace))), "C-7D")
-    assert re.search(r"\x1b\[" + mv.RICH_SGR[colour] + rf"m[█░|]{{{mv.BAR_CELLS}}}\x1b\[0m", line), line
+    assert re.search(r"\x1b\[" + mv.RICH_SGR[colour] + rf"m[█░|]{{{mv.BAR_CELLS},{mv.BAR_MAX_CELLS}}}\x1b\[0m", line), line
 
 
 def test_an_aged_or_unknown_pool_is_dim_never_green():
@@ -330,8 +334,10 @@ def test_an_aged_or_unknown_pool_is_dim_never_green():
     dim = mv.RICH_SGR["dim"]
     aged_line, unknown_line = row_of(screen, "C-7D"), row_of(screen, "X-7D")
     assert mv.RICH_SGR["ok"] not in screen
-    assert f"\x1b[{dim}m{U['full'] * 7}{U['empty']}\x1b[0m" in aged_line and "90%" in aged_line
-    assert f"\x1b[{dim}m{U['none'] * mv.BAR_CELLS}\x1b[0m" in unknown_line and "%" not in strip(unknown_line)
+    bar = re.search(rf"\x1b\[{dim}m({U['none']}{{{mv.BAR_CELLS},{mv.BAR_MAX_CELLS}}})\x1b\[0m", unknown_line)
+    assert bar and "%" not in strip(unknown_line)
+    faded = mv._bar_quota(.9, len(bar[1]))[1:-1]
+    assert f"\x1b[{dim}m{faded}\x1b[0m" in aged_line and "90%" in aged_line
     assert f"\x1b[{dim}m{U['aged']} aged\x1b[0m" in aged_line and f"\x1b[{dim}m{U['aged']} ?\x1b[0m" in unknown_line
 
 
@@ -440,7 +446,7 @@ def test_the_rich_view_without_unicode_is_ascii_decoration():
     screen = rich(quiet_payload(), unicode=False, color=False)
     assert screen.isascii()
     assert re.search(rf"-- {POOLS_HEAD} 2\s+STATE", screen) and f"{A['ok']} ok" in screen
-    assert re.search(rf"(?<![#.|])[#.|]{{{mv.BAR_CELLS}}}(?![#.|])", row_of(screen, "C-7D"))  # G4
+    assert re.search(rf"(?<![#.|])[#.|]{{{mv.BAR_CELLS},{mv.BAR_MAX_CELLS}}}(?![#.|])", row_of(screen, "C-7D"))
     assert "-- RUNNING 0 -" in screen and screen.splitlines()[0].startswith("OK | 0 running | 0 leads | min quota")
     painted = rich(quiet_payload(), unicode=False)
     assert strip(painted).isascii() and strip(painted).splitlines()[1:] == screen.splitlines()[1:]

@@ -43,7 +43,7 @@ def row(screen: str, pool: str) -> str:
 
 
 def bars(line: str, full: str, empty: str) -> str:
-    match = re.search(f"[{re.escape(full)}{re.escape(empty)}]+", mv._ANSI.sub("", line))
+    match = re.search(rf"[{re.escape(full)}{re.escape(empty)}]{{{mv.BAR_CELLS},}}", mv._ANSI.sub("", line))
     assert match, line
     return match[0]
 
@@ -88,56 +88,57 @@ def test_m1_rich_child_bar_uses_one_pace_colour() -> None:
     screen = render(tree(), color=True, expand=True)
     child, parent = row(screen, "C-5H"), row(screen, "C-7D")
     dim = mv.RICH_SGR["dim"]  # the fixture has no anchored pace for either pool
-    assert f"\x1b[{dim}m▬{'╌' * (mv.BAR_CELLS - 1)}\x1b[0m" in child
-    assert f"\x1b[{dim}m██{'░' * (mv.BAR_CELLS - 2)}\x1b[0m" in parent
+    for line, full, empty, remaining in ((child, "▬", "╌", .1), (parent, "█", "░", .2)):
+        bar = bars(line, full, empty)
+        assert bar.count(full) == int(remaining * len(bar) + .5)
+        assert f"\x1b[{dim}m{bar}\x1b[0m" in line
 
 
 def test_m1_rich_child_at_zero_percent_is_bold_red() -> None:
     frame = tree()
     frame["groups"]["capacity"]["data"]["observations"][0]["measurements"]["remaining_fraction"] = 0
     child = row(render(frame, color=True, expand=True), "C-5H")
-    assert f"\x1b[{mv.RICH_SGR['out']}m{'╌' * mv.BAR_CELLS}\x1b[0m" in child and "▬" not in child
+    bar = bars(child, "▬", "╌")
+    assert set(bar) == {"╌"} and f"\x1b[{mv.RICH_SGR['out']}m{bar}\x1b[0m" in child
 
 
 def test_g_rich_child_at_full_has_no_empty_cells() -> None:
     frame = tree()
     frame["groups"]["capacity"]["data"]["observations"][0]["measurements"]["remaining_fraction"] = 1
     child = row(render(frame, color=True, expand=True), "C-5H")
-    assert "▬" * mv.BAR_CELLS in child and "╌" not in child
+    assert set(bars(child, "▬", "╌")) == {"▬"}
 
 
 def test_no_color_keeps_the_glyphs_and_prints_no_escape() -> None:
     screen = render(tree(), color=False, expand=True)
     assert "\x1b" not in screen
-    assert bars(row(screen, "C-5H"), "▬", "╌") == "▬" + "╌" * (mv.BAR_CELLS - 1)
-    assert bars(row(screen, "C-7D"), "█", "░") == "██" + "░" * (mv.BAR_CELLS - 2)
+    assert set(bars(row(screen, "C-5H"), "▬", "╌")) == {"▬", "╌"}
+    assert set(bars(row(screen, "C-7D"), "█", "░")) == {"█", "░"}
 
 
 def test_ascii_child_bar_is_equals_and_dash_parent_stays_hash_and_dot() -> None:
     screen = render(tree(), color=False, unicode=False, expand=True)
-    assert "=" + "-" * (mv.BAR_CELLS - 1) in row(screen, "C-5H")
-    assert "##" + "." * (mv.BAR_CELLS - 2) in row(screen, "C-7D")
+    assert set(bars(row(screen, "C-5H"), "=", "-")) == {"=", "-"}
+    assert set(bars(row(screen, "C-7D"), "#", ".")) == {"#", "."}
 
 
 @pytest.mark.parametrize("unicode", [True, False])
-def test_g_child_and_parent_bars_use_one_fixed_width_or_yield(unicode: bool) -> None:
+def test_child_and_parent_bars_yield_then_grow_one_cell_at_a_time(unicode: bool) -> None:
     full, empty = ("█", "░") if unicode else ("#", ".")
     cfull, cempty = ("▬", "╌") if unicode else ("=", "-")
-    seen: set[int] = set()
-    for width in range(32, 110):
+    lengths: list[int] = []
+    for width in range(32, 145):
         screen = render(tree(), color=True, unicode=unicode, expand=True, width=width)
         top = screen.split("suggest:", 1)[0]
         child, parent = mv._ANSI.sub("", row(top, "C-5H")), mv._ANSI.sub("", row(top, "C-7D"))
         child_bar = re.findall(f"[{re.escape(cfull)}{re.escape(cempty)}]{{4,}}", child)
         parent_bar = re.findall(f"[{re.escape(full)}{re.escape(empty)}]{{4,}}", parent)
         assert len(child_bar) == len(parent_bar) <= 1, (width, child, parent)
-        if parent_bar:
-            assert len(child_bar[0]) == len(parent_bar[0]) and len(parent_bar[0]) == mv.BAR_CELLS
-            seen.add(len(parent_bar[0]))
-        else:
-            seen.add(0)
+        assert [len(bar) for bar in child_bar] == [len(bar) for bar in parent_bar]
+        lengths.append(len(parent_bar[0]) if parent_bar else 0)
         assert all(mv._width(line) <= width - 1 for line in screen.splitlines())
-    assert seen == {0, mv.BAR_CELLS}
+    assert lengths == sorted(lengths)
+    assert list(dict.fromkeys(lengths)) == [0, *range(mv.BAR_CELLS, mv.BAR_MAX_CELLS + 1)]
 
 
 def test_expand_plain_quota_bar_distinguishes_child_from_parent() -> None:
