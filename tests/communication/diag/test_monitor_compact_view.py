@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.monitor_view import (
-    BAR_CELLS, FRAME_SECTIONS, POOL_LEGEND, POOLS_USE_FIRST_HINT, _bar_quota, render_grouped_frame, _width,
+    BAR_CELLS, FRAME_SECTIONS, POOL_LEGEND, POOL_MARGIN_COLUMN, POOLS_USE_FIRST_HINT, _bar_quota, render_grouped_frame, _width,
 )
 from tests.communication.diag.test_monitor_activity_view import anchor_pool
 from peerhub.extensions.observation_model import LOW_QUOTA_FRACTION
@@ -167,7 +167,11 @@ def test_narrow_pool_table_keeps_pace_and_quota_facts(compact_frame, width):
     screen = _solo(compact_frame, width=width, view="plain", unicode=False)
     pool = _row(screen, "G-5H")
     assert "80%" in pool and "ok" in pool.split()
-    assert any(cell.endswith("/1h!") for cell in pool.split()) and "+5.0" in pool.split()  # G2–3
+    cells = pool.split()
+    header = _header(screen)
+    assert POOL_MARGIN_COLUMN in header
+    assert cells[cells.index("+5.0") + 1].startswith("-")
+    assert any(cell.endswith("/1h!") for cell in cells) == ("EXH/RESET" in header)
     assert all(_width(line) <= width for line in screen.splitlines())
 
 
@@ -470,7 +474,7 @@ def test_missing_configured_pool_requests_refresh(compact_frame):
 def test_m5_configured_family_profiles_and_unknown_family(compact_frame):
     row = compact_frame["groups"]["capacity"]["data"]["observations"][7]
     row["pool_ref"] = "quota:cx:X-UNK"
-    screen = render_grouped_frame(compact_frame, view="plain")
+    screen = render_grouped_frame(compact_frame, view="plain", width=120)
     assert "ag.standard" in screen
     assert "?" in _row(screen, "X-UNK").split()
 
@@ -691,7 +695,7 @@ def test_compact_and_expand_each_keep_their_pool_order(compact_frame):
     assert expanded[:5] == ["ag 3P-7D", "ag 3P-5H", "ag A-7D", "ag G-7D", "ag G-5H"]
 
 
-COMPACT_COLUMNS = ["STATE", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY"]
+COMPACT_COLUMNS = ["STATE", "LEFT", "PACE(pp)", POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
 
 
 @pytest.mark.parametrize("width", [40, 60, 80, 100])

@@ -193,7 +193,7 @@ and cc default accounts also attempts a refresh when quota is missing or older
 than 15 minutes and waits at most one second for it. Run `peerhub explain suggest`
 for details.
 
-`--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its `EXH/RESET` pair, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
+`--workspace` is an `ask` option; for `monitor` and `observation refresh` use the global `--db` before the subcommand, e.g. `peerhub --db <workspace>/.peerhub/core.db monitor`. The default human monitor view is compact (with `PACE`), also selected explicitly with `--compact`; to inspect expanded per-peer quota/profile/session chains, every pool with its `MARGIN` and `EXH/RESET` pair, `sessions` rows or the estimated context, pass `--expand` (e.g. `peerhub monitor --snapshot --expand --group peers`; `diag` sections are `peers`, `streams`, `resource_pools`, `observations`, `activity`, `log`).
 
 `diag --live` repeatedly reads committed snapshots only and keeps its `--cycles 0` default (until interrupted, including non-TTY stdout). `--cycles N` bounds the number of frames; `--json` emits one JSON object per line in live mode. Watching never refreshes quota or changes stored data.
 
@@ -213,8 +213,8 @@ The compact monitor starts with the verdict and header, followed by POOLS, the s
 The compact frame has two views with the same lines and rows. The plain view (`--view plain`, and the default when the output is not a VT terminal, for example a pipe or an AI session) keeps ASCII frame lines and no colour. Its sections follow the order above, and the LEADS header distinguishes list entries from found sessions. The rich view (`--view rich`, the default on a VT terminal) draws the same frame in a new look:
 
 - Line 1 starts with a status pill: ` OK ` on green, ` OK? ` on yellow, ` ATTN 3 ` on red. The facts are separated by a dim ` · `, and the time (`23:46Z`) stands at the right edge when there is room. Line 2 is dim.
-- A section head is a rule on its own line, never an extra line, and keeps its content: `── POOLS 5 ─ STATE ─── LEFT  PACE(pp)  EXH/RESET  FAMILY ───`, `── RUNNING 2 · ag 1 cx 1 ───`, `── LEADS 1 entry · partial (...) · 1 session found ───`, `── RECENT 130 (2 running) ───`. The line is dim and the title bold.
-- POOLS and expanded QUOTA right-align the LEFT value and left-align STATE, PACE(pp), EXH/RESET and FAMILY. Both tables give the bar room to grow before expanding FAMILY with full profile lists and inline notes. The bar uses any further room up to its cap and marks even burn with a `|` tick. PACE and the bar use cyan for spend, green for ok, yellow for rest and bold red at fresh zero. LEFT shows remaining quota and its reserve flag. A gap line compares weekly pace with X-7D.
+- A section head is a rule on its own line, never an extra line, and keeps its content: `── POOLS 5 ─ STATE ─── LEFT  PACE(pp)  MARGIN  EXH/RESET  FAMILY ───`, `── RUNNING 2 · ag 1 cx 1 ───`, `── LEADS 1 entry · partial (...) · 1 session found ───`, `── RECENT 130 (2 running) ───`. The line is dim and the title bold.
+- POOLS and expanded QUOTA right-align the LEFT value and left-align STATE, PACE(pp), MARGIN, EXH/RESET and FAMILY. Both tables give the bar room to grow before expanding FAMILY with full profile lists and inline notes. The bar uses any further room up to its cap and marks even burn with a `|` tick. PACE and the bar use cyan for spend, green for ok, yellow for rest and bold red at fresh zero. LEFT shows remaining quota and its reserve flag. A negative MARGIN shows how early exhaustion is forecast. A gap line compares weekly pace with X-7D.
 - A RUNNING row starts with `►` (green), `× gone` (red), `! overdue` (yellow) or `?` (yellow). A LEADS row shows the context as a meter of five cells: `ctx ■■□□□ 46%`, red with `!` at 80 % or more, and a dim `ctx ───── 106k` or `ctx ───── ?` when the percentage is unknown. A RECENT row starts with a dot and its state: green `● ok`, yellow for unsure, red for empty or error.
 - No state is shown by colour or glyph alone: the words of the plain view stay. The colours come from the 256-colour palette (semicolon SGR codes only; `COLORTERM` changes nothing). `NO_COLOR` keeps the rich layout with its Unicode glyphs and prints no colour. Output that cannot show Unicode gets the same layout with ASCII glyphs (`--`, `#`, `.`, `*`, `^`, `v`, `x`, `o`, `>`). A terminal that draws these glyphs two cells wide should use `--view plain` (or `PEERHUB_MONITOR_VIEW=plain`).
 - `--expand` keeps the full DB path in the header and explains unavailable quota windows. Pipe it to see the finished history and sampled superseded asks. Continuous VT watches print their final frame back on the normal screen. Finite watches stay there throughout.
@@ -226,15 +226,15 @@ An example of the rich view, shown here without colour (the uncoloured frame, as
 ```text
 OK · 2 running · 1 lead · min quota 18% cx X-7D ok                                           23:46Z
 PeerHub Monitor 2026-11-14 23:46Z · DB:env · quota age 10s
-── POOLS 5 ─ STATE ──────────────────────── LEFT  PACE(pp)  EXH/RESET ──── FAMILY  use first ──────
- cc C-7D     ● ok   █████████|████░░░░░░░░   63%  -20.0     2d06h/1d00h    claude: cc.effort
-    └─ C-5H  ● ok   ▬▬▬▬▬▬▬╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌   30%  —         —/3h           claude: cc.effort
- ag G-7D     ● ok   ██████████████|█░░░░░░   71%  -6.0      1d07h/1d00h    flash: ag.standard
-    └─ G-5H  ● ok   ▬▬▬▬▬▬▬▬▬╌╌╌╌╌╌╌╌╌╌╌╌╌   40%  —         —/2h           flash: ag.standard
- cx X-7D     ● ok   ████░|░░░░░░░░░░░░░░░░   18%  +9.0      14h14m/1d00h!  codex: cx.effort
+── POOLS 5 ─ STATE ──────────────────────── LEFT  PACE(pp)  MARGIN    EXH/RESET ──── FAMILY  use first ──────
+ cc C-7D     ● ok   █████████|████░░░░░░░░   63%  -20.0     +1d06h    2d06h/1d00h    claude: cc.effort
+    └─ C-5H  ● ok   ▬▬▬▬▬▬▬╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌   30%  —         —         —/3h           claude: cc.effort
+ ag G-7D     ● ok   ██████████████|█░░░░░░   71%  -6.0      +7h       1d07h/1d00h    flash: ag.standard
+    └─ G-5H  ● ok   ▬▬▬▬▬▬▬▬▬╌╌╌╌╌╌╌╌╌╌╌╌╌   40%  —         —         —/2h           flash: ag.standard
+ cx X-7D     ● ok   ████░|░░░░░░░░░░░░░░░░   18%  +9.0      -9h45m    14h14m/1d00h!  codex: cx.effort
 gap vs X-7D (pp): C-7D -29.0, G-7D -15.0, A-7D —, 3P-7D —
-PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | EVN=even-burn
-remaining
+PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early
+| MARGIN=EXH-RESET, - = early | EVN=even-burn remaining
 suggest: eco=ag.standard normal=cc.effort|cx.effort quality=- top=-
 ── RUNNING 2 · ag 1 cx 1 ──────────────────────────────────────────────────────────────────────────
  ►  16m  cx.effort    docs-site  Review the importer change and its tests  review-api
@@ -276,7 +276,7 @@ What was measured and what was not. Measured on Windows 11 with Claude Code 2.1.
 
 `low`/`fast` take precedence over `aged`; staleness still shows in the line-2 quota age and, with `--expand`, in AGE and the PEERS `(aged)` tag. See `peerhub explain monitor-states` for state meanings and precedence.
 
-The bare `monitor` command shows the compact human dashboard (with `PACE`), redrawing in place on a VT TTY and printing one completed frame per cycle when redirected; use `--expand` for every pool and detailed session and group sections. Both layouts show the `EXH/RESET` pair and the even-burn mark. `--view rich` adds colour on terminals.
+The bare `monitor` command shows the compact human dashboard (with `PACE`), redrawing in place on a VT TTY and printing one completed frame per cycle when redirected; use `--expand` for every pool and detailed session and group sections. Both layouts show `MARGIN`, the `EXH/RESET` pair and the even-burn mark. `--view rich` adds colour on terminals.
 `--view plain` selects ASCII-safe output: the frame's own lines and marks are ASCII, while request, reply, lead and alert text keeps every character the output encoding can show (Korean, Kana and CJK stay readable; ambiguous-width characters become `?`; the cut mark is `~`). Add repeatable `--group` options to
 watch one or more groups, or `--group all` to include all eleven. `monitor groups`
 lists group IDs and meanings; `monitor defaults show|set|reset` inspects and

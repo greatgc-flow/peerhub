@@ -58,7 +58,7 @@ def test_quota_visual_snapshot_at_120_columns(quota_visual_frame, color, monkeyp
     assert len(re.findall(r"(?m)^ag .*STALE:window; next: peerhub observation refresh --peers ag", rendered)) == 1
     assert "soonest exhaust: ag P-4H 0% exhausted" in rendered  # C1: a fresh zero is already out.
     assert "duplicate" not in rendered
-    assert POOL_LEGEND in rendered
+    assert POOL_LEGEND in " ".join(rendered.split())
     assert "\x1b" not in rendered
 
 

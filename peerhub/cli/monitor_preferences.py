@@ -27,10 +27,12 @@ GROUPS: tuple[dict[str, Any], ...] = (
 GROUP_IDS = tuple(str(item["id"]) for item in GROUPS)
 DEFAULT_GROUPS = ("overview", "activity", "peers", "execution", "sessions", "usage", "context", "capacity", "coverage")
 
+POOL_MARGIN_COLUMN = "MARGIN"
+POOL_MARGIN_LEGEND = f"{POOL_MARGIN_COLUMN}=EXH-RESET, - = early"
 POOL_LEGEND = (
     "PACE(pp)=EVN-LEFT, 0=even burn (|), "
     f"<=-{PLAN_SPEND_PACE_PT:g} spend, >+{PLAN_REST_PACE_PT:g} rest! | EXH/RESET ! = early"
-    " | EVN=even-burn remaining"
+    f" | {POOL_MARGIN_LEGEND} | EVN=even-burn remaining"
 )
 
 MONITOR_LEGEND = (

@@ -2,6 +2,8 @@
 
 `peerhub monitor` is the human screen. An AI reads `peerhub diag --plan` instead (pools plus the load line, about 350 tokens).
 
+`peerhub diag --plan --json` reports the same difference as `exhaust_margin_seconds`, using the effective reset for a parent-limited pool. The plan text marks early exhaustion with `!early`.
+
 This page is the target of the `Guide` link at the top right of `peerhub monitor` on supported terminals and of the
 `Guide:` line in snapshots and terminal frames without a Guide link, including redirected rich output. It describes what the screen shows. The same facts are
 in `peerhub explain monitor-view` (layout and look) and `peerhub explain monitor-states` (states, PACE, `suggest:`).
@@ -77,6 +79,7 @@ the frame height.
 | bar | remaining quota and its even-burn tick. See [Bar glyphs](#bar-glyphs). |
 | LEFT | remaining quota rounded to the nearest whole percent. Positive values that would round to zero show `<1%`. An actual zero in the sampled window shows `0%`. Missing values and readings from a window that has reset show `—` (ASCII `?`). A low reserve has a trailing `!`. Stale evidence has a `~Xm` badge. |
 | PACE(pp) | percentage points ahead of (`+`) or behind (`-`) even burn. A trailing `!` marks the rest band. |
+| MARGIN | time from reset to forecast exhaustion. A negative duration (yellow with colour) means exhaustion is expected before reset, a positive duration means the pool is expected to last past reset, and `0` means the times coincide. Shows `—` (`?` in ASCII) when either time is unavailable. |
 | EXH/RESET | forecast time until exhaustion and time until reset. Different times that display the same way gain one unit of precision, for example `3d13h05m/3d13h40m!`. A `!` means the forecast is earlier than reset. When the displayed times still tie, the margin follows it (for example `!30s`). Either side can show `—` when unavailable (`?` in ASCII), as can a weekly pace gap. `OUT` marks a fresh zero and `past est.` marks a forecast that has already passed while measured quota remains positive. |
 | FAMILY | the family label and configured profiles using the pool, including child pools. For example, `flash: ag.effort,ag.neon +1` shows two profiles and counts one more. A child pool also shows its dependency, for example `limited by C-7D (own 26%)`. |
 
@@ -86,7 +89,7 @@ of 0 pp. The design rejected per-pool targets in `[pool_targets]` and `[pools.<I
 The legend under the gap line reads:
 
 ```text
-PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | EVN=even-burn remaining
+PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early | MARGIN=EXH-RESET, - = early | EVN=even-burn remaining
 ```
 
 <a id="state-words"></a>
@@ -127,14 +130,14 @@ PEERS, `suggest:` and `peerhub diag quota`.
 
 - The filled part shows remaining quota. A positive reading reserves at least one fill cell before the tick is drawn.
 - The `|` tick marks even-burn remaining when that fact is available, including when it covers a filled cell.
-- POOLS and QUOTA right-align the LEFT value and left-align STATE, PACE(pp), EXH/RESET, and FAMILY. After the left data
+- POOLS and QUOTA right-align the LEFT value and left-align STATE, PACE(pp), MARGIN, EXH/RESET, and FAMILY. After the left data
   columns fit, the bar grows from 8 to 16 cells while FAMILY uses its abbreviated form. FAMILY then expands to show
   all profile IDs and inline unavailable-window and parent-limit notes as space permits. Any remaining width grows
   the bar up to 40 cells. The tick scales with the bar, including on parent-limited child rows.
 - PACE and the bar use cyan for spend, green for ok and yellow for rest. Fresh zero uses bold red.
   LEFT uses neutral text, a yellow low-reserve `!` at 10% or less, or bold red at fresh zero.
 - The bar gives way when its minimum width no longer fits beside the left data and FAMILY labels. Data columns give way in order of AGE,
-  FAMILY and EXH/RESET. STATE, LEFT and PACE stay.
+  FAMILY, EXH/RESET and MARGIN. STATE, LEFT and PACE stay.
 
 `suggest:` (under POOLS) is advisory: `suggest: eco=cc.standard normal=cc.effort|cx.effort ...`. `a|b` is the best
 eligible pick and the best eligible alternative from another peer. Like `peerhub suggest`, this line skips profiles
@@ -209,7 +212,7 @@ unknown; `!` after the percentage means 80% or more (a mark, not an alert). The 
 
 | Section | What it shows |
 |---|---|
-| QUOTA | the same STATE, bar, LEFT, PACE(pp), EXH/RESET and FAMILY as POOLS, plus AGE when it fits. The bar uses the space left after the data columns. Reset credits and evidence notes follow. |
+| QUOTA | the same STATE, bar, LEFT, PACE(pp), MARGIN, EXH/RESET and FAMILY as POOLS, plus AGE when it fits. The bar uses the space left after the data columns. Reset credits and evidence notes follow. |
 | PEERS | per peer: its quota, profile, session reuse, context and the account plan (display text, not billing). Up to eight peers. |
 | EXECUTION | bridge delivery certainty (not started, may have started, started, terminal), session reuse and delivery latency. It measures delivery, not task success. |
 | SESSIONS | retained sessions: lifecycle, fresh or reused, profile, model, effort. |
@@ -232,7 +235,7 @@ is `Coverage: complete|partial; peerhub explain <code>`.
 ## Narrow and small terminals
 
 - **Width.** POOLS and QUOTA use the same width budget for their shared columns. The bar gives way before
-  FAMILY and EXH/RESET. AGE is optional in QUOTA. Line 2 drops status fields from the right and reserves room
+  FAMILY, EXH/RESET and MARGIN. AGE is optional in QUOTA. Line 2 drops status fields from the right and reserves room
   for the `Guide` link when enabled.
 - **Height.** Short frames shrink and drop sections from the bottom up in both layouts. Expanded RECENT switches to
   single-line rows before giving up rows. POOLS keeps its heading, a row and the weekly gap together when space allows.

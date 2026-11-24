@@ -28,6 +28,7 @@ class PoolHealth(TypedDict):
     reserve: Reserve | None
     even_left_pct: float | None
     exhaust_in_seconds: float | None
+    exhaust_margin_seconds: float | None
     exhaust_before_reset: bool
     forecast: ProjectionState
     stale: bool
@@ -64,8 +65,8 @@ def pace_band(pace: float | None) -> PaceBand | None:
     return "rest" if pace > PLAN_REST_PACE_PT else "ok"
 
 
-def _before_reset(exhaust: float | None, reset: float | None) -> bool:
-    return exhaust is not None and reset is not None and exhaust < reset
+def _exhaust_margin(exhaust: float | None, reset: float | None) -> float | None:
+    return None if exhaust is None or reset is None else exhaust - reset
 
 
 def _reset_at(reading: Reading, payload: Reading, frame_time: float) -> float | None:
@@ -131,10 +132,12 @@ def _reading_health(reading: Reading, frame_time: float) -> PoolHealth:
     pace = proj["pace_pt"] if measured and state != "reset" else None
     exhaust_at = proj["exhaustion_at"] if proj["state"] in ("threat", "on_pace") else None
     exhaust = None if exhaust_at is None else exhaust_at - frame_time
+    margin = _exhaust_margin(exhaust, reset)
     return PoolHealth(
         state=state, pace_band=pace_band(pace), reserve=reserve,
         even_left_pct=None if left is None or pace is None else left + pace,
-        exhaust_in_seconds=exhaust, exhaust_before_reset=_before_reset(exhaust, reset),
+        exhaust_in_seconds=exhaust, exhaust_margin_seconds=margin,
+        exhaust_before_reset=margin is not None and margin < 0,
         forecast=proj["state"],
         stale=stale, limited_by=None, own_left_pct=None, left_pct=left,
         pace_pt=pace, reset_in_seconds=reset, measured=measured,
@@ -164,10 +167,11 @@ def pool_health(reading: Reading, parent_reading: Reading | None, frame_time: fl
     state = own["state"]
     if worse:
         state = "blocked" if parent["state"] == "out" else parent["state"]
+    margin = _exhaust_margin(source["exhaust_in_seconds"], reset)
     return {
         **source, "state": state, "left_pct": left, "reset_in_seconds": reset,
         "limited_by": ref if isinstance(ref, str) else None, "own_left_pct": own["left_pct"],
-        "exhaust_before_reset": _before_reset(source["exhaust_in_seconds"], reset),
+        "exhaust_margin_seconds": margin, "exhaust_before_reset": margin is not None and margin < 0,
     }
 
 

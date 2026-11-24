@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from peerhub.cli.monitor_view import (
-    FRAME_HEADS, FRAME_SECTIONS, GUIDE_TEXT, POOL_LEGEND, POOLS_USE_FIRST_HINT, render_grouped_frame, _width,
+    FRAME_HEADS, FRAME_SECTIONS, GUIDE_TEXT, POOL_LEGEND, POOL_MARGIN_COLUMN, POOLS_USE_FIRST_HINT, render_grouped_frame, _width,
 )
 
 NOW = 1_794_700_000.0  # 2026-11-14 23:46:40Z
@@ -442,7 +442,7 @@ def test_missing_alert_sources_never_claim_ok(frame):
 def test_pools_five_hour_rule_and_columns(frame):
     lines = lines_of(render_grouped_frame(frame, view="plain", unicode=False, width=100))
     pools = section(lines, "POOLS")
-    assert pools[0].split() == ["POOLS", "8", "STATE", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY", *POOLS_USE_FIRST_HINT.split()]  # G4
+    assert pools[0].split() == ["POOLS", "8", "STATE", "LEFT", "PACE(pp)", POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY", *POOLS_USE_FIRST_HINT.split()]  # G4
     rows = {re.search(r"\b((?:3P|[A-Z])-\d+[HD])\b", line)[1]: line for line in pools[1:] if line.startswith(" ")}
     assert {"low", "1%!", "+71.0!"} <= set(rows["3P-7D"].split()) and "claude-via-ag" in rows["3P-7D"]
     for parent, child in (("G-7D", "G-5H"), ("X-7D", "X-5H")):

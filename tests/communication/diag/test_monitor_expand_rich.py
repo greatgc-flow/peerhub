@@ -134,7 +134,9 @@ def test_expansion_keeps_the_compact_pool_rows_and_section_order(width, color, u
     big = expand(payload, width=width, color=color, unicode=unicode)
     assert small.splitlines()[:2] == big.splitlines()[:2]
     assert block(small, "pools") == block(big, "pools")
-    assert {"POOLS", "RUNNING", "RECENT"} <= set(heads(small))
+    assert {"POOLS", "RUNNING"} <= set(heads(small))
+    if width > 60:
+        assert "RECENT" in heads(small)
     for screen in (small, big):
         shown = [head for head in heads(screen) if head in FRAME_HEADS]
         assert shown == [head for head in FRAME_HEADS if head in shown]
@@ -181,7 +183,8 @@ def test_the_suggestion_wraps_without_a_cap():
     assert whole.count("=") == 4 and "…" not in whole
     narrow = compact(payload, width=30).splitlines()
     at = next(i for i, line in enumerate(narrow) if line.startswith("suggest:"))
-    assert next(i for i in range(at + 1, len(narrow)) if narrow[i].startswith("── ")) - at <= 2
+    end = next((i for i in range(at + 1, len(narrow)) if narrow[i].startswith(("── ", "+"))), len(narrow))
+    assert end - at <= 2
     lines = expand(payload, width=30).splitlines()
     start = next(i for i, line in enumerate(lines) if line.startswith("suggest:"))
     end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("── "))
@@ -298,14 +301,15 @@ def quota_rows(screen: str) -> dict[str, list[str]]:
 def test_g_quota_details_match_pools_vocabulary_and_bar():
     screen = expand(detail_payload(), width=140)
     table = block(screen, "capacity")
-    assert table[1].split()[:7] == ["PEER", "POOL", "STATE", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY"]
+    columns = ["PEER", "POOL", "STATE", "LEFT", "PACE(pp)", mv.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
+    assert table[1].split()[:len(columns)] == columns
     rows = quota_rows(screen)
     assert len(rows) == 10  # X-30D remains a folded note.
     for name, cells in rows.items():
         row = next(line for line in block(screen, "pools")[1:]
                    if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ )?{name} +", line))
         actual = row.split()[row.split().index(name) + 1:]
-        assert cells[:6] == actual[:6], name  # state, bar, left, pace and pair
+        assert cells[:7] == actual[:7], name  # state, bar, left, pace, margin and pair
         assert mv.BAR_CELLS <= len(cells[2]) <= mv.BAR_MAX_CELLS
     assert rows["X-7D"][:2] == [U["fast"], "fast"]
     assert rows["X-7D"][3:5] == ["42%", "+31.0!"]
@@ -338,7 +342,7 @@ def test_quota_remaining_matches_pools_after_reset_passes(elapsed):
     pool_cells = block(screen, "pools")[1].split()
     quota_cells = quota_rows(screen)["C-7D"]
     assert pool_cells[2:4] == quota_cells[:2] == [U["aged"], "reset"]
-    assert quota_cells[3:6] == pool_cells[5:8] == ["—", "—", "—/passed"]  # G3: expired window
+    assert quota_cells[3:7] == pool_cells[5:9] == ["—", "—", "—", "—/passed"]  # expired window
 
 
 def test_g_one_even_burn_legend_follows_pools_and_gap():

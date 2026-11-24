@@ -8,9 +8,17 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Added
+
+- Monitor POOLS and QUOTA show `MARGIN` beside `PACE(pp)` so readers can see how early or late exhaustion is expected relative to reset. `diag --plan --json` adds `exhaust_margin_seconds`.
+
 ### Changed
 
 - Monitor POOLS and QUOTA give quota bars room to grow before expanding FAMILY with full profile lists and inline notes. The bar grows again with any remaining space. The POOLS rule aligns with the data columns.
+
+### Documentation
+
+- The monitor guide and design record `docs/design/monitor-pace-health-2026-11-23.md` describe the owner's MARGIN amendment implemented in lane K (PR number pending).
 
 ## [0.26.9] - 2026-11-23
 
