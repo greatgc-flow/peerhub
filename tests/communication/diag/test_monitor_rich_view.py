@@ -140,12 +140,13 @@ def test_rich_frame_has_the_lines_and_rows_of_the_plain_frame(build, width):
 
 
 def test_the_pools_rule_keeps_the_word_pools_and_the_column_titles():
-    line = row_of(strip(rich(full_payload())), f"{POOLS_HEAD} 9")
-    assert line.startswith(f"── {POOLS_HEAD} 9 ─") and line.endswith("─") and _width(line) == 99
+    width = 110
+    line = row_of(strip(rich(full_payload(), width=width)), f"{POOLS_HEAD} 9")
+    assert line.startswith(f"── {POOLS_HEAD} 9 ─") and line.endswith("─") and _width(line) == width - 1
     assert mv.POOLS_USE_FIRST_HINT in line
     titles = [word for word in line.replace(mv.POOLS_USE_FIRST_HINT, "").split() if word in mv._POOL_COLUMNS]
-    assert titles == ["STATE", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY"]
-    rows = [text for text in strip(rich(full_payload())).splitlines() if "X-7D" in text]
+    assert titles == ["STATE", "LEFT", "PACE(pp)", mv.POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY"]
+    rows = [text for text in strip(rich(full_payload(), width=width)).splitlines() if "X-7D" in text]
     assert line.index("LEFT") + len("LEFT") == rows[0].index("42%") + len("42%")
 
 

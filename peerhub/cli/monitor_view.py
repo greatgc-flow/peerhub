@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, cast
 
-from peerhub.cli.monitor_preferences import GROUPS, MONITOR_LEGEND, POOL_LEGEND
+from peerhub.cli.monitor_preferences import GROUPS, MONITOR_LEGEND, POOL_LEGEND, POOL_MARGIN_COLUMN
 from peerhub.extensions.caller import host_id, local_workspace_file
 from peerhub.extensions.diag_quota import quota_stale_line
 from peerhub.extensions.monitor_read_model import TEXT_NEWEST_ROWS, context_estimate_age
@@ -54,6 +54,7 @@ BAR_MIDDLE_CELLS = 16
 BAR_MAX_CELLS = 40
 COMPACT_WIDTH = 100
 _RULE_PREFIX_WIDTH = 3
+_RULE_MIN_TAIL_WIDTH = 2
 CONTEXT_ESTIMATE_LABEL = "est"
 _LEAD_MARK_PCT = 80  # mirrors monitor_read_model.LEAD_CONTEXT_MARK_PCT: the `!` of a lead's ctx cell
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
@@ -453,7 +454,7 @@ def _rule(title: str, rest: str, width: int, unicode: bool, paint: bool) -> str:
 
     room = width - _RULE_PREFIX_WIDTH - _width(title + rest)
     rest = re.sub("^ {3,}| {5,}", lambda gap: f" {line(len(gap[0]) - 2)} ", rest)
-    tail = f" {line(room - 1)}" if room >= 2 else ""
+    tail = f" {line(room - 1)}" if room >= _RULE_MIN_TAIL_WIDTH else ""
     return f"{line(_RULE_PREFIX_WIDTH - 1)} {_paint(title, RICH_SGR['title']) if paint else title}{rest}{tail}"
 
 
@@ -2352,7 +2353,8 @@ def _ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
     return ordered
 
 
-_POOL_COLUMNS = ("STATE", "BAR", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY", "AGE")
+_POOL_COLUMNS = ("STATE", "BAR", "LEFT", "PACE(pp)", POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY", "AGE")
+_POOL_MARGIN_WIDTH = 8
 _POOL_COLUMN_GAP = "  "
 _MISSING_POOL_FACT_UNICODE = "—"
 _MISSING_POOL_FACT_ASCII = "?"
@@ -2381,26 +2383,38 @@ def format_pool_left(facts: PoolHealth, age: float | None, *, unicode: bool = Tr
     return text
 
 
+def _pool_duration(seconds: float) -> str:
+    return _format_duration(seconds).removesuffix("00m")
+
+
+def format_exhaust_margin(margin: float | None, *, unicode: bool = True) -> str:
+    if margin is None:
+        return missing_pool_fact(unicode)
+    if margin == 0:
+        return "0"
+    sign = "-" if margin < 0 else "+"
+    return _fit(sign + _pool_duration(abs(margin)), _POOL_MARGIN_WIDTH, unicode)
+
+
 def format_exhaust_reset(facts: PoolHealth, *, unicode: bool = True) -> str:
-    def duration(seconds: float) -> str:
-        return _format_duration(seconds).removesuffix("00m")
 
     reset, exhaust = facts["reset_in_seconds"], facts["exhaust_in_seconds"]
     missing = missing_pool_fact(unicode)
-    reset_text = missing if reset is None else "passed" if reset <= 0 else duration(reset)
+    reset_text = missing if reset is None else "passed" if reset <= 0 else _pool_duration(reset)
     if facts["reserve"] == "out":
         exhaust_text = "OUT"
     elif exhaust is None:
         exhaust_text = missing
     else:
-        exhaust_text = "past est." if exhaust < 0 else duration(exhaust)
+        exhaust_text = "past est." if exhaust < 0 else _pool_duration(exhaust)
         if exhaust_text == reset_text and reset is not None and exhaust != reset:
             exhaust_text = _format_duration(exhaust, extra_unit=True)
             reset_text = _format_duration(reset, extra_unit=True)
     alert = "!" if facts["exhaust_before_reset"] else ""
-    if alert and exhaust_text == reset_text and reset is not None and exhaust is not None:
-        margin = math.floor(reset - exhaust)
-        alert += f"{margin}s" if margin else "<1s"
+    margin = facts["exhaust_margin_seconds"]
+    if alert and exhaust_text == reset_text and margin is not None:
+        early_seconds = math.floor(-margin)
+        alert += f"{early_seconds}s" if early_seconds else "<1s"
     return f"{exhaust_text}/{reset_text}{alert}"
 
 
@@ -2469,6 +2483,7 @@ def _pool_cells(row: dict[str, Any], unicode: bool, glyph: bool, guide_url: str 
         "",
         format_pool_left(facts, age, unicode=unicode),
         format_pool_pace(facts["pace_pt"], unicode=unicode) + ("!" if facts["pace_band"] == "rest" else ""),
+        format_exhaust_margin(facts["exhaust_margin_seconds"], unicode=unicode),
         format_exhaust_reset(facts, unicode=unicode),
         "",
         missing_pool_fact(unicode) if age is None else _compact_age(age),
@@ -2483,7 +2498,7 @@ def _paint_pool_cell(column: str, text: str, row: dict[str, Any]) -> str:
         colour = "bad" if row["reading"].get("state") == "ERROR" else _STATE_COLOURS.get(facts["state"], "dim")
     elif column in {"BAR", "PACE(pp)"}:
         colour = "out" if reserve == "out" else _PACE_COLOURS.get(facts["pace_band"] or "", "dim")
-    elif column == "EXH/RESET" and facts["exhaust_before_reset"]:
+    elif column in {POOL_MARGIN_COLUMN, "EXH/RESET"} and facts["exhaust_before_reset"]:
         colour = "warn"
     elif column == "LEFT" and reserve == "low":
         return text.replace("!", _paint("!", RICH_SGR["warn"]), 1)
@@ -2508,6 +2523,7 @@ def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width
     active = [row for row in all_rows if row["state"] != QUOTA_NA]
     common = [_pool_cells(row, unicode, rich) for row in active]
     sizes = {name: max([_width(name), *(_width(cells[name]) for cells in common)]) for name in _POOL_COLUMNS}
+    sizes[POOL_MARGIN_COLUMN] = _POOL_MARGIN_WIDTH
     left_cells = [cells["LEFT"] for cells in common]
     left_width = max([_width("LEFT"), *map(_pool_left_value_width, left_cells)])
     sizes["LEFT"] = left_width + max((_width(cell) - _pool_left_value_width(cell) for cell in left_cells), default=0)
@@ -2611,7 +2627,7 @@ def _pools_heading(title: str, head: str, width: int, unicode: bool, rich: bool,
     if rich and head.startswith(title + " " * _RULE_PREFIX_WIDTH):
         # The rule adds three leading cells. Spend the title's padding to keep the columns aligned.
         head = title + head[len(title) + _RULE_PREFIX_WIDTH:]
-    room = width - (_RULE_PREFIX_WIDTH if rich else 0)
+    room = width - (_RULE_PREFIX_WIDTH + _RULE_MIN_TAIL_WIDTH if rich else 0)
     if _width(head + hint) <= room:
         head += hint
     return _head_rule(head, width, unicode, paint) if rich else head

@@ -45,7 +45,7 @@ def test_missing_pace_leaves_known_reserve_and_unavailable_projection():
     del item["payload"]["window_started_at"]
     facts = health(item)
     assert facts["state"] == facts["reserve"] == "ok"
-    for field in ("pace_band", "pace_pt", "even_left_pct", "exhaust_in_seconds"):
+    for field in ("pace_band", "pace_pt", "even_left_pct", "exhaust_in_seconds", "exhaust_margin_seconds"):
         assert facts[field] is None
     assert facts["reset_in_seconds"] is not None and facts["measured"]
 
@@ -60,6 +60,7 @@ def test_zero_is_out_only_when_fresh(age, ttl, stored_state, state, reserve):
     assert (facts["state"], facts["reserve"]) == (state, reserve)
     assert facts["stale"] is (state == "aged")
     assert facts["exhaust_before_reset"] is False
+    assert facts["exhaust_margin_seconds"] is None
 
 
 @pytest.mark.parametrize("age", [FRESH_AGE, QUOTA_TTL_SECONDS])
@@ -68,6 +69,7 @@ def test_zero_from_the_previous_window_is_reset(age):
     assert facts["state"] == "reset" and facts["reserve"] is None
     assert facts["reset_in_seconds"] == -age / 2
     assert facts["exhaust_in_seconds"] is None
+    assert facts["exhaust_margin_seconds"] is None
 
 
 def test_state_precedence_keeps_low_and_fast_ahead_of_aged_or_ok():
@@ -84,13 +86,32 @@ def test_exhaustion_reuses_projection_guard_and_compares_to_reset():
 
     guarded = health(reading(HALF, elapsed=WEEK * MIN_ELAPSED_LONG - 1))
     assert guarded["exhaust_in_seconds"] is None and not guarded["exhaust_before_reset"]
+    assert guarded["exhaust_margin_seconds"] is None
     tied = health(reading(HALF))
     assert tied["exhaust_in_seconds"] == tied["reset_in_seconds"]
     assert not tied["exhaust_before_reset"]
+    assert tied["exhaust_margin_seconds"] == 0
     early_item = reading(HALF, elapsed=WEEK / 3)
     early = health(early_item)
     assert early["exhaust_in_seconds"] == projection(early_item, NOW)["exhaustion_at"] - NOW
     assert early["exhaust_before_reset"]
+    assert early["exhaust_margin_seconds"] == -WEEK / 3
+
+
+@pytest.mark.parametrize("margin", [-HOUR, HOUR, -0.5, 0.5])
+def test_exhaustion_margin_preserves_sign_and_precision(margin):
+    facts = health(reading(HALF, elapsed=(WEEK + margin) / 2))
+    assert facts["exhaust_margin_seconds"] == margin
+    assert facts["exhaust_before_reset"] is (margin < 0)
+
+
+def test_exhaustion_margin_requires_a_fresh_forecast_and_reset():
+    missing_reset = reading(HALF)
+    del missing_reset["payload"]["resets_at"]
+    for item in (missing_reset, reading(HALF, age=QUOTA_TTL_SECONDS)):
+        facts = health(item)
+        assert facts["exhaust_margin_seconds"] is None
+        assert not facts["exhaust_before_reset"]
 
 
 def test_positive_child_is_blocked_by_its_fresh_exhausted_parent():
@@ -115,6 +136,8 @@ def test_parent_forecast_is_compared_to_the_nearer_reset():
     assert facts["reset_in_seconds"] == health(child)["reset_in_seconds"]
     assert facts["exhaust_in_seconds"] == health(parent)["exhaust_in_seconds"]
     assert not facts["exhaust_before_reset"]
+    assert facts["exhaust_margin_seconds"] == facts["exhaust_in_seconds"] - facts["reset_in_seconds"]
+    assert facts["exhaust_margin_seconds"] > 0 > health(parent)["exhaust_margin_seconds"]
 
 
 def test_relative_reset_is_anchored_at_observation_time():

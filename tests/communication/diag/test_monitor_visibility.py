@@ -220,7 +220,7 @@ def test_d5_omission_is_scoped_to_the_peer_when_pools_are_shared(frame: dict[str
     old.update(state="STALE", age_seconds=23195, effective_at_us=int((NOW - 23195) * 1_000_000))
     cap["observations"].append({**old, "peer_id": "other"})
     cap["accounts"] = [{"peer_id": "cx", "plan": "pro", "state": "MEASURED"}]
-    screen = render_grouped_frame(frame, width=120, height=40, view="plain", expand=True, unicode=False)
+    screen = render_grouped_frame(frame, width=120, view="plain", expand=True, unicode=False)
     other_row = next(line for line in screen.splitlines() if line.startswith("other ") and "X-30D" in line)
     assert "aged" in other_row and "n/a" not in other_row  # C1
 

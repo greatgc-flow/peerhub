@@ -2,6 +2,8 @@
 
 Status: implemented in PRs #460-#468 (scored in scoring/s1.md to s5.md)
 
+MARGIN amendment status: implemented in lane K (PR number pending).
+
 Three independent peers (cx.astra, ag.neon, ag.argon) signed the decision in round 9. The implementation order is at the end. The record of every round is in `monitor-pace-health-2026-11-23/rounds/`.
 
 Owner questions answered: even burn missing (M3), remaining quota vs pace health (M1), a target pace per quota (M2), time to exhaustion in d/h (M4), family/profile labels from one source (M5), faster RUNNING (M6), the lost Guide help (M7), clickable details (M8), other status and risk facts (M9), and AIs mistaking whose process they see (M10). Everything applies to the compact and the `--expand` monitor alike; `peerhub diag --plan` (the AI view) is covered by C1 and the AI SURFACE section.
@@ -109,6 +111,7 @@ Decisions (each: purpose / evidence / reason):
 7. One `!` glyph, the column says which alert: `LEFT` at or below 10% (low reserve), `PACE` in the rest band, `EXH/RESET` early. A tied or unknown forecast gets no flag. Rejected: three glyphs (a symbol table to learn).
 8. One legend line below the pool block and gap line, one code constant, rendered by compact and `--expand`, checked against the docs by a test; wording: `PACE(pp)=EVN-LEFT, 0=even burn (|), <=-10 spend, >+20 rest! | EXH/RESET ! = early`. Defect found in the vote and fixed here: the legend must define EVN (even-burn remaining) so that `PACE = EVN - LEFT` is not misread as used-based.
 9. Plan header: `PEER POOL LEFT PACE(pp) EXH/RESET BUDGET%/h ACTION REASON` (STATE and FAMILY are not in the token-light plan); compact header: `STATE LEFT PACE(pp) EXH/RESET FAMILY` after the bar.
+10. MARGIN follows `PACE(pp)` in POOLS and QUOTA. Its purpose is to show the forecast's distance from reset directly. The owner asked to read the difference without subtracting EXH from RESET by hand. The signed value answers that request and `EXH/RESET` gives both underlying times. MARGIN drops after `EXH/RESET` as width shrinks. Both monitor layouts and plan JSON use `exhaust_margin_seconds` from the shared forecast and effective reset. Plan text keeps its `!early` tag.
 Tests: header, cell and legend strings come from one constant per table; compact and `--expand` rows have equal cells; `-0.0` clamps to `0.0`; the bar tick exists in compact and `--expand`; `+20.0` is ok and `+20.3` is rest.
 
 ## Rejected alternatives (one place)

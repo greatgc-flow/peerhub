@@ -85,7 +85,7 @@ def test_rich_wide_header_aligns_with_cells_for_two_digit_pool_count():
         assert header.index("FAMILY") == row.index(f"{FAMILIES['C']}: ")
 
 
-@pytest.mark.parametrize("width,bar_cells", [(80, BAR_CELLS), (100, BAR_MIDDLE_CELLS)])
+@pytest.mark.parametrize("width,bar_cells", [(90, BAR_CELLS), (100, BAR_MIDDLE_CELLS)])
 def test_bar_keeps_its_room_when_family_and_notes_compete(width, bar_cells):
     for expand_mode in (False, True):
         screen = render_grouped_frame(wide_notes_payload(), view="plain", unicode=False, width=width, expand=expand_mode)

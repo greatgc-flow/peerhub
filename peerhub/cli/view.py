@@ -745,6 +745,7 @@ def _plan_pools(report: DiagnosticReport, *,
         row.update(
             fast=own_health["state"] == "fast",
             even_left_pct=facts["even_left_pct"], exhaust_in_seconds=facts["exhaust_in_seconds"],
+            exhaust_margin_seconds=facts["exhaust_margin_seconds"],
             exhaust_before_reset=facts["exhaust_before_reset"], stale=facts["stale"],
             limited_by=facts["limited_by"], own_left_pct=facts["own_left_pct"],
             health={"state": facts["state"], "pace_band": facts["pace_band"], "reserve": facts["reserve"],
