@@ -49,8 +49,11 @@ FRAME_HEADS = tuple(FRAME_SECTION_HEADS.values())
 _FRAME_DETAIL_ORDER = _FRAME_SECTION_KEYS[len(FRAME_SECTION_ORDER):]
 
 QUOTA_NA = "n/a"
-BAR_CELLS = 8
+BAR_CELLS = 8  # minimum when shown
+BAR_MIDDLE_CELLS = 16
+BAR_MAX_CELLS = 40
 COMPACT_WIDTH = 100
+_RULE_PREFIX_WIDTH = 3
 CONTEXT_ESTIMATE_LABEL = "est"
 _LEAD_MARK_PCT = 80  # mirrors monitor_read_model.LEAD_CONTEXT_MARK_PCT: the `!` of a lead's ctx cell
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
@@ -448,10 +451,10 @@ def _rule(title: str, rest: str, width: int, unicode: bool, paint: bool) -> str:
     def line(count: int) -> str:
         return _paint(dash * count, RICH_SGR["dim"]) if paint else dash * count
 
-    room = width - 3 - _width(title + rest)
+    room = width - _RULE_PREFIX_WIDTH - _width(title + rest)
     rest = re.sub("^ {3,}| {5,}", lambda gap: f" {line(len(gap[0]) - 2)} ", rest)
     tail = f" {line(room - 1)}" if room >= 2 else ""
-    return f"{line(2)} {_paint(title, RICH_SGR['title']) if paint else title}{rest}{tail}"
+    return f"{line(_RULE_PREFIX_WIDTH - 1)} {_paint(title, RICH_SGR['title']) if paint else title}{rest}{tail}"
 
 
 def _section_rule(label: str, width: int, unicode: bool) -> str:
@@ -1901,14 +1904,14 @@ def _fit_bytes(text: str, budget: int, unicode: bool) -> str:
 
 def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, unicode: bool,
                       max_lines: int = COMPACT_MAX_LINES, max_bytes: int = COMPACT_MAX_BYTES,
-                      keep: str | None = None) -> str:
+                      keep: str | None = None, pool_width: int | None = None) -> str:
     """Fit the shared section order to the width, line and byte budgets."""
     limit = max_lines if height is None else min(max_lines, height - FRAME_TRAILING_ROWS)
     if limit <= 0 or width <= 0:
         return ""
 
     verdict = frame.verdict
-    for lines in _frame_line_ladder(frame, width, unicode, keep):
+    for lines in _frame_line_ladder(frame, width, unicode, keep, pool_width=pool_width):
         verdict = lines[0]
         if len(lines) <= limit:
             if sum(len(line.encode("utf-8")) + 1 for line in lines) <= max_bytes:
@@ -1919,19 +1922,21 @@ def fit_compact_frame(frame: CompactFrame, *, width: int, height: int | None, un
     return _fit_bytes(verdict, max_bytes - 1, unicode) + "\n"
 
 
-def _frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str | None) -> Iterator[list[str]]:
+def _frame_line_ladder(frame: CompactFrame, width: int, unicode: bool, keep: str | None,
+                       *, pool_width: int | None = None) -> Iterator[list[str]]:
     """Yield the fitted frame, then shrink and drop each section from the bottom up."""
 
-    def fit(line: str) -> str:
-        return _fit(line if unicode else _ascii(line.replace(" · ", " | ").replace("·", "|"), keep), width, unicode,
+    def fit(line: str, columns: int = width) -> str:
+        return _fit(line if unicode else _ascii(line.replace(" · ", " | ").replace("·", "|"), keep), columns, unicode,
                     painted=True, indent=True)
 
-    def fitted(lines: list[str] | None) -> list[str] | None:
-        return None if lines is None else [fit(line) for line in lines]
+    def fitted(lines: list[str] | None, columns: int) -> list[str] | None:
+        return None if lines is None else [fit(line, columns) for line in lines]
 
     verdict = fit(frame.verdict)
     header = [fit(line) for line in frame.header]
-    parts = {key: fitted(getattr(frame, key)) for key in FRAME_SECTION_ORDER}
+    parts = {key: fitted(getattr(frame, key), (pool_width or width) if key == "pools" else width)
+             for key in FRAME_SECTION_ORDER}
     pool_gap = [fit(line) for line in frame.pool_gap]
     pool_legend = [fit(line) for line in frame.pool_legend]
     totals = {"running": frame.running_total, "leads": frame.leads_total, "pools": frame.pools_total}
@@ -2034,7 +2039,7 @@ def _head_rule(head: str, width: int, unicode: bool, paint: bool) -> str:
     """The rule that replaces a section head in the rich view (P21 C2): the same content on the same line. The first
     two words are the title (`POOLS 9`); a ` | ` of the head is the view's separator. A head that would be cut to
     make room for the line keeps its content and loses the line."""
-    ruled = _width(head) <= width - 3
+    ruled = _width(head) <= width - _RULE_PREFIX_WIDTH
     head = _fit(head, width, unicode)
     match = re.match(r"\S+ \S+", head)
     title = match[0] if match else head
@@ -2406,14 +2411,14 @@ def _pool_bar(row: dict[str, Any], cells: int, unicode: bool, child: bool = Fals
     return _bar_quota(remaining, cells, unicode, None if even_left is None else even_left / 100, child=child)[1:-1]
 
 
-def _pool_family_cell(row: dict[str, Any], width: int, unicode: bool, keep: str | None) -> str:
+def _pool_family_cell(row: dict[str, Any], width: int | None, unicode: bool, keep: str | None) -> str:
     label = _cell(row["meaning"], unicode, keep=keep)
     profiles = [_cell(profile, unicode, keep=keep) for profile in row["profiles"]]
     for count in range(len(profiles), -1, -1):
         names = ",".join(profiles[:count])
         extra = f"+{len(profiles) - count}" if count < len(profiles) else ""
         cell = label + (": " + " ".join(filter(None, (names, extra))) if profiles else "")
-        if _width(cell) <= width:
+        if width is None or _width(cell) <= width:
             return cell
     return label
 
@@ -2428,6 +2433,29 @@ def _pool_dependency(row: dict[str, Any]) -> str:
     note = f"{parent} out" if row["state"] == "blocked" else f"limited by {parent}"
     own = facts["own_left_pct"]
     return note if own is None else f"{note} (own {_pct(own / 100)})"
+
+
+def _pool_notes(row: dict[str, Any], marker: str) -> list[tuple[str, str]]:
+    return [(gap, note) for gap, note in (("; ", _pool_dependency(row)), (" ", marker)) if note]
+
+
+def _pool_left_value_width(cell: str) -> int:
+    return _width(cell.partition(" ")[0].removesuffix("!"))
+
+
+def _fold_pool_markers(ordered: list[tuple[dict[str, Any], int]], unavailable: list[dict[str, Any]],
+                       unicode: bool, keep: str | None) -> tuple[dict[int, str], set[int]]:
+    """Attach unavailable windows to their peer, adding a marker-only entry for a peer with no visible pool."""
+    suffixes: dict[int, list[str]] = {}
+    marker_rows: set[int] = set()
+    for absent in unavailable:
+        peers = [row for row, _ in ordered if row["peer"] == absent["peer"]]
+        parent = next((row for row in peers if row["family"] == absent["family"]), peers[0] if peers else absent)
+        if not peers:
+            ordered.append((parent, 0))
+            marker_rows.add(id(parent))
+        suffixes.setdefault(id(parent), []).append(_cell(absent["pool"], unicode, "-", keep))
+    return {row: _na_suffix(names) for row, names in suffixes.items()}, marker_rows
 
 
 def _pool_cells(row: dict[str, Any], unicode: bool, glyph: bool, guide_url: str | None = None) -> dict[str, str]:
@@ -2476,21 +2504,28 @@ def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width
                 head: str = "PEER POOL", guide_url: str | None = None,
                 profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], list[list[str]], list[str]]:
     """Use the same column budget and cell formatting in POOLS and QUOTA."""
-    width = max(1, width if details else min(width, COMPACT_WIDTH - 2))
+    width = max(1, width)
     active = [row for row in all_rows if row["state"] != QUOTA_NA]
     common = [_pool_cells(row, unicode, rich) for row in active]
     sizes = {name: max([_width(name), *(_width(cells[name]) for cells in common)]) for name in _POOL_COLUMNS}
-    sizes["BAR"] = BAR_CELLS
-    family_min = [sizes["FAMILY"]]
+    left_cells = [cells["LEFT"] for cells in common]
+    left_width = max([_width("LEFT"), *map(_pool_left_value_width, left_cells)])
+    sizes["LEFT"] = left_width + max((_width(cell) - _pool_left_value_width(cell) for cell in left_cells), default=0)
+    family_labels = sizes["FAMILY"]
+    family_min = family_labels
     for row in active:
-        label, profiles = str(row["meaning"]), row["profiles"]
-        family_min.append(_width(label + (f": +{len(profiles)}" if profiles else "")))
-    sizes["FAMILY"] = max(family_min)
-    compact_names = [_width(f" {row['peer']} {row['pool']}") + 3 * depth
-                     for row, depth in _ordered_pools(active, every=True)]
-    detail_names = [_width(f"{row['peer']} {row['display_pool']}")
-                    for row in _quota_layout(all_rows, unicode, show_quota_notes=False)[0]]
+        label, profiles = _cell(row["meaning"], unicode, keep=keep), row["profiles"]
+        family_labels = max(family_labels, _width(label))
+        family_min = max(family_min, _width(label + (f": +{len(profiles)}" if profiles else "")))
+    sizes["FAMILY"] = family_min
+    compact_order = _ordered_pools(active, every=True)
+    compact_names = [_width(f" {row['peer']} {row['pool']}") + 3 * depth for row, depth in compact_order]
+    detail_layout, _ = _quota_layout(all_rows, unicode, show_quota_notes=False)
+    detail_names = [_width(f"{row['peer']} {row['display_pool']}") for row in detail_layout]
     name_width = max([_width("PEER POOL"), *compact_names, *detail_names])
+    if rich:
+        pool_title_width = _width(f"{FRAME_SECTIONS['pools']} {len(all_rows)}")
+        name_width = max(name_width, pool_title_width + _RULE_PREFIX_WIDTH)
     columns: list[str] = [column for column in _POOL_COLUMNS if column not in {"BAR", "AGE"}]
 
     def room(names: Sequence[str]) -> int:
@@ -2500,32 +2535,40 @@ def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width
         columns.pop()
     name_width = min(name_width, width)
     if "FAMILY" in columns:
-        bar_fits = room([*columns, "BAR"]) >= 0
-        family_room = room([*columns, "BAR"]) if bar_fits else room(columns)
-        full = sizes["FAMILY"]
-        for row in active:
-            family = _pool_family_cell(row, width, unicode, keep)
-            if dependency := _pool_dependency(row):
-                family += f"; {dependency}"
-            full = max(full, _width(family))
-        if details and room([*columns, "AGE"]) >= 0:
-            columns.append("AGE")
-        sizes["FAMILY"] += min(full - sizes["FAMILY"], family_room, max(0, room(columns)))
-        if details:
-            suffix_width = max((_width(" " + marker) for _, _, _, marker in entries if marker), default=0)
-            sizes["BAR"] = max(0, room(columns) - len(_POOL_COLUMN_GAP) - suffix_width)
-            bar_fits = sizes["BAR"] > 0
-        if bar_fits:
+        bar_room = room(columns) - len(_POOL_COLUMN_GAP)
+        if bar_room + family_min - family_labels >= BAR_CELLS:
+            sizes["BAR"] = min(BAR_MIDDLE_CELLS, max(BAR_CELLS, bar_room))
             columns.insert(1, "BAR")
+            # At the minimum, a family label can yield its profile count to keep the bar.
+            sizes["FAMILY"] += min(0, room(columns))
+        # Reserve QUOTA's AGE in both tables once it fits. It uses space left by the bar's first stage.
+        if room([*columns, "AGE"]) >= 0:
+            columns.append("AGE")
+    if "AGE" in columns and sizes["BAR"] == BAR_MIDDLE_CELLS:
+        with_notes = sizes["FAMILY"]
+        unavailable = [row for row in all_rows if row["state"] == QUOTA_NA]
+        compact_markers, _ = _fold_pool_markers(compact_order, unavailable, unicode, keep)
+        for layout in ([(row, compact_markers.get(id(row), "")) for row in active],
+                       [(row, str(row["suffix"])) for row in detail_layout]):
+            for row, marker in layout:
+                family = _pool_family_cell(row, None, unicode, keep)
+                with_notes = max(with_notes, _width(family) + sum(_width(gap + note) for gap, note in _pool_notes(row, marker)))
+        sizes["FAMILY"] = min(with_notes, sizes["FAMILY"] + room(columns))
+        sizes["BAR"] = min(BAR_MAX_CELLS, BAR_MIDDLE_CELLS + room(columns))
+    if not details and "AGE" in columns:
+        columns.remove("AGE")
 
     def line(name: str, cells: dict[str, str], row: dict[str, Any] | None = None) -> str:
         name = _fit(name, name_width, unicode, indent=True)
         fields = [name + " " * max(0, name_width - _width(name))]
         for column in columns:
             value = cells.get(column, "")
-            pad = " " * max(0, sizes[column] - _width(value))
+            padding = max(0, sizes[column] - _width(value))
             ink = _paint_pool_cell(column, value, row) if paint and row and value else value
-            fields.append(pad + ink if column in {"LEFT", "PACE(pp)", "AGE"} else ink + pad)
+            leading = padding if column == "AGE" else 0
+            if column == "LEFT":
+                leading = max(0, left_width - _pool_left_value_width(value))
+            fields.append(" " * leading + ink + " " * (padding - leading))
         return _POOL_COLUMN_GAP.join(fields).rstrip()
 
     header = line(head, {name: name if name != "BAR" else "" for name in columns})
@@ -2534,37 +2577,41 @@ def _pool_table(entries: list[_PoolEntry], all_rows: list[dict[str, Any]], width
     rendered: list[list[str]] = []
     for name, row, child, marker in entries:
         cells = _pool_cells(row, unicode, rich, guide_url) if row else {}
-        dependency = _pool_dependency(row)
+        notes = _pool_notes(row, marker)
+        wrapped: list[str] = []
         if row and "BAR" in columns:
             cells["BAR"] = _pool_bar(row, sizes["BAR"], unicode, child)
         if row and "FAMILY" in columns:
             cells["FAMILY"] = _pool_family_cell(row, sizes["FAMILY"], unicode, keep)
             if profile_urls:
                 cells["FAMILY"] = _link_profiles(cells["FAMILY"], profile_urls)
-            if dependency:
-                family = f"{cells['FAMILY']}; {dependency}"
-                if _width(family) <= sizes["FAMILY"]:
+            for gap, note in notes:
+                family = cells["FAMILY"] + gap + note
+                if sizes["BAR"] >= BAR_MIDDLE_CELLS and _width(family) <= sizes["FAMILY"]:
                     cells["FAMILY"] = family
-                    dependency = ""
+                else:
+                    wrapped.append(note)
+        elif dependency := _pool_dependency(row):
+            wrapped.append(dependency)
         text = line(name, cells, row)
         if _width(text) > width:
             text, *continuations = _compact_wrap(_ANSI.sub("", text), width)
         else:
             continuations = []
         lines = [text, *continuations]
-        if dependency:
-            lines.extend(_paint(part, dim) for part in _compact_wrap(dependency, width))
-        lines[-1:] = _quota_suffix(lines[-1], marker, width, unicode, dim)
+        lines.extend(_paint(part, dim) for note in wrapped for part in _compact_wrap(note, width))
+        if not row or "FAMILY" not in columns:
+            lines[-1:] = _quota_suffix(lines[-1], marker, width, unicode, dim)
         rendered.append(lines)
     return headers, rendered, [name.lower() for name in reversed(_POOL_COLUMNS) if name not in columns]
 
 
-def _pools_heading(head: str, width: int, unicode: bool, rich: bool, paint: bool) -> str:
+def _pools_heading(title: str, head: str, width: int, unicode: bool, rich: bool, paint: bool) -> str:
     hint = f"  {POOLS_USE_FIRST_HINT}"
-    if rich:
+    if rich and head.startswith(title + " " * _RULE_PREFIX_WIDTH):
         # The rule adds three leading cells. Spend the title's padding to keep the columns aligned.
-        head = re.sub(r"^(POOLS \d+) {3}(?= +\S)", r"\1", head)
-    room = width - (3 if rich else 0)  # leave the rich heading room for its rule
+        head = title + head[len(title) + _RULE_PREFIX_WIDTH:]
+    room = width - (_RULE_PREFIX_WIDTH if rich else 0)
     if _width(head + hint) <= room:
         head += hint
     return _head_rule(head, width, unicode, paint) if rich else head
@@ -2576,15 +2623,7 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
     """POOLS rows with inline unavailable windows included in the header count."""
     ordered = _ordered_pools([row for row in rows if row["state"] != QUOTA_NA], every=every)
     unavailable = [row for row in rows if row["state"] == QUOTA_NA]
-    suffixes: dict[int, list[str]] = {}
-    marker_rows: set[int] = set()
-    for absent in unavailable:
-        peers = [row for row, _ in ordered if row["peer"] == absent["peer"]]
-        parent = next((row for row in peers if row["family"] == absent["family"]), peers[0] if peers else absent)
-        if not peers:
-            ordered.append((parent, 0))
-            marker_rows.add(id(parent))
-        suffixes.setdefault(id(parent), []).append(_cell(absent["pool"], unicode, "-", keep))
+    suffixes, marker_rows = _fold_pool_markers(ordered, unavailable, unicode, keep)
     shown = ordered if every else ordered[:POOLS_CAP]
     head = f"{FRAME_SECTIONS['pools']} {len(ordered) + len(unavailable) - len(marker_rows)}"
     entries: list[_PoolEntry] = []
@@ -2598,13 +2637,12 @@ def _pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: s
             else:
                 prefix += ("│  " if unicode else "|  ") if sibling else "   "
         name = f"{' ' * _width(peer)} {prefix}{pool}" if depth else f"{peer} {pool}"
-        marker = _na_suffix(suffixes[id(row)]) if id(row) in suffixes else ""
         entries.append(((" " + peer if id(row) in marker_rows else " " + name),
-                        {} if id(row) in marker_rows else row, depth > 0, marker))
+                        {} if id(row) in marker_rows else row, depth > 0, suffixes.get(id(row), "")))
     headers, table, _ = _pool_table(entries, rows, width - 1, unicode, keep, rich=rich, paint=paint, head=head,
                                     guide_url=guide_url, profile_urls=profile_urls)
     lines = [line for entry in table for line in entry]
-    headings = [_pools_heading(headers[0], width, unicode, rich, paint), *headers[1:]]
+    headings = [_pools_heading(head, headers[0], width, unicode, rich, paint), *headers[1:]]
     return [*headings, *lines], len(lines) + len(ordered) - len(shown), len(headings)
 
 
@@ -2663,13 +2701,16 @@ def _with_min_quota(payload: dict[str, Any], rows: list[dict[str, Any]]) -> dict
 
 def _render_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: bool,
                           width: int, height: int | None, keep: str | None = None) -> str:
-    width = max(1, min(COMPACT_WIDTH, width) - 1)  # leave the terminal's autowrap column unused
-    frame = _compact_frame(payload, view=view, color=color, unicode=unicode, width=width, height=height, keep=keep)
-    return fit_compact_frame(frame, width=width, height=height, unicode=unicode, keep=keep)
+    pool_width = max(1, width - 1)  # leave the terminal's autowrap column unused
+    width = min(COMPACT_WIDTH - 1, pool_width)
+    frame = _compact_frame(payload, view=view, color=color, unicode=unicode, width=width, height=height, keep=keep,
+                           pool_width=pool_width)
+    return fit_compact_frame(frame, width=width, height=height, unicode=unicode, keep=keep, pool_width=pool_width)
 
 
 def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: bool, width: int,
-                   height: int | None, keep: str | None = None, expand: bool = False) -> CompactFrame:
+                   height: int | None, keep: str | None = None, expand: bool = False,
+                   pool_width: int | None = None) -> CompactFrame:
     """Build the sections shared by both layouts before height fitting."""
     rich = view == "rich"  # P21: the rich look; `unicode` picks its glyphs and `paint` adds the colour
     paint = color and rich and "NO_COLOR" not in os.environ
@@ -2787,7 +2828,7 @@ def _compact_frame(payload: dict[str, Any], *, view: str, color: bool, unicode: 
             frame.pool_gap = _pool_gap(rows, width, unicode)
             frame.pool_legend = _compact_wrap(POOL_LEGEND, width)
             frame.pools, frame.pools_total, frame.pools_header_lines = _pool_section(
-                rows, width, unicode, keep, rich=rich, paint=paint, every=expand,
+                rows, pool_width or width, unicode, keep, rich=rich, paint=paint, every=expand,
                 guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls)
         else:
             notes = (["no quota evidence", "next: peerhub observation refresh"] if height is not None

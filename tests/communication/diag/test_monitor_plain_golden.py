@@ -154,7 +154,7 @@ def test_the_goldens_cover_every_case():
 
 @pytest.mark.parametrize("case,payload,kwargs", [pytest.param(*item, id=item[0]) for item in golden_cases()])
 def test_plain_frame_matches_its_golden(case, payload, kwargs, monkeypatch):
-    # C1 and G1–4 use the shared anchored pace, fixed bar and EXH/RESET columns.
+    # POOLS and QUOTA share anchored pace, an elastic bar and EXH/RESET columns.
     # M5 adds profile names. M9 and G8 add the gap and legend within the POOLS height budget.
     monkeypatch.setenv("PEERHUB_GUIDE_URL", GOLDEN_GUIDE_URL)
     screen = render_grouped_frame(payload, show_quota_notes=True, **kwargs)

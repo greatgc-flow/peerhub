@@ -127,9 +127,13 @@ PEERS, `suggest:` and `peerhub diag quota`.
 
 - The filled part shows remaining quota. A positive reading reserves at least one fill cell before the tick is drawn.
 - The `|` tick marks even-burn remaining when that fact is available, including when it covers a filled cell.
+- POOLS and QUOTA right-align the LEFT value and left-align STATE, PACE(pp), EXH/RESET, and FAMILY. After the left data
+  columns fit, the bar grows from 8 to 16 cells while FAMILY uses its abbreviated form. FAMILY then expands to show
+  all profile IDs and inline unavailable-window and parent-limit notes as space permits. Any remaining width grows
+  the bar up to 40 cells. The tick scales with the bar, including on parent-limited child rows.
 - PACE and the bar use cyan for spend, green for ok and yellow for rest. Fresh zero uses bold red.
   LEFT uses neutral text, a yellow low-reserve `!` at 10% or less, or bold red at fresh zero.
-- The bar gives way first on narrow terminals. Data columns give way in order of AGE,
+- The bar gives way when its minimum width no longer fits beside the left data and FAMILY labels. Data columns give way in order of AGE,
   FAMILY and EXH/RESET. STATE, LEFT and PACE stay.
 
 `suggest:` (under POOLS) is advisory: `suggest: eco=cc.standard normal=cc.effort|cx.effort ...`. `a|b` is the best

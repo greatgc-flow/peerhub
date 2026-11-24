@@ -139,9 +139,11 @@ def test_expansion_keeps_the_compact_pool_rows_and_section_order(width, color, u
         shown = [head for head in heads(screen) if head in FRAME_HEADS]
         assert shown == [head for head in FRAME_HEADS if head in shown]
 
-def test_expand_uses_the_terminal_width_and_the_compact_frame_stays_at_100_columns():
+def test_expand_uses_the_terminal_width_and_compact_widens_its_pool_table():
     payload = eight_pools_payload()
-    assert max(_width(line) for line in compact(payload, width=140).splitlines()) == 99
+    small = compact(payload, width=140)
+    assert _width(small.splitlines()[0]) == mv.COMPACT_WIDTH - 1
+    assert max(map(_width, block(small, "pools"))) == 139
     wide = expand(payload, width=140).splitlines()
     assert max(_width(line) for line in wide) == 139 and _width(wide[0]) == 139  # one rule: the last column stays free
     assert all(_width(line) == 139 for line in wide if line.startswith("── "))
@@ -149,7 +151,8 @@ def test_expand_uses_the_terminal_width_and_the_compact_frame_stays_at_100_colum
 
 def test_expand_shows_every_pool_without_a_cap_or_an_overflow_line():
     payload = full_payload()
-    small, big = compact(payload).splitlines(), expand(payload, show_quota_notes=True).splitlines()
+    small = compact(payload, width=140).splitlines()
+    big = expand(payload, width=140, show_quota_notes=True).splitlines()
     assert block("\n".join(small), "pools")[0].startswith("── POOLS 9 ─")
     assert block("\n".join(big), "pools")[0].startswith("── POOLS 11 ─") and not any(re.match(r"^\+\d+ pools", line) for line in big)
     rows = block("\n".join(big), "pools")[1:]
@@ -302,8 +305,8 @@ def test_g_quota_details_match_pools_vocabulary_and_bar():
         row = next(line for line in block(screen, "pools")[1:]
                    if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ )?{name} +", line))
         actual = row.split()[row.split().index(name) + 1:]
-        assert (cells[:2], cells[3:6]) == (actual[:2], actual[3:6]), name  # G: state, left, pace and pair
-        assert len(cells[2]) > len(actual[2]) == mv.BAR_CELLS
+        assert cells[:6] == actual[:6], name  # state, bar, left, pace and pair
+        assert mv.BAR_CELLS <= len(cells[2]) <= mv.BAR_MAX_CELLS
     assert rows["X-7D"][:2] == [U["fast"], "fast"]
     assert rows["X-7D"][3:5] == ["42%", "+31.0!"]
 
@@ -570,7 +573,7 @@ def test_a_bounded_height_keeps_the_top_and_ends_with_the_more_hint(width):
         assert shown == ORDER[:len(shown)]
 
 def test_a_bounded_height_keeps_alerts_and_running_visible():
-    screen = expand(detail_payload(), height=28)
+    screen = expand(detail_payload(), width=140, height=28)
     shown = heads(screen)
     assert len(screen.splitlines()) <= 27 and {"ALERTS", "RUNNING"} <= set(shown)
     assert shown == [head for head in FRAME_HEADS if head in shown]

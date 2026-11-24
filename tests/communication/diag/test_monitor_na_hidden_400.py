@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli.monitor_view import render_grouped_frame
+from peerhub.cli.monitor_view import BAR_CELLS, BAR_MAX_CELLS, BAR_MIDDLE_CELLS, FAMILIES, RICH_GLYPHS, _width, render_grouped_frame
 from tests.communication.diag.test_monitor_activity_view import pool
 from tests.communication.diag.test_monitor_expand_rich import block, expand, strip
 from tests.communication.diag.test_monitor_plain_golden import _payload, full_payload
@@ -26,6 +26,76 @@ def na_payload(**over: Any) -> dict[str, Any]:
     observations = [pool("cc", "C-7D", .63, pace=-20), absent("cc", "C-5H"),
                     pool("cx", "X-7D", .42, pace=3), absent("cx", "X-30D")]
     return _payload([], observations, configured_profiles=PROFILES, min_quota=None, **over)
+
+
+def wide_notes_payload() -> dict[str, Any]:
+    profiles = [*PROFILES, {"profile": "cc.fable", "fields": {"pools": {"value": ["C-7D", "F-7D"]}}},
+                {"profile": "ag.deepthink", "fields": {"pools": {"value": ["3P-5H", "3P-7D"]}}}]
+    payload = na_payload(selected_groups=["capacity"])
+    payload["configured_profiles"] = profiles
+    observations = payload["groups"]["capacity"]["data"]["observations"]
+    observations[0] = pool("cc", "C-7D", .09, pace=-2)
+    observations.extend([
+        pool("cc", "F-7D", .14, pace=3), absent("cx", "X-5H"),
+        pool("ag", "3P-7D", .48, pace=2), absent("ag", "3P-5H"),
+    ])
+    return payload
+
+
+@pytest.mark.parametrize("view", ["plain", "rich"])
+def test_wide_pool_notes_stay_after_family_in_both_tables(view):
+    payload = wide_notes_payload()
+    notes = {"C-7D": "(C-5H n/a)", "F-7D": "limited by C-7D (own 14%)",
+             "X-7D": "(X-5H,X-30D n/a)", "3P-7D": "(3P-5H n/a)"}
+    for expand_mode in (False, True):
+        screen = strip(render_grouped_frame(payload, view=view, width=190, expand=expand_mode))
+        header = next(line for line in screen.splitlines() if "POOLS 8 " in line)
+        left_end = header.index("LEFT") + len("LEFT")
+        for name, note in notes.items():
+            rows = [line for line in screen.splitlines()
+                    if re.match(rf"^\s*(?:\w+ +)?(?:[└├]─ )?{name} {{2,}}", line)]
+            assert len(rows) == (2 if expand_mode else 1), (name, screen)
+            family = FAMILIES[name.split("-")[0]]
+            assert all(row.index(f"{family}: ") < row.index(note) for row in rows)
+            assert rows[0].index("%") + 1 == left_end
+            if expand_mode:
+                assert re.search(re.escape(note) + r" +\d+s$", rows[-1]), rows[-1]
+            assert screen.count(note) == len(rows)
+        assert all(_width(line) < 190 for line in screen.splitlines())
+    narrow = render_grouped_frame(payload, view="plain", width=65, unicode=False)
+    assert re.search(r"(?m)^ *\(X-5H,X-30D n/a\)$", narrow)
+    assert re.search(r"(?m)^ *limited by C-7D \(own 14%\)$", narrow)
+
+
+def test_rich_wide_header_aligns_with_cells_for_two_digit_pool_count():
+    payload = na_payload(selected_groups=["capacity"])
+    payload["groups"]["capacity"]["data"]["observations"].extend(
+        absent("cx", f"X-{day}D") for day in range(10, 17))
+    for expand_mode in (False, True):
+        screen = strip(render_grouped_frame(payload, view="rich", width=190, expand=expand_mode))
+        header, row, *_ = block(screen, "pools")
+        assert header.startswith("── POOLS 11 ")
+        glyphs = RICH_GLYPHS[True]
+        bar = re.search(r"[█░|]+", row)
+        assert bar and len(bar[0]) == BAR_MAX_CELLS
+        assert header[bar.start():bar.end()] == glyphs["rule"] * BAR_MAX_CELLS
+        assert header.index("STATE") == row.index(glyphs["ok"])
+        assert header.index("LEFT") + len("LEFT") == row.index("%") + 1
+        assert header.index("PACE(pp)") == row.index("-20.0")
+        assert header.index("FAMILY") == row.index(f"{FAMILIES['C']}: ")
+
+
+@pytest.mark.parametrize("width,bar_cells", [(80, BAR_CELLS), (100, BAR_MIDDLE_CELLS)])
+def test_bar_keeps_its_room_when_family_and_notes_compete(width, bar_cells):
+    for expand_mode in (False, True):
+        screen = render_grouped_frame(wide_notes_payload(), view="plain", unicode=False, width=width, expand=expand_mode)
+        rows = [line for line in screen.splitlines() if re.match(r"^ ?cc C-7D {2,}", line)]
+        assert len(rows) == (2 if expand_mode else 1)
+        for row in rows:
+            bar = re.search(r"[#.|]+", row)
+            assert bar and len(bar[0]) == bar_cells
+            assert re.search(r"claude: .*[+]\d+", row)
+        assert re.search(r"(?m)^\(C-5H n/a\)$", screen)
 
 
 @pytest.mark.parametrize("view,unicode", [("rich", True), ("rich", False), ("plain", False)])
@@ -48,8 +118,8 @@ def test_plain_expand_quota_names_an_na_pool_after_the_peers_row():
     screen = render_grouped_frame(na_payload(), view="plain", unicode=False, width=120, expand=True)
     rows = [line for line in screen.split("QUOTA [", 1)[1].splitlines() if re.search(r"\b[CX]-\d+[HD]\b", line)]
     assert not any(re.match(r"^\s*(?:(?:cc|cx)\s+)?(?:\S+\s)?(C-5H|X-30D)\b", row) for row in rows if "not reported" not in row)
-    assert any(row.startswith("cc") and "C-7D" in row and row.rstrip().endswith("(C-5H n/a)") for row in rows)
-    assert any(row.startswith("cx") and "X-7D" in row and row.rstrip().endswith("(X-30D n/a)") for row in rows)
+    assert any(row.startswith("cc") and "C-7D" in row and "(C-5H n/a)" in row for row in rows)
+    assert any(row.startswith("cx") and "X-7D" in row and "(X-30D n/a)" in row for row in rows)
 
 
 def test_rich_expand_counts_unavailable_windows_and_names_them_in_quota():
@@ -58,8 +128,8 @@ def test_rich_expand_counts_unavailable_windows_and_names_them_in_quota():
     assert re.search(r"POOLS 4\b", plain)
     assert not any(re.match(r"^\s*(?:(?:cc|cx)\s+)?\S*\s*(C-5H|X-30D)\b.*\bn/a\b", line) for line in plain.splitlines() if "not reported" not in line)
     quota = block(screen, "capacity")
-    assert any("C-7D" in line and line.rstrip().endswith("(C-5H n/a)") for line in quota)
-    assert any("X-7D" in line and line.rstrip().endswith("(X-30D n/a)") for line in quota)
+    assert any("C-7D" in line and "(C-5H n/a)" in line for line in quota)
+    assert any("X-7D" in line and "(X-30D n/a)" in line for line in quota)
 
 
 def test_show_quota_notes_keeps_the_full_list():
@@ -77,8 +147,8 @@ def test_retired_pools_join_the_peers_row_suffix_and_have_a_reason(notes):
             item.update(display_retired=True, display_plan="prolite")
     screen = render_grouped_frame(frame, view="plain", unicode=False, width=120, expand=True, show_quota_notes=notes)
     rows = [line for line in screen.split("QUOTA [", 1)[1].splitlines() if re.search(r"\b[CX]-\d+[HD]\b", line)]
-    assert any(row.startswith("cx") and row.rstrip().endswith("(X-30D n/a)") for row in rows)
-    assert any(row.startswith("cc") and row.rstrip().endswith("(C-5H n/a)") for row in rows)
+    assert any(row.startswith("cx") and "(X-30D n/a)" in row for row in rows)
+    assert any(row.startswith("cc") and "(C-5H n/a)" in row for row in rows)
     lines = [line for line in screen.splitlines() if line.startswith(("cx X-30D n/a", "cc C-5H n/a"))]
     assert len(lines) == 2 and all("not reported by plan prolite" in line for line in lines)
 
@@ -91,7 +161,7 @@ def test_an_na_parent_passes_its_child_to_the_peers_first_row():
     lines = screen.splitlines()
     rows = [line for line in lines[next(i for i, line in enumerate(lines) if "QUOTA [" in line):]  # the QUOTA details
             if re.search(r"\bC-\d+[HD]\b", line) and "not reported" not in line]
-    assert len(rows) == 1 and rows[0].startswith("cc") and "C-5H" in rows[0] and rows[0].rstrip().endswith("(C-7D n/a)")
+    assert len(rows) == 1 and rows[0].startswith("cc") and "C-5H" in rows[0] and "(C-7D n/a)" in rows[0]
 
 
 def test_aged_and_unknown_pools_stay_visible():

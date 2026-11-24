@@ -125,7 +125,7 @@ def test_even_burn_tick_replaces_filled_cell_on_collision() -> None:
     pool = "G-7D"
     data = frame(reading("ag", pool, LOW_QUOTA_FRACTION, 0))
     compact, expanded = pool_cells(mv.render_grouped_frame(data, view="plain", unicode=False, expand=True), pool)
-    assert len(compact[1]) == mv.BAR_CELLS
+    assert compact == expanded[:-1]
     for cells in (compact, expanded):
         bar = cells[1]
         filled = int(LOW_QUOTA_FRACTION * len(bar) + .5)
@@ -189,10 +189,14 @@ def test_g_same_columns_and_cell_text_in_pools_and_quota(view: str, width: int) 
     [compact_cells] = pool_cells(compact, pool)
     expanded_top, quota = pool_cells(expanded, pool)
     assert compact_cells == expanded_top
-    assert [quota[0], *quota[2:len(compact_cells)]] == [compact_cells[0], *compact_cells[2:]]
+    header = next(line for line in expanded.splitlines() if line.lstrip().startswith("PEER POOL"))
+    assert (quota[:-1] if "AGE" in header.split() else quota) == compact_cells
     assert {"17%", "+3.8"} <= set(quota)
     assert "|" in quota[1]  # M3/G: the even-burn tick in both bars
-    assert any("ag.neon" in cell for cell in quota)
+    if width == 120:
+        assert any("ag.neon" in cell for cell in quota)
+    else:
+        assert any(re.search(r" \+\d+$", cell) for cell in quota)
     for screen in (compact, expanded):
         assert all(name in screen for name in ("STATE", "LEFT", "PACE(pp)", "EXH/RESET", "FAMILY"))
         assert "RESET-IN" not in screen and "REM " not in screen
@@ -243,7 +247,7 @@ def test_m5_child_lists_configured_top_profiles_and_omitted_count() -> None:
     profiles = {"ag.neon": [parent, child], **{f"ag.zenith{i}": [parent, child] for i in range(15)}}
     data = frame(reading("ag", parent, .5, 0), reading("ag", child, .05, 5, span=5 * 3600),
                  profiles=profiles)
-    children = pool_cells(mv.render_grouped_frame(data, width=80, expand=True), child)
+    children = pool_cells(mv.render_grouped_frame(data, width=100, expand=True), child)
     assert len(children) == 2
     for cells in children:
         assert any(re.fullmatch(r"flash: ag\.neon(?:,.*)? \+\d+", cell) for cell in cells)
@@ -328,18 +332,86 @@ def test_quota_bar_yields_before_age() -> None:
         screen = mv.render_grouped_frame(data, expand=True, width=width, view="plain", unicode=False)
         return next(line for line in screen.splitlines() if line.startswith("PEER POOL")), pool_cells(screen, pool)[-1]
     wide, full = quota(100)
-    narrow, reduced = quota(69)
+    narrow, reduced = quota(64)
     assert "AGE" in wide and "AGE" in narrow
     assert len(full[1]) >= mv.BAR_CELLS
-    assert not any(re.fullmatch(r"[=.|]+", cell) and len(cell) == mv.BAR_CELLS for cell in reduced)
+    assert not any("|" in cell for cell in reduced)
     assert "AGE" not in quota(45)[0]
 
 
-def test_expanded_quota_bar_uses_surplus_width_after_data_columns() -> None:
+@pytest.mark.parametrize("view", ["plain", "rich"])
+def test_pool_bars_grow_before_family_in_both_modes(view: str) -> None:
+    parent, child = "C-7D", "F-7D"
+    profiles = {"cc.effort": [parent], "cc.fable": [parent, child], "cc.fast": [parent], "cc.pro": [parent]}
+    parent_left = .26
+    parent_reading = reading("cc", parent, parent_left, 12)
+    data = frame(parent_reading, reading("cc", child, .65, 0), profiles=profiles)
+    even = pool_health(parent_reading, None, NOW)["even_left_pct"]
+    assert even is not None
+    family = mv.FAMILIES["C"] + ": " + ",".join(profiles)
+    lengths: list[int] = []
+    for width in (60, 80, 100, 120, 140, 160, 190, 220):
+        compact, expanded = (mv.render_grouped_frame(data, view=view, width=width, unicode=False, expand=expand)
+                             for expand in (False, True))
+        assert all(mv._width(line) < width for screen in (compact, expanded) for line in screen.splitlines())
+        header = next(line for line in expanded.splitlines() if line.lstrip().startswith("PEER POOL"))
+        for pool in (parent, child):
+            [cells] = pool_cells(compact, pool)
+            pools, quota = pool_cells(expanded, pool)
+            assert cells == pools == (quota[:-1] if "AGE" in header else quota), (width, pool)
+            bar = next((cell for cell in cells if re.fullmatch(r"[#.:=|-]+", cell)), "")
+            if pool == parent:
+                lengths.append(len(bar))
+                if width >= 80:  # the compact view already had a bar at 80 and 100 columns
+                    assert len(bar) >= mv.BAR_CELLS, (width, cells)
+                if width in (80, 100):
+                    assert family not in cells and any(re.search(r" \+\d+$", cell) for cell in cells)
+                if width >= 140:
+                    assert family in cells
+                if family in cells:
+                    assert len(bar) >= mv.BAR_MIDDLE_CELLS
+            else:
+                assert len(bar) == lengths[-1]
+            if bar:
+                tick = min(len(bar) - 1, max(0, int(even * len(bar) / 100)))
+                assert bar.count("|") == 1 and bar[tick] == "|"
+                if pool == child:
+                    filled = int(parent_left * len(bar) + .5)
+                    expected = "=" * filled + "-" * (len(bar) - filled)
+                    assert bar == expected[:tick] + "|" + expected[tick + 1:]
+        if "FAMILY" in header:
+            quota_row = next(line for line in expanded[expanded.index(header):].splitlines()
+                             if line.lstrip().startswith("cc C-7D"))
+            assert quota_row.index("%") + 1 == header.index("LEFT") + len("LEFT")
+            for column in ("STATE", "PACE(pp)", "EXH/RESET", "FAMILY"):
+                assert quota_row[header.index(column)] != " ", (width, column)
+    assert lengths == sorted(lengths)
+    assert all(length == 0 or mv.BAR_CELLS <= length <= mv.BAR_MAX_CELLS for length in lengths)
+    assert lengths[0] == 0 and lengths[2] == mv.BAR_MIDDLE_CELLS
+    assert lengths[3] < lengths[-1] == mv.BAR_MAX_CELLS
+
+
+def test_full_family_appears_as_soon_as_it_fits_with_middle_bar() -> None:
     pool = "G-7D"
-    data = frame(reading("ag", pool, HALF, 0), profiles={"ag.neon": [pool]})
-    compact, narrow_quota = pool_cells(mv.render_grouped_frame(data, view="plain", width=100, expand=True), pool)
-    wide_compact, wide_quota = pool_cells(mv.render_grouped_frame(data, view="plain", width=140, expand=True), pool)
-    assert len(compact[1]) == len(wide_compact[1]) == mv.BAR_CELLS
-    assert len(wide_quota[1]) > len(narrow_quota[1]) >= mv.BAR_CELLS
-    assert wide_quota[2:] == narrow_quota[2:] and "|" in wide_quota[1]
+    profiles = {f"ag.{name}": [pool] for name in ("deepthink", "effort", "neon", "standard")}
+    data = frame(reading("ag", pool, .26, 12), profiles=profiles)
+    family = mv.FAMILIES["G"] + ": " + ",".join(profiles)
+    options = {"view": "plain", "unicode": False}
+    wide = mv.render_grouped_frame(data, expand=True, width=200, **options)
+    header = next(line for line in wide.splitlines() if line.startswith("PEER POOL"))
+    bar = pool_cells(wide, pool)[-1][1]
+    # Replace the wide bar with the middle size, then allow for AGE, the row indent and autowrap.
+    first_fit = (header.index("FAMILY") - len(bar) + mv.BAR_MIDDLE_CELLS + len(family)
+                 + len(mv._POOL_COLUMN_GAP) + len("AGE") + 2)
+    for expand in (False, True):
+        prior = mv.render_grouped_frame(data, expand=expand, width=first_fit - 1, **options)
+        exact = mv.render_grouped_frame(data, expand=expand, width=first_fit, **options)
+        prior_rows, exact_rows = pool_cells(prior, pool), pool_cells(exact, pool)
+        assert prior_rows and all(family not in cells for cells in prior_rows)
+        assert exact_rows and all(family in cells for cells in exact_rows)
+
+
+def test_monitor_docs_describe_pool_bar_limits() -> None:
+    docs = " ".join(Path("docs/monitor.md").read_text(encoding="utf-8").split())
+    assert f"from {mv.BAR_CELLS} to {mv.BAR_MIDDLE_CELLS} cells" in docs
+    assert f"up to {mv.BAR_MAX_CELLS} cells" in docs

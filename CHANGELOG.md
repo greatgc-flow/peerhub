@@ -8,6 +8,10 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Monitor POOLS and QUOTA give quota bars room to grow before expanding FAMILY with full profile lists and inline notes. The bar grows again with any remaining space. The POOLS rule aligns with the data columns.
+
 ## [0.26.9] - 2026-11-23
 
 ### Changed
