@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.11] - 2026-11-25
+
 ### Changed
 
 - On 2026-11-24, the lead measured `ag.argon` drawing from the shared Gemini quota after Antigravity stopped reporting A-7D and reset the Gemini weekly quota early on 2026-11-23 at 20:15Z. Packaged defaults now reflect the shared quota, show the legacy bucket as `n/a` when absent, and list the new Carbon models and Orchestrator aliases with unverified pools.
