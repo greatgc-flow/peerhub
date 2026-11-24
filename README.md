@@ -61,16 +61,17 @@ The reply prints on stdout with a receipt line; use a new `--request-id` for eve
 ## Core recipe
 
 The Core stores Peers, Streams, immutable Records, and per-peer Offsets.
-These commands use a new `core-demo` Stream in the selected store and call no provider:
+These commands use a new `core-demo` Stream in `.peerhub/core.db` and call no provider.
+Keep `--db` on every command so an existing `PEERHUB_DB` setting cannot change the store mid-recipe:
 
 ```powershell
 peerhub --db .peerhub/core.db peer register --peer reader --name "Demo reader"
-peerhub stream create --stream core-demo --members reader
-peerhub record append --stream core-demo --author-peer reader --kind message --body '"Hello"' --idempotency-key core-demo-001 --created-at 2026-10-10T00:00:00Z
-peerhub record read --stream core-demo --after 0 --limit 10
-peerhub offset get --peer reader --stream core-demo
-peerhub offset advance --peer reader --stream core-demo --position 1 --revision 1
-peerhub offset get --peer reader --stream core-demo
+peerhub --db .peerhub/core.db stream create --stream core-demo --members reader
+peerhub --db .peerhub/core.db record append --stream core-demo --author-peer reader --kind message --body '"Hello"' --idempotency-key core-demo-001 --created-at 2026-10-10T00:00:00Z
+peerhub --db .peerhub/core.db record read --stream core-demo --after 0 --limit 10
+peerhub --db .peerhub/core.db offset get --peer reader --stream core-demo
+peerhub --db .peerhub/core.db offset advance --peer reader --stream core-demo --position 1 --revision 1
+peerhub --db .peerhub/core.db offset get --peer reader --stream core-demo
 ```
 
 On an existing Stream, advance to the position you actually read and pass the

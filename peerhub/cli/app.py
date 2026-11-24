@@ -423,8 +423,8 @@ def build_parser(prog: str = "peerhub") -> argparse.ArgumentParser:
     explain_parser.add_argument("code", nargs="+", help="Guidance code or free words to look up")
     explain_parser.add_argument("--json", action="store_true", default=False)
 
-    guide_parser = subparsers.add_parser("guide", help="Quick reference, profile tables, and best practices")
-    guide_parser.description = "Print the quick reference guide, model profile table, and operational best practices."
+    guide_parser = subparsers.add_parser("guide", help="Offline decisions and pointers to operational guidance")
+    guide_parser.description = "Print the compact decision guide. Use 'peerhub profile list' for models and tiers."
 
     def add_json(node: argparse.ArgumentParser) -> None:
         if "--json" not in node._option_string_actions:
@@ -1343,6 +1343,8 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
     from functools import cache
 
     from peerhub.extensions import batch
+    from peerhub.extensions.ask import build_ask_target, read_replay_counts
+    from peerhub.extensions.runtime_contract import PrespawnError
 
     db = os.path.abspath(args.db)
     warnings: list[str] | None = [] if args.dry_run else None
@@ -1351,27 +1353,26 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
     def kind_of(peer: str) -> str | None:
         return _peer_kind(db, peer)
 
+    @cache
+    def resolved_profile(kind: str, workspace: Path, profile: str | None, writable: bool) -> str | None:
+        # Construction resolves local settings only: no provider, credential or quota probe.
+        return build_ask_target(kind, workspace, profile=profile, writable=writable).session_binding()["profile"]
+
     try:
         max_parallel = batch.check_max_parallel(args.max_parallel)
         tasks = batch.load_manifest(args.manifest, batch_id=args.batch_id)
         workspaces = batch.validate_tasks(tasks, kind_of=kind_of, warnings=warnings)
         tasks = [replace(task, writable=True) if kind_of(task.peer) == "ag" else task for task in tasks]
+        profiles: dict[str, str | None] = {}
+        for task in tasks:
+            # validate_tasks has already checked these cached peer kinds. Validate every
+            # effective binding before any worker can start, including in an actual run.
+            kind = cast(str, kind_of(task.peer))
+            try:
+                profiles[task.task_id] = resolved_profile(kind, task.workspace or Path.cwd(), task.profile, task.writable)
+            except (OSError, ValueError, PrespawnError) as exc:
+                raise batch.ManifestError(f"task {task.task_id}: invalid runtime settings: {exc}") from exc
         if warnings is not None:
-            from peerhub.extensions.ask import build_ask_target, read_replay_counts
-            from peerhub.extensions.runtime_contract import PrespawnError
-
-            @cache
-            def default_profile_display(peer: str, workspace: Path, writable: bool) -> str:
-                kind = kind_of(peer)
-                if kind is not None:
-                    try:
-                        resolved = build_ask_target(kind, workspace, writable=writable).session_binding()["profile"]
-                    except (OSError, ValueError, PrespawnError):
-                        resolved = None
-                    if resolved:
-                        return batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=resolved)
-                return batch.DEFAULT_PROFILE_DISPLAY
-
             active, active_by_peer, ram_free_gb, active_by_relation = _batch_load_sample(db)
             warnings.extend(batch.load_warnings(tasks, max_parallel=max_parallel, kind_of=kind_of,
                                                 active=active, active_by_peer=active_by_peer, ram_free_gb=ram_free_gb,
@@ -1379,10 +1380,12 @@ def _run_batch_cli(args: argparse.Namespace) -> int:
             rows: list[dict[str, Any]] = []
             for task in tasks:
                 stream, request = batch.derive_ids(args.batch_id, task.task_id)
+                profile = profiles[task.task_id]
+                profile_display = task.profile or (batch.RESOLVED_DEFAULT_PROFILE_DISPLAY.format(profile=profile)
+                                                   if profile else batch.DEFAULT_PROFILE_DISPLAY)
                 rows.append(dict(task_id=task.task_id, peer=task.peer, stream=stream,
                                  request_id=request, writable=task.writable, profile=task.profile,
-                                 profile_display=task.profile or default_profile_display(
-                                     task.peer, task.workspace or Path.cwd(), task.writable),
+                                 profile_display=profile_display,
                                  workspace=workspaces[task.task_id]))
             replay = read_replay_counts(Path(db), ((row["stream"], row["peer"], row["request_id"]) for row in rows))
             if args.json:

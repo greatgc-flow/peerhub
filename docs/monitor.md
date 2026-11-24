@@ -45,6 +45,8 @@ PeerHub Monitor 2026-11-20 14:02Z · DB:env · quota age 3m                     
 After the status come `N running` asks, `N leads` and `min quota 68% cc C-7D ok`: the lowest 7-day pool that has a
 number, with the state POOLS shows for it (`(aged)` when its evidence is stale). The right-hand fields drop first on a
 narrow terminal; the rich view puts the snapshot time at the right edge when it fits.
+JSON `min_quota.state` uses the same state word: an old zero is `aged` with `aged: true`,
+while `out` requires a fresh zero.
 
 **Line 2 (the title)** is `PeerHub Monitor <UTC time> · DB:<source> · quota age <age>`:
 
@@ -121,6 +123,10 @@ value is the lower of the two: while `C-7D` has less left, `F-7D` shows its LEFT
 its own value in FAMILY. An aged, unknown, reset or missing parent never limits it. The same rule drives POOLS, QUOTA,
 PEERS, `suggest:` and `peerhub diag quota`.
 
+`diag readiness` also stops using a window's remaining value when its reset arrives,
+even if the observation's freshness TTL has not expired. Refresh the observation before
+using that window to decide whether a profile has quota.
+
 ### Bar glyphs
 
 | Output | Parent pool (filled / empty) | Child pool (filled / empty) |
@@ -178,6 +184,8 @@ normally, `!overdue` (the lease ran out), `!gone` / `×` (the caller process is 
 `--expand` lists every field of every running ask.
 
 Continuous terminal watch reads activity every `min(5 s, --interval-seconds)` using `RUNNING_REFRESH_SECONDS`.
+The RUNNING rows, activity alerts, verdict and activity read status update together, so a newly detected
+gone or overdue ask reaches line 1 on that read. Resolved activity alerts clear on the same cadence.
 Full reads and quota probes keep their existing schedules. Scripted cycles still use `--interval-seconds`.
 
 ## ALERTS

@@ -136,6 +136,16 @@ def test_readiness_parent_higher_changes_nothing():
     assert pool["remaining"] == .26 and pool["reset_in"] == 86400 and "limited_by" not in pool
 
 
+@pytest.mark.parametrize("remaining", [0, .08])
+@pytest.mark.parametrize("reset", [0, -1])
+def test_readiness_reset_parent_cannot_limit_the_child(remaining, reset):
+    report = readiness(remaining, .26, parent_reset=reset)
+    parent, child = (report["pools"][f"quota:cc:{name}"] for name in ("C-7D", "F-7D"))
+    assert parent["state"] == "MEASURED" and parent["remaining"] is None and parent["reset_in"] == 0
+    assert child["remaining"] == .26 and child["reset_in"] == 86400 and "limited_by" not in child
+    assert all(p["state"] == "UNKNOWN" and p["action"] == "inspect_facts" for p in report["profiles"])
+
+
 # ---- 7: diag quota -------------------------------------------------------------------------------------------------
 def quota_store(tmp_path, parent: float, child: float, parent_reset: float = 3600, child_reset: float = 86400):
     harness = ObservationHarness(tmp_path / "ws")

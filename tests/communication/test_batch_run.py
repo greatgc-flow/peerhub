@@ -1,6 +1,7 @@
 """`peerhub batch run`: flat bounded-parallel asks (spec: batch B1-B10). Workers are fakes; no provider is called."""
 import errno
 import json
+import ntpath
 import os
 import re
 import sys
@@ -251,6 +252,31 @@ def test_all_completed_exit_zero_and_report_shape(tmp_path):
     assert [r["task_id"] for r in report["tasks"]] == ["a", "b"]  # manifest order, not completion order
 
 
+@pytest.mark.platform_sensitive
+@pytest.mark.parametrize("task_ids", [("Review", "review"), ("CON", "NUL", "AUX", "COM1")])
+def test_prompt_files_preserve_each_task_on_windows(tmp_path, task_ids):
+    """Every worker reads its own prompt even when public task names alias Windows files."""
+    tasks = [Task(tid, "cx", f"distinct instructions for {tid}", None, None, False, 30.0) for tid in task_ids]
+    ready = threading.Barrier(len(tasks), timeout=30)
+    paths = []
+    echo = ("import json,sys; from pathlib import Path; "
+            "print(json.dumps(dict(status='delivered',certainty='TERMINAL',error=None,"
+            "response=Path(sys.argv[1]).read_text(encoding='utf-8'))))")
+
+    def build(t, *, query_file, **kwargs):
+        paths.append(query_file)
+        ready.wait()  # Both writes happen before either child reads its prompt.
+        return [sys.executable, "-c", echo, str(query_file)]
+
+    report = batch.run_batch(tasks, batch_id="filenames", max_parallel=len(tasks), db=str(tmp_path / "core.db"),
+                             argv_builder=build, responses=True)
+    assert status_of(report) == dict.fromkeys(task_ids, "COMPLETED")
+    assert {row["task_id"]: row["response"] for row in report["tasks"]} == {task.task_id: task.prompt for task in tasks}
+    assert len({ntpath.normcase(str(path)) for path in paths}) == len(tasks)
+    assert not {path.stem.upper() for path in paths} & {"CON", "NUL", "AUX", "COM1"}
+    assert all(not path.exists() for path in paths)
+
+
 @pytest.mark.parametrize("db_dir,scratch", [(".peerhub", ".peerhub/tmp"), ("custom", "custom/.peerhub/tmp")])
 def test_concurrent_batches_use_independent_store_scratch(tmp_path, db_dir, scratch):
     from concurrent.futures import ThreadPoolExecutor
@@ -294,9 +320,10 @@ def test_setup_failure_emits_complete_json_and_continues(tmp_path, monkeypatch, 
     real_popen = batch.subprocess.Popen
     build = builder(tmp_path)
     attempted = []
+    bad_request = batch.derive_ids("b1", "bad")[1]
 
     def failing_write(path, *args, **kwargs):
-        if path.name == "bad.txt":
+        if path.name == f"{bad_request}.txt":
             raise OSError(errno.ENOSPC, "injected full disk")
         return real_write(path, *args, **kwargs)
 

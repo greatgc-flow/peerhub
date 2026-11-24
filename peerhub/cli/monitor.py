@@ -260,7 +260,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
     is_explicit = db_source in ("explicit", "env")
     if report_missing_store(args.db, json_output=args.json, selected=is_explicit, source=db_source):
         return 5
-    from peerhub.extensions.monitor_read_model import render_monitor_frame
+    from peerhub.extensions.monitor_read_model import merge_activity_frame, render_monitor_frame
     from peerhub.core.schema_version import SchemaVersionError
     from peerhub.cli.view import FrameOutput, use_color
     output = FrameOutput(interactive=not args.json, anchor_rows=True, alternate=args.cycles == 0)
@@ -338,6 +338,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                                          expand=expand, show_quota_notes=show_quota_notes, links=links))
 
     def watch_live() -> int:
+        nonlocal last_payload
         from peerhub.cli.monitor_refresh import RefreshJob, RefreshSchedule, read_quota_readings, required_quota_pools
 
         collect = args.probe or auto_probe
@@ -373,7 +374,7 @@ def _run_monitor_grouped_watch(args: argparse.Namespace, selected: list[str], pr
                     if "schema" in activity.get("errors", {}):
                         return 6
                     if last_payload is not None:
-                        last_payload["groups"]["activity"] = activity["groups"]["activity"]
+                        last_payload = merge_activity_frame(last_payload, activity)
                     next_activity = tick + activity_interval
                 if not redraw_due:
                     sleep(max(0.0, min(next_tick, next_activity) - monotonic()))
