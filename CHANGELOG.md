@@ -8,6 +8,8 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+## [0.26.10] - 2026-11-24
+
 ### Added
 
 - Monitor POOLS and QUOTA show `MARGIN` beside `PACE(pp)` so readers can see how early or late exhaustion is expected relative to reset. `diag --plan --json` adds `exhaust_margin_seconds`.
