@@ -135,6 +135,7 @@ class FrameOutput:
         self.last_frame = ""
         self.painted_rows: list[str] = []
         self.frames = 0
+        self.painted_size: os.terminal_size | None = None
 
     def write(self, frame: str) -> None:
         if self.live:
@@ -159,6 +160,12 @@ class FrameOutput:
                 # which also repairs anything a resize reflowed.
                 lines = frame.splitlines()
                 self.frames += 1
+                # A resize clears the screen: the terminal reflows or keeps old cells beyond the new width, and a
+                # row that did not change would keep those leftovers.
+                size = shutil.get_terminal_size((100, 24))
+                if self.painted_size is not None and size != self.painted_size:
+                    prefix = "\x1b[H\x1b[2J"
+                self.painted_size = size
                 full = (prefix != "\x1b[H" or len(lines) != len(self.painted_rows)
                         or self.frames % FULL_REPAINT_FRAMES == 0)
                 old = self.painted_rows

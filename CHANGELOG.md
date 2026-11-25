@@ -8,6 +8,12 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Fixed
+
+- ag quota refresh no longer fails as a whole when agy reports an unused pool with reset time 1970-01-01: the pool reads as a full window starting now, and one unusable bucket no longer drops the other pools' readings.
+- Live monitor: a terminal resize clears the screen and repaints every row, so cells left beyond the new width do not linger.
+- Monitor: a pool note that does not fit its row (`limited by C-7D (own 92%)`, `(X-30D n/a)`) is indented under the pool name instead of starting at column 1.
+
 ## [0.26.16] - 2026-11-25
 
 Includes the unreleased 0.26.15 audit fixes.

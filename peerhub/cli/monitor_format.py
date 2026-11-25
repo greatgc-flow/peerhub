@@ -297,6 +297,7 @@ def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
 _POOL_COLUMNS = ("STATE", "BAR", "LEFT", "PACE(pp)", POOL_MARGIN_COLUMN, "EXH/RESET", "FAMILY", "AGE")
 _POOL_MARGIN_WIDTH = 8
 _POOL_COLUMN_GAP = "  "
+POOL_NOTE_INDENT = "       "  # under the pool name of a child row ("    └─ ")
 _STATE_COLOURS = {"ok": "ok", "low": "warn", "fast": "warn", "out": "out", "blocked": "out"}
 _PACE_COLOURS = {"spend": "spend", "ok": "ok", "rest": "warn"}
 
@@ -507,7 +508,9 @@ def pool_table(entries: list[PoolEntry], all_rows: list[dict[str, Any]], width: 
         else:
             continuations = []
         lines = [text, *continuations]
-        lines.extend(paint_text(part, dim) for note in wrapped for part in wrap_text(note, width))
+        # A note that does not fit the row goes below it, indented like a child row so it reads as that pool's note.
+        lines.extend(paint_text(POOL_NOTE_INDENT + part, dim) for note in wrapped
+                     for part in wrap_text(note, max(1, width - len(POOL_NOTE_INDENT))))
         if not row or "FAMILY" not in columns:
             lines[-1:] = _quota_suffix(lines[-1], marker, width, unicode, dim)
         rendered.append(lines)
