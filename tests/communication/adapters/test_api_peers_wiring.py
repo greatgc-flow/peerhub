@@ -316,18 +316,20 @@ def test_profile_list_and_explain_show_the_api_profiles(tmp_path, monkeypatch, c
 
 
 def test_guide_names_the_api_peers_and_points_to_their_topic(capsys):
-    """0.25.0 D5: the guide keeps one line for the API peers; the rule and the caps live in the explain topics."""
+    """The guide names API peers and points to their lesson and the batch resource rule."""
     from peerhub.cli.app import main
+    from peerhub.cli.guide import GUIDE_MAX_BYTES
     from peerhub.cli.lessons import lesson_by_id
 
     assert main(["guide"]) == 0
     out = capsys.readouterr().out
     assert "ca/oa/ga = API credits, text only" in out and "api-peers" in out
-    assert len(out.replace("\r\n", "\n").encode("utf-8")) <= 1600
+    assert len(out.replace("\r\n", "\n").encode("utf-8")) <= GUIDE_MAX_BYTES
     api_topic = " ".join(lesson_by_id("api-peers")[0]["fix"].split())
     assert "ca, oa and ga read no file" in api_topic and "ga (Gemini API; the key only in the environment variable GEMINI_API_KEY)" in api_topic
     load_topic = " ".join(lesson_by_id("batch-and-load")[0]["fix"].split())
-    assert "cc 3/cx 3/ag 1/ca 3/oa 3/ga 3" in load_topic
+    assert "PeerHub does not cap the count" in load_topic
+    assert "RAM is low or CPU load is high" in load_topic
 
 
 def test_suggest_never_names_an_api_peer(tmp_path):

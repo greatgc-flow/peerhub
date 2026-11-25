@@ -13,7 +13,7 @@ from peerhub.cli.app import main
 from peerhub.cli.lessons import lesson_by_id
 from peerhub.cli.monitor_view import POOLS_USE_FIRST_ASCENDING
 from peerhub.core import load_limits as L
-from peerhub.extensions.batch import RECOMMENDED_MAX_PARALLEL
+from peerhub.cli.guide import GUIDE_MAX_BYTES
 
 pytestmark = [pytest.mark.unit]
 
@@ -30,7 +30,7 @@ def test_topic_exists_and_is_named_by_the_guide(capsys):
     assert main(["guide"]) == 0
     guide = capsys.readouterr().out
     assert TOPIC in re.search(r"peerhub explain <topic> for: ([a-z0-9, -]+?);", guide).group(1).split(", ")
-    assert len(guide.replace("\r\n", "\n").encode("utf-8")) <= 1600
+    assert len(guide.replace("\r\n", "\n").encode("utf-8")) <= GUIDE_MAX_BYTES
 
 
 def test_topic_is_the_loop_in_order():
@@ -40,14 +40,12 @@ def test_topic_is_the_loop_in_order():
     assert positions == sorted(positions), "read quota, pick pools, split, run a wave, re-read, defer when none"
 
 
-def test_topic_matches_the_pool_order_and_the_batch_cap():
+def test_topic_matches_the_pool_order_and_resource_thresholds():
     text = _text()
     assert ("lowest 7D PACE first" if POOLS_USE_FIRST_ASCENDING else "highest 7D PACE first") in text
-    assert "--max-parallel n" in text and "n = " in text, "the wave size n is open, not fixed"
-    assert f"{RECOMMENDED_MAX_PARALLEL} keeps one slot free" in text
-    for limit in (f"active asks {L.ACTIVE_ASKS_DEFAULT} default, ceiling {L.ACTIVE_ASKS_CEILING}", *(f"{p} {L.PER_PEER_LIMITS[p]}" for p in L.CLI_PEERS)):
-        assert limit in text
-    assert "at most 3 tasks" not in text
+    assert "--max-parallel n" in text and "PeerHub does not cap the count" in text
+    assert f"free RAM >= {L.MIN_FREE_RAM_GB} GB, CPU below {L.CPU_BUSY_WARN_PCT}%" in text
+    assert "watch G-5H after each wave" in text
     for word in ("spend", "hold", "rest", "blocked", "stale", "<5%"):
         assert word in text
     assert "5H only gates" in text
@@ -87,13 +85,10 @@ def test_ai_reads_diag_and_never_the_monitor(capsys):
         assert "never `peerhub monitor`" in agents.read_text(encoding="utf-8")
 
 
-def test_docs_derive_the_limits_from_the_one_source():
+def test_docs_match_the_resource_thresholds():
     doc = (REPO / "docs" / "batch.md").read_text(encoding="utf-8")
-    assert f"| Active asks, ceiling | {L.ACTIVE_ASKS_CEILING} |" in doc
-    assert f"| Active asks, default | {L.ACTIVE_ASKS_DEFAULT} " in doc
-    per_peer = ", ".join(f"{p} {L.PER_PEER_LIMITS[p]}" for p in L.CLI_PEERS)
-    assert f"| Per peer | {per_peer} " in doc
-    assert f"| Free RAM | keep at least {L.MIN_FREE_RAM_GB} GB |" in doc
+    assert f"| Free RAM | Below {L.MIN_FREE_RAM_GB} GB |" in doc
+    assert f"| CPU load | At or above {L.CPU_BUSY_WARN_PCT}% |" in doc
     assert "the `load:` line" in doc and "human screen" in (REPO / "docs" / "monitor.md").read_text(encoding="utf-8")
 
 
@@ -105,9 +100,10 @@ def test_topic_gives_facts_and_leaves_the_decision_to_the_ai():
 
 def test_guide_batch_line_does_not_cap_parallel_work_at_a_fixed_number(capsys):
     assert main(["guide"]) == 0
-    batch = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("Batch:"))
+    guide = capsys.readouterr().out
+    batch = next(line for line in guide.splitlines() if line.startswith("Batch:"))
     assert "at most" not in batch and "--max-parallel" in batch
-    assert "n at once" in batch and TOPIC in batch
+    assert "n at once" in batch and TOPIC in guide
 
 
 def test_topic_covers_inflight_spend_mid_wave_refusal_and_replay():

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
-from peerhub.core.load_limits import load_snapshot
+from peerhub.core.load_limits import ResourceSample, load_snapshot
 from peerhub.extensions.diag import ReadonlyDiag
 from tests.communication.diag.test_diag_plan_339 import HOUR, _item, _report
 
@@ -43,7 +43,7 @@ def diag_cli(monkeypatch, capsys):
     reports = {SELECTED: primary_report, ALTERNATE: _report(alternate)}
     reads = []
     load_reads = []
-    load = load_snapshot({"cx": 1, "cc": 1}, None, {"X-5H": 1, "C-5H": 1})
+    load = load_snapshot({"cx": 1, "cc": 1}, ResourceSample(), {"X-5H": 1, "C-5H": 1})
 
     def read(reader, sections, **kwargs):
         db = Path(reader.db_path).name

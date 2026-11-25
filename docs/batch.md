@@ -1,10 +1,11 @@
 # Batch runs
 
-Validate a flat manifest before executing asks (execution spends provider quota):
+Choose a positive integer for `n` based on quota and available machine resources.
+Validate the manifest with `--dry-run` before executing asks that spend provider quota.
 
 ```powershell
-peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run --json
-peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --json
+peerhub batch run tasks.json --batch-id review-001 --max-parallel n --dry-run --json
+peerhub batch run tasks.json --batch-id review-001 --max-parallel n --json
 ```
 
 `peerhub batch run --help` includes a JSON example for the manifest path argument.
@@ -12,25 +13,22 @@ peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --json
 Use global `--db PATH` before `batch` to select a store. The parent resolves one
 absolute store path for every worker, including tasks with different workspaces.
 Dry runs validate without spawning workers or creating the store.
-`--batch-id` and `--max-parallel` are required; parallelism is 1..16. The guide and every example
-recommend 3 (`RECOMMENDED_MAX_PARALLEL` in `peerhub/extensions/batch.py`, the one constant).
+`--batch-id` and `--max-parallel` are required. PeerHub does not cap the count.
 
 Dry-run warnings cover equal or nested workspaces for writable pairs
-(`workspace_overlap`), per-peer limits (`per_peer_limit`), the active-ask ceiling
-and default (`active_asks_ceiling`, `active_asks_default`), low free RAM (`free_ram`),
-and the sampled lease count (`active_asks_sample`). When the projected load exceeds the ceiling,
-one warning covers both active-ask thresholds. The sample appears as `active now N`
-or `active now ?` when unavailable, with `active_now` set to the count or `null` in JSON.
-When other or unknown asks are active, the line includes the ownership split. JSON
-provides `active_by_relation` with null counts for an unavailable sample. See
+(`workspace_overlap`), low free RAM (`free_ram`), and high CPU load (`cpu_busy`).
+Dry runs show the same `load` object as `diag --plan`. The text line includes the
+ownership split when other or unknown asks are active. JSON provides
+`load.active_by_relation` with null counts for an unavailable sample. Pool
+attribution is available through `diag --plan`. See
 `peerhub explain caller-ownership` for session setup.
 When the selected store has settled or uncertain tasks from the manifest for the same batch ID,
-`replay: N settled, M uncertain` appears before the warnings. JSON includes both
-counts in `replay`. Workspace overlap can invalidate a manifest. Load warnings are advisory.
+`replay: N settled, M uncertain` appears before the load line. JSON includes both
+counts in `replay`. Workspace overlap can invalidate a manifest.
 
 The execution report totals task outcomes as `ok`, `failed`, `uncertain`, and `quota_refused`.
 
-The UTF-8 JSON manifest contains only `tasks` (1..256 entries):
+The UTF-8 JSON manifest contains only `tasks`, with at least one entry.
 
 ```json
 {"tasks":[{"task_id":"review","peer":"cx","prompt":"Review the code"}]}
@@ -78,7 +76,7 @@ Without the flag the output is unchanged; read a reply with
 - ag task: `workspace` = a private EMPTY directory. ag tasks are always writable; an empty
   directory passes the overlapping-writers check and keeps ag away from the repo.
 - Put every fact in each prompt; the empty-directory ag peer cannot read the repo.
-- `peerhub batch run votes.json --batch-id vote-001 --max-parallel 3 --responses`
+- `peerhub batch run votes.json --batch-id vote-001 --max-parallel n --responses`
 - Replies are in the report (before 0.24.13: `peerhub record read --stream <stream> --json`).
 - Measured 2026-11-14: three peers answered in 11 s.
 
@@ -145,7 +143,7 @@ check available quota before execution. COMPLETED proves delivery, not task succ
 
 ## Choosing profiles and concurrency (manual)
 
-Both rules are advice for the caller; PeerHub never selects a profile or throttles for you.
+The caller selects the profile and decides how many tasks to run based on quota and machine resources.
 Tiers: `standard` = eco, `effort` = normal (default for implementation), `deepthink` = quality,
 `<peer>.<top>` (`cx.astra`, `ag.neon`, `ag.argon`, `cc.fable`) = top: opt-in, never a default.
 
@@ -169,26 +167,31 @@ Argon uses the shared Gemini quota shown in `peerhub diag --plan`.
 
 For an AI planning a parallel wave, `peerhub explain parallel-quota` is the recipe (order by 7D PACE, size n by quota and load); this section is the manual reference.
 
-**I. Concurrency** (counted across batches and manual asks together)
+**I. Concurrency**
 
-| Limit | Value |
+Run n at once as quota and machine resources allow (free RAM >= 6 GB, CPU below 90%).
+PeerHub does not cap the count. Before each launch, the runner checks available RAM and CPU load.
+It waits and polls every few seconds when either observed reading reaches the warning condition.
+Already running tasks continue. Unavailable readings show `?` and do not block launches.
+
+| Resource | Warning condition |
 | --- | --- |
-| Active asks, default | 4 (a batch takes `--max-parallel 3`, one slot stays free for a manual ask; the option stays required) |
-| Active asks, ceiling | 6 |
-| Per peer | cc 3, cx 3, ag 1 (use 2 for ag only after seeing no G-5H spike) |
-| pytest | one run at a time, never alongside more than 3 asks |
-| Free RAM | keep at least 6 GB |
+| Free RAM | Below 6 GB |
+| CPU load | At or above 90% |
+
+The JSON `cpu_busy_pct` reports system-wide CPU utilization sampled over a short interval.
 
 If a provider throttles, reduce concurrency; do not reroute the same work to another peer.
 
 **J. Parallel work over the least quota** (rule H picks the peer for a single ask; J sizes and orders a wave; advice only; PeerHub gives the facts and the AI decides; `peerhub explain parallel-quota` has the same default plan)
 
-1. `peerhub diag --plan` (about 350 tokens; the AI query: pools from stored evidence, then the `load:` line with active asks, per-peer slots and free RAM, sampled now; `--json` has a `load` object). `peerhub monitor` is the human screen; AIs do not read it. Usable: `spend`, then `hold`; not usable: `rest`, `blocked`, `-` (n/a). Old or `(stale)` evidence: `peerhub observation refresh` (no model tokens), then read again.
+1. `peerhub diag --plan` shows pools from stored evidence and the `load:` line with active asks by peer and quota pool, free RAM, and CPU load and logical cores, sampled now. With `--json`, read the `load` object. `peerhub monitor` is the human screen. Use `spend` pools first, then `hold`. For old or `(stale)` evidence, run `peerhub observation refresh` (no model tokens), then read again.
    A parent-limited child uses effective quota and time to reset for its displayed `BUDGET%/h`. Advice ranks the pool's own action, its effective parent action, and applicable gates for the same profile on the same account in order of `spend`, `hold`, `rest`, and `blocked`. The most restrictive action wins. A fresh zero for a shared pool can gate other configured pools on the same account even when another reporter supplied the displayed reading. When a gate wins, the reason and JSON `binding` name its pool, and an exhausted gate reports `gate: <pool> out`. A stale zero keeps its refresh reason. In JSON, `target_pct_per_hour`, `left_pct`, `pace_pt` and `resets_in_seconds` describe the child's own window, and `health` carries its effective state, pace and reset.
 2. Order usable pools by 7D PACE, lowest first; rank a family by its 7D parent; 5H only gates; skip pools under 5% and `fast` pools. A weekly JSON row can show `hold` while its `gates` list reports a short window that has reset. See the lesson for the other JSON row fields.
 3. Split into independent tasks (no shared files, one workspace per writer, ag a private empty one), the lowest tier that fits, one fresh ask each with facts inline, a different model per vote.
-4. Wave size n = as many tasks as quota and load allow (not a fixed 3): one per usable pool top-down, then more on the same pool while the peer stays under its limit (cc 3 / cx 3 / ag 1) and the total under the active-ask limit (4, ceiling 6, manual asks count; 3 keeps one slot free): `peerhub batch run tasks.json --batch-id ID --max-parallel n`.
+4. Start with the usable pools in order. Choose `n` based on their quota and the available machine resources, then run `peerhub batch run tasks.json --batch-id ID --max-parallel n`.
 5. After each wave run `peerhub observation refresh`, then `peerhub diag --plan` again; asks still running are in-flight spend the readings do not show yet, so keep a margin; a task refused for quota is reported per task and the rest of that manifest still runs (one wave per manifest); the same batch ID replays settled tasks; a pool that turned `rest` or `blocked` drops out. No usable pool: defer.
+   Parallel ag asks were seen to spike G-5H, so watch G-5H after each wave.
    The load line lists in-flight counts for pools with applicable table rows. Its
    `n/a pools` clause lists other mapped in-flight pools, with `+K` for any names
    beyond the display limit. JSON `load.by_pool` includes all mapped pools.

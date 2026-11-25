@@ -2,7 +2,7 @@
 
 Tests:
 - size cap, one pointer line, every pointer topic resolves
-- max-parallel 3 from ONE constant (no stale literal anywhere)
+- caller-chosen parallelism and shared resource thresholds
 - the vote policy and the verdict template (D6/A5)
 - every fact of the former guide is still reachable through `explain`
 - works without store or providers; pointers in --help and README.md
@@ -17,12 +17,13 @@ import pytest
 
 from peerhub.cli.app import build_parser, main
 from peerhub.cli.lessons import lesson_by_id, load_lessons
+from peerhub.cli.guide import GUIDE_MAX_BYTES
+from peerhub.core.load_limits import CPU_BUSY_WARN_PCT, MIN_FREE_RAM_GB
 from peerhub.core.peer_kinds import QUOTA_CAPABLE_PEERS
 from tools.release_notes import release_notes
 
 pytestmark = [pytest.mark.unit]
 
-GUIDE_CAP = 1600
 REPO = Path(__file__).resolve().parents[3]
 TOPICS = ("ask-basics", "writes-and-uncertain", "store-and-upgrade", "batch-and-load", "discovery-commands", "report-issues")
 
@@ -51,7 +52,7 @@ def _topics_named_by(guide: str) -> list[str]:
 
 def test_guide_is_at_most_1600_bytes_of_lf_text(capsys):
     out = _guide(capsys)
-    assert len(out.encode("utf-8")) <= GUIDE_CAP, f"{len(out.encode('utf-8'))} bytes"
+    assert len(out.encode("utf-8")) <= GUIDE_MAX_BYTES, f"{len(out.encode('utf-8'))} bytes"
     assert "\r" not in out and out.isascii()
     assert len(out.splitlines()) <= 14
 
@@ -145,8 +146,13 @@ def test_guide_example_commands_parse_via_real_argparse(capsys):
     out = _guide(capsys)
     parser = build_parser()
     found = 0
-    for match in re.finditer(r"(?m)^[A-Za-z]+: (peerhub batch run [^\n]*?)(?: \(|$)", out):
-        parser.parse_args(shlex.split(match.group(1))[1:])
+    for match in re.finditer(r"(?m)^Batch: (peerhub batch run .*? --dry-run)", out):
+        command = shlex.split(match.group(1))[1:]
+        position = command.index("--max-parallel") + 1
+        assert command[position] == "n"
+        command[position] = str(len(command))
+        args = parser.parse_args(command)
+        assert args.dry_run and args.max_parallel == len(command)
         found += 1
     assert found == 1
     for command in ("peerhub profile list", "peerhub explain lessons"):
@@ -196,37 +202,24 @@ def test_every_topic_is_one_short_explain_entry(capsys):
         assert len(render_lesson(lesson).splitlines()) <= 5 and lesson["keywords"] and lesson["issue"], topic
 
 
-# ---- max-parallel: one constant ----------------------------------------------------------------------------------
-
 def test_guide_separates_batch_validation_from_quota_spend(capsys):
-    batch = next(line for line in _guide(capsys).splitlines() if line.startswith("Batch: "))
-    assert "--dry-run (validates only)" in batch
-    assert "execution spends quota" in batch
+    line = next(line for line in _guide(capsys).splitlines() if line.startswith("Batch: "))
+    assert "--max-parallel n --dry-run" in line
+    assert "execution spends quota" in line
 
 
-def test_max_parallel_three_comes_from_one_constant(capsys):
-    from peerhub.extensions import batch
-
-    assert batch.RECOMMENDED_MAX_PARALLEL == 3 and 1 <= batch.RECOMMENDED_MAX_PARALLEL <= batch.MAX_PARALLEL
-    out = _guide(capsys)
-    assert f"--max-parallel {batch.RECOMMENDED_MAX_PARALLEL} --dry-run" in out
-    source = (REPO / "peerhub" / "cli" / "guide.py").read_text(encoding="utf-8")
-    assert "RECOMMENDED_MAX_PARALLEL" in source and not re.search(r"--max-parallel \d", source)
+def test_guide_uses_shared_resource_thresholds(capsys):
+    line = next(line for line in _guide(capsys).splitlines() if line.startswith("Batch: "))
+    assert f"free RAM >= {MIN_FREE_RAM_GB} GB, CPU below {CPU_BUSY_WARN_PCT}%" in line
+    assert "PeerHub does not cap the count" in line
 
 
-def test_no_stale_max_parallel_literal_in_guide_docs_or_lessons(capsys):
-    from peerhub.extensions import batch
-
-    out = _guide(capsys)
-    assert "--max-parallel 2" not in out
-    texts = {"guide": out}
+def test_no_fixed_parallelism_in_guide_docs_or_lessons(capsys):
+    texts = {"guide": _guide(capsys)}
     for rel in ("README.md", "docs/batch.md", "peerhub/config_data/lessons.toml", "docs/lessons.md"):
         texts[rel] = (REPO / rel).read_text(encoding="utf-8")
     for name, text in texts.items():
-        assert "--max-parallel 2" not in text, name
-        for value in re.findall(r"--max-parallel (\d+)", text):
-            assert int(value) == batch.RECOMMENDED_MAX_PARALLEL, (name, value)
-    assert "--max-parallel 3" in texts["README.md"] and "--max-parallel 3" in texts["docs/batch.md"]
+        assert "--max-parallel n" in text and not re.search(r"--max-parallel \d", text), name
 
 
 # ---- the former guide: every fact is still reachable --------------------------------------------------------------
@@ -263,10 +256,10 @@ FORMER_GUIDE_FACTS: dict[str, tuple[str, ...]] = {
     "batch-and-load": (
         "executes asks (spends quota)", "ag tasks always writable", "overlapping writers rejected",
         "cancel: Windows tree kill, POSIX best-effort", "inspect UNCERTAIN", "keep manifest + batch-id",
-        "4 active asks (max 6; cc 3/cx 3/ag 1/ca 3/oa 3/ga 3)", "suggest: is advisory (rule H)",
+        "PeerHub does not cap the count", "suggest: is advisory (rule H)",
         "reject stale/unknown/reset/<5% pools, prefer pools without fast, all-fast = slow/defer",
         "compare 7D PACE (5H only gates)", "PACE (pp, used%-elapsed%) needs a fresh quota age",
-        "+ = ahead of even burn", "peerhub batch run tasks.json --batch-id review-001 --max-parallel 3 --dry-run",
+        "+ = ahead of even burn", "peerhub batch run tasks.json --batch-id review-001 --max-parallel n --dry-run",
         "TTY monitor watch refreshes quota when due", "--no-probe", "diag read committed evidence",
         "uncertain streams may stay quota-blocked after reset", "aged quota is last-known; refresh first",
         "accounts: cc/cx only; new peer+root per login; protected roots; overrides scrubbed (names kept for failures/replay); bound quota unobserved; backups have roots",
@@ -315,7 +308,7 @@ def test_independent_peer_votes_is_extended_not_duplicated():
     for needle in ("routine check = ONE reviewer, FRESH", "consequential (release, schema, deletion, public API)",
                    "3 independent peers, unanimity", "even when a stream name is given",
                    "a named stream is for review rounds on one diff only", "VERDICT / BLOCKERS / NITS", "<= 300 tokens",
-                   "no `vote` command", "--max-parallel 3 --responses",
+                   "no `vote` command", "--max-parallel n --responses",
                    # the earlier facts stay
                    "did not author it", "not writable", "private empty directory", "11 s"):
         assert needle in text, needle

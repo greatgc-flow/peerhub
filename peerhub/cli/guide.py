@@ -1,6 +1,6 @@
 """PeerHub guide (0.25.0 plan D5): decisions only, at most 1600 bytes of ASCII.
 
-Rare hazards, the store and upgrade steps, batch and load limits, discovery commands and the API peers moved to
+Rare hazards, the store and upgrade steps, batch resources, discovery commands and the API peers moved to
 `peerhub explain <topic>` (peerhub/config_data/lessons.toml); the profile table is `peerhub profile list`.
 The guide uses only packaged data and reads no store, profile file or provider.
 """
@@ -15,7 +15,7 @@ def render_guide(workspace: Path | None = None) -> str:
     """The decisions a caller needs before its first ask. `workspace` is accepted for callers; it is not read."""
     del workspace
     from peerhub.cli.lessons import load_lessons
-    from peerhub.extensions.batch import RECOMMENDED_MAX_PARALLEL
+    from peerhub.core.load_limits import CPU_BUSY_WARN_PCT, MIN_FREE_RAM_GB
     from peerhub.core.peer_kinds import API_PEER_KINDS
 
     # The first pointer belongs to the Votes line. The rest appear under More.
@@ -26,13 +26,15 @@ def render_guide(workspace: Path | None = None) -> str:
         "PeerHub guide (decisions only)",
         # CLI peers are grouped by what their sandboxes support.
         f"Peer: cc/cx for code and files (sandbox enforced); ag for drafts with content inline (always --writable, not enforced); {'/'.join(API_PEER_KINDS)} = API credits, text only.",
-        "Tier: lowest that fits: standard = bulk, effort = code and routine review, deepthink = design and final check.",
-        "Models: tops (cx.astra, ag.neon, ag.argon, cc.fable) underused: use for design, review, final checks; vary model and effort; each vote a different model.",
-        "Quota (AI): peerhub diag --plan = pools + load + RAM (stale: observation refresh); monitor = human screen.",
-        "Stream: one task = one --stream; reuse only for follow-ups and review rounds on ONE diff; new task = new stream.",
+        "Tier: lowest that fits: standard=bulk, effort=code and routine review, deepthink=design and final check.",
+        "Models: underused tops (cx.astra, ag.neon, ag.argon, cc.fable) for design, review, final checks; vary model/effort; different model per vote.",
+        "Quota (AI): peerhub diag --plan = pools, load, RAM/CPU (stale: observation refresh); monitor for humans.",
+        "Stream: one --stream per task; reuse only for follow-ups/reviews on ONE diff; new task = new stream.",
         f"Votes: routine check = ONE reviewer; consequential (release, schema, deletion, public API) = 3 independent peers, unanimity. All run FRESH, even if a stream name is given; facts inline. Reply VERDICT / BLOCKERS / NITS, <= 300 tokens (peerhub explain {vote['id']}).",
-        f"Batch: peerhub batch run tasks.json --batch-id review-001 --max-parallel {RECOMMENDED_MAX_PARALLEL} --dry-run (validates only); execution spends quota; n at once as quota and load allow (explain parallel-quota).",
+        f"Batch: peerhub batch run tasks.json --batch-id ID --max-parallel n --dry-run (validates only); execution spends quota. "
+        f"n at once as quota and machine resources allow (free RAM >= {MIN_FREE_RAM_GB} GB, CPU below {CPU_BUSY_WARN_PCT}%); "
+        "PeerHub does not cap the count.",
         "Timeout: --timeout-seconds 1800-3600 for implementer/review (default 600); ag up to 7200.",
-        "Uncertain (timeout, empty reply, pending_earlier_record): stop that stream, check diag running, the working tree, never blind-retry.",
-        f"More: peerhub profile list; peerhub explain <topic> for: {more}; all topics: peerhub explain lessons.",
+        "Uncertain (timeout, empty reply, pending_earlier_record): stop the stream, check diag running and working tree, never blind-retry.",
+        f"More: peerhub profile list; peerhub explain <topic> for: {more}; peerhub explain lessons.",
     ])

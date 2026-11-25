@@ -9,7 +9,13 @@ from pathlib import Path
 import pytest
 
 from peerhub.cli.app import main
+from peerhub.core.load_limits import ResourceSample
 from peerhub.extensions import batch
+
+@pytest.fixture(autouse=True)
+def machine_resources(monkeypatch):
+    monkeypatch.setattr(batch, "read_resources", ResourceSample)
+
 
 FAKE = str(Path(__file__).resolve().parent / "harness" / "fake_worker.py")
 
@@ -55,7 +61,7 @@ def test_required_options(tmp_path, flag):
     assert exc.value.code == 2
 
 
-@pytest.mark.parametrize("limit", ["0", "17"])
+@pytest.mark.parametrize("limit", ["0", "-1"])
 @pytest.mark.parametrize("json_output", [False, True])
 def test_parallel_limit_error(tmp_path, capsys, limit, json_output):
     args = argv(tmp_path, manifest(tmp_path), *(["--json"] if json_output else []))
@@ -83,9 +89,9 @@ def test_dry_run_no_spawn_or_store(tmp_path, capsys, monkeypatch, peer, writable
     assert plan == {"dry_run": True, "batch_id": "b1", "max_parallel": 2, "tasks": [
         {"task_id": "a", "peer": peer, "stream": stream, "request_id": request, "writable": writable,
          "profile": None, "profile_display": "(peer default)", "workspace": os.path.normcase(os.path.realpath(Path.cwd()))}], "warnings": plan["warnings"],
-        "active_now": plan["active_now"], "active_by_relation": plan["active_by_relation"]}
-    assert plan["active_now"] is None or isinstance(plan["active_now"], int)
-    assert plan["active_by_relation"] is None or set(plan["active_by_relation"]) == {"mine", "other", "unknown"}
+        "load": plan["load"]}
+    assert plan["load"]["active"] is None or isinstance(plan["load"]["active"], int)
+    assert set(plan["load"]["active_by_relation"]) == {"mine", "other", "unknown"}
     assert isinstance(plan["warnings"], list)  # facts only (batch_run_facts); never changes the exit code
     assert not (tmp_path / "missing").exists()
 

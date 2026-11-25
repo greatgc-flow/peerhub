@@ -8,6 +8,11 @@ they do not claim new validation or publication evidence.
 
 ## [Unreleased]
 
+### Changed
+
+- Parallel asks have no PeerHub count cap. Batch runs require a positive caller-chosen `--max-parallel` and wait to launch more work when free RAM is below 6 GB or CPU load reaches 90%. Already running asks continue.
+- The JSON `load` object drops `limit_default`, `limit_ceiling`, `slots_free`, and the per-peer `limit` and `free` fields. It adds `cpu_busy_pct`, `cpu_busy_warn_pct`, and `cpu_logical_cores`. Batch dry runs now use the same `load` object, with `load.active` and `load.active_by_relation` replacing the top-level `active_now` and `active_by_relation`.
+
 ### Fixed
 
 - The live monitor rewrites only the rows that changed each second and repaints the whole frame when its row count changes (a resize) and once a minute. Repainting the full frame (colour and hyperlinks included) every second for a day filled a VS Code terminal until its window hung.

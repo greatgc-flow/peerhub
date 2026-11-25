@@ -136,14 +136,16 @@ def test_reports_newest_caller_evidence_and_classifies_against_each_reader(lease
     assert [row["relation"] for row in report(__file__)["rows"]] == ["other", "mine", "unknown"]
 
 
-def test_load_discards_all_counts_when_the_lease_read_is_truncated(lease_store):
-    from peerhub.extensions.diag_running import LOAD_ROW_LIMIT, sample_load
+def test_plan_counts_all_active_leases_while_running_report_limits_rows(lease_store):
+    from peerhub.extensions.diag_running import MAX_ROWS, sample_load
 
-    seed_leases(lease_store, LOAD_ROW_LIMIT + 1)
-    assert report(__file__, limit=LOAD_ROW_LIMIT)["truncated"]
+    count = MAX_ROWS ** 3
+    seed_leases(lease_store, count)
+    limited = report(__file__)
+    assert limited["truncated"] and len(limited["rows"]) == MAX_ROWS
     load = sample_load(__file__, read_at=NOW)
-    assert load["active"] is None
-    assert load["active_by_relation"] == dict.fromkeys(("mine", "other", "unknown"))
+    assert load["active"] == count and load["peers"]["cx"] == {"active": count}
+    assert load["active_by_relation"] == {"mine": 0, "other": 0, "unknown": count}
 
 
 def test_expired_claim_is_excluded(db):
