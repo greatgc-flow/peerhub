@@ -284,6 +284,9 @@ def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
 
     Expanded POOLS also lists the short windows that do not bind. Each tuple carries its indentation depth.
     """
+    retired_weekly = {(row["peer"], row["family"], str(row["pool_ref"]).rpartition(":")[0]) for row in rows
+                      if row["retired"] and row["family"] != "?" and parse_window(str(row["pool"]))[0] == WEEK_SECONDS}
+    rows = [row for row in rows if row["state"] != QUOTA_NA]
     scoped = scoped_weekly_parents(rows)
     weekly: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
@@ -293,8 +296,13 @@ def ordered_pools(rows: list[dict[str, Any]], *, every: bool = False,
     children: dict[int, list[dict[str, Any]]] = {}  # binding sub-rows contribute to sorting
     listed: dict[int, list[dict[str, Any]]] = {}  # the sub-rows the frame lists
     for row in rows:
+        window = parse_window(str(row["pool"]))[0]
         parent = scoped.get(id(row)) or weekly.get((str(row["peer"]), str(row["family"])))
-        if parent is None or parent is row or (id(row) not in scoped and parse_window(str(row["pool"]))[0] >= WEEK_SECONDS):
+        if parent is None or parent is row or (id(row) not in scoped and window >= WEEK_SECONDS):
+            # A retired parent must not promote a stale short window with no quota value.
+            if (not every and window < WEEK_SECONDS and row["state"] == "aged" and not _has_value(row)
+                    and (row["peer"], row["family"], str(row["pool_ref"]).rpartition(":")[0]) in retired_weekly):
+                continue
             tops.append(row)
             continue
         binds = _binds(row, parent)

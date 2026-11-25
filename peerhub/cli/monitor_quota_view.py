@@ -165,10 +165,11 @@ def _pools_heading(title: str, head: str, width: int, unicode: bool, rich: bool,
 
 def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: str | None = None, *,
                   rich: bool = False, paint: bool = False, every: bool = False, guide_url: str | None = None,
-                  profile_urls: Mapping[str, Any] | None = None) -> tuple[list[str], int, int]:
+                  profile_urls: Mapping[str, Any] | None = None,
+                  show_quota_notes: bool = SHOW_QUOTA_NOTES_DEFAULT) -> tuple[list[str], int, int]:
     """POOLS rows, including inline markers and counts for any unavailable windows passed in."""
-    ordered = ordered_pools([row for row in rows if row["state"] != QUOTA_NA], every=every)
-    unavailable = [row for row in rows if row["state"] == QUOTA_NA]
+    ordered = ordered_pools(rows, every=every)
+    unavailable = [row for row in rows if row["state"] == QUOTA_NA] if show_quota_notes else []
     suffixes, marker_rows = fold_pool_markers(ordered, unavailable, unicode, keep)
     shown = ordered if every else ordered[:POOLS_CAP]
     head = f"{FRAME_SECTIONS['pools']} {len(ordered) + len(unavailable) - len(marker_rows)}"
@@ -185,7 +186,8 @@ def pool_section(rows: list[dict[str, Any]], width: int, unicode: bool, keep: st
         name = f"{' ' * cell_width(peer)} {prefix}{pool}" if depth else f"{peer} {pool}"
         entries.append(((" " + peer if id(row) in marker_rows else " " + name),
                         {} if id(row) in marker_rows else row, depth > 0, suffixes.get(id(row), "")))
-    headers, table, _ = pool_table(entries, rows, width - 1, unicode, keep, rich=rich, paint=paint, head=head,
+    table_rows = rows if show_quota_notes else [row for row in rows if row["state"] != QUOTA_NA]
+    headers, table, _ = pool_table(entries, table_rows, width - 1, unicode, keep, rich=rich, paint=paint, head=head,
                                     guide_url=guide_url, profile_urls=profile_urls)
     lines = [line for entry in table for line in entry]
     headings = [_pools_heading(head, headers[0], width, unicode, rich, paint), *headers[1:]]

@@ -330,8 +330,8 @@ def build_compact_frame(payload: dict[str, Any], *, view: str, color: bool, unic
             frame.pool_gap = pool_gap(rows, width, unicode, show_quota_notes=show_notes)
             frame.pool_legend = wrap_text(POOL_LEGEND, width)
             frame.pools, frame.pools_total, frame.pools_header_lines = pool_section(
-                visible_rows, pool_width or width, unicode, keep, rich=rich, paint=paint, every=expand,
-                guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls)
+                rows, pool_width or width, unicode, keep, rich=rich, paint=paint, every=expand,
+                guide_url=payload.get("_state_doc_url"), profile_urls=profile_urls, show_quota_notes=show_notes)
             if not expand and show_notes:
                 dim = RICH_SGR["dim"] if paint else None
                 frame.pool_notes = [
