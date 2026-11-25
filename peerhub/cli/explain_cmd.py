@@ -8,7 +8,8 @@ import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from peerhub.cli.recovery import REGISTRY, RESULT_STATUS_REGISTRY, GuidanceEntry, get_guidance
+from peerhub.cli.recovery import REGISTRY, RESULT_STATUS_REGISTRY, GuidanceEntry
+from peerhub.cli.recovery_render import get_guidance
 from peerhub.core.peer_kinds import BUILTIN_PEER_KINDS
 
 if TYPE_CHECKING:

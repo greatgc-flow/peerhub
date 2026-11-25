@@ -143,7 +143,7 @@ def test_t1_executable_not_on_path_is_prespawn(monkeypatch, mk):
 def test_t1_a_missing_tool_names_the_next_step(monkeypatch, mk, kind, prefix):
     """#385: the message says what to do and keeps `executable not found`, the text a launch failure is classified by."""
     from peerhub.cli.lessons import lesson_by_id
-    from peerhub.cli.recovery import select_guidance_code
+    from peerhub.extensions.recovery_classification import select_guidance_code
 
     monkeypatch.setattr("peerhub.extensions.adapters.base.shutil.which", lambda n: None)
     monkeypatch.delenv("PEERHUB_AG_TRANSPORT", raising=False)

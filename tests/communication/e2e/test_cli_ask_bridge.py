@@ -283,7 +283,7 @@ def test_active_claim_blocks_second_ask_before_prompt_append(tmp_path):
 
 
 def test_older_work_progress_reported_without_uncertain_label(tmp_path):
-    from peerhub.cli.recovery import select_guidance_code
+    from peerhub.extensions.recovery_classification import select_guidance_code
     from peerhub.core.models import Peer, Stream
     from peerhub.core.store import utc_now_iso
     db = tmp_path / "core.db"

@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from peerhub.cli import monitor_activity_view, monitor_compact, monitor_format, monitor_layout, monitor_legend, monitor_links
+from peerhub.cli import monitor_compact, monitor_format, monitor_layout, monitor_legend, monitor_links, monitor_running_view
 from peerhub.cli.monitor_layout import cell_width
 from peerhub.cli.monitor_legend import FRAME_HEADS, FRAME_SECTIONS
 from peerhub.cli.monitor_view import render_grouped_frame
@@ -412,7 +412,7 @@ def test_running_entries_start_with_the_compact_marker_and_keep_every_field():
     asks = [row for row in payload["groups"]["activity"]["data"]["asks"] if row["state"] in ("run", "overdue")]
     for row, ask_row in zip(rows, asks):
         text = flat(row)
-        for field in monitor_activity_view._ask_fields(ask_row):
+        for field in monitor_running_view._ask_fields(ask_row):
             assert field in text, field
         assert f"ask: {ask_row['ask_line_long']}" in text
         assert all(line.startswith("   ") and not line.startswith("    ") for line in row.splitlines()[1:])

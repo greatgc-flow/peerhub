@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
 from peerhub._console import clean_text, finite_number
-from peerhub.cli.monitor_activity_view import ask_split, plain_activity, rich_activity, running_head
+from peerhub.cli.monitor_activity_view import plain_activity, rich_activity
 from peerhub.cli.monitor_alert_view import group_error
 from peerhub.cli.monitor_compact import build_compact_frame, frame_line_ladder
 from peerhub.cli.monitor_format import na_plan
@@ -28,6 +28,7 @@ from peerhub.cli.monitor_legend import FRAME_DETAIL_ORDER, MONITOR_LEGEND
 from peerhub.cli.monitor_links import link_profiles, location_lines
 from peerhub.cli.monitor_preferences import SHOW_QUOTA_NOTES_DEFAULT
 from peerhub.cli.monitor_quota_view import frame_consumers, frame_pools
+from peerhub.cli.monitor_running_view import ask_split, running_total
 from peerhub.cli.monitor_sections import group_label, group_lines
 from peerhub.extensions.observation_model import NOT_REPORTED_REASON
 
@@ -82,7 +83,8 @@ def render_expanded_frame(payload: dict[str, Any], *, view: str = "rich", color:
     execution = as_dict(groups.get("execution"))
     if isinstance(activity.get("data"), Mapping) and isinstance(execution.get("data"), Mapping):
         # #394: the leases decide what runs; the sampled certainty counts of EXECUTION do not
-        running_asks = running_head(as_dict(activity.get("data")), ask_split(as_dict(activity.get("data")))[0], True)[1]
+        activity_data = as_dict(activity.get("data"))
+        running_asks = running_total(activity_data, ask_split(activity_data)[0])
         display_groups["execution"] = {**execution, "data": {**as_dict(execution.get("data")), "_running_asks": running_asks}}
     # X5: the plan the provider reports is display text only, shown beside the peer's quota in the PEERS block.
     plan_windows: dict[str, tuple[str, list[str]]] = {}

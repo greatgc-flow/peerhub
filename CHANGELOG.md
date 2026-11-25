@@ -23,6 +23,7 @@ they do not claim new validation or publication evidence.
 
 ### Changed (internal)
 
+- Separate recovery guidance data, outcome classification, and CLI rendering, and split monitor activity rendering into running asks, recent asks, and lead sessions.
 - Split quota and account probes into provider modules with shared probe helpers.
 - Split the Claude Code, Codex, and Antigravity CLI adapters into provider modules. Antigravity owns stream parsing and transport detection.
 - Split session receipts, delivery projections, and ask budgets into separate modules and moved provider usage validation alongside normalization.

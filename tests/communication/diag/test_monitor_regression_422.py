@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from peerhub import _console
-from peerhub.cli import monitor, monitor_activity_view, monitor_legend, monitor_links, monitor_view as mv
+from peerhub.cli import monitor, monitor_legend, monitor_links, monitor_recent_view, monitor_view as mv
 from peerhub.extensions.observation_model import DISABLED_REASON
 from peerhub.extensions import monitor_queries, monitor_read_model
 from tests.communication.diag.test_monitor_na_hidden_400 import na_payload
@@ -25,7 +25,7 @@ from tests.communication.diag.test_monitor_recent_layout import (
 def test_active_work_survives_history_pressure(width, style, expand):
     payload = full_payload()
     activity = payload["groups"]["activity"]["data"]
-    activity["asks"].extend(ended(f"history-{i}", i) for i in range(monitor_activity_view.RECENT_EXPAND * 2))
+    activity["asks"].extend(ended(f"history-{i}", i) for i in range(monitor_recent_view.RECENT_EXPAND * 2))
     screen = mv.render_grouped_frame(payload, view=style, unicode=style == "rich", width=width, height=32, expand=expand)  # M9/G8 add quota lines.
     heads = head_names(screen)
     assert heads.index("ALERTS") < heads.index("RUNNING")
@@ -53,8 +53,8 @@ def test_expanded_history_restores_finished_and_sampled_superseded_rows(width, s
     whole = "\n".join(recent_rows(mv.render_grouped_frame(payload, **options)))
     bounded = "\n".join(recent_rows(mv.render_grouped_frame(payload, height=100, **options)))
     assert f"history-{cap - 1:02}" in whole and f"history-{cap:02}" not in whole
-    assert "replaced-ask" in whole and monitor_activity_view.SUPERSEDED_MARK in whole
-    assert f"history-{monitor_activity_view.RECENT_EXPAND:02}" not in bounded and "replaced-ask" not in bounded
+    assert "replaced-ask" in whole and monitor_legend.SUPERSEDED_MARK in whole
+    assert f"history-{monitor_recent_view.RECENT_EXPAND:02}" not in bounded and "replaced-ask" not in bounded
     assert payload == before
 
 

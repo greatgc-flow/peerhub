@@ -254,7 +254,8 @@ def test_human_renderer_is_isolated_from_schema_11_adapter():
 
     cli = Path(__file__).resolve().parents[3] / "peerhub" / "cli"
     renderer = ("monitor_view", "monitor_compact", "monitor_expanded", "monitor_sections",
-                "monitor_activity_view", "monitor_alert_view", "monitor_quota_view")
+                "monitor_activity_view", "monitor_running_view", "monitor_recent_view", "monitor_leads_view",
+                "monitor_alert_view", "monitor_quota_view")
     for name in renderer:
         tree = ast.parse((cli / f"{name}.py").read_text(encoding="utf-8"))
         imported = [node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
