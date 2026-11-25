@@ -6,8 +6,8 @@ dated, machine-specific observations and not guaranteed performance claims.
 
 ## Evidence and current commands
 
-The authoritative current command builder is
-[`peerhub/extensions/adapters/base.py`](../../../peerhub/extensions/adapters/base.py).
+The command builder at the audited revision was in
+`peerhub/extensions/adapters/base.py`.
 On 2026-10-15, local executable probes reported Claude Code `2.1.299`, Codex
 CLI `0.162.1`, and `agy` `1.3.5`. `--help` confirmed the flags listed below.
 These versions identify this machine's observation only; they are not

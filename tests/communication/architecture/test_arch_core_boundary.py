@@ -10,7 +10,7 @@ from tests.communication.spec import ROOT
 
 pytestmark = pytest.mark.architecture
 PKG = ROOT / "peerhub"
-FORBIDDEN_PREFIXES = ("peerhub.extensions",)
+CORE_FORBIDDEN = {"peerhub.extensions", "peerhub.cli"}
 
 
 def _module_file(mod: str) -> Path | None:
@@ -21,20 +21,22 @@ def _module_file(mod: str) -> Path | None:
     return None
 
 
+def _import_root(node: ast.ImportFrom, mod: str, is_package: bool) -> str:
+    if not node.level:
+        return node.module or ""
+    base = mod.split(".") if is_package else mod.split(".")[:-1]
+    parent = base[: len(base) - (node.level - 1)]
+    return ".".join(parent + ([node.module] if node.module else []))
+
+
 def _imports(path: Path, mod: str) -> set[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    is_pkg = path.name == "__init__.py"
-    base = mod.split(".") if is_pkg else mod.split(".")[:-1]
     out: set[str] = set()
     for n in ast.walk(tree):
         if isinstance(n, ast.Import):
             out.update(a.name for a in n.names)
         elif isinstance(n, ast.ImportFrom):
-            if n.level:
-                parent = base[: len(base) - (n.level - 1)]
-                root = ".".join(parent + ([n.module] if n.module else []))
-            else:
-                root = n.module or ""
+            root = _import_root(n, mod, path.name == "__init__.py")
             out.add(root)
             out.update(f"{root}.{a.name}" for a in n.names)
     return out
@@ -71,12 +73,12 @@ def _reachable(start: dict[str, Path]) -> dict[str, str]:
 
 
 @pytest.mark.catalog_id("ARCH-001")
-def test_arch_001_core_import_graph_forbids_extension_dependency():
+def test_arch_001_core_import_graph_forbids_extension_and_cli_dependencies():
     core = _package_modules("core")
     assert "peerhub.core.store" in core and "peerhub.core.models" in core
     reach = _reachable(core)
-    bad = {m: via for m, via in reach.items() if m.startswith(FORBIDDEN_PREFIXES)}
-    assert not bad, f"Core reaches extensions: {bad}"
+    bad = {m: via for m, via in reach.items() if ".".join(m.split(".")[:2]) in CORE_FORBIDDEN}
+    assert not bad, f"Core reaches extensions or CLI: {bad}"
 
 
 def test_arch_extensions_do_not_import_cli():
@@ -85,6 +87,69 @@ def test_arch_extensions_do_not_import_cli():
     bad = {mod: via for mod, via in _reachable(extensions).items()
            if mod.split(".")[:2] in (["peerhub", "cli"], ["peerhub", "_console"])}
     assert not bad, f"Extensions reach terminal or CLI code: {bad}"
+
+
+def _cross_layer_import_violations(source: str, mod: str, is_package: bool = False) -> list[str]:
+    layer = mod.split(".")[1]
+    lower = {"peerhub.core"} if layer == "extensions" else {"peerhub.core", "peerhub.extensions"}
+    tree = ast.parse(source)
+    bad: list[str] = []
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                target = alias.name
+                if ".".join(target.split(".")[:2]) in lower:
+                    if target == "peerhub.extensions" or any(p.startswith("_") for p in target.split(".")[2:]):
+                        bad.append(target)
+                    modules.add(alias.asname or target)
+        elif isinstance(node, ast.ImportFrom):
+            root = _import_root(node, mod, is_package)
+            for alias in node.names:
+                target = f"{root}.{alias.name}"
+                if ".".join(target.split(".")[:2]) not in lower:
+                    continue
+                parts = target.split(".")
+                path = _module_file(root)
+                if (target == "peerhub.extensions" or alias.name == "*"
+                        or any(p.startswith("_") for p in parts[2:])
+                        or (root.startswith("peerhub.extensions") and path is not None and path.name == "__init__.py"
+                            and _module_file(target) is None)):
+                    bad.append(target)
+                if _module_file(target) is not None:
+                    modules.add(alias.asname or alias.name)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            if ast.unparse(node.value) in modules:
+                bad.append(ast.unparse(node))
+    return sorted(bad)
+
+
+def test_arch_cross_layer_imports_use_public_module_interfaces():
+    bad = {mod: violations for layer in ("extensions", "cli") for mod, path in _package_modules(layer).items()
+           if (violations := _cross_layer_import_violations(path.read_text(encoding="utf-8"), mod, path.name == "__init__.py"))}
+    assert bad == {}, f"Private cross-layer names or package-level extension exports: {bad}"
+
+
+def test_arch_cross_layer_check_covers_relative_imports_and_module_aliases():
+    source = """
+from ..extensions import batch
+import peerhub.extensions.ask as ask
+from peerhub.extensions.adapters import CliRuntimeTarget
+def run():
+    from ..extensions.ask import _request_record
+    batch._private()
+    ask._private()
+"""
+    assert _cross_layer_import_violations(source, "peerhub.cli.command") == [
+        "ask._private", "batch._private", "peerhub.extensions.adapters.CliRuntimeTarget",
+        "peerhub.extensions.ask._request_record",
+    ]
+    assert _cross_layer_import_violations(
+        "from ..extensions import batch\nfrom ..extensions.ask import ask\nbatch.run_batch()\n",
+        "peerhub.cli.command",
+    ) == []
 
 
 @pytest.mark.catalog_id("ARCH-002")

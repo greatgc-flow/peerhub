@@ -22,8 +22,14 @@ from peerhub.extensions.skills import SkillCatalogEngine
 from peerhub.extensions.work import WorkProjection
 
 REPO = Path(__file__).resolve().parents[2]
-M3_MODULES = ("search", "memory", "a2a", "a2a_http", "a2a_journal", "routing", "orchestration", "approval", "runtime_port")
-M2_MODULES = ("accounts", "batch", "work", "artifact", "skills", "mcp", "backup", "eval", "host", "manifest", "sqlite_tx", "boundary", "authoritative")
+M3_MODULES = (
+    "search", "memory", "a2a", "a2a_http", "a2a_journal", "routing", "orchestration",
+    "orchestration_deadline", "orchestration_journal", "orchestration_model", "approval", "runtime_port",
+)
+M2_MODULES = (
+    "accounts", "batch", "work", "artifact", "skills", "skill_models", "skill_projection", "skill_source",
+    "mcp", "backup", "eval", "host", "manifest", "sqlite_tx", "boundary", "authoritative",
+)
 M2_M3_MODULES = M2_MODULES + M3_MODULES
 
 PRELUDE = textwrap.dedent("""
@@ -223,7 +229,7 @@ def test_the_gate_module_lists_name_only_real_extension_modules_and_never_the_m1
     m1 = {"adapters", "ask", "bridge", "bridge_claims", "bridge_control", "bridge_delivery", "bridge_errors", "bridge_ledger",
           "bridge_schema", "bridge_sessions", "catchup", "observation", "observation_model", "quota_capture", "quota_probes",
           "quota_types", "binary_resolution", "process_tree", "win_job", "diag", "diag_quota", "diag_readiness", "diag_running", "diag_watch", "pool_health", "schema_guard",
-          "quota_projection", "bridge_registry", "session_receipts", "ask_budgets", "delivery_projections",
+          "quota_projection", "bridge_registry", "session_receipts", "ask_budgets", "delivery_projection_rebuild", "delivery_projections",
           "monitor_read_model", "delivery_reads", "usage_normalization", "runtime_contract",
           "caller", "liveness", "lead_sessions", "monitor_preferences", "monitor_queries",
           "monitor_activity", "monitor_alerts", "monitor_quota", "monitor_sessions", "monitor_values",

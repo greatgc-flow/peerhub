@@ -243,7 +243,7 @@ class RefreshJob:
 
     def __init__(self, args: argparse.Namespace, peers: tuple[str, ...], required: Mapping[str, set[str]], *,
                  force: bool, retry: tuple[str, ...]) -> None:
-        from peerhub.extensions.quota_probes import ProbeCancellation
+        from peerhub.extensions.quota_probes.common import ProbeCancellation
 
         self.peers = peers
         self.result: dict[str, Any] | None = None
